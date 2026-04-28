@@ -691,6 +691,32 @@ function renderAttachments() {
   });
 }
 
+function isBmpFile(item) {
+  return /image\/(bmp|x-ms-bmp)/i.test(item.type || '') || /\.bmp$/i.test(item.name || '');
+}
+
+function replaceExt(name, ext) {
+  return String(name || 'image').replace(/\.[^.]*$/, '') + ext;
+}
+
+async function convertBmpToPng(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(result => result ? resolve(result) : reject(new Error('BMP 转 PNG 失败')), 'image/png');
+    });
+    const name = replaceExt(file.name, '.png');
+    return new File([blob], name, { type: 'image/png' });
+  } finally {
+    bitmap.close?.();
+  }
+}
+
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -754,18 +780,30 @@ function readFileAsText(file) {
 
 async function addFiles(files) {
   for (const file of files) {
+    let uploadFile = file;
+    let convertedFrom = '';
+    const initialType = file.type || inferMimeByName(file.name);
+    if (isBmpFile({ name: file.name, type: initialType })) {
+      try {
+        uploadFile = await convertBmpToPng(file);
+        convertedFrom = file.name;
+      } catch {
+        uploadFile = file;
+      }
+    }
     const item = {
-      file,
-      name: file.name,
-      type: file.type || inferMimeByName(file.name),
-      size: file.size,
+      file: uploadFile,
+      name: uploadFile.name,
+      originalName: convertedFrom || '',
+      type: uploadFile.type || inferMimeByName(uploadFile.name),
+      size: uploadFile.size,
       dataUrl: '',
       text: '',
       unsupportedReason: '',
     };
 
     if (isImageFile(item)) {
-      item.dataUrl = await readFileAsDataURL(file);
+      item.dataUrl = await readFileAsDataURL(uploadFile);
     } else if (isProbablyTextFile(item)) {
       item.text = await readFileAsText(file);
       if (looksBinary(item.text)) {
@@ -803,13 +841,13 @@ function inferMimeByName(name) {
     pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', bmp: 'image/bmp',
   };
   return map[ext] || 'application/octet-stream';
 }
 
 function isImageFile(item) {
-  return item.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(item.name);
+  return item.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(item.name);
 }
 
 function isPdfFile(item) {

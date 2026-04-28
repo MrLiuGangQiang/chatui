@@ -241,13 +241,13 @@ https://api.openai.com/v1
 发布正式版本后，可直接运行 Docker Hub 镜像：
 
 ```bash
-docker run --rm -p 8765:8765 <DOCKERHUB_USERNAME>/chatui:latest
+docker run --rm -p 8765:8765 liugangqiang/chatui:latest
 ```
 
 指定版本运行：
 
 ```bash
-docker run --rm -p 8765:8765 <DOCKERHUB_USERNAME>/chatui:v1.0.0
+docker run --rm -p 8765:8765 liugangqiang/chatui:v1.0.0
 ```
 
 访问：
@@ -270,7 +270,7 @@ docker run -d \
   --name chatui \
   --restart unless-stopped \
   -p 8765:8765 \
-  <DOCKERHUB_USERNAME>/chatui:latest
+  liugangqiang/chatui:latest
 ```
 
 查看日志：
@@ -310,7 +310,7 @@ docker run -d \
   -p 9000:9000 \
   -e PORT=9000 \
   -e UPSTREAM_TIMEOUT_MS=180000 \
-  <DOCKERHUB_USERNAME>/chatui:latest
+  liugangqiang/chatui:latest
 ```
 
 ---
@@ -675,8 +675,7 @@ Settings → Secrets and variables → Actions → Repository secrets
 
 | Secret 名称 | 说明 |
 | --- | --- |
-| `DOCKERHUB_USERNAME` | Docker Hub 用户名，不是邮箱 |
-| `DOCKERHUB_TOKEN` | Docker Hub Personal Access Token |
+| `DOCKERHUB_TOKEN` | Docker Hub Personal Access Token。Docker Hub 用户名已固定为 `liugangqiang` |
 
 Docker Hub Token 建议权限：
 
@@ -708,11 +707,11 @@ git push origin v1.0.1
 发布 `v1.2.3` 后，会推送以下标签：
 
 ```text
-<DOCKERHUB_USERNAME>/chatui:v1.2.3
-<DOCKERHUB_USERNAME>/chatui:1.2.3
-<DOCKERHUB_USERNAME>/chatui:1.2
-<DOCKERHUB_USERNAME>/chatui:latest
-<DOCKERHUB_USERNAME>/chatui:sha-<commit>
+liugangqiang/chatui:v1.2.3
+liugangqiang/chatui:1.2.3
+liugangqiang/chatui:1.2
+liugangqiang/chatui:latest
+liugangqiang/chatui:sha-<commit>
 ```
 
 ### 为什么只用 Release 触发
@@ -799,11 +798,9 @@ docker logs chatui
 重点检查：
 
 - Release tag 是否符合 `v1.2.3` 格式。
-- GitHub Secrets 是否存在：
-  - `DOCKERHUB_USERNAME`
-  - `DOCKERHUB_TOKEN`
+- GitHub Secret 是否存在：`DOCKERHUB_TOKEN`
 - Docker Hub Token 是否有写入权限。
-- Docker Hub 用户名是否填成了邮箱。
+- Docker Hub Token 是否属于 `liugangqiang` 账号或具备该 namespace 的写入权限。
 
 ---
 

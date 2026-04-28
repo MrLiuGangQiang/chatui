@@ -19,6 +19,33 @@ const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
 
+function playDoneSound() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    gain.connect(ctx.destination);
+
+    [660, 880].forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const start = now + index * 0.09;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+      osc.connect(gain);
+      osc.start(start);
+      osc.stop(start + 0.12);
+    });
+
+    setTimeout(() => ctx.close().catch(() => {}), 500);
+  } catch (err) {
+    console.warn('play done sound failed', err);
+  }
+}
 
 function openImageDb() {
   return new Promise((resolve, reject) => {
@@ -994,6 +1021,7 @@ async function sendChat(prompt) {
     clearReasoning(loading);
     requestAnimationFrame(() => clearReasoning(loading));
     setTimeout(() => clearReasoning(loading), 80);
+    playDoneSound();
   } catch (err) {
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求。
     const data = await requestJson(`${cfg.baseUrl}/chat/completions`, {
@@ -1007,6 +1035,7 @@ async function sendChat(prompt) {
     saveChatHistory();
     updateMessage(loading, reply, { rawText: reply });
     clearReasoning(loading);
+    playDoneSound();
   }
 }
 
@@ -1186,6 +1215,7 @@ async function sendImage(prompt) {
     const result = await imageResultToHtml(data, elapsedText, { prompt });
     if (usedPreviousImage) result.html = result.html.replace('生成完成', '基于上一张图修改完成');
     updateMessage(loading, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+    playDoneSound();
   } finally {
     if (timer) clearInterval(timer);
   }

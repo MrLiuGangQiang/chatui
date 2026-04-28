@@ -1321,8 +1321,9 @@ function detectIntentMode(prompt) {
   if (hasOnlyNonImageAttachment) return 'chat';
 
   // 弱图片词可能是“解释这张图/分析图片”，不直接判生图，交给模型判断。
+  // 其他本地规则没覆盖的表达也交给模型兜底，恢复“本地规则优先，不确定再问大模型”的路由逻辑。
   if (weakImage.test(text) || hasImageAttachment) return 'unknown';
-  return 'chat';
+  return 'unknown';
 }
 
 async function getEffectiveMode(prompt) {

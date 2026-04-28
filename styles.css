@@ -1605,3 +1605,55 @@ body {
     opacity: 1 !important;
   }
 }
+
+/* generated image thumbnails: keep chat layout stable */
+.content img.generated-thumb,
+.markdown-body img.generated-thumb {
+  width: 240px !important;
+  height: 240px !important;
+  max-width: min(240px, 72vw) !important;
+  max-height: min(240px, 72vw) !important;
+  object-fit: cover;
+  border-radius: 12px;
+  cursor: zoom-in;
+}
+
+@media (max-width: 640px) {
+  .content img.generated-thumb,
+  .markdown-body img.generated-thumb {
+    width: 180px !important;
+    height: 180px !important;
+    max-width: 68vw !important;
+    max-height: 68vw !important;
+  }
+}
+
+/* model loader: keep primary action on the right side */
+.config-dialog .model-actions {
+  justify-content: flex-end;
+}
+.config-dialog .model-actions .mini-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+}
+.config-dialog .model-actions #loadModelsBtn {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 840px) {
+  .config-dialog .model-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+  .config-dialog .model-actions #loadModelsBtn {
+    width: auto;
+  }
+}
+
+/* download action is a button to avoid insecure blob href download warnings */
+.image-icon-btn[type="button"] {
+  border: 1px solid rgba(148,163,184,.38);
+  padding: 0;
+  font: inherit;
+}

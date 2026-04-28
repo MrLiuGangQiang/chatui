@@ -64,25 +64,72 @@ async function dataUrlToBlob(dataUrl) {
   const res = await fetch(dataUrl);
   return res.blob();
 }
-async function persistImageSrc(src, filename) {
-  if (!src?.startsWith('data:')) return src;
+async function persistImageSrc(src, filename, options = {}) {
+  if (!src) return src;
+  let blob = null;
+  if (src.startsWith('data:')) {
+    blob = await dataUrlToBlob(src);
+  } else if (/^https?:\/\//i.test(src)) {
+    blob = await fetchImageBlob(src, options);
+  } else {
+    return src;
+  }
   const key = `img-${Date.now()}-${Math.random().toString(16).slice(2)}-${filename || 'image.png'}`;
-  await putImageBlob(key, await dataUrlToBlob(src));
+  await putImageBlob(key, blob);
   return `indexeddb://${key}`;
 }
+
+async function fetchImageBlob(url, { baseUrl = '', apiKey = '', directMode = true } = {}) {
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  try {
+    const res = await fetch(url, { headers });
+    if (res.ok && (res.headers.get('content-type') || '').startsWith('image/')) return await res.blob();
+  } catch {
+    // 直接拉取可能被 CORS、鉴权或局域网访问限制拦截，下面自动走本地代理。
+  }
+
+  if (directMode || !baseUrl) throw new Error('图片地址无法直接加载，请关闭直连模式后重试，或使用返回 base64 图片的接口');
+  const res = await fetch('/api/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseUrl, apiKey, url }),
+  });
+  if (!res.ok) {
+    const data = await parseResponseJson(res);
+    throw new Error(normalizeError(null, data));
+  }
+  return res.blob();
+}
 async function resolvePersistedImages(scope = document) {
-  const nodes = [...scope.querySelectorAll('img[src^="indexeddb://"], a[href^="indexeddb://"]')];
+  const nodes = [...scope.querySelectorAll('img[data-persisted-src], img[src^="indexeddb://"], a[data-persisted-href], a[href^="indexeddb://"], button[data-persisted-href]')];
   for (const node of nodes) {
-    const attr = node.tagName === 'A' ? 'href' : 'src';
-    const key = node.getAttribute(attr).replace('indexeddb://', '');
+    const isImage = node.tagName === 'IMG';
+    const attr = isImage ? 'src' : 'href';
+    const persisted = isImage
+      ? (node.dataset.persistedSrc || node.getAttribute('src') || '')
+      : (node.dataset.persistedHref || node.getAttribute('href') || '');
+    if (!persisted.startsWith('indexeddb://')) continue;
+    const key = persisted.replace('indexeddb://', '');
     try {
       const blob = await getImageBlob(key);
-      if (!blob) continue;
-      const persisted = node.getAttribute(attr);
+      if (!blob) {
+        if (isImage) node.alt = '图片缓存不存在，请重新生成';
+        continue;
+      }
+      const oldObjectUrl = node.dataset.objectUrl;
+      if (oldObjectUrl?.startsWith('blob:')) URL.revokeObjectURL(oldObjectUrl);
       const objectUrl = URL.createObjectURL(blob);
-      if (attr === 'src') node.dataset.persistedSrc = persisted;
-      else node.dataset.persistedHref = persisted;
-      node.setAttribute(attr, objectUrl);
+      node.dataset.persistedUrl = persisted;
+      node.dataset.objectUrl = objectUrl;
+      if (isImage) {
+        node.dataset.persistedSrc = persisted;
+        node.setAttribute('src', objectUrl);
+      } else if (node.tagName === 'A') {
+        node.dataset.persistedHref = persisted;
+        node.setAttribute('href', objectUrl);
+      } else {
+        node.dataset.persistedHref = persisted;
+      }
     } catch (err) {
       console.warn('restore image failed', err);
     }
@@ -102,8 +149,18 @@ const defaults = {
   attachments: [],
 };
 
+function readJsonStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
 function loadConfig() {
-  const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || localStorage.getItem('openapi-chat-image-config') || '{}');
+  const saved = readJsonStorage(CONFIG_KEY, readJsonStorage('openapi-chat-image-config', {}));
   const cfg = { ...defaults, ...saved };
   $('baseUrl').value = cfg.baseUrl || defaults.baseUrl;
   $('apiKey').value = cfg.apiKey || '';
@@ -242,8 +299,7 @@ function addMessage(role, content, options = {}) {
       setTimeout(() => btn.textContent = oldText, 1000);
     });
   });
-  bindImagePreview(node);
-  moveImageActionsToMessageActions(node);
+  hydrateMessageMedia(node, { save: !options.skipSave });
 
   $('messages').appendChild(node);
   scrollToBottom(true);
@@ -264,9 +320,27 @@ function updateMessage(node, content, options = {}) {
       setTimeout(() => btn.textContent = oldText, 1000);
     });
   });
-  bindImagePreview(node);
-  moveImageActionsToMessageActions(node);
+  hydrateMessageMedia(node, { save: options.skipSave !== true });
   scrollToBottom(true);
+}
+
+function hydrateMessageMedia(node, { save = false } = {}) {
+  const finalize = () => {
+    bindImagePreview(node);
+    moveImageActionsToMessageActions(node);
+    if (save && node.isConnected) saveDisplayHistory();
+  };
+
+  const hasPersisted = node.querySelector('img[src^="indexeddb://"], a[href^="indexeddb://"]');
+  if (!hasPersisted) {
+    finalize();
+    return;
+  }
+
+  resolvePersistedImages(node).then(finalize).catch(err => {
+    console.warn('restore image failed', err);
+    finalize();
+  });
 }
 
 
@@ -297,13 +371,44 @@ function moveImageActionsToMessageActions(node) {
   if (!row || !actions || actions.dataset.imageActionsMoved === '1') return;
 
   const copyBtn = actions.querySelector('.copy-btn');
-  row.querySelectorAll('a').forEach(link => {
-    link.classList.add('icon-action-btn');
-    if (copyBtn) actions.insertBefore(link, copyBtn);
-    else actions.appendChild(link);
+  row.querySelectorAll('a,button').forEach(action => {
+    action.classList.add('icon-action-btn');
+    if (action.dataset.downloadImage) bindImageDownload(action);
+    if (copyBtn) actions.insertBefore(action, copyBtn);
+    else actions.appendChild(action);
   });
   actions.dataset.imageActionsMoved = '1';
   row.remove();
+}
+
+function bindImageDownload(btn) {
+  if (btn.dataset.downloadBound) return;
+  btn.dataset.downloadBound = '1';
+  btn.addEventListener('click', async () => {
+    const persisted = btn.dataset.persistedHref || '';
+    const filename = btn.dataset.filename || 'generated-image.png';
+    const key = persisted.replace('indexeddb://', '');
+    try {
+      const blob = await getImageBlob(key);
+      if (!blob) throw new Error('图片缓存不存在，请重新生成');
+      const file = new File([blob], filename, { type: blob.type || 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      a.rel = 'noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    } catch (err) {
+      toast(err.message || String(err));
+    }
+  });
 }
 
 function bindImagePreview(scope) {
@@ -364,7 +469,6 @@ function applyPendingEdit(newText) {
   node.classList.remove('editing');
   state.editingIndex = null;
   state.editingNode = null;
-  state.editingNode = null;
   delete $('prompt').dataset.editing;
   return true;
 }
@@ -386,11 +490,21 @@ function normalizeError(err, data) {
   return err?.message || '请求失败';
 }
 
+function toProxyUrl(url, baseUrl) {
+  return url.startsWith(baseUrl) ? `/api${url.slice(baseUrl.length)}` : url;
+}
+
+async function parseResponseJson(res) {
+  const text = await res.text();
+  try { return text ? JSON.parse(text) : null; }
+  catch { return { raw: text }; }
+}
+
 async function requestJson(url, payload, apiKey, method = 'POST') {
   const cfg = getConfig();
   const direct = cfg.directMode;
-  const finalUrl = direct ? url : url.replace(cfg.baseUrl, '/api');
-  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload };
+  const finalUrl = direct ? url : toProxyUrl(url, cfg.baseUrl);
+  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload, method };
   const res = await fetch(finalUrl, {
     method,
     headers: {
@@ -399,9 +513,7 @@ async function requestJson(url, payload, apiKey, method = 'POST') {
     },
     ...(method === 'GET' ? {} : { body: JSON.stringify(finalPayload) }),
   });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
 }
@@ -414,9 +526,7 @@ async function requestModels() {
     const res = await fetch(`${cfg.baseUrl}/models`, {
       headers: cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {},
     });
-    const text = await res.text();
-    let data;
-    try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+    const data = await parseResponseJson(res);
     if (!res.ok) throw new Error(normalizeError(null, data));
     return data;
   }
@@ -426,7 +536,7 @@ async function requestModels() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload: {}, method: 'GET' }),
   });
-  const data = await res.json();
+  const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
 }
@@ -706,8 +816,17 @@ function saveDisplayHistory() {
     .map(node => {
       const clone = node.querySelector('.content')?.cloneNode(true);
       clone?.querySelectorAll('.reasoning-panel').forEach(el => el.remove());
-      clone?.querySelectorAll('[data-persisted-src]').forEach(el => el.setAttribute('src', el.dataset.persistedSrc));
-      clone?.querySelectorAll('[data-persisted-href]').forEach(el => el.setAttribute('href', el.dataset.persistedHref));
+      clone?.querySelectorAll('img[data-persisted-src]').forEach(el => {
+        el.setAttribute('src', el.dataset.persistedSrc);
+        el.removeAttribute('data-object-url');
+      });
+      clone?.querySelectorAll('a[data-persisted-href]').forEach(el => {
+        el.setAttribute('href', el.dataset.persistedHref);
+        el.removeAttribute('data-object-url');
+      });
+      clone?.querySelectorAll('button[data-persisted-href]').forEach(el => {
+        el.removeAttribute('data-object-url');
+      });
       return {
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
         rawText: node.dataset.rawText || '',
@@ -718,22 +837,39 @@ function saveDisplayHistory() {
   try { localStorage.setItem(UI_KEY, JSON.stringify(items)); } catch (err) { console.warn('save display history failed', err); }
 }
 
+
+function normalizePersistedHtml(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  tpl.content.querySelectorAll('img[data-persisted-src]').forEach(el => {
+    if (el.dataset.persistedSrc?.startsWith('indexeddb://')) el.setAttribute('src', el.dataset.persistedSrc);
+    el.removeAttribute('data-object-url');
+  });
+  tpl.content.querySelectorAll('a[data-persisted-href]').forEach(el => {
+    if (el.dataset.persistedHref?.startsWith('indexeddb://')) el.setAttribute('href', el.dataset.persistedHref);
+    el.removeAttribute('data-object-url');
+  });
+  tpl.content.querySelectorAll('button[data-persisted-href]').forEach(el => {
+    el.removeAttribute('data-object-url');
+  });
+  return tpl.innerHTML;
+}
+
 function loadDisplayHistory() {
   try {
-    const items = JSON.parse(localStorage.getItem(UI_KEY) || '[]');
+    const items = readJsonStorage(UI_KEY, []);
     if (!Array.isArray(items) || !items.length) return false;
     $('messages').innerHTML = '';
     items.forEach(item => {
+      if (item.html) item.html = normalizePersistedHtml(item.html);
       addMessage(item.role || 'assistant', item.html || item.rawText || '', {
         html: !!item.html,
         rawText: item.rawText || '',
         messageIndex: item.messageIndex !== '' ? Number(item.messageIndex) : null,
-        skipSave: true,
+        skipSave: false,
       });
     });
-    resolvePersistedImages($('messages')).then(() => {
-      $('messages').querySelectorAll('.message').forEach(n => n.dataset.persist = '1');
-    });
+    hydrateMessageMedia($('messages'), { save: false });
     return true;
   } catch {
     localStorage.removeItem(UI_KEY);
@@ -749,7 +885,7 @@ function saveLastGeneratedImage() {
 
 function loadLastGeneratedImage() {
   try {
-    state.lastGeneratedImage = JSON.parse(localStorage.getItem(LAST_IMAGE_KEY) || 'null');
+    state.lastGeneratedImage = readJsonStorage(LAST_IMAGE_KEY, null);
   } catch {
     localStorage.removeItem(LAST_IMAGE_KEY);
   }
@@ -775,7 +911,7 @@ function saveChatHistory() {
 
 function loadChatHistory({ render = false } = {}) {
   try {
-    const saved = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]');
+    const saved = readJsonStorage(CHAT_KEY, []);
     if (!Array.isArray(saved) || !saved.length) return;
     state.messages = saved.filter(m => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string');
     if (!render || !state.messages.length) return;
@@ -880,7 +1016,7 @@ function createRealtimeRenderer(onUpdate) {
 async function streamChatCompletions(url, payload, apiKey, onDelta) {
   const cfg = getConfig();
   const direct = cfg.directMode;
-  const finalUrl = direct ? url : url.replace(cfg.baseUrl, '/api');
+  const finalUrl = direct ? url : toProxyUrl(url, cfg.baseUrl);
   const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload };
 
   const res = await fetch(finalUrl, {
@@ -974,12 +1110,13 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   const src = url || (b64 ? `data:image/png;base64,${b64}` : '');
   if (!src) return { html: `${elapsedText ? `<p class="image-time">耗时：${escapeHtml(elapsedText)}</p>` : ''}<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`, raw: JSON.stringify(data, null, 2) };
   const filename = `generated-${Date.now()}.png`;
-  const persistedSrc = await persistImageSrc(src, filename);
+  const cfg = getConfig();
+  const persistedSrc = await persistImageSrc(src, filename, cfg);
   state.lastGeneratedImage = { src: persistedSrc, filename, prompt: meta.prompt || '', updatedAt: Date.now() };
   saveLastGeneratedImage();
   return {
     raw: url || '[base64 image]',
-    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img src="${escapeHtml(persistedSrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" alt="generated image" /><div class="image-download-row"><a class="image-icon-btn" href="${escapeHtml(persistedSrc)}" data-persisted-href="${escapeHtml(persistedSrc)}" download="${filename}" target="_blank" rel="noreferrer" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></a>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
+    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(persistedSrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
   };
 }
 

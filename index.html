@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>极简聊天</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app shell-app">
+    <main class="main">
+      <header class="topbar fixed-toolbar">
+        <div class="topbar-title">
+          <h2 id="modeTitle">极简聊天</h2>
+          <p id="modeDesc">微信式左右气泡，支持 Markdown、复制和模型选择。</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="configBtn" class="top-icon-btn" type="button" title="接口配置" aria-label="接口配置">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .55V20a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1-.55 1.7 1.7 0 0 0-1.87.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.55-1H4a2 2 0 0 1 0-4h.08a1.7 1.7 0 0 0 .55-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6c.35-.14.68-.32 1-.55V4a2 2 0 0 1 4 0v.08c.32.23.65.41 1 .55a1.7 1.7 0 0 0 1.87-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9c.14.35.32.68.55 1H20a2 2 0 0 1 0 4h-.08c-.23.32-.41.65-.55 1Z"/></svg>
+          </button>
+          <button id="clearBtn" class="top-icon-btn" type="button" title="清空对话" aria-label="清空对话">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages">
+        <div class="empty">
+          <div class="empty-icon">💬</div>
+          <h3>开始对话</h3>
+          <p>点击输入框左侧齿轮配置 Endpoint 和模型；模式按钮可在聊天/生图之间快速切换。</p>
+        </div>
+      </section>
+
+      <form id="composer" class="composer compact-composer">
+        <button id="attachBtn" class="attach-btn" type="button" title="添加附件" aria-label="添加附件">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5L13.6 2.4a4.1 4.1 0 0 1 5.8 5.8L9.2 18.4a2.2 2.2 0 0 1-3.1-3.1l9.2-9.2"/></svg>
+        </button>
+        <input id="fileInput" type="file" multiple hidden />
+        <div class="input-stack">
+          <div id="attachmentBar" class="attachment-bar"></div>
+          <textarea id="prompt" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        </div>
+        <button id="sendBtn" type="submit">发送</button>
+      </form>
+    </main>
+  </div>
+
+  <div id="configModal" class="modal" aria-hidden="true">
+    <div class="modal-mask" data-close-modal></div>
+    <section class="config-dialog" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+      <div class="dialog-head">
+        <div>
+          <h2 id="configTitle">接口配置</h2>
+          <p>配置会保存到当前浏览器缓存。</p>
+        </div>
+        <button id="closeConfigBtn" class="dialog-close" type="button">×</button>
+      </div>
+
+      <label>
+        Endpoint Base URL
+        <input id="baseUrl" placeholder="https://api.openai.com/v1" />
+      </label>
+      <label>
+        API Key
+        <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+      </label>
+
+      <div class="row-actions">
+        <button id="loadModelsBtn" type="button">加载模型</button>
+        <span id="modelLoadStatus" class="mini-status"></span>
+      </div>
+
+      <label>
+        聊天模型
+        <select id="chatModel"></select>
+      </label>
+      <label>
+        生图模型
+        <select id="imageModel"></select>
+      </label>
+
+      <label>
+        图片尺寸
+        <select id="imageSize">
+          <option value="auto">auto</option>
+          <option value="1024x1024">1024 × 1024</option>
+          <option value="1024x1536">1024 × 1536</option>
+          <option value="1536x1024">1536 × 1024</option>
+        </select>
+      </label>
+      <label class="checkline">
+        <input id="directMode" type="checkbox" checked />
+        直连模式
+      </label>
+      <div class="dialog-actions">
+        <button id="saveConfigBtn" type="button">保存</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="imagePreview" class="image-preview" aria-hidden="true">
+    <div class="image-preview-mask"></div>
+    <button id="imagePreviewClose" class="image-preview-close" type="button">×</button>
+    <img id="imagePreviewImg" alt="preview" />
+  </div>
+
+  <template id="messageTemplate">
+    <article class="message">
+      <div class="avatar"></div>
+      <div class="bubble-wrap">
+        <div class="msg-actions">
+          <button class="edit-btn icon-action-btn" type="button" title="编辑重发" aria-label="编辑重发">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.2L18.7 9.5a2.1 2.1 0 0 0 0-3L17.5 5.3a2.1 2.1 0 0 0-3 0L4 15.8V20Z"/><path d="M13.5 6.3l4.2 4.2"/></svg>
+          </button>
+          <button class="copy-btn icon-action-btn" type="button" title="复制消息" aria-label="复制消息">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+        <div class="bubble">
+          <div class="content markdown-body"></div>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>

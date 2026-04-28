@@ -6,3 +6,6 @@ npm-debug.log*
 *.local
 .env
 .env.*
+README.md
+LICENSE
+*.md

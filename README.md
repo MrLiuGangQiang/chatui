@@ -93,6 +93,7 @@
 - 无需 npm install。
 - 无需前端打包。
 - 支持 Docker 单容器部署。
+- 使用多阶段极简 Docker 镜像，最终镜像只保留运行所需的 Node.js runtime 和静态文件。
 - 支持 GitHub Release 发布后自动构建并推送 Docker Hub 多架构镜像。
 
 ---
@@ -263,6 +264,8 @@ http://127.0.0.1:8765
 docker build -t chatui:local .
 docker run --rm -p 8765:8765 chatui:local
 ```
+
+Dockerfile 使用多阶段极简构建，最终镜像不包含 npm、corepack、README、GitHub workflow 等运行时不需要的内容。
 
 ### 方式三：后台运行
 

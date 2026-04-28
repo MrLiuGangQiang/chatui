@@ -18,30 +18,49 @@ const UI_KEY = 'openapi-chat-image-ui-v1';
 const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
+let doneAudioCtx = null;
 
-function playDoneSound() {
+async function unlockDoneSound() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
-    const ctx = new AudioContext();
+    if (!doneAudioCtx || doneAudioCtx.state === 'closed') {
+      doneAudioCtx = new AudioContext();
+    }
+    if (doneAudioCtx.state === 'suspended') await doneAudioCtx.resume();
+  } catch (err) {
+    console.warn('unlock done sound failed', err);
+  }
+}
+
+async function playDoneSound() {
+  try {
+    await unlockDoneSound();
+    const ctx = doneAudioCtx;
+    if (!ctx) return;
     const now = ctx.currentTime;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-    gain.connect(ctx.destination);
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+    master.connect(ctx.destination);
 
-    [660, 880].forEach((freq, index) => {
+    [740, 988].forEach((freq, index) => {
       const osc = ctx.createOscillator();
-      const start = now + index * 0.09;
-      osc.type = 'sine';
+      const gain = ctx.createGain();
+      const start = now + index * 0.13;
+      osc.type = 'triangle';
       osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.9, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
       osc.connect(gain);
+      gain.connect(master);
       osc.start(start);
-      osc.stop(start + 0.12);
+      osc.stop(start + 0.2);
+      setTimeout(() => gain.disconnect(), 500);
     });
-
-    setTimeout(() => ctx.close().catch(() => {}), 500);
+    setTimeout(() => master.disconnect(), 700);
   } catch (err) {
     console.warn('play done sound failed', err);
   }
@@ -1411,6 +1430,7 @@ async function onSubmit(e) {
   if (state.busy) return;
   const prompt = $('prompt').value.trim();
   if (!prompt) return;
+  unlockDoneSound();
   saveConfig(true);
 
   const submittedAttachments = [...state.attachments];

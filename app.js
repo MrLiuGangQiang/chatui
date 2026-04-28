@@ -399,6 +399,7 @@ function finishReasoning(node, text) {
   const contentText = String(text || '').trim();
   if (contentText) updateReasoning(node, contentText, { done: true });
   else updateReasoning(node, '', { keepEmpty: true, done: true });
+  setTimeout(() => clearReasoning(node), 2000);
 }
 
 function clearReasoning(node) {

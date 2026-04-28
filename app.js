@@ -373,10 +373,11 @@ function hydrateMessageMedia(node, { save = false } = {}) {
 }
 
 
-function updateReasoning(node, text) {
+function updateReasoning(node, text, options = {}) {
   if (!node) return;
+  const contentText = String(text || '');
   let panel = node.querySelector('.reasoning-panel');
-  if (!text) {
+  if (!contentText && !options.keepEmpty) {
     panel?.remove();
     return;
   }
@@ -386,8 +387,18 @@ function updateReasoning(node, text) {
     panel.innerHTML = `<div class="reasoning-title">思考中…</div><div class="reasoning-content"></div>`;
     node.querySelector('.bubble')?.prepend(panel);
   }
-  panel.querySelector('.reasoning-content').textContent = text;
+  panel.classList.toggle('reasoning-done', options.done === true);
+  panel.querySelector('.reasoning-title').textContent = options.done ? '思考完成' : '思考中…';
+  const content = panel.querySelector('.reasoning-content');
+  content.textContent = contentText;
+  content.hidden = !contentText;
   scrollToBottom(false);
+}
+
+function finishReasoning(node, text) {
+  const contentText = String(text || '').trim();
+  if (contentText) updateReasoning(node, contentText, { done: true });
+  else updateReasoning(node, '', { keepEmpty: true, done: true });
 }
 
 function clearReasoning(node) {
@@ -1006,6 +1017,7 @@ async function sendChat(prompt, attachments = state.attachments) {
     const reasoningRenderer = createRealtimeRenderer((visible) => {
       updateReasoning(loading, visible || '');
     });
+    updateReasoning(loading, '', { keepEmpty: true });
     const result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
       renderer.set(partial.content || '');
       reasoningRenderer.set(partial.reasoning || '');
@@ -1013,13 +1025,10 @@ async function sendChat(prompt, attachments = state.attachments) {
     const finalReply = result.content || '没有返回内容';
     renderer.flush(finalReply);
     reasoningRenderer.cancel();
-    clearReasoning(loading);
     state.messages.push({ role: 'assistant', content: finalReply });
     saveChatHistory();
     updateMessage(loading, finalReply, { rawText: finalReply });
-    clearReasoning(loading);
-    requestAnimationFrame(() => clearReasoning(loading));
-    setTimeout(() => clearReasoning(loading), 80);
+    finishReasoning(loading, result.reasoning || '');
     playDoneSound();
   } catch (err) {
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求。
@@ -1029,11 +1038,10 @@ async function sendChat(prompt, attachments = state.attachments) {
       temperature: 0.7,
     }, cfg.apiKey);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
-    clearReasoning(loading);
     state.messages.push({ role: 'assistant', content: reply });
     saveChatHistory();
     updateMessage(loading, reply, { rawText: reply });
-    clearReasoning(loading);
+    finishReasoning(loading, data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '');
     playDoneSound();
   }
 }

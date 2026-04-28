@@ -1412,7 +1412,7 @@ body {
   }
 }
 
-/* temporary reasoning display */
+/* reasoning display */
 .reasoning-panel {
   margin: 0 0 10px;
   padding: 10px 11px;
@@ -1426,6 +1426,9 @@ body {
   font-weight: 700;
   color: #4f46e5;
   margin-bottom: 5px;
+}
+.reasoning-panel.reasoning-done .reasoning-title {
+  color: #64748b;
 }
 .reasoning-content {
   max-height: 180px;

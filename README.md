@@ -218,16 +218,14 @@ API Key
 图片尺寸
 ```
 
-默认接口地址：
+默认接口地址为空，需要你手动填写自己的 OpenAI 兼容接口地址。
 
-```text
-https://ai.biseecloud.com/v1
-```
-
-如果使用 OpenAI 官方接口，可填写：
+常见示例：
 
 ```text
 https://api.openai.com/v1
+https://your-gateway.example.com/v1
+http://127.0.0.1:8000/v1
 ```
 
 然后点击“加载模型”，选择聊天模型和生图模型，保存即可使用。

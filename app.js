@@ -137,7 +137,7 @@ async function resolvePersistedImages(scope = document) {
 }
 
 const defaults = {
-  baseUrl: 'https://ai.biseecloud.com/v1',
+  baseUrl: '',
   apiKey: '',
   chatModel: '',
   imageModel: '',
@@ -162,7 +162,7 @@ function readJsonStorage(key, fallback) {
 function loadConfig() {
   const saved = readJsonStorage(CONFIG_KEY, readJsonStorage('openapi-chat-image-config', {}));
   const cfg = { ...defaults, ...saved };
-  $('baseUrl').value = cfg.baseUrl || defaults.baseUrl;
+  $('baseUrl').value = cfg.baseUrl || '';
   $('apiKey').value = cfg.apiKey || '';
   $('imageSize').value = cfg.imageSize || defaults.imageSize;
   $('directMode').checked = cfg.directMode !== false;
@@ -1311,13 +1311,13 @@ function detectIntentMode(prompt) {
   const hasImageAttachment = state.attachments.some(f => isImageFile(f));
   const hasOnlyNonImageAttachment = state.attachments.length > 0 && !hasImageAttachment;
 
-  const strongImage = /(生成图|生图|出图|画一张|画个|画一个|生成一张|生成一个|做一张图|设计一张|设计一个logo|做个logo|做一个logo|改图|修图|换背景|去水印|扩图|重绘|上一张图|这张图|让这张|把.*图.*改|image generation|generate an image|create an image|draw an image|edit image|modify image)/i;
-  const weakImage = /(画|图片|图像|海报|头像|插画|壁纸|logo|图标|漫画|照片|渲染|poster|wallpaper|illustration|logo|photo|picture|image)/i;
+  const strongImage = /(生成图|生图|出图|画一张|画个|画一个|生成一张|生成一个|做一张图|设计一张|设计一个logo|做个logo|做一个logo|我想要.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|想要.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|要一张.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|来一张|给我.*(生成|画|做|设计).*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|改图|修图|换背景|去水印|扩图|重绘|上一张图|上一张|让这张.*(改|变|换|生成|成为)|把.*图.*(改|换|变|生成)|这张图.*(改|换|变|生成)|image generation|generate an image|create an image|draw an image|edit image|modify image)/i;
+  const weakImage = /(画|图片|图像|画面|配图|海报|头像|插画|壁纸|logo|图标|漫画|照片|渲染|poster|wallpaper|illustration|logo|photo|picture|image)/i;
   const strongChat = /(解释|总结|翻译|分析|润色|代码|为什么|怎么|方案|文案|邮件|帮我看|问一下|聊聊|说明|提纲|表格|sql|python|javascript|typescript|debug|报错|优化这段|写一段|写个函数|总结一下|翻译一下)/i;
 
   if (hasImageAttachment && strongImage.test(text)) return 'image';
-  if (strongImage.test(text)) return 'image';
   if (strongChat.test(text)) return 'chat';
+  if (strongImage.test(text)) return 'image';
   if (hasOnlyNonImageAttachment) return 'chat';
 
   // 弱图片词可能是“解释这张图/分析图片”，不直接判生图，交给模型判断。

@@ -1556,9 +1556,19 @@ body {
   z-index: 3;
 }
 .attach-btn svg {
+  display: block !important;
   width: 25px !important;
   height: 25px !important;
+  flex: 0 0 auto !important;
+  color: currentColor !important;
   stroke-width: 2.2;
+}
+.attach-btn svg path {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2.2 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
 }
 @media (max-width: 640px) {
   .attach-btn {

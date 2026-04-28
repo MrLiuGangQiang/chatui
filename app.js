@@ -611,7 +611,7 @@ function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue 
 function warnMissingModel(mode = state.mode, openSettings = false) {
   const cfg = getConfig();
   const missingChat = mode === 'chat' && !cfg.chatModel;
-  const missingImage = mode === 'image' && !cfg.imageModel;
+  const missingImage = (mode === 'image' || mode === 'edit_image') && !cfg.imageModel;
   if (missingChat || missingImage) {
     toast(missingChat ? '请先在设置里选择聊天模型' : '请先在设置里选择生图模型');
     if (openSettings) openConfigModal();
@@ -807,8 +807,7 @@ function clearAttachments() {
   renderAttachments();
 }
 
-function buildChatMessagesWithAttachments(prompt) {
-  const attachments = state.attachments;
+function buildChatMessagesWithAttachments(prompt, attachments = state.attachments) {
   if (!attachments.length) return [...state.messages, { role: 'user', content: prompt }];
 
   const parts = [];
@@ -833,9 +832,9 @@ function buildChatMessagesWithAttachments(prompt) {
   return [...state.messages, { role: 'user', content: parts }];
 }
 
-function attachmentsSummaryMarkdown() {
-  if (!state.attachments.length) return '';
-  return '\n\n' + state.attachments.map(f => `📎 ${f.name}`).join('\n');
+function attachmentsSummaryMarkdown(attachments = state.attachments) {
+  if (!attachments.length) return '';
+  return '\n\n' + attachments.map(f => `📎 ${f.name}`).join('\n');
 }
 
 async function requestMultipart(url, fields, files, apiKey) {
@@ -983,12 +982,12 @@ function loadChatHistory({ render = false } = {}) {
   }
 }
 
-async function sendChat(prompt) {
+async function sendChat(prompt, attachments = state.attachments) {
   const cfg = getConfig();
   if (!cfg.baseUrl || !cfg.chatModel) throw new Error('请先配置 Endpoint Base URL 和聊天模型');
 
   const userIndex = state.messages.length;
-  const requestMessages = buildChatMessagesWithAttachments(prompt);
+  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments);
   state.messages.push({ role: 'user', content: prompt });
   saveChatHistory();
   const loading = addMessage('assistant', '正在发送…', { rawText: '正在发送…' });
@@ -1197,7 +1196,8 @@ async function sendImage(prompt, options = {}) {
   if (cfg.imageSize && cfg.imageSize !== 'auto') payload.size = cfg.imageSize;
 
   try {
-    let imageRefs = state.attachments.filter(f => isImageFile(f));
+    const attachments = options.attachments || state.attachments;
+    let imageRefs = attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
     if (!imageRefs.length && options.editMode) {
       const previous = await getPreviousImageAsAttachment();
@@ -1342,7 +1342,7 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 
-async function getEffectiveMode(prompt) {
+async function getEffectiveMode(prompt, attachments = state.attachments) {
   if (!state.autoMode) return state.mode;
 
   const cfg = getConfig();
@@ -1360,7 +1360,7 @@ async function getEffectiveMode(prompt) {
           {
             role: 'user',
             content: `用户输入：${prompt}
-附件：${state.attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
+附件：${attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
 是否已有上一张生成图：${state.lastGeneratedImage ? '是' : '否'}`,
           },
         ],
@@ -1404,14 +1404,16 @@ async function onSubmit(e) {
   if (!prompt) return;
   saveConfig(true);
 
+  const submittedAttachments = [...state.attachments];
   const displayIndex = state.mode === 'chat' ? state.messages.length : null;
   const editingCandidate = !state.autoMode && state.mode === 'chat';
   let editingApplied = false;
   if (editingCandidate) editingApplied = applyPendingEdit(prompt);
   if (!editingApplied) {
-    addMessage('user', prompt + attachmentsSummaryMarkdown(), { rawText: prompt, messageIndex: displayIndex });
+    addMessage('user', prompt + attachmentsSummaryMarkdown(submittedAttachments), { rawText: prompt, messageIndex: displayIndex });
   }
   $('prompt').value = '';
+  clearAttachments();
   autoResize();
   state.busy = true;
   $('sendBtn').disabled = true;
@@ -1420,7 +1422,7 @@ async function onSubmit(e) {
 
   try {
     try {
-      effectiveMode = await getEffectiveMode(prompt);
+      effectiveMode = await getEffectiveMode(prompt, submittedAttachments);
     } catch (routeErr) {
       effectiveMode = 'chat';
       console.warn('route failed, fallback to chat:', routeErr);
@@ -1434,11 +1436,10 @@ async function onSubmit(e) {
       applyPendingEdit(prompt);
     }
 
-    if (effectiveMode === 'chat') await sendChat(prompt);
-    else await sendImage(prompt, { editMode: effectiveMode === 'edit_image' });
+    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments);
+    else await sendImage(prompt, { editMode: effectiveMode === 'edit_image', attachments: submittedAttachments });
     state.editingIndex = null;
     state.editingNode = null;
-    clearAttachments();
   } catch (err) {
     addMessage('error', err.message || String(err), { rawText: err.message || String(err) });
   } finally {

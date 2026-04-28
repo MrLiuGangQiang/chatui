@@ -426,14 +426,15 @@ function clearReasoning(node) {
 }
 
 function moveImageActionsToMessageActions(node) {
+  const hasGeneratedImage = node.classList.contains('assistant') && !!node.querySelector('img.generated-thumb');
+  if (!hasGeneratedImage) return;
   ensureImageDownloadRow(node);
   const row = node.querySelector('.image-download-row');
   const actions = node.querySelector('.msg-actions');
   if (!row || !actions) return;
 
-  // 图片结果只保留图片相关操作，不显示“复制消息”按钮。
-  const hasGeneratedImage = !!node.querySelector('img.generated-thumb, img[data-persisted-src]');
-  if (hasGeneratedImage) actions.querySelector('.copy-btn')?.remove();
+  // AI 生成图片结果只保留图片相关操作，不显示“复制消息”按钮。
+  actions.querySelector('.copy-btn')?.remove();
 
   // msg-actions 不会进入历史缓存；每次渲染/恢复都从内容区的原始按钮克隆一份。
   actions.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
@@ -450,7 +451,7 @@ function moveImageActionsToMessageActions(node) {
 
 function ensureImageDownloadRow(node) {
   if (node.querySelector('.image-download-row')) return;
-  const img = node.querySelector('img[data-persisted-src]');
+  const img = node.querySelector('img.generated-thumb[data-persisted-src]');
   if (!img?.dataset.persistedSrc) return;
   const filename = img.dataset.filename || `generated-${Date.now()}.png`;
   const row = document.createElement('div');

@@ -1306,34 +1306,11 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 
-function detectIntentMode(prompt) {
-  const text = String(prompt || '').trim();
-  const hasImageAttachment = state.attachments.some(f => isImageFile(f));
-  const hasOnlyNonImageAttachment = state.attachments.length > 0 && !hasImageAttachment;
-
-  const strongImage = /(生成图|生图|出图|画一张|画个|画一个|生成一张|生成一个|做一张图|设计一张|设计一个logo|做个logo|做一个logo|我想要.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|想要.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|要一张.*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|来一张|给我.*(生成|画|做|设计).*(图|图片|图像|画面|照片|海报|头像|插画|壁纸|logo|图标|漫画)|改图|修图|换背景|去水印|扩图|重绘|上一张图|上一张|让这张.*(改|变|换|生成|成为)|把.*图.*(改|换|变|生成)|这张图.*(改|换|变|生成)|image generation|generate an image|create an image|draw an image|edit image|modify image)/i;
-  const weakImage = /(画|图片|图像|画面|配图|海报|头像|插画|壁纸|logo|图标|漫画|照片|渲染|poster|wallpaper|illustration|logo|photo|picture|image)/i;
-  const strongChat = /(解释|总结|翻译|分析|润色|代码|为什么|怎么|方案|文案|邮件|帮我看|问一下|聊聊|说明|提纲|表格|sql|python|javascript|typescript|debug|报错|优化这段|写一段|写个函数|总结一下|翻译一下)/i;
-
-  if (hasImageAttachment && strongImage.test(text)) return 'image';
-  if (strongChat.test(text)) return 'chat';
-  if (strongImage.test(text)) return 'image';
-  if (hasOnlyNonImageAttachment) return 'chat';
-
-  // 弱图片词可能是“解释这张图/分析图片”，不直接判生图，交给模型判断。
-  // 其他本地规则没覆盖的表达也交给模型兜底，恢复“本地规则优先，不确定再问大模型”的路由逻辑。
-  if (weakImage.test(text) || hasImageAttachment) return 'unknown';
-  return 'unknown';
-}
-
 async function getEffectiveMode(prompt) {
   if (!state.autoMode) return state.mode;
 
-  const localMode = detectIntentMode(prompt);
-  if (localMode !== 'unknown') return localMode;
-
   const cfg = getConfig();
-  // 本地规则不确定时，才调用模型做轻量分类。
+  // 自动模式下不再使用本地关键词匹配，统一交给已配置的聊天模型判断，避免正则误判。
   if (cfg.baseUrl && cfg.chatModel) {
     try {
       const data = await requestJson(`${cfg.baseUrl}/chat/completions`, {
@@ -1342,11 +1319,13 @@ async function getEffectiveMode(prompt) {
         messages: [
           {
             role: 'system',
-            content: '你是一个路由分类器。只判断用户这次输入应该走 chat 还是 image。需要生成、编辑、修改、参考图片、画图、做海报、logo、头像、插画、图片相关任务返回 image；普通问答、写作、代码、解释、总结、翻译、分析图片内容返回 chat。只能输出一个单词：chat 或 image。不要解释。',
+            content: '你是一个路由分类器。只判断用户这次输入应该走 chat 还是 image。只有当用户明确要求生成图片、画图、设计视觉内容、编辑图片、修改图片、参考图片生成新图时返回 image；如果用户只是问答、写作、代码、解释、总结、翻译、聊天，或者只是提到“图/图片/画面”但没有要求生成或编辑图片，返回 chat。只能输出一个单词：chat 或 image。不要解释。',
           },
           {
             role: 'user',
-            content: `用户输入：${prompt}\n附件：${state.attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}\n是否已有上一张生成图：${state.lastGeneratedImage ? '是' : '否'}`,
+            content: `用户输入：${prompt}
+附件：${state.attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
+是否已有上一张生成图：${state.lastGeneratedImage ? '是' : '否'}`,
           },
         ],
       }, cfg.apiKey);
@@ -1389,7 +1368,7 @@ async function onSubmit(e) {
   saveConfig(true);
 
   const displayIndex = state.mode === 'chat' ? state.messages.length : null;
-  const editingCandidate = state.autoMode ? detectIntentMode(prompt) === 'chat' : state.mode === 'chat';
+  const editingCandidate = !state.autoMode && state.mode === 'chat';
   let editingApplied = false;
   if (editingCandidate) editingApplied = applyPendingEdit(prompt);
   if (!editingApplied) {
@@ -1406,8 +1385,8 @@ async function onSubmit(e) {
     try {
       effectiveMode = await getEffectiveMode(prompt);
     } catch (routeErr) {
-      effectiveMode = detectIntentMode(prompt);
-      console.warn('route failed, fallback to local rule:', routeErr);
+      effectiveMode = 'chat';
+      console.warn('route failed, fallback to chat:', routeErr);
     }
     updateModeUi(effectiveMode, state.autoMode);
     if (warnMissingModel(effectiveMode, true)) {

@@ -1319,7 +1319,7 @@ async function getEffectiveMode(prompt) {
         messages: [
           {
             role: 'system',
-            content: '你是一个路由分类器。只判断用户这次输入应该走 chat 还是 image。只有当用户明确要求生成图片、画图、设计视觉内容、编辑图片、修改图片、参考图片生成新图时返回 image；如果用户只是问答、写作、代码、解释、总结、翻译、聊天，或者只是提到“图/图片/画面”但没有要求生成或编辑图片，返回 chat。只能输出一个单词：chat 或 image。不要解释。',
+            content: '你是一个路由分类器。只判断用户这次输入应该走 chat 还是 image。凡是用户要求生成图片、出图、画图、制作图片、生成PPT图片、设计PPT页面、设计海报、设计UI效果图、设计系统效果图、生成视觉版式、编辑图片、修改图片、参考图片生成新图，都必须返回 image。用户只是问答、写作、代码、解释、总结、翻译、聊天，或者只是提到“图/图片/画面”但没有要求生成或编辑视觉内容，返回 chat。只能输出一个单词：chat 或 image。不要解释。',
           },
           {
             role: 'user',
@@ -1330,8 +1330,8 @@ async function getEffectiveMode(prompt) {
         ],
       }, cfg.apiKey);
       const text = String(data?.choices?.[0]?.message?.content || data?.output_text || '').trim().toLowerCase();
-      if (text.includes('image')) return 'image';
-      if (text.includes('chat')) return 'chat';
+      if (/\bimage\b|生图|出图|绘图|画图|图片|视觉|设计图|效果图|海报/.test(text)) return 'image';
+      if (/\bchat\b|聊天|问答|文字/.test(text)) return 'chat';
     } catch (err) {
       console.warn('model route failed, fallback to chat:', err);
     }

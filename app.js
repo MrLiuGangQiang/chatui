@@ -1176,7 +1176,7 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   };
 }
 
-async function sendImage(prompt) {
+async function sendImage(prompt, options = {}) {
   const cfg = getConfig();
   if (!cfg.baseUrl || !cfg.imageModel) throw new Error('请先配置 Endpoint Base URL 和生图模型');
 
@@ -1199,7 +1199,13 @@ async function sendImage(prompt) {
   try {
     let imageRefs = state.attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
-    if (!imageRefs.length && shouldEditPreviousImage(prompt)) {
+    if (!imageRefs.length && options.editMode) {
+      const previous = await getPreviousImageAsAttachment();
+      if (!previous) throw new Error('没有可编辑的图片，请先上传图片或生成一张图片');
+      imageRefs = [previous];
+      usedPreviousImage = true;
+      updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
+    } else if (!imageRefs.length && shouldEditPreviousImage(prompt)) {
       const previous = await getPreviousImageAsAttachment();
       if (previous) {
         imageRefs = [previous];
@@ -1349,7 +1355,7 @@ async function getEffectiveMode(prompt) {
         messages: [
           {
             role: 'system',
-            content: '你是一个中立路由分类器。根据用户当前输入的真实意图，判断后续应该调用哪类能力。若用户期望得到自然语言回复、解释、总结、改写、代码、分析或对话，返回 chat。若用户期望得到由图片生成/图片编辑模型产生的视觉输出，返回 image。不要基于关键词机械判断，要理解用户真正想要的输出类型。只能输出 chat 或 image 其中一个英文单词，不要输出其他任何内容。',
+            content: '你是一个中立路由分类器。根据用户当前输入的真实意图，判断后续应该调用哪类能力。若用户期望得到自然语言回复、解释、总结、改写、代码、分析或对话，返回 chat。若用户期望得到由图片生成模型产生的新视觉输出，返回 image。若用户期望基于已上传图片或上一张生成图进行修改、调整、优化、替换、扩展或编辑，返回 edit_image。不要基于关键词机械判断，要理解用户真正想要的输出类型。只能输出 chat、image 或 edit_image 其中一个英文单词，不要输出其他任何内容。',
           },
           {
             role: 'user',
@@ -1360,6 +1366,7 @@ async function getEffectiveMode(prompt) {
         ],
       }, cfg.apiKey);
       const text = String(data?.choices?.[0]?.message?.content || data?.output_text || '').trim().toLowerCase();
+      if (text === 'edit_image') return 'edit_image';
       if (text === 'image') return 'image';
       if (text === 'chat') return 'chat';
     } catch (err) {
@@ -1428,7 +1435,7 @@ async function onSubmit(e) {
     }
 
     if (effectiveMode === 'chat') await sendChat(prompt);
-    else await sendImage(prompt);
+    else await sendImage(prompt, { editMode: effectiveMode === 'edit_image' });
     state.editingIndex = null;
     state.editingNode = null;
     clearAttachments();

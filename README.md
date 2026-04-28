@@ -55,16 +55,38 @@ http://127.0.0.1:8765
 
 ## GitHub Actions 自动推送 Docker Hub
 
-仓库已包含 `.github/workflows/dockerhub.yml`。推送到 `main` 分支或推送 `v*.*.*` tag 后，会自动构建并推送 Docker 镜像到 Docker Hub。
+仓库已包含 `.github/workflows/dockerhub.yml`。普通 `main` 分支提交不会自动构建镜像，只有以下发布动作会构建并推送 Docker Hub：
+
+- 推送符合 `vMAJOR.MINOR.PATCH` 的 tag，例如 `v1.0.0`
+- 在 GitHub 发布 Release，且 Release tag 符合 `vMAJOR.MINOR.PATCH`
+- 手动运行 workflow，并输入符合规范的版本号
 
 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置：
 
 - `DOCKERHUB_USERNAME`：Docker Hub 用户名
 - `DOCKERHUB_TOKEN`：Docker Hub Access Token
 
-默认镜像名：
+版本号规范：
 
 ```text
+v1.0.0
+v1.2.3
+v2.0.0
+```
+
+发布示例：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+默认镜像名与标签：
+
+```text
+<DOCKERHUB_USERNAME>/chatui:v1.0.0
+<DOCKERHUB_USERNAME>/chatui:1.0.0
+<DOCKERHUB_USERNAME>/chatui:1.0
 <DOCKERHUB_USERNAME>/chatui:latest
 <DOCKERHUB_USERNAME>/chatui:sha-<commit>
 ```

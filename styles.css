@@ -1657,3 +1657,27 @@ body {
   padding: 0;
   font: inherit;
 }
+
+/* compact message action spacing */
+.msg-actions {
+  gap: 3px !important;
+}
+.image-download-row {
+  gap: 3px !important;
+}
+
+/* extra compact message action spacing */
+.msg-actions,
+.image-download-row {
+  gap: 1px !important;
+}
+
+/* slightly smaller top toolbar radius */
+.topbar.fixed-toolbar {
+  border-radius: 10px !important;
+}
+@media (max-width: 640px) {
+  .topbar.fixed-toolbar {
+    border-radius: 9px !important;
+  }
+}

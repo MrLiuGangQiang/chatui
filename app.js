@@ -310,6 +310,8 @@ function addMessage(role, content, options = {}) {
 function updateMessage(node, content, options = {}) {
   const box = node.querySelector('.content');
   node.dataset.rawText = options.rawText ?? content;
+  if (options.skipSave) node.dataset.persist = '0';
+  else delete node.dataset.persist;
   if (options.html) box.innerHTML = content;
   else box.innerHTML = renderMarkdown(String(content || ''));
   node.querySelectorAll('[data-copy-text]').forEach(btn => {
@@ -366,19 +368,37 @@ function clearReasoning(node) {
 }
 
 function moveImageActionsToMessageActions(node) {
+  ensureImageDownloadRow(node);
   const row = node.querySelector('.image-download-row');
   const actions = node.querySelector('.msg-actions');
-  if (!row || !actions || actions.dataset.imageActionsMoved === '1') return;
+  if (!row || !actions) return;
 
+  // 图片结果只保留图片相关操作，不显示“复制消息”按钮。
+  const hasGeneratedImage = !!node.querySelector('img.generated-thumb, img[data-persisted-src]');
+  if (hasGeneratedImage) actions.querySelector('.copy-btn')?.remove();
+
+  // msg-actions 不会进入历史缓存；每次渲染/恢复都从内容区的原始按钮克隆一份。
+  actions.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
   const copyBtn = actions.querySelector('.copy-btn');
   row.querySelectorAll('a,button').forEach(action => {
-    action.classList.add('icon-action-btn');
-    if (action.dataset.downloadImage) bindImageDownload(action);
-    if (copyBtn) actions.insertBefore(action, copyBtn);
-    else actions.appendChild(action);
+    const cloned = action.cloneNode(true);
+    cloned.dataset.imageActionClone = '1';
+    cloned.classList.add('icon-action-btn');
+    if (cloned.dataset.downloadImage) bindImageDownload(cloned);
+    if (copyBtn) actions.insertBefore(cloned, copyBtn);
+    else actions.appendChild(cloned);
   });
-  actions.dataset.imageActionsMoved = '1';
-  row.remove();
+}
+
+function ensureImageDownloadRow(node) {
+  if (node.querySelector('.image-download-row')) return;
+  const img = node.querySelector('img[data-persisted-src]');
+  if (!img?.dataset.persistedSrc) return;
+  const filename = img.dataset.filename || `generated-${Date.now()}.png`;
+  const row = document.createElement('div');
+  row.className = 'image-download-row';
+  row.innerHTML = `<button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeAttr(img.dataset.persistedSrc)}" data-filename="${escapeAttr(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>`;
+  img.insertAdjacentElement('afterend', row);
 }
 
 function bindImageDownload(btn) {
@@ -413,9 +433,10 @@ function bindImageDownload(btn) {
 
 function bindImagePreview(scope) {
   scope.querySelectorAll('.content img').forEach(img => {
-    if (img.dataset.previewBound) return;
+    // 历史 HTML 里可能保存过 data-preview-bound，但事件监听刷新后不会保留；
+    // 所以这里每次渲染/恢复后都覆盖 onclick，保证图片始终可预览。
     img.dataset.previewBound = '1';
-    img.addEventListener('click', () => openImagePreview(img.src));
+    img.onclick = () => openImagePreview(img.currentSrc || img.src);
   });
 }
 
@@ -816,6 +837,9 @@ function saveDisplayHistory() {
     .map(node => {
       const clone = node.querySelector('.content')?.cloneNode(true);
       clone?.querySelectorAll('.reasoning-panel').forEach(el => el.remove());
+      clone?.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
+      clone?.querySelectorAll('[data-preview-bound]').forEach(el => el.removeAttribute('data-preview-bound'));
+      clone?.querySelectorAll('[data-download-bound]').forEach(el => el.removeAttribute('data-download-bound'));
       clone?.querySelectorAll('img[data-persisted-src]').forEach(el => {
         el.setAttribute('src', el.dataset.persistedSrc);
         el.removeAttribute('data-object-url');
@@ -841,6 +865,9 @@ function saveDisplayHistory() {
 function normalizePersistedHtml(html) {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
+  tpl.content.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
+  tpl.content.querySelectorAll('[data-preview-bound]').forEach(el => el.removeAttribute('data-preview-bound'));
+  tpl.content.querySelectorAll('[data-download-bound]').forEach(el => el.removeAttribute('data-download-bound'));
   tpl.content.querySelectorAll('img[data-persisted-src]').forEach(el => {
     if (el.dataset.persistedSrc?.startsWith('indexeddb://')) el.setAttribute('src', el.dataset.persistedSrc);
     el.removeAttribute('data-object-url');
@@ -1116,7 +1143,7 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   saveLastGeneratedImage();
   return {
     raw: url || '[base64 image]',
-    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(persistedSrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
+    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(persistedSrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
   };
 }
 
@@ -1335,7 +1362,7 @@ async function getEffectiveMode(prompt) {
 
 
 function updateModeUi(mode, auto = state.autoMode) {
-  $('modeTitle').textContent = mode === 'chat' ? '聊天' : '生图';
+  $('modeTitle').textContent = mode === 'chat' ? '极简聊天工具' : '生图';
   const modeBtn = $('modeSwitchBtn');
   if (modeBtn) {
     modeBtn.innerHTML = mode === 'chat' ? iconChat() : iconImage();
@@ -1346,33 +1373,11 @@ function updateModeUi(mode, auto = state.autoMode) {
     modeBtn.classList.toggle('image-mode', mode === 'image');
   }
   $('modeDesc').textContent = auto
-    ? '自动识别聊天/生图；也可点右上角图标临时切换。'
+    ? '可配置兼容 OpenAPI 的第三方供应商，支持聊天和生图'
     : (mode === 'chat' ? '微信式左右气泡，支持 Markdown、复制和模型选择。' : '输入图片提示词，调用图片接口，图片可下载/预览/继续修改。');
   $('prompt').placeholder = auto
     ? '输入消息；我会自动判断聊天还是生图'
     : (mode === 'chat' ? '输入消息，Enter 发送，Shift+Enter 换行' : '描述你要生成/修改的图片，Enter 发送');
-}
-
-function addRouteThinkingMessage() {
-  const node = addMessage('assistant', '正在判断任务类型…', { rawText: '正在判断任务类型…', skipSave: true });
-  updateReasoning(node, '正在先用本地规则判断任务类型；不确定时再请求模型判断…');
-  return node;
-}
-
-function finishRouteThinkingMessage(node, mode) {
-  if (!node) return;
-  const text = mode === 'image' ? '已判断：生图 / 改图任务，正在提交图片接口…' : '已判断：聊天任务，正在提交聊天接口…';
-  updateReasoning(node, text);
-  updateMessage(node, text, { rawText: text, skipSave: true });
-  setTimeout(() => node.remove(), 450);
-}
-
-function failRouteThinkingMessage(node, err) {
-  if (!node) return;
-  const text = `任务类型判断失败，已使用本地规则兜底。${err?.message ? `\n${err.message}` : ''}`;
-  updateReasoning(node, text);
-  updateMessage(node, text, { rawText: text, skipSave: true });
-  setTimeout(() => node.remove(), 800);
 }
 
 async function onSubmit(e) {
@@ -1394,7 +1399,6 @@ async function onSubmit(e) {
   state.busy = true;
   $('sendBtn').disabled = true;
 
-  const routeNode = state.autoMode ? addRouteThinkingMessage() : null;
   let effectiveMode = state.mode;
 
   try {
@@ -1402,15 +1406,12 @@ async function onSubmit(e) {
       effectiveMode = await getEffectiveMode(prompt);
     } catch (routeErr) {
       effectiveMode = detectIntentMode(prompt);
-      failRouteThinkingMessage(routeNode, routeErr);
+      console.warn('route failed, fallback to local rule:', routeErr);
     }
     updateModeUi(effectiveMode, state.autoMode);
     if (warnMissingModel(effectiveMode, true)) {
-      routeNode?.remove();
       return;
     }
-    finishRouteThinkingMessage(routeNode, effectiveMode);
-
     // 如果模型判断为聊天，但刚才没有应用编辑状态，这里补一次编辑处理。
     if (effectiveMode === 'chat' && state.editingIndex !== null && state.editingNode) {
       applyPendingEdit(prompt);

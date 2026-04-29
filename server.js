@@ -205,7 +205,7 @@ const server = http.createServer(async (req, res) => {
     if (err) return send(res, 404, 'Not Found');
     const headers = {
       'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
-      'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=3600',
+      'Cache-Control': filePath.endsWith('index.html') || filePath.endsWith('.js') || filePath.endsWith('.css') ? 'no-cache' : 'public, max-age=3600',
     };
     if (req.method === 'HEAD') return send(res, 200, '', headers);
     send(res, 200, data, headers);

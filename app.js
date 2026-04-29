@@ -1461,6 +1461,16 @@ function parseRouteResult(raw) {
   return null;
 }
 
+function hasPreviousImageReference(prompt) {
+  return /(上一张|上张|刚才那张|刚刚那张|这张图|这个图|该图|原图|基于这张|基于上一张|参考上一张|保持.*(人物|角色|主体|构图|风格)|继续修改|不要重画|在此基础上|把它|将它|改成|换成|去掉|替换|edit\s+(this|previous)|modify\s+(this|previous)|based on (this|the previous)|previous image)/i.test(prompt);
+}
+
+function isExplicitNewImagePrompt(prompt, attachments = state.attachments) {
+  if (attachments.some(f => isImageFile(f))) return false;
+  if (hasPreviousImageReference(prompt)) return false;
+  return /(生成|画|绘制|做|设计|出|创建|制作|来一张|生成一张|画一张|做一张|设计一张|create|generate|draw|make)\s*.*(图|图片|图像|海报|插画|信息图|图鉴|视觉|image|poster|illustration|infographic)/i.test(prompt);
+}
+
 async function getEffectiveRoute(prompt, attachments = state.attachments) {
   if (!state.autoMode) {
     return normalizeRoute({
@@ -1469,6 +1479,10 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
       use_previous_image: false,
       confidence: 1,
     }, state.mode);
+  }
+
+  if (isExplicitNewImagePrompt(prompt, attachments)) {
+    return normalizeRoute({ mode: 'image', target: 'new', use_previous_image: false, confidence: 1 });
   }
 
   const cfg = getConfig();
@@ -1509,7 +1523,7 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
             role: 'user',
             content: `用户输入：${prompt}
 附件：${attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
-是否已有上一张生成图：${state.lastGeneratedImage ? '是' : '否'}`,
+上一张生成图上下文：${state.lastGeneratedImage && hasPreviousImageReference(prompt) ? '用户疑似明确引用，可作为候选' : '未明确引用，不要使用上一张图'}`,
           },
         ],
       }, cfg.apiKey);

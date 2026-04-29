@@ -10,12 +10,14 @@ const state = {
   attachments: [],
   lastGeneratedImage: null,
   autoMode: true,
+  reasoningPersist: false,
 };
 
 const CONFIG_KEY = 'openapi-chat-image-config-v2';
 const CHAT_KEY = 'openapi-chat-image-chat-v1';
 const UI_KEY = 'openapi-chat-image-ui-v1';
 const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
+const REASONING_PERSIST_KEY = 'openapi-chat-reasoning-persist-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -370,7 +372,7 @@ function addMessage(role, content, options = {}) {
 
   $('messages').appendChild(node);
   scrollToBottom(true);
-  if (!options.skipSave) saveDisplayHistory();
+  if (!options.skipSave && !options.deferSave) saveDisplayHistory();
   return node;
 }
 
@@ -419,8 +421,12 @@ function updateReasoning(node, text, options = {}) {
   let panel = node.querySelector('.reasoning-panel');
   if (!contentText && !options.keepEmpty) {
     panel?.remove();
+    delete node.dataset.reasoningText;
+    if (node.isConnected) saveDisplayHistory();
     return;
   }
+  if (contentText) node.dataset.reasoningText = contentText;
+  if (options.keepReasoning) node.dataset.keepReasoning = '1';
   if (!panel) {
     panel = document.createElement('div');
     panel.className = 'reasoning-panel';
@@ -433,13 +439,14 @@ function updateReasoning(node, text, options = {}) {
   content.textContent = contentText;
   content.hidden = !contentText;
   scrollToBottom(false);
+  if (options.persistSave && node.isConnected) saveDisplayHistory();
 }
 
 function finishReasoning(node, text) {
   const contentText = String(text || '').trim();
-  if (contentText) updateReasoning(node, contentText, { done: true });
+  if (contentText) updateReasoning(node, contentText, { done: true, persistSave: state.reasoningPersist, keepReasoning: state.reasoningPersist });
   else updateReasoning(node, '', { keepEmpty: true, done: true });
-  setTimeout(() => clearReasoning(node), 2000);
+  if (!state.reasoningPersist) setTimeout(() => clearReasoning(node), 2000);
 }
 
 function clearReasoning(node) {
@@ -969,10 +976,13 @@ function saveDisplayHistory() {
       clone?.querySelectorAll('button[data-persisted-href]').forEach(el => {
         el.removeAttribute('data-object-url');
       });
+      const reasoningText = node.dataset.keepReasoning === '1' ? (node.dataset.reasoningText || '') : '';
       return {
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
         rawText: node.dataset.rawText || '',
         html: clone?.innerHTML || '',
+        reasoningText,
+        keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || '',
       };
     }).slice(-80);
@@ -1015,7 +1025,10 @@ function loadDisplayHistory() {
         rawText: item.rawText || '',
         messageIndex: item.messageIndex !== '' ? Number(item.messageIndex) : null,
         skipSave: false,
+        deferSave: true,
       });
+      const node = $('messages').lastElementChild;
+      if (item.reasoningText && node) updateReasoning(node, item.reasoningText, { done: true, keepReasoning: item.keepReasoning !== false });
     });
     hydrateMessageMedia($('messages'), { save: false });
     return true;
@@ -1037,6 +1050,26 @@ function loadLastGeneratedImage() {
   } catch {
     localStorage.removeItem(LAST_IMAGE_KEY);
   }
+}
+
+function updateReasoningToggleUi() {
+  const btn = $('reasoningToggle');
+  if (!btn) return;
+  btn.classList.toggle('active', state.reasoningPersist);
+  btn.setAttribute('aria-pressed', state.reasoningPersist ? 'true' : 'false');
+  btn.title = state.reasoningPersist ? '思考内容将保持显示' : '思考内容将在响应结束后自动收起';
+  btn.setAttribute('aria-label', btn.title);
+}
+
+function loadReasoningPreference() {
+  state.reasoningPersist = localStorage.getItem(REASONING_PERSIST_KEY) === '1';
+  updateReasoningToggleUi();
+}
+
+function setReasoningPersist(enabled) {
+  state.reasoningPersist = !!enabled;
+  localStorage.setItem(REASONING_PERSIST_KEY, state.reasoningPersist ? '1' : '0');
+  updateReasoningToggleUi();
 }
 
 function normalizeMessageForStorage(msg) {
@@ -1116,11 +1149,12 @@ async function sendChat(prompt, attachments = state.attachments) {
     playDoneSound();
   } catch (err) {
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求。
-    const data = await requestJson(`${cfg.baseUrl}/chat/completions`, {
+    const fallbackPayload = {
       model: cfg.chatModel,
       messages: requestMessages,
       temperature: 0.7,
-    }, cfg.apiKey);
+    };
+    const data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
     state.messages.push({ role: 'assistant', content: reply });
     saveChatHistory();
@@ -1586,7 +1620,7 @@ async function onSubmit(e) {
   }
   $('prompt').value = '';
   clearAttachments();
-  autoResize();
+  scheduleAutoResize();
   state.busy = true;
   $('sendBtn').disabled = true;
 
@@ -1634,9 +1668,19 @@ function autoResize() {
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
   const maxHeight = Math.round(window.innerHeight * (isMobile ? 0.36 : 0.42));
   const minHeight = isMobile ? 42 : 52;
-  el.style.height = 'auto';
-  el.style.height = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight)) + 'px';
+  el.style.setProperty('--prompt-height', `${minHeight}px`);
+  el.style.setProperty('height', `${minHeight}px`, 'important');
+  const nextHeight = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
+  el.style.setProperty('--prompt-height', `${nextHeight}px`);
+  el.style.setProperty('height', `${nextHeight}px`, 'important');
   el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+}
+
+function scheduleAutoResize() {
+  requestAnimationFrame(() => {
+    autoResize();
+    requestAnimationFrame(autoResize);
+  });
 }
 
 ['baseUrl', 'apiKey', 'chatModel', 'imageModel', 'imageSize', 'directMode'].forEach(id => {
@@ -1662,6 +1706,7 @@ async function clearChat() {
 }
 $('clearBtn').addEventListener('click', () => clearChat().catch(console.error));
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
+$('reasoningToggle')?.addEventListener('click', () => setReasoningPersist(!state.reasoningPersist));
 $('fileInput').addEventListener('change', async (e) => {
   await addFiles([...e.target.files]);
   e.target.value = '';
@@ -1671,7 +1716,24 @@ $('composer').addEventListener('paste', async (e) => {
   if (files.length) await addFiles(files);
 });
 $('composer').addEventListener('submit', onSubmit);
-$('prompt').addEventListener('input', autoResize);
+$('prompt').addEventListener('input', scheduleAutoResize);
+$('prompt').addEventListener('keyup', scheduleAutoResize);
+$('prompt').addEventListener('paste', scheduleAutoResize);
+$('prompt').addEventListener('compositionend', scheduleAutoResize);
+function scrollPromptByWheel(e) {
+  const el = $('prompt');
+  if (!el || el.scrollHeight <= el.clientHeight) return;
+  const before = el.scrollTop;
+  el.scrollTop += e.deltaY;
+  if (el.scrollTop !== before) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+$('prompt').addEventListener('wheel', scrollPromptByWheel, { passive: false });
+document.querySelector('.input-stack')?.addEventListener('wheel', scrollPromptByWheel, { passive: false });
+window.addEventListener('resize', scheduleAutoResize);
+scheduleAutoResize();
 $('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -1701,6 +1763,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 loadConfig();
+loadReasoningPreference();
 loadLastGeneratedImage();
 loadChatHistory({ render: false });
 if (!loadDisplayHistory()) loadChatHistory({ render: true });

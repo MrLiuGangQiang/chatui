@@ -448,7 +448,6 @@ button { cursor: pointer; }
 .mode-switch-btn { width: 64px; min-width: 64px; padding: 0; }
 .composer button[type="submit"] { width: 64px; min-width: 64px; padding: 0; }
 .composer textarea {
-  height: 52px;
   min-height: 52px;
   max-height: min(42vh, 420px);
   line-height: 22px;
@@ -472,7 +471,6 @@ button { cursor: pointer; }
   .mode-switch-btn { width: 48px; min-width: 48px; padding: 0; }
   .composer button[type="submit"] { width: 48px; min-width: 48px; padding: 0; }
   .composer textarea {
-    height: 42px;
     min-height: 42px;
     max-height: 36vh;
     line-height: 20px;
@@ -491,7 +489,7 @@ button { cursor: pointer; }
   .icon-btn { width: 40px; min-width: 40px; }
   .mode-switch-btn { width: 46px; min-width: 46px; }
   .composer button[type="submit"] { width: 46px; min-width: 46px; }
-  .composer textarea { height: 40px; min-height: 40px; }
+  .composer textarea { min-height: 40px; }
 }
 
 /* full screen image preview */
@@ -1001,7 +999,6 @@ body {
   .composer textarea {
     flex: 1 1 auto;
     width: 1px;
-    height: 42px !important;
     min-height: 42px !important;
     max-height: 36vh !important;
     padding: 10px 11px !important;
@@ -1239,12 +1236,12 @@ body {
 
 /* attachments */
 .attach-btn {
-  flex: 0 0 52px;
-  width: 52px;
-  height: 52px;
-  min-width: 52px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
   border: 1px solid rgba(148,163,184,.34);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255,255,255,.72);
   color: #374151;
   display: inline-flex;
@@ -1254,8 +1251,94 @@ body {
 }
 .attach-btn svg { width: 22px; height: 22px; }
 .attach-btn svg path { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.input-stack { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.input-stack textarea { width: 100%; }
+.input-stack {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+.input-stack textarea {
+  width: 100%;
+  flex: 0 0 auto !important;
+  height: var(--prompt-height, 52px) !important;
+  min-height: 52px;
+  max-height: min(42vh, 420px);
+  padding-bottom: 62px !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+.composer-actions {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: auto;
+}
+.composer-actions button {
+  pointer-events: auto;
+}
+.composer-action-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.composer-actions .attach-btn,
+.composer-actions button[type="submit"],
+.composer-actions .reasoning-toggle {
+  height: 40px;
+  min-height: 40px;
+}
+.composer-actions .reasoning-toggle {
+  flex: 0 0 42px;
+  width: 42px;
+  min-width: 42px;
+  border: 1px solid rgba(148,163,184,.34);
+  border-radius: 12px;
+  background: rgba(255,255,255,.72);
+  color: #475569;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.composer-actions .reasoning-toggle svg { width: 21px; height: 21px; }
+.composer-actions .reasoning-toggle svg path { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.composer-actions .reasoning-toggle.active {
+  border-color: rgba(16,163,127,.45);
+  background: rgba(16,163,127,.12);
+  color: #0f766e;
+}
+.composer-actions button[type="submit"] {
+  width: 42px;
+  min-width: 42px;
+  border-radius: 12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.composer-actions button[type="submit"] svg {
+  width: 21px;
+  height: 21px;
+}
+.composer-actions button[type="submit"] svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .attachment-bar { display: none; flex-wrap: wrap; gap: 6px; max-height: 86px; overflow-y: auto; }
 .attachment-bar.show { display: flex; }
 .attachment-chip {
@@ -1275,9 +1358,23 @@ body {
 .file-icon { font-size: 10px; padding: 4px 5px; border-radius: 5px; background: #e2e8f0; color: #475569; }
 .attachment-chip button { border: none; background: transparent; color: #64748b; font-size: 16px; line-height: 1; padding: 0 2px; }
 @media (max-width: 640px) {
-  .attach-btn { flex-basis: 42px; width: 42px; min-width: 42px; height: 42px; border-radius: 12px; }
+  .attach-btn { flex-basis: 40px; width: 40px; min-width: 40px; height: 40px; border-radius: 12px; }
   .attach-btn svg { width: 19px; height: 19px; }
   .attachment-bar { max-height: 66px; }
+  .input-stack textarea {
+    height: var(--prompt-height, 42px) !important;
+    min-height: 42px !important;
+    max-height: 36vh !important;
+    padding-bottom: 56px !important;
+  }
+  .composer-actions { left: 8px; right: 8px; bottom: 8px; }
+  .composer-actions .attach-btn,
+  .composer-actions button[type="submit"],
+  .composer-actions .reasoning-toggle { height: 38px !important; min-height: 38px !important; }
+  .composer-actions .reasoning-toggle { flex-basis: 40px; width: 40px; min-width: 40px; padding: 0; }
+  .composer-actions .reasoning-toggle svg { width: 20px; height: 20px; }
+  .composer-actions button[type="submit"] { width: 40px !important; min-width: 40px !important; }
+  .composer-actions button[type="submit"] svg { width: 20px; height: 20px; }
   .attachment-chip { max-width: 150px; font-size: 11px; }
   .attachment-chip img { width: 22px; height: 22px; }
 }
@@ -1552,19 +1649,19 @@ body {
   display: inline-flex !important;
   visibility: visible !important;
   opacity: 1 !important;
-  flex: 0 0 54px !important;
-  width: 54px !important;
-  min-width: 54px !important;
-  height: 52px !important;
-  min-height: 52px !important;
-  border-radius: 14px !important;
+  flex: 0 0 42px !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  border-radius: 12px !important;
   position: relative;
   z-index: 3;
 }
 .attach-btn svg {
   display: block !important;
-  width: 25px !important;
-  height: 25px !important;
+  width: 21px !important;
+  height: 21px !important;
   flex: 0 0 auto !important;
   color: currentColor !important;
   stroke-width: 2.2;
@@ -1578,17 +1675,17 @@ body {
 }
 @media (max-width: 640px) {
   .attach-btn {
-    flex: 0 0 44px !important;
-    width: 44px !important;
-    min-width: 44px !important;
-    height: 42px !important;
-    min-height: 42px !important;
+    flex: 0 0 40px !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 38px !important;
+    min-height: 38px !important;
     border-radius: 12px !important;
     display: inline-flex !important;
   }
   .attach-btn svg {
-    width: 22px !important;
-    height: 22px !important;
+    width: 20px !important;
+    height: 20px !important;
   }
   .input-stack {
     flex: 1 1 auto !important;

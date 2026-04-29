@@ -400,7 +400,7 @@ function hydrateMessageMedia(node, { save = false } = {}) {
     if (save && node.isConnected) saveDisplayHistory();
   };
 
-  const hasPersisted = node.querySelector('img[src^="indexeddb://"], a[href^="indexeddb://"]');
+  const hasPersisted = node.querySelector('img[data-persisted-src], img[src^="indexeddb://"], a[data-persisted-href], a[href^="indexeddb://"], button[data-persisted-href]');
   if (!hasPersisted) {
     finalize();
     return;
@@ -958,7 +958,8 @@ function saveDisplayHistory() {
       clone?.querySelectorAll('[data-preview-bound]').forEach(el => el.removeAttribute('data-preview-bound'));
       clone?.querySelectorAll('[data-download-bound]').forEach(el => el.removeAttribute('data-download-bound'));
       clone?.querySelectorAll('img[data-persisted-src]').forEach(el => {
-        el.setAttribute('src', el.dataset.persistedSrc);
+        el.setAttribute('src', TRANSPARENT_PIXEL);
+        el.classList.add('image-restoring');
         el.removeAttribute('data-object-url');
       });
       clone?.querySelectorAll('a[data-persisted-href]').forEach(el => {
@@ -986,7 +987,10 @@ function normalizePersistedHtml(html) {
   tpl.content.querySelectorAll('[data-preview-bound]').forEach(el => el.removeAttribute('data-preview-bound'));
   tpl.content.querySelectorAll('[data-download-bound]').forEach(el => el.removeAttribute('data-download-bound'));
   tpl.content.querySelectorAll('img[data-persisted-src]').forEach(el => {
-    if (el.dataset.persistedSrc?.startsWith('indexeddb://')) el.setAttribute('src', el.dataset.persistedSrc);
+    if (el.dataset.persistedSrc?.startsWith('indexeddb://')) {
+      el.setAttribute('src', TRANSPARENT_PIXEL);
+      el.classList.add('image-restoring');
+    }
     el.removeAttribute('data-object-url');
   });
   tpl.content.querySelectorAll('a[data-persisted-href]').forEach(el => {

@@ -1293,19 +1293,14 @@ async function sendImage(prompt, options = {}) {
     const attachments = options.attachments || state.attachments;
     let imageRefs = attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
-    if (!imageRefs.length && options.editMode) {
+    if (!imageRefs.length && options.usePreviousImage) {
       const previous = await getPreviousImageAsAttachment();
-      if (!previous) throw new Error('没有可编辑的图片，请先上传图片或生成一张图片');
+      if (!previous) throw new Error('没有可编辑的上一张图片');
       imageRefs = [previous];
       usedPreviousImage = true;
       updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
-    } else if (!imageRefs.length && shouldEditPreviousImage(prompt)) {
-      const previous = await getPreviousImageAsAttachment();
-      if (previous) {
-        imageRefs = [previous];
-        usedPreviousImage = true;
-        updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
-      }
+    } else if (!imageRefs.length && options.editMode) {
+      throw new Error('没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改');
     }
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
     const data = imageRefs.length
@@ -1436,11 +1431,48 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 
-async function getEffectiveMode(prompt, attachments = state.attachments) {
-  if (!state.autoMode) return state.mode;
+function normalizeRoute(route, fallbackMode = 'chat') {
+  const mode = ['chat', 'image', 'edit_image'].includes(route?.mode) ? route.mode : fallbackMode;
+  const target = ['none', 'new', 'uploaded', 'previous'].includes(route?.target)
+    ? route.target
+    : (mode === 'image' ? 'new' : 'none');
+  const confidence = Number.isFinite(Number(route?.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
+  const usePreviousImage = !!route?.use_previous_image || !!route?.usePreviousImage;
+  return {
+    mode,
+    target,
+    usePreviousImage: mode === 'edit_image' && target === 'previous' && usePreviousImage && confidence >= 0.75,
+    confidence,
+  };
+}
+
+function parseRouteResult(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  try {
+    const jsonText = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    return normalizeRoute(JSON.parse(jsonText));
+  } catch {}
+
+  const legacy = text.toLowerCase();
+  if (legacy === 'edit_image') return normalizeRoute({ mode: 'edit_image', target: 'previous', use_previous_image: true, confidence: 0.8 });
+  if (legacy === 'image') return normalizeRoute({ mode: 'image', target: 'new', use_previous_image: false, confidence: 0.8 });
+  if (legacy === 'chat') return normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0.8 });
+  return null;
+}
+
+async function getEffectiveRoute(prompt, attachments = state.attachments) {
+  if (!state.autoMode) {
+    return normalizeRoute({
+      mode: state.mode,
+      target: state.mode === 'image' ? 'new' : 'none',
+      use_previous_image: false,
+      confidence: 1,
+    }, state.mode);
+  }
 
   const cfg = getConfig();
-  // 自动模式下不再使用本地关键词匹配，统一交给已配置的聊天模型判断，避免正则误判。
+  // 自动模式下统一交给聊天模型做结构化路由；上一张图只能作为候选上下文，不能自动触发编辑。
   if (cfg.baseUrl && cfg.chatModel) {
     try {
       const data = await requestJson(`${cfg.baseUrl}/chat/completions`, {
@@ -1449,7 +1481,29 @@ async function getEffectiveMode(prompt, attachments = state.attachments) {
         messages: [
           {
             role: 'system',
-            content: '你是一个中立路由分类器。根据用户当前输入的真实意图，判断后续应该调用哪类能力。若用户期望得到自然语言回复、解释、总结、改写、代码、分析或对话，返回 chat。若用户期望得到由图片生成模型产生的新视觉输出，返回 image。若用户期望基于已上传图片或上一张生成图进行修改、调整、优化、替换、扩展或编辑，返回 edit_image。不要基于关键词机械判断，要理解用户真正想要的输出类型。只能输出 chat、image 或 edit_image 其中一个英文单词，不要输出其他任何内容。',
+            content: `你是一个严格的意图路由分类器。根据用户当前输入的真实意图，判断后续应该调用聊天、新图生成，还是图片编辑。
+
+必须只输出 JSON，不要输出解释或 Markdown。
+
+返回格式：
+{"mode":"chat|image|edit_image","target":"none|new|uploaded|previous","use_previous_image":false,"confidence":0.0}
+
+字段含义：
+- mode=chat：自然语言回复、解释、总结、改写、代码、分析或普通对话。
+- mode=image：用户想得到一张全新的视觉输出。
+- mode=edit_image：用户想基于已上传图片或上一张生成图进行修改、调整、优化、替换、扩展或编辑。
+- target=none：聊天，不涉及图片目标。
+- target=new：新图生成。
+- target=uploaded：基于用户本次上传的图片。
+- target=previous：基于上一张生成图。
+
+判断规则：
+1. 连续多次生图请求，不代表它们有关联。
+2. “已有上一张生成图”只能代表可用上下文，不能自动推断用户要编辑上一张。
+3. 只有用户明确表达“上一张、刚才那张、这张图、基于这张、保持这个人物/构图、把它改成、继续修改”等引用关系时，才能判为 target=previous 且 use_previous_image=true。
+4. 如果用户只是描述一个新的画面，即使上一轮刚生成过图，也必须判为 mode=image、target=new、use_previous_image=false。
+5. 用户本次上传图片，并明确要求修改、优化、换背景、加元素、去元素、转风格时，判为 mode=edit_image、target=uploaded。
+6. 低置信度时，优先不要使用 previous。`,
           },
           {
             role: 'user',
@@ -1459,16 +1513,15 @@ async function getEffectiveMode(prompt, attachments = state.attachments) {
           },
         ],
       }, cfg.apiKey);
-      const text = String(data?.choices?.[0]?.message?.content || data?.output_text || '').trim().toLowerCase();
-      if (text === 'edit_image') return 'edit_image';
-      if (text === 'image') return 'image';
-      if (text === 'chat') return 'chat';
+      const raw = data?.choices?.[0]?.message?.content || data?.output_text || '';
+      const route = parseRouteResult(raw);
+      if (route) return route;
     } catch (err) {
       console.warn('model route failed, fallback to chat:', err);
     }
   }
 
-  return 'chat';
+  return normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0 });
 }
 
 
@@ -1514,12 +1567,15 @@ async function onSubmit(e) {
   $('sendBtn').disabled = true;
 
   let effectiveMode = state.mode;
+  let effectiveRoute = normalizeRoute({ mode: state.mode, target: state.mode === 'image' ? 'new' : 'none', confidence: 1 }, state.mode);
 
   try {
     try {
-      effectiveMode = await getEffectiveMode(prompt, submittedAttachments);
+      effectiveRoute = await getEffectiveRoute(prompt, submittedAttachments);
+      effectiveMode = effectiveRoute.mode;
     } catch (routeErr) {
       effectiveMode = 'chat';
+      effectiveRoute = normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0 });
       console.warn('route failed, fallback to chat:', routeErr);
     }
     updateModeUi(effectiveMode, state.autoMode);
@@ -1532,7 +1588,12 @@ async function onSubmit(e) {
     }
 
     if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments);
-    else await sendImage(prompt, { editMode: effectiveMode === 'edit_image', attachments: submittedAttachments });
+    else await sendImage(prompt, {
+      editMode: effectiveMode === 'edit_image',
+      editTarget: effectiveRoute.target,
+      usePreviousImage: effectiveRoute.usePreviousImage,
+      attachments: submittedAttachments,
+    });
     state.editingIndex = null;
     state.editingNode = null;
   } catch (err) {

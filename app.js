@@ -1631,8 +1631,12 @@ async function onSubmit(e) {
 
 function autoResize() {
   const el = $('prompt');
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const maxHeight = Math.round(window.innerHeight * (isMobile ? 0.36 : 0.42));
+  const minHeight = isMobile ? 42 : 52;
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+  el.style.height = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight)) + 'px';
+  el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
 
 ['baseUrl', 'apiKey', 'chatModel', 'imageModel', 'imageSize', 'directMode'].forEach(id => {

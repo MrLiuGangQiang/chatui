@@ -450,9 +450,11 @@ button { cursor: pointer; }
 .composer textarea {
   height: 52px;
   min-height: 52px;
+  max-height: min(42vh, 420px);
   line-height: 22px;
-  overflow-y: auto;
-  white-space: nowrap;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .composer textarea::placeholder {
   white-space: nowrap;
@@ -472,10 +474,12 @@ button { cursor: pointer; }
   .composer textarea {
     height: 42px;
     min-height: 42px;
+    max-height: 36vh;
     line-height: 20px;
     padding-top: 10px;
     padding-bottom: 10px;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 }
 @media (max-width: 420px) {
@@ -999,11 +1003,12 @@ body {
     width: 1px;
     height: 42px !important;
     min-height: 42px !important;
-    max-height: 116px !important;
+    max-height: 36vh !important;
     padding: 10px 11px !important;
     font-size: 14px !important;
     line-height: 20px !important;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .composer button[type="submit"] {
     flex: 0 0 48px;

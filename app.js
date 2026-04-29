@@ -1310,6 +1310,9 @@ async function sendImage(prompt, options = {}) {
     const result = await imageResultToHtml(data, elapsedText, { prompt });
     if (usedPreviousImage) result.html = result.html.replace('生成完成', '基于上一张图修改完成');
     updateMessage(loading, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+    state.messages.push({ role: 'user', content: prompt });
+    state.messages.push({ role: 'assistant', content: usedPreviousImage ? `[图片编辑完成] ${prompt}` : `[图片生成完成] ${prompt}` });
+    saveChatHistory();
     playDoneSound();
   } finally {
     if (timer) clearInterval(timer);
@@ -1431,6 +1434,21 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 
+function buildRouteContext(limit = 8) {
+  const history = state.messages.slice(-limit).map((msg, idx) => ({
+    index: idx + 1,
+    role: msg.role,
+    content: String(msg.content || '').slice(0, 600),
+  }));
+  return {
+    recent_messages: history,
+    last_generated_image: state.lastGeneratedImage ? {
+      prompt: String(state.lastGeneratedImage.prompt || '').slice(0, 800),
+      updated_at: state.lastGeneratedImage.updatedAt || null,
+    } : null,
+  };
+}
+
 function normalizeRoute(route, fallbackMode = 'chat') {
   const mode = ['chat', 'image', 'edit_image'].includes(route?.mode) ? route.mode : fallbackMode;
   const target = ['none', 'new', 'uploaded', 'previous'].includes(route?.target)
@@ -1500,20 +1518,22 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
 - target=previous：基于上一张生成图。
 
 判断规则：
-1. 你必须基于“当前用户输入”的语义判断，而不是基于关键词或上一轮状态机械判断。
-2. 连续多次生图请求，不代表它们有关联；上一张生成图只是可用资源，不是默认目标。
-3. 如果用户要求新的视觉输出，判为 mode=image、target=new、use_previous_image=false。
-4. 只有当当前用户输入明确表达要引用、继承、修改、保持或延续上一张图时，才允许判为 target=previous 且 use_previous_image=true。
-5. 如果判为 use_previous_image=true，evidence 必须摘录当前用户输入中支持该判断的原文片段；如果没有这样的原文证据，必须判为 use_previous_image=false。
+1. 你必须综合当前用户输入、最近多轮会话、上一张生成图的原始提示词，判断当前任务是否承接历史。
+2. 最近会话只用于理解省略、指代和任务承接；不能因为历史里有图片任务，就默认当前任务要修改上一张图。
+3. 连续多次生图请求不代表有关联。当前输入如果是完整的新主题/新画面要求，通常是 mode=image、target=new、use_previous_image=false。
+4. 只有当当前输入结合最近会话后，明确表达要引用、继承、修改、保持或延续某张历史图片时，才允许 target=previous 且 use_previous_image=true。
+5. 如果判为 use_previous_image=true，evidence 必须说明依据：摘录当前输入中的指代/修改表达，必要时再引用最近会话中被指代的图片任务。没有证据则 use_previous_image=false。
 6. 用户本次上传图片，并且当前输入明确要求处理该图片时，判为 mode=edit_image、target=uploaded。
-7. 如果不确定是否要使用上一张图，必须优先判为 target=new 或 target=none，不要使用 previous。
-8. 用户输入里的“生成一张、画一张、创建、设计、做一张”等表达通常表示新任务；除非同一句明确引用上一张图，否则不要使用 previous。`,
+7. 如果不确定是否承接历史图片，必须优先判为 target=new 或 target=none，不要使用 previous。
+8. 输出只允许 JSON。`,
           },
           {
             role: 'user',
-            content: `用户输入：${prompt}
-附件：${attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
-是否存在可用的上一张生成图：${state.lastGeneratedImage ? '是，但只有当前用户输入明确引用/继承/修改上一张图时才可使用' : '否'}`,
+            content: JSON.stringify({
+              current_input: prompt,
+              attachments: attachments.map(f => ({ name: f.name, type: f.type })),
+              context: buildRouteContext(8),
+            }, null, 2),
           },
         ],
       }, cfg.apiKey);

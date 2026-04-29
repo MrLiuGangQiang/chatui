@@ -1437,11 +1437,13 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     ? route.target
     : (mode === 'image' ? 'new' : 'none');
   const confidence = Number.isFinite(Number(route?.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
-  const usePreviousImage = !!route?.use_previous_image || !!route?.usePreviousImage;
+  const evidence = String(route?.evidence || '').trim();
+  const wantsPrevious = !!route?.use_previous_image || !!route?.usePreviousImage;
   return {
     mode,
     target,
-    usePreviousImage: mode === 'edit_image' && target === 'previous' && usePreviousImage && confidence >= 0.75,
+    evidence,
+    usePreviousImage: mode === 'edit_image' && target === 'previous' && wantsPrevious && confidence >= 0.75 && evidence.length > 0,
     confidence,
   };
 }
@@ -1455,20 +1457,10 @@ function parseRouteResult(raw) {
   } catch {}
 
   const legacy = text.toLowerCase();
-  if (legacy === 'edit_image') return normalizeRoute({ mode: 'edit_image', target: 'previous', use_previous_image: true, confidence: 0.8 });
+  if (legacy === 'edit_image') return normalizeRoute({ mode: 'edit_image', target: 'previous', use_previous_image: false, confidence: 0.5, evidence: '' });
   if (legacy === 'image') return normalizeRoute({ mode: 'image', target: 'new', use_previous_image: false, confidence: 0.8 });
   if (legacy === 'chat') return normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0.8 });
   return null;
-}
-
-function hasPreviousImageReference(prompt) {
-  return /(上一张|上张|刚才那张|刚刚那张|这张图|这个图|该图|原图|基于这张|基于上一张|参考上一张|保持.*(人物|角色|主体|构图|风格)|继续修改|不要重画|在此基础上|把它|将它|改成|换成|去掉|替换|edit\s+(this|previous)|modify\s+(this|previous)|based on (this|the previous)|previous image)/i.test(prompt);
-}
-
-function isExplicitNewImagePrompt(prompt, attachments = state.attachments) {
-  if (attachments.some(f => isImageFile(f))) return false;
-  if (hasPreviousImageReference(prompt)) return false;
-  return /(生成|画|绘制|做|设计|出|创建|制作|来一张|生成一张|画一张|做一张|设计一张|create|generate|draw|make)\s*.*(图|图片|图像|海报|插画|信息图|图鉴|视觉|image|poster|illustration|infographic)/i.test(prompt);
 }
 
 async function getEffectiveRoute(prompt, attachments = state.attachments) {
@@ -1479,10 +1471,6 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
       use_previous_image: false,
       confidence: 1,
     }, state.mode);
-  }
-
-  if (isExplicitNewImagePrompt(prompt, attachments)) {
-    return normalizeRoute({ mode: 'image', target: 'new', use_previous_image: false, confidence: 1 });
   }
 
   const cfg = getConfig();
@@ -1500,7 +1488,7 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
 必须只输出 JSON，不要输出解释或 Markdown。
 
 返回格式：
-{"mode":"chat|image|edit_image","target":"none|new|uploaded|previous","use_previous_image":false,"confidence":0.0}
+{"mode":"chat|image|edit_image","target":"none|new|uploaded|previous","use_previous_image":false,"confidence":0.0,"evidence":""}
 
 字段含义：
 - mode=chat：自然语言回复、解释、总结、改写、代码、分析或普通对话。
@@ -1512,18 +1500,20 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
 - target=previous：基于上一张生成图。
 
 判断规则：
-1. 连续多次生图请求，不代表它们有关联。
-2. “已有上一张生成图”只能代表可用上下文，不能自动推断用户要编辑上一张。
-3. 只有用户明确表达“上一张、刚才那张、这张图、基于这张、保持这个人物/构图、把它改成、继续修改”等引用关系时，才能判为 target=previous 且 use_previous_image=true。
-4. 如果用户只是描述一个新的画面，即使上一轮刚生成过图，也必须判为 mode=image、target=new、use_previous_image=false。
-5. 用户本次上传图片，并明确要求修改、优化、换背景、加元素、去元素、转风格时，判为 mode=edit_image、target=uploaded。
-6. 低置信度时，优先不要使用 previous。`,
+1. 你必须基于“当前用户输入”的语义判断，而不是基于关键词或上一轮状态机械判断。
+2. 连续多次生图请求，不代表它们有关联；上一张生成图只是可用资源，不是默认目标。
+3. 如果用户要求新的视觉输出，判为 mode=image、target=new、use_previous_image=false。
+4. 只有当当前用户输入明确表达要引用、继承、修改、保持或延续上一张图时，才允许判为 target=previous 且 use_previous_image=true。
+5. 如果判为 use_previous_image=true，evidence 必须摘录当前用户输入中支持该判断的原文片段；如果没有这样的原文证据，必须判为 use_previous_image=false。
+6. 用户本次上传图片，并且当前输入明确要求处理该图片时，判为 mode=edit_image、target=uploaded。
+7. 如果不确定是否要使用上一张图，必须优先判为 target=new 或 target=none，不要使用 previous。
+8. 用户输入里的“生成一张、画一张、创建、设计、做一张”等表达通常表示新任务；除非同一句明确引用上一张图，否则不要使用 previous。`,
           },
           {
             role: 'user',
             content: `用户输入：${prompt}
 附件：${attachments.map(f => `${f.name} ${f.type}`).join(', ') || '无'}
-上一张生成图上下文：${state.lastGeneratedImage && hasPreviousImageReference(prompt) ? '用户疑似明确引用，可作为候选' : '未明确引用，不要使用上一张图'}`,
+是否存在可用的上一张生成图：${state.lastGeneratedImage ? '是，但只有当前用户输入明确引用/继承/修改上一张图时才可使用' : '否'}`,
           },
         ],
       }, cfg.apiKey);

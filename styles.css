@@ -52,6 +52,7 @@ button { cursor: pointer; }
 .ghost-btn:hover { background: #f5f5f5; }
 .messages { overflow-y: auto; padding: 28px 28px 116px; }
 .empty { max-width: 680px; margin: 14vh auto 0; text-align: center; color: var(--muted); }
+.app-booting .empty { visibility: hidden; }
 .empty-icon { font-size: 42px; }
 .empty h3 { color: var(--text); margin-bottom: 8px; }
 .empty code { background: #fff; padding: 2px 5px; border-radius: 5px; }
@@ -1637,6 +1638,39 @@ body {
   .markdown-body img.generated-thumb {
     max-width: 68vw !important;
     max-height: 68vw !important;
+  }
+}
+
+.content img.image-restoring,
+.markdown-body img.image-restoring {
+  width: min(360px, 72vw) !important;
+  height: min(240px, 48vw) !important;
+  min-height: 140px;
+  border: 1px solid rgba(148,163,184,.32);
+  background: linear-gradient(90deg, #eef2f7 0%, #f8fafc 45%, #eef2f7 90%);
+  background-size: 220% 100%;
+  animation: imageLoadingShimmer 1.15s ease-in-out infinite;
+  object-fit: contain;
+}
+
+.content img.image-missing,
+.markdown-body img.image-missing {
+  min-height: 96px;
+  border: 1px dashed rgba(239,68,68,.45);
+  background: #fff5f5;
+}
+
+@keyframes imageLoadingShimmer {
+  0% { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+
+@media (max-width: 640px) {
+  .content img.image-restoring,
+  .markdown-body img.image-restoring {
+    width: 68vw !important;
+    height: 45vw !important;
+    min-height: 120px;
   }
 }
 

@@ -18,6 +18,7 @@ const UI_KEY = 'openapi-chat-image-ui-v1';
 const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
+const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 let doneAudioCtx = null;
 
 async function unlockDoneSound() {
@@ -111,18 +112,22 @@ async function dataUrlToBlob(dataUrl) {
   return res.blob();
 }
 async function persistImageSrc(src, filename, options = {}) {
-  if (!src) return src;
+  if (!src) return options.returnDisplayUrl ? { persistedSrc: src, displaySrc: src } : src;
   let blob = null;
   if (src.startsWith('data:')) {
     blob = await dataUrlToBlob(src);
   } else if (/^https?:\/\//i.test(src)) {
     blob = await fetchImageBlob(src, options);
   } else {
-    return src;
+    return options.returnDisplayUrl ? { persistedSrc: src, displaySrc: src } : src;
   }
   const key = `img-${Date.now()}-${Math.random().toString(16).slice(2)}-${filename || 'image.png'}`;
   await putImageBlob(key, blob);
-  return `indexeddb://${key}`;
+  const persistedSrc = `indexeddb://${key}`;
+  if (options.returnDisplayUrl) {
+    return { persistedSrc, displaySrc: URL.createObjectURL(blob) };
+  }
+  return persistedSrc;
 }
 
 async function fetchImageBlob(url, { baseUrl = '', apiKey = '', directMode = true } = {}) {
@@ -156,10 +161,20 @@ async function resolvePersistedImages(scope = document) {
       : (node.dataset.persistedHref || node.getAttribute('href') || '');
     if (!persisted.startsWith('indexeddb://')) continue;
     const key = persisted.replace('indexeddb://', '');
+    if (isImage) {
+      node.dataset.persistedSrc = persisted;
+      node.classList.add('image-restoring');
+      node.alt = node.alt || '图片加载中';
+      if ((node.getAttribute('src') || '').startsWith('indexeddb://')) node.setAttribute('src', TRANSPARENT_PIXEL);
+    }
     try {
       const blob = await getImageBlob(key);
       if (!blob) {
-        if (isImage) node.alt = '图片缓存不存在，请重新生成';
+        if (isImage) {
+          node.classList.remove('image-restoring');
+          node.classList.add('image-missing');
+          node.alt = '图片缓存不存在，请重新生成';
+        }
         continue;
       }
       const oldObjectUrl = node.dataset.objectUrl;
@@ -168,8 +183,13 @@ async function resolvePersistedImages(scope = document) {
       node.dataset.persistedUrl = persisted;
       node.dataset.objectUrl = objectUrl;
       if (isImage) {
-        node.dataset.persistedSrc = persisted;
+        node.onload = () => node.classList.remove('image-restoring');
+        node.onerror = () => {
+          node.classList.remove('image-restoring');
+          node.classList.add('image-missing');
+        };
         node.setAttribute('src', objectUrl);
+        if (node.complete && node.naturalWidth > 0) node.classList.remove('image-restoring');
       } else if (node.tagName === 'A') {
         node.dataset.persistedHref = persisted;
         node.setAttribute('href', objectUrl);
@@ -177,6 +197,7 @@ async function resolvePersistedImages(scope = document) {
         node.dataset.persistedHref = persisted;
       }
     } catch (err) {
+      if (isImage) node.classList.remove('image-restoring');
       console.warn('restore image failed', err);
     }
   }
@@ -1233,12 +1254,14 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   if (!src) return { html: `${elapsedText ? `<p class="image-time">耗时：${escapeHtml(elapsedText)}</p>` : ''}<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`, raw: JSON.stringify(data, null, 2) };
   const filename = `generated-${Date.now()}.png`;
   const cfg = getConfig();
-  const persistedSrc = await persistImageSrc(src, filename, cfg);
+  const persistedImage = await persistImageSrc(src, filename, { ...cfg, returnDisplayUrl: true });
+  const persistedSrc = persistedImage.persistedSrc || src;
+  const displaySrc = persistedImage.displaySrc || persistedSrc;
   state.lastGeneratedImage = { src: persistedSrc, filename, prompt: meta.prompt || '', updatedAt: Date.now() };
   saveLastGeneratedImage();
   return {
     raw: url || '[base64 image]',
-    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(persistedSrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
+    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(displaySrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
   };
 }
 
@@ -1589,3 +1612,4 @@ loadLastGeneratedImage();
 loadChatHistory({ render: false });
 if (!loadDisplayHistory()) loadChatHistory({ render: true });
 updateModeUi(state.mode, state.autoMode);
+requestAnimationFrame(() => document.body.classList.remove('app-booting'));

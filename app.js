@@ -353,7 +353,14 @@ function addMessage(role, content, options = {}) {
     editBtn.remove();
   }
 
-  node.querySelector('.copy-btn').addEventListener('click', async () => {
+  const refreshBtn = node.querySelector('.refresh-btn');
+  if (role === 'assistant') {
+    refreshBtn.addEventListener('click', () => regenerateAssistantMessage(node));
+  } else {
+    refreshBtn.remove();
+  }
+
+  node.querySelector('.copy-btn')?.addEventListener('click', async () => {
     await copyText(node.dataset.rawText || box.innerText);
     const btn = node.querySelector('.copy-btn');
     btn.classList.add('copied');
@@ -461,18 +468,18 @@ function moveImageActionsToMessageActions(node) {
   const actions = node.querySelector('.msg-actions');
   if (!row || !actions) return;
 
-  // AI 生成图片结果只保留图片相关操作，不显示“复制消息”按钮。
+  // AI 生成图片结果只保留图片相关操作和刷新按钮，不显示“复制消息”按钮。
   actions.querySelector('.copy-btn')?.remove();
 
   // msg-actions 不会进入历史缓存；每次渲染/恢复都从内容区的原始按钮克隆一份。
   actions.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
-  const copyBtn = actions.querySelector('.copy-btn');
+  const refreshBtn = actions.querySelector('.refresh-btn');
   row.querySelectorAll('a,button').forEach(action => {
     const cloned = action.cloneNode(true);
     cloned.dataset.imageActionClone = '1';
     cloned.classList.add('icon-action-btn');
     if (cloned.dataset.downloadImage) bindImageDownload(cloned);
-    if (copyBtn) actions.insertBefore(cloned, copyBtn);
+    if (refreshBtn) actions.insertBefore(cloned, refreshBtn);
     else actions.appendChild(cloned);
   });
 }
@@ -579,6 +586,64 @@ function applyPendingEdit(newText) {
   state.editingNode = null;
   delete $('prompt').dataset.editing;
   return true;
+}
+
+function findPreviousUserMessageNode(node) {
+  let current = node?.previousElementSibling;
+  while (current) {
+    if (current.classList.contains('user')) return current;
+    current = current.previousElementSibling;
+  }
+  return null;
+}
+
+async function regenerateAssistantMessage(node) {
+  if (state.busy) return;
+  const userNode = findPreviousUserMessageNode(node);
+  const prompt = (userNode?.dataset.rawText || '').trim();
+  if (!prompt) {
+    toast('找不到上一条提示词，无法重新生成');
+    return;
+  }
+
+  let userIndex = Number(userNode.dataset.messageIndex);
+  if (!Number.isFinite(userIndex)) userIndex = Math.max(0, state.messages.length - 2);
+  const hadGeneratedImage = !!node.querySelector('img.generated-thumb');
+
+  // 删除当前回复及其后的旧分支，并把上下文回退到对应用户消息之前，随后复用同一条提示重新请求。
+  let current = node;
+  while (current) {
+    const next = current.nextElementSibling;
+    current.remove();
+    current = next;
+  }
+  state.messages = state.messages.slice(0, userIndex);
+  saveChatHistory();
+  saveDisplayHistory();
+
+  state.busy = true;
+  $('sendBtn').disabled = true;
+  try {
+    const route = hadGeneratedImage
+      ? normalizeRoute({ mode: 'image', target: 'new', confidence: 1 }, 'image')
+      : await getEffectiveRoute(prompt, []);
+    const mode = hadGeneratedImage ? 'image' : route.mode;
+    updateModeUi(mode, state.autoMode);
+    if (warnMissingModel(mode, true)) return;
+    if (mode === 'chat') await sendChat(prompt, []);
+    else await sendImage(prompt, {
+      editMode: mode === 'edit_image',
+      editTarget: route.target,
+      usePreviousImage: route.usePreviousImage,
+      attachments: [],
+    });
+  } catch (err) {
+    addMessage('error', err.message || String(err), { rawText: err.message || String(err) });
+  } finally {
+    state.busy = false;
+    $('sendBtn').disabled = false;
+    $('prompt').focus();
+  }
 }
 
 async function copyText(text) {

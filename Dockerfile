@@ -20,7 +20,7 @@ ENV NODE_ENV=production \
     PORT=8765
 
 COPY --from=node-runtime /node-root/ /
-COPY server.js index.html app.js styles.css ./
+COPY server.js index.html app.js styles.css favicon.svg ./
 
 EXPOSE 8765
 CMD ["node", "server.js"]

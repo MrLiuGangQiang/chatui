@@ -609,6 +609,10 @@ async function regenerateAssistantMessage(node) {
   let userIndex = Number(userNode.dataset.messageIndex);
   if (!Number.isFinite(userIndex)) userIndex = Math.max(0, state.messages.length - 2);
   const hadGeneratedImage = !!node.querySelector('img.generated-thumb');
+  let imageContext = null;
+  if (hadGeneratedImage && node.dataset.imageContext) {
+    try { imageContext = JSON.parse(node.dataset.imageContext); } catch {}
+  }
 
   // 删除当前回复及其后的旧分支，并把上下文回退到对应用户消息之前，随后复用同一条提示重新请求。
   let current = node;
@@ -624,18 +628,26 @@ async function regenerateAssistantMessage(node) {
   state.busy = true;
   $('sendBtn').disabled = true;
   try {
+    const restoredAttachments = hadGeneratedImage ? await restoreImageAttachmentsFromContext(imageContext) : [];
     const route = hadGeneratedImage
-      ? normalizeRoute({ mode: 'image', target: 'new', confidence: 1 }, 'image')
+      ? normalizeRoute({
+          mode: restoredAttachments.length ? 'edit_image' : 'image',
+          target: restoredAttachments.length ? (imageContext?.target || 'uploaded') : 'new',
+          use_previous_image: !!imageContext?.usePreviousImage,
+          confidence: 1,
+          evidence: restoredAttachments.length ? '刷新复用原图片上下文' : '',
+        }, 'image')
       : await getEffectiveRoute(prompt, []);
-    const mode = hadGeneratedImage ? 'image' : route.mode;
+    const mode = route.mode;
     updateModeUi(mode, state.autoMode);
     if (warnMissingModel(mode, true)) return;
     if (mode === 'chat') await sendChat(prompt, []);
     else await sendImage(prompt, {
       editMode: mode === 'edit_image',
       editTarget: route.target,
-      usePreviousImage: route.usePreviousImage,
-      attachments: [],
+      usePreviousImage: false,
+      attachments: restoredAttachments,
+      imageContext,
     });
   } catch (err) {
     addMessage('error', err.message || String(err), { rawText: err.message || String(err) });
@@ -833,19 +845,22 @@ async function urlToImageFile(url, filename = 'previous-image.png') {
   return new File([blob], filename, { type: blob.type || 'image/png' });
 }
 
+async function imageRefToFile(src, filename = 'previous-image.png') {
+  if (!src) return null;
+  if (src.startsWith('indexeddb://')) {
+    const blob = await getImageBlob(src.replace('indexeddb://', ''));
+    if (!blob) throw new Error('图片缓存不存在，无法继续编辑');
+    return new File([blob], filename, { type: blob.type || 'image/png' });
+  }
+  return src.startsWith('data:')
+    ? await dataUrlToFile(src, filename)
+    : await urlToImageFile(src, filename);
+}
+
 async function getPreviousImageAsAttachment() {
   const img = state.lastGeneratedImage;
   if (!img?.src) return null;
-  let file;
-  if (img.src.startsWith('indexeddb://')) {
-    const blob = await getImageBlob(img.src.replace('indexeddb://', ''));
-    if (!blob) throw new Error('上一张图片缓存不存在，无法继续编辑');
-    file = new File([blob], img.filename || 'previous-image.png', { type: blob.type || 'image/png' });
-  } else {
-    file = img.src.startsWith('data:')
-      ? await dataUrlToFile(img.src, img.filename || 'previous-image.png')
-      : await urlToImageFile(img.src, img.filename || 'previous-image.png');
-  }
+  const file = await imageRefToFile(img.src, img.filename || 'previous-image.png');
   return {
     file,
     name: file.name,
@@ -855,6 +870,48 @@ async function getPreviousImageAsAttachment() {
     text: '',
     fromPrevious: true,
   };
+}
+
+function serializeImageAttachment(item) {
+  if (!item || !isImageFile(item)) return null;
+  const src = item.dataUrl || item.src || '';
+  if (!src) return null;
+  return {
+    name: item.name || item.file?.name || 'image.png',
+    type: item.type || item.file?.type || 'image/png',
+    src,
+    fromPrevious: !!item.fromPrevious,
+  };
+}
+
+function setImageContext(node, context) {
+  if (!node || !context) return;
+  node.dataset.imageContext = JSON.stringify({
+    prompt: context.prompt || '',
+    mode: context.mode || 'image',
+    target: context.target || 'new',
+    usePreviousImage: !!context.usePreviousImage,
+    attachments: (context.attachments || []).map(serializeImageAttachment).filter(Boolean),
+  });
+}
+
+async function restoreImageAttachmentsFromContext(context) {
+  const refs = Array.isArray(context?.attachments) ? context.attachments : [];
+  const restored = [];
+  for (const ref of refs) {
+    if (!ref?.src) continue;
+    const file = await imageRefToFile(ref.src, ref.name || 'image.png');
+    restored.push({
+      file,
+      name: ref.name || file.name,
+      type: ref.type || file.type || 'image/png',
+      size: file.size,
+      dataUrl: ref.src,
+      text: '',
+      fromPrevious: !!ref.fromPrevious,
+    });
+  }
+  return restored;
 }
 
 function shouldEditPreviousImage(prompt) {
@@ -1049,6 +1106,7 @@ function saveDisplayHistory() {
         reasoningText,
         keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || '',
+        imageContext: node.dataset.imageContext || '',
       };
     }).slice(-80);
   try { localStorage.setItem(UI_KEY, JSON.stringify(items)); } catch (err) { console.warn('save display history failed', err); }
@@ -1093,6 +1151,7 @@ function loadDisplayHistory() {
         deferSave: true,
       });
       const node = $('messages').lastElementChild;
+      if (item.imageContext && node) node.dataset.imageContext = item.imageContext;
       if (item.reasoningText && node) updateReasoning(node, item.reasoningText, { done: true, keepReasoning: item.keepReasoning !== false });
     });
     hydrateMessageMedia($('messages'), { save: false });
@@ -1401,14 +1460,23 @@ async function sendImage(prompt, options = {}) {
     } else if (!imageRefs.length && options.editMode) {
       throw new Error('没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改');
     }
+    const imageContext = {
+      prompt,
+      mode: imageRefs.length ? 'edit_image' : 'image',
+      target: usedPreviousImage ? 'previous' : (imageRefs.length ? (options.editTarget || 'uploaded') : 'new'),
+      usePreviousImage: usedPreviousImage || !!options.imageContext?.usePreviousImage,
+      attachments: imageRefs.map(serializeImageAttachment).filter(Boolean),
+    };
+    setImageContext(loading, imageContext);
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
     const data = imageRefs.length
       ? await requestMultipart(`${cfg.baseUrl}/images/edits`, payload, imageRefs, cfg.apiKey)
       : await requestJson(`${cfg.baseUrl}/images/generations`, payload, cfg.apiKey);
     const elapsedText = formatElapsed(performance.now() - requestStart);
     const result = await imageResultToHtml(data, elapsedText, { prompt });
-    if (usedPreviousImage) result.html = result.html.replace('生成完成', '基于上一张图修改完成');
+    if (usedPreviousImage || imageContext.mode === 'edit_image') result.html = result.html.replace('生成完成', usedPreviousImage ? '基于上一张图修改完成' : '图片修改完成');
     updateMessage(loading, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+    setImageContext(loading, imageContext);
     state.messages.push({ role: 'user', content: prompt });
     state.messages.push({ role: 'assistant', content: usedPreviousImage ? `[图片编辑完成] ${prompt}` : `[图片生成完成] ${prompt}` });
     saveChatHistory();

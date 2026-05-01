@@ -280,8 +280,18 @@ function saveConfig(silent = false) {
 }
 
 function toast(text) {
-  const msg = addMessage('assistant', text, { rawText: text, transient: true });
-  setTimeout(() => msg?.remove(), 1600);
+  let el = document.querySelector('.toast-popup');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'toast-popup';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
 
@@ -479,37 +489,62 @@ function moveImageActionsToMessageActions(node) {
     cloned.dataset.imageActionClone = '1';
     cloned.classList.add('icon-action-btn');
     if (cloned.dataset.downloadImage) bindImageDownload(cloned);
+    if (cloned.dataset.shareImage) bindImageShare(cloned);
     if (refreshBtn) actions.insertBefore(cloned, refreshBtn);
     else actions.appendChild(cloned);
   });
 }
 
+function downloadImageButtonHtml(persistedSrc, filename) {
+  const persisted = escapeAttr(persistedSrc);
+  const safeFilename = escapeAttr(filename);
+  return `<button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${persisted}" data-filename="${safeFilename}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>`;
+}
+
+function shareImageButtonHtml(persistedSrc, filename) {
+  const persisted = escapeAttr(persistedSrc);
+  const safeFilename = escapeAttr(filename);
+  return `<button class="image-icon-btn" type="button" data-share-image="1" data-persisted-href="${persisted}" data-filename="${safeFilename}" title="分享图片" aria-label="分享图片"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6 15.4 6.4"/><path d="M8.6 13.4 15.4 17.6"/></svg></button>`;
+}
+
+function imageActionButtonsHtml(persistedSrc, filename) {
+  return downloadImageButtonHtml(persistedSrc, filename) + shareImageButtonHtml(persistedSrc, filename);
+}
+
 function ensureImageDownloadRow(node) {
-  if (node.querySelector('.image-download-row')) return;
   const img = node.querySelector('img.generated-thumb[data-persisted-src]');
   if (!img?.dataset.persistedSrc) return;
   const filename = img.dataset.filename || `generated-${Date.now()}.png`;
-  const row = document.createElement('div');
-  row.className = 'image-download-row';
-  row.innerHTML = `<button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeAttr(img.dataset.persistedSrc)}" data-filename="${escapeAttr(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>`;
-  img.insertAdjacentElement('afterend', row);
+  let row = node.querySelector('.image-download-row');
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'image-download-row';
+    img.insertAdjacentElement('afterend', row);
+  }
+  if (!row.querySelector('[data-download-image]')) {
+    row.insertAdjacentHTML('afterbegin', downloadImageButtonHtml(img.dataset.persistedSrc, filename));
+  }
+  if (!row.querySelector('[data-share-image]')) {
+    const downloadBtn = row.querySelector('[data-download-image]');
+    downloadBtn?.insertAdjacentHTML('afterend', shareImageButtonHtml(img.dataset.persistedSrc, filename));
+  }
+}
+
+async function getImageActionBlob(btn) {
+  const persisted = btn.dataset.persistedHref || '';
+  const key = persisted.replace('indexeddb://', '');
+  const blob = await getImageBlob(key);
+  if (!blob) throw new Error('图片缓存不存在，请重新生成');
+  return blob;
 }
 
 function bindImageDownload(btn) {
   if (btn.dataset.downloadBound) return;
   btn.dataset.downloadBound = '1';
   btn.addEventListener('click', async () => {
-    const persisted = btn.dataset.persistedHref || '';
     const filename = btn.dataset.filename || 'generated-image.png';
-    const key = persisted.replace('indexeddb://', '');
     try {
-      const blob = await getImageBlob(key);
-      if (!blob) throw new Error('图片缓存不存在，请重新生成');
-      const file = new File([blob], filename, { type: blob.type || 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename });
-        return;
-      }
+      const blob = await getImageActionBlob(btn);
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = objectUrl;
@@ -520,6 +555,23 @@ function bindImageDownload(btn) {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
     } catch (err) {
+      toast(err.message || String(err));
+    }
+  });
+}
+
+function bindImageShare(btn) {
+  if (btn.dataset.shareBound) return;
+  btn.dataset.shareBound = '1';
+  btn.addEventListener('click', async () => {
+    const filename = btn.dataset.filename || 'generated-image.png';
+    try {
+      const blob = await getImageActionBlob(btn);
+      const file = new File([blob], filename, { type: blob.type || 'image/png' });
+      if (!navigator.share || !navigator.canShare?.({ files: [file] })) throw new Error('当前浏览器不支持文件分享');
+      await navigator.share({ files: [file], title: filename });
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
       toast(err.message || String(err));
     }
   });
@@ -1423,7 +1475,7 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   saveLastGeneratedImage();
   return {
     raw: url || '[base64 image]',
-    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(displaySrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row"><button class="image-icon-btn" type="button" data-download-image="1" data-persisted-href="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></button>${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
+    html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(displaySrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row">${imageActionButtonsHtml(persistedSrc, filename)}${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
   };
 }
 

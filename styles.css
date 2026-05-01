@@ -1190,7 +1190,7 @@ body {
   stroke-linejoin: round;
 }
 .refresh-btn {
-  color: #2563eb;
+  color: #555;
 }
 .refresh-btn svg path {
   stroke-width: 2.25;
@@ -1644,7 +1644,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.image-download-row { display: none !important; }
+.content .image-download-row { display: none !important; }
 @media (max-width: 640px) {
   .msg-actions .image-icon-btn {
     width: 28px;
@@ -1824,14 +1824,43 @@ body {
 .msg-actions {
   gap: 3px !important;
 }
-.image-download-row {
+.content .image-download-row {
   gap: 3px !important;
 }
 
 /* extra compact message action spacing */
 .msg-actions,
-.image-download-row {
+.content .image-download-row {
   gap: 1px !important;
+}
+
+.toast-popup {
+  position: fixed;
+  left: 50%;
+  top: 22px;
+  transform: translate(-50%, 0);
+  z-index: 9999;
+  max-width: min(520px, calc(100vw - 28px));
+  padding: 13px 18px;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  box-shadow: 0 16px 40px rgba(146,64,14,.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+.toast-popup::before {
+  content: '⚠️';
+  margin-right: 8px;
+}
+.toast-popup.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 /* slightly smaller top toolbar radius */

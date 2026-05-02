@@ -21,6 +21,11 @@ const REASONING_PERSIST_KEY = 'openapi-chat-reasoning-persist-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const IMAGE_UPLOAD_LIMITS = {
+  maxLongEdge: 2048,
+  maxBytes: 20 * 1024 * 1024,
+  minQuality: 0.72,
+};
 let doneAudioCtx = null;
 
 async function unlockDoneSound() {
@@ -836,8 +841,10 @@ function renderAttachments() {
   bar.innerHTML = state.attachments.map((file, index) => {
     const isImage = file.type.startsWith('image/');
     const thumb = isImage ? `<img src="${escapeHtml(file.dataUrl)}" alt="" />` : `<span class="file-icon">${escapeHtml(file.name.split('.').pop() || 'FILE')}</span>`;
-    const status = file.text || file.dataUrl ? '' : `<em title="${escapeHtml(file.unsupportedReason || '暂不支持解析')}">未解析</em>`;
-    return `<div class="attachment-chip" title="${escapeHtml(file.unsupportedReason || file.name)}">${thumb}<span>${escapeHtml(file.name)}</span>${status}<button type="button" data-remove-attachment="${index}">×</button></div>`;
+    const status = file.compressionNote
+      ? `<em title="${escapeHtml(file.compressionNote)}">已压缩</em>`
+      : (file.text || file.dataUrl ? '' : `<em title="${escapeHtml(file.unsupportedReason || '暂不支持解析')}">未解析</em>`);
+    return `<div class="attachment-chip" title="${escapeHtml(file.compressionNote || file.unsupportedReason || file.name)}">${thumb}<span>${escapeHtml(file.name)}</span>${status}<button type="button" data-remove-attachment="${index}">×</button></div>`;
   }).join('');
   bar.classList.toggle('show', state.attachments.length > 0);
   bar.querySelectorAll('[data-remove-attachment]').forEach(btn => {
@@ -854,7 +861,79 @@ function isBmpFile(item) {
 }
 
 function replaceExt(name, ext) {
-  return String(name || 'image').replace(/\.[^.]*$/, '') + ext;
+  const source = String(name || 'image');
+  return source.includes('.') ? source.replace(/\.[^.]*$/, ext) : `${source}${ext}`;
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${n}B`;
+}
+
+function isCompressibleRasterImage(file) {
+  const type = file.type || inferMimeByName(file.name);
+  return /image\/(png|jpe?g|webp)/i.test(type) || /\.(png|jpe?g|webp)$/i.test(file.name || '');
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(result => result ? resolve(result) : reject(new Error('图片压缩失败')), type, quality);
+  });
+}
+
+async function compressImageIfNeeded(file, limits = IMAGE_UPLOAD_LIMITS) {
+  if (!isCompressibleRasterImage(file)) return { file, changed: false };
+  let bitmap = null;
+  try {
+    bitmap = await createImageBitmap(file);
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    const overResolution = longEdge > limits.maxLongEdge;
+    const overBytes = file.size > limits.maxBytes;
+    if (!overResolution && !overBytes) return { file, changed: false };
+
+    const scale = Math.min(1, limits.maxLongEdge / longEdge);
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d', { alpha: true }).drawImage(bitmap, 0, 0, width, height);
+
+    const originalType = file.type || inferMimeByName(file.name);
+    const outputType = /image\/png/i.test(originalType) ? 'image/png' : /image\/webp/i.test(originalType) ? 'image/webp' : 'image/jpeg';
+    let blob = await canvasToBlob(canvas, outputType, 0.9);
+    if (blob.size > limits.maxBytes && outputType !== 'image/png') {
+      for (const quality of [0.82, 0.76, limits.minQuality]) {
+        blob = await canvasToBlob(canvas, outputType, quality);
+        if (blob.size <= limits.maxBytes) break;
+      }
+    }
+    if (blob.size > limits.maxBytes && outputType === 'image/png') {
+      for (const quality of [0.88, 0.8, limits.minQuality]) {
+        blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+        if (blob.size <= limits.maxBytes) break;
+      }
+    }
+
+    const finalType = blob.type || outputType;
+    const ext = finalType.includes('webp') ? '.webp' : finalType.includes('jpeg') ? '.jpg' : '.png';
+    const nextFile = new File([blob], replaceExt(file.name, ext), { type: finalType, lastModified: Date.now() });
+    const reasons = [];
+    if (overResolution) reasons.push(`分辨率 ${bitmap.width}×${bitmap.height}`);
+    if (overBytes) reasons.push(`大小 ${formatBytes(file.size)}`);
+    return {
+      file: nextFile,
+      changed: true,
+      note: `${reasons.join('、')} 较大，已自动压缩为 ${width}×${height} / ${formatBytes(nextFile.size)}`,
+    };
+  } catch (err) {
+    console.warn('compress image failed', err);
+    return { file, changed: false };
+  } finally {
+    bitmap?.close?.();
+  }
 }
 
 async function convertBmpToPng(file) {
@@ -994,15 +1073,23 @@ async function addFiles(files) {
         uploadFile = file;
       }
     }
+    let compressionNote = '';
+    const maybeImageType = uploadFile.type || inferMimeByName(uploadFile.name);
+    if (isImageFile({ name: uploadFile.name, type: maybeImageType })) {
+      const compressed = await compressImageIfNeeded(uploadFile);
+      uploadFile = compressed.file;
+      compressionNote = compressed.changed ? compressed.note : '';
+    }
     const item = {
       file: uploadFile,
       name: uploadFile.name,
-      originalName: convertedFrom || '',
+      originalName: convertedFrom || (compressionNote ? file.name : ''),
       type: uploadFile.type || inferMimeByName(uploadFile.name),
       size: uploadFile.size,
       dataUrl: '',
       text: '',
       unsupportedReason: '',
+      compressionNote,
     };
 
     if (isImageFile(item)) {
@@ -1028,6 +1115,7 @@ async function addFiles(files) {
       }
     }
     state.attachments.push(item);
+    if (item.compressionNote) toast(item.compressionNote);
   }
   renderAttachments();
   autoResize();

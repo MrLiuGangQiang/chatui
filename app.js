@@ -1781,7 +1781,15 @@ function updateLiveDisplay(sessionId, item, role, content, options = {}) {
 
 function isAbortLikeError(err) {
   const text = String(err?.message || err || '').toLowerCase();
-  return err?.name === 'AbortError' || text.includes('failed to fetch') || text.includes('fetch failed') || text.includes('networkerror') || text.includes('任务事件连接中断');
+  return err?.name === 'AbortError'
+    || text.includes('failed to fetch')
+    || text.includes('fetch failed')
+    || text.includes('networkerror')
+    || text.includes('load failed')
+    || text.includes('the network connection was lost')
+    || text.includes('cancelled')
+    || text.includes('canceled')
+    || text.includes('任务事件连接中断');
 }
 
 function showRunError(sessionId, err, liveItem = null, loadingNode = null) {
@@ -2265,7 +2273,8 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     }
     playDoneSound();
   } catch (err) {
-    // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求。
+    if (state.pageUnloading && isAbortLikeError(err)) return;
+    // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求；刷新/返回导致的 Safari Load failed 不降级、不落错误气泡。
     const fallbackPayload = {
       model: cfg.chatModel,
       messages: requestMessages,

@@ -178,12 +178,13 @@ http://127.0.0.1:8765
 ```text
 HOST=0.0.0.0
 PORT=8765
+UPSTREAM_TIMEOUT_MS=600000  # 上游 API 超时，默认 10 分钟
 ```
 
 可通过环境变量修改：
 
 ```bash
-HOST=127.0.0.1 PORT=3000 node server.js
+HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
 ```
 
 ---

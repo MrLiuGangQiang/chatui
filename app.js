@@ -3,7 +3,11 @@ const $ = (id) => document.getElementById(id);
 const state = {
   mode: 'chat',
   messages: [],
+  sessions: [],
+  activeSessionId: '',
   busy: false,
+  busySessions: new Set(),
+  liveRuns: new Map(),
   models: [],
   modelMeta: {},
   editingIndex: null,
@@ -12,13 +16,22 @@ const state = {
   lastGeneratedImage: null,
   autoMode: true,
   reasoningPersist: false,
+  pageUnloading: false,
+  resumingJobs: new Set(),
 };
 
 const CONFIG_KEY = 'openapi-chat-image-config-v2';
 const CHAT_KEY = 'openapi-chat-image-chat-v1';
 const UI_KEY = 'openapi-chat-image-ui-v1';
+const SESSIONS_KEY = 'openapi-chat-image-sessions-v1';
+const ACTIVE_SESSION_KEY = 'openapi-chat-image-active-session-v1';
+const LEGACY_CHAT_KEY = CHAT_KEY;
+const LEGACY_UI_KEY = UI_KEY;
 const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
 const REASONING_PERSIST_KEY = 'openapi-chat-reasoning-persist-v1';
+const SESSION_SIDEBAR_COLLAPSED_KEY = 'openapi-chat-image-session-sidebar-collapsed-v1';
+const IMAGE_JOB_KEY = 'openapi-chat-image-job-v1';
+const CHAT_JOB_KEY = 'openapi-chat-image-chat-job-v1';
 const IMAGE_DB = 'openapi-chat-image-db-v1';
 const IMAGE_STORE = 'images';
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -315,23 +328,6 @@ function toast(text) {
 }
 
 
-function iconChat() {
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 6.5h13v8.2a2.8 2.8 0 0 1-2.8 2.8H10l-4.5 3v-3H5.2a2.7 2.7 0 0 1-2.7-2.7V9.5a3 3 0 0 1 3-3Z"/><path d="M7.5 10h9M7.5 13.5h6"/></svg>`;
-}
-
-function iconImage() {
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.4"/><path d="m5.8 16 4.1-4.2 3.1 3.1 2.1-2.2 3.2 3.3"/></svg>`;
-}
-
-function setMode(mode, { manual = false } = {}) {
-  state.mode = mode;
-  if (manual) state.autoMode = false;
-  updateModeUi(mode, state.autoMode);
-  saveConfig(true);
-  warnMissingModel(mode, true);
-}
-
-
 function clearEmpty() {
   const empty = document.querySelector('.empty');
   if (empty) empty.remove();
@@ -392,9 +388,7 @@ function addMessage(role, content, options = {}) {
 
   node.querySelector('.copy-btn')?.addEventListener('click', async () => {
     await copyText(node.dataset.rawText || box.innerText);
-    const btn = node.querySelector('.copy-btn');
-    btn.classList.add('copied');
-    setTimeout(() => btn.classList.remove('copied'), 900);
+    showCopySuccess(node.querySelector('.copy-btn'));
   });
 
   bindInlineCopyButtons(node);
@@ -427,6 +421,22 @@ function bindInlineCopyButtons(node) {
       showCopySuccess(btn);
     });
   });
+}
+
+
+function updateMessageContentLight(node, content, options = {}) {
+  const box = node?.querySelector('.content');
+  if (!box) return;
+  const text = String(options.rawText ?? content ?? '');
+  node.dataset.rawText = text;
+  if (options.skipSave) node.dataset.persist = '0';
+  const html = options.html ? String(content || '') : renderMarkdown(text);
+  if (box.innerHTML !== html) {
+    box.innerHTML = html;
+    bindInlineCopyButtons(node);
+  }
+  // 流式阶段只做 Markdown 渲染，不做图片 IndexedDB 恢复、媒体按钮搬运、历史保存等重操作。
+  scrollToBottom(false);
 }
 
 function updateMessage(node, content, options = {}) {
@@ -660,12 +670,15 @@ function editUserMessage(node) {
 }
 
 function applyPendingEdit(newText) {
-  if (state.editingIndex === null || !state.editingNode) return false;
+  if (state.editingIndex === null || !state.editingNode) return null;
   const idx = state.editingIndex;
   const node = state.editingNode;
+  const session = getActiveSession();
 
-  // 发送时再清理：替换当前用户消息，删除它后面的旧回复/旧分支，并回退上下文。
+  // 发送时再清理：原位替换当前用户消息，删除它后面的旧回复/旧分支，并回退上下文。
   state.messages = state.messages.slice(0, idx);
+  if (state.messages[idx]?.role === 'user') state.messages[idx].content = newText;
+  else state.messages.push({ role: 'user', content: newText });
   node.dataset.rawText = newText;
   const box = node.querySelector('.content');
   box.innerHTML = renderMarkdown(newText);
@@ -677,11 +690,22 @@ function applyPendingEdit(newText) {
     current = next;
   }
 
+  if (session?.display) {
+    const keepCount = [...$('messages').querySelectorAll('.message')].indexOf(node) + 1;
+    session.display = session.display.slice(0, Math.max(keepCount, 0));
+    const userItem = session.display[keepCount - 1];
+    if (userItem) {
+      userItem.rawText = newText;
+      userItem.html = renderMarkdown(newText);
+    }
+    persistSessionDisplay(session.id);
+  }
+
   node.classList.remove('editing');
   state.editingIndex = null;
   state.editingNode = null;
   delete $('prompt').dataset.editing;
-  return true;
+  return { index: idx, node };
 }
 
 function findPreviousUserMessageNode(node) {
@@ -694,7 +718,7 @@ function findPreviousUserMessageNode(node) {
 }
 
 async function regenerateAssistantMessage(node) {
-  if (state.busy) return;
+  if (isSessionBusy(state.activeSessionId)) return;
   const userNode = findPreviousUserMessageNode(node);
   const prompt = (userNode?.dataset.rawText || '').trim();
   if (!prompt) {
@@ -721,9 +745,11 @@ async function regenerateAssistantMessage(node) {
   saveChatHistory();
   saveDisplayHistory();
 
-  state.busy = true;
-  $('sendBtn').disabled = true;
+  const runSessionId = state.activeSessionId;
+  setSessionBusy(runSessionId, true);
   const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
+  const liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+  immediateFeedback.__displayItem = liveItem;
   try {
     const restoredAttachments = hadGeneratedImage ? await restoreImageAttachmentsFromContext(imageContext) : [];
     const route = hadGeneratedImage
@@ -741,7 +767,7 @@ async function regenerateAssistantMessage(node) {
       immediateFeedback.remove();
       return;
     }
-    if (mode === 'chat') await sendChat(prompt, [], immediateFeedback);
+    if (mode === 'chat') await sendChat(prompt, [], immediateFeedback, { sessionId: runSessionId, liveItem });
     else await sendImage(prompt, {
       loadingNode: immediateFeedback,
       editMode: mode === 'edit_image',
@@ -749,12 +775,13 @@ async function regenerateAssistantMessage(node) {
       usePreviousImage: false,
       attachments: restoredAttachments,
       imageContext,
+      sessionId: runSessionId,
+      liveItem,
     });
   } catch (err) {
-    addMessage('error', err.message || String(err), { rawText: err.message || String(err) });
+    showRunError(runSessionId, err, liveItem, immediateFeedback);
   } finally {
-    state.busy = false;
-    $('sendBtn').disabled = false;
+    setSessionBusy(runSessionId, false);
     $('prompt').focus();
   }
 }
@@ -791,14 +818,19 @@ async function requestJson(url, payload, apiKey, method = 'POST') {
   const direct = cfg.directMode;
   const finalUrl = direct ? url : toProxyUrl(url, cfg.baseUrl);
   const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload, method };
-  const res = await fetch(finalUrl, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(direct && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    ...(method === 'GET' ? {} : { body: JSON.stringify(finalPayload) }),
-  });
+  let res;
+  try {
+    res = await fetch(finalUrl, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(direct && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      ...(method === 'GET' ? {} : { body: JSON.stringify(finalPayload) }),
+    });
+  } catch (err) {
+    throw new Error(`连接接口失败：${err?.message || '网络请求失败'}`);
+  }
   const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
@@ -808,11 +840,16 @@ async function requestModels() {
   const cfg = getConfig();
   if (!cfg.baseUrl) throw new Error('请先配置 Endpoint Base URL');
 
-  const res = await fetch('/api/models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload: {}, method: 'GET' }),
-  });
+  let res;
+  try {
+    res = await fetch('/api/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload: {}, method: 'GET' }),
+    });
+  } catch (err) {
+    throw new Error(`连接接口失败：${err?.message || '网络请求失败'}`);
+  }
   const data = await parseResponseJson(res);
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
@@ -1082,8 +1119,10 @@ async function imageRefToFile(src, filename = 'previous-image.png') {
     : await urlToImageFile(src, filename);
 }
 
-async function getPreviousImageAsAttachment() {
-  const img = state.lastGeneratedImage;
+async function getPreviousImageAsAttachment(sessionId = state.activeSessionId) {
+  const img = sessionId === state.activeSessionId
+    ? state.lastGeneratedImage
+    : state.sessions.find(item => item.id === sessionId)?.lastGeneratedImage;
   if (!img?.src) return null;
   const file = await imageRefToFile(img.src, img.filename || 'previous-image.png');
   return {
@@ -1137,12 +1176,6 @@ async function restoreImageAttachmentsFromContext(context) {
     });
   }
   return restored;
-}
-
-function shouldEditPreviousImage(prompt) {
-  if (!state.lastGeneratedImage) return false;
-  if (state.attachments.some(f => isImageFile(f))) return false;
-  return /(修改|改成|调整|优化|换成|替换|去掉|加上|增加|保持|基于|上一张|这张|刚才|不要重画|edit|modify|change|replace|remove|add|based on|previous)/i.test(prompt);
 }
 
 function readFileAsText(file) {
@@ -1261,8 +1294,8 @@ function clearAttachments() {
   renderAttachments();
 }
 
-function buildChatMessagesWithAttachments(prompt, attachments = state.attachments) {
-  if (!attachments.length) return [...state.messages, { role: 'user', content: prompt }];
+function buildChatMessagesWithAttachments(prompt, attachments = state.attachments, baseMessages = state.messages) {
+  if (!attachments.length) return [...baseMessages, { role: 'user', content: prompt }];
 
   const parts = [];
   if (prompt) parts.push({ type: 'text', text: prompt });
@@ -1283,7 +1316,7 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
       text: `\n\n[以下附件已上传到页面，但未解析正文：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析'}`).join('\n')}\n]`,
     });
   }
-  return [...state.messages, { role: 'user', content: parts }];
+  return [...baseMessages, { role: 'user', content: parts }];
 }
 
 function attachmentsSummaryMarkdown(attachments = state.attachments) {
@@ -1308,6 +1341,621 @@ async function requestMultipart(url, fields, files, apiKey) {
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
   if (!res.ok) throw new Error(normalizeError(null, data));
   return data;
+}
+
+function makeClientImageJobId() {
+  return `imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function makeClientChatJobId() {
+  return `chatjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function startChatJob(payload, cfg, jobId) {
+  const res = await fetch('/api/chat-jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload }),
+  });
+  const data = await parseResponseJson(res);
+  if (!res.ok) throw new Error(normalizeError(null, data));
+  return data;
+}
+
+async function getChatJob(jobId) {
+  const res = await fetch(`/api/chat-jobs/${encodeURIComponent(jobId)}`);
+  const data = await parseResponseJson(res);
+  if (!res.ok) throw new Error(normalizeError(null, data));
+  return data;
+}
+
+function waitJobEvent(url, onTick = () => {}) {
+  return new Promise((resolve, reject) => {
+    let source = null;
+    let settled = false;
+    let retries = 0;
+    let opened = false;
+    const connect = () => {
+      if (settled) return;
+      source = new EventSource(url);
+      source.onopen = () => { opened = true; retries = 0; };
+      source.addEventListener('update', (event) => {
+        opened = true;
+        const job = JSON.parse(event.data || '{}');
+        onTick(job);
+        if (job.status === 'done') {
+          settled = true;
+          source.close();
+          resolve(job.data);
+        } else if (job.status === 'error') {
+          settled = true;
+          source.close();
+          reject(new Error(job.error?.message || '任务失败'));
+        }
+      });
+      source.onerror = () => {
+        source.close();
+        if (settled || state.pageUnloading) return;
+        // 404/任务不存在这类错误 EventSource 不暴露状态码，但会在首次打开前直接 error。
+        // 这种情况不能一直等待，否则会话会被 busy 卡死；直接交给恢复逻辑清理本地 job。
+        if (!opened) {
+          settled = true;
+          reject(new Error('任务不存在或服务已重启，已停止恢复任务，请重新发送'));
+          return;
+        }
+        retries += 1;
+        if (retries > 60) {
+          settled = true;
+          reject(new Error('任务事件连接中断，已停止恢复任务，请刷新后重试'));
+          return;
+        }
+        setTimeout(connect, Math.min(1000 + retries * 250, 5000));
+      };
+    };
+    connect();
+  });
+}
+
+function extractChatJobText(data) {
+  const message = data?.choices?.[0]?.message || {};
+  return {
+    content: message.content || data?.output_text || '',
+    reasoning: message.reasoning_content || message.reasoning || data?.reasoning_content || data?.reasoning || '',
+  };
+}
+
+async function waitChatJob(jobId, onTick = () => {}) {
+  return waitJobEvent(`/api/chat-jobs/${encodeURIComponent(jobId)}/events`, onTick);
+}
+
+async function startImageGenerationJob(payload, cfg, jobId) {
+  const res = await fetch('/api/image-jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload }),
+  });
+  const data = await parseResponseJson(res);
+  if (!res.ok) throw new Error(normalizeError(null, data));
+  return data;
+}
+
+async function getImageGenerationJob(jobId) {
+  const res = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}`);
+  const data = await parseResponseJson(res);
+  if (!res.ok) throw new Error(normalizeError(null, data));
+  return data;
+}
+
+async function waitImageGenerationJob(jobId, onTick = () => {}) {
+  return waitJobEvent(`/api/image-jobs/${encodeURIComponent(jobId)}/events`, onTick);
+}
+
+
+function createSession(title = '新对话') {
+  return {
+    id: `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    messages: [],
+    display: [],
+    lastGeneratedImage: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    busy: false,
+  };
+}
+
+function getActiveSession() {
+  if (!state.sessions.length) {
+    state.sessions = [createSession()];
+    state.activeSessionId = state.sessions[0].id;
+  }
+  let session = state.sessions.find(item => item.id === state.activeSessionId);
+  if (!session) {
+    session = state.sessions[0];
+    state.activeSessionId = session.id;
+  }
+  session.messages ||= [];
+  session.display ||= [];
+  return session;
+}
+
+function sessionStorageKey(base, sessionId = state.activeSessionId) {
+  return `${base}:${sessionId || 'default'}`;
+}
+
+function deriveSessionTitle(session) {
+  const firstUser = session.messages?.find(msg => msg.role === 'user' && msg.content)?.content || '';
+  const raw = String(firstUser || session.title || '新对话').replace(/\s+/g, ' ').trim();
+  return raw ? raw.slice(0, 22) : '新对话';
+}
+
+
+function isSessionBusy(sessionId = state.activeSessionId) {
+  return state.busySessions.has(sessionId) || !!state.sessions.find(item => item.id === sessionId)?.busy;
+}
+
+function setSessionBusy(sessionId, busy) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (session) session.busy = !!busy;
+  if (busy) state.busySessions.add(sessionId);
+  else state.busySessions.delete(sessionId);
+  state.busy = isSessionBusy(state.activeSessionId);
+  updateSendAvailability();
+  renderSessionList();
+}
+
+function updateSendAvailability() {
+  const busy = isSessionBusy(state.activeSessionId);
+  state.busy = busy;
+  const btn = $('sendBtn');
+  if (btn) btn.disabled = busy;
+}
+
+
+function setSessionSidebarCollapsed(collapsed) {
+  document.body.classList.toggle('session-sidebar-collapsed', !!collapsed);
+  localStorage.setItem(SESSION_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  const btn = $('collapseSessionsBtn');
+  if (btn) {
+    btn.title = collapsed ? '展开会话栏' : '收起会话栏';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+
+function loadSessionSidebarCollapsed() {
+  setSessionSidebarCollapsed(localStorage.getItem(SESSION_SIDEBAR_COLLAPSED_KEY) === '1');
+}
+
+function applyMobileDrawerState() {
+  const sidebar = $('sessionSidebar');
+  if (!sidebar) return;
+  if (window.matchMedia('(max-width: 840px)').matches && document.body.classList.contains('session-drawer-open')) {
+    sidebar.style.display = 'flex';
+    sidebar.style.transform = 'translateX(0)';
+    sidebar.style.left = '0px';
+  } else {
+    sidebar.style.display = '';
+    sidebar.style.transform = '';
+    sidebar.style.left = '';
+  }
+}
+
+function closeSessionDrawer() {
+  document.body.classList.remove('session-drawer-open');
+  applyMobileDrawerState();
+}
+
+function openSessionDrawer() {
+  document.body.classList.remove('session-sidebar-collapsed');
+  document.body.classList.add('session-drawer-open');
+  applyMobileDrawerState();
+}
+
+function saveSessionMessages(sessionId, messages) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return;
+  const safeMessages = messages.map(normalizeMessageForStorage).filter(Boolean);
+  session.messages = safeMessages;
+  session.title = deriveSessionTitle(session);
+  session.updatedAt = Date.now();
+  localStorage.setItem(sessionStorageKey(CHAT_KEY, sessionId), JSON.stringify(safeMessages));
+  saveSessionsMeta();
+}
+
+function persistSessionDisplay(sessionId) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return;
+  session.updatedAt = Date.now();
+  localStorage.setItem(sessionStorageKey(UI_KEY, sessionId), JSON.stringify((session.display || []).slice(-80)));
+  saveSessionsMeta();
+}
+
+function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false } = {}) {
+  return {
+    role,
+    rawText: rawText || '',
+    html: html ? String(content || '') : renderMarkdown(String(content || '')),
+    reasoningText: '',
+    keepReasoning: false,
+    messageIndex: messageIndex !== null && messageIndex !== undefined ? String(messageIndex) : '',
+    imageContext: '',
+    pending: pending ? '1' : '',
+  };
+}
+
+function sessionImageJobKey(sessionId = state.activeSessionId) {
+  return `${IMAGE_JOB_KEY}:${sessionId}`;
+}
+
+function saveImageJob(sessionId, job) {
+  if (!job?.id) return;
+  localStorage.setItem(sessionImageJobKey(sessionId), JSON.stringify(job));
+}
+
+function loadImageJob(sessionId = state.activeSessionId) {
+  try { return JSON.parse(localStorage.getItem(sessionImageJobKey(sessionId)) || 'null'); }
+  catch { return null; }
+}
+
+function clearImageJob(sessionId = state.activeSessionId) {
+  localStorage.removeItem(sessionImageJobKey(sessionId));
+}
+
+function sessionChatJobKey(sessionId = state.activeSessionId) {
+  return `${CHAT_JOB_KEY}:${sessionId}`;
+}
+
+function saveChatJob(sessionId, job) {
+  if (!job?.id) return;
+  localStorage.setItem(sessionChatJobKey(sessionId), JSON.stringify(job));
+}
+
+function loadChatJob(sessionId = state.activeSessionId) {
+  try { return JSON.parse(localStorage.getItem(sessionChatJobKey(sessionId)) || 'null'); }
+  catch { return null; }
+}
+
+function clearChatJob(sessionId = state.activeSessionId) {
+  localStorage.removeItem(sessionChatJobKey(sessionId));
+}
+
+function appendSessionDisplayMessage(sessionId, role, content, options = {}) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return null;
+  session.display ||= [];
+  const item = makeDisplayItem(role, content, options);
+  session.display.push(item);
+  session.display = session.display.slice(-80);
+  persistSessionDisplay(sessionId);
+  return item;
+}
+
+function updateSessionDisplayItem(sessionId, item, role, content, options = {}) {
+  const session = state.sessions.find(session => session.id === sessionId);
+  if (!session || !item) return;
+  item.role = role;
+  item.rawText = options.rawText ?? content;
+  item.html = options.html ? String(content || '') : renderMarkdown(String(content || ''));
+  if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
+  persistSessionDisplay(sessionId);
+}
+
+function persistDetachedResponse(sessionId, role, content, options = {}) {
+  if (sessionId === state.activeSessionId) return;
+  appendSessionDisplayMessage(sessionId, role, content, options);
+}
+
+
+function replaceLastSessionDisplayMessage(sessionId, role, content, options = {}) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return;
+  session.display ||= [];
+  for (let i = session.display.length - 1; i >= 0; i -= 1) {
+    if (session.display[i].role === role) {
+      updateSessionDisplayItem(sessionId, session.display[i], role, content, options);
+      return;
+    }
+  }
+  appendSessionDisplayMessage(sessionId, role, content, options);
+}
+
+
+function findMessageNodeByDisplayItem(item) {
+  if (!item) return null;
+  return [...$('messages').querySelectorAll('.message')].find(node => node.__displayItem === item) || null;
+}
+
+function addDisplayItemNode(item) {
+  const node = addMessage(item.role || 'assistant', item.html || item.rawText || '', {
+    html: !!item.html,
+    rawText: item.rawText || '',
+    messageIndex: item.messageIndex !== '' ? Number(item.messageIndex) : null,
+    skipSave: item.pending === '1',
+    deferSave: true,
+  });
+  node.__displayItem = item;
+  if (item.imageContext) node.dataset.imageContext = item.imageContext;
+  if (item.reasoningText) updateReasoning(node, item.reasoningText, { done: true, keepReasoning: item.keepReasoning !== false });
+  return node;
+}
+
+function removeDisplayItemNode(item) {
+  const node = findMessageNodeByDisplayItem(item);
+  if (node) node.remove();
+}
+
+function takePendingLiveItem(sessionId, fallbackText, matcher = null) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return null;
+  session.display ||= [];
+  const pendingItems = session.display.filter(item => item.pending === '1' && (item.role === 'assistant' || !item.role));
+  let liveItem = null;
+  if (matcher) liveItem = [...pendingItems].reverse().find(item => matcher.test(item.rawText || '')) || null;
+  if (!liveItem) liveItem = pendingItems[pendingItems.length - 1] || null;
+  if (!liveItem) {
+    liveItem = appendSessionDisplayMessage(sessionId, 'assistant', fallbackText, { rawText: fallbackText, pending: true });
+  }
+  const removeSet = new Set(pendingItems.filter(item => item !== liveItem));
+  if (removeSet.size) {
+    session.display = session.display.filter(item => !removeSet.has(item));
+    removeSet.forEach(removeDisplayItemNode);
+    persistSessionDisplay(sessionId);
+  }
+  return liveItem;
+}
+
+function updateLiveDisplay(sessionId, item, role, content, options = {}) {
+  updateSessionDisplayItem(sessionId, item, role, content, { ...options, pending: options.pending ?? true });
+  if (sessionId !== state.activeSessionId) return;
+  let node = findMessageNodeByDisplayItem(item);
+  if (!node) node = addDisplayItemNode(item);
+  if (options.reasoning !== undefined) updateReasoning(node, options.reasoning || '', { keepEmpty: true });
+  const light = options.pending !== false && !options.html;
+  if (light) updateMessageContentLight(node, content, { ...options, skipSave: true });
+  else updateMessage(node, content, { ...options, skipSave: options.pending !== false });
+}
+
+function isAbortLikeError(err) {
+  const text = String(err?.message || err || '').toLowerCase();
+  return err?.name === 'AbortError' || text.includes('failed to fetch') || text.includes('fetch failed') || text.includes('networkerror') || text.includes('任务事件连接中断');
+}
+
+function showRunError(sessionId, err, liveItem = null, loadingNode = null) {
+  if (state.pageUnloading && isAbortLikeError(err)) return;
+  const text = err?.message || String(err);
+  if (liveItem) {
+    updateSessionDisplayItem(sessionId, liveItem, 'error', text, { rawText: text, pending: false });
+  } else {
+    persistDetachedResponse(sessionId, 'error', text, { rawText: text });
+  }
+
+  if (sessionId === state.activeSessionId) {
+    const node = loadingNode?.isConnected ? loadingNode : findMessageNodeByDisplayItem(liveItem);
+    if (node) {
+      node.classList.remove('assistant');
+      node.classList.add('error');
+      node.querySelector('.avatar').textContent = '!';
+      updateMessage(node, text, { rawText: text });
+    } else {
+      addMessage('error', text, { rawText: text });
+    }
+  }
+}
+
+
+function cleanupStalePendingDisplay(sessionId, pattern, message) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session?.display?.length) return null;
+  const item = [...session.display].reverse().find(item => item.pending === '1' && pattern.test(item.rawText || ''));
+  if (!item) return null;
+  updateSessionDisplayItem(sessionId, item, 'error', message, { rawText: message, pending: false });
+  if (sessionId === state.activeSessionId) {
+    const node = findMessageNodeByDisplayItem(item);
+    if (node) {
+      node.classList.remove('assistant');
+      node.classList.add('error');
+      const avatar = node.querySelector('.avatar');
+      if (avatar) avatar.textContent = '!';
+      updateMessage(node, message, { rawText: message });
+    }
+  }
+  return item;
+}
+
+function isMissingJobError(err) {
+  return String(err?.message || err || '').includes('任务不存在或服务已重启');
+}
+
+function appendDetachedError(sessionId, err) {
+  showRunError(sessionId, err);
+}
+
+function syncActiveSession({ skipSave = false } = {}) {
+  const session = getActiveSession();
+  state.messages = [...(session.messages || [])];
+  state.lastGeneratedImage = session.lastGeneratedImage || null;
+  if (!skipSave) saveSessionsMeta();
+  renderSessionList();
+}
+
+function saveSessionsMeta() {
+  try {
+    const sessions = state.sessions.map(session => ({
+      id: session.id,
+      title: deriveSessionTitle(session),
+      createdAt: session.createdAt || Date.now(),
+      updatedAt: session.updatedAt || Date.now(),
+    }));
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(ACTIVE_SESSION_KEY, state.activeSessionId || getActiveSession().id);
+  } catch (err) {
+    console.warn('save sessions meta failed', err);
+  }
+}
+
+function loadSessions() {
+  let sessions = [];
+  try {
+    const saved = readJsonStorage(SESSIONS_KEY, []);
+    if (Array.isArray(saved)) {
+      sessions = saved
+        .filter(item => item && item.id)
+        .map(item => ({
+          id: item.id,
+          title: item.title || '新对话',
+          createdAt: item.createdAt || Date.now(),
+          updatedAt: item.updatedAt || Date.now(),
+          messages: readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []),
+          display: readJsonStorage(sessionStorageKey(UI_KEY, item.id), []),
+          lastGeneratedImage: readJsonStorage(sessionStorageKey(LAST_IMAGE_KEY, item.id), null),
+          busy: false,
+        }));
+    }
+  } catch (err) {
+    console.warn('load sessions failed', err);
+  }
+
+  if (!sessions.length) {
+    const legacyMessages = readJsonStorage(LEGACY_CHAT_KEY, []);
+    const legacyDisplay = readJsonStorage(LEGACY_UI_KEY, []);
+    const legacyImage = readJsonStorage(LAST_IMAGE_KEY, null);
+    const session = createSession();
+    session.messages = Array.isArray(legacyMessages) ? legacyMessages : [];
+    session.display = Array.isArray(legacyDisplay) ? legacyDisplay : [];
+    session.lastGeneratedImage = legacyImage;
+    session.title = deriveSessionTitle(session);
+    sessions = [session];
+  }
+
+  state.sessions = sessions;
+  state.activeSessionId = localStorage.getItem(ACTIVE_SESSION_KEY) || sessions[0].id;
+  syncActiveSession({ skipSave: true });
+}
+
+function sessionTitleHtml(session) {
+  const text = deriveSessionTitle(session);
+  return String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+
+function deleteSession(sessionId) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) return;
+  clearChatJob(sessionId);
+  clearImageJob(sessionId);
+  setSessionBusy(sessionId, false);
+  localStorage.removeItem(sessionStorageKey(CHAT_KEY, sessionId));
+  localStorage.removeItem(sessionStorageKey(UI_KEY, sessionId));
+  localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY, sessionId));
+  state.busySessions.delete(sessionId);
+  state.sessions = state.sessions.filter(item => item.id !== sessionId);
+  if (!state.sessions.length) state.sessions = [createSession()];
+  if (state.activeSessionId === sessionId) {
+    state.activeSessionId = state.sessions[0].id;
+    localStorage.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
+    syncActiveSession({ skipSave: true });
+    renderActiveSession();
+  }
+  saveSessionsMeta();
+  renderSessionList();
+  updateSendAvailability();
+}
+
+function getSessionReturnCount(session) {
+  if (!session) return 0;
+  const messages = session.id === state.activeSessionId && !isSessionBusy(session.id)
+    ? state.messages
+    : (session.messages || []);
+  const assistantCount = Array.isArray(messages)
+    ? messages.filter(msg => msg?.role === 'assistant').length
+    : 0;
+  if (assistantCount) return assistantCount;
+  const display = session.id === state.activeSessionId && !isSessionBusy(session.id)
+    ? [...$('messages')?.querySelectorAll('.message.assistant, .message.error') || []]
+    : (session.display || []).filter(item => item?.role === 'assistant' || item?.role === 'error');
+  return Array.isArray(display) ? display.length : 0;
+}
+
+function renderSessionList() {
+  const list = $('sessionList');
+  if (!list) return;
+  list.innerHTML = '';
+  state.sessions.forEach(session => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'session-tab';
+      btn.classList.toggle('active', session.id === state.activeSessionId);
+      btn.classList.toggle('busy', isSessionBusy(session.id));
+      btn.dataset.sessionId = session.id;
+      btn.innerHTML = `<span class="session-title">${sessionTitleHtml(session)}</span><small>${getSessionReturnCount(session)} 条</small><button class="session-delete-btn" type="button" title="删除会话" aria-label="删除会话">×</button>`;
+      btn.addEventListener('click', (event) => {
+        if (event.target.closest('.session-delete-btn')) return;
+        switchSession(session.id);
+      });
+      btn.querySelector('.session-delete-btn')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        deleteSession(session.id);
+      });
+      list.appendChild(btn);
+    });
+}
+
+function renderActiveSession() {
+  const session = getActiveSession();
+  $('messages').innerHTML = '';
+  state.messages = [...(session.messages || [])];
+  state.lastGeneratedImage = session.lastGeneratedImage || null;
+  if (!loadDisplayHistory()) loadChatHistory({ render: true });
+  if (!$('messages').children.length) {
+    $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话</h3><p>当前会话独立保存上下文；可点击“新会话”开启另一条隔离对话。</p></div>`;
+  }
+  renderSessionList();
+  scrollToBottom(true);
+  resumeSessionJobs(session.id);
+}
+
+function switchSession(sessionId) {
+  if (state.activeSessionId) {
+    try { if (!isSessionBusy(state.activeSessionId)) { saveChatHistory(); saveDisplayHistory(); } } catch (err) { console.warn('save before switch failed', err); }
+  }
+  state.editingIndex = null;
+  state.editingNode = null;
+  delete $('prompt')?.dataset.editing;
+  $('prompt').value = '';
+  scheduleAutoResize();
+  if (!state.sessions.some(item => item.id === sessionId)) return;
+  state.activeSessionId = sessionId;
+  localStorage.setItem(ACTIVE_SESSION_KEY, sessionId);
+  syncActiveSession({ skipSave: true });
+  renderActiveSession();
+  updateSendAvailability();
+  closeSessionDrawer();
+  resumeSessionJobs(sessionId);
+}
+
+
+function newSession() {
+  if (state.activeSessionId) {
+    try { if (!isSessionBusy(state.activeSessionId)) { saveChatHistory(); saveDisplayHistory(); } } catch (err) { console.warn('save before new session failed', err); }
+  }
+  state.editingIndex = null;
+  state.editingNode = null;
+  delete $('prompt')?.dataset.editing;
+  $('prompt').value = '';
+  scheduleAutoResize();
+  const session = createSession();
+  state.sessions.unshift(session);
+  state.activeSessionId = session.id;
+  state.messages = [];
+  state.lastGeneratedImage = null;
+  saveSessionsMeta();
+  localStorage.setItem(sessionStorageKey(CHAT_KEY), '[]');
+  localStorage.setItem(sessionStorageKey(UI_KEY), '[]');
+  localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
+  renderActiveSession();
+  updateSendAvailability();
+  closeSessionDrawer();
+  $('prompt')?.focus();
 }
 
 function saveDisplayHistory() {
@@ -1342,7 +1990,13 @@ function saveDisplayHistory() {
         imageContext: node.dataset.imageContext || '',
       };
     }).slice(-80);
-  try { localStorage.setItem(UI_KEY, JSON.stringify(items)); } catch (err) { console.warn('save display history failed', err); }
+  const session = getActiveSession();
+  session.display = items;
+  session.updatedAt = Date.now();
+  try {
+    localStorage.setItem(sessionStorageKey(UI_KEY), JSON.stringify(items));
+    saveSessionsMeta();
+  } catch (err) { console.warn('save display history failed', err); }
 }
 
 
@@ -1371,41 +2025,37 @@ function normalizePersistedHtml(html) {
 
 function loadDisplayHistory() {
   try {
-    const items = readJsonStorage(UI_KEY, []);
+    const items = getActiveSession().display?.length ? getActiveSession().display : readJsonStorage(sessionStorageKey(UI_KEY), []);
     if (!Array.isArray(items) || !items.length) return false;
     $('messages').innerHTML = '';
     items.forEach(item => {
       if (item.html) item.html = normalizePersistedHtml(item.html);
-      addMessage(item.role || 'assistant', item.html || item.rawText || '', {
-        html: !!item.html,
-        rawText: item.rawText || '',
-        messageIndex: item.messageIndex !== '' ? Number(item.messageIndex) : null,
-        skipSave: false,
-        deferSave: true,
-      });
-      const node = $('messages').lastElementChild;
-      if (item.imageContext && node) node.dataset.imageContext = item.imageContext;
-      if (item.reasoningText && node) updateReasoning(node, item.reasoningText, { done: true, keepReasoning: item.keepReasoning !== false });
+      const node = addDisplayItemNode(item);
+      if (item.pending === '1' && node) node.dataset.persist = '0';
     });
     hydrateMessageMedia($('messages'), { save: false });
     return true;
   } catch {
-    localStorage.removeItem(UI_KEY);
+    localStorage.removeItem(sessionStorageKey(UI_KEY));
     return false;
   }
 }
 
 function saveLastGeneratedImage() {
   try {
-    if (state.lastGeneratedImage) localStorage.setItem(LAST_IMAGE_KEY, JSON.stringify(state.lastGeneratedImage));
+    const session = getActiveSession();
+    session.lastGeneratedImage = state.lastGeneratedImage || null;
+    if (state.lastGeneratedImage) localStorage.setItem(sessionStorageKey(LAST_IMAGE_KEY), JSON.stringify(state.lastGeneratedImage));
+    else localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
+    saveSessionsMeta();
   } catch {}
 }
 
 function loadLastGeneratedImage() {
   try {
-    state.lastGeneratedImage = readJsonStorage(LAST_IMAGE_KEY, null);
+    state.lastGeneratedImage = getActiveSession().lastGeneratedImage || readJsonStorage(sessionStorageKey(LAST_IMAGE_KEY), null);
   } catch {
-    localStorage.removeItem(LAST_IMAGE_KEY);
+    localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
   }
 }
 
@@ -1444,12 +2094,17 @@ function normalizeMessageForStorage(msg) {
 
 function saveChatHistory() {
   const safeMessages = state.messages.map(normalizeMessageForStorage).filter(Boolean);
-  localStorage.setItem(CHAT_KEY, JSON.stringify(safeMessages));
+  const session = getActiveSession();
+  session.messages = safeMessages;
+  session.title = deriveSessionTitle(session);
+  session.updatedAt = Date.now();
+  localStorage.setItem(sessionStorageKey(CHAT_KEY), JSON.stringify(safeMessages));
+  saveSessionsMeta();
 }
 
 function loadChatHistory({ render = false } = {}) {
   try {
-    const saved = readJsonStorage(CHAT_KEY, []);
+    const saved = getActiveSession().messages?.length ? getActiveSession().messages : readJsonStorage(sessionStorageKey(CHAT_KEY), []);
     if (!Array.isArray(saved) || !saved.length) return;
     state.messages = saved.filter(m => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string');
     if (!render || !state.messages.length) return;
@@ -1463,19 +2118,33 @@ function loadChatHistory({ render = false } = {}) {
       });
     });
   } catch {
-    localStorage.removeItem(CHAT_KEY);
+    localStorage.removeItem(sessionStorageKey(CHAT_KEY));
   }
 }
 
-async function sendChat(prompt, attachments = state.attachments, loadingNode = null) {
+async function sendChat(prompt, attachments = state.attachments, loadingNode = null, options = {}) {
   const cfg = getConfig();
   if (!cfg.baseUrl || !cfg.chatModel) throw new Error('请先配置 Endpoint Base URL 和聊天模型');
 
-  const userIndex = state.messages.length;
-  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments);
-  state.messages.push({ role: 'user', content: prompt });
-  saveChatHistory();
-  const loading = loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
+  const sessionId = options.sessionId || state.activeSessionId;
+  const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
+  const baseMessages = sessionId === state.activeSessionId ? state.messages : [...(session.messages || [])];
+  const requestBaseMessages = options.userAlreadyAdded && baseMessages.at(-1)?.role === 'user'
+    ? baseMessages.slice(0, -1)
+    : baseMessages;
+  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages);
+  if (sessionId === state.activeSessionId) {
+    if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
+    saveChatHistory();
+  } else {
+    if (!options.userAlreadyAdded) baseMessages.push({ role: 'user', content: prompt });
+    saveSessionMessages(sessionId, baseMessages);
+  }
+  const loading = sessionId === state.activeSessionId
+    ? (loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true }))
+    : null;
+  const liveItem = options.liveItem || appendSessionDisplayMessage(sessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+  if (loading && liveItem && !loading.__displayItem) loading.__displayItem = liveItem;
 
   const payload = {
     model: cfg.chatModel,
@@ -1485,27 +2154,48 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   };
 
   try {
+    const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
+    if (backgroundJobId) saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: { model: cfg.chatModel, messages: requestMessages, temperature: 0.7, stream: true }, startedAt: Date.now() });
+
     const renderer = createRealtimeRenderer((visible) => {
-      clearPendingFeedback(loading);
-      updateMessage(loading, visible || '正在思考中', { rawText: visible || '正在思考中' });
+      const text = visible || '正在思考中';
+      if (loading?.isConnected) {
+        clearPendingFeedback(loading);
+        updateMessage(loading, text, { rawText: text, skipSave: true });
+      }
+      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true });
     });
     const reasoningRenderer = createRealtimeRenderer((visible) => {
-      updateReasoning(loading, visible || '');
+      if (loading?.isConnected) updateReasoning(loading, visible || '');
+      if (liveItem) liveItem.reasoningText = visible || '';
     });
-    updateReasoning(loading, '', { keepEmpty: true });
-    setPendingFeedback(loading, '正在处理，请稍等');
+    if (loading?.isConnected) {
+      updateReasoning(loading, '', { keepEmpty: true });
+      setPendingFeedback(loading, '正在处理，请稍等');
+    }
     const result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
       renderer.set(partial.content || '');
       reasoningRenderer.set(partial.reasoning || '');
-    });
-    clearPendingFeedback(loading);
+    }, backgroundJobId);
+    if (loading?.isConnected) clearPendingFeedback(loading);
     const finalReply = result.content || '没有返回内容';
     renderer.flush(finalReply);
     reasoningRenderer.cancel();
-    state.messages.push({ role: 'assistant', content: finalReply });
-    saveChatHistory();
-    updateMessage(loading, finalReply, { rawText: finalReply });
-    finishReasoning(loading, result.reasoning || '');
+    if (sessionId === state.activeSessionId) {
+      state.messages.push({ role: 'assistant', content: finalReply });
+      saveChatHistory();
+      if (loading?.isConnected) {
+        updateMessage(loading, finalReply, { rawText: finalReply });
+        finishReasoning(loading, result.reasoning || '');
+      }
+      updateLiveDisplay(sessionId, liveItem, 'assistant', finalReply, { rawText: finalReply, pending: false });
+      if (backgroundJobId) clearChatJob(sessionId);
+    } else {
+      baseMessages.push({ role: 'assistant', content: finalReply });
+      saveSessionMessages(sessionId, baseMessages);
+      updateLiveDisplay(sessionId, liveItem, 'assistant', finalReply, { rawText: finalReply, pending: false });
+      if (backgroundJobId) clearChatJob(sessionId);
+    }
     playDoneSound();
   } catch (err) {
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求。
@@ -1514,14 +2204,25 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       messages: requestMessages,
       temperature: 0.7,
     };
-    setPendingFeedback(loading, '响应有点慢，正在继续尝试');
+    if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试');
     const data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
-    clearPendingFeedback(loading);
+    if (loading?.isConnected) clearPendingFeedback(loading);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
-    state.messages.push({ role: 'assistant', content: reply });
-    saveChatHistory();
-    updateMessage(loading, reply, { rawText: reply });
-    finishReasoning(loading, data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '');
+    if (sessionId === state.activeSessionId) {
+      state.messages.push({ role: 'assistant', content: reply });
+      saveChatHistory();
+      if (loading?.isConnected) {
+        updateMessage(loading, reply, { rawText: reply });
+        finishReasoning(loading, data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '');
+      }
+      updateLiveDisplay(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false });
+      if (backgroundJobId) clearChatJob(sessionId);
+    } else {
+      baseMessages.push({ role: 'assistant', content: reply });
+      saveSessionMessages(sessionId, baseMessages);
+      updateLiveDisplay(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false });
+      if (backgroundJobId) clearChatJob(sessionId);
+    }
     playDoneSound();
   }
 }
@@ -1556,21 +2257,26 @@ function createRealtimeRenderer(onUpdate) {
   };
 }
 
-async function streamChatCompletions(url, payload, apiKey, onDelta) {
+async function streamChatCompletions(url, payload, apiKey, onDelta, jobId = '') {
   const cfg = getConfig();
   const direct = cfg.directMode;
   const finalUrl = direct ? url : toProxyUrl(url, cfg.baseUrl);
-  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload };
+  const finalPayload = direct ? payload : { baseUrl: cfg.baseUrl, apiKey, payload, jobId };
 
-  const res = await fetch(finalUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-      ...(direct && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify(finalPayload),
-  });
+  let res;
+  try {
+    res = await fetch(finalUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(direct && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify(finalPayload),
+    });
+  } catch (err) {
+    throw new Error(`连接接口失败：${err?.message || '网络请求失败'}`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -1657,8 +2363,18 @@ async function imageResultToHtml(data, elapsedText = '', meta = {}) {
   const persistedImage = await persistImageSrc(src, filename, { ...cfg, returnDisplayUrl: true });
   const persistedSrc = persistedImage.persistedSrc || src;
   const displaySrc = persistedImage.displaySrc || persistedSrc;
-  state.lastGeneratedImage = { src: persistedSrc, filename, prompt: meta.prompt || '', updatedAt: Date.now() };
-  saveLastGeneratedImage();
+  const lastImage = { src: persistedSrc, filename, prompt: meta.prompt || '', updatedAt: Date.now() };
+  if (meta.sessionId && meta.sessionId !== state.activeSessionId) {
+    const session = state.sessions.find(item => item.id === meta.sessionId);
+    if (session) {
+      session.lastGeneratedImage = lastImage;
+      localStorage.setItem(sessionStorageKey(LAST_IMAGE_KEY, meta.sessionId), JSON.stringify(lastImage));
+      saveSessionsMeta();
+    }
+  } else {
+    state.lastGeneratedImage = lastImage;
+    saveLastGeneratedImage();
+  }
   return {
     raw: url || '[base64 image]',
     html: `<div class="image-result-head"><span>${elapsedText ? `生成完成，耗时：${escapeHtml(elapsedText)}` : '生成完成'}</span></div><img class="generated-thumb" src="${escapeHtml(displaySrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(filename)}" alt="generated image" /><div class="image-download-row">${imageActionButtonsHtml(persistedSrc, filename)}${url ? `<a class="image-icon-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" title="打开原图" aria-label="打开原图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/></svg></a>` : ''}</div>`,
@@ -1669,17 +2385,29 @@ async function sendImage(prompt, options = {}) {
   const cfg = getConfig();
   if (!cfg.baseUrl || !cfg.imageModel) throw new Error('请先配置 Endpoint Base URL 和生图模型');
 
+  const sessionId = options.sessionId || state.activeSessionId;
+  const session = state.sessions.find(item => item.id === sessionId) || getActiveSession();
+  const baseMessages = sessionId === state.activeSessionId ? state.messages : [...(session.messages || [])];
   let requestStart = 0;
   let timer = null;
-  const loading = options.loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', skipSave: true });
+  const loading = sessionId === state.activeSessionId
+    ? (options.loadingNode || addMessage('assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', skipSave: true }))
+    : null;
+  const liveItem = options.liveItem || appendSessionDisplayMessage(sessionId, 'assistant', pendingFeedbackHtml('已收到，正在准备图片'), { html: true, rawText: '已收到，正在准备图片', pending: true });
+  if (loading && liveItem && !loading.__displayItem) loading.__displayItem = liveItem;
 
   const startImageTimer = (label = '正在生成图片') => {
     requestStart = performance.now();
-    clearPendingFeedback(loading);
-    updateMessage(loading, `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, skipSave: true });
+    if (loading?.isConnected) {
+      clearPendingFeedback(loading);
+      updateMessage(loading, `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, skipSave: true });
+    }
+    updateLiveDisplay(sessionId, liveItem, 'assistant', `${label}… 已等待 0 秒`, { rawText: `${label}… 已等待 0 秒`, pending: true });
     timer = setInterval(() => {
       const seconds = Math.floor((performance.now() - requestStart) / 1000);
-      updateMessage(loading, `${label}… 已等待 ${seconds} 秒`, { rawText: `${label}… 已等待 ${seconds} 秒`, skipSave: true });
+      const text = `${label}… 已等待 ${seconds} 秒`;
+      if (loading?.isConnected) updateMessage(loading, text, { rawText: text, skipSave: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true });
     }, 1000);
   };
 
@@ -1691,11 +2419,12 @@ async function sendImage(prompt, options = {}) {
     let imageRefs = attachments.filter(f => isImageFile(f));
     let usedPreviousImage = false;
     if (!imageRefs.length && options.usePreviousImage) {
-      const previous = await getPreviousImageAsAttachment();
+      const previous = await getPreviousImageAsAttachment(sessionId);
       if (!previous) throw new Error('没有可编辑的上一张图片');
       imageRefs = [previous];
       usedPreviousImage = true;
-      updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
+      if (loading?.isConnected) updateMessage(loading, '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', skipSave: true });
+      updateLiveDisplay(sessionId, liveItem, 'assistant', '已准备上一张图片，正在发送修改请求…', { rawText: '已准备上一张图片，正在发送修改请求…', pending: true });
     } else if (!imageRefs.length && options.editMode) {
       throw new Error('没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改');
     }
@@ -1706,24 +2435,171 @@ async function sendImage(prompt, options = {}) {
       usePreviousImage: usedPreviousImage || !!options.imageContext?.usePreviousImage,
       attachments: imageRefs.map(serializeImageAttachment).filter(Boolean),
     };
-    setImageContext(loading, imageContext);
-    setPendingFeedback(loading, '正在处理，请稍等');
+    if (loading?.isConnected) {
+      setImageContext(loading, imageContext);
+      setPendingFeedback(loading, '正在处理，请稍等');
+    }
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
-    const data = imageRefs.length
-      ? await requestMultipart(`${cfg.baseUrl}/images/edits`, payload, imageRefs, cfg.apiKey)
-      : await requestJson(`${cfg.baseUrl}/images/generations`, payload, cfg.apiKey);
+    let data;
+    if (imageRefs.length) {
+      data = await requestMultipart(`${cfg.baseUrl}/images/edits`, payload, imageRefs, cfg.apiKey);
+    } else {
+      const jobId = makeClientImageJobId();
+      saveImageJob(sessionId, { id: jobId, prompt, payload, startedAt: Date.now(), liveItemRawText: liveItem?.rawText || '' });
+      const job = await startImageGenerationJob(payload, cfg, jobId);
+      saveImageJob(sessionId, { id: job.id, prompt, payload, startedAt: job.createdAt || Date.now(), liveItemRawText: liveItem?.rawText || '' });
+      data = await waitImageGenerationJob(job.id);
+      clearImageJob(sessionId);
+    }
     const elapsedText = formatElapsed(performance.now() - requestStart);
-    const result = await imageResultToHtml(data, elapsedText, { prompt });
+    const result = await imageResultToHtml(data, elapsedText, { prompt, sessionId });
     if (usedPreviousImage || imageContext.mode === 'edit_image') result.html = result.html.replace('生成完成', usedPreviousImage ? '基于上一张图修改完成' : '图片修改完成');
-    updateMessage(loading, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
-    setImageContext(loading, imageContext);
-    state.messages.push({ role: 'user', content: prompt });
-    state.messages.push({ role: 'assistant', content: usedPreviousImage ? `[图片编辑完成] ${prompt}` : `[图片生成完成] ${prompt}` });
-    saveChatHistory();
+    const assistantText = usedPreviousImage ? `[图片编辑完成] ${prompt}` : `[图片生成完成] ${prompt}`;
+    if (sessionId === state.activeSessionId) {
+      if (loading?.isConnected) {
+        updateMessage(loading, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+        setImageContext(loading, imageContext);
+      } else appendSessionDisplayMessage(sessionId, 'assistant', result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+      if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
+      state.messages.push({ role: 'assistant', content: assistantText });
+      saveChatHistory();
+    } else {
+      if (!options.userAlreadyAdded) baseMessages.push({ role: 'user', content: prompt });
+      baseMessages.push({ role: 'assistant', content: assistantText });
+      saveSessionMessages(sessionId, baseMessages);
+      replaceLastSessionDisplayMessage(sessionId, 'assistant', result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+      session.lastGeneratedImage = state.lastGeneratedImage;
+    }
     playDoneSound();
   } finally {
     if (timer) clearInterval(timer);
   }
+}
+
+async function resumeImageJob(sessionId = state.activeSessionId) {
+  const resumeKey = `image:${sessionId}`;
+  if (state.resumingJobs.has(resumeKey)) return;
+  state.resumingJobs.add(resumeKey);
+  const saved = loadImageJob(sessionId);
+  if (!saved?.id) { state.resumingJobs.delete(resumeKey); return; }
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) { clearImageJob(sessionId); state.resumingJobs.delete(resumeKey); return; }
+  let liveItem = takePendingLiveItem(sessionId, '正在恢复图片生成任务…', /正在生成图片|正在恢复图片生成任务|已收到/);
+  setSessionBusy(sessionId, true);
+  const start = saved.startedAt || Date.now();
+  const tick = () => {
+    const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+    updateLiveDisplay(sessionId, liveItem, 'assistant', `正在生成图片… 已等待 ${seconds} 秒`, { rawText: `正在生成图片… 已等待 ${seconds} 秒`, pending: true });
+  };
+  const timer = setInterval(tick, 1000);
+  tick();
+  try {
+    const cfg = getConfig();
+    if (saved.payload && cfg.baseUrl) await startImageGenerationJob(saved.payload, cfg, saved.id);
+    const data = await waitImageGenerationJob(saved.id, tick);
+    const elapsedText = formatElapsed(Date.now() - start);
+    const result = await imageResultToHtml(data, elapsedText, { prompt: saved.prompt || '', sessionId });
+    updateSessionDisplayItem(sessionId, liveItem, 'assistant', result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}`, pending: false });
+    if (sessionId === state.activeSessionId) {
+      const node = findMessageNodeByDisplayItem(liveItem);
+      if (node) updateMessage(node, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+    }
+    const baseMessages = [...(session.messages || [])];
+    baseMessages.push({ role: 'assistant', content: `[图片生成完成] ${saved.prompt || ''}` });
+    saveSessionMessages(sessionId, baseMessages);
+    clearImageJob(sessionId);
+    playDoneSound();
+  } catch (err) {
+    clearImageJob(sessionId);
+    const message = isMissingJobError(err)
+      ? '恢复任务不存在或已失效，已停止恢复，请重新发送'
+      : (err?.message || String(err));
+    if (isMissingJobError(err)) cleanupStalePendingDisplay(sessionId, /正在生成图片|正在恢复图片生成任务|已收到/, message);
+    else showRunError(sessionId, err, liveItem, findMessageNodeByDisplayItem(liveItem));
+    if (isMissingJobError(err) && sessionId === state.activeSessionId && !findMessageNodeByDisplayItem(liveItem)) addMessage('error', message, { rawText: message });
+  } finally {
+    clearInterval(timer);
+    setSessionBusy(sessionId, false);
+    state.resumingJobs.delete(resumeKey);
+  }
+}
+
+async function resumeChatJob(sessionId = state.activeSessionId) {
+  const resumeKey = `chat:${sessionId}`;
+  if (state.resumingJobs.has(resumeKey)) return;
+  state.resumingJobs.add(resumeKey);
+  const saved = loadChatJob(sessionId);
+  if (!saved?.id) { state.resumingJobs.delete(resumeKey); return; }
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session) { clearChatJob(sessionId); state.resumingJobs.delete(resumeKey); return; }
+  let liveItem = takePendingLiveItem(sessionId, '正在恢复聊天任务…', /正在处理|正在思考|正在恢复聊天任务|已收到/);
+  setSessionBusy(sessionId, true);
+  const start = saved.startedAt || Date.now();
+  const isStatusText = (text = '') => /正在处理|正在思考|正在恢复聊天任务|已收到/.test(String(text || ''));
+  let hasOutput = !!String(liveItem?.rawText || '').trim() && !isStatusText(liveItem.rawText || '');
+  const tick = () => {
+    if (hasOutput) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+    updateLiveDisplay(sessionId, liveItem, 'assistant', `正在处理… 已等待 ${seconds} 秒`, { rawText: `正在处理… 已等待 ${seconds} 秒`, pending: true });
+  };
+  const timer = setInterval(tick, 1000);
+  try {
+    const cfg = getConfig();
+    const onJobUpdate = (job) => {
+      const partial = extractChatJobText(job.data);
+      if (partial.content || partial.reasoning) {
+        hasOutput = !!partial.content || hasOutput;
+        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在思考中'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: partial.reasoning });
+      } else {
+        tick();
+      }
+    };
+    let data;
+    try {
+      // 优先立即连接已有 SSE，刷新后可马上拿到后端已缓存的半截输出。
+      data = await waitChatJob(saved.id, onJobUpdate);
+    } catch (err) {
+      if (!isMissingJobError(err) || !saved.payload || !cfg.baseUrl) throw err;
+      await startChatJob(saved.payload, cfg, saved.id);
+      data = await waitChatJob(saved.id, onJobUpdate);
+    }
+    const final = extractChatJobText(data);
+    const reply = final.content || '没有返回内容';
+    const reasoning = final.reasoning || '';
+    updateSessionDisplayItem(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false });
+    if (sessionId === state.activeSessionId) {
+      const node = findMessageNodeByDisplayItem(liveItem);
+      if (node) {
+        updateMessage(node, reply, { rawText: reply });
+        finishReasoning(node, reasoning);
+      }
+    }
+    const baseMessages = [...(session.messages || [])];
+    baseMessages.push({ role: 'assistant', content: reply });
+    saveSessionMessages(sessionId, baseMessages);
+    clearChatJob(sessionId);
+    playDoneSound();
+  } catch (err) {
+    clearChatJob(sessionId);
+    const message = isMissingJobError(err)
+      ? '恢复任务不存在或已失效，已停止恢复，请重新发送'
+      : (err?.message || String(err));
+    if (isMissingJobError(err)) cleanupStalePendingDisplay(sessionId, /正在处理|正在思考|正在恢复聊天任务|已收到/, message);
+    else showRunError(sessionId, err, liveItem, findMessageNodeByDisplayItem(liveItem));
+    if (isMissingJobError(err) && sessionId === state.activeSessionId && !findMessageNodeByDisplayItem(liveItem)) addMessage('error', message, { rawText: message });
+  } finally {
+    clearInterval(timer);
+    setSessionBusy(sessionId, false);
+  }
+}
+
+
+function resumeSessionJobs(sessionId = state.activeSessionId) {
+  if (!sessionId) return;
+  const imageJob = loadImageJob(sessionId);
+  const chatJob = loadChatJob(sessionId);
+  if (imageJob) setTimeout(() => resumeImageJob(sessionId), 0);
+  if (chatJob) setTimeout(() => resumeChatJob(sessionId), 0);
 }
 
 function formatElapsed(ms) {
@@ -1842,8 +2718,43 @@ function enhanceCodeBlocks(html) {
   return tpl.innerHTML;
 }
 
+
+function stripTrailingOrphanFence(source) {
+  const lines = String(source || '').split('\n');
+  let last = lines.length - 1;
+  while (last >= 0 && !lines[last].trim()) last -= 1;
+  if (last < 0) return source;
+  const closing = lines[last].match(/^\s*(`{3,}|~{3,})\s*$/);
+  if (!closing) return source;
+
+  let inFence = false;
+  let markerChar = '';
+  let markerLen = 0;
+  for (let i = 0; i < last; i += 1) {
+    const match = lines[i].match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (!match) continue;
+    const fence = match[1];
+    const char = fence[0];
+    if (!inFence) {
+      inFence = true;
+      markerChar = char;
+      markerLen = fence.length;
+    } else if (char === markerChar && fence.length >= markerLen) {
+      inFence = false;
+      markerChar = '';
+      markerLen = 0;
+    }
+  }
+  // 如果到末尾这行之前并不处于代码块中，这个末尾 fence 只是孤立多余内容，直接移除。
+  if (!inFence) {
+    lines.splice(last, 1);
+    return lines.join('\n').replace(/\n+$/, '');
+  }
+  return source;
+}
+
 function renderMarkdown(md) {
-  const source = String(md || '');
+  const source = stripTrailingOrphanFence(String(md || ''));
   const { text, math } = extractMathSegments(source);
 
   if (window.marked?.parse) {
@@ -1972,17 +2883,20 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 
-function buildRouteContext(limit = 8) {
-  const history = state.messages.slice(-limit).map((msg, idx) => ({
+function buildRouteContext(limit = 8, sessionId = state.activeSessionId) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  const messages = sessionId === state.activeSessionId ? state.messages : (session?.messages || []);
+  const lastImage = sessionId === state.activeSessionId ? state.lastGeneratedImage : session?.lastGeneratedImage;
+  const history = messages.slice(-limit).map((msg, idx) => ({
     index: idx + 1,
     role: msg.role,
     content: String(msg.content || '').slice(0, 600),
   }));
   return {
     recent_messages: history,
-    last_generated_image: state.lastGeneratedImage ? {
-      prompt: String(state.lastGeneratedImage.prompt || '').slice(0, 800),
-      updated_at: state.lastGeneratedImage.updatedAt || null,
+    last_generated_image: lastImage ? {
+      prompt: String(lastImage.prompt || '').slice(0, 800),
+      updated_at: lastImage.updatedAt || null,
     } : null,
   };
 }
@@ -2019,7 +2933,7 @@ function parseRouteResult(raw) {
   return null;
 }
 
-async function getEffectiveRoute(prompt, attachments = state.attachments) {
+async function getEffectiveRoute(prompt, attachments = state.attachments, sessionId = state.activeSessionId) {
   if (!state.autoMode) {
     return normalizeRoute({
       mode: state.mode,
@@ -2070,7 +2984,7 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
             content: JSON.stringify({
               current_input: prompt,
               attachments: attachments.map(f => ({ name: f.name, type: f.type })),
-              context: buildRouteContext(8),
+              context: buildRouteContext(8, sessionId),
             }, null, 2),
           },
         ],
@@ -2088,82 +3002,76 @@ async function getEffectiveRoute(prompt, attachments = state.attachments) {
 
 
 function updateModeUi(mode, auto = state.autoMode) {
-  $('modeTitle').textContent = mode === 'chat' ? '极简聊天工具' : '生图';
-  const modeBtn = $('modeSwitchBtn');
-  if (modeBtn) {
-    modeBtn.innerHTML = mode === 'chat' ? iconChat() : iconImage();
-    modeBtn.title = auto
-      ? '自动识别模式：点击可手动切换当前模式'
-      : (mode === 'chat' ? '当前：聊天，点击切换生图' : '当前：生图，点击切换聊天');
-    modeBtn.setAttribute('aria-label', modeBtn.title);
-    modeBtn.classList.toggle('image-mode', mode === 'image');
-  }
-  $('modeDesc').textContent = auto
-    ? '可配置兼容 OpenAPI 的第三方供应商，支持聊天和生图'
-    : (mode === 'chat' ? '微信式左右气泡，支持 Markdown、复制和模型选择。' : '输入图片提示词，调用图片接口，图片可下载/预览/继续修改。');
-  $('prompt').placeholder = '输入消息，Enter 发送，Shift+Enter 换行';
+  state.mode = mode;
+  const promptEl = $('prompt');
+  if (promptEl) promptEl.placeholder = '输入消息，Enter 发送，Shift+Enter 换行';
 }
 
 async function onSubmit(e) {
   e.preventDefault();
-  if (state.busy) return;
+  if (isSessionBusy(state.activeSessionId)) return;
   const prompt = $('prompt').value.trim();
   if (!prompt) return;
   unlockDoneSound();
   saveConfig(true);
 
+  const runSessionId = state.activeSessionId;
   const submittedAttachments = [...state.attachments];
   const displayIndex = state.mode === 'chat' ? state.messages.length : null;
-  const editingCandidate = !state.autoMode && state.mode === 'chat';
-  let editingApplied = false;
-  if (editingCandidate) editingApplied = applyPendingEdit(prompt);
-  if (!editingApplied) {
+  const editingCandidate = state.editingIndex !== null && state.editingNode && state.mode === 'chat';
+  let editResult = null;
+  if (editingCandidate) editResult = applyPendingEdit(prompt);
+  if (!editResult) {
     addMessage('user', prompt + attachmentsSummaryMarkdown(submittedAttachments), { rawText: prompt, messageIndex: displayIndex });
+    state.messages.push({ role: 'user', content: prompt });
   }
+  saveChatHistory();
   $('prompt').value = '';
   clearAttachments();
   scheduleAutoResize();
-  state.busy = true;
-  $('sendBtn').disabled = true;
+  setSessionBusy(runSessionId, true);
 
+  const session = getActiveSession();
+  let liveItem = null;
   const immediateFeedback = addMessage('assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true });
+  if (session) {
+    liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
+    immediateFeedback.__displayItem = liveItem;
+  }
   let effectiveMode = state.mode;
   let effectiveRoute = normalizeRoute({ mode: state.mode, target: state.mode === 'image' ? 'new' : 'none', confidence: 1 }, state.mode);
 
   try {
     try {
-      effectiveRoute = await getEffectiveRoute(prompt, submittedAttachments);
+      effectiveRoute = await getEffectiveRoute(prompt, submittedAttachments, runSessionId);
       effectiveMode = effectiveRoute.mode;
     } catch (routeErr) {
       effectiveMode = 'chat';
       effectiveRoute = normalizeRoute({ mode: 'chat', target: 'none', use_previous_image: false, confidence: 0 });
       console.warn('route failed, fallback to chat:', routeErr);
     }
-    updateModeUi(effectiveMode, state.autoMode);
-    if (warnMissingModel(effectiveMode, true)) {
+    if (runSessionId === state.activeSessionId) updateModeUi(effectiveMode, state.autoMode);
+    if (runSessionId === state.activeSessionId && warnMissingModel(effectiveMode, true)) {
       immediateFeedback.remove();
       return;
     }
-    // 如果模型判断为聊天，但刚才没有应用编辑状态，这里补一次编辑处理。
-    if (effectiveMode === 'chat' && state.editingIndex !== null && state.editingNode) {
-      applyPendingEdit(prompt);
-    }
-
-    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments, immediateFeedback);
+    if (effectiveMode === 'chat') await sendChat(prompt, submittedAttachments, immediateFeedback, { sessionId: runSessionId, userAlreadyAdded: true, liveItem });
     else await sendImage(prompt, {
       loadingNode: immediateFeedback,
       editMode: effectiveMode === 'edit_image',
       editTarget: effectiveRoute.target,
       usePreviousImage: effectiveRoute.usePreviousImage,
       attachments: submittedAttachments,
+      sessionId: runSessionId,
+      userAlreadyAdded: true,
+      liveItem,
     });
     state.editingIndex = null;
     state.editingNode = null;
   } catch (err) {
-    addMessage('error', err.message || String(err), { rawText: err.message || String(err) });
+    showRunError(runSessionId, err, liveItem, immediateFeedback);
   } finally {
-    state.busy = false;
-    $('sendBtn').disabled = false;
+    setSessionBusy(runSessionId, false);
     $('prompt').focus();
   }
 }
@@ -2172,11 +3080,6 @@ function closeAllCustomSelects(except = null) {
   document.querySelectorAll('.custom-select.open').forEach(el => {
     if (el !== except) el.classList.remove('open');
   });
-}
-
-function selectedOptionLabel(select) {
-  const opt = select?.selectedOptions?.[0];
-  return opt?.textContent || select?.options?.[0]?.textContent || '请选择';
 }
 
 function renderCustomSelectLabel(container, option) {
@@ -2289,15 +3192,29 @@ async function clearChat() {
   state.editingNode = null;
 
   // 只清理会话/图片/临时数据，保留 CONFIG_KEY 接口配置。
-  localStorage.removeItem(CHAT_KEY);
-  localStorage.removeItem(UI_KEY);
-  localStorage.removeItem(LAST_IMAGE_KEY);
+  const session = getActiveSession();
+  session.messages = [];
+  session.display = [];
+  session.lastGeneratedImage = null;
+  session.title = '新对话';
+  session.updatedAt = Date.now();
+  localStorage.removeItem(sessionStorageKey(CHAT_KEY));
+  localStorage.removeItem(sessionStorageKey(UI_KEY));
+  localStorage.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
+  saveSessionsMeta();
   await clearImageDb();
   clearAttachments();
 
   $('messages').innerHTML = `<div class="empty"><div class="empty-icon">💬</div><h3>新对话已开始</h3><p>输入消息，Enter 发送，Shift+Enter 换行</p></div>`;
 }
-$('clearBtn').addEventListener('click', () => clearChat().catch(console.error));
+$('newSessionBtn')?.addEventListener('click', newSession);
+$('mobileSessionFloatBtn')?.addEventListener('click', openSessionDrawer);
+$('railExpandBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
+$('railChatBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
+$('railNewSessionBtn')?.addEventListener('click', newSession);
+$('railConfigBtn')?.addEventListener('click', openConfigModal);
+$('collapseSessionsBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(!document.body.classList.contains('session-sidebar-collapsed')));
+$('sessionDrawerMask')?.addEventListener('click', closeSessionDrawer);
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
 $('reasoningToggle')?.addEventListener('click', () => setReasoningPersist(!state.reasoningPersist));
 $('fileInput').addEventListener('change', async (e) => {
@@ -2348,7 +3265,10 @@ function closeConfigModal() {
 
 $('imagePreviewClose').addEventListener('click', closeImagePreview);
 $('imagePreview').addEventListener('click', (e) => { if (e.target.id === 'imagePreview' || e.target.classList.contains('image-preview-mask')) closeImagePreview(); });
-$('configBtn').addEventListener('click', openConfigModal);
+$('sidebarConfigBtn')?.addEventListener('click', () => {
+  closeSessionDrawer();
+  openConfigModal();
+});
 $('closeConfigBtn').addEventListener('click', closeConfigModal);
 document.querySelectorAll('[data-close-modal]').forEach(el => el.addEventListener('click', closeConfigModal));
 document.addEventListener('click', () => closeAllCustomSelects());
@@ -2359,8 +3279,13 @@ document.addEventListener('keydown', (e) => {
 enhanceConfigSelects();
 loadConfig();
 loadReasoningPreference();
+loadSessions();
+loadSessionSidebarCollapsed();
 loadLastGeneratedImage();
-loadChatHistory({ render: false });
-if (!loadDisplayHistory()) loadChatHistory({ render: true });
+renderActiveSession();
+updateSendAvailability();
 updateModeUi(state.mode, state.autoMode);
 requestAnimationFrame(() => document.body.classList.remove('app-booting'));
+
+window.addEventListener('beforeunload', () => { state.pageUnloading = true; });
+window.addEventListener('pagehide', () => { state.pageUnloading = true; });

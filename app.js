@@ -1362,6 +1362,17 @@ async function startChatJob(payload, cfg, jobId) {
   return data;
 }
 
+async function registerChatStreamJob(payload, cfg, jobId) {
+  const res = await fetch('/api/chat-stream-jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, payload }),
+  });
+  const data = await parseResponseJson(res);
+  if (!res.ok) throw new Error(normalizeError(null, data));
+  return data;
+}
+
 async function getChatJob(jobId) {
   const res = await fetch(`/api/chat-jobs/${encodeURIComponent(jobId)}`);
   const data = await parseResponseJson(res);
@@ -1514,6 +1525,7 @@ function updateSendAvailability() {
 
 function setSessionSidebarCollapsed(collapsed) {
   document.body.classList.toggle('session-sidebar-collapsed', !!collapsed);
+  document.documentElement.classList.toggle('session-sidebar-collapsed-boot', !!collapsed);
   localStorage.setItem(SESSION_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
   const btn = $('collapseSessionsBtn');
   if (btn) {
@@ -2152,11 +2164,14 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     temperature: 0.7,
     stream: true,
   };
+  const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
+  if (backgroundJobId) {
+    saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now() });
+    // 不等待预登记完成；尽早发出即可，避免“已收到”阶段刷新后 job 尚未存在。
+    registerChatStreamJob(payload, cfg, backgroundJobId).catch(err => console.warn('register chat stream job failed', err));
+  }
 
   try {
-    const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
-    if (backgroundJobId) saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: { model: cfg.chatModel, messages: requestMessages, temperature: 0.7, stream: true }, startedAt: Date.now() });
-
     const renderer = createRealtimeRenderer((visible) => {
       const text = visible || '正在思考中';
       if (loading?.isConnected) {
@@ -2554,15 +2569,10 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
         tick();
       }
     };
-    let data;
-    try {
-      // 优先立即连接已有 SSE，刷新后可马上拿到后端已缓存的半截输出。
-      data = await waitChatJob(saved.id, onJobUpdate);
-    } catch (err) {
-      if (!isMissingJobError(err) || !saved.payload || !cfg.baseUrl) throw err;
-      await startChatJob(saved.payload, cfg, saved.id);
-      data = await waitChatJob(saved.id, onJobUpdate);
-    }
+    // 刷新恢复时先调用后端接口登记/重建 streaming job，再连接 SSE。
+    // 这样“已收到，马上处理”阶段刷新，即使原请求没来得及建 job，也不会直接 /events 404。
+    if (saved.payload && cfg.baseUrl) await registerChatStreamJob(saved.payload, cfg, saved.id);
+    const data = await waitChatJob(saved.id, onJobUpdate);
     const final = extractChatJobText(data);
     const reply = final.content || '没有返回内容';
     const reasoning = final.reasoning || '';

@@ -120,17 +120,14 @@ async function proxy(req, res) {
     const targetUrl = `${baseUrl}${targetPath}`;
     const wantsStream = method !== 'GET' && payload && payload.stream === true;
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
-      proxyChatJob = {
-        id: proxyJobId,
-        status: 'running',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
-        error: '',
-        buffer: '',
-      };
-      chatJobs.set(proxyJobId, proxyChatJob);
-      notifyJob(proxyChatJob);
+      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, payload, { stream: true });
+      if (proxyChatJob.streamStarted) proxyChatJob = null;
+      else {
+        proxyChatJob.updatedAt = Date.now();
+        proxyChatJob.streamStarted = true;
+        chatJobs.set(proxyJobId, proxyChatJob);
+        notifyJob(proxyChatJob);
+      }
     }
     const upstream = await fetch(targetUrl, {
       method,
@@ -148,6 +145,10 @@ async function proxy(req, res) {
 
     if (wantsStream || isEventStream) {
       const chatJob = proxyChatJob;
+      if (!chatJob && targetPath === '/chat/completions' && proxyJobId) {
+        // 已有后台流式 job 接管时，当前页面直接通过 SSE 恢复，避免重复请求/重复输出。
+        return sendJson(res, 409, { error: { message: '任务已在后台继续，请等待恢复连接' } }, { 'Access-Control-Allow-Origin': '*' });
+      }
       res.writeHead(upstream.status, {
         ...SECURITY_HEADERS,
         'Content-Type': contentType,
@@ -244,8 +245,25 @@ async function proxyImage(req, res) {
 
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
-  if (/^imgjob-[a-z0-9-]{8,80}$/i.test(supplied)) return supplied;
+  if (/^(imgjob|chatjob)-[a-z0-9-]{8,80}$/i.test(supplied)) return supplied;
   return `imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+
+function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true } = {}) {
+  return {
+    id: jobId,
+    status: 'running',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    targetUrl: `${baseUrl}/chat/completions`,
+    apiKey,
+    payload: stream ? { ...payload, stream: true } : { ...payload, stream: false },
+    data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
+    error: '',
+    buffer: '',
+    streamStarted: false,
+  };
 }
 
 function publicJob(job) {
@@ -394,6 +412,75 @@ async function runChatJob(job) {
   }
 }
 
+async function runChatStreamJob(job) {
+  if (job.streamStarted) return;
+  job.streamStarted = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(job.targetUrl, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ ...job.payload, stream: true }),
+    });
+    const contentType = upstream.headers.get('content-type') || '';
+    if (!upstream.ok) {
+      const text = await upstream.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
+    }
+    if (!upstream.body) throw new Error('上游没有返回流式响应体');
+    if (!contentType.toLowerCase().includes('text/event-stream')) {
+      const text = await upstream.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      const content = data?.choices?.[0]?.message?.content || data?.output_text || data?.raw || '';
+      const reasoning = data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '';
+      job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
+    } else {
+      for await (const chunk of upstream.body) {
+        updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'));
+      }
+    }
+    job.status = 'done';
+    delete job.buffer;
+  } catch (err) {
+    const aborted = err?.name === 'AbortError';
+    job.status = 'error';
+    job.error = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
+  } finally {
+    clearTimeout(timer);
+    job.updatedAt = Date.now();
+    notifyJob(job);
+  }
+}
+
+async function registerChatStreamJob(req, res) {
+  try {
+    const body = parseJson(await readBody(req));
+    const baseUrl = normalizeBaseUrl(body.baseUrl);
+    const apiKey = String(body.apiKey || '').trim();
+    const payload = body.payload || {};
+    if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
+    const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
+    let job = chatJobs.get(jobId);
+    if (!job) {
+      job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true });
+      chatJobs.set(jobId, job);
+    }
+    if (!job.streamStarted && job.status === 'running') runChatStreamJob(job);
+    sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+  } catch (err) {
+    sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+  }
+}
+
 async function startChatJob(req, res) {
   try {
     const body = parseJson(await readBody(req));
@@ -469,6 +556,11 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/image-jobs') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
     return startImageJob(req, res);
+  }
+
+  if (req.url === '/api/chat-stream-jobs') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
+    return registerChatStreamJob(req, res);
   }
 
   if (req.url === '/api/chat-jobs') {

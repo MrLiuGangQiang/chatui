@@ -3222,3 +3222,82 @@ body.session-sidebar-collapsed .composer { left: 0; }
 .copy-btn.icon-action-btn.copied svg {
   transform: translateX(7.5px) !important;
 }
+
+
+/* boot-time sidebar collapsed state: avoid expanded-sidebar flash before app.js runs */
+@media (min-width: 841px) {
+  html.session-sidebar-collapsed-boot body.app-booting .session-sidebar { display: none !important; }
+  html.session-sidebar-collapsed-boot body.app-booting .session-rail { display: flex !important; }
+  html.session-sidebar-collapsed-boot body.app-booting .main { margin-left: var(--session-rail-width, 56px) !important; }
+  html.session-sidebar-collapsed-boot body.app-booting .composer { left: calc(var(--session-rail-width, 56px) + 24px) !important; }
+  body.app-booting .session-sidebar,
+  body.app-booting .session-rail,
+  body.app-booting .main,
+  body.app-booting .composer { transition: none !important; }
+}
+
+/* sidebar visual alignment: light glass theme to match main chat surface */
+.session-sidebar {
+  color: #0f172a !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(248,250,252,.96) 100%) !important;
+  border-right: 1px solid rgba(226,232,240,.9) !important;
+  box-shadow: 10px 0 28px rgba(15,23,42,.045) !important;
+  backdrop-filter: blur(18px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
+}
+.session-brand { align-items: center !important; }
+.session-brand strong { color: #111827 !important; }
+.session-brand span { color: #64748b !important; }
+.session-new-btn {
+  color: #0f172a !important;
+  background: rgba(255,255,255,.82) !important;
+  border-color: rgba(203,213,225,.95) !important;
+  box-shadow: 0 10px 24px rgba(15,23,42,.055) !important;
+}
+.session-new-btn:hover {
+  background: #fff !important;
+  border-color: rgba(148,163,184,.92) !important;
+}
+.session-tab {
+  color: #334155 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.session-tab:hover {
+  color: #0f172a !important;
+  background: rgba(15,23,42,.045) !important;
+}
+.session-tab.active {
+  color: #0f172a !important;
+  border-color: rgba(37,99,235,.18) !important;
+  background: linear-gradient(135deg, rgba(37,99,235,.12), rgba(20,184,166,.09)) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.52), 0 8px 20px rgba(37,99,235,.07) !important;
+}
+.session-tab small { color: #64748b !important; }
+.session-tab.busy small::after { color: #059669 !important; }
+.session-delete-btn { color: #94a3b8 !important; }
+.session-delete-btn:hover { color: #dc2626 !important; background: rgba(254,226,226,.9) !important; }
+.session-tab.active .session-delete-btn { color: #64748b !important; }
+.session-collapse-btn {
+  color: #475569 !important;
+  background: rgba(255,255,255,.78) !important;
+  border-color: rgba(203,213,225,.9) !important;
+}
+.session-collapse-btn:hover {
+  color: #0f172a !important;
+  background: #fff !important;
+}
+.session-config-btn {
+  color: #2563eb !important;
+  background: rgba(239,246,255,.88) !important;
+  border-color: rgba(191,219,254,.95) !important;
+  box-shadow: 0 10px 24px rgba(37,99,235,.06) !important;
+}
+.session-config-btn:hover {
+  background: #eff6ff !important;
+  border-color: rgba(147,197,253,.95) !important;
+}
+@media (max-width: 840px) {
+  .session-sidebar { box-shadow: 22px 0 58px rgba(15,23,42,.16) !important; }
+  .session-drawer-mask { background: rgba(15,23,42,.22) !important; }
+}

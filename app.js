@@ -1581,7 +1581,7 @@ function setSessionSidebarCollapsed(collapsed) {
   localStorage.setItem(SESSION_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
   const btn = $('collapseSessionsBtn');
   if (btn) {
-    btn.title = collapsed ? '展开会话栏' : '收起会话栏';
+    btn.title = window.matchMedia('(max-width: 840px)').matches ? '模型配置' : (collapsed ? '展开会话栏' : '收起会话栏');
     btn.setAttribute('aria-label', btn.title);
   }
 }
@@ -3281,12 +3281,18 @@ async function clearChat() {
 }
 $('newSessionBtn')?.addEventListener('click', newSession);
 $('mobileSessionFloatBtn')?.addEventListener('click', openSessionDrawer);
-$('mobileConfigFloatBtn')?.addEventListener('click', () => { closeSessionDrawer(); openConfigModal(); });
 $('railExpandBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
 $('railChatBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(false));
 $('railNewSessionBtn')?.addEventListener('click', newSession);
 $('railConfigBtn')?.addEventListener('click', openConfigModal);
-$('collapseSessionsBtn')?.addEventListener('click', () => setSessionSidebarCollapsed(!document.body.classList.contains('session-sidebar-collapsed')));
+$('collapseSessionsBtn')?.addEventListener('click', () => {
+  if (window.matchMedia('(max-width: 840px)').matches) {
+    closeSessionDrawer();
+    openConfigModal();
+    return;
+  }
+  setSessionSidebarCollapsed(!document.body.classList.contains('session-sidebar-collapsed'));
+});
 $('sessionDrawerMask')?.addEventListener('click', closeSessionDrawer);
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
 $('reasoningToggle')?.addEventListener('click', () => setReasoningPersist(!state.reasoningPersist));
@@ -3345,10 +3351,7 @@ function closeConfigModal() {
 
 $('imagePreviewClose').addEventListener('click', closeImagePreview);
 $('imagePreview').addEventListener('click', (e) => { if (e.target.id === 'imagePreview' || e.target.classList.contains('image-preview-mask')) closeImagePreview(); });
-$('sidebarConfigBtn')?.addEventListener('click', () => {
-  closeSessionDrawer();
-  openConfigModal();
-});
+$('sidebarConfigBtn')?.addEventListener('click', openConfigModal);
 $('closeConfigBtn').addEventListener('click', closeConfigModal);
 document.querySelectorAll('[data-close-modal]').forEach(el => el.addEventListener('click', closeConfigModal));
 document.addEventListener('click', () => closeAllCustomSelects());

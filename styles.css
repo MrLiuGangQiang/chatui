@@ -2540,11 +2540,14 @@ body {
   padding: 0;
 }
 .session-collapse-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.session-collapse-btn .mobile-settings-icon { display: none; }
 body.session-sidebar-collapsed .shell-app.app { grid-template-columns: 1fr; }
 body.session-sidebar-collapsed .session-sidebar { display: none; }
 body.session-sidebar-collapsed .composer { left: 0; }
 @media (max-width: 840px) {
   body.session-sidebar-collapsed .session-sidebar { display: flex; }
+  .session-collapse-btn .collapse-icon { display: none !important; }
+  .session-collapse-btn .mobile-settings-icon { display: block !important; }
 }
 @media (max-width: 640px) {
   .mobile-session-toggle { order: -1; flex: 0 0 auto; }
@@ -2743,7 +2746,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   }
 }
 
-/* no top toolbar: settings live in session sidebar */
+/* no top toolbar */
 .main { grid-template-rows: 1fr auto !important; }
 .messages { padding-top: 28px !important; }
 .session-config-btn {
@@ -2769,6 +2772,9 @@ body.session-sidebar-collapsed .composer { left: 0; }
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+@media (max-width: 840px) {
+  .session-config-btn { display: none !important; }
 }
 /* mobile-only session entry after top toolbar removal */
 .mobile-session-float { display: none; }
@@ -3370,60 +3376,4 @@ body.session-sidebar-collapsed .composer { left: 0; }
 @media (max-width: 640px) {
   .secret-field { gap: 6px; }
   .secret-toggle { min-height: 40px; padding: 0 10px; }
-}
-
-/* mobile direct settings entry: keep model config reachable on iPhone even when top bars/safe-area hide the drawer entry */
-.mobile-config-float { display: none; }
-@media (max-width: 840px) {
-  .mobile-config-float {
-    position: fixed;
-    left: 50%;
-    right: auto;
-    bottom: calc(128px + env(safe-area-inset-bottom));
-    transform: translateX(-50%);
-    z-index: 68;
-    width: auto;
-    min-width: 72px;
-    height: 42px;
-    padding: 0 13px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    border: 1px solid rgba(147,197,253,.55);
-    border-radius: 999px;
-    color: #2563eb;
-    background: rgba(239,246,255,.96);
-    box-shadow: 0 12px 30px rgba(37,99,235,.18);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-    font-size: 13px;
-    font-weight: 850;
-    line-height: 1;
-  }
-  .mobile-config-float svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.95;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .mobile-config-float span { display: inline; }
-  body.session-drawer-open .mobile-config-float,
-  body.modal-open .mobile-config-float {
-    display: none;
-  }
-}
-@media (max-width: 420px) {
-  .mobile-config-float {
-    bottom: calc(118px + env(safe-area-inset-bottom));
-    min-width: 66px;
-    height: 40px;
-    padding: 0 12px;
-  }
-}
-@media (min-width: 841px) {
-  .mobile-config-float { display: none !important; }
 }

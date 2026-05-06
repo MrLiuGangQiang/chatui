@@ -7,7 +7,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./vendor/katex.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.0.97" />
+  <link rel="stylesheet" href="./styles.css?v=1.0.98" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -39,7 +39,8 @@
           <strong>ChatUI</strong>
           <span>会话</span>
           <button id="collapseSessionsBtn" class="session-collapse-btn" type="button" title="收起会话栏" aria-label="收起会话栏">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6"/></svg>
+            <svg class="collapse-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6 9 12l6 6"/></svg>
+            <svg class="mobile-settings-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .55V20a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1-.55 1.7 1.7 0 0 0-1.87.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.55-1H4a2 2 0 0 1 0-4h.08a1.7 1.7 0 0 0 .55-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6c.35-.14.68-.32 1-.55V4a2 2 0 0 1 4 0v.08c.32.23.65.41 1 .55a1.7 1.7 0 0 0 1.87-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9c.14.35.32.68.55 1H20a2 2 0 0 1 0 4h-.08c-.23.32-.41.65-.55 1Z"/></svg>
           </button>
         </div>
         <button id="newSessionBtn" class="session-new-btn" type="button" title="新会话" aria-label="新会话">
@@ -57,11 +58,6 @@
     <button id="mobileSessionFloatBtn" class="mobile-session-float" type="button" title="会话列表" aria-label="会话列表">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
-    <button id="mobileConfigFloatBtn" class="mobile-config-float" type="button" title="模型配置" aria-label="模型配置">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .55V20a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1-.55 1.7 1.7 0 0 0-1.87.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.55-1H4a2 2 0 0 1 0-4h.08a1.7 1.7 0 0 0 .55-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6c.35-.14.68-.32 1-.55V4a2 2 0 0 1 4 0v.08c.32.23.65.41 1 .55a1.7 1.7 0 0 0 1.87-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9c.14.35.32.68.55 1H20a2 2 0 0 1 0 4h-.08c-.23.32-.41.65-.55 1Z"/></svg>
-      <span>设置</span>
-    </button>
-
     <main class="main">
       <section id="messages" class="messages">
         <div class="empty">

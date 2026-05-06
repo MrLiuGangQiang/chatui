@@ -112,19 +112,39 @@ async function proxy(req, res) {
     if (!ALLOWED_PROXY_METHODS.has(method)) return sendJson(res, 405, { error: { message: '不支持的代理方法' } });
 
     const targetUrl = `${baseUrl}${targetPath}`;
+    const wantsStream = method !== 'GET' && payload && payload.stream === true;
     const upstream = await fetch(targetUrl, {
       method,
       signal: controller.signal,
       headers: {
         ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
+        ...(wantsStream ? { Accept: 'text/event-stream' } : {}),
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       ...(method === 'GET' ? {} : { body: JSON.stringify(payload) }),
     });
 
+    const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
+    const isEventStream = contentType.toLowerCase().includes('text/event-stream');
+
+    if (wantsStream || isEventStream) {
+      res.writeHead(upstream.status, {
+        ...SECURITY_HEADERS,
+        'Content-Type': contentType,
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      });
+      if (!upstream.body) return res.end();
+      for await (const chunk of upstream.body) {
+        res.write(Buffer.from(chunk));
+      }
+      return res.end();
+    }
+
     const text = await upstream.text();
     send(res, upstream.status, text, {
-      'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+      'Content-Type': contentType,
       'Access-Control-Allow-Origin': '*',
     });
   } catch (err) {

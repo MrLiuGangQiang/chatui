@@ -77,9 +77,43 @@
               <button id="attachBtn" class="attach-btn" type="button" title="添加附件" aria-label="添加附件">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5L13.6 2.4a4.1 4.1 0 0 1 5.8 5.8L9.2 18.4a2.2 2.2 0 0 1-3.1-3.1l9.2-9.2"/></svg>
               </button>
-              <button id="reasoningToggle" class="reasoning-toggle" type="button" aria-pressed="false" title="保持显示思考内容" aria-label="保持显示思考内容">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.2 14.7A6 6 0 1 1 15.8 14.7c-.9.7-1.3 1.6-1.5 2.3H9.7c-.2-.8-.6-1.6-1.5-2.3Z"/></svg>
-              </button>
+              <div class="reasoning-control">
+                <button id="reasoningToggle" class="reasoning-toggle" type="button" aria-pressed="false" title="开启思考模式" aria-label="开启思考模式">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8.5 5.2A3.1 3.1 0 0 1 12 3a3.1 3.1 0 0 1 3.5 2.2 3.5 3.5 0 0 1 3 5.4 3.4 3.4 0 0 1-1.1 6.5 3.3 3.3 0 0 1-5.4 2.4 3.3 3.3 0 0 1-5.4-2.4 3.4 3.4 0 0 1-1.1-6.5 3.5 3.5 0 0 1 3-5.4Z"/>
+                    <path d="M12 3v17"/>
+                    <path d="M8.2 9.1c.9.1 1.6.5 2.1 1.2"/>
+                    <path d="M15.8 9.1c-.9.1-1.6.5-2.1 1.2"/>
+                    <path d="M8.3 14.6c.8-.1 1.5-.5 2-1.1"/>
+                    <path d="M15.7 14.6c-.8-.1-1.5-.5-2-1.1"/>
+                  </svg>
+                </button>
+                <div class="reasoning-popover-wrap">
+                  <button id="reasoningMenuBtn" class="reasoning-menu-btn" type="button" aria-expanded="false" aria-haspopup="menu" title="思考设置">
+                    <span id="reasoningTypeLabel">标准</span>
+                    <span class="reasoning-menu-sep">·</span>
+                    <span id="reasoningProviderLabel">自动</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                  </button>
+                  <div id="reasoningMenu" class="reasoning-menu" role="menu" aria-hidden="true">
+                    <div class="reasoning-menu-section">
+                      <div class="reasoning-menu-title">思考强度</div>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="low" role="menuitemradio" aria-checked="false">快速</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="medium" role="menuitemradio" aria-checked="true">标准</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-type="high" role="menuitemradio" aria-checked="false">深度</button>
+                    </div>
+                    <div class="reasoning-menu-divider"></div>
+                    <div class="reasoning-menu-section">
+                      <div class="reasoning-menu-title">兼容类型</div>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="auto" role="menuitemradio" aria-checked="true">自动</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="openai" role="menuitemradio" aria-checked="false">OpenAI</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="anthropic" role="menuitemradio" aria-checked="false">Claude</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="thinking-budget" role="menuitemradio" aria-checked="false">Qwen 兼容</button>
+                      <button class="reasoning-menu-item" type="button" data-reasoning-provider="generic" role="menuitemradio" aria-checked="false">通用</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             <button id="sendBtn" type="submit" aria-label="发送" title="发送">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-5.2 16-3.1-6.7L4 12Z"/><path d="m11.7 13.3 4.1-4.1"/></svg>

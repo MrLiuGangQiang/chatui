@@ -15,7 +15,10 @@ const state = {
   attachments: [],
   lastGeneratedImage: null,
   autoMode: true,
-  reasoningPersist: false,
+  reasoningMode: false,
+  reasoningType: 'medium',
+  reasoningProvider: 'auto',
+  reasoningPersist: true,
   pageUnloading: false,
   resumingJobs: new Set(),
   autoScrollLocked: true,
@@ -30,6 +33,9 @@ const LEGACY_CHAT_KEY = CHAT_KEY;
 const LEGACY_UI_KEY = UI_KEY;
 const LAST_IMAGE_KEY = 'openapi-chat-image-last-image-v1';
 const REASONING_PERSIST_KEY = 'openapi-chat-reasoning-persist-v1';
+const REASONING_MODE_KEY = 'openapi-chat-reasoning-mode-v1';
+const REASONING_TYPE_KEY = 'openapi-chat-reasoning-type-v1';
+const REASONING_PROVIDER_KEY = 'openapi-chat-reasoning-provider-v1';
 const SESSION_SIDEBAR_COLLAPSED_KEY = 'openapi-chat-image-session-sidebar-collapsed-v1';
 const IMAGE_JOB_KEY = 'openapi-chat-image-job-v1';
 const CHAT_JOB_KEY = 'openapi-chat-image-chat-job-v1';
@@ -535,10 +541,25 @@ function updateReasoning(node, text, options = {}) {
 }
 
 function finishReasoning(node, text) {
+  if (!state.reasoningMode) {
+    clearReasoning(node);
+    return;
+  }
   const contentText = String(text || node?.dataset.reasoningText || '').trim();
-  if (contentText) updateReasoning(node, contentText, { done: true, persistSave: state.reasoningPersist, keepReasoning: state.reasoningPersist });
-  else updateReasoning(node, '', { keepEmpty: true, done: true });
-  if (!state.reasoningPersist) setTimeout(() => clearReasoning(node), 2000);
+  if (contentText) updateReasoning(node, contentText, { done: true, persistSave: true, keepReasoning: true });
+  else clearReasoning(node);
+}
+
+function clearAllReasoningDisplays() {
+  document.querySelectorAll('.message').forEach(node => clearReasoning(node));
+  const session = getActiveSession();
+  if (session?.display?.length) {
+    session.display.forEach(item => {
+      delete item.reasoningText;
+      item.keepReasoning = false;
+    });
+    persistSessionDisplay(session.id);
+  }
 }
 
 function pendingFeedbackHtml(text) {
@@ -850,6 +871,7 @@ async function copyText(text) {
 
 function normalizeError(err, data) {
   if (data?.error?.message) return data.error.message;
+  if (data?.error?.code) return data.error.code;
   if (data?.message) return data.message;
   if (data?.raw) return data.raw;
   return err?.message || '请求失败';
@@ -2131,24 +2153,159 @@ function loadLastGeneratedImage() {
   }
 }
 
+function normalizeReasoningType(value) {
+  return ['low', 'medium', 'high'].includes(value) ? value : 'medium';
+}
+
+function reasoningTypeLabel(value = state.reasoningType) {
+  return ({ low: '快速', medium: '标准', high: '深度' })[normalizeReasoningType(value)] || '标准';
+}
+
+function reasoningBudget(value = state.reasoningType) {
+  return ({ low: 1024, medium: 4096, high: 8192 })[normalizeReasoningType(value)] || 4096;
+}
+
+function normalizeReasoningProvider(value) {
+  return ['auto', 'openai', 'anthropic', 'thinking-budget', 'generic'].includes(value) ? value : 'auto';
+}
+
+function reasoningProviderLabel(value = state.reasoningProvider) {
+  return ({ auto: '自动', openai: 'OpenAI', anthropic: 'Claude', 'thinking-budget': 'Qwen兼容', generic: '通用' })[normalizeReasoningProvider(value)] || '自动';
+}
+
+function detectReasoningProvider(model = '') {
+  const name = String(model || '').toLowerCase();
+  if (/(^|[-_:/])(gpt|o[134]|chatgpt)/.test(name)) return 'openai';
+  if (/claude|anthropic/.test(name)) return 'anthropic';
+  if (/qwen|qwq|qvq|yi|glm|deepseek|reasoner|r1|kimi|moonshot|minimax|abab|hunyuan|ernie|doubao|ark|baichuan|mistral|mixtral|llama|gemma|phi/.test(name)) return 'thinking-budget';
+  return 'generic';
+}
+
+function getReasoningProvider(model = '') {
+  const chosen = normalizeReasoningProvider(state.reasoningProvider);
+  return chosen === 'auto' ? detectReasoningProvider(model) : chosen;
+}
+
+function isUnsupportedReasoningError(err) {
+  const text = String(err?.message || err || '').toLowerCase();
+  return /unsupported|unknown|unrecognized|invalid|not permitted|extra inputs|additional properties|reasoning|thinking|effort|budget/.test(text)
+    && /parameter|field|property|body|request|reasoning|thinking|effort|budget/.test(text);
+}
+
 function updateReasoningToggleUi() {
   const btn = $('reasoningToggle');
-  if (!btn) return;
-  btn.classList.toggle('active', state.reasoningPersist);
-  btn.setAttribute('aria-pressed', state.reasoningPersist ? 'true' : 'false');
-  btn.title = state.reasoningPersist ? '思考内容将保持显示' : '思考内容将在响应结束后自动收起';
-  btn.setAttribute('aria-label', btn.title);
+  const menuBtn = $('reasoningMenuBtn');
+  const menu = $('reasoningMenu');
+  const typeLabel = $('reasoningTypeLabel');
+  const providerLabel = $('reasoningProviderLabel');
+  if (btn) {
+    btn.classList.toggle('active', state.reasoningMode);
+    btn.setAttribute('aria-pressed', state.reasoningMode ? 'true' : 'false');
+    btn.title = state.reasoningMode ? `思考模式已开启：${reasoningTypeLabel()} · ${reasoningProviderLabel()}` : '思考模式已关闭';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  if (menuBtn) {
+    menuBtn.classList.toggle('show', state.reasoningMode);
+    menuBtn.disabled = !state.reasoningMode;
+    menuBtn.tabIndex = state.reasoningMode ? 0 : -1;
+    menuBtn.title = `思考设置：${reasoningTypeLabel()} · ${reasoningProviderLabel()}`;
+  }
+  if (menu && !state.reasoningMode) closeReasoningMenu();
+  if (typeLabel) typeLabel.textContent = reasoningTypeLabel();
+  if (providerLabel) providerLabel.textContent = reasoningProviderLabel();
+  document.querySelectorAll('[data-reasoning-type]').forEach(item => {
+    const active = item.dataset.reasoningType === state.reasoningType;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-checked', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-reasoning-provider]').forEach(item => {
+    const active = item.dataset.reasoningProvider === state.reasoningProvider;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-checked', active ? 'true' : 'false');
+  });
 }
 
 function loadReasoningPreference() {
   state.reasoningPersist = localStorage.getItem(REASONING_PERSIST_KEY) !== '0';
+  state.reasoningMode = localStorage.getItem(REASONING_MODE_KEY) === '1';
+  state.reasoningType = normalizeReasoningType(localStorage.getItem(REASONING_TYPE_KEY) || state.reasoningType);
+  state.reasoningProvider = normalizeReasoningProvider(localStorage.getItem(REASONING_PROVIDER_KEY) || state.reasoningProvider);
   updateReasoningToggleUi();
 }
 
-function setReasoningPersist(enabled) {
-  state.reasoningPersist = !!enabled;
-  localStorage.setItem(REASONING_PERSIST_KEY, state.reasoningPersist ? '1' : '0');
+function setReasoningMode(enabled) {
+  state.reasoningMode = !!enabled;
+  if (state.reasoningMode) state.reasoningPersist = true;
+  localStorage.setItem(REASONING_MODE_KEY, state.reasoningMode ? '1' : '0');
+  if (state.reasoningMode) localStorage.setItem(REASONING_PERSIST_KEY, '1');
   updateReasoningToggleUi();
+  if (!state.reasoningMode) clearAllReasoningDisplays();
+}
+
+function setReasoningType(value) {
+  state.reasoningType = normalizeReasoningType(value);
+  localStorage.setItem(REASONING_TYPE_KEY, state.reasoningType);
+  updateReasoningToggleUi();
+}
+
+function setReasoningProvider(value) {
+  state.reasoningProvider = normalizeReasoningProvider(value);
+  localStorage.setItem(REASONING_PROVIDER_KEY, state.reasoningProvider);
+  updateReasoningToggleUi();
+}
+
+function openReasoningMenu() {
+  if (!state.reasoningMode) return;
+  $('reasoningMenu')?.classList.add('show');
+  $('reasoningMenu')?.setAttribute('aria-hidden', 'false');
+  $('reasoningMenuBtn')?.setAttribute('aria-expanded', 'true');
+}
+
+function closeReasoningMenu() {
+  $('reasoningMenu')?.classList.remove('show');
+  $('reasoningMenu')?.setAttribute('aria-hidden', 'true');
+  $('reasoningMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleReasoningMenu() {
+  if ($('reasoningMenu')?.classList.contains('show')) closeReasoningMenu();
+  else openReasoningMenu();
+}
+
+function buildChatPayload(model, messages, options = {}) {
+  const payload = {
+    model,
+    messages,
+    temperature: 0.7,
+    stream: options.stream === true,
+  };
+  if (state.reasoningMode && options.reasoning !== false) {
+    const effort = normalizeReasoningType(state.reasoningType);
+    const budget = reasoningBudget(effort);
+    const provider = getReasoningProvider(model);
+    if (provider === 'openai') {
+      payload.reasoning_effort = effort;
+      payload.reasoning = { effort };
+    } else if (provider === 'anthropic') {
+      payload.thinking = { type: 'enabled', budget_tokens: budget };
+      payload.max_tokens = Math.max(4096, budget + 1024);
+    } else if (provider === 'thinking-budget') {
+      payload.reasoning = { enabled: true, effort, budget_tokens: budget };
+      payload.reasoning_effort = effort;
+      payload.enable_thinking = true;
+      payload.thinking = { type: 'enabled', effort, budget_tokens: budget };
+      payload.thinking_budget = budget;
+      payload.reasoning_budget = budget;
+      payload.include_reasoning = true;
+      payload.chat_template_kwargs = { enable_thinking: true, thinking_budget: budget };
+      payload.extra_body = { chat_template_kwargs: { enable_thinking: true, thinking_budget: budget } };
+    } else {
+      payload.reasoning_effort = effort;
+      payload.reasoning = { enabled: true, effort };
+      payload.include_reasoning = true;
+    }
+  }
+  return payload;
 }
 
 function normalizeMessageForStorage(msg) {
@@ -2218,12 +2375,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   const liveItem = options.liveItem || appendSessionDisplayMessage(sessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
   if (loading && liveItem && !loading.__displayItem) loading.__displayItem = liveItem;
 
-  const payload = {
-    model: cfg.chatModel,
-    messages: requestMessages,
-    temperature: 0.7,
-    stream: true,
-  };
+  const payload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true });
   const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
   if (backgroundJobId) {
     saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now() });
@@ -2233,7 +2385,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
 
   try {
     const renderer = createRealtimeRenderer((visible) => {
-      const text = visible || '正在思考中';
+      const text = visible || '正在处理…';
       if (loading?.isConnected) {
         clearPendingFeedback(loading);
         updateMessageContentLight(loading, text, { rawText: text, skipSave: true, forceScroll: false });
@@ -2241,17 +2393,47 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       updateLiveDisplay(sessionId, liveItem, 'assistant', text, { rawText: text, pending: true, forceScroll: false });
     });
     const reasoningRenderer = createRealtimeRenderer((visible) => {
-      if (loading?.isConnected) updateReasoning(loading, visible || '', { forceScroll: false });
-      if (liveItem) liveItem.reasoningText = visible || '';
+      if (!state.reasoningMode) {
+        if (loading?.isConnected) clearReasoning(loading);
+        if (liveItem) {
+          delete liveItem.reasoningText;
+          liveItem.keepReasoning = false;
+        }
+        return;
+      }
+      if (loading?.isConnected) updateReasoning(loading, visible || '', { forceScroll: false, keepEmpty: !!visible });
+      if (liveItem) {
+        liveItem.reasoningText = visible || '';
+        liveItem.keepReasoning = !!visible;
+      }
     });
     if (loading?.isConnected) {
-      updateReasoning(loading, '', { keepEmpty: true });
+      if (state.reasoningMode) updateReasoning(loading, '', { keepEmpty: true });
+      else clearReasoning(loading);
       setPendingFeedback(loading, '正在处理，请稍等');
     }
-    const result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
-      renderer.set(partial.content || '');
-      reasoningRenderer.set(partial.reasoning || '');
-    }, backgroundJobId);
+    let result;
+    try {
+      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
+        renderer.set(partial.content || '');
+        reasoningRenderer.set(partial.reasoning || '');
+      }, backgroundJobId);
+    } catch (streamErr) {
+      if (!state.reasoningMode || !isUnsupportedReasoningError(streamErr)) throw streamErr;
+      const plainPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
+      if (backgroundJobId) {
+        saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: plainPayload, startedAt: Date.now() });
+        registerChatStreamJob(plainPayload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register plain chat stream job failed', err));
+      }
+      if (loading?.isConnected) clearReasoning(loading);
+      if (liveItem) {
+        delete liveItem.reasoningText;
+        liveItem.keepReasoning = false;
+      }
+      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, plainPayload, cfg.apiKey, (partial) => {
+        renderer.set(partial.content || '');
+      }, backgroundJobId);
+    }
     if (loading?.isConnected) clearPendingFeedback(loading);
     const finalReply = result.content || '没有返回内容';
     renderer.flush(finalReply);
@@ -2275,13 +2457,16 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   } catch (err) {
     if (state.pageUnloading && isAbortLikeError(err)) return;
     // 少数 OpenAI 兼容端点不支持 stream=true，自动降级成普通请求；刷新/返回导致的 Safari Load failed 不降级、不落错误气泡。
-    const fallbackPayload = {
-      model: cfg.chatModel,
-      messages: requestMessages,
-      temperature: 0.7,
-    };
+    let fallbackPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: false });
     if (loading?.isConnected) setPendingFeedback(loading, '响应有点慢，正在继续尝试');
-    const data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
+    let data;
+    try {
+      data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
+    } catch (fallbackErr) {
+      if (!state.reasoningMode || !isUnsupportedReasoningError(fallbackErr)) throw fallbackErr;
+      fallbackPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: false, reasoning: false });
+      data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
+    }
     if (loading?.isConnected) clearPendingFeedback(loading);
     const reply = data?.choices?.[0]?.message?.content || data?.output_text || `流式失败，且普通请求没有返回内容：${err.message || err}`;
     if (sessionId === state.activeSessionId) {
@@ -2398,21 +2583,41 @@ async function streamChatCompletions(url, payload, apiKey, onDelta, jobId = '') 
   return { content: full, reasoning: reasoningFull };
 }
 
+function normalizeReasoningText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || '');
+  }
+  return String(value || '');
+}
+
 function extractStreamDelta(data) {
   const choice = data?.choices?.[0];
   const delta = choice?.delta || {};
   const message = choice?.message || {};
 
-  const reasoning = delta.reasoning_content
+  const reasoning = normalizeReasoningText(
+    delta.reasoning_content
     || delta.reasoning
     || delta.thinking
+    || delta.reasoning_details
+    || delta.thinking_content
     || message.reasoning_content
     || message.reasoning
     || message.thinking
+    || message.reasoning_details
+    || message.thinking_content
     || data?.reasoning_content
     || data?.reasoning
     || data?.thinking
-    || '';
+    || data?.reasoning_details
+    || data?.thinking_content
+    || ''
+  );
 
   let content = delta.content
     || message.content
@@ -2625,7 +2830,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
       const partial = extractChatJobText(job.data);
       if (partial.content || partial.reasoning) {
         hasOutput = !!partial.content || hasOutput;
-        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在思考中'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: partial.reasoning });
+        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在处理…'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: state.reasoningMode ? partial.reasoning : undefined });
       } else {
         tick();
       }
@@ -3295,7 +3500,28 @@ $('collapseSessionsBtn')?.addEventListener('click', () => {
 });
 $('sessionDrawerMask')?.addEventListener('click', closeSessionDrawer);
 $('attachBtn').addEventListener('click', () => $('fileInput').click());
-$('reasoningToggle')?.addEventListener('click', () => setReasoningPersist(!state.reasoningPersist));
+$('reasoningToggle')?.addEventListener('click', () => setReasoningMode(!state.reasoningMode));
+$('reasoningMenuBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleReasoningMenu();
+});
+document.querySelectorAll('[data-reasoning-type]')?.forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setReasoningType(btn.dataset.reasoningType);
+    if (!state.reasoningMode) setReasoningMode(true);
+    closeReasoningMenu();
+  });
+});
+document.querySelectorAll('[data-reasoning-provider]')?.forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setReasoningProvider(btn.dataset.reasoningProvider);
+    if (!state.reasoningMode) setReasoningMode(true);
+    closeReasoningMenu();
+  });
+});
+document.addEventListener('click', closeReasoningMenu);
 $('fileInput').addEventListener('change', async (e) => {
   await addFiles([...e.target.files]);
   e.target.value = '';

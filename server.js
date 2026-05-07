@@ -73,6 +73,18 @@ function parseJson(text) {
   }
 }
 
+function normalizeReasoningText(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item)).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || '');
+  }
+  return String(value || '');
+}
+
 function safeJoin(root, urlPath) {
   try {
     const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
@@ -441,7 +453,8 @@ async function runChatStreamJob(job) {
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
       const content = data?.choices?.[0]?.message?.content || data?.output_text || data?.raw || '';
-      const reasoning = data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '';
+      const msg = data?.choices?.[0]?.message || {};
+      const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
       job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
     } else {
       for await (const chunk of upstream.body) {
@@ -530,7 +543,7 @@ function updateChatJobFromStreamChunk(job, text) {
       const data = JSON.parse(dataText);
       const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
       const content = delta.content || (typeof data?.content === 'string' ? data.content : '');
-      const reasoning = delta.reasoning_content || delta.reasoning || delta.thinking || data?.reasoning_content || data?.reasoning || '';
+      const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
       if (content) message.content += content;
       if (reasoning) message.reasoning_content += reasoning;
       job.updatedAt = Date.now();

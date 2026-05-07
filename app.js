@@ -547,7 +547,13 @@ function finishReasoning(node, text) {
   }
   const contentText = String(text || node?.dataset.reasoningText || '').trim();
   if (contentText) updateReasoning(node, contentText, { done: true, persistSave: true, keepReasoning: true });
-  else clearReasoning(node);
+  else showReasoningUnavailable(node);
+}
+
+function showReasoningUnavailable(node) {
+  if (!node) return;
+  updateReasoning(node, '当前模型未返回可展示的思考过程。', { done: true, persistSave: true, keepReasoning: true });
+  node.querySelector('.reasoning-panel')?.classList.add('reasoning-empty');
 }
 
 function clearAllReasoningDisplays() {
@@ -2474,7 +2480,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       saveChatHistory();
       if (loading?.isConnected) {
         updateMessage(loading, reply, { rawText: reply });
-        finishReasoning(loading, data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.reasoning_content || data?.reasoning || '');
+        finishReasoning(loading, normalizeReasoningText(data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.thinking || data?.choices?.[0]?.message?.reasoning_details || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.output?.filter?.(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) || ''));
       }
       updateLiveDisplay(sessionId, liveItem, 'assistant', reply, { rawText: reply, pending: false });
       if (backgroundJobId) clearChatJob(sessionId);
@@ -2587,10 +2593,10 @@ function normalizeReasoningText(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
-    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item)).filter(Boolean).join('\n');
+    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.reasoning || item?.thinking || item)).filter(Boolean).join('\n');
   }
   if (typeof value === 'object') {
-    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || '');
+    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || '');
   }
   return String(value || '');
 }
@@ -2629,7 +2635,11 @@ function extractStreamDelta(data) {
     content = data.output.map(item => item?.content?.map(c => c?.text || '').join('') || '').join('');
   }
 
-  return { content, reasoning };
+  const outputReasoning = !reasoning && Array.isArray(data?.output)
+    ? normalizeReasoningText(data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking))
+    : '';
+
+  return { content, reasoning: reasoning || outputReasoning };
 }
 
 async function imageResultToHtml(data, elapsedText = '', meta = {}) {

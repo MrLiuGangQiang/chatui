@@ -1107,6 +1107,14 @@ body {
 .reasoning-panel.reasoning-done .reasoning-title {
   color: #64748b;
 }
+.reasoning-panel.reasoning-empty {
+  border-color: rgba(148,163,184,.24);
+  background: rgba(248,250,252,.86);
+  color: #64748b;
+}
+.reasoning-panel.reasoning-empty .reasoning-content {
+  font-style: normal;
+}
 .reasoning-content {
   max-height: 180px;
   overflow-y: auto;

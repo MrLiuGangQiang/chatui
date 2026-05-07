@@ -77,10 +77,10 @@ function normalizeReasoningText(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
-    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item)).filter(Boolean).join('\n');
+    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.reasoning || item?.thinking || item)).filter(Boolean).join('\n');
   }
   if (typeof value === 'object') {
-    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || '');
+    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || '');
   }
   return String(value || '');
 }
@@ -454,7 +454,8 @@ async function runChatStreamJob(job) {
       try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
       const content = data?.choices?.[0]?.message?.content || data?.output_text || data?.raw || '';
       const msg = data?.choices?.[0]?.message || {};
-      const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
+      const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) : '';
+      const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || outputReasoning || '');
       job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
     } else {
       for await (const chunk of upstream.body) {

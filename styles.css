@@ -203,10 +203,10 @@ button { cursor: pointer; }
   border: 1px solid #d8d8d8;
   background: rgba(255,255,255,.9);
   color: #555;
-  border-radius: 999px;
-  padding: 2px 8px;
+  border-radius: 8px;
+  padding: 0;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 0;
 }
 .message:hover .msg-actions { opacity: 1; }
 
@@ -626,10 +626,10 @@ body {
   border: 1px solid #d8d8d8;
   background: rgba(255,255,255,.9);
   color: #555;
-  border-radius: 999px;
-  padding: 2px 8px;
+  border-radius: 8px;
+  padding: 0;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 0;
 }
 .edit-btn:hover { background: #fff; color: #111; }
 .message.user .copy-btn,
@@ -639,7 +639,7 @@ body {
   border-color: rgba(34,197,94,.26);
 }
 @media (max-width: 640px) {
-  .edit-btn { font-size: 11px; padding: 1px 7px; }
+  .edit-btn { font-size: 11px; padding: 0; }
 }
 
 /* prevent mobile browser auto-zoom on input focus */
@@ -745,7 +745,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: 8px;
+  place-items: center;
+  line-height: 0;
 }
 .icon-action-btn svg {
   width: 15px;
@@ -818,7 +820,7 @@ body {
   width: 42px;
   min-width: 42px;
   border: 1px solid rgba(148,163,184,.34);
-  border-radius: 12px;
+  border-radius: 9px;
   background: rgba(255,255,255,.72);
   color: #475569;
   padding: 0;
@@ -846,7 +848,7 @@ body {
   gap: 5px;
   height: 40px;
   border: 1px solid rgba(16,163,127,.18);
-  border-radius: 999px;
+  border-radius: 10px;
   background: rgba(255,255,255,.82);
   color: #0f766e;
   font-size: 12px;
@@ -866,7 +868,7 @@ body {
   min-width: 168px;
   padding: 8px;
   border: 1px solid rgba(148,163,184,.22);
-  border-radius: 18px;
+  border-radius: 12px;
   background: rgba(255,255,255,.96);
   box-shadow: 0 22px 55px rgba(15,23,42,.16), inset 0 1px 0 rgba(255,255,255,.9);
   backdrop-filter: blur(16px);
@@ -879,7 +881,7 @@ body {
   width: 100%;
   height: 34px;
   border: 0;
-  border-radius: 11px;
+  border-radius: 8px;
   background: transparent;
   color: #334155;
   font-size: 13px;
@@ -897,7 +899,7 @@ body {
 .composer-actions button[type="submit"] {
   width: 42px;
   min-width: 42px;
-  border-radius: 12px;
+  border-radius: 9px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -1099,10 +1101,59 @@ body {
   color: #475569;
   font-size: 13px;
 }
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
 .reasoning-title {
   font-weight: 700;
   color: #4f46e5;
-  margin-bottom: 5px;
+}
+.reasoning-copy-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  margin: -4px -4px 0 0;
+  border: 1px solid rgba(148,163,184,.30);
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+  color: #64748b;
+  background: rgba(255,255,255,.72);
+  box-shadow: none;
+}
+.reasoning-copy-btn:hover {
+  color: #0f766e;
+  border-color: rgba(16,163,127,.38);
+  background: rgba(240,253,250,.90);
+}
+.reasoning-copy-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+.reasoning-copy-btn svg rect,
+.reasoning-copy-btn svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.reasoning-copy-btn.copied {
+  color: #0f766e;
+  border-color: rgba(16,185,129,.50);
+  background: rgba(209,250,229,.88);
+}
+.reasoning-copy-btn.copied svg path {
+  stroke-width: 2.4;
 }
 .reasoning-panel.reasoning-done .reasoning-title {
   color: #64748b;
@@ -1118,11 +1169,18 @@ body {
 .reasoning-content {
   max-height: 180px;
   overflow-y: auto;
-  white-space: pre-wrap;
+  white-space: normal;
   line-height: 1.55;
+}
+.reasoning-content.markdown-body pre {
+  margin: 6px 0;
+}
+.reasoning-content.markdown-body .code-block {
+  margin: 6px 0 8px;
 }
 @media (max-width: 640px) {
   .reasoning-panel { font-size: 12px; padding: 8px; }
+  .reasoning-copy-btn { width: 26px; height: 26px; min-width: 26px; }
   .reasoning-content { max-height: 120px; }
 }
 
@@ -1683,17 +1741,17 @@ body {
 }
 .markdown-body .code-block .code-copy-icon {
   position: absolute;
-  right: 9px;
-  top: 8px;
+  right: 6px;
+  top: 6px;
   z-index: 3;
   width: 28px;
   height: 28px;
   min-width: 28px;
   padding: 0;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
   border: 1px solid rgba(148,163,184,.32);
   background: rgba(255,255,255,.10);
   color: #cbd5e1;
@@ -1712,6 +1770,9 @@ body {
 .markdown-body .code-block .code-copy-icon svg {
   width: 16px;
   height: 16px;
+  display: block;
+  margin: 0;
+  padding: 0;
 }
 .markdown-body .code-block .code-copy-icon svg rect,
 .markdown-body .code-block .code-copy-icon svg path {
@@ -2995,7 +3056,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   align-items: center !important;
   justify-content: center !important;
   border: 1px solid rgba(148,163,184,.34) !important;
-  border-radius: 14px !important;
+  border-radius: 9px !important;
   color: #475569 !important;
   background: rgba(255,255,255,.86) !important;
   box-shadow: 0 8px 20px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.86) !important;
@@ -3047,7 +3108,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   height: 42px !important;
   min-height: 42px !important;
   border: 1px solid rgba(16,163,127,.18) !important;
-  border-radius: 999px !important;
+  border-radius: 10px !important;
   color: #0f766e !important;
   background: rgba(255,255,255,.86) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 20px rgba(15,23,42,.06) !important;
@@ -3067,7 +3128,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   min-width: 168px !important;
   padding: 8px !important;
   border: 1px solid rgba(148,163,184,.22) !important;
-  border-radius: 18px !important;
+  border-radius: 12px !important;
   background: rgba(255,255,255,.96) !important;
   box-shadow: 0 22px 55px rgba(15,23,42,.16), inset 0 1px 0 rgba(255,255,255,.9) !important;
   backdrop-filter: blur(16px) !important;
@@ -3081,7 +3142,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   height: 34px !important;
   min-height: 34px !important;
   border: 0 !important;
-  border-radius: 11px !important;
+  border-radius: 8px !important;
   color: #334155 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -3101,7 +3162,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   min-width: 42px !important;
   height: 42px !important;
   min-height: 42px !important;
-  border-radius: 14px !important;
+  border-radius: 9px !important;
   color: #fff !important;
   background: linear-gradient(135deg, #10b981, #0ea5e9, #4f46e5) !important;
   box-shadow: 0 14px 30px rgba(14,165,233,.28), 0 0 18px rgba(16,185,129,.16) !important;
@@ -3114,7 +3175,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
     min-width: 40px !important;
     height: 40px !important;
     min-height: 40px !important;
-    border-radius: 13px !important;
+    border-radius: 9px !important;
   }
   .composer-actions .reasoning-menu-btn {
     height: 40px !important;
@@ -3289,10 +3350,10 @@ body.session-sidebar-collapsed .composer { left: 0; }
   min-width: 28px !important;
   min-height: 28px !important;
   padding: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 999px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+  border-radius: 8px !important;
   color: #059669 !important;
   border-color: rgba(5,150,105,.35) !important;
   background: rgba(209,250,229,.9) !important;
@@ -3318,10 +3379,10 @@ body.session-sidebar-collapsed .composer { left: 0; }
   min-width: 28px !important;
   min-height: 28px !important;
   padding: 0 !important;
-  border-radius: 999px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  border-radius: 8px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
   color: #059669 !important;
   background: rgba(255,255,255,.76) !important;
   border-color: rgba(148,163,184,.38) !important;
@@ -3351,6 +3412,7 @@ body.session-sidebar-collapsed .composer { left: 0; }
   place-items: center !important;
   align-content: center !important;
   justify-content: center !important;
+  border-radius: 8px !important;
   line-height: 0 !important;
   text-align: center !important;
   vertical-align: middle !important;
@@ -3373,10 +3435,6 @@ body.session-sidebar-collapsed .composer { left: 0; }
   vector-effect: non-scaling-stroke;
 }
 
-/* success check icon visual centering: compensate checkmark viewBox optical left bias */
-.copy-btn.icon-action-btn.copied svg {
-  transform: translateX(7.5px) !important;
-}
 
 
 /* boot-time sidebar collapsed state: avoid expanded-sidebar flash before app.js runs */
@@ -3525,4 +3583,1055 @@ body.session-sidebar-collapsed .composer { left: 0; }
 @media (max-width: 640px) {
   .secret-field { gap: 6px; }
   .secret-toggle { min-height: 40px; padding: 0 10px; }
+}
+
+/* final icon action geometry: square with small radius, exact centered glyphs */
+.edit-btn.icon-action-btn,
+.copy-btn.icon-action-btn,
+.refresh-btn.icon-action-btn,
+.download-btn.icon-action-btn,
+.icon-action-btn {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+  text-align: center !important;
+}
+.edit-btn.icon-action-btn svg,
+.copy-btn.icon-action-btn svg,
+.refresh-btn.icon-action-btn svg,
+.download-btn.icon-action-btn svg,
+.icon-action-btn svg {
+  width: 15px !important;
+  height: 15px !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+.edit-btn.icon-action-btn svg path,
+.edit-btn.icon-action-btn svg rect,
+.copy-btn.icon-action-btn svg path,
+.copy-btn.icon-action-btn svg rect,
+.refresh-btn.icon-action-btn svg path,
+.refresh-btn.icon-action-btn svg rect,
+.download-btn.icon-action-btn svg path,
+.download-btn.icon-action-btn svg rect,
+.icon-action-btn svg path,
+.icon-action-btn svg rect {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  vector-effect: non-scaling-stroke !important;
+}
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon {
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+}
+.reasoning-copy-btn svg,
+.markdown-body .code-block .code-copy-icon svg {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+/* final action buttons: cleaner glass square style */
+.msg-actions {
+  gap: 7px !important;
+}
+.edit-btn.icon-action-btn,
+.copy-btn.icon-action-btn,
+.refresh-btn.icon-action-btn,
+.download-btn.icon-action-btn,
+.icon-action-btn,
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border-radius: 9px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+  color: #475569 !important;
+  border: 1px solid rgba(148,163,184,.28) !important;
+  background: rgba(255,255,255,.70) !important;
+  box-shadow: 0 6px 16px rgba(15,23,42,.055), inset 0 1px 0 rgba(255,255,255,.82) !important;
+  backdrop-filter: blur(10px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(140%) !important;
+  transform: none !important;
+}
+.edit-btn.icon-action-btn:hover,
+.copy-btn.icon-action-btn:hover,
+.refresh-btn.icon-action-btn:hover,
+.download-btn.icon-action-btn:hover,
+.icon-action-btn:hover,
+.reasoning-copy-btn:hover,
+.markdown-body .code-block .code-copy-icon:hover {
+  color: #0f766e !important;
+  border-color: rgba(16,185,129,.42) !important;
+  background: rgba(240,253,250,.92) !important;
+  box-shadow: 0 8px 20px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.9) !important;
+  transform: translateY(-1px) !important;
+}
+.edit-btn.icon-action-btn svg,
+.copy-btn.icon-action-btn svg,
+.refresh-btn.icon-action-btn svg,
+.download-btn.icon-action-btn svg,
+.icon-action-btn svg,
+.reasoning-copy-btn svg,
+.markdown-body .code-block .code-copy-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  overflow: visible !important;
+}
+.edit-btn.icon-action-btn svg path,
+.edit-btn.icon-action-btn svg rect,
+.copy-btn.icon-action-btn svg path,
+.copy-btn.icon-action-btn svg rect,
+.refresh-btn.icon-action-btn svg path,
+.refresh-btn.icon-action-btn svg rect,
+.download-btn.icon-action-btn svg path,
+.download-btn.icon-action-btn svg rect,
+.icon-action-btn svg path,
+.icon-action-btn svg rect,
+.reasoning-copy-btn svg path,
+.reasoning-copy-btn svg rect,
+.markdown-body .code-block .code-copy-icon svg path,
+.markdown-body .code-block .code-copy-icon svg rect {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.85 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  vector-effect: non-scaling-stroke !important;
+}
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn.copied:hover,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  color: #059669 !important;
+  border-color: rgba(148,163,184,.28) !important;
+  background: rgba(255,255,255,.70) !important;
+  box-shadow: 0 6px 16px rgba(15,23,42,.055), inset 0 1px 0 rgba(255,255,255,.82) !important;
+  transform: none !important;
+}
+.copy-btn.icon-action-btn.copied svg path,
+.reasoning-copy-btn.copied svg path,
+.markdown-body .code-block .code-copy-icon.copied svg path {
+  stroke-width: 2.35 !important;
+}
+.reasoning-copy-btn {
+  margin: -5px -5px 0 0 !important;
+}
+.markdown-body .code-block .code-copy-icon {
+  right: 5px !important;
+  top: 5px !important;
+}
+@media (max-width: 640px) {
+  .edit-btn.icon-action-btn,
+  .copy-btn.icon-action-btn,
+  .refresh-btn.icon-action-btn,
+  .download-btn.icon-action-btn,
+  .icon-action-btn,
+  .reasoning-copy-btn,
+  .markdown-body .code-block .code-copy-icon {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+  }
+}
+
+/* final message action spacing only: tighter buttons, clearer gap from bubble */
+.bubble-wrap {
+  padding-bottom: 34px !important;
+}
+.msg-actions {
+  gap: 3px !important;
+  bottom: 3px !important;
+}
+.message.user .msg-actions {
+  right: 0 !important;
+  left: auto !important;
+}
+.message.assistant .msg-actions,
+.message.error .msg-actions {
+  left: 0 !important;
+}
+@media (max-width: 640px) {
+  .bubble-wrap {
+    padding-bottom: 32px !important;
+  }
+  .msg-actions {
+    gap: 2px !important;
+    bottom: 2px !important;
+  }
+}
+
+/* final reasoning/code copy size: slightly larger, keep centered and stable */
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon,
+.reasoning-copy-btn.copied,
+.markdown-body .code-block .code-copy-icon.copied {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  border-radius: 9px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+}
+.reasoning-copy-btn svg,
+.markdown-body .code-block .code-copy-icon svg,
+.reasoning-copy-btn.copied svg,
+.markdown-body .code-block .code-copy-icon.copied svg {
+  width: 17px !important;
+  height: 17px !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+@media (max-width: 640px) {
+  .reasoning-copy-btn,
+  .markdown-body .code-block .code-copy-icon,
+  .reasoning-copy-btn.copied,
+  .markdown-body .code-block .code-copy-icon.copied {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+  }
+  .reasoning-copy-btn svg,
+  .markdown-body .code-block .code-copy-icon svg,
+  .reasoning-copy-btn.copied svg,
+  .markdown-body .code-block .code-copy-icon.copied svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+}
+
+/* final reasoning/code copy size correction: smaller than previous baseline */
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon,
+.reasoning-copy-btn.copied,
+.markdown-body .code-block .code-copy-icon.copied {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  border-radius: 8px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+}
+.reasoning-copy-btn svg,
+.markdown-body .code-block .code-copy-icon svg,
+.reasoning-copy-btn.copied svg,
+.markdown-body .code-block .code-copy-icon.copied svg {
+  width: 15px !important;
+  height: 15px !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+@media (max-width: 640px) {
+  .reasoning-copy-btn,
+  .markdown-body .code-block .code-copy-icon,
+  .reasoning-copy-btn.copied,
+  .markdown-body .code-block .code-copy-icon.copied {
+    width: 27px !important;
+    height: 27px !important;
+    min-width: 27px !important;
+    min-height: 27px !important;
+  }
+  .reasoning-copy-btn svg,
+  .markdown-body .code-block .code-copy-icon svg,
+  .reasoning-copy-btn.copied svg,
+  .markdown-body .code-block .code-copy-icon.copied svg {
+    width: 14.5px !important;
+    height: 14.5px !important;
+  }
+}
+
+/* reasoning settings: strength and provider in two columns */
+.composer-actions .reasoning-menu {
+  min-width: 292px !important;
+  display: none !important;
+  grid-template-columns: minmax(104px, .82fr) minmax(148px, 1fr) !important;
+  gap: 8px !important;
+  align-items: start !important;
+}
+.composer-actions .reasoning-menu.show {
+  display: grid !important;
+}
+.composer-actions .reasoning-menu-section {
+  min-width: 0 !important;
+}
+.composer-actions .reasoning-menu-divider {
+  display: none !important;
+}
+.composer-actions .reasoning-menu-title {
+  padding: 4px 8px 7px !important;
+}
+.composer-actions .reasoning-menu-item {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 9px !important;
+  white-space: nowrap !important;
+}
+@media (max-width: 640px) {
+  .composer-actions .reasoning-menu {
+    min-width: min(292px, calc(100vw - 28px)) !important;
+    grid-template-columns: minmax(96px, .78fr) minmax(136px, 1fr) !important;
+    gap: 7px !important;
+  }
+  .composer-actions .reasoning-menu-item {
+    font-size: 12px !important;
+    padding: 0 8px !important;
+  }
+}
+
+/* unified cyber-glass visual refresh */
+:root {
+  --bg: #eef4ff;
+  --surface: rgba(255,255,255,.78);
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: rgba(148,163,184,.32);
+  --accent: #14b8a6;
+  --accent-2: #38bdf8;
+  --accent-3: #6366f1;
+  --wechat-green: rgba(209,250,229,.96);
+  --wechat-green-border: rgba(16,185,129,.36);
+  --shadow: 0 18px 50px rgba(15,23,42,.10);
+}
+body {
+  background:
+    radial-gradient(circle at 18% 8%, rgba(56,189,248,.22), transparent 34%),
+    radial-gradient(circle at 86% 12%, rgba(99,102,241,.20), transparent 30%),
+    radial-gradient(circle at 72% 88%, rgba(20,184,166,.16), transparent 34%),
+    linear-gradient(145deg, #f8fbff 0%, #eef4ff 44%, #f5f7ff 100%) !important;
+  color: var(--text) !important;
+}
+.main {
+  background: transparent !important;
+}
+.messages {
+  background:
+    linear-gradient(rgba(148,163,184,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,163,184,.045) 1px, transparent 1px) !important;
+  background-size: 34px 34px !important;
+}
+.empty {
+  padding: 30px 28px !important;
+  border: 1px solid rgba(255,255,255,.72) !important;
+  border-radius: 26px !important;
+  background: rgba(255,255,255,.66) !important;
+  box-shadow: 0 24px 70px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.82) !important;
+  backdrop-filter: blur(22px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(150%) !important;
+}
+.empty-icon {
+  filter: drop-shadow(0 10px 22px rgba(14,165,233,.20));
+}
+.empty h3,
+.session-brand strong,
+.dialog-head h2 {
+  background: linear-gradient(90deg, #0f172a, #0f766e, #2563eb) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+.session-sidebar,
+.session-rail {
+  background:
+    radial-gradient(circle at 20% 8%, rgba(56,189,248,.18), transparent 32%),
+    linear-gradient(180deg, rgba(255,255,255,.88), rgba(248,250,252,.74)) !important;
+  border-right: 1px solid rgba(255,255,255,.72) !important;
+  box-shadow: 16px 0 42px rgba(15,23,42,.075) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+}
+.session-tab,
+.session-new-btn,
+.session-config-btn,
+.rail-icon-btn,
+.mobile-session-float,
+.session-collapse-btn {
+  border-color: rgba(148,163,184,.26) !important;
+  background: rgba(255,255,255,.62) !important;
+  color: #334155 !important;
+  box-shadow: 0 10px 28px rgba(15,23,42,.055), inset 0 1px 0 rgba(255,255,255,.78) !important;
+}
+.session-tab:hover,
+.session-new-btn:hover,
+.session-config-btn:hover,
+.rail-icon-btn:hover,
+.mobile-session-float:hover,
+.session-collapse-btn:hover {
+  color: #0f766e !important;
+  border-color: rgba(20,184,166,.38) !important;
+  background: rgba(240,253,250,.82) !important;
+}
+.session-tab.active {
+  border-color: rgba(56,189,248,.32) !important;
+  background: linear-gradient(135deg, rgba(219,234,254,.72), rgba(204,251,241,.66)) !important;
+  box-shadow: 0 16px 34px rgba(37,99,235,.10), inset 0 1px 0 rgba(255,255,255,.86) !important;
+}
+.avatar {
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #14b8a6, #38bdf8, #6366f1) !important;
+  box-shadow: 0 12px 30px rgba(37,99,235,.18) !important;
+}
+.message.user .avatar {
+  background: linear-gradient(135deg, #0f172a, #475569) !important;
+}
+.bubble {
+  border-radius: 16px !important;
+  border: 1px solid rgba(255,255,255,.70) !important;
+  background: rgba(255,255,255,.78) !important;
+  box-shadow: 0 16px 44px rgba(15,23,42,.085), inset 0 1px 0 rgba(255,255,255,.82) !important;
+  backdrop-filter: blur(18px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
+}
+.message.assistant .bubble,
+.message.error .bubble {
+  background: linear-gradient(145deg, rgba(255,255,255,.86), rgba(248,250,252,.74)) !important;
+}
+.message.user .bubble {
+  color: #063a35 !important;
+  background: linear-gradient(135deg, rgba(209,250,229,.94), rgba(186,230,253,.70)) !important;
+  border-color: rgba(20,184,166,.36) !important;
+}
+.message.assistant .bubble:before,
+.message.error .bubble:before,
+.message.user .bubble:after {
+  display: none !important;
+}
+.markdown-body blockquote {
+  border-left-color: rgba(20,184,166,.55) !important;
+  background: rgba(240,253,250,.62) !important;
+  border-radius: 0 12px 12px 0 !important;
+}
+.markdown-body code:not(pre code) {
+  color: #0f766e !important;
+  background: rgba(20,184,166,.10) !important;
+  border: 1px solid rgba(20,184,166,.14) !important;
+}
+.markdown-body pre,
+.markdown-body .code-block pre {
+  border: 1px solid rgba(51,65,85,.74) !important;
+  border-radius: 14px !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(56,189,248,.14), transparent 28%),
+    linear-gradient(145deg, #101827, #0b1020) !important;
+  color: #dbeafe !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 28px rgba(15,23,42,.14) !important;
+}
+.reasoning-panel {
+  border-radius: 16px !important;
+  border-color: rgba(56,189,248,.26) !important;
+  background: linear-gradient(135deg, rgba(239,246,255,.88), rgba(240,253,250,.72)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 12px 30px rgba(37,99,235,.08) !important;
+}
+.reasoning-title {
+  color: #2563eb !important;
+}
+.composer.compact-composer,
+.composer {
+  border: 1px solid rgba(255,255,255,.76) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(56,189,248,.14), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,.74), rgba(248,250,252,.58)) !important;
+  box-shadow: 0 26px 80px rgba(15,23,42,.16), inset 0 1px 0 rgba(255,255,255,.86) !important;
+  backdrop-filter: blur(28px) saturate(170%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(170%) !important;
+}
+.input-stack,
+.composer textarea {
+  background: rgba(255,255,255,.70) !important;
+  border-color: rgba(148,163,184,.24) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82) !important;
+}
+.composer textarea:focus {
+  background: rgba(255,255,255,.92) !important;
+  border-color: rgba(56,189,248,.46) !important;
+  box-shadow: 0 0 0 4px rgba(56,189,248,.11), inset 0 1px 0 rgba(255,255,255,.9) !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn,
+.composer-actions button[type="submit"] {
+  border-color: rgba(148,163,184,.25) !important;
+  background: rgba(255,255,255,.66) !important;
+  box-shadow: 0 12px 30px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.84) !important;
+}
+.composer-actions .reasoning-toggle.active,
+.composer-actions .reasoning-toggle[aria-pressed="true"],
+.composer-actions button[type="submit"] {
+  color: #fff !important;
+  border-color: rgba(56,189,248,.42) !important;
+  background: linear-gradient(135deg, #14b8a6, #38bdf8, #6366f1) !important;
+  box-shadow: 0 16px 36px rgba(37,99,235,.22), 0 0 22px rgba(20,184,166,.16) !important;
+}
+.composer-actions .reasoning-menu,
+.config-dialog {
+  border: 1px solid rgba(255,255,255,.76) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(56,189,248,.16), transparent 36%),
+    linear-gradient(145deg, rgba(255,255,255,.92), rgba(248,250,252,.78)) !important;
+  box-shadow: 0 28px 80px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.88) !important;
+  backdrop-filter: blur(28px) saturate(170%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(170%) !important;
+}
+.composer-actions .reasoning-menu-item,
+.config-dialog input,
+.config-dialog select,
+.secret-field {
+  border-color: rgba(148,163,184,.24) !important;
+  background: rgba(255,255,255,.64) !important;
+}
+.composer-actions .reasoning-menu-item:hover,
+.composer-actions .reasoning-menu-item.active,
+.composer-actions .reasoning-menu-item[aria-checked="true"] {
+  color: #0f766e !important;
+  background: linear-gradient(135deg, rgba(204,251,241,.84), rgba(219,234,254,.78)) !important;
+}
+.edit-btn.icon-action-btn,
+.copy-btn.icon-action-btn,
+.refresh-btn.icon-action-btn,
+.download-btn.icon-action-btn,
+.icon-action-btn,
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon {
+  background: rgba(255,255,255,.72) !important;
+  border-color: rgba(148,163,184,.26) !important;
+  box-shadow: 0 8px 20px rgba(15,23,42,.065), inset 0 1px 0 rgba(255,255,255,.86) !important;
+}
+.edit-btn.icon-action-btn:hover,
+.copy-btn.icon-action-btn:hover,
+.refresh-btn.icon-action-btn:hover,
+.download-btn.icon-action-btn:hover,
+.icon-action-btn:hover,
+.reasoning-copy-btn:hover,
+.markdown-body .code-block .code-copy-icon:hover {
+  color: #0f766e !important;
+  background: rgba(240,253,250,.94) !important;
+  border-color: rgba(20,184,166,.42) !important;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(56,189,248,.42), rgba(20,184,166,.42)) !important;
+  border: 3px solid rgba(255,255,255,.40);
+  border-radius: 999px;
+}
+@media (max-width: 640px) {
+  .bubble {
+    border-radius: 14px !important;
+  }
+  .empty {
+    border-radius: 22px !important;
+  }
+  .composer.compact-composer,
+  .composer {
+    border-radius: 20px !important;
+  }
+}
+
+/* final composer input: remove outer input-stack border/ring, keep only textarea boundary */
+.input-stack {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.input-stack:focus,
+.input-stack:focus-within {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.composer textarea,
+.composer textarea:focus {
+  border: 1px solid rgba(56,189,248,.36) !important;
+  background: rgba(255,255,255,.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 10px 30px rgba(15,23,42,.08) !important;
+}
+.composer textarea:focus {
+  border-color: rgba(20,184,166,.56) !important;
+  box-shadow: 0 0 0 3px rgba(20,184,166,.10), 0 14px 34px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.92) !important;
+}
+
+/* composer rebuild: single clean input card, no double border */
+.composer.compact-composer,
+.composer {
+  left: 50% !important;
+  right: auto !important;
+  bottom: 16px !important;
+  width: min(1040px, calc(100% - 72px)) !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: translateX(-50%) !important;
+}
+.input-stack {
+  position: relative !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 12px 12px 66px !important;
+  border: 1px solid rgba(56,189,248,.32) !important;
+  border-radius: 24px !important;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(56,189,248,.14), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,.92), rgba(248,250,252,.78)) !important;
+  box-shadow: 0 24px 70px rgba(15,23,42,.16), inset 0 1px 0 rgba(255,255,255,.88) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+}
+.input-stack:focus-within {
+  border-color: rgba(20,184,166,.52) !important;
+  box-shadow: 0 26px 78px rgba(15,23,42,.18), 0 0 0 4px rgba(20,184,166,.10), inset 0 1px 0 rgba(255,255,255,.92) !important;
+}
+.input-stack textarea,
+.composer textarea,
+.composer textarea:focus {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+  min-height: 54px !important;
+  max-height: min(42vh, 420px) !important;
+  height: var(--prompt-height, auto) !important;
+  padding: 4px 4px 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #0f172a !important;
+  resize: none !important;
+  line-height: 24px !important;
+  overflow-y: auto !important;
+}
+.input-stack textarea::placeholder,
+.composer textarea::placeholder {
+  color: #94a3b8 !important;
+}
+.attachment-bar {
+  position: relative !important;
+  z-index: 2 !important;
+  margin: 0 0 8px !important;
+}
+.composer-actions {
+  position: absolute !important;
+  z-index: 3 !important;
+  left: 12px !important;
+  right: 12px !important;
+  bottom: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  pointer-events: auto !important;
+}
+.composer-action-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn,
+.composer-actions button[type="submit"] {
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 13px !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions button[type="submit"] {
+  width: 42px !important;
+  min-width: 42px !important;
+  padding: 0 !important;
+}
+.composer-actions .reasoning-menu-btn {
+  padding: 0 12px !important;
+}
+@media (max-width: 640px) {
+  .composer.compact-composer,
+  .composer {
+    width: calc(100% - 16px) !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+  }
+  .input-stack {
+    padding: 10px 10px 60px !important;
+    border-radius: 20px !important;
+  }
+  .input-stack textarea,
+  .composer textarea,
+  .composer textarea:focus {
+    min-height: 46px !important;
+    max-height: 36vh !important;
+    line-height: 22px !important;
+    font-size: 16px !important;
+  }
+  .composer-actions {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+  }
+  .composer-actions .attach-btn,
+  .composer-actions .reasoning-toggle,
+  .composer-actions button[type="submit"] {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    border-radius: 12px !important;
+  }
+  .composer-actions .reasoning-menu-btn {
+    height: 40px !important;
+    min-height: 40px !important;
+    max-width: 172px !important;
+    overflow: hidden !important;
+  }
+}
+
+/* composer rebuild correction: one visible boundary only */
+.input-stack,
+.input-stack:focus,
+.input-stack:focus-within {
+  border: 1px solid rgba(56,189,248,.34) !important;
+  outline: 0 !important;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(56,189,248,.12), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,.92), rgba(248,250,252,.80)) !important;
+  box-shadow: 0 22px 64px rgba(15,23,42,.14), inset 0 1px 0 rgba(255,255,255,.88) !important;
+}
+.input-stack:focus-within {
+  border-color: rgba(20,184,166,.56) !important;
+  box-shadow: 0 24px 68px rgba(15,23,42,.16), inset 0 1px 0 rgba(255,255,255,.92) !important;
+}
+.input-stack textarea,
+.input-stack textarea:focus,
+.composer textarea,
+.composer textarea:focus {
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* composer centering fix: align input card to visible main area */
+.composer.compact-composer,
+.composer {
+  left: calc(var(--sessions-offset, 0px) + (100vw - var(--sessions-offset, 0px)) / 2) !important;
+  right: auto !important;
+  width: min(1040px, calc(100vw - var(--sessions-offset, 0px) - 72px)) !important;
+  transform: translateX(-50%) !important;
+}
+body.session-sidebar-collapsed .composer.compact-composer,
+body.session-sidebar-collapsed .composer {
+  left: calc(var(--rail-offset, 0px) + (100vw - var(--rail-offset, 0px)) / 2) !important;
+  width: min(1040px, calc(100vw - var(--rail-offset, 0px) - 72px)) !important;
+}
+.input-stack {
+  margin: 0 auto !important;
+}
+.composer-actions {
+  height: 42px !important;
+}
+.composer-action-left,
+.composer-actions .reasoning-control {
+  height: 42px !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn,
+.composer-actions button[type="submit"] {
+  display: inline-grid !important;
+  place-items: center !important;
+  align-self: center !important;
+  line-height: 0 !important;
+}
+@media (max-width: 640px) {
+  .composer.compact-composer,
+  .composer,
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    left: 50% !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    transform: translateX(-50%) !important;
+  }
+  .composer-actions,
+  .composer-action-left,
+  .composer-actions .reasoning-control {
+    height: 40px !important;
+  }
+}
+
+/* composer inner alignment fix: center text area and all action icons */
+.input-stack {
+  display: grid !important;
+  grid-template-rows: auto 1fr auto !important;
+  align-items: stretch !important;
+}
+.input-stack textarea,
+.composer textarea,
+.composer textarea:focus {
+  display: block !important;
+  margin: 0 !important;
+  text-align: left !important;
+  align-self: stretch !important;
+}
+.composer-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+.composer-action-left,
+.composer-actions .reasoning-control {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn,
+.composer-actions button[type="submit"] {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  line-height: 1 !important;
+}
+.composer-actions .attach-btn svg,
+.composer-actions .reasoning-toggle svg,
+.composer-actions .reasoning-menu-btn svg,
+.composer-actions button[type="submit"] svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+.composer-actions .reasoning-menu-btn span {
+  display: inline-flex !important;
+  align-items: center !important;
+  line-height: 1 !important;
+}
+
+/* composer final centering: centered in the visible chat area, not full viewport */
+@media (min-width: 841px) {
+  .composer.compact-composer,
+  .composer {
+    position: fixed !important;
+    right: auto !important;
+    bottom: 16px !important;
+    width: min(1040px, calc(100vw - var(--session-sidebar-width) - 72px)) !important;
+    max-width: min(1040px, calc(100vw - var(--session-sidebar-width) - 72px)) !important;
+    left: calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width)) / 2) !important;
+    transform: translateX(-50%) !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: min(1040px, calc(100vw - var(--session-rail-width) - 72px)) !important;
+    max-width: min(1040px, calc(100vw - var(--session-rail-width) - 72px)) !important;
+    left: calc(var(--session-rail-width) + (100vw - var(--session-rail-width)) / 2) !important;
+  }
+}
+@media (max-width: 840px) {
+  .composer.compact-composer,
+  .composer,
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    left: 8px !important;
+    right: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    transform: none !important;
+  }
+}
+.input-stack {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.composer-actions,
+.composer-action-left,
+.composer-actions .reasoning-control {
+  align-items: center !important;
+}
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn,
+.composer-actions button[type="submit"] {
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.composer-actions .attach-btn > svg,
+.composer-actions .reasoning-toggle > svg,
+.composer-actions .reasoning-menu-btn > svg,
+.composer-actions button[type="submit"] > svg {
+  position: static !important;
+  display: block !important;
+  margin: 0 !important;
+}
+
+/* composer centering hard override: beat old sidebar-specific rules */
+@media (min-width: 841px) {
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    position: fixed !important;
+    right: auto !important;
+    bottom: 16px !important;
+    width: min(1040px, calc(100vw - var(--session-sidebar-width) - 72px)) !important;
+    max-width: min(1040px, calc(100vw - var(--session-sidebar-width) - 72px)) !important;
+    left: calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width)) / 2) !important;
+    transform: translateX(-50%) !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    right: auto !important;
+    bottom: 16px !important;
+    width: min(1040px, calc(100vw - var(--session-rail-width) - 72px)) !important;
+    max-width: min(1040px, calc(100vw - var(--session-rail-width) - 72px)) !important;
+    left: calc(var(--session-rail-width) + (100vw - var(--session-rail-width)) / 2) !important;
+    transform: translateX(-50%) !important;
+  }
+}
+@media (max-width: 840px) {
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer,
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    left: 8px !important;
+    right: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    transform: none !important;
+  }
+}
+
+/* hard layout reset: one shared content rail for empty/messages/composer */
+:root {
+  --chat-content-width: 760px;
+  --chat-content-gap: 24px;
+}
+@media (min-width: 841px) {
+  .main {
+    position: relative !important;
+    margin-left: var(--session-sidebar-width) !important;
+    width: calc(100vw - var(--session-sidebar-width)) !important;
+  }
+  body.session-sidebar-collapsed .main {
+    margin-left: var(--session-rail-width) !important;
+    width: calc(100vw - var(--session-rail-width)) !important;
+  }
+  .messages {
+    padding-left: var(--chat-content-gap) !important;
+    padding-right: var(--chat-content-gap) !important;
+  }
+  .empty,
+  .message {
+    width: min(var(--chat-content-width), calc(100% - var(--chat-content-gap) * 2)) !important;
+    max-width: min(var(--chat-content-width), calc(100% - var(--chat-content-gap) * 2)) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer,
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: 16px !important;
+    width: min(var(--chat-content-width), calc(100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2)) !important;
+    max-width: min(var(--chat-content-width), calc(100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2)) !important;
+    margin: 0 !important;
+    transform: none !important;
+  }
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer {
+    left: calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - min(var(--chat-content-width), calc(100vw - var(--session-sidebar-width) - var(--chat-content-gap) * 2))) / 2) !important;
+  }
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    width: min(var(--chat-content-width), calc(100vw - var(--session-rail-width) - var(--chat-content-gap) * 2)) !important;
+    max-width: min(var(--chat-content-width), calc(100vw - var(--session-rail-width) - var(--chat-content-gap) * 2)) !important;
+    left: calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - min(var(--chat-content-width), calc(100vw - var(--session-rail-width) - var(--chat-content-gap) * 2))) / 2) !important;
+  }
+}
+@media (max-width: 840px) {
+  :root {
+    --chat-content-gap: 8px;
+  }
+  .main {
+    margin-left: 0 !important;
+    width: 100vw !important;
+  }
+  .messages {
+    padding-left: var(--chat-content-gap) !important;
+    padding-right: var(--chat-content-gap) !important;
+  }
+  .empty,
+  .message {
+    width: calc(100vw - var(--chat-content-gap) * 2) !important;
+    max-width: calc(100vw - var(--chat-content-gap) * 2) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  body:not(.session-sidebar-collapsed) .composer.compact-composer,
+  body:not(.session-sidebar-collapsed) .composer,
+  body.session-sidebar-collapsed .composer.compact-composer,
+  body.session-sidebar-collapsed .composer {
+    position: fixed !important;
+    left: var(--chat-content-gap) !important;
+    right: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: calc(100vw - var(--chat-content-gap) * 2) !important;
+    max-width: calc(100vw - var(--chat-content-gap) * 2) !important;
+    margin: 0 !important;
+    transform: none !important;
+  }
 }

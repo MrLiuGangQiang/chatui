@@ -441,11 +441,14 @@ function addMessage(role, content, options = {}) {
   return node;
 }
 
+const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
+const COPY_SUCCESS_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.6 9.7 16.8 18.8 7.7"></path></svg>';
+
 function showCopySuccess(btn) {
   if (!btn) return;
   const oldHtml = btn.innerHTML;
   btn.classList.add('copied');
-  btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"></path></svg>';
+  btn.innerHTML = COPY_SUCCESS_ICON_SVG;
   clearTimeout(btn._copyTimer);
   btn._copyTimer = setTimeout(() => {
     btn.innerHTML = oldHtml;
@@ -528,13 +531,30 @@ function updateReasoning(node, text, options = {}) {
   if (!panel) {
     panel = document.createElement('div');
     panel.className = 'reasoning-panel';
-    panel.innerHTML = `<div class="reasoning-title">思考中…</div><div class="reasoning-content"></div>`;
+    panel.innerHTML = `
+      <div class="reasoning-head">
+        <div class="reasoning-title">思考中…</div>
+        <button class="reasoning-copy-btn" type="button" title="复制思考内容" aria-label="复制思考内容">
+          ${COPY_ICON_SVG}
+        </button>
+      </div>
+      <div class="reasoning-content markdown-body"></div>`;
+    panel.querySelector('.reasoning-copy-btn')?.addEventListener('click', async () => {
+      await copyText(node.dataset.reasoningText || panel.querySelector('.reasoning-content')?.innerText || '');
+      showCopySuccess(panel.querySelector('.reasoning-copy-btn'));
+    });
     node.querySelector('.bubble')?.prepend(panel);
   }
   panel.classList.toggle('reasoning-done', options.done === true);
   panel.querySelector('.reasoning-title').textContent = options.done ? '思考完成' : '思考中…';
+  const copyBtn = panel.querySelector('.reasoning-copy-btn');
+  if (copyBtn) copyBtn.hidden = !contentText;
   const content = panel.querySelector('.reasoning-content');
-  content.textContent = contentText;
+  const html = renderMarkdown(contentText);
+  if (content.innerHTML !== html) {
+    content.innerHTML = html;
+    bindInlineCopyButtons(panel);
+  }
   content.hidden = !contentText;
   scrollToBottom(options.forceScroll ?? false);
   if (options.persistSave && node.isConnected) saveDisplayHistory();
@@ -2171,6 +2191,11 @@ function reasoningBudget(value = state.reasoningType) {
   return ({ low: 1024, medium: 4096, high: 8192 })[normalizeReasoningType(value)] || 4096;
 }
 
+function openaiReasoningEffort(value = state.reasoningType) {
+  const effort = normalizeReasoningType(value);
+  return ({ low: 'low', medium: 'medium', high: 'xhigh' })[effort] || 'medium';
+}
+
 function normalizeReasoningProvider(value) {
   return ['auto', 'openai', 'anthropic', 'thinking-budget', 'generic'].includes(value) ? value : 'auto';
 }
@@ -2196,6 +2221,11 @@ function isUnsupportedReasoningError(err) {
   const text = String(err?.message || err || '').toLowerCase();
   return /unsupported|unknown|unrecognized|invalid|not permitted|extra inputs|additional properties|reasoning|thinking|effort|budget/.test(text)
     && /parameter|field|property|body|request|reasoning|thinking|effort|budget/.test(text);
+}
+
+function isUnsupportedXhighError(err) {
+  const text = String(err?.message || err || '').toLowerCase();
+  return /xhigh/.test(text) && isUnsupportedReasoningError(err);
 }
 
 function updateReasoningToggleUi() {
@@ -2289,15 +2319,15 @@ function buildChatPayload(model, messages, options = {}) {
     const effort = normalizeReasoningType(state.reasoningType);
     const budget = reasoningBudget(effort);
     const provider = getReasoningProvider(model);
+    const requestedEffort = options.reasoningEffort || (provider === 'openai' ? openaiReasoningEffort(effort) : effort);
     if (provider === 'openai') {
-      payload.reasoning_effort = effort;
-      payload.reasoning = { effort };
+      payload.reasoning_effort = requestedEffort;
     } else if (provider === 'anthropic') {
       payload.thinking = { type: 'enabled', budget_tokens: budget };
       payload.max_tokens = Math.max(4096, budget + 1024);
     } else if (provider === 'thinking-budget') {
       payload.reasoning = { enabled: true, effort, budget_tokens: budget };
-      payload.reasoning_effort = effort;
+      payload.reasoning_effort = requestedEffort;
       payload.enable_thinking = true;
       payload.thinking = { type: 'enabled', effort, budget_tokens: budget };
       payload.thinking_budget = budget;
@@ -2306,7 +2336,7 @@ function buildChatPayload(model, messages, options = {}) {
       payload.chat_template_kwargs = { enable_thinking: true, thinking_budget: budget };
       payload.extra_body = { chat_template_kwargs: { enable_thinking: true, thinking_budget: budget } };
     } else {
-      payload.reasoning_effort = effort;
+      payload.reasoning_effort = requestedEffort;
       payload.reasoning = { enabled: true, effort };
       payload.include_reasoning = true;
     }
@@ -2390,6 +2420,22 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   }
 
   try {
+    let lastReasoningText = '';
+    let reasoningDone = false;
+    let reasoningCompleteTimer = null;
+    const markReasoningDone = () => {
+      if (reasoningDone || !lastReasoningText) return;
+      reasoningDone = true;
+      if (loading?.isConnected) updateReasoning(loading, lastReasoningText, { done: true, forceScroll: false, keepReasoning: true });
+      if (liveItem) {
+        liveItem.reasoningText = lastReasoningText;
+        liveItem.keepReasoning = true;
+      }
+    };
+    const scheduleReasoningDone = () => {
+      clearTimeout(reasoningCompleteTimer);
+      reasoningCompleteTimer = setTimeout(markReasoningDone, 900);
+    };
     const renderer = createRealtimeRenderer((visible) => {
       const text = visible || '正在处理…';
       if (loading?.isConnected) {
@@ -2407,10 +2453,16 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
         }
         return;
       }
-      if (loading?.isConnected) updateReasoning(loading, visible || '', { forceScroll: false, keepEmpty: !!visible });
+      const nextText = visible || '';
+      if (nextText && nextText !== lastReasoningText) {
+        lastReasoningText = nextText;
+        reasoningDone = false;
+        scheduleReasoningDone();
+      }
+      if (loading?.isConnected) updateReasoning(loading, nextText, { done: reasoningDone, forceScroll: false, keepEmpty: !!nextText });
       if (liveItem) {
-        liveItem.reasoningText = visible || '';
-        liveItem.keepReasoning = !!visible;
+        liveItem.reasoningText = nextText;
+        liveItem.keepReasoning = !!nextText;
       }
     });
     if (loading?.isConnected) {
@@ -2426,24 +2478,32 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       }, backgroundJobId);
     } catch (streamErr) {
       if (!state.reasoningMode || !isUnsupportedReasoningError(streamErr)) throw streamErr;
-      const plainPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
+      const retryPayload = isUnsupportedXhighError(streamErr)
+        ? buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoningEffort: 'high' })
+        : buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
       if (backgroundJobId) {
-        saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: plainPayload, startedAt: Date.now() });
-        registerChatStreamJob(plainPayload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register plain chat stream job failed', err));
+        saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: retryPayload, startedAt: Date.now() });
+        registerChatStreamJob(retryPayload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register retry chat stream job failed', err));
       }
-      if (loading?.isConnected) clearReasoning(loading);
-      if (liveItem) {
-        delete liveItem.reasoningText;
-        liveItem.keepReasoning = false;
+      if (!isUnsupportedXhighError(streamErr)) {
+        if (loading?.isConnected) clearReasoning(loading);
+        if (liveItem) {
+          delete liveItem.reasoningText;
+          liveItem.keepReasoning = false;
+        }
       }
-      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, plainPayload, cfg.apiKey, (partial) => {
+      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, retryPayload, cfg.apiKey, (partial) => {
         renderer.set(partial.content || '');
+        reasoningRenderer.set(partial.reasoning || '');
       }, backgroundJobId);
     }
+    clearTimeout(reasoningCompleteTimer);
+    markReasoningDone();
     if (loading?.isConnected) clearPendingFeedback(loading);
     const finalReply = result.content || '没有返回内容';
     renderer.flush(finalReply);
     reasoningRenderer.cancel();
+    clearTimeout(reasoningCompleteTimer);
     if (sessionId === state.activeSessionId) {
       state.messages.push({ role: 'assistant', content: finalReply });
       saveChatHistory();
@@ -2470,7 +2530,9 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
       data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
     } catch (fallbackErr) {
       if (!state.reasoningMode || !isUnsupportedReasoningError(fallbackErr)) throw fallbackErr;
-      fallbackPayload = buildChatPayload(cfg.chatModel, requestMessages, { stream: false, reasoning: false });
+      fallbackPayload = isUnsupportedXhighError(fallbackErr)
+        ? buildChatPayload(cfg.chatModel, requestMessages, { stream: false, reasoningEffort: 'high' })
+        : buildChatPayload(cfg.chatModel, requestMessages, { stream: false, reasoning: false });
       data = await requestJson(`${cfg.baseUrl}/chat/completions`, fallbackPayload, cfg.apiKey);
     }
     if (loading?.isConnected) clearPendingFeedback(loading);
@@ -2996,7 +3058,7 @@ function enhanceCodeBlocks(html) {
     btn.title = '复制代码';
     btn.setAttribute('aria-label', '复制代码');
     btn.dataset.copyText = raw;
-    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    btn.innerHTML = COPY_ICON_SVG;
     wrapper.appendChild(btn);
     pre.replaceWith(wrapper);
     wrapper.appendChild(pre);
@@ -3098,7 +3160,7 @@ function renderMarkdownLegacy(md) {
 
   codeBlocks.forEach((block, i) => {
     const lang = block.lang ? `<span class="code-lang">${escapeHtml(block.lang)}</span>` : '';
-    const copyIcon = `<button class="inline-copy code-copy-icon" type="button" title="复制代码" aria-label="复制代码" data-copy-text="${escapeAttr(block.raw)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
+    const copyIcon = `<button class="inline-copy code-copy-icon" type="button" title="复制代码" aria-label="复制代码" data-copy-text="${escapeAttr(block.raw)}">${COPY_ICON_SVG}</button>`;
     const html = `<div class="code-block">${lang}${copyIcon}<pre><code>${escapeHtml(block.raw)}</code></pre></div>`;
     text = text.replace(`@@CODE${i}@@`, html);
   });

@@ -239,6 +239,7 @@ const defaults = {
   chatModel: '',
   imageModel: '',
   imageSize: 'auto',
+  systemPrompt: '',
   directMode: false,
   models: [],
   editingIndex: null,
@@ -293,6 +294,7 @@ function loadConfig() {
   $('baseUrl').value = cfg.baseUrl || '';
   $('apiKey').value = cfg.apiKey || '';
   $('imageSize').value = cfg.imageSize || defaults.imageSize;
+  $('systemPrompt').value = cfg.systemPrompt || '';
   state.models = Array.isArray(cfg.models) ? cfg.models : [];
   state.modelMeta = normalizeModelMeta(state.models, cfg.modelMeta || {});
   const knownModels = new Set(state.models);
@@ -309,6 +311,7 @@ function getConfig() {
     chatModel: $('chatModel').value.trim(),
     imageModel: $('imageModel').value.trim(),
     imageSize: $('imageSize').value,
+    systemPrompt: $('systemPrompt')?.value.trim() || '',
     directMode: false,
     models: state.models,
   };
@@ -330,6 +333,7 @@ function saveConfig(silent = false) {
     chatModel: cfg.chatModel,
     imageModel: cfg.imageModel,
     imageSize: cfg.imageSize,
+    systemPrompt: cfg.systemPrompt,
     directMode: false,
     models: Array.isArray(state.models) ? state.models : [],
     modelMeta: state.modelMeta || {}, 
@@ -1555,8 +1559,15 @@ function clearAttachments() {
   renderAttachments();
 }
 
-function buildChatMessagesWithAttachments(prompt, attachments = state.attachments, baseMessages = state.messages) {
-  if (!attachments.length) return [...baseMessages, { role: 'user', content: prompt }];
+function applyDefaultSystemPrompt(messages, systemPrompt = '') {
+  const content = String(systemPrompt || '').trim();
+  if (!content) return messages;
+  const withoutDuplicate = messages.filter((msg, index) => !(index === 0 && msg?.role === 'system' && String(msg.content || '').trim() === content));
+  return [{ role: 'system', content }, ...withoutDuplicate];
+}
+
+function buildChatMessagesWithAttachments(prompt, attachments = state.attachments, baseMessages = state.messages, systemPrompt = '') {
+  if (!attachments.length) return applyDefaultSystemPrompt([...baseMessages, { role: 'user', content: prompt }], systemPrompt);
 
   const parts = [];
   if (prompt) parts.push({ type: 'text', text: prompt });
@@ -1577,7 +1588,7 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
       text: `\n\n[以下附件已上传到页面，但未解析正文：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析'}`).join('\n')}\n]`,
     });
   }
-  return [...baseMessages, { role: 'user', content: parts }];
+  return applyDefaultSystemPrompt([...baseMessages, { role: 'user', content: parts }], systemPrompt);
 }
 
 function attachmentsSummaryMarkdown(attachments = state.attachments) {
@@ -2630,7 +2641,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     : options.userAlreadyAdded && baseMessages.at(-1)?.role === 'user'
       ? baseMessages.slice(0, -1)
       : baseMessages;
-  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages);
+  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages, cfg.systemPrompt);
   if (sessionId === state.activeSessionId) {
     if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
     saveChatHistory();

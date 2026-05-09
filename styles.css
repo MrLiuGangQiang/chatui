@@ -2121,17 +2121,30 @@ body {
   color: #334155;
 }
 .config-dialog input,
-.config-dialog select {
+.config-dialog select,
+.config-dialog textarea {
   border-color: rgba(203,213,225,.82);
   background-color: rgba(255,255,255,.86);
   color: #0f172a;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 8px 18px rgba(15,23,42,.045);
 }
-.config-dialog input::placeholder {
+.config-dialog textarea {
+  width: 100%;
+  min-height: 118px;
+  padding: 12px 14px;
+  border: 1px solid rgba(203,213,225,.82);
+  border-radius: 14px;
+  resize: vertical;
+  line-height: 1.55;
+  outline: none;
+}
+.config-dialog input::placeholder,
+.config-dialog textarea::placeholder {
   color: #94a3b8;
 }
 .config-dialog input:focus,
-.config-dialog select:focus {
+.config-dialog select:focus,
+.config-dialog textarea:focus {
   border-color: rgba(16,185,129,.62);
   box-shadow: 0 0 0 3px rgba(16,185,129,.13), 0 10px 26px rgba(59,130,246,.10);
 }
@@ -2152,7 +2165,8 @@ body {
   background-repeat: no-repeat;
 }
 .config-dialog select:hover,
-.config-dialog input:hover {
+.config-dialog input:hover,
+.config-dialog textarea:hover {
   border-color: rgba(59,130,246,.38);
   background-color: rgba(255,255,255,.96);
 }

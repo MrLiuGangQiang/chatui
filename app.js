@@ -21,6 +21,7 @@ const state = {
   reasoningPersist: true,
   pageUnloading: false,
   resumingJobs: new Set(),
+  followingChatJobs: new Set(),
   autoScrollLocked: true,
   activeOutputNode: null,
   scrollVersion: 0,
@@ -721,6 +722,10 @@ function pendingFeedbackHtml(text) {
   return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
 }
 
+function isChatStatusText(text = '') {
+  return /正在处理|正在思考|正在恢复聊天任务|已收到|请稍等|已等待/.test(String(text || ''));
+}
+
 function setPendingFeedback(node, text, options = {}) {
   if (!node) return;
   node.dataset.pendingFeedback = '1';
@@ -936,6 +941,43 @@ function applyPendingEdit(newText) {
   return { index: idx, responseIndex, node, responseNode };
 }
 
+function removeSessionDisplayItemForNode(sessionId, node) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  if (!session?.display?.length || !node) return;
+  const ids = new Set([node.dataset.displayItemId, node.__displayItem?.id].filter(Boolean));
+  if (!ids.size) return;
+  const next = session.display.filter(item => !ids.has(item.id));
+  if (next.length === session.display.length) return;
+  session.display = next;
+  persistSessionDisplay(sessionId);
+}
+
+function removeAssistantHistoryAt(sessionId, index) {
+  if (!Number.isFinite(index)) return;
+  const session = state.sessions.find(item => item.id === sessionId);
+  const messages = sessionId === state.activeSessionId ? state.messages : session?.messages;
+  if (!Array.isArray(messages) || messages[index]?.role !== 'assistant') return;
+  messages.splice(index, 1);
+  if (sessionId === state.activeSessionId) saveChatHistory();
+  else saveSessionMessages(sessionId, messages);
+}
+
+function prepareRegeneratedResponse(userNode, oldNode, sessionId, responseIndex, text = '已收到，马上处理') {
+  const html = pendingFeedbackHtml(text);
+  removeSessionDisplayItemForNode(sessionId, oldNode);
+  removeAssistantHistoryAt(sessionId, responseIndex);
+  oldNode?.remove();
+
+  const node = addMessage('assistant', html, { html: true, rawText: text, skipSave: true });
+  userNode?.after(node);
+  const liveItem = appendSessionDisplayMessage(sessionId, 'assistant', html, { html: true, rawText: text, pending: true, responseIndex });
+  node.__displayItem = liveItem;
+  if (liveItem?.id) node.dataset.displayItemId = liveItem.id;
+  if (Number.isFinite(responseIndex)) node.dataset.responseIndex = String(responseIndex);
+  state.activeOutputNode = node;
+  return { node, liveItem };
+}
+
 function prepareReplacementResponse(editResult, sessionId, text = '已收到，马上处理') {
   const html = pendingFeedbackHtml(text);
   let node = editResult?.responseNode || null;
@@ -993,23 +1035,9 @@ async function regenerateAssistantMessage(node) {
 
   const runSessionId = state.activeSessionId;
   setSessionBusy(runSessionId, true);
-  node.classList.remove('error');
-  node.classList.add('assistant');
-  const avatar = node.querySelector('.avatar');
-  if (avatar) avatar.textContent = 'AI';
-  clearReasoning(node);
-  updateMessage(node, pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', skipSave: true, followActive: true, forceScroll: true });
-  state.activeOutputNode = node;
-
-  let liveItem = node.__displayItem || null;
-  if (!liveItem) {
-    liveItem = appendSessionDisplayMessage(runSessionId, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
-    node.__displayItem = liveItem;
-    node.dataset.displayItemId = liveItem.id;
-  } else {
-    updateSessionDisplayItem(runSessionId, liveItem, 'assistant', pendingFeedbackHtml('已收到，马上处理'), { html: true, rawText: '已收到，马上处理', pending: true });
-    node.dataset.displayItemId = liveItem.id;
-  }
+  const replacement = prepareRegeneratedResponse(userNode, node, runSessionId, responseIndex);
+  node = replacement.node;
+  let liveItem = replacement.liveItem;
 
   try {
     const restoredAttachments = hadImageContext ? await restoreImageAttachmentsFromContext(imageContext) : [];
@@ -1711,6 +1739,20 @@ async function waitChatJob(jobId, onTick = () => {}) {
   return waitJobEvent(`/api/chat-jobs/${encodeURIComponent(jobId)}/events`, onTick);
 }
 
+async function streamManagedChatCompletions(payload, cfg, jobId, onDelta) {
+  if (jobId) state.followingChatJobs.add(jobId);
+  try {
+    await registerChatStreamJob(payload, cfg, jobId, { start: true });
+    const data = await waitChatJob(jobId, (job) => {
+      const partial = extractChatJobText(job.data);
+      if (partial.content || partial.reasoning) onDelta(partial);
+    });
+    return extractChatJobText(data);
+  } finally {
+    if (jobId) state.followingChatJobs.delete(jobId);
+  }
+}
+
 async function startImageGenerationJob(payload, cfg, jobId) {
   const res = await fetch('/api/image-jobs', {
     method: 'POST',
@@ -1916,6 +1958,28 @@ function replaceAssistantMessageAt(sessionId, index, content) {
 function loadChatJob(sessionId = state.activeSessionId) {
   try { return JSON.parse(localStorage.getItem(sessionChatJobKey(sessionId)) || 'null'); }
   catch { return null; }
+}
+
+function loadDisplayChatJob(sessionId = state.activeSessionId) {
+  const session = state.sessions.find(item => item.id === sessionId);
+  const item = [...(session?.display || [])].reverse().find(item => item?.pending === '1' && item.jobId);
+  if (!item?.jobId) return null;
+  return {
+    id: item.jobId,
+    prompt: '',
+    payload: null,
+    startedAt: Date.now(),
+    displayItemId: item.id || '',
+    responseIndex: item.responseIndex !== '' && item.responseIndex !== undefined ? item.responseIndex : null,
+  };
+}
+
+function loadLatestChatJob(sessionId = state.activeSessionId) {
+  const saved = loadChatJob(sessionId);
+  const displayJob = loadDisplayChatJob(sessionId);
+  if (!saved?.id) return displayJob;
+  if (!displayJob?.id) return saved;
+  return displayJob.id === saved.id ? { ...saved, displayItemId: saved.displayItemId || displayJob.displayItemId, responseIndex: saved.responseIndex ?? displayJob.responseIndex } : displayJob;
 }
 
 function clearChatJob(sessionId = state.activeSessionId) {
@@ -2289,7 +2353,6 @@ function switchSession(sessionId) {
   renderActiveSession();
   updateSendAvailability();
   closeSessionDrawer();
-  resumeSessionJobs(sessionId);
 }
 
 
@@ -2659,7 +2722,7 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   }
 
   const payload = buildChatPayload(cfg.chatModel, requestMessages, { stream: true });
-  const backgroundJobId = !attachments.length ? makeClientChatJobId() : '';
+  let backgroundJobId = makeClientChatJobId();
   if (backgroundJobId && liveItem) {
     liveItem.jobId = backgroundJobId;
     if (Number.isFinite(options.replaceAssistantIndex)) liveItem.responseIndex = String(options.replaceAssistantIndex);
@@ -2672,8 +2735,6 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
   }
   if (backgroundJobId) {
     saveChatJob(sessionId, { id: backgroundJobId, prompt, payload, startedAt: Date.now(), displayItemId: liveItem?.id || '', responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : null });
-    // 正常发送只预登记，不启动后台流；刷新恢复时才 start，避免占用同一个 job 导致正常 token 流式被中断。
-    registerChatStreamJob(payload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register chat stream job failed', err));
   }
 
   try {
@@ -2716,10 +2777,17 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
         reasoningDone = false;
         scheduleReasoningDone();
       }
+      if (nextText && loading?.isConnected && loading.dataset.pendingFeedback === '1') {
+        clearPendingFeedback(loading);
+        updateMessageContentLight(loading, '正在思考…', { rawText: '正在思考…', skipSave: true, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex) });
+      }
       if (loading?.isConnected) updateReasoning(loading, nextText, { done: reasoningDone, forceScroll: Number.isFinite(options.replaceAssistantIndex), followActive: Number.isFinite(options.replaceAssistantIndex), keepEmpty: !!nextText });
       if (liveItem) {
         liveItem.reasoningText = nextText;
         liveItem.keepReasoning = !!nextText;
+        if (nextText && isChatStatusText(liveItem.rawText || '')) {
+          updateLiveDisplay(sessionId, liveItem, 'assistant', '正在思考…', { rawText: '正在思考…', pending: true, reasoning: state.reasoningMode ? nextText : undefined, forceScroll: true, followActive: true });
+        }
       }
     });
     if (loading?.isConnected) {
@@ -2729,18 +2797,23 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     }
     let result;
     try {
-      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, payload, cfg.apiKey, (partial) => {
+      result = await streamManagedChatCompletions(payload, cfg, backgroundJobId, (partial) => {
         renderer.set(partial.content || '');
         reasoningRenderer.set(partial.reasoning || '');
-      }, backgroundJobId);
+      });
     } catch (streamErr) {
       if (!state.reasoningMode || !isUnsupportedReasoningError(streamErr)) throw streamErr;
       const retryPayload = isUnsupportedXhighError(streamErr)
         ? buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoningEffort: 'high' })
         : buildChatPayload(cfg.chatModel, requestMessages, { stream: true, reasoning: false });
       if (backgroundJobId) {
+        backgroundJobId = makeClientChatJobId();
+        if (liveItem) {
+          liveItem.jobId = backgroundJobId;
+          persistSessionDisplay(sessionId);
+        }
+        if (loading) loading.dataset.jobId = backgroundJobId;
         saveChatJob(sessionId, { id: backgroundJobId, prompt, payload: retryPayload, startedAt: Date.now(), displayItemId: liveItem?.id || '', responseIndex: Number.isFinite(options.replaceAssistantIndex) ? options.replaceAssistantIndex : null });
-        registerChatStreamJob(retryPayload, cfg, backgroundJobId, { start: false }).catch(err => console.warn('register retry chat stream job failed', err));
       }
       if (!isUnsupportedXhighError(streamErr)) {
         if (loading?.isConnected) clearReasoning(loading);
@@ -2749,10 +2822,10 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
           liveItem.keepReasoning = false;
         }
       }
-      result = await streamChatCompletions(`${cfg.baseUrl}/chat/completions`, retryPayload, cfg.apiKey, (partial) => {
+      result = await streamManagedChatCompletions(retryPayload, cfg, backgroundJobId, (partial) => {
         renderer.set(partial.content || '');
         reasoningRenderer.set(partial.reasoning || '');
-      }, backgroundJobId);
+      });
     }
     clearTimeout(reasoningCompleteTimer);
     markReasoningDone();
@@ -3159,8 +3232,9 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
   const resumeKey = `chat:${sessionId}`;
   if (state.resumingJobs.has(resumeKey)) return;
   state.resumingJobs.add(resumeKey);
-  const saved = loadChatJob(sessionId);
+  const saved = loadLatestChatJob(sessionId);
   if (!saved?.id) { state.resumingJobs.delete(resumeKey); return; }
+  if (state.followingChatJobs.has(saved.id)) { state.resumingJobs.delete(resumeKey); return; }
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session) { clearChatJob(sessionId); state.resumingJobs.delete(resumeKey); return; }
   let liveItem = takeChatJobLiveItem(sessionId, saved, '正在恢复聊天任务…', /正在处理|正在思考|正在恢复聊天任务|已收到/);
@@ -3171,8 +3245,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
   }
   setSessionBusy(sessionId, true);
   const start = saved.startedAt || Date.now();
-  const isStatusText = (text = '') => /正在处理|正在思考|正在恢复聊天任务|已收到/.test(String(text || ''));
-  let hasOutput = !!String(liveItem?.rawText || '').trim() && !isStatusText(liveItem.rawText || '');
+  let hasOutput = !!String(liveItem?.rawText || '').trim() && !isChatStatusText(liveItem.rawText || '');
   const tick = () => {
     if (hasOutput) return;
     const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
@@ -3184,16 +3257,36 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
     const onJobUpdate = (job) => {
       const partial = extractChatJobText(job.data);
       if (partial.content || partial.reasoning) {
-        hasOutput = !!partial.content || hasOutput;
-        updateLiveDisplay(sessionId, liveItem, 'assistant', partial.content || (hasOutput ? liveItem.rawText || '' : '正在处理…'), { rawText: partial.content || liveItem.rawText || '', pending: true, reasoning: state.reasoningMode ? partial.reasoning : undefined, forceScroll: true, followActive: true });
-      } else {
+        hasOutput = !!(partial.content || partial.reasoning) || hasOutput;
+        const visibleText = partial.content || '正在思考…';
+        updateLiveDisplay(sessionId, liveItem, 'assistant', visibleText, { rawText: visibleText, pending: true, reasoning: state.reasoningMode ? partial.reasoning : undefined, forceScroll: true, followActive: true });
+      } else if (!hasOutput) {
         tick();
       }
     };
-    // 刷新恢复时先调用后端接口登记/重建 streaming job，再连接 SSE。
-    // 这样“已收到，马上处理”阶段刷新，即使原请求没来得及建 job，也不会直接 /events 404。
-    if (saved.payload && cfg.baseUrl) await registerChatStreamJob(saved.payload, cfg, saved.id, { start: true });
-    const data = await waitChatJob(saved.id, onJobUpdate);
+    const resolveSnapshot = (job) => {
+      if (!job) return null;
+      onJobUpdate(job);
+      if (job.status === 'done') return job.data;
+      if (job.status === 'error') throw new Error(job.error?.message || '任务失败');
+      return null;
+    };
+    // 刷新/切换恢复时，先登记并立即拉取当前 job 快照，再接 SSE。
+    // 这样首屏能马上显示后端已累计的最新内容，而不是停留在本地 pending 文案。
+    let data = null;
+    let snapshotErr = null;
+    try {
+      data = resolveSnapshot(await getChatJob(saved.id));
+    } catch (err) {
+      snapshotErr = err;
+    }
+    if (!data && saved.payload && cfg.baseUrl) {
+      const registeredJob = await registerChatStreamJob(saved.payload, cfg, saved.id, { start: true });
+      data = resolveSnapshot(registeredJob);
+      snapshotErr = null;
+    }
+    if (!data && snapshotErr && isMissingJobError(snapshotErr)) throw snapshotErr;
+    if (!data) data = await waitChatJob(saved.id, onJobUpdate);
     const final = extractChatJobText(data);
     const reply = final.content || '没有返回内容';
     const reasoning = final.reasoning || '';
@@ -3205,8 +3298,13 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
         finishReasoning(node, reasoning);
       }
     }
-    const responseIndex = Number(liveItem?.responseIndex ?? saved.responseIndex);
-    if (!replaceAssistantMessageAt(sessionId, responseIndex, reply)) {
+    const rawResponseIndex = liveItem?.responseIndex !== '' && liveItem?.responseIndex !== undefined
+      ? liveItem.responseIndex
+      : saved.responseIndex;
+    const responseIndex = rawResponseIndex !== null && rawResponseIndex !== undefined && rawResponseIndex !== '' ? Number(rawResponseIndex) : NaN;
+    if (Number.isFinite(responseIndex) && !Number.isNaN(responseIndex) && replaceAssistantMessageAt(sessionId, responseIndex, reply)) {
+      // 已按原位置回填历史。
+    } else {
       const baseMessages = [...(session.messages || [])];
       baseMessages.push({ role: 'assistant', content: reply });
       saveSessionMessages(sessionId, baseMessages);
@@ -3224,6 +3322,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
   } finally {
     clearInterval(timer);
     setSessionBusy(sessionId, false);
+    state.resumingJobs.delete(resumeKey);
   }
 }
 
@@ -3231,7 +3330,7 @@ async function resumeChatJob(sessionId = state.activeSessionId) {
 function resumeSessionJobs(sessionId = state.activeSessionId) {
   if (!sessionId) return;
   const imageJob = loadImageJob(sessionId);
-  const chatJob = loadChatJob(sessionId);
+  const chatJob = loadLatestChatJob(sessionId);
   if (imageJob) setTimeout(() => resumeImageJob(sessionId), 0);
   if (chatJob) setTimeout(() => resumeChatJob(sessionId), 0);
 }

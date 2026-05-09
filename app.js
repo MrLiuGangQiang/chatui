@@ -365,47 +365,6 @@ function clearEmpty() {
   document.querySelector('.empty-welcome')?.remove();
 }
 
-function setupWelcomeBall(root = document) {
-  const title = root.querySelector?.('.welcome-title');
-  const ball = root.querySelector?.('.welcome-ball');
-  if (!title || !ball) return;
-
-  requestAnimationFrame(() => {
-    const titleRect = title.getBoundingClientRect();
-    if (titleRect.width < 1) return;
-
-    if (window.__welcomeBallRaf) cancelAnimationFrame(window.__welcomeBallRaf);
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    if (reduceMotion) return;
-
-    const lineWidth = titleRect.width;
-    const pointCount = 8;
-    const forward = Array.from({ length: pointCount }, (_, i) => lineWidth * i / (pointCount - 1));
-    const positions = [...forward, ...forward.slice(1, -1).reverse()];
-    const hopMs = 1080;
-    const totalMs = positions.length * hopMs;
-    const jumpHeight = Math.max(14, Math.min(22, titleRect.height * .24));
-    const start = performance.now();
-
-    const tick = now => {
-      const elapsed = (now - start) % totalMs;
-      const index = Math.floor(elapsed / hopMs);
-      const nextIndex = (index + 1) % positions.length;
-      const t = (elapsed - index * hopMs) / hopMs;
-      const x = positions[index] + (positions[nextIndex] - positions[index]) * t;
-      // gravity-like parabola: smooth rise/fall, subtle squash only at contact
-      const y = -4 * jumpHeight * t * (1 - t);
-      const contact = Math.min(t, 1 - t);
-      const squash = contact < .08 ? .92 + contact : 1;
-      const stretch = contact < .08 ? 1.04 - contact * .35 : 1;
-      ball.style.left = '0px';
-      ball.style.transform = `translate3d(${x}px, ${y}px, 0) translateX(-50%) scale(${stretch}, ${squash})`;
-      window.__welcomeBallRaf = requestAnimationFrame(tick);
-    };
-    window.__welcomeBallRaf = requestAnimationFrame(tick);
-  });
-}
-
 function renderEmptyWelcome() {
   const messages = $('messages');
   if (!messages) return;
@@ -414,8 +373,7 @@ function renderEmptyWelcome() {
   if (messages.children.length) return;
   const text = 'ChatUI极简聊天工具';
   const spans = [...text].map(c => `<span class="wc">${c}</span>`).join('');
-  messages.innerHTML = `<div class="empty-welcome" aria-hidden="true"><div class="welcome-title">${spans}<span class="welcome-ball"></span></div><div class="welcome-sub">有什么想聊的？</div></div>`;
-  setupWelcomeBall(messages);
+  messages.innerHTML = `<div class="empty-welcome" aria-hidden="true"><div class="welcome-title">${spans}</div><div class="welcome-sub">专注对话 · 智能思考 · 灵感生图 · 高效创作</div></div>`;
 }
 
 let scrollTimer = null;
@@ -4054,8 +4012,6 @@ $('messages')?.addEventListener('wheel', markManualMessageScroll, { passive: tru
 window.visualViewport?.addEventListener('resize', () => { scheduleAutoResize(); scrollToBottom(false); });
 window.addEventListener('resize', () => {
   scheduleAutoResize();
-  clearTimeout(window.__welcomeBallResizeTimer);
-  window.__welcomeBallResizeTimer = setTimeout(() => setupWelcomeBall(document), 120);
 });
 scheduleAutoResize();
 $('prompt').addEventListener('keydown', (e) => {
@@ -4096,7 +4052,6 @@ loadSessions();
 loadSessionSidebarCollapsed();
 loadLastGeneratedImage();
 renderActiveSession();
-setupWelcomeBall(document);
 updateSendAvailability();
 updateModeUi(state.mode, state.autoMode);
 requestAnimationFrame(() => document.body.classList.remove('app-booting'));

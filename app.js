@@ -2526,7 +2526,10 @@ function renderActiveSession() {
 
 function switchSession(sessionId) {
   if (state.activeSessionId) {
-    try { if (!isSessionBusy(state.activeSessionId)) { saveChatHistory(); saveDisplayHistory(); } } catch (err) { console.warn('save before switch failed', err); }
+    try {
+      saveChatHistory();
+      saveDisplayHistory({ includeTransient: true });
+    } catch (err) { console.warn('save before switch failed', err); }
   }
   state.editingIndex = null;
   state.editingNode = null;
@@ -2545,7 +2548,10 @@ function switchSession(sessionId) {
 
 function newSession() {
   if (state.activeSessionId) {
-    try { if (!isSessionBusy(state.activeSessionId)) { saveChatHistory(); saveDisplayHistory(); } } catch (err) { console.warn('save before new session failed', err); }
+    try {
+      saveChatHistory();
+      saveDisplayHistory({ includeTransient: true });
+    } catch (err) { console.warn('save before new session failed', err); }
   }
   state.editingIndex = null;
   state.editingNode = null;
@@ -2567,9 +2573,10 @@ function newSession() {
   $('prompt')?.focus();
 }
 
-function saveDisplayHistory() {
+function saveDisplayHistory(options = {}) {
+  const includeTransient = options.includeTransient === true;
   const items = [...$('messages').querySelectorAll('.message')]
-    .filter(node => node.dataset.persist !== '0')
+    .filter(node => includeTransient || node.dataset.persist !== '0')
     .map(node => {
       const clone = node.querySelector('.content')?.cloneNode(true);
       clone?.querySelectorAll('.reasoning-panel').forEach(el => el.remove());
@@ -2589,7 +2596,7 @@ function saveDisplayHistory() {
         el.removeAttribute('data-object-url');
       });
       const reasoningText = node.dataset.keepReasoning === '1' ? (node.dataset.reasoningText || '') : '';
-      return {
+      const item = {
         id: node.dataset.displayItemId || node.__displayItem?.id || makeDisplayItemId(),
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
         rawText: node.dataset.rawText || '',
@@ -2600,7 +2607,13 @@ function saveDisplayHistory() {
         responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
         jobId: node.dataset.jobId || node.__displayItem?.jobId || '',
         imageContext: node.dataset.imageContext || '',
+        pending: node.dataset.persist === '0' || node.__displayItem?.pending === '1' ? '1' : '',
       };
+      if (node.__displayItem) {
+        Object.assign(node.__displayItem, item);
+        return node.__displayItem;
+      }
+      return item;
     }).slice(-80);
   const session = getActiveSession();
   session.display = items;
@@ -3628,6 +3641,13 @@ function restoreMathSegments(html, math) {
 function enhanceCodeBlocks(html) {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
+  tpl.content.querySelectorAll('table').forEach(table => {
+    if (table.parentElement?.classList.contains('table-wrap')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-wrap';
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
+  });
   tpl.content.querySelectorAll('pre').forEach(pre => {
     if (pre.parentElement?.classList.contains('code-block')) return;
     const code = pre.querySelector('code');

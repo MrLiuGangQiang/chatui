@@ -981,9 +981,17 @@ body {
 .content,
 .markdown-body {
   min-width: 0;
+  max-width: 100%;
+}
+.message {
+  overflow-x: clip;
 }
 .bubble {
   overflow: hidden;
+}
+.content,
+.markdown-body {
+  overflow-x: hidden;
 }
 .markdown-body {
   overflow-wrap: anywhere;
@@ -1018,8 +1026,16 @@ body {
   max-width: 100%;
   min-width: 0;
 }
+.markdown-body .code-block {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
 .markdown-body pre {
+  display: block;
+  max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   white-space: pre;
   -webkit-overflow-scrolling: touch;
 }
@@ -1028,6 +1044,9 @@ body {
   overflow-wrap: anywhere;
 }
 .markdown-body pre code {
+  display: inline-block;
+  min-width: max-content;
+  max-width: none;
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
@@ -1041,6 +1060,12 @@ body {
   width: max-content;
   min-width: 100%;
   max-width: none;
+}
+.markdown-body .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 .image-result-head {
   max-width: 100%;

@@ -509,7 +509,7 @@ function addMessage(role, content, options = {}) {
 }
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
-const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.5 12.4 11.2 16.1 18 8"></path></svg>';
+const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
 
 function showCopySuccess(btn) {
   if (!btn) return;
@@ -595,6 +595,7 @@ function updateMessage(node, content, options = {}) {
 function hydrateMessageMedia(node, { save = false } = {}) {
   const finalize = () => {
     bindImagePreview(node);
+    bindUserAttachmentPreviews(node);
     moveImageActionsToMessageActions(node);
     if (save && node.isConnected) saveDisplayHistory();
   };
@@ -1244,15 +1245,34 @@ function renderAttachments() {
   if (!bar) return;
   bar.innerHTML = state.attachments.map((file, index) => {
     const isImage = file.type.startsWith('image/');
-    const thumb = isImage ? `<img src="${escapeHtml(file.dataUrl)}" alt="" />` : `<span class="file-icon">${escapeHtml(file.name.split('.').pop() || 'FILE')}</span>`;
+    const thumb = isImage
+      ? `<button class="attachment-thumb-btn" type="button" data-preview-attachment="${index}" title="打开预览：${escapeHtml(file.name)}" aria-label="打开预览：${escapeHtml(file.name)}"><img src="${escapeHtml(file.dataUrl)}" alt="" /></button>`
+      : `<span class="file-icon">${escapeHtml(file.name.split('.').pop() || 'FILE')}</span>`;
     const status = file.compressionNote
       ? `<em title="${escapeHtml(file.compressionNote)}">已压缩</em>`
       : (file.text || file.dataUrl ? '' : `<em title="${escapeHtml(file.unsupportedReason || '暂不支持解析')}">未解析</em>`);
-    return `<div class="attachment-chip" title="${escapeHtml(file.compressionNote || file.unsupportedReason || file.name)}">${thumb}<span>${escapeHtml(file.name)}</span>${status}<button type="button" data-remove-attachment="${index}">×</button></div>`;
+    const previewAttrs = isImage ? ` data-preview-attachment="${index}" role="button" tabindex="0" aria-label="打开预览：${escapeHtml(file.name)}"` : '';
+    return `<div class="attachment-chip${isImage ? ' attachment-chip-image' : ''}"${previewAttrs} title="${escapeHtml(file.compressionNote || file.unsupportedReason || file.name)}">${thumb}<span>${escapeHtml(file.name)}</span>${status}<button type="button" data-remove-attachment="${index}">×</button></div>`;
   }).join('');
   bar.classList.toggle('show', state.attachments.length > 0);
+  bar.querySelectorAll('[data-preview-attachment]').forEach(el => {
+    const open = () => {
+      const item = state.attachments[Number(el.dataset.previewAttachment)];
+      if (item?.dataUrl) openImagePreview(item.dataUrl);
+    };
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-remove-attachment]')) return;
+      open();
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      open();
+    });
+  });
   bar.querySelectorAll('[data-remove-attachment]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       state.attachments.splice(Number(btn.dataset.removeAttachment), 1);
       renderAttachments();
       autoResize();
@@ -1421,6 +1441,27 @@ function serializeImageAttachment(item) {
   };
 }
 
+async function persistImageAttachmentRefs(items = []) {
+  const refs = [];
+  for (const item of items) {
+    const ref = serializeImageAttachment(item);
+    if (!ref) continue;
+    let src = ref.src;
+    if (src.startsWith('data:')) {
+      try {
+        const blob = await dataUrlToBlob(src);
+        const id = `edit-attachment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        await putImageBlob(id, blob);
+        src = `indexeddb://${id}`;
+      } catch {
+        src = ref.src;
+      }
+    }
+    refs.push({ ...ref, src });
+  }
+  return refs;
+}
+
 function setImageContext(node, context) {
   if (!node || !context) return;
   node.dataset.imageContext = JSON.stringify({
@@ -1494,24 +1535,22 @@ async function addFiles(files) {
 
     if (isImageFile(item)) {
       item.dataUrl = await readFileAsDataURL(uploadFile);
+    } else if (isPdfFile(item) || isOfficeFile(item)) {
+      item.dataUrl = await readFileAsDataURL(uploadFile);
     } else if (isProbablyTextFile(item)) {
       item.text = await readFileAsText(file);
       if (looksBinary(item.text)) {
         item.text = '';
         item.unsupportedReason = '文件看起来是二进制内容，未内联解析';
       }
-    } else if (isPdfFile(item)) {
-      item.unsupportedReason = 'PDF 已添加，但纯前端暂不解析正文；需要后端或 PDF 解析库支持';
-    } else if (isOfficeFile(item)) {
-      item.unsupportedReason = 'Office 文件已添加，但纯前端暂不解析正文；需要后端解析支持';
     } else {
       // 最后一层兜底：很多代码文件在浏览器里 type 为空，尝试按文本读取一小类安全文件。
       try {
         const text = await readFileAsText(file);
-        if (!looksBinary(text)) item.text = text;
-        else item.unsupportedReason = '文件格式暂不支持直接识别';
+        if (!looksBinary(text)) { item.text = text; }
+        else { item.dataUrl = await readFileAsDataURL(uploadFile); }
       } catch {
-        item.unsupportedReason = '文件格式暂不支持直接识别';
+        item.dataUrl = await readFileAsDataURL(uploadFile);
       }
     }
     state.attachments.push(item);
@@ -1589,11 +1628,16 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
   for (const file of attachments.filter(f => f.type.startsWith('image/') && f.dataUrl)) {
     parts.push({ type: 'image_url', image_url: { url: file.dataUrl } });
   }
-  const unsupported = attachments.filter(f => !f.text && !f.type.startsWith('image/'));
+  const binaryFiles = attachments.filter(f => !f.text && !f.type.startsWith('image/') && f.dataUrl);
+  for (const file of binaryFiles) {
+    const base64 = String(file.dataUrl).includes(',') ? String(file.dataUrl).split(',')[1] : file.dataUrl;
+    parts.push({ type: 'file', file: { file_data: base64, filename: file.name } });
+  }
+  const unsupported = attachments.filter(f => !f.text && !f.type.startsWith('image/') && !f.dataUrl);
   if (unsupported.length) {
     parts.push({
       type: 'text',
-      text: `\n\n[以下附件已上传到页面，但未解析正文：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析'}`).join('\n')}\n]`,
+      text: `\n\n[以下附件已上传到页面，但未解析正文，且无法作为文件直接发送：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析'}`).join('\n')}\n]`,
     });
   }
   return applyDefaultSystemPrompt([...baseMessages, { role: 'user', content: parts }], systemPrompt);
@@ -1602,6 +1646,29 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
 function attachmentsSummaryMarkdown(attachments = state.attachments) {
   if (!attachments.length) return '';
   return '\n\n' + attachments.map(f => `📎 ${f.name}`).join('\n');
+}
+
+function userAttachmentPreviewHtml(attachments = []) {
+  const items = attachments.filter(f => isImageFile(f) && f.dataUrl);
+  if (!items.length) return '';
+  return `<div class="user-attachment-preview-grid">${items.map(file => `
+    <img class="user-attachment-image" src="${escapeHtml(file.dataUrl)}" data-persisted-src="${escapeHtml(file.dataUrl)}" alt="${escapeHtml(file.name)}" title="点击预览" />`).join('')}</div>`;
+}
+
+function renderUserMessageWithAttachments(prompt, attachments = []) {
+  const textHtml = renderMarkdown(String(prompt || ''));
+  const previewHtml = userAttachmentPreviewHtml(attachments);
+  const nonImageSummary = attachments.filter(f => !(isImageFile(f) && f.dataUrl));
+  const summaryHtml = nonImageSummary.length ? renderMarkdown(attachmentsSummaryMarkdown(nonImageSummary)) : '';
+  return `${textHtml}${previewHtml}${summaryHtml}`;
+}
+
+function bindUserAttachmentPreviews(scope) {
+  scope.querySelectorAll('img.user-attachment-image').forEach(img => {
+    if (img.dataset.userAttachmentPreviewBound === '1') return;
+    img.dataset.userAttachmentPreviewBound = '1';
+    img.addEventListener('click', () => openImagePreview(img.currentSrc || img.src || img.dataset.persistedSrc || ''));
+  });
 }
 
 async function requestMultipart(url, fields, files, apiKey) {
@@ -1763,6 +1830,8 @@ function createSession(title = '新对话') {
     messages: [],
     display: [],
     lastGeneratedImage: null,
+    systemPrompt: '',
+    hasSystemPromptOverride: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     busy: false,
@@ -2186,6 +2255,8 @@ function saveSessionsMeta() {
     const sessions = state.sessions.map(session => ({
       id: session.id,
       title: deriveSessionTitle(session),
+      systemPrompt: session.systemPrompt || '',
+      hasSystemPromptOverride: !!session.hasSystemPromptOverride,
       createdAt: session.createdAt || Date.now(),
       updatedAt: session.updatedAt || Date.now(),
     }));
@@ -2206,6 +2277,8 @@ function loadSessions() {
         .map(item => ({
           id: item.id,
           title: item.title || '新对话',
+          systemPrompt: item.systemPrompt || '',
+          hasSystemPromptOverride: !!item.hasSystemPromptOverride,
           createdAt: item.createdAt || Date.now(),
           updatedAt: item.updatedAt || Date.now(),
           messages: readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []),
@@ -2303,6 +2376,72 @@ function renderSessionList() {
     });
 }
 
+function renderSessionPromptArea() {
+  const input = $('sessionPromptInput');
+  const hint = $('sessionPromptHint');
+  if (!input) return;
+  const session = getActiveSession();
+  const hasOverride = !!session?.hasSystemPromptOverride;
+  const sessionPrompt = session?.systemPrompt || '';
+  input.value = hasOverride ? sessionPrompt : '';
+  if (hasOverride) {
+    hint.textContent = sessionPrompt.trim() ? '会话自定义' : '会话自定义 · 空';
+    hint.className = 'session-prompt-hint-value session-prompt-custom';
+  } else {
+    hint.textContent = '无 · 未设置';
+    hint.className = 'session-prompt-hint-value session-prompt-none';
+  }
+  const btn = $('sessionPromptBtn');
+  if (btn) {
+    btn.classList.toggle('has-session-prompt', hasOverride);
+  }
+}
+
+function saveSessionPrompt() {
+  const input = $('sessionPromptInput');
+  if (!input) return;
+  const session = getActiveSession();
+  if (!session) return;
+  session.systemPrompt = input.value.trim();
+  session.hasSystemPromptOverride = true;
+  saveSessionsMeta();
+  renderSessionPromptArea();
+  closeSessionPromptPanel();
+}
+
+function loadGlobalPromptToSessionInput() {
+  const input = $('sessionPromptInput');
+  if (!input) return;
+  const cfg = getConfig();
+  input.value = cfg.systemPrompt || '';
+  input.focus();
+}
+
+function clearSessionPromptInput() {
+  const input = $('sessionPromptInput');
+  if (!input) return;
+  input.value = '';
+  input.focus();
+}
+
+function openSessionPromptPanel() {
+  const panel = $('sessionPromptPanel');
+  if (!panel) return;
+  renderSessionPromptArea();
+  panel.classList.add('show');
+  panel.setAttribute('aria-hidden', 'false');
+  const input = $('sessionPromptInput');
+  if (input) setTimeout(() => input.focus(), 60);
+}
+
+function closeSessionPromptPanel() {
+  const panel = $('sessionPromptPanel');
+  if (!panel) return;
+  panel.classList.remove('show');
+  panel.setAttribute('aria-hidden', 'true');
+  renderSessionPromptArea();
+}
+
 function renderActiveSession() {
   const session = getActiveSession();
   $('messages').innerHTML = '';
@@ -2313,6 +2452,7 @@ function renderActiveSession() {
     renderEmptyWelcome();
   }
   renderSessionList();
+  renderSessionPromptArea();
   scrollToBottom(true);
   resumeSessionJobs(session.id);
 }
@@ -2684,7 +2824,8 @@ async function sendChat(prompt, attachments = state.attachments, loadingNode = n
     : options.userAlreadyAdded && baseMessages.at(-1)?.role === 'user'
       ? baseMessages.slice(0, -1)
       : baseMessages;
-  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages, cfg.systemPrompt);
+  const effectiveSystemPrompt = session.hasSystemPromptOverride ? (session.systemPrompt || '') : (cfg.systemPrompt || '');
+  const requestMessages = buildChatMessagesWithAttachments(prompt, attachments, requestBaseMessages, effectiveSystemPrompt);
   if (sessionId === state.activeSessionId) {
     if (!options.userAlreadyAdded) state.messages.push({ role: 'user', content: prompt });
     saveChatHistory();
@@ -3106,12 +3247,13 @@ async function sendImage(prompt, options = {}) {
     } else if (!imageRefs.length && options.editMode) {
       throw new Error('没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改');
     }
+    const persistedImageRefs = await persistImageAttachmentRefs(imageRefs);
     const imageContext = {
       prompt,
       mode: imageRefs.length ? 'edit_image' : 'image',
       target: usedPreviousImage ? 'previous' : (imageRefs.length ? (options.editTarget || 'uploaded') : 'new'),
       usePreviousImage: usedPreviousImage || !!options.imageContext?.usePreviousImage,
-      attachments: imageRefs.map(serializeImageAttachment).filter(Boolean),
+      attachments: persistedImageRefs,
     };
     if (loading?.isConnected) {
       setImageContext(loading, imageContext);
@@ -3120,12 +3262,15 @@ async function sendImage(prompt, options = {}) {
     startImageTimer(imageRefs.length ? '正在修改图片' : '正在生成图片');
     let data;
     if (imageRefs.length) {
+      const jobId = makeClientImageJobId();
+      saveImageJob(sessionId, { id: jobId, prompt, payload, mode: 'edit_image', imageContext, startedAt: Date.now(), liveItemRawText: liveItem?.rawText || '' });
       data = await requestMultipart(`${cfg.baseUrl}/images/edits`, payload, imageRefs, cfg.apiKey);
+      clearImageJob(sessionId);
     } else {
       const jobId = makeClientImageJobId();
-      saveImageJob(sessionId, { id: jobId, prompt, payload, startedAt: Date.now(), liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: jobId, prompt, payload, mode: 'image', imageContext, startedAt: Date.now(), liveItemRawText: liveItem?.rawText || '' });
       const job = await startImageGenerationJob(payload, cfg, jobId);
-      saveImageJob(sessionId, { id: job.id, prompt, payload, startedAt: job.createdAt || Date.now(), liveItemRawText: liveItem?.rawText || '' });
+      saveImageJob(sessionId, { id: job.id, prompt, payload, mode: 'image', imageContext, startedAt: job.createdAt || Date.now(), liveItemRawText: liveItem?.rawText || '' });
       data = await waitImageGenerationJob(job.id);
       clearImageJob(sessionId);
     }
@@ -3168,28 +3313,41 @@ async function resumeImageJob(sessionId = state.activeSessionId) {
   if (!saved?.id) { state.resumingJobs.delete(resumeKey); return; }
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session) { clearImageJob(sessionId); state.resumingJobs.delete(resumeKey); return; }
-  let liveItem = takePendingLiveItem(sessionId, '正在恢复图片生成任务…', /正在生成图片|正在恢复图片生成任务|已收到/);
+  const isEditJob = saved.mode === 'edit_image' || saved.imageContext?.mode === 'edit_image' || (Array.isArray(saved.imageContext?.attachments) && saved.imageContext.attachments.length > 0);
+  let liveItem = takePendingLiveItem(sessionId, isEditJob ? '正在恢复图片修改任务…' : '正在恢复图片生成任务…', /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/);
   setSessionBusy(sessionId, true);
   const start = saved.startedAt || Date.now();
+  const label = isEditJob ? '正在修改图片' : '正在生成图片';
   const tick = () => {
     const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
-    updateLiveDisplay(sessionId, liveItem, 'assistant', `正在生成图片… 已等待 ${seconds} 秒`, { rawText: `正在生成图片… 已等待 ${seconds} 秒`, pending: true });
+    updateLiveDisplay(sessionId, liveItem, 'assistant', `${label}… 已等待 ${seconds} 秒`, { rawText: `${label}… 已等待 ${seconds} 秒`, pending: true });
   };
   const timer = setInterval(tick, 1000);
   tick();
   try {
     const cfg = getConfig();
-    if (saved.payload && cfg.baseUrl) await startImageGenerationJob(saved.payload, cfg, saved.id);
-    const data = await waitImageGenerationJob(saved.id, tick);
+    let data;
+    if (isEditJob) {
+      const imageRefs = await restoreImageAttachmentsFromContext(saved.imageContext || {});
+      if (!imageRefs.length) throw new Error('恢复图片修改任务失败：附件信息已丢失，请重新上传图片');
+      data = await requestMultipart(`${cfg.baseUrl}/images/edits`, saved.payload, imageRefs, cfg.apiKey);
+    } else {
+      if (saved.payload && cfg.baseUrl) await startImageGenerationJob(saved.payload, cfg, saved.id);
+      data = await waitImageGenerationJob(saved.id, tick);
+    }
     const elapsedText = formatElapsed(Date.now() - start);
     const result = await imageResultToHtml(data, elapsedText, { prompt: saved.prompt || '', sessionId });
+    if (isEditJob) result.html = result.html.replace('生成完成', saved.imageContext?.usePreviousImage ? '基于上一张图修改完成' : '图片修改完成');
     updateSessionDisplayItem(sessionId, liveItem, 'assistant', result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}`, pending: false });
     if (sessionId === state.activeSessionId) {
       const node = findMessageNodeByDisplayItem(liveItem);
-      if (node) updateMessage(node, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+      if (node) {
+        updateMessage(node, result.html, { html: true, rawText: `${result.raw}\n耗时：${elapsedText}` });
+        if (saved.imageContext) setImageContext(node, saved.imageContext);
+      }
     }
     const baseMessages = [...(session.messages || [])];
-    baseMessages.push({ role: 'assistant', content: `[图片生成完成] ${saved.prompt || ''}` });
+    baseMessages.push({ role: 'assistant', content: `${isEditJob ? '[图片编辑完成]' : '[图片生成完成]'} ${saved.prompt || ''}` });
     saveSessionMessages(sessionId, baseMessages);
     clearImageJob(sessionId);
     playDoneSound();
@@ -3198,7 +3356,7 @@ async function resumeImageJob(sessionId = state.activeSessionId) {
     const message = isMissingJobError(err)
       ? '恢复任务不存在或已失效，已停止恢复，请重新发送'
       : (err?.message || String(err));
-    if (isMissingJobError(err)) cleanupStalePendingDisplay(sessionId, /正在生成图片|正在恢复图片生成任务|已收到/, message);
+    if (isMissingJobError(err)) cleanupStalePendingDisplay(sessionId, /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/, message);
     else showRunError(sessionId, err, liveItem, findMessageNodeByDisplayItem(liveItem));
     if (isMissingJobError(err) && sessionId === state.activeSessionId && !findMessageNodeByDisplayItem(liveItem)) addMessage('error', message, { rawText: message });
   } finally {
@@ -3735,7 +3893,11 @@ async function onSubmit(e) {
   let editResult = null;
   if (editingCandidate) editResult = applyPendingEdit(prompt);
   if (!editResult) {
-    addMessage('user', prompt + attachmentsSummaryMarkdown(submittedAttachments), { rawText: prompt, messageIndex: displayIndex });
+    const userHtml = renderUserMessageWithAttachments(prompt, submittedAttachments);
+    const userNode = addMessage('user', userHtml, { html: true, rawText: prompt, messageIndex: displayIndex });
+    const userItem = appendSessionDisplayMessage(runSessionId, 'user', userHtml, { html: true, rawText: prompt, messageIndex: displayIndex });
+    userNode.__displayItem = userItem;
+    if (userItem?.id) userNode.dataset.displayItemId = userItem.id;
     state.messages.push({ role: 'user', content: prompt });
   }
   saveChatHistory();
@@ -4038,6 +4200,22 @@ function closeConfigModal() {
 $('imagePreviewClose').addEventListener('click', closeImagePreview);
 $('imagePreview').addEventListener('click', (e) => { if (e.target.id === 'imagePreview' || e.target.classList.contains('image-preview-mask')) closeImagePreview(); });
 $('sidebarConfigBtn')?.addEventListener('click', openConfigModal);
+$('sessionPromptLoadGlobalBtn')?.addEventListener('click', loadGlobalPromptToSessionInput);
+$('sessionPromptClearBtn')?.addEventListener('click', clearSessionPromptInput);
+$('sessionPromptCancelBtn')?.addEventListener('click', closeSessionPromptPanel);
+$('sessionPromptSaveBtn')?.addEventListener('click', saveSessionPrompt);
+$('sessionPromptBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const panel = $('sessionPromptPanel');
+  if (panel?.classList.contains('show')) closeSessionPromptPanel();
+  else openSessionPromptPanel();
+});
+document.addEventListener('click', (e) => {
+  const panel = $('sessionPromptPanel');
+  if (panel?.classList.contains('show') && !panel.contains(e.target) && e.target.id !== 'sessionPromptBtn' && !$('sessionPromptBtn')?.contains(e.target)) {
+    closeSessionPromptPanel();
+  }
+});
 $('closeConfigBtn').addEventListener('click', closeConfigModal);
 document.querySelectorAll('[data-close-modal]').forEach(el => el.addEventListener('click', closeConfigModal));
 document.addEventListener('click', () => closeAllCustomSelects());

@@ -813,6 +813,7 @@ body {
   align-items: center;
   gap: 8px;
   pointer-events: auto;
+  position: relative;
 }
 .composer-actions .attach-btn,
 .composer-actions button[type="submit"],
@@ -4028,7 +4029,7 @@ body {
   background: linear-gradient(135deg, #0f172a, #475569) !important;
 }
 .bubble {
-  border-radius: 16px !important;
+  border-radius: 12px !important;
   border: 1px solid rgba(255,255,255,.70) !important;
   background: rgba(255,255,255,.78) !important;
   box-shadow: 0 16px 44px rgba(15,23,42,.085), inset 0 1px 0 rgba(255,255,255,.82) !important;
@@ -4070,7 +4071,7 @@ body {
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 28px rgba(15,23,42,.14) !important;
 }
 .reasoning-panel {
-  border-radius: 16px !important;
+  border-radius: 12px !important;
   border-color: rgba(56,189,248,.26) !important;
   background: linear-gradient(135deg, rgba(239,246,255,.88), rgba(240,253,250,.72)) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 12px 30px rgba(37,99,235,.08) !important;
@@ -4177,11 +4178,11 @@ body {
     border-radius: 14px !important;
   }
   .empty {
-    border-radius: 22px !important;
+    border-radius: 12px !important;
   }
   .composer.compact-composer,
   .composer {
-    border-radius: 20px !important;
+    border-radius: 14px !important;
   }
 }
 
@@ -4317,7 +4318,7 @@ body {
   }
   .input-stack {
     padding: 10px 10px 60px !important;
-    border-radius: 20px !important;
+    border-radius: 14px !important;
   }
   .input-stack textarea,
   .composer textarea,
@@ -5028,7 +5029,7 @@ body.session-sidebar-collapsed .composer {
   margin-top: 0 !important;
   padding: 7px 15px !important;
   border: 1px solid rgba(15,118,110,.14) !important;
-  border-radius: 999px !important;
+  border-radius: 9px !important;
   background: rgba(255,255,255,.46) !important;
   box-shadow: 0 10px 28px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.58) !important;
   font-size: clamp(13px, 1.55vw, 17px) !important;
@@ -5051,4 +5052,573 @@ body.session-sidebar-collapsed .composer {
 /* scroll control: disable browser native anchoring; ChatUI owns active-output scrolling */
 .messages {
   overflow-anchor: none !important;
+}
+
+/* final copy success centering: success state changes icon/color only, never geometry */
+.copy-btn.icon-action-btn,
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn:hover,
+.copy-btn.icon-action-btn.copied:hover,
+.reasoning-copy-btn,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn:hover,
+.reasoning-copy-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  place-items: center !important;
+  line-height: 0 !important;
+  box-sizing: border-box !important;
+}
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn.copied:hover,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  color: #059669 !important;
+  background: rgba(255,255,255,.72) !important;
+  border-color: rgba(148,163,184,.26) !important;
+  box-shadow: 0 8px 20px rgba(15,23,42,.065), inset 0 1px 0 rgba(255,255,255,.86) !important;
+  transform: none !important;
+}
+.copy-btn.icon-action-btn svg,
+.copy-btn.icon-action-btn.copied svg,
+.reasoning-copy-btn svg,
+.reasoning-copy-btn.copied svg,
+.markdown-body .code-block .code-copy-icon svg,
+.markdown-body .code-block .code-copy-icon.copied svg {
+  width: 15px !important;
+  height: 15px !important;
+  display: block !important;
+  flex: 0 0 15px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  position: static !important;
+  overflow: visible !important;
+}
+.copy-btn.icon-action-btn svg path,
+.copy-btn.icon-action-btn svg rect,
+.copy-btn.icon-action-btn.copied svg path,
+.copy-btn.icon-action-btn.copied svg rect,
+.reasoning-copy-btn svg path,
+.reasoning-copy-btn svg rect,
+.reasoning-copy-btn.copied svg path,
+.reasoning-copy-btn.copied svg rect,
+.markdown-body .code-block .code-copy-icon svg path,
+.markdown-body .code-block .code-copy-icon svg rect,
+.markdown-body .code-block .code-copy-icon.copied svg path,
+.markdown-body .code-block .code-copy-icon.copied svg rect {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  vector-effect: non-scaling-stroke !important;
+}
+.copy-btn.icon-action-btn.copied svg path,
+.reasoning-copy-btn.copied svg path,
+.markdown-body .code-block .code-copy-icon.copied svg path {
+  stroke-width: 2.25 !important;
+}
+@media (max-width: 640px) {
+  .copy-btn.icon-action-btn,
+  .copy-btn.icon-action-btn.copied,
+  .reasoning-copy-btn,
+  .reasoning-copy-btn.copied,
+  .markdown-body .code-block .code-copy-icon,
+  .markdown-body .code-block .code-copy-icon.copied {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+  }
+}
+
+/* final-final copy success visual centering: center the check mark itself */
+.copy-success-icon {
+  width: 16px !important;
+  height: 16px !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  transform: translateX(.25px) translateY(.1px) !important;
+  transform-origin: center center !important;
+}
+.copy-success-icon path {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2.35 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  vector-effect: non-scaling-stroke !important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 16px !important;
+}
+
+/* measured copy success fix: remove previous micro-shift and use canonical centered check */
+.copy-success-icon,
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 16px !important;
+  transform: none !important;
+  transform-origin: center center !important;
+}
+
+/* actual centered icon fix: button text-align inherited from early .primary-btn was left-aligning inline flex content */
+.copy-btn.icon-action-btn,
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn:hover,
+.copy-btn.icon-action-btn.copied:hover,
+.reasoning-copy-btn,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn:hover,
+.reasoning-copy-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  text-align: center !important;
+}
+
+/* verified copy success centering: absolutely center the success SVG inside the fixed-size button */
+.copy-btn.icon-action-btn.copied,
+.reasoning-copy-btn.copied,
+.markdown-body .code-block .code-copy-icon.copied {
+  position: relative !important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+/* measured Chromium button correction: native button layout offsets SVG 5px left, compensate after absolute centering */
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon {
+  left: calc(50% + 5px) !important;
+}
+
+/* image attachment preview: thumbnail opens the shared image preview modal */
+.attachment-thumb-btn {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  overflow: hidden !important;
+  cursor: zoom-in !important;
+  line-height: 0 !important;
+}
+.attachment-thumb-btn img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: inherit !important;
+  display: block !important;
+}
+.attachment-thumb-btn:hover {
+  outline: 2px solid rgba(20,184,166,.36) !important;
+  outline-offset: 1px !important;
+}
+@media (max-width: 640px) {
+  .attachment-thumb-btn {
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+  }
+}
+
+/* image attachment preview fallback: the whole image chip opens preview, except remove button */
+.attachment-chip-image {
+  cursor: zoom-in !important;
+}
+.attachment-chip-image:hover {
+  border-color: rgba(20,184,166,.42) !important;
+  background: rgba(240,253,250,.78) !important;
+}
+.attachment-chip-image:focus-visible {
+  outline: 2px solid rgba(20,184,166,.55) !important;
+  outline-offset: 2px !important;
+}
+.attachment-chip-image [data-remove-attachment] {
+  cursor: pointer !important;
+}
+
+/* user-sent image attachments inside message history */
+.user-attachment-preview-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)) !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+  max-width: min(360px, 100%) !important;
+}
+.user-attachment-preview {
+  padding: 0 !important;
+  border: 1px solid rgba(15,118,110,.18) !important;
+  border-radius: 12px !important;
+  background: rgba(255,255,255,.62) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  cursor: zoom-in !important;
+  color: inherit !important;
+  text-align: left !important;
+}
+.user-attachment-preview img {
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+.user-attachment-preview span {
+  padding: 5px 7px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  color: #334155 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.user-attachment-preview:hover {
+  border-color: rgba(20,184,166,.55) !important;
+  box-shadow: 0 8px 22px rgba(15,23,42,.12) !important;
+}
+
+/* refine user-sent image attachments: compact chat-friendly preview strip */
+.message.user .user-attachment-preview-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  grid-template-columns: none !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+  max-width: min(520px, 100%) !important;
+}
+.message.user .user-attachment-preview {
+  width: auto !important;
+  max-width: min(260px, 100%) !important;
+  height: 58px !important;
+  padding: 5px 9px 5px 5px !important;
+  border: 1px solid rgba(15,118,110,.16) !important;
+  border-radius: 14px !important;
+  background: rgba(255,255,255,.46) !important;
+  box-shadow: 0 6px 18px rgba(15,23,42,.06) !important;
+  overflow: hidden !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+  gap: 8px !important;
+  cursor: zoom-in !important;
+  color: inherit !important;
+  text-align: left !important;
+  backdrop-filter: blur(8px) !important;
+}
+.message.user .user-attachment-preview img {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  aspect-ratio: auto !important;
+  object-fit: cover !important;
+  border-radius: 10px !important;
+  display: block !important;
+  box-shadow: 0 2px 8px rgba(15,23,42,.10) !important;
+}
+.message.user .user-attachment-preview span {
+  min-width: 0 !important;
+  max-width: 180px !important;
+  padding: 0 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1.25 !important;
+  color: rgba(15,23,42,.72) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.message.user .user-attachment-preview:hover {
+  border-color: rgba(20,184,166,.42) !important;
+  background: rgba(255,255,255,.64) !important;
+  box-shadow: 0 10px 24px rgba(15,23,42,.10) !important;
+  transform: translateY(-1px) !important;
+}
+@media (max-width: 640px) {
+  .message.user .user-attachment-preview {
+    max-width: 220px !important;
+    height: 54px !important;
+  }
+  .message.user .user-attachment-preview img {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+  }
+  .message.user .user-attachment-preview span {
+    max-width: 140px !important;
+  }
+}
+
+/* user-sent image attachments: clean image-only thumbnail style */
+.message.user .user-attachment-preview-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+  max-width: min(520px, 100%) !important;
+}
+.message.user .user-attachment-preview {
+  width: 86px !important;
+  height: 86px !important;
+  max-width: 86px !important;
+  padding: 0 !important;
+  border: 1px solid rgba(15,118,110,.16) !important;
+  border-radius: 14px !important;
+  background: rgba(255,255,255,.36) !important;
+  box-shadow: 0 6px 16px rgba(15,23,42,.08) !important;
+  overflow: hidden !important;
+  display: inline-block !important;
+  cursor: zoom-in !important;
+  backdrop-filter: blur(8px) !important;
+}
+.message.user .user-attachment-preview img {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  aspect-ratio: auto !important;
+  object-fit: cover !important;
+  border-radius: inherit !important;
+  display: block !important;
+  box-shadow: none !important;
+}
+.message.user .user-attachment-preview span {
+  display: none !important;
+}
+.message.user .user-attachment-preview:hover {
+  border-color: rgba(20,184,166,.48) !important;
+  background: rgba(255,255,255,.58) !important;
+  box-shadow: 0 10px 24px rgba(15,23,42,.12) !important;
+  transform: translateY(-1px) !important;
+}
+@media (max-width: 640px) {
+  .message.user .user-attachment-preview {
+    width: 74px !important;
+    height: 74px !important;
+    max-width: 74px !important;
+  }
+}
+
+/* ChatGPT-like user image attachments: compact natural thumbnails */
+.message.user .user-attachment-preview-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  gap: 6px !important;
+  margin-top: 6px !important;
+  max-width: min(320px, 100%) !important;
+}
+.message.user img.user-attachment-image {
+  display: block !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: min(160px, 48vw) !important;
+  max-height: 160px !important;
+  object-fit: contain !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  cursor: zoom-in !important;
+}
+.message.user img.user-attachment-image:hover {
+  filter: brightness(.98) !important;
+}
+.message.user .user-attachment-preview,
+.message.user .user-attachment-preview span {
+  display: none !important;
+}
+@media (max-width: 640px) {
+  .message.user .user-attachment-preview-grid {
+    max-width: 100% !important;
+  }
+  .message.user img.user-attachment-image {
+    max-width: min(130px, 42vw) !important;
+    max-height: 130px !important;
+    border-radius: 12px !important;
+  }
+}
+
+
+
+
+
+
+
+/* per-session system prompt popover - compact experience panel */
+.session-prompt-btn {
+  width: 42px !important;
+  height: 40px !important;
+  min-width: 42px !important;
+  min-height: 40px !important;
+  padding: 0 !important;
+  border: 1px solid rgba(148,163,184,.34) !important;
+  border-radius: 9px !important;
+  background: rgba(255,255,255,.72) !important;
+  color: #475569 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: border-color .15s ease, background .15s ease, color .15s ease, box-shadow .15s ease !important;
+}
+.session-prompt-btn svg { width: 21px !important; height: 21px !important; display: block !important; }
+.session-prompt-btn svg path { fill: none !important; stroke: currentColor !important; stroke-width: 1.9 !important; stroke-linecap: round !important; stroke-linejoin: round !important; }
+.session-prompt-btn:hover,
+.session-prompt-btn.has-session-prompt { border-color: rgba(16,163,127,.30) !important; background: rgba(16,163,127,.08) !important; color: #0f766e !important; }
+.session-prompt-btn.has-session-prompt { box-shadow: inset 0 0 0 1px rgba(16,163,127,.08) !important; }
+.session-prompt-panel {
+  position: absolute !important;
+  bottom: calc(100% + 10px) !important;
+  left: 0 !important;
+  width: min(460px, calc(100vw - 32px)) !important;
+  padding: 0 !important;
+  border: 1px solid rgba(15,23,42,.10) !important;
+  border-radius: 16px !important;
+  background: rgba(255,255,255,.98) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  box-shadow: 0 20px 55px rgba(15,23,42,.16), 0 1px 2px rgba(15,23,42,.05) !important;
+  display: none !important;
+  overflow: hidden !important;
+  z-index: 100 !important;
+}
+.session-prompt-panel.show { display: block !important; }
+.session-prompt-panel-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 14px 16px 10px !important;
+}
+.session-prompt-title-wrap { display: flex !important; flex-direction: column !important; gap: 2px !important; min-width: 0 !important; }
+.session-prompt-panel-title { font-size: 14px !important; line-height: 1.3 !important; font-weight: 700 !important; color: #0f172a !important; }
+.session-prompt-panel-subtitle { font-size: 12px !important; line-height: 1.35 !important; color: #64748b !important; }
+.session-prompt-hint-value {
+  align-self: center !important;
+  padding: 4px 8px !important;
+  border-radius: 999px !important;
+  background: rgba(241,245,249,.90) !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  font-weight: 700 !important;
+  white-space: nowrap !important;
+}
+.session-prompt-custom { color: #0d9488 !important; background: rgba(16,163,127,.10) !important; }
+.session-prompt-global { color: #6366f1 !important; background: rgba(99,102,241,.10) !important; }
+.session-prompt-none { color: #64748b !important; }
+.session-prompt-field {
+  margin: 0 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+.session-prompt-field-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+.session-prompt-field-label { font-size: 12px !important; font-weight: 650 !important; color: #334155 !important; }
+.session-prompt-inline-actions { display: inline-flex !important; align-items: center !important; gap: 6px !important; }
+.session-prompt-input {
+  width: 100% !important;
+  min-height: 124px !important;
+  max-height: 40vh !important;
+  padding: 12px 13px !important;
+  border: 1px solid rgba(148,163,184,.26) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  color: #0f172a !important;
+  font: 13px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  resize: vertical !important;
+  outline: none !important;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
+}
+.session-prompt-input:focus { border-color: rgba(16,163,127,.42) !important; box-shadow: 0 0 0 3px rgba(16,163,127,.10) !important; }
+.session-prompt-input::placeholder { color: #94a3b8 !important; }
+.session-prompt-ghost-btn,
+.session-prompt-secondary-btn,
+.session-prompt-primary-btn {
+  height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease !important;
+}
+.session-prompt-ghost-btn,
+.session-prompt-secondary-btn {
+  border: 1px solid rgba(148,163,184,.26) !important;
+  background: rgba(255,255,255,.84) !important;
+  color: #475569 !important;
+}
+.session-prompt-ghost-btn:hover,
+.session-prompt-secondary-btn:hover { background: rgba(241,245,249,.95) !important; border-color: rgba(100,116,139,.34) !important; color: #0f172a !important; }
+.session-prompt-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 12px !important;
+  padding: 12px 16px 14px !important;
+  border-top: 1px solid rgba(226,232,240,.82) !important;
+  background: rgba(248,250,252,.55) !important;
+}
+.session-prompt-primary-btn {
+  min-width: 72px !important;
+  border: 1px solid rgba(16,163,127,.34) !important;
+  background: rgba(16,163,127,.10) !important;
+  color: #0f766e !important;
+}
+.session-prompt-primary-btn:hover { background: rgba(16,163,127,.16) !important; border-color: rgba(16,163,127,.46) !important; color: #0f766e !important; }
+@media (max-width: 640px) {
+  .session-prompt-btn { width: 40px !important; height: 38px !important; min-width: 40px !important; min-height: 38px !important; }
+  .session-prompt-btn svg { width: 20px !important; height: 20px !important; }
+  .session-prompt-panel { left: -8px !important; width: calc(100vw - 24px) !important; border-radius: 14px !important; }
+  .session-prompt-panel-head { padding: 13px 14px 9px !important; }
+  .session-prompt-field { margin-left: 14px !important; margin-right: 14px !important; }
+  .session-prompt-field-row { align-items: flex-start !important; flex-direction: column !important; gap: 8px !important; }
+  .session-prompt-inline-actions { width: 100% !important; }
+  .session-prompt-input { min-height: 118px !important; font-size: 12px !important; }
+  .session-prompt-footer { padding: 11px 14px 13px !important; }
 }

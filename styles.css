@@ -5659,3 +5659,29 @@ body.session-sidebar-collapsed .composer {
   .session-prompt-input { min-height: 118px !important; font-size: 12px !important; }
   .session-prompt-footer { padding: 11px 14px 13px !important; }
 }
+
+/* config version badge */
+.config-title-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+}
+.config-title-row h2 {
+  margin: 0 !important;
+}
+.config-version {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 24px !important;
+  padding: 0 10px !important;
+  border: 1px solid rgba(16,185,129,.22) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, rgba(236,253,245,.92), rgba(239,246,255,.88)) !important;
+  color: #047857 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.86), 0 8px 18px rgba(15,23,42,.06) !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  font-weight: 900 !important;
+  letter-spacing: .04em !important;
+}

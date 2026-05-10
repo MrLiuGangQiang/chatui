@@ -499,6 +499,13 @@ function addMessage(role, content, options = {}) {
     showCopySuccess(node.querySelector('.copy-btn'));
   });
 
+  const downloadBtn = node.querySelector('.download-answer-btn');
+  if (role === 'assistant') {
+    downloadBtn?.addEventListener('click', () => downloadAnswerFile(node));
+  } else {
+    downloadBtn?.remove();
+  }
+
   bindInlineCopyButtons(node);
   hydrateMessageMedia(node, { save: !options.skipSave });
 
@@ -510,6 +517,37 @@ function addMessage(role, content, options = {}) {
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
 const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
+
+function safeFilenamePart(text = '') {
+  return String(text || '')
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 32) || 'assistant-answer';
+}
+
+function downloadTextFile(text, filename, type = 'text/markdown;charset=utf-8') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
+
+function downloadAnswerFile(node) {
+  const text = String(node?.dataset.rawText || node?.querySelector('.content')?.innerText || '').trim();
+  if (!text) {
+    toast('暂无可下载的回答内容');
+    return;
+  }
+  const date = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const title = safeFilenamePart(text.split('\n').find(Boolean) || 'assistant-answer');
+  downloadTextFile(text.endsWith('\n') ? text : `${text}\n`, `${date}-${title}.md`);
+}
 
 function showCopySuccess(btn) {
   if (!btn) return;
@@ -1501,6 +1539,36 @@ function readFileAsText(file) {
   });
 }
 
+function isExcelFile(item) {
+  return /\.(xlsx|xlsm)$/i.test(item.name) || /spreadsheetml\.sheet|spreadsheetml|ms-excel/.test(item.type || '');
+}
+
+function canExtractOfficeText(item) {
+  return /\.(xlsx|xlsm|xls|pptx|ppt|docx|doc)$/i.test(item.name)
+    || /(spreadsheetml|presentationml|wordprocessingml|msword|ms-excel|ms-powerpoint)/.test(item.type || '');
+}
+
+function canExtractAttachmentText(item) {
+  return isPdfFile(item) || canExtractOfficeText(item);
+}
+
+async function extractAttachmentText(item) {
+  if (!item?.dataUrl) return '';
+  try {
+    const res = await fetch('/api/extract-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: item.name, type: item.type, dataUrl: item.dataUrl }),
+    });
+    const data = await parseResponseJson(res);
+    if (!res.ok) throw new Error(normalizeError(null, data));
+    return String(data.text || '').trim();
+  } catch (err) {
+    item.unsupportedReason = `本地解析失败：${err.message || String(err)}。为避免接口报错，不会直接发送二进制原文件。`;
+    return '';
+  }
+}
+
 async function addFiles(files) {
   for (const file of files) {
     let uploadFile = file;
@@ -1537,6 +1605,10 @@ async function addFiles(files) {
       item.dataUrl = await readFileAsDataURL(uploadFile);
     } else if (isPdfFile(item) || isOfficeFile(item)) {
       item.dataUrl = await readFileAsDataURL(uploadFile);
+      if (canExtractAttachmentText(item)) {
+        const extractedText = await extractAttachmentText(item);
+        if (extractedText) item.text = extractedText;
+      }
     } else if (isProbablyTextFile(item)) {
       item.text = await readFileAsText(file);
       if (looksBinary(item.text)) {
@@ -1628,16 +1700,11 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
   for (const file of attachments.filter(f => f.type.startsWith('image/') && f.dataUrl)) {
     parts.push({ type: 'image_url', image_url: { url: file.dataUrl } });
   }
-  const binaryFiles = attachments.filter(f => !f.text && !f.type.startsWith('image/') && f.dataUrl);
-  for (const file of binaryFiles) {
-    const base64 = String(file.dataUrl).includes(',') ? String(file.dataUrl).split(',')[1] : file.dataUrl;
-    parts.push({ type: 'file', file: { file_data: base64, filename: file.name } });
-  }
-  const unsupported = attachments.filter(f => !f.text && !f.type.startsWith('image/') && !f.dataUrl);
+  const unsupported = attachments.filter(f => !f.text && !f.type.startsWith('image/'));
   if (unsupported.length) {
     parts.push({
       type: 'text',
-      text: `\n\n[以下附件已上传到页面，但未解析正文，且无法作为文件直接发送：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析'}`).join('\n')}\n]`,
+      text: `\n\n[以下附件已上传到页面，但未能解析正文，因此不会直接发送二进制文件给模型，避免接口报错：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析，请转换为文本/Markdown/CSV 后再上传'}`).join('\n')}\n]`,
     });
   }
   return applyDefaultSystemPrompt([...baseMessages, { role: 'user', content: parts }], systemPrompt);

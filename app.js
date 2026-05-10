@@ -373,7 +373,7 @@ function renderEmptyWelcome() {
   if (messages.children.length) return;
   const text = 'ChatUI极简聊天工具';
   const spans = [...text].map(c => `<span class="wc">${c}</span>`).join('');
-  messages.innerHTML = `<div class="empty-welcome" aria-hidden="true"><div class="welcome-title">${spans}</div><div class="welcome-sub">专注对话 · 智能思考 · 灵感生图 · 高效创作</div></div>`;
+  messages.innerHTML = `<div class="empty-welcome" aria-hidden="true"><div class="welcome-title">${spans}</div><div class="welcome-sub">专注对话 · 智能思考 · 灵感生图 · 高效创作</div><div class="welcome-note">本项目全程使用 OpenClaw 托管开发 · 人为编码量 0</div></div>`;
 }
 
 let scrollTimer = null;

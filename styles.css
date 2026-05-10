@@ -5065,10 +5065,22 @@ body.session-sidebar-collapsed .composer {
   text-align: center !important;
   animation: none !important;
 }
+.welcome-note {
+  margin-top: -8px !important;
+  font-size: clamp(11px, 1.1vw, 13px) !important;
+  line-height: 1.45 !important;
+  color: rgba(71,85,105,.78) !important;
+  font-weight: 600 !important;
+  letter-spacing: .03em !important;
+  text-align: center !important;
+  max-width: min(88vw, 620px) !important;
+  animation: none !important;
+}
 @media (max-width: 840px) {
-  .empty-welcome { gap: 12px !important; padding-bottom: clamp(88px, 18vh, 150px) !important; }
+  .empty-welcome { gap: 10px !important; padding-bottom: clamp(88px, 18vh, 150px) !important; }
   .welcome-title { font-size: clamp(25px, 7.5vw, 42px) !important; max-width: calc(100vw - 28px) !important; }
   .welcome-sub { font-size: 12px !important; letter-spacing: .02em !important; padding: 6px 11px !important; max-width: calc(100vw - 32px) !important; }
+  .welcome-note { margin-top: -5px !important; font-size: 10.5px !important; max-width: calc(100vw - 36px) !important; }
 }
 @media (min-width: 1600px) {
   .welcome-title { font-size: clamp(42px, 4.6vw, 86px) !important; }

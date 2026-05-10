@@ -52,6 +52,32 @@ const IMAGE_UPLOAD_LIMITS = {
 };
 let doneAudioCtx = null;
 
+
+function setDisplayedVersion(version) {
+  const clean = String(version || '').trim();
+  if (!clean) return;
+  const label = clean.startsWith('v') ? clean : `v${clean}`;
+  document.querySelectorAll('[data-app-version]').forEach(node => {
+    node.textContent = label;
+  });
+  const railBtn = $('railConfigBtn');
+  if (railBtn) {
+    railBtn.title = `模型配置 · ${label}`;
+    railBtn.setAttribute('aria-label', `模型配置，当前版本 ${label}`);
+  }
+}
+
+async function loadAppVersion() {
+  try {
+    const res = await fetch('/api/version', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    setDisplayedVersion(data.version);
+  } catch {
+    setDisplayedVersion('1.1.1');
+  }
+}
+
 async function unlockDoneSound() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -4312,6 +4338,7 @@ document.addEventListener('keydown', (e) => {
 
 enhanceConfigSelects();
 loadConfig();
+loadAppVersion();
 loadReasoningPreference();
 loadSessions();
 loadSessionSidebarCollapsed();

@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT || 8765);
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
+const pkg = require('./package.json');
+const APP_VERSION = String(pkg.version || '0.0.0');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 50 * 1024 * 1024);
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_UPSTREAM_TIMEOUT_MS);
@@ -1167,6 +1169,11 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization',
     });
+  }
+
+  if (req.url === '/api/version') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
+    return sendJson(res, 200, { version: APP_VERSION }, { 'Access-Control-Allow-Origin': '*' });
   }
 
   if (req.url === '/api/image') {

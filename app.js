@@ -1801,25 +1801,24 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
   const history = normalizeApiChatHistory(baseMessages);
   if (!attachments.length) return applyDefaultSystemPrompt([...history, { role: 'user', content: prompt }], systemPrompt);
 
-  const parts = [];
-  if (prompt) parts.push({ type: 'text', text: prompt });
   const textFiles = attachments.filter(f => f.text);
-  if (textFiles.length) {
-    parts.push({
-      type: 'text',
-      text: textFiles.map(f => `\n\n[附件：${f.name}]\n${f.text}`).join(''),
-    });
-  }
-  for (const file of attachments.filter(f => f.type.startsWith('image/') && f.dataUrl)) {
-    parts.push({ type: 'image_url', image_url: { url: file.dataUrl } });
-  }
+  const imageFiles = attachments.filter(f => f.type.startsWith('image/') && f.dataUrl);
   const unsupported = attachments.filter(f => !f.text && !f.type.startsWith('image/'));
+  const textChunks = [];
+  if (prompt) textChunks.push(prompt);
+  if (textFiles.length) textChunks.push(textFiles.map(f => `[附件：${f.name}]\n${f.text}`).join('\n\n'));
   if (unsupported.length) {
-    parts.push({
-      type: 'text',
-      text: `\n\n[以下附件已上传到页面，但未能解析正文，因此不会直接发送二进制文件给模型，避免接口报错：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析，请转换为文本/Markdown/CSV 后再上传'}`).join('\n')}\n]`,
-    });
+    textChunks.push(`[以下附件已上传到页面，但未能解析正文，因此不会直接发送二进制文件给模型，避免接口报错：\n${unsupported.map(f => `- ${f.name} (${f.type})：${f.unsupportedReason || '暂不支持解析，请转换为文本/Markdown/CSV 后再上传'}`).join('\n')}\n]`);
   }
+  const textContent = textChunks.filter(Boolean).join('\n\n');
+
+  if (!imageFiles.length) {
+    return applyDefaultSystemPrompt([...history, { role: 'user', content: textContent || prompt || attachmentsSummaryMarkdown(attachments).trim() || '已发送附件' }], systemPrompt);
+  }
+
+  const parts = [];
+  if (textContent) parts.push({ type: 'text', text: textContent });
+  for (const file of imageFiles) parts.push({ type: 'image_url', image_url: { url: file.dataUrl } });
   return applyDefaultSystemPrompt([...history, { role: 'user', content: parts }], systemPrompt);
 }
 

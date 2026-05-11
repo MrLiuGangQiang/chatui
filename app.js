@@ -4623,8 +4623,16 @@ function updateReasoningControls() {
   $('reasoningToggle')?.setAttribute('aria-pressed', String(!!state.reasoningMode));
   if ($('reasoningTypeLabel')) $('reasoningTypeLabel').textContent = reasoningTypeText();
   if ($('reasoningProviderLabel')) $('reasoningProviderLabel').textContent = reasoningProviderText();
-  document.querySelectorAll('[data-reasoning-type]')?.forEach(btn => btn.classList.toggle('selected', btn.dataset.reasoningType === state.reasoningType));
-  document.querySelectorAll('[data-reasoning-provider]')?.forEach(btn => btn.classList.toggle('selected', btn.dataset.reasoningProvider === state.reasoningProvider));
+  document.querySelectorAll('[data-reasoning-type]')?.forEach(btn => {
+    const active = btn.dataset.reasoningType === state.reasoningType;
+    btn.classList.toggle('selected', active);
+    btn.setAttribute('aria-checked', String(active));
+  });
+  document.querySelectorAll('[data-reasoning-provider]')?.forEach(btn => {
+    const active = btn.dataset.reasoningProvider === state.reasoningProvider;
+    btn.classList.toggle('selected', active);
+    btn.setAttribute('aria-checked', String(active));
+  });
 }
 
 function setReasoningMode(enabled) {

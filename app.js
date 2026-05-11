@@ -1824,12 +1824,22 @@ function buildChatMessagesWithAttachments(prompt, attachments = state.attachment
 }
 
 
+function reasoningBudgetTokens(effort = 'medium') {
+  return ({ low: 1024, medium: 4096, high: 8192, xhigh: 16384 })[effort] || 4096;
+}
+
 function reasoningPayloadOptions(options = {}) {
   if (options.reasoning === false) return {};
   const effort = options.reasoningEffort || state.reasoningType;
   if (!state.reasoningMode && !options.reasoningEffort) return {};
   if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) return {};
-  return { reasoning_effort: effort === 'xhigh' ? 'high' : effort };
+  const provider = normalizeReasoningProvider(options.reasoningProvider || state.reasoningProvider || 'auto');
+  const openaiEffort = effort === 'xhigh' ? 'high' : effort;
+  if (provider === 'anthropic') return { thinking: { type: 'enabled', budget_tokens: reasoningBudgetTokens(effort) } };
+  if (provider === 'thinking-budget') return { enable_thinking: true, thinking_budget: reasoningBudgetTokens(effort) };
+  if (provider === 'generic') return { reasoning: { enabled: true, effort: openaiEffort } };
+  if (provider === 'google') return { thinkingConfig: { thinkingBudget: reasoningBudgetTokens(effort) } };
+  return { reasoning_effort: openaiEffort };
 }
 
 function buildChatPayload(model, messages, options = {}) {
@@ -4598,7 +4608,14 @@ function reasoningTypeText(type = state.reasoningType) {
 }
 
 function reasoningProviderText(provider = state.reasoningProvider) {
-  return ({ auto: '自动', openai: 'OpenAI', anthropic: 'Claude', google: 'Google' })[provider] || '自动';
+  return ({
+    auto: '自动',
+    openai: 'OpenAI',
+    anthropic: 'Claude',
+    google: 'Google',
+    'thinking-budget': 'Qwen 兼容',
+    generic: '通用',
+  })[provider] || '自动';
 }
 
 function updateReasoningControls() {
@@ -4622,8 +4639,12 @@ function setReasoningType(type = 'medium') {
   updateReasoningControls();
 }
 
+function normalizeReasoningProvider(provider = 'auto') {
+  return ['auto', 'openai', 'anthropic', 'google', 'thinking-budget', 'generic'].includes(provider) ? provider : 'auto';
+}
+
 function setReasoningProvider(provider = 'auto') {
-  state.reasoningProvider = ['auto', 'openai', 'anthropic', 'google'].includes(provider) ? provider : 'auto';
+  state.reasoningProvider = normalizeReasoningProvider(provider);
   localStorage.setItem(REASONING_PROVIDER_KEY, state.reasoningProvider);
   updateReasoningControls();
 }
@@ -4631,7 +4652,7 @@ function setReasoningProvider(provider = 'auto') {
 function loadReasoningPreference() {
   state.reasoningMode = localStorage.getItem(REASONING_MODE_KEY) === '1';
   state.reasoningType = localStorage.getItem(REASONING_TYPE_KEY) || state.reasoningType || 'medium';
-  state.reasoningProvider = localStorage.getItem(REASONING_PROVIDER_KEY) || state.reasoningProvider || 'auto';
+  state.reasoningProvider = normalizeReasoningProvider(localStorage.getItem(REASONING_PROVIDER_KEY) || state.reasoningProvider || 'auto');
   state.reasoningPersist = localStorage.getItem(REASONING_PERSIST_KEY) !== '0';
   updateReasoningControls();
 }

@@ -979,8 +979,15 @@ function removeSessionDisplayItemForNode(sessionId, node) {
   const session = state.sessions.find(item => item.id === sessionId);
   if (!session?.display?.length || !node) return;
   const ids = new Set([node.dataset.displayItemId, node.__displayItem?.id].filter(Boolean));
-  if (!ids.size) return;
-  const next = session.display.filter(item => !ids.has(item.id));
+  const responseIndex = node.dataset.responseIndex || node.__displayItem?.responseIndex || '';
+  const messageIndex = node.dataset.messageIndex || node.__displayItem?.messageIndex || '';
+  const role = node.classList?.contains('assistant') ? 'assistant' : node.classList?.contains('user') ? 'user' : node.__displayItem?.role || '';
+  const next = session.display.filter(item => {
+    if (ids.size && ids.has(item.id)) return false;
+    if (role === 'assistant' && responseIndex !== '' && item.role === 'assistant' && String(item.responseIndex || '') === String(responseIndex)) return false;
+    if (role === 'user' && messageIndex !== '' && item.role === 'user' && String(item.messageIndex || '') === String(messageIndex)) return false;
+    return true;
+  });
   if (next.length === session.display.length) return;
   session.display = next;
   persistSessionDisplay(sessionId);

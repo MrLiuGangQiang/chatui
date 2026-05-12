@@ -639,7 +639,8 @@ function showCopySuccess(btn) {
 
 function bindInlineCopyButtons(node) {
   node.querySelectorAll('[data-copy-text]').forEach(btn => {
-    if (btn.dataset.copyBound === '1') return;
+    if (btn.__copyBound === true) return;
+    btn.__copyBound = true;
     btn.dataset.copyBound = '1';
     btn.addEventListener('click', async () => {
       await copyText(btn.dataset.copyText || '');
@@ -3184,6 +3185,7 @@ function saveDisplayHistory(options = {}) {
       clone?.querySelectorAll('[data-image-action-clone]').forEach(el => el.remove());
       clone?.querySelectorAll('[data-preview-bound]').forEach(el => el.removeAttribute('data-preview-bound'));
       clone?.querySelectorAll('[data-download-bound]').forEach(el => el.removeAttribute('data-download-bound'));
+      clone?.querySelectorAll('[data-copy-bound]').forEach(el => el.removeAttribute('data-copy-bound'));
       clone?.querySelectorAll('img[data-persisted-src]').forEach(el => {
         el.setAttribute('src', TRANSPARENT_PIXEL);
         el.classList.add('image-restoring');

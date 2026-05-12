@@ -1631,13 +1631,47 @@ async function restoreImageAttachmentsFromContext(context) {
   return restored;
 }
 
-function readFileAsText(file) {
+function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result || '');
+    reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   });
+}
+
+function decodeArrayBufferText(buffer, encoding, fatal = false) {
+  if (typeof TextDecoder === 'undefined') return '';
+  try { return new TextDecoder(encoding, { fatal }).decode(buffer); }
+  catch { return ''; }
+}
+
+function decodedTextQuality(text = '') {
+  const sample = String(text || '').slice(0, 8000);
+  if (!sample) return -1000;
+  const replacements = (sample.match(/\uFFFD/g) || []).length;
+  const controls = (sample.match(/[\u0000-\u0008\u000E-\u001F]/g) || []).length;
+  const cjk = (sample.match(/[\u3400-\u9fff]/g) || []).length;
+  const latin = (sample.match(/[A-Za-z0-9]/g) || []).length;
+  const whitespace = (sample.match(/\s/g) || []).length;
+  return cjk * 3 + latin + whitespace * 0.2 - replacements * 80 - controls * 40;
+}
+
+async function readFileAsText(file) {
+  const buffer = await readFileAsArrayBuffer(file);
+  const bytes = new Uint8Array(buffer || new ArrayBuffer(0));
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return decodeArrayBufferText(buffer, 'utf-16le');
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return decodeArrayBufferText(buffer, 'utf-16be');
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return decodeArrayBufferText(buffer, 'utf-8');
+
+  const utf8Strict = decodeArrayBufferText(buffer, 'utf-8', true);
+  if (utf8Strict && !looksBinary(utf8Strict)) return utf8Strict;
+
+  const candidates = ['utf-8', 'gb18030', 'gbk', 'big5', 'utf-16le']
+    .map(encoding => ({ encoding, text: decodeArrayBufferText(buffer, encoding) }))
+    .filter(item => item.text && !looksBinary(item.text));
+  candidates.sort((a, b) => decodedTextQuality(b.text) - decodedTextQuality(a.text));
+  return candidates[0]?.text || decodeArrayBufferText(buffer, 'utf-8') || '';
 }
 
 function isExcelFile(item) {

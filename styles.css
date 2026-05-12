@@ -5920,3 +5920,23 @@ body.session-sidebar-collapsed .composer {
   color: #059669 !important;
   stroke: #059669 !important;
 }
+
+
+/* reasoning copy success icon: no historical x-offset; keep check exactly centered */
+.reasoning-copy-btn.copied {
+  position: relative !important;
+}
+.reasoning-copy-btn.copied .copy-success-icon {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+}
+.reasoning-copy-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon path {
+  color: #059669 !important;
+  stroke: #059669 !important;
+}

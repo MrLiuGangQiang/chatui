@@ -5752,3 +5752,171 @@ body.session-sidebar-collapsed .composer {
   pointer-events: none !important;
   z-index: -1 !important;
 }
+
+
+/* code copy success position fix: success state must keep the code-copy button anchored top-right.
+   Do not change button geometry; only swap icon/color. */
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  position: absolute !important;
+  right: 6px !important;
+  top: 6px !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+
+/* markdown code block radius: keep it softer but less pill-like */
+.markdown-body pre,
+.markdown-body .code-block pre,
+.markdown-body .code-block {
+  border-radius: 8px !important;
+}
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  border-radius: 6px !important;
+}
+
+
+/* markdown code block light frosted-glass theme */
+.markdown-body .code-block {
+  background: linear-gradient(135deg, rgba(241, 245, 249, .88), rgba(226, 232, 240, .66)) !important;
+  border: 1px solid rgba(148, 163, 184, .34) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(14px) saturate(1.14) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.14) !important;
+}
+.markdown-body pre,
+.markdown-body .code-block pre {
+  background: rgba(248, 250, 252, .50) !important;
+  color: #1e293b !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.markdown-body pre code,
+.markdown-body .code-block pre code {
+  color: #1e293b !important;
+}
+.markdown-body .code-block .code-lang {
+  background: rgba(255,255,255,.58) !important;
+  color: #64748b !important;
+  border: 1px solid rgba(148,163,184,.26) !important;
+  backdrop-filter: blur(10px) saturate(1.1) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.1) !important;
+}
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  background: rgba(255,255,255,.68) !important;
+  color: #64748b !important;
+  border-color: rgba(148,163,184,.32) !important;
+  box-shadow: 0 4px 12px rgba(15,23,42,.07) !important;
+  backdrop-filter: blur(12px) saturate(1.12) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.12) !important;
+}
+.markdown-body .code-block .code-copy-icon:hover {
+  background: rgba(255,255,255,.86) !important;
+  color: #0f766e !important;
+  border-color: rgba(20,184,166,.36) !important;
+}
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  color: #059669 !important;
+}
+
+
+/* markdown code language label: small radius, not pill-shaped */
+.markdown-body .code-block .code-lang {
+  border-radius: 5px !important;
+}
+
+
+/* markdown code block cool light theme: subtle, clean, no bottom shadow */
+.markdown-body .code-block {
+  position: relative !important;
+  overflow: hidden !important;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(59, 130, 246, .13), transparent 32%),
+    radial-gradient(circle at 86% 8%, rgba(168, 85, 247, .10), transparent 34%),
+    linear-gradient(135deg, rgba(248, 250, 252, .92), rgba(235, 244, 255, .70)) !important;
+  border: 1px solid rgba(125, 154, 190, .38) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(16px) saturate(1.18) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.18) !important;
+}
+.markdown-body .code-block::before {
+  content: none !important;
+}
+.markdown-body .code-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, rgba(255,255,255,.42), transparent 28%, rgba(255,255,255,.18) 58%, transparent 72%);
+  pointer-events: none;
+  z-index: 1;
+}
+.markdown-body .code-block pre {
+  position: relative;
+  z-index: 2;
+  background: transparent !important;
+}
+.markdown-body .code-block .code-lang,
+.markdown-body .code-block .code-copy-icon {
+  z-index: 4 !important;
+}
+.markdown-body .code-block .code-lang {
+  background: rgba(255,255,255,.62) !important;
+  color: #475569 !important;
+  border-color: rgba(96, 165, 250, .22) !important;
+}
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  background: rgba(255,255,255,.70) !important;
+  color: #475569 !important;
+  border-color: rgba(96, 165, 250, .24) !important;
+  box-shadow: none !important;
+}
+.markdown-body .code-block .code-copy-icon:hover {
+  background: rgba(255,255,255,.88) !important;
+  color: #2563eb !important;
+  border-color: rgba(37, 99, 235, .30) !important;
+}
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  color: #059669 !important;
+  border-color: rgba(5, 150, 105, .28) !important;
+}
+
+
+/* code copy success: keep button geometry/background/border unchanged; only success icon turns green */
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+  background: rgba(255,255,255,.70) !important;
+  border-color: rgba(96, 165, 250, .24) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon path {
+  color: #059669 !important;
+  stroke: #059669 !important;
+}

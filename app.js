@@ -344,6 +344,7 @@ const defaults = {
   baseUrl: '',
   apiKey: '',
   chatModel: '',
+  routeModel: '',
   imageModel: '',
   imageSize: 'auto',
   systemPrompt: '',
@@ -406,9 +407,10 @@ function loadConfig() {
   state.modelMeta = normalizeModelMeta(state.models, cfg.modelMeta || {});
   const knownModels = new Set(state.models);
   const chatModel = knownModels.has(cfg.chatModel) ? cfg.chatModel : '';
+  const routeModel = knownModels.has(cfg.routeModel) ? cfg.routeModel : '';
   const imageModel = knownModels.has(cfg.imageModel) ? cfg.imageModel : '';
-  renderModelOptions(chatModel, imageModel);
-  if (cfg.chatModel !== chatModel || cfg.imageModel !== imageModel) saveConfig(true);
+  renderModelOptions(chatModel, imageModel, routeModel);
+  if (cfg.chatModel !== chatModel || cfg.routeModel !== routeModel || cfg.imageModel !== imageModel) saveConfig(true);
 }
 
 function getConfig() {
@@ -416,6 +418,7 @@ function getConfig() {
     baseUrl: $('baseUrl').value.trim().replace(/\/$/, ''),
     apiKey: $('apiKey').value.trim(),
     chatModel: $('chatModel').value.trim(),
+    routeModel: $('routeModel')?.value.trim() || '',
     imageModel: $('imageModel').value.trim(),
     imageSize: $('imageSize').value,
     systemPrompt: $('systemPrompt')?.value.trim() || '',
@@ -438,6 +441,7 @@ function saveConfig(silent = false) {
     baseUrl: cfg.baseUrl,
     apiKey: cfg.apiKey,
     chatModel: cfg.chatModel,
+    routeModel: cfg.routeModel,
     imageModel: cfg.imageModel,
     imageSize: cfg.imageSize,
     systemPrompt: cfg.systemPrompt,
@@ -1294,7 +1298,7 @@ function normalizeModelType(type = '') {
   return raw;
 }
 
-function extractModelType(item, modelId = '') {
+function extractModelType(item) {
   if (item && typeof item !== 'string') {
     const candidates = [
       item.type,
@@ -1309,7 +1313,7 @@ function extractModelType(item, modelId = '') {
     const explicitType = candidates.find(v => String(v || '').trim());
     if (explicitType) return normalizeModelType(explicitType);
   }
-  return normalizeModelType(modelId);
+  return '';
 }
 
 function extractModels(data) {
@@ -1330,8 +1334,8 @@ function extractModels(data) {
       item.capability,
       Array.isArray(item.capabilities) ? item.capabilities.join(',') : '',
     ].some(v => String(v || '').trim()));
-    const type = extractModelType(item, modelId);
-    meta[modelId] = { id: modelId, type, unrecognized: !hasExplicitType && !type, inferred: !hasExplicitType && !!type };
+    const type = extractModelType(item);
+    meta[modelId] = { id: modelId, type, unrecognized: !hasExplicitType || !type, inferred: false };
     models.push(modelId);
   });
   const unique = [...new Set(models)].sort();
@@ -1359,16 +1363,20 @@ function setSelectValue(select, value) {
   updateCustomSelect(select);
 }
 
-function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue = $('imageModel')?.value || '') {
+function renderModelOptions(chatValue = $('chatModel')?.value || '', imageValue = $('imageModel')?.value || '', routeValue = $('routeModel')?.value || '') {
   const models = [...new Set(state.models)].filter(Boolean);
   const chatModels = models.filter(id => isModelAllowedFor(id, 'chat'));
   const imageModels = models.filter(id => isModelAllowedFor(id, 'image'));
   const empty = `<option value="">请选择模型</option>`;
+  const routeEmpty = `<option value="">跟随聊天模型</option>`;
   $('chatModel').innerHTML = empty + chatModels.map(modelOptionHtml).join('');
+  $('routeModel').innerHTML = routeEmpty + chatModels.map(modelOptionHtml).join('');
   $('imageModel').innerHTML = empty + imageModels.map(modelOptionHtml).join('');
   setSelectValue($('chatModel'), chatValue);
+  setSelectValue($('routeModel'), routeValue);
   setSelectValue($('imageModel'), imageValue);
   refreshCustomSelectOptions($('chatModel'));
+  refreshCustomSelectOptions($('routeModel'));
   refreshCustomSelectOptions($('imageModel'));
 }
 
@@ -1396,7 +1404,7 @@ async function loadModels() {
     if (!models.length) throw new Error('未从 /models 返回中识别到模型列表');
     state.models = models;
     state.modelMeta = meta;
-    renderModelOptions($('chatModel').value, $('imageModel').value);
+    renderModelOptions($('chatModel').value, $('imageModel').value, $('routeModel')?.value || '');
     saveConfig(true);
     const unknownCount = models.filter(id => state.modelMeta?.[id]?.unrecognized).length;
     if (unknownCount) {
@@ -4067,13 +4075,46 @@ function extractMathSegments(text) {
   const math = [];
   let out = '';
   let i = 0;
+  let lineStart = true;
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
   const pushMath = (raw, displayMode) => {
     const token = `@@MATH${math.length}@@`;
     math.push({ raw, displayMode });
     out += token;
   };
+  const appendChar = () => {
+    out += text[i];
+    lineStart = text[i] === '\n';
+    i += 1;
+  };
 
   while (i < text.length) {
+    if (lineStart) {
+      const lineEnd = text.indexOf('\n', i);
+      const line = text.slice(i, lineEnd === -1 ? text.length : lineEnd);
+      const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+      if (fence) {
+        const marker = fence[1];
+        const rest = fence[2] || '';
+        const char = marker[0];
+        const isClosing = /^\s*$/.test(rest);
+        if (!inFence) {
+          inFence = true;
+          fenceChar = char;
+          fenceLen = marker.length;
+        } else if (char === fenceChar && marker.length >= fenceLen && isClosing) {
+          inFence = false;
+          fenceChar = '';
+          fenceLen = 0;
+        }
+      }
+    }
+    if (inFence) {
+      appendChar();
+      continue;
+    }
     if (text.startsWith('$$', i)) {
       const end = text.indexOf('$$', i + 2);
       if (end !== -1) {
@@ -4113,8 +4154,7 @@ function extractMathSegments(text) {
         }
       }
     }
-    out += text[i];
-    i++;
+    appendChar();
   }
   return { text: out, math };
 }
@@ -4195,11 +4235,13 @@ function stripTrailingOrphanFence(source) {
     if (!match) continue;
     const fence = match[1];
     const char = fence[0];
+    const rest = match[2] || '';
+    const isClosing = /^\s*$/.test(rest);
     if (!inFence) {
       inFence = true;
       markerChar = char;
       markerLen = fence.length;
-    } else if (char === markerChar && fence.length >= markerLen) {
+    } else if (char === markerChar && fence.length >= markerLen && isClosing) {
       inFence = false;
       markerChar = '';
       markerLen = 0;
@@ -4213,8 +4255,78 @@ function stripTrailingOrphanFence(source) {
   return source;
 }
 
+function repairUnclosedCodeFences(source) {
+  const lines = String(source || '').split('\n');
+  const out = [];
+  let inFence = false;
+  let markerChar = '';
+  let markerLen = 0;
+  let openedAt = -1;
+
+  const closeFence = () => `${markerChar.repeat(Math.max(3, markerLen))}`;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[1];
+      const rest = fence[2] || '';
+      const char = marker[0];
+      const isClosing = /^\s*$/.test(rest);
+      if (!inFence) {
+        inFence = true;
+        markerChar = char;
+        markerLen = marker.length;
+        openedAt = i;
+        out.push(line);
+        continue;
+      }
+      if (char === markerChar && marker.length >= markerLen && isClosing) {
+        inFence = false;
+        markerChar = '';
+        markerLen = 0;
+        openedAt = -1;
+        out.push(line);
+        continue;
+      }
+      // 常见粘贴错误：上一个代码块漏了结束 fence，下一段又开始了新的 ```lang。
+      if (char === markerChar && marker.length >= markerLen && /\S/.test(rest)) {
+        out.push(closeFence());
+        inFence = true;
+        markerChar = char;
+        markerLen = marker.length;
+        openedAt = i;
+        out.push(line);
+        continue;
+      }
+    }
+
+    if (inFence) {
+      const prevBlank = i > openedAt + 1 && !String(lines[i - 1] || '').trim();
+      const nextNonBlank = lines.slice(i + 1).find(nextLine => String(nextLine || '').trim());
+      const isMarkdownHeading = /^\s{0,3}#{1,6}\s+\S/.test(line);
+      const isMarkdownDivider = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line);
+      if (prevBlank && (isMarkdownHeading || (isMarkdownDivider && nextNonBlank))) {
+        out.push(closeFence());
+        inFence = false;
+        markerChar = '';
+        markerLen = 0;
+        openedAt = -1;
+      }
+    }
+    out.push(line);
+  }
+
+  if (inFence) out.push(closeFence());
+  return out.join('\n');
+}
+
+function prepareMarkdownSource(md) {
+  return repairUnclosedCodeFences(stripTrailingOrphanFence(String(md || '')));
+}
+
 function renderMarkdown(md) {
-  const source = stripTrailingOrphanFence(String(md || ''));
+  const source = prepareMarkdownSource(md);
   const { text, math } = extractMathSegments(source);
 
   if (window.marked?.parse) {
@@ -4414,10 +4526,11 @@ async function getEffectiveRoute(prompt, attachments = state.attachments, sessio
     return normalizeRoute({ mode: 'edit_image', target: 'uploaded', use_previous_image: false, confidence: 0.9, evidence: '当前输入是承接上一张用户上传图的图片修改指令' }, 'chat');
   }
   // 自动模式下统一交给聊天模型做结构化路由；上一张图和上一张上传图只作为候选上下文。
-  if (cfg.baseUrl && cfg.chatModel) {
+  const routeModel = cfg.routeModel || cfg.chatModel;
+  if (cfg.baseUrl && routeModel) {
     try {
       const data = await requestJson(`${cfg.baseUrl}/chat/completions`, {
-        model: cfg.chatModel,
+        model: routeModel,
         temperature: 0,
         messages: [
           {
@@ -4627,7 +4740,7 @@ function refreshCustomSelectOptions(select) {
 }
 
 function enhanceConfigSelects() {
-  ['chatModel', 'imageModel', 'imageSize'].forEach(id => {
+  ['chatModel', 'routeModel', 'imageModel', 'imageSize'].forEach(id => {
     const select = $(id);
     if (!select || select.closest('.custom-select')) return;
     const wrapper = document.createElement('div');
@@ -4686,7 +4799,7 @@ function scheduleAutoResize() {
   });
 }
 
-['baseUrl', 'apiKey', 'chatModel', 'imageModel', 'imageSize'].forEach(id => {
+['baseUrl', 'apiKey', 'chatModel', 'routeModel', 'imageModel', 'imageSize'].forEach(id => {
   $(id).addEventListener('change', () => saveConfig(true));
 });
 $('saveConfigBtn').addEventListener('click', () => saveConfig(false));

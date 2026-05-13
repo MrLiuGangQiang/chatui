@@ -1930,7 +1930,7 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-  padding: 16px 18px 12px;
+  padding: 16px 18px 24px;
   max-height: calc(min(84vh, 760px) - 150px);
   overflow-y: auto;
 }
@@ -2231,10 +2231,70 @@ body {
 .config-grid {
   max-height: calc(min(84vh, 760px) - 160px);
 }
-.config-three-col {
+.model-config-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, .72fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .94fr);
+  gap: 10px;
+  align-items: stretch;
+}
+.model-config-group {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(203,213,225,.68);
+  border-radius: 15px;
+  background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(248,250,252,.58));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.84), 0 8px 18px rgba(15,23,42,.04);
+}
+.chat-model-group {
+  background: linear-gradient(180deg, rgba(239,246,255,.82), rgba(240,253,250,.56));
+}
+.image-model-group {
+  background: linear-gradient(180deg, rgba(250,245,255,.72), rgba(248,250,252,.62));
+}
+.model-group-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+.model-group-head strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+.model-group-head span {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.route-model-field {
+  position: relative;
+}
+.config-note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(59,130,246,.13);
+  border-radius: 13px;
+  background: linear-gradient(90deg, rgba(239,246,255,.72), rgba(240,253,250,.52));
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.config-note strong {
+  color: #0f766e;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.config-note span {
+  min-width: 0;
+  font-weight: 650;
 }
 .config-dialog .dialog-actions {
   padding: 16px 22px 28px;
@@ -2243,7 +2303,7 @@ body {
   margin-bottom: 2px;
 }
 @media (max-width: 760px) {
-  .config-three-col {
+  .model-config-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -2398,23 +2458,46 @@ body {
   }
 }
 
-/* config dialog: no internal scrollbar on desktop after layout merge */
+/* config dialog: desktop fits in one screen without inner scrolling */
 .config-dialog {
-  overflow: visible;
+  width: min(980px, calc(100vw - 40px));
   max-height: none;
+  overflow: visible;
+  display: block;
 }
 .config-grid {
   max-height: none;
   overflow: visible;
+  display: grid;
+  grid-template-columns: minmax(300px, .86fr) minmax(0, 1.14fr);
+  gap: 10px;
+  padding: 10px 14px 10px;
 }
-@media (max-width: 640px) {
-  .config-dialog {
-    overflow: hidden;
-    max-height: 88vh;
-  }
-  .config-grid {
-    overflow-y: auto;
-  }
+.config-card {
+  padding: 11px;
+}
+.config-card-wide {
+  grid-column: 1 / -1;
+}
+.config-hero {
+  padding: 16px 20px 12px;
+}
+.config-section-title {
+  margin-bottom: 8px;
+}
+.config-dialog label {
+  margin-bottom: 7px;
+}
+.config-dialog label > span {
+  margin-bottom: 5px;
+}
+.config-dialog input,
+.config-dialog select,
+.config-dialog .custom-select-trigger {
+  min-height: 38px;
+}
+.config-dialog textarea {
+  min-height: 74px;
 }
 
 /* closed custom dropdowns should not inflate dialog scroll height */
@@ -2425,12 +2508,12 @@ body {
   display: block;
 }
 
-/* config footer: remove extra bottom layer that leaks under rounded dialog */
+/* config footer: compact and inside dialog */
 .config-dialog .dialog-actions {
-  border-top: 0;
-  background: transparent;
+  border-top: 1px solid rgba(203,213,225,.58);
+  background: linear-gradient(180deg, rgba(255,255,255,.50), rgba(248,250,252,.78));
   box-shadow: none;
-  padding: 12px 22px 28px;
+  padding: 10px 18px 14px;
 }
 
 /* model type recognition badge */
@@ -2533,10 +2616,13 @@ body {
     padding: 9px 11px;
     min-height: 36px;
   }
-  .config-three-col,
+  .model-config-layout,
   .config-two-col {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+  .model-config-group {
+    padding: 10px;
   }
   .config-dialog input,
   .config-dialog select,
@@ -3364,8 +3450,8 @@ body.session-sidebar-collapsed .composer { left: 0; }
     top: auto !important;
     bottom: auto !important;
     margin: 0 auto !important;
-    width: min(620px, calc(100vw - 48px)) !important;
-    max-height: calc(100vh - 48px) !important;
+    width: min(980px, calc(100vw - 48px)) !important;
+    max-height: none !important;
   }
 }
 @media (max-width: 640px) {
@@ -3386,6 +3472,52 @@ body.session-sidebar-collapsed .composer { left: 0; }
     max-height: calc(100dvh - 28px) !important;
     border-radius: 24px !important;
     margin: 0 auto !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .config-dialog .config-grid {
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-template-columns: 1fr !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 10px 12px 28px !important;
+    scroll-padding-bottom: 28px !important;
+  }
+  .config-dialog .config-card,
+  .config-dialog .config-card-wide,
+  .config-dialog .model-config-layout,
+  .config-dialog .model-config-group {
+    width: 100% !important;
+    min-width: 0 !important;
+    grid-column: auto !important;
+  }
+  .config-dialog .model-config-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .config-dialog input,
+  .config-dialog select,
+  .config-dialog textarea,
+  .config-dialog .custom-select,
+  .config-dialog .custom-select-trigger {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  .config-dialog .model-section-head {
+    grid-template-columns: auto 1fr !important;
+  }
+  .config-dialog .load-models-btn {
+    width: 100% !important;
+    margin-left: 0 !important;
+    grid-column: 1 / -1 !important;
+  }
+  .config-dialog .dialog-actions {
+    flex: 0 0 auto !important;
+    padding: 10px 14px calc(14px + env(safe-area-inset-bottom)) !important;
+  }
+  .dialog-actions #saveConfigBtn {
+    width: 100% !important;
   }
 }
 

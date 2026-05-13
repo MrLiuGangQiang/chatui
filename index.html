@@ -7,7 +7,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./vendor/katex.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.1.14-local-20260512-1118" />
+  <link rel="stylesheet" href="./styles.css?v=1.1.19-md-fence-fix" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -199,6 +199,10 @@
               </div>
             </label>
           </form>
+          <div class="config-note compact-note">
+            <strong>意图识别模型</strong>
+            <span>用于自动判断意图，建议选便宜、响应快的模型；不选则跟随聊天模型。</span>
+          </div>
         </section>
 
         <section class="config-card">
@@ -211,24 +215,40 @@
             <button id="loadModelsBtn" type="button" class="load-models-btn">加载模型</button>
           </div>
           <span id="modelLoadStatus" class="mini-status"></span>
-          <div class="config-three-col">
-            <label>
-              <span>聊天模型</span>
-              <select id="chatModel"></select>
-            </label>
-            <label>
-              <span>生图模型</span>
-              <select id="imageModel"></select>
-            </label>
-            <label>
-              <span>图片尺寸</span>
-              <select id="imageSize">
-                <option value="auto">auto</option>
-                <option value="1024x1024">1024 × 1024</option>
-                <option value="1024x1536">1024 × 1536</option>
-                <option value="1536x1024">1536 × 1024</option>
-              </select>
-            </label>
+          <div class="model-config-layout">
+            <div class="model-config-group chat-model-group">
+              <div class="model-group-head">
+                <strong>对话与路由</strong>
+                <span>回复质量和自动意图判断</span>
+              </div>
+              <label>
+                <span>聊天模型</span>
+                <select id="chatModel"></select>
+              </label>
+              <label class="route-model-field">
+                <span>意图识别模型</span>
+                <select id="routeModel"></select>
+              </label>
+            </div>
+            <div class="model-config-group image-model-group">
+              <div class="model-group-head">
+                <strong>图像生成</strong>
+                <span>生图/修图模型和输出尺寸</span>
+              </div>
+              <label>
+                <span>生图模型</span>
+                <select id="imageModel"></select>
+              </label>
+              <label>
+                <span>图片尺寸</span>
+                <select id="imageSize">
+                  <option value="auto">auto</option>
+                  <option value="1024x1024">1024 × 1024</option>
+                  <option value="1024x1536">1024 × 1536</option>
+                  <option value="1536x1024">1536 × 1024</option>
+                </select>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -242,7 +262,7 @@
           </div>
           <label>
             <span>System Prompt</span>
-            <textarea id="systemPrompt" rows="5" placeholder="例如：你是一个专业、简洁、准确的中文助手。"></textarea>
+            <textarea id="systemPrompt" rows="3" placeholder="例如：你是一个专业、简洁、准确的中文助手。"></textarea>
           </label>
         </section>
       </div>
@@ -286,6 +306,6 @@
 
   <script src="./vendor/marked.min.js"></script>
   <script src="./vendor/katex.min.js"></script>
-  <script src="./app.js?v=1.1.14-local-20260512-1118"></script>
+  <script src="./app.js?v=1.1.19-md-fence-fix"></script>
 </body>
 </html>

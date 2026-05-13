@@ -705,6 +705,15 @@ function safeJoin(root, urlPath) {
   }
 }
 
+function pickCompressedStaticFile(req, filePath) {
+  const encoding = String(req.headers['accept-encoding'] || '');
+  const ext = path.extname(filePath);
+  if (!['.js', '.css'].includes(ext)) return { filePath, encoding: '' };
+  if (/\bbr\b/.test(encoding) && fs.existsSync(`${filePath}.br`)) return { filePath: `${filePath}.br`, encoding: 'br' };
+  if (/\bgzip\b/.test(encoding) && fs.existsSync(`${filePath}.gz`)) return { filePath: `${filePath}.gz`, encoding: 'gzip' };
+  return { filePath, encoding: '' };
+}
+
 function normalizeBaseUrl(value) {
   try {
     const url = new URL(String(value || '').trim());
@@ -1271,14 +1280,20 @@ const server = http.createServer(async (req, res) => {
   const filePath = safeJoin(ROOT, req.url);
   if (!filePath) return send(res, 403, 'Forbidden');
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) return send(res, 404, 'Not Found');
-    const headers = {
-      'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
-      'Cache-Control': filePath.endsWith('index.html') || filePath.endsWith('.js') || filePath.endsWith('.css') ? 'no-cache' : 'public, max-age=3600',
-    };
-    if (req.method === 'HEAD') return send(res, 200, '', headers);
-    send(res, 200, data, headers);
+  fs.stat(filePath, (statErr) => {
+    if (statErr) return send(res, 404, 'Not Found');
+    const picked = pickCompressedStaticFile(req, filePath);
+    fs.readFile(picked.filePath, (err, data) => {
+      if (err) return send(res, 404, 'Not Found');
+      const headers = {
+        'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
+        'Cache-Control': filePath.endsWith('index.html') || filePath.endsWith('.js') || filePath.endsWith('.css') ? 'no-cache' : 'public, max-age=3600',
+        Vary: 'Accept-Encoding',
+      };
+      if (picked.encoding) headers['Content-Encoding'] = picked.encoding;
+      if (req.method === 'HEAD') return send(res, 200, '', headers);
+      send(res, 200, data, headers);
+    });
   });
 });
 

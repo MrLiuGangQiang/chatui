@@ -23,8 +23,7 @@ ENV NODE_ENV=production \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts \
     && npm cache clean --force
-COPY server.js index.html app.js styles.css favicon.svg ./
-COPY vendor ./vendor
+COPY server.js index.html app.js app.js.br app.js.gz styles.css styles.css.br styles.css.gz favicon.svg ./
 
 USER node
 EXPOSE 8765

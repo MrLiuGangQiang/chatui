@@ -17,3 +17,16 @@ body.app-booting .composer,body.app-booting .composer.compact-composer{opacity:0
 /* User-sent image previews must keep the original aspect ratio; no square fixed boxes. */
 .user-attachment-preview-grid{display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:8px!important;max-width:min(380px,100%)!important;grid-template-columns:none!important}
 .content img.user-attachment-image,.markdown-body img.user-attachment-image,.message.user .content img.user-attachment-image{display:block!important;width:var(--thumb-w)!important;height:var(--thumb-h)!important;max-width:min(var(--thumb-w),52vw)!important;max-height:var(--thumb-h)!important;aspect-ratio:var(--thumb-w) / var(--thumb-h)!important;object-fit:contain!important;border-radius:10px!important;cursor:zoom-in!important;background:#fff!important;line-height:0!important}
+
+/* Upload processing progress: keep the visual progress bar visible above the prompt. */
+.upload-progress{position:relative!important;z-index:2!important;display:none!important;width:100%!important;margin:0 0 8px!important;gap:6px!important}
+.upload-progress.show{display:grid!important}
+.upload-progress-item{display:grid!important;gap:5px!important;min-width:0!important;padding:0 2px!important;color:#0f172a!important;font-size:13px!important;line-height:1.25!important}
+.upload-progress-row{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;min-width:0!important}
+.upload-progress-name{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.upload-progress-percent{flex:0 0 auto!important;color:#475569!important;font-size:12px!important;white-space:nowrap!important}
+.upload-progress-track{display:block!important;width:100%!important;height:6px!important;overflow:hidden!important;border-radius:999px!important;background:rgba(148,163,184,.22)!important;box-shadow:inset 0 1px 2px rgba(15,23,42,.08)!important}
+.upload-progress-track>i{display:block!important;height:100%!important;min-width:2px!important;border-radius:inherit!important;background:linear-gradient(90deg,#38bdf8,#2563eb,#14b8a6)!important;box-shadow:0 0 12px rgba(37,99,235,.32)!important;transition:width .18s ease!important}
+.upload-progress-item.done .upload-progress-track>i{background:linear-gradient(90deg,#22c55e,#14b8a6)!important}
+.upload-progress-item.error .upload-progress-track>i{background:linear-gradient(90deg,#f97316,#ef4444)!important}
+@media (max-width:640px){.upload-progress{margin-bottom:6px!important}.upload-progress-item{font-size:12px!important}.upload-progress-track{height:5px!important}}

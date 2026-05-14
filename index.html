@@ -7,7 +7,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.1.31-stream-bottom-pin-1" />
+  <link rel="stylesheet" href="./styles.css?v=1.1.31-upload-progress-1" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -81,6 +81,7 @@
       <form id="composer" class="composer compact-composer">
         <input id="fileInput" type="file" multiple class="visually-hidden-file-input" aria-label="选择附件" />
         <div class="input-stack">
+          <div id="uploadProgress" class="upload-progress" aria-live="polite"></div>
           <div id="attachmentBar" class="attachment-bar"></div>
           <textarea id="prompt" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
           <div class="composer-actions">
@@ -308,6 +309,6 @@
   <script src="https://registry.npmmirror.com/markdown-it/13.0.2/files/dist/markdown-it.min.js"></script>
   <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
   <script src="https://registry.npmmirror.com/mermaid/11.0.0/files/dist/mermaid.min.js"></script>
-  <script src="./app.js?v=1.1.31-stream-bottom-pin-1"></script>
+  <script src="./app.js?v=1.1.31-upload-progress-1"></script>
 </body>
 </html>

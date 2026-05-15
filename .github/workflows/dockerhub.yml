@@ -76,24 +76,40 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_NAMESPACE }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker metadata
-        id: meta
+      - name: Docker metadata for Alibaba Cloud ACR
+        id: meta_acr
         uses: docker/metadata-action@v5
         with:
           images: |
             ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
-            ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.version.outputs.semver }}
             type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Build and push to Alibaba Cloud ACR first
+        id: build_acr
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta_acr.outputs.tags }}
+          labels: ${{ steps.meta_acr.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Copy image from Alibaba Cloud ACR to Docker Hub
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ACR_IMAGE="${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}"
+          DOCKERHUB_IMAGE="${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}"
+          VERSION="${{ steps.version.outputs.semver }}"
+
+          docker buildx imagetools create \
+            --tag "${DOCKERHUB_IMAGE}:${VERSION}" \
+            "${ACR_IMAGE}:${VERSION}"
+          docker buildx imagetools create \
+            --tag "${DOCKERHUB_IMAGE}:latest" \
+            "${ACR_IMAGE}:latest"

@@ -64,6 +64,11 @@ async function json(res) {
     assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');
     assert.ok(appJs.includes('isNodeAwayFromOutputFocus'), 'resume stream visibility check exists');
     assert.ok(appJs.includes('t.bottom>o+40'), 'resume button appears when output is away from focus');
+    assert.ok(appJs.includes('resumeButtonSuppressUntil'), 'resume button is suppressed briefly after click');
+    assert.ok(appJs.includes('outputPinSuppressUntil'), 'output pinning is suppressed briefly after resume click');
+    assert.ok(appJs.includes('isNearMessagesBottom(12)'), 'manual scroll has strict bottom threshold');
+    assert.ok(appJs.includes('Date.now()+1500'), 'manual scrolling suppresses output pinning');
+    assert.ok(appJs.includes('document.querySelectorAll(\'.message[data-streaming="1"]\')'), 'resume button can recover active streaming node');
     assert.ok(appJs.includes('session-title-input'), 'session rename uses inline input');
     assert.ok(appJs.includes('保存会话名称'), 'rename button becomes save button');
     assert.ok(!appJs.includes('会话名称已保存'), 'rename save does not show toast');

@@ -62,6 +62,8 @@ async function json(res) {
     assert.ok(appJs.includes('function beginRenameSession'), 'inline session rename function exists');
     assert.ok(appJs.includes('customTitle'), 'custom session title is persisted');
     assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');
+    assert.ok(appJs.includes('isNodeAwayFromOutputFocus'), 'resume stream visibility check exists');
+    assert.ok(appJs.includes('t.bottom>o+40'), 'resume button appears when output is away from focus');
     assert.ok(appJs.includes('session-title-input'), 'session rename uses inline input');
     assert.ok(appJs.includes('保存会话名称'), 'rename button becomes save button');
     assert.ok(!appJs.includes('会话名称已保存'), 'rename save does not show toast');

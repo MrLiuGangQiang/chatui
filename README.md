@@ -261,9 +261,9 @@ http://127.0.0.1:8765
 | 标签 | 说明 |
 | --- | --- |
 | `latest` | 最新正式 Release 镜像 |
-| `MAJOR.MINOR.PATCH` | 与 GitHub Release 对应的版本号，例如 `1.1.36` |
+| `MAJOR.MINOR.PATCH` | 与 GitHub Release 对应的版本号，例如 `1.1.37` |
 
-> 说明：GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`，镜像标签使用去掉 `v` 的 `MAJOR.MINOR.PATCH`，例如 Release `v1.1.36` 对应镜像 `liugangqiang/chatui:1.1.36`。
+> 说明：GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`，镜像标签使用去掉 `v` 的 `MAJOR.MINOR.PATCH`，例如 Release `v1.1.37` 对应镜像 `liugangqiang/chatui:1.1.37`。
 
 ### 使用 Docker Hub 镜像
 
@@ -279,12 +279,12 @@ docker run -d \
 指定版本运行：
 
 ```bash
-docker pull liugangqiang/chatui:1.1.36
+docker pull liugangqiang/chatui:1.1.37
 docker run -d \
   --name chatui \
   --restart unless-stopped \
   -p 8765:8765 \
-  liugangqiang/chatui:1.1.36
+  liugangqiang/chatui:1.1.37
 ```
 
 ### 使用阿里云 ACR 镜像
@@ -301,12 +301,12 @@ docker run -d \
 指定版本运行：
 
 ```bash
-docker pull registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.36
+docker pull registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.37
 docker run -d \
   --name chatui \
   --restart unless-stopped \
   -p 8765:8765 \
-  registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.36
+  registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.37
 ```
 
 ### 升级已有容器
@@ -324,7 +324,7 @@ docker run -d \
   registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:latest
 ```
 
-如果希望固定版本，建议把 `latest` 换成明确版本号，例如 `1.1.36`。
+如果希望固定版本，建议把 `latest` 换成明确版本号，例如 `1.1.37`。
 
 ---
 
@@ -681,7 +681,7 @@ Docker Hub: liugangqiang/chatui
 ### Release 触发流程
 
 1. 提交并推送 `main` 分支。
-2. 创建符合 `vMAJOR.MINOR.PATCH` 格式的 Git tag，例如 `v1.1.36`。
+2. 创建符合 `vMAJOR.MINOR.PATCH` 格式的 Git tag，例如 `v1.1.37`。
 3. 创建 GitHub Release。
 4. GitHub Actions 读取 Release tag。
 5. 校验 `package.json` 与 `package-lock.json` 版本必须等于 tag 去掉 `v` 后的版本号。
@@ -695,7 +695,7 @@ Docker Hub: liugangqiang/chatui
 | 标签 | 示例 | 说明 |
 | --- | --- | --- |
 | `latest` | `liugangqiang/chatui:latest` | 最新正式版本 |
-| `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.1.36` | 精确版本标签 |
+| `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.1.37` | 精确版本标签 |
 
 ### Release Notes 规范
 

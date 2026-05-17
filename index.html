@@ -321,6 +321,21 @@
     <img id="imagePreviewImg" alt="preview" />
   </div>
 
+  <div id="confirmDialog" class="confirm-dialog" aria-hidden="true">
+    <div class="confirm-dialog-mask" data-confirm-cancel></div>
+    <section class="confirm-dialog-card" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogMessage">
+      <div class="confirm-dialog-icon" aria-hidden="true">!</div>
+      <div class="confirm-dialog-copy">
+        <h2 id="confirmDialogTitle">确认操作</h2>
+        <p id="confirmDialogMessage">此操作不可撤销。</p>
+      </div>
+      <div class="confirm-dialog-actions">
+        <button id="confirmDialogCancel" class="confirm-dialog-secondary" type="button" data-confirm-cancel>取消</button>
+        <button id="confirmDialogConfirm" class="confirm-dialog-danger" type="button">确认</button>
+      </div>
+    </section>
+  </div>
+
   <template id="messageTemplate">
     <article class="message">
       <div class="avatar"></div>

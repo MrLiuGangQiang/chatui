@@ -1,3 +1,5 @@
+const { errorPayload } = require('../errors/http-error');
+
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
@@ -23,4 +25,12 @@ function sendJson(res, status, data, headers = {}) {
   send(res, status, JSON.stringify(data), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
 }
 
-module.exports = { SECURITY_HEADERS, send, sendJson };
+function sendError(res, status, message, code = 'ERROR', detail = null, headers = {}) {
+  return sendJson(res, status, errorPayload(message, code, detail), headers);
+}
+
+function sendMethodNotAllowed(res) {
+  return sendError(res, 405, 'Method Not Allowed', 'METHOD_NOT_ALLOWED');
+}
+
+module.exports = { SECURITY_HEADERS, send, sendJson, sendError, sendMethodNotAllowed };

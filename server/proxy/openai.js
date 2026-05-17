@@ -1,4 +1,4 @@
-const { SECURITY_HEADERS, send, sendJson } = require('../http/response');
+const { SECURITY_HEADERS, send, sendJson, sendError } = require('../http/response');
 const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('./headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
@@ -26,7 +26,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   try {
     const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
     if (!allowedProxyPaths.some(re => re.test(targetPath))) {
-      return sendJson(res, 403, { error: { message: '不允许代理该路径' } });
+      return sendError(res, 403, '不允许代理该路径', 'PROXY_PATH_FORBIDDEN');
     }
 
     const body = parseJson(await readBody(req));
@@ -38,8 +38,8 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const method = String(body.method || 'POST').toUpperCase();
     const proxyJobId = String(body.jobId || '').trim();
 
-    if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
-    if (!allowedProxyMethods.has(method)) return sendJson(res, 405, { error: { message: '不支持的代理方法' } });
+    if (!baseUrl) return sendError(res, 400, '缺少或非法 baseUrl', 'INVALID_BASE_URL');
+    if (!allowedProxyMethods.has(method)) return sendError(res, 405, '不支持的代理方法', 'PROXY_METHOD_NOT_ALLOWED');
 
     const targetUrl = withQueryParams(`${baseUrl}${targetPath}`, query);
     const wantsStream = method !== 'GET' && payload && payload.stream === true;
@@ -72,7 +72,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       const chatJob = proxyChatJob;
       if (!chatJob && targetPath === '/chat/completions' && proxyJobId) {
         // 已有后台流式 job 接管时，当前页面直接通过 SSE 恢复，避免重复请求/重复输出。
-        return sendJson(res, 409, { error: { message: '任务已在后台继续，请等待恢复连接' } }, { 'Access-Control-Allow-Origin': '*' });
+        return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, { 'Access-Control-Allow-Origin': '*' });
       }
       res.writeHead(upstream.status, {
         ...SECURITY_HEADERS,
@@ -116,7 +116,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       notifyJob(proxyChatJob);
     }
     if (!res.headersSent && !res.destroyed) {
-      sendJson(res, err.statusCode || (aborted ? 504 : 502), { error: { message } });
+      sendError(res, err.statusCode || (aborted ? 504 : 502), message, aborted ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_CONNECTION_FAILED');
     } else if (!res.destroyed) {
       res.end();
     }
@@ -134,11 +134,11 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const apiKey = String(body.apiKey || '').trim();
     const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
 
-    if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
+    if (!baseUrl) return sendError(res, 400, '缺少或非法 baseUrl', 'INVALID_BASE_URL');
     const imageUrl = new URL(String(body.url || '').trim());
     const base = new URL(baseUrl);
-    if (!['http:', 'https:'].includes(imageUrl.protocol)) return sendJson(res, 400, { error: { message: '非法图片地址' } });
-    if (imageUrl.origin !== base.origin) return sendJson(res, 403, { error: { message: '只允许代理同源图片地址' } });
+    if (!['http:', 'https:'].includes(imageUrl.protocol)) return sendError(res, 400, '非法图片地址', 'INVALID_IMAGE_URL');
+    if (imageUrl.origin !== base.origin) return sendError(res, 403, '只允许代理同源图片地址', 'IMAGE_PROXY_ORIGIN_FORBIDDEN');
 
     const upstream = await fetch(imageUrl.toString(), {
       method: 'GET',
@@ -148,10 +148,10 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
       const text = await upstream.text();
-      return sendJson(res, upstream.status, { error: { message: text || '图片下载失败' } });
+      return sendError(res, upstream.status, text || '图片下载失败', 'IMAGE_DOWNLOAD_FAILED');
     }
     if (!contentType.startsWith('image/')) {
-      return sendJson(res, 415, { error: { message: '上游返回的不是图片' } });
+      return sendError(res, 415, '上游返回的不是图片', 'UPSTREAM_NOT_IMAGE');
     }
     const buffer = Buffer.from(await upstream.arrayBuffer());
     send(res, 200, buffer, {
@@ -161,9 +161,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
   } catch (err) {
     const aborted = err?.name === 'AbortError';
-    sendJson(res, err.statusCode || (aborted ? 504 : 500), {
-      error: { message: aborted ? '图片下载超时' : (err.message || String(err)) },
-    });
+    sendError(res, err.statusCode || (aborted ? 504 : 500), aborted ? '图片下载超时' : (err.message || String(err)), aborted ? 'IMAGE_DOWNLOAD_TIMEOUT' : 'IMAGE_PROXY_FAILED');
   } finally {
     clearTimeout(timer);
   }

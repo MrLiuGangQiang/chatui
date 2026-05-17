@@ -3,7 +3,7 @@ const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, ALLOWED_PROXY_MET
 const { JobStore, startJobSweeper } = require('./jobs/store');
 const { extractFileText } = require('./extract');
 const { serveStatic } = require('./http/static');
-const { send, sendJson } = require('./http/response');
+const { send, sendJson, sendMethodNotAllowed } = require('./http/response');
 const { createJobHandlers } = require('./jobs/chat-image');
 const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
@@ -40,6 +40,7 @@ function createApp() {
     appVersion: APP_VERSION,
     send,
     sendJson,
+    sendMethodNotAllowed,
     serveStatic,
     root: ROOT,
     rootWithSep: ROOT_WITH_SEP,

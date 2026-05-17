@@ -1,3 +1,10 @@
+FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+    && npm cache clean --force
+
 FROM node:22-alpine
 
 # Runtime-only dependencies:
@@ -21,8 +28,7 @@ ENV NODE_ENV=production \
     PATH=/usr/local/bin:/usr/bin:/bin
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts \
-    && npm cache clean --force
+COPY --from=deps /app/node_modules ./node_modules
 COPY server.js index.html app.js styles.css favicon.svg ./
 COPY client ./client
 COPY server ./server

@@ -96,6 +96,9 @@
               <button id="sessionPromptBtn" class="session-prompt-btn" type="button" title="会话提示词" aria-label="会话提示词">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-4 0-7 3-7 7 0 2.5 1.5 4.5 3.5 5.5L8 20l4-2 4 2-.5-4.5C17.5 14.5 19 12.5 19 10c0-4-3-7-7-7Zm0 3a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0V7a1 1 0 0 1 1-1Zm0 8a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg>
               </button>
+              <button id="sessionImageStyleBtn" class="session-prompt-btn session-image-style-btn" type="button" title="会话生图样式提示词" aria-label="会话生图样式提示词">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5 9.5 12l3.2 3.2L16.5 11 20 14.5"/><path d="M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="M8.5 9.5h.01"/></svg>
+              </button>
               <div class="session-model-control">
                 <button id="sessionModelBtn" class="session-model-btn" type="button" title="会话聊天模型" aria-label="会话聊天模型" aria-expanded="false" aria-haspopup="menu">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9.5 10.5h5"/><path d="M9.5 13.5h3"/><path d="M9 2.5v2"/><path d="M15 2.5v2"/><path d="M9 19.5v2"/><path d="M15 19.5v2"/><path d="M2.5 9h2"/><path d="M2.5 15h2"/><path d="M19.5 9h2"/><path d="M19.5 15h2"/></svg>
@@ -123,6 +126,29 @@
                 <div class="session-prompt-footer">
                   <button id="sessionPromptCancelBtn" class="session-prompt-secondary-btn" type="button">取消</button>
                   <button id="sessionPromptSaveBtn" class="session-prompt-primary-btn" type="button">保存</button>
+                </div>
+              </div>
+              <div id="sessionImageStylePanel" class="session-prompt-panel session-image-style-panel" role="dialog" aria-hidden="true" aria-labelledby="sessionImageStyleTitle">
+                <div class="session-prompt-panel-head">
+                  <div class="session-prompt-title-wrap">
+                    <span id="sessionImageStyleTitle" class="session-prompt-panel-title">会话生图样式提示词</span>
+                    <span class="session-prompt-panel-subtitle">只影响当前会话的生图和编辑图片</span>
+                  </div>
+                  <span id="sessionImageStyleHint" class="session-prompt-hint-value session-prompt-none">无 · 未设置</span>
+                </div>
+                <label class="session-prompt-field">
+                  <span class="session-prompt-field-row">
+                    <span class="session-prompt-field-label">Image Style Prompt</span>
+                    <span class="session-prompt-inline-actions">
+                      <button id="sessionImageStyleLoadGlobalBtn" class="session-prompt-ghost-btn" type="button">使用全局默认</button>
+                      <button id="sessionImageStyleClearBtn" class="session-prompt-ghost-btn" type="button">清空</button>
+                    </span>
+                  </span>
+                  <textarea id="sessionImageStyleInput" class="session-prompt-input" placeholder="例如：写实摄影风格，柔和自然光，画面干净，高级质感。" rows="7"></textarea>
+                </label>
+                <div class="session-prompt-footer">
+                  <button id="sessionImageStyleCancelBtn" class="session-prompt-secondary-btn" type="button">取消</button>
+                  <button id="sessionImageStyleSaveBtn" class="session-prompt-primary-btn" type="button">保存</button>
                 </div>
               </div>
               <div class="reasoning-control">
@@ -267,18 +293,24 @@
         </section>
 
 
-        <section class="config-card config-card-wide">
+        <section class="config-card config-card-wide prompt-config-card">
           <div class="config-section-title">
             <span class="config-section-icon">✎</span>
             <div>
-              <h3>默认提示词</h3>
-              <p>每次聊天请求都会作为 system 提示词自动附加，不写入会话历史。</p>
+              <h3>提示词</h3>
+              <p>默认提示词用于聊天；生图样式提示词只用于生图和编辑图片。</p>
             </div>
           </div>
-          <label>
-            <span>System Prompt</span>
-            <textarea id="systemPrompt" rows="3" placeholder="例如：你是一个专业、简洁、准确的中文助手。"></textarea>
-          </label>
+          <div class="prompt-config-layout">
+            <label>
+              <span>默认提示词</span>
+              <textarea id="systemPrompt" rows="8" placeholder="例如：你是一个专业、简洁、准确的中文助手。"></textarea>
+            </label>
+            <label>
+              <span>生图样式提示词</span>
+              <textarea id="imageStylePrompt" rows="8" placeholder="例如：写实摄影风格，柔和自然光，画面干净，高级质感。"></textarea>
+            </label>
+          </div>
         </section>
       </div>
 

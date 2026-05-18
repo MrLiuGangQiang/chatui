@@ -8,6 +8,8 @@ function createSession(title = '新对话', now = Date.now, random = Math.random
     lastGeneratedImage: null,
     systemPrompt: '',
     hasSystemPromptOverride: false,
+    imageStylePrompt: '',
+    hasImageStylePromptOverride: false,
     chatModel: '',
     headerValues: {},
     createdAt: now(),

@@ -6,9 +6,7 @@ const {
   formatBytes,
   normalizeImageContextForStorage,
   parseImageContext,
-  looksLikeImageEditInstruction,
   getLatestImageReferenceTarget,
-  resolveExplicitImageReferenceTarget,
   buildRouteAttachmentMetadata,
 } = require('../../client/core/attachments');
 
@@ -30,8 +28,6 @@ assert.deepStrictEqual(normalizeImageContextForStorage({ mode: 'edit_image', use
 });
 assert.strictEqual(parseImageContext('{bad'), null);
 assert.strictEqual(parseImageContext('{"attachments":[{"src":"x"}]}').attachments[0].src, 'x');
-assert.strictEqual(looksLikeImageEditInstruction('把背景换成蓝色'), true);
-assert.strictEqual(looksLikeImageEditInstruction('画一只猫'), false);
 const latestPrevious = getLatestImageReferenceTarget({
   display: [
     { role: 'user', imageContext: JSON.stringify({ target: 'uploaded', attachments: [{ src: 'indexeddb://uploaded' }] }) },
@@ -49,7 +45,5 @@ const latestUploaded = getLatestImageReferenceTarget({
 assert.strictEqual(latestUploaded.target, 'uploaded');
 assert.strictEqual(latestUploaded.count, 2);
 assert.strictEqual(latestUploaded.selection, 'all');
-assert.strictEqual(resolveExplicitImageReferenceTarget('改最近返回的图'), 'previous');
-assert.strictEqual(resolveExplicitImageReferenceTarget('修改上传的图'), 'uploaded');
 assert.deepStrictEqual(buildRouteAttachmentMetadata([{ name: 'a.png', type: 'image/png', size: 12, dataUrl: 'data:image/png;base64,SECRET', text: 'SECRET' }]), [{ name: 'a.png', type: 'image/png', size: 12, is_image: true }]);
 console.log('attachments ok');

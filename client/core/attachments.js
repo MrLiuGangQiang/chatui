@@ -45,10 +45,6 @@ function parseImageContext(value) {
   }
 }
 
-function looksLikeImageEditInstruction(text = '') {
-  return /修改|改成|换成|去掉|删除|加上|添加|替换|修复|调整|编辑|edit|change|remove|replace|add/i.test(String(text || ''));
-}
-
 function getLatestImageReferenceTarget({ display = [], messages = [], lastGeneratedImage = null, latestUploadedImage = null } = {}) {
   const generatedCount = Array.isArray(lastGeneratedImage && lastGeneratedImage.images)
     ? lastGeneratedImage.images.length
@@ -76,13 +72,6 @@ function getLatestImageReferenceTarget({ display = [], messages = [], lastGenera
   return { target: 'none', usePreviousImage: false, reason: 'no-image-reference', count: 0, selection: 'none' };
 }
 
-function resolveExplicitImageReferenceTarget(text = '') {
-  const value = String(text || '');
-  if (/(原图|上传的图|上传图片|我发的图|我传的图|用户上传)/i.test(value)) return 'uploaded';
-  if (/(最近返回|返回的图|生成的图|结果图|上一张|上张|刚才那张|继续改|接着改)/i.test(value)) return 'previous';
-  return '';
-}
-
 function buildRouteAttachmentMetadata(attachments = []) {
   return (attachments || []).map(item => ({
     name: item.name || (item.file && item.file.name) || 'attachment',
@@ -98,8 +87,6 @@ module.exports = {
   formatBytes,
   normalizeImageContextForStorage,
   parseImageContext,
-  looksLikeImageEditInstruction,
   getLatestImageReferenceTarget,
-  resolveExplicitImageReferenceTarget,
   buildRouteAttachmentMetadata,
 };

@@ -9,6 +9,9 @@ const {
   collectRecentImageReferences,
   findImageReferenceById,
   normalizeRoute,
+  buildRouteContext,
+  routeContextSize,
+  DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
 } = require('../../client/core/image-route-context');
 
 assert.deepStrictEqual(imageCandidateLabels('一只狗和 cat'), ['dog', 'cat']);
@@ -35,4 +38,16 @@ assert.strictEqual(route.usePreviousImage, true);
 assert.strictEqual(route.selectedReferenceId, 'imgref_display_first');
 assert.deepStrictEqual(route.selectedImageIds, ['img_imgref_display_first_2']);
 assert.strictEqual(normalizeRoute({ mode: 'image', confidence: 1 }).target, 'new');
+const manyMessages = Array.from({ length: 800 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `消息${index} ${'x'.repeat(1000)}` }));
+const largeContext = buildRouteContext({
+  messages: manyMessages,
+  lastGeneratedImage: { reference_id: 'imgref_latest', prompt: 'latest', count: 1, candidates: [] },
+  latestUploadedImage: null,
+  latestImageReference: { target: 'previous', count: 1 },
+  recentImageReferences: refs,
+  maxChars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
+});
+assert.ok(routeContextSize(largeContext) <= DEFAULT_ROUTE_CONTEXT_MAX_CHARS);
+assert.ok(largeContext.recent_messages.length > 8, 'route context should not be fixed to 8 turns');
+assert.strictEqual(largeContext.recent_image_references[0].reference_id, 'imgref_latest');
 console.log('image route context ok');

@@ -110,6 +110,7 @@ async function connectCdp() {
       imageFile: window.ChatUICore?.attachments?.isImageFile({ name: 'a.png', type: '' }),
       imageReferenceId: window.ChatUICore?.imageReferences?.makeImageReferenceId('display 1'),
       routeReferenceCount: window.ChatUICore?.imageRouteContext?.collectRecentImageReferences({ display: [{ id: 'd1', role: 'assistant', html: '<img data-persisted-src=\"indexeddb://x\" data-filename=\"x.png\" />' }] }).length,
+      routeContextLimited: window.ChatUICore?.imageRouteContext?.routeContextSize(window.ChatUICore.imageRouteContext.buildRouteContext({ messages: Array.from({ length: 200 }, (_, i) => ({ role: 'user', content: 'x'.repeat(2000) + i })), maxChars: 262144 })) <= 262144,
       services: !!window.ChatUIServices?.models?.requestModels,
       jobs: !!window.ChatUIServices?.jobs?.startChatJob && /^chatjob-/.test(window.ChatUIServices.jobs.makeClientChatJobId()),
       chat: window.ChatUIServices?.chat?.extractChatJobText({ output_text: 'ok' }).content,
@@ -128,7 +129,7 @@ async function connectCdp() {
       displayItems: window.ChatUIApp?.displayItems?.displayItemHasRichMedia({ html: '<img class="generated-thumb" />' }),
       appReady: !!document.querySelector('#prompt')
     }))()`);
-    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, imageReferenceId: 'imgref_display_1', routeReferenceCount: 1, services: true, jobs: true, chat: 'ok', route: 'new', image: 2, imagePrompt: '猫\n\n图片样式要求：\n水彩', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
+    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, imageReferenceId: 'imgref_display_1', routeReferenceCount: 1, routeContextLimited: true, services: true, jobs: true, chat: 'ok', route: 'new', image: 2, imagePrompt: '猫\n\n图片样式要求：\n水彩', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
     console.log('browser core ok');
   } finally {
     cdp?.ws?.close?.();

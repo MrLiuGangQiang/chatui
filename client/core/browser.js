@@ -174,6 +174,36 @@
   }
 
 
+
+  const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
+  function routeContextSize(value) { try { return JSON.stringify(value || {}).length; } catch { return Infinity; } }
+  function compactRouteMessage(message = {}, index = 0) { return { index, role: message.role || '', content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 600) }; }
+  function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
+    const limit = Number(maxChars) || DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
+    const next = { ...context, recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [], recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [] };
+    if (routeContextSize(next) <= limit) return next;
+    while (next.recent_messages.length && routeContextSize(next) > limit) next.recent_messages.shift();
+    while (next.recent_image_references.length > 1 && routeContextSize(next) > limit) next.recent_image_references.pop();
+    const shrinkPrompt = item => {
+      if (!item || typeof item !== 'object') return item;
+      const copy = { ...item };
+      if (copy.prompt) copy.prompt = String(copy.prompt).slice(0, 160);
+      if (Array.isArray(copy.candidates)) copy.candidates = copy.candidates.map(candidate => ({ ...candidate, prompt: String(candidate.prompt || '').slice(0, 80) }));
+      return copy;
+    };
+    if (routeContextSize(next) > limit) {
+      next.last_generated_image = shrinkPrompt(next.last_generated_image);
+      next.latest_uploaded_image = shrinkPrompt(next.latest_uploaded_image);
+      next.latest_image_reference = shrinkPrompt(next.latest_image_reference);
+      next.recent_image_references = next.recent_image_references.map(shrinkPrompt);
+    }
+    return next;
+  }
+  function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUploadedImage = null, latestImageReference = null, recentImageReferences = [], maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS } = {}) {
+    const context = { recent_messages: (Array.isArray(messages) ? messages : []).map((message, index) => compactRouteMessage(message, index + 1)), last_generated_image: lastGeneratedImage, latest_uploaded_image: latestUploadedImage, latest_image_reference: latestImageReference && latestImageReference.target !== 'none' ? latestImageReference : null, recent_image_references: Array.isArray(recentImageReferences) ? recentImageReferences : [] };
+    return trimRouteContextToSize(context, maxChars);
+  }
+
   function routeImageCandidateLabels(text) {
     const value = String(text || '').toLowerCase();
     const patterns = [
@@ -286,6 +316,11 @@
   });
 
   const imageRouteContext = Object.freeze({
+    DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
+    routeContextSize,
+    compactRouteMessage,
+    trimRouteContextToSize,
+    buildRouteContext,
     imageCandidateLabels: routeImageCandidateLabels,
     splitPromptSubjects: routeSplitPromptSubjects,
     normalizeLastGeneratedImage: routeNormalizeLastGeneratedImage,

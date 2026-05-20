@@ -1,191 +1,186 @@
 # ChatUI 极简聊天与生图工具
 
-ChatUI 是一个轻量、无需前端构建、可直接部署的 OpenAI 兼容接口 Web 工具。它同时支持聊天、生图、图片编辑、附件上传、Markdown、数学公式、代码复制、思考内容展示和模型配置。
+ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单页前端 + Node.js 本地代理为核心，支持聊天、流式输出、思考内容展示、文本生图、图片编辑、多附件解析、Markdown/数学公式/Mermaid 渲染、会话管理、任务恢复、本地图片缓存和 Docker 镜像发布。
 
-项目定位：用最少依赖快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地模型代理。
+项目定位：用尽量少的依赖快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地模型代理。
 
 ---
 
 ## 目录
 
-- [最新能力](#最新能力)
-- [功能特性](#功能特性)
+- [功能总览](#功能总览)
+- [界面与交互](#界面与交互)
 - [快速开始](#快速开始)
 - [Docker 部署](#docker-部署)
 - [模型配置](#模型配置)
-- [模型接口与 type 分类](#模型接口与-type-分类)
-- [Markdown 与数学公式](#markdown-与数学公式)
+- [聊天能力](#聊天能力)
+- [思考模式](#思考模式)
 - [图片生成与图片编辑](#图片生成与图片编辑)
 - [附件能力](#附件能力)
-- [本地存储与隐私](#本地存储与隐私)
+- [Markdown、公式与图表](#markdown公式与图表)
+- [会话、本地存储与任务恢复](#会话本地存储与任务恢复)
+- [服务端 API 与代理](#服务端-api-与代理)
+- [环境变量](#环境变量)
 - [目录结构](#目录结构)
 - [开发与验证](#开发与验证)
 - [发布与镜像仓库](#发布与镜像仓库)
 - [常见问题](#常见问题)
 - [安全建议](#安全建议)
+- [License](#license)
 
 ---
 
+## 功能总览
 
-## 当前版本重点
+### 聊天与模型调用
 
-本版本重点围绕「稳定可部署、离线前端资源、长任务可恢复、思考模式交互约束」做了系统整理：
-
-- 前端 Markdown、KaTeX、Mermaid 资源改为随仓库本地交付，避免线上 CDN 不稳定、MIME type 异常或外网不可达导致页面能力缺失。
-- 服务端从单文件入口拆分为 `server/` 模块，保留 `server.js` 作为兼容启动入口，方便后续维护代理、附件解析、任务恢复和安全策略。
-- Docker 镜像构建已显式包含 `server/` 与 `vendor/`，发布镜像后无需额外挂载这些目录。
-- 聊天和图片任务使用后台 Job/SSE 机制，刷新页面后可恢复正在进行的任务状态。
-- 输出过程中发送按钮切换为停止按钮；普通 Enter 不会误触停止，只有点击停止按钮才会中断当前输出。
-- 思考模式关闭时禁用思考设置；输出过程中锁定思考开关和思考设置，避免同一轮请求参数被中途改变。
-- 正在输出但用户滚动离开时显示“继续查看输出”浮动按钮；新建/切换会话后不会残留旧会话按钮。
-- Header 参数支持会话级短 UUID 与消息级短 UUID，适合接入需要链路追踪或临时鉴权 Header 的网关。
-
----
-
-## 最新能力
-
-- **聊天与流式输出**：支持 OpenAI Chat Completions 兼容接口、流式输出、停止输出、重新生成、用户消息编辑后重发、回复完成提示音。
-- **自动路由**：自动判断当前输入应走聊天、生图还是图片编辑；也可手动切换模式。
-- **思考模式**：支持 reasoning / thinking 内容展示；思考内容默认持久展示；关闭思考时禁用思考设置；输出过程中禁止切换思考开关或修改思考强度。
-- **继续查看输出**：输出过程中如果用户滚动离开当前输出位置，会显示“继续查看输出”按钮；点击后回到正在输出的位置；新建会话不会继承旧会话按钮状态。
-- **Markdown 与公式**：支持 GFM Markdown、表格、任务列表、代码块、KaTeX 数学公式、Mermaid 图表。
-- **代码复制**：代码块右上角提供图标复制按钮，复制成功后显示打勾图标，不占用正文布局。
-- **模型配置**：模型配置弹窗支持加载 `/models`，按模型 `type` 自动区分聊天模型和生图模型。
-- **未知类型模型**：模型接口没有返回 `type` 或 `type` 为空时，会显示红色 `未知类型`，并允许同时作为聊天模型和生图模型候选。
-- **Header 参数**：支持多个附加 Header；支持手动值、会话级短 UUID、消息级短 UUID；适合请求追踪、租户标识、网关鉴权等场景。
-- **图片能力**：支持文本生图、上传图片编辑、基于上一张生成图继续修改、图片预览、下载和历史图片恢复。
-- **附件能力**：支持多附件上传；支持图片、多模态输入、常见文本/代码文件解析；不支持解析的附件会明确提示。
-- **本地前端资源**：`markdown-it`、`KaTeX`、KaTeX 字体、Mermaid 已随仓库放在 `vendor/`，线上不依赖 CDN。
-- **Docker 发布**：Dockerfile 已包含 `server/` 与 `vendor/`，Release 后镜像可直接运行。
-
----
-
-## 功能特性
-
-### 聊天
-
-- 支持 OpenAI Chat Completions 兼容接口。
-- 支持流式输出。
-- 支持自动意图识别：自动判断聊天、生图或图片编辑。
-- 支持手动切换聊天 / 生图模式。
-- 支持普通消息复制。
-- 支持用户消息编辑后重新发送。
-- 支持助手回复重新生成。
+- OpenAI Chat Completions 兼容接口。
+- 支持流式输出和普通非流式兜底。
+- 支持聊天任务后台 Job 化，刷新后可恢复未完成输出。
+- 支持停止当前输出。
+- 支持重新生成助手回复。
+- 支持编辑用户消息后重发，并替换对应回复。
+- 支持会话级聊天模型覆盖：单个会话可选择不同聊天模型，也可跟随全局模型。
+- 支持全局 System Prompt。
+- 支持会话级 System Prompt 覆盖。
 - 支持回复完成提示音。
-- 支持 reasoning / thinking / 思考内容展示。
-- 思考内容默认保持显示，可通过按钮切换。
+- 支持模型返回 `output_text`、标准 `choices[].message.content`、SSE delta 等多种兼容格式。
 
-### Markdown
+### 自动路由
 
-使用本地 `markdown-it` 渲染 Markdown，支持常见 GFM 语法：
+- 自动判断当前输入应走：
+  - `chat`：普通聊天。
+  - `image`：文本生成图片。
+  - `edit_image`：图片编辑。
+- 可配置独立路由模型；未配置时使用聊天模型。
+- 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
+- 非图片附件上传时直接走聊天，先解析附件正文，不进入图片路由。
+- 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据。
 
-- 标题
-- 段落
-- 粗体 / 斜体 / 删除线
-- 引用
-- 有序列表 / 无序列表
-- 任务列表
-- 表格
-- 行内代码
-- fenced code block
-- 链接
-- 图片
-- 横线
-- 换行
+### 图片能力
 
-### 数学公式
-
-使用本地 KaTeX 渲染数学公式，支持：
-
-```text
-$a^2 + b^2 = c^2$
-```
-
-```text
-$$
-\frac{1}{n}\sum_{i=1}^n x_i
-$$
-```
-
-也支持：
-
-```text
-\( inline math \)
-\[ block math \]
-```
-
-### 代码块复制
-
-代码块会自动增强为带右上角复制按钮的代码框：
-
-- 右上角图标按钮。
-- 点击复制原始代码。
-- 成功后按钮显示打勾图标。
-- 不用文字提示，避免按钮被撑开。
-
-### 生图与图片编辑
-
-- 支持 OpenAI 兼容图片接口。
-- 支持文本生成图片。
-- 支持上传图片后进行图片编辑。
-- 支持基于上一张生成图继续修改。
+- 文本生成图片。
+- 上传图片后编辑图片。
+- 基于上一张生成图继续修改。
+- 支持多图返回展示。
+- 支持多图编辑上下文保存。
+- 支持选择历史生成图引用，内部使用 `imgref_` / `img_` 标识。
 - 支持图片预览。
-- 支持图片下载。
-- 支持保持原图比例显示缩略图。
-- 支持图片结果本地持久化，刷新后仍可恢复历史图片。
-- 支持图片尺寸：
-  - `auto`
-  - `1024x1024`
-  - `1024x1536`
-  - `1536x1024`
+- 支持单图下载和全部图片下载。
+- 支持图片缩略图稳定尺寸，避免加载过程中布局跳动。
+- 支持图片本地 IndexedDB 持久化，刷新后恢复历史图片。
+- 支持上游返回图片 URL、`b64_json`、`image_base64`。
+- 支持无法直连的上游图片通过 `/api/image` 同源代理下载。
 
-### 附件
+### 附件能力
 
 - 支持多附件上传。
-- 支持图片附件作为多模态输入或图片编辑输入。
-- 支持常见文本 / 代码文件解析为上下文。
-- 不支持解析的附件会明确标注，避免误以为模型已读取正文。
+- 支持点击上传、粘贴上传。
+- 支持上传进度展示。
+- 支持图片附件预览。
+- 支持图片附件压缩：JPEG / PNG / WebP 会尽量压缩到合适大小。
+- 支持 BMP 转 PNG。
+- 支持图片附件作为多模态聊天内容或图片编辑输入。
+- 支持文本/代码类文件读取为上下文。
+- 支持 PDF 文本提取，并带多级 fallback。
+- 支持 Word / Excel / PowerPoint 附件解析。
+- 对无法解析的附件会在消息中明确说明，避免误以为模型已读取正文。
 
-### 配置弹窗
+### Markdown 与富文本展示
 
-- 设置入口名称为“模型配置”。
-- 浅色玻璃风 UI。
-- 自定义下拉菜单。
-- 支持模型加载。
-- 支持按 `type` 自动筛选聊天模型与生图模型。
-- 不再展示“直连模式”。
-- 默认通过本地代理访问接口，减少跨域与鉴权问题。
+- 本地 `markdown-it` 渲染 Markdown。
+- 支持标题、列表、任务列表、表格、引用、链接、图片、删除线、代码块等常见 GFM 能力。
+- 支持 KaTeX 行内公式和块级公式。
+- 支持 Mermaid 图表。
+- 支持代码块语言标识。
+- 支持代码块右上角复制按钮。
+- 支持表格横向滚动包装。
+- 支持标题自动锚点。
+- 支持部分扩展 Markdown：脚注、引用式链接、mark、高/下标、常用 emoji shortcode。
+- 当 `markdown-it` 不可用时有内置 legacy renderer 兜底。
+
+### 会话与本地状态
+
+- 多会话列表。
+- 新建会话。
+- 切换会话。
+- 重命名会话。
+- 删除会话，删除时会确认。
+- 每个会话独立保存消息、展示历史、最近图片、提示词、模型选择、Header UUID。
+- 支持会话侧边栏收起。
+- 移动端支持会话抽屉。
+- 支持每个会话输入草稿保留。
+- 支持会话标题自动从首条用户消息生成。
+- 支持历史消息顺序规范化和去重，避免恢复时顺序错乱。
+
+### 任务、恢复与滚动体验
+
+- 聊天 Job 和图片 Job 使用内存任务仓库。
+- 前端使用 SSE 监听任务更新。
+- SSE 断开时支持轮询/重连策略。
+- 页面刷新后恢复未完成聊天任务。
+- 页面刷新后恢复未完成图片生成/编辑任务。
+- 输出过程中显示“正在处理/正在生成/正在修改”与已等待时间。
+- 上传图片编辑时显示上传进度。
+- 用户滚动离开输出焦点时不强制拉回底部。
+- 正在输出离开可视焦点时显示“继续查看输出”按钮。
+- 点击“继续查看输出”可回到当前输出位置。
+- 新建/切换会话不会残留旧会话的输出焦点。
+
+### 部署与工程能力
+
+- 无前端构建步骤，静态资源直接交付。
+- 本地 vendored：`markdown-it`、`KaTeX`、KaTeX 字体、Mermaid。
+- Node.js HTTP 服务静态托管前端。
+- 服务端代理只允许白名单路径。
+- 支持 Docker 多架构镜像。
+- GitHub Release 触发 GitHub Actions 构建镜像。
+- 镜像推送到 Docker Hub 和阿里云 ACR。
+- 测试覆盖前端 core/services/ui/app、服务端 API、附件解析、路由、任务和冒烟流程。
 
 ---
-### 思考模式交互
 
-思考模式用于向上游模型传递 reasoning / thinking 相关参数，并在模型返回思考内容时展示在回复上方。
+## 界面与交互
 
-交互规则：
+### 主界面
 
-- 点击脑形图标可开启或关闭思考模式。
-- 思考模式关闭时，思考强度和思考提供商菜单处于禁用状态，避免用户误以为设置会生效。
-- 输出过程中，思考开关、思考强度、思考提供商都会被锁定；当前请求完成或停止后才允许再次修改。
-- 如果当前模型没有返回可展示的思考过程，会显示“当前模型未返回可展示的思考过程”。
-- 思考内容默认持久展示；如果关闭持久展示，历史消息可按设置隐藏思考内容。
+- 左侧会话栏：会话列表、新建会话、重命名、删除、当前会话条数。
+- 收起态会话栏：保留展开、新会话、会话入口、模型配置入口。
+- 移动端会话入口：小屏幕下通过浮动按钮打开会话抽屉。
+- 消息区：展示用户消息、助手消息、错误消息、图片结果、附件预览。
+- 输入区：附件按钮、会话提示词按钮、会话生图样式按钮、会话模型按钮、思考开关、发送/停止按钮。
+- 配置弹窗：Endpoint、API Key、模型加载、模型选择、图片尺寸、全局提示词、全局生图样式提示词、Header 参数。
 
-### 输出与继续查看
+### 输入与发送
 
-ChatUI 对长回复和生图任务做了滚动保护：
+- Enter 发送。
+- Shift + Enter 换行。
+- 中文输入法组合结束后会重新计算输入框高度。
+- 文件可通过附件按钮选择，也可直接粘贴。
+- 文件处理过程中发送按钮会禁用或提示等待。
+- 输出过程中发送按钮切换为停止按钮；只有点击停止按钮才会中断，普通 Enter 不会误触停止。
 
-- 正在输出时，如果用户停留在底部，页面会自动跟随最新内容。
-- 如果用户手动向上滚动，系统不会强行把页面拉回底部。
-- 当正在输出的消息离开当前可视焦点时，会显示“继续查看输出”按钮。
-- 点击“继续查看输出”会把当前正在输出的回复重新定位到输入框上方，方便继续阅读。
-- 新建会话、切换会话或输出结束后，旧会话的继续查看状态不会残留到新会话。
+### 消息操作
+
+- 用户消息支持编辑重发。
+- 助手消息支持重新生成。
+- 消息支持复制。
+- 助手回答支持下载为文本文件。
+- 代码块支持单独复制。
+- 图片支持预览、下载、分享（浏览器支持 Web Share 文件分享时）。
+
+### 会话级设置
+
+- 会话 System Prompt：可单独设置当前会话提示词。
+- 会话生图样式提示词：可单独设置当前会话图片风格要求。
+- 会话聊天模型：可让当前会话使用独立聊天模型，或跟随全局聊天模型。
+- 会话级设置保存在本地，仅影响当前浏览器当前会话。
 
 ---
 
 ## 快速开始
 
 ### 环境要求
-
-本地运行需要：
 
 ```text
 Node.js 18+
@@ -197,6 +192,8 @@ Node.js 18+
 Node.js 20+
 ```
 
+当前 Docker 镜像使用 Node.js 22 Alpine。
+
 ### 克隆仓库
 
 ```bash
@@ -204,7 +201,19 @@ git clone https://github.com/MrLiuGangQiang/chatui.git
 cd chatui
 ```
 
+### 安装依赖
+
+```bash
+npm install
+```
+
 ### 启动服务
+
+```bash
+npm start
+```
+
+等价于：
 
 ```bash
 node server.js
@@ -221,13 +230,6 @@ http://127.0.0.1:8765
 ```text
 HOST=0.0.0.0
 PORT=8765
-UPSTREAM_TIMEOUT_MS=600000  # 上游 API 超时，默认 10 分钟
-```
-
-可通过环境变量修改：
-
-```bash
-HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
 ```
 
 ---
@@ -249,8 +251,6 @@ http://127.0.0.1:8765
 
 ### 官方镜像地址
 
-请固定使用以下两个镜像地址，不需要每次发版重新确认：
-
 | 仓库 | 镜像地址 | 推荐用途 |
 | --- | --- | --- |
 | Docker Hub | `liugangqiang/chatui` | 海外服务器、Docker Hub 默认环境 |
@@ -261,9 +261,9 @@ http://127.0.0.1:8765
 | 标签 | 说明 |
 | --- | --- |
 | `latest` | 最新正式 Release 镜像 |
-| `MAJOR.MINOR.PATCH` | 与 GitHub Release 对应的版本号，例如 `1.1.38` |
+| `MAJOR.MINOR.PATCH` | 与 GitHub Release 对应的版本号，例如 `1.1.76` |
 
-> 说明：GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`，镜像标签使用去掉 `v` 的 `MAJOR.MINOR.PATCH`，例如 Release `v1.1.38` 对应镜像 `liugangqiang/chatui:1.1.38`。
+> GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`，镜像标签使用去掉 `v` 的 `MAJOR.MINOR.PATCH`。例如 Release `v1.1.76` 对应镜像 `liugangqiang/chatui:1.1.76`。
 
 ### 使用 Docker Hub 镜像
 
@@ -276,15 +276,15 @@ docker run -d \
   liugangqiang/chatui:latest
 ```
 
-指定版本运行：
+指定版本：
 
 ```bash
-docker pull liugangqiang/chatui:1.1.38
+docker pull liugangqiang/chatui:1.1.76
 docker run -d \
   --name chatui \
   --restart unless-stopped \
   -p 8765:8765 \
-  liugangqiang/chatui:1.1.38
+  liugangqiang/chatui:1.1.76
 ```
 
 ### 使用阿里云 ACR 镜像
@@ -298,20 +298,18 @@ docker run -d \
   registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:latest
 ```
 
-指定版本运行：
+指定版本：
 
 ```bash
-docker pull registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.38
+docker pull registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.76
 docker run -d \
   --name chatui \
   --restart unless-stopped \
   -p 8765:8765 \
-  registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.38
+  registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:1.1.76
 ```
 
 ### 升级已有容器
-
-以阿里云 ACR 为例：
 
 ```bash
 docker pull registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:latest
@@ -324,27 +322,28 @@ docker run -d \
   registry.cn-hangzhou.aliyuncs.com/liugangqiang/chatui:latest
 ```
 
-如果希望固定版本，建议把 `latest` 换成明确版本号，例如 `1.1.38`。
+如果需要固定版本，把 `latest` 换成明确版本号，例如 `1.1.76`。
 
 ---
 
 ## 模型配置
 
-打开页面后点击右上角“模型配置”。
+打开页面后点击“模型配置”。
 
-需要填写：
+### 基础配置
 
 | 配置项 | 说明 |
 | --- | --- |
 | Endpoint Base URL | OpenAI 兼容接口地址，例如 `https://api.openai.com/v1` |
-| API Key | 接口密钥 |
-| 聊天模型 | 用于聊天、路由判断、文本回复 |
+| API Key | 接口密钥，保存在浏览器本地 |
+| 聊天模型 | 用于聊天、路由判断和文本回复 |
+| 路由模型 | 用于判断聊天/生图/修图；为空时使用聊天模型 |
 | 生图模型 | 用于图片生成或图片编辑 |
 | 图片尺寸 | 生图尺寸，默认 `auto` |
+| System Prompt | 全局聊天系统提示词 |
+| 图片样式提示词 | 全局生图/修图风格要求，会附加到图片 prompt |
 
-配置会保存到当前浏览器 `localStorage`。
-
-### Endpoint 示例
+Endpoint 示例：
 
 ```text
 https://api.openai.com/v1
@@ -352,7 +351,7 @@ https://your-gateway.example.com/v1
 http://127.0.0.1:8000/v1
 ```
 
-注意：Endpoint 不要写到具体接口路径，例如不要写成：
+不要写到具体接口路径，例如不要写成：
 
 ```text
 https://api.example.com/v1/chat/completions
@@ -364,44 +363,26 @@ https://api.example.com/v1/chat/completions
 https://api.example.com/v1
 ```
 
----
+### 模型加载
 
-## 模型接口与 type 分类
-
-点击“加载模型”后，ChatUI 会请求：
+点击“加载模型”后，ChatUI 会通过本地代理请求：
 
 ```text
 GET /models
 ```
 
-如果网关要求额外 Header，可点击“连接信息”右侧的“参数配置”按钮添加多个 Header。
-
-Header 值支持：
-
-- 手动填写固定值。
-- 内置短 UUID · 会话级：新建会话时生成，同一会话所有请求复用。
-- 内置短 UUID · 消息级：每次发送、刷新或重新生成时生成新值。
-
-并根据返回模型的 `type` 字段自动分类。
-
-### 推荐返回格式
+推荐上游返回：
 
 ```json
 {
   "data": [
-    {
-      "id": "gpt-4.1",
-      "type": "chat"
-    },
-    {
-      "id": "gpt-image-1",
-      "type": "image_generation"
-    }
+    { "id": "gpt-4.1", "type": "chat" },
+    { "id": "gpt-image-1", "type": "image_generation" }
   ]
 }
 ```
 
-也支持数组格式：
+也支持数组：
 
 ```json
 [
@@ -410,9 +391,9 @@ Header 值支持：
 ]
 ```
 
-### 聊天模型识别
+### 模型类型识别
 
-以下 `type` 或关键词会归为聊天模型：
+聊天模型关键词：
 
 - `chat`
 - `text`
@@ -429,9 +410,7 @@ Header 值支持：
 - `llama`
 - `mistral`
 
-### 生图模型识别
-
-以下 `type` 或关键词会归为生图模型：
+生图模型关键词：
 
 - `image`
 - `image_generation`
@@ -449,43 +428,248 @@ Header 值支持：
 - `wan`
 - `kling`
 
-### 未返回 type 的模型
-
 如果模型没有 `type` 字段，或 `type` 为空：
 
-- 聊天模型下拉可选。
-- 生图模型下拉也可选。
-- 模型后显示红色标记：`未知类型`。
-- 加载状态会显示未知类型数量，例如：
+- 聊天下拉可选。
+- 生图下拉也可选。
+- 模型后显示红色 `未知类型` 标记。
+- 加载状态会显示未知类型数量，例如 `已加载 12 个，3 个未知类型`。
 
-```text
-已加载 12 个，3 个未知类型
-```
+### Header 参数
 
-不会弹出额外警告框。
+如果网关要求额外 Header，可在“参数配置”中添加多条 Header。
+
+Header 值模式：
+
+| 模式 | 说明 |
+| --- | --- |
+| 手动值 | 固定 Header 值 |
+| 会话级短 UUID | 每个会话生成一次，同一会话内所有请求复用 |
+| 消息级短 UUID | 每次发送、刷新或重新生成时生成新值 |
+
+适用场景：请求追踪、租户标识、网关鉴权、链路调试。
 
 ---
 
-## Markdown 与数学公式
+## 聊天能力
 
-本项目将 Markdown 与公式渲染资源放在本地：
+### 请求链路
+
+聊天请求最终调用：
+
+```text
+POST /chat/completions
+```
+
+前端会通过本地代理发送，避免浏览器跨域和直连鉴权问题。
+
+### 流式输出
+
+- 默认使用流式输出。
+- 支持标准 SSE `data: ...`。
+- 支持 `[DONE]` 结束标记。
+- 支持解析 reasoning/thinking delta。
+- 如果流式失败，会尝试普通非流式请求兜底。
+- 如果上游提示不支持某类 reasoning 参数，会自动降级重试。
+
+### 重新生成与编辑重发
+
+- 助手消息可重新生成。
+- 用户消息可编辑后重发。
+- 编辑重发会尽量复用原消息位置，并替换对应助手回复。
+- 历史恢复时会按 `messageIndex` / `responseIndex` 规范排序，相同索引固定 `system → user → assistant`。
+
+### 停止输出
+
+- 输出中点击发送按钮会执行停止。
+- 停止会 abort 当前 run 关联的聊天/图片 Job。
+- 如果已有有效内容，会保留已有输出。
+- 如果只有占位内容，会显示“用户停止”。
+
+---
+
+## 思考模式
+
+思考模式用于向上游模型传递 reasoning / thinking 相关参数，并在模型返回思考内容时显示在回复上方。
+
+### 支持的思考强度
+
+| 显示 | 内部值 | 说明 |
+| --- | --- | --- |
+| 快速 | `low` | 较低 reasoning budget |
+| 标准 | `medium` | 默认强度 |
+| 深度 | `high` | 更高 reasoning budget |
+| 最强 | `xhigh` | 最高预设；不支持时自动降级到 high |
+
+### 支持的提供商模式
+
+| 显示 | 内部值 | 说明 |
+| --- | --- | --- |
+| 自动 | `auto` | 自动选择兼容参数 |
+| OpenAI | `openai` | OpenAI reasoning 风格 |
+| Claude | `anthropic` | Anthropic thinking 风格 |
+| Google | `google` | Google thinking 风格 |
+| Qwen 兼容 | `thinking-budget` | 使用 thinking budget 风格参数 |
+| 通用 | `generic` | 通用 reasoning 字段 |
+
+### 交互规则
+
+- 点击脑形图标开启/关闭思考模式。
+- 关闭思考模式时，思考强度和提供商菜单禁用。
+- 输出过程中锁定思考开关和思考设置，避免同一轮请求参数中途变化。
+- 如果模型未返回可展示的思考过程，会显示“当前模型未返回可展示的思考过程”。
+- 思考内容默认持久展示。
+
+---
+
+## 图片生成与图片编辑
+
+### 文本生成图片
+
+在自动模式下，输入明确生图需求会自动走生图流程。
+
+也可手动切换到生图模式。
+
+示例：
+
+```text
+生成一张赛博朋克城市夜景，16:9，霓虹灯风格
+```
+
+### 上传图片编辑
+
+上传图片后输入修改需求：
+
+```text
+把这张图改成赛博朋克风格
+```
+
+系统会调用图片编辑接口。
+
+### 基于上一张图继续修改
+
+已有生成图后，可继续输入：
+
+```text
+基于上一张图，把背景换成雪山
+```
+
+系统会从 IndexedDB 恢复上一张图作为编辑输入。
+
+### 多图与图片引用
+
+- 图片结果可包含多张图。
+- 最近生成图会保存为图片组。
+- 多图默认按整组参与后续编辑。
+- 用户明确“第一张/第二张/左边/右边/全部”时，路由阶段会尝试识别选择范围。
+- 图片引用使用：
+  - `imgref_...`：图片组引用。
+  - `img_...`：单图引用。
+- 部分编辑场景会将选中的新结果合并回原图片组上下文。
+
+### 图片尺寸
+
+当前配置中支持：
+
+```text
+auto
+1024x1024
+1024x1536
+1536x1024
+```
+
+最终是否支持取决于上游图片模型。
+
+### 图片结果操作
+
+- 点击图片可预览大图。
+- 单图下载。
+- 全部图片下载。
+- 支持浏览器原生分享时可分享图片文件。
+- 图片缩略图记录原始尺寸和缩略图尺寸，刷新恢复时保持稳定布局。
+
+---
+
+## 附件能力
+
+### 支持的上传方式
+
+- 点击附件按钮选择文件。
+- 粘贴文件到输入区。
+- 多文件同时上传。
+
+### 图片附件
+
+支持识别：
+
+```text
+png, jpg, jpeg, gif, webp, bmp, svg
+```
+
+处理能力：
+
+- 图片预览。
+- 图片压缩。
+- BMP 转 PNG。
+- 图片作为聊天多模态内容。
+- 图片作为图片编辑输入。
+- 图片缓存到 IndexedDB，避免大 base64 长期写入 localStorage。
+
+### 文本与代码附件
+
+常见文本/代码文件会读取正文并追加到聊天上下文中。
+
+如果疑似二进制或无法解析，会在消息里说明未能解析正文。
+
+### PDF 附件
+
+PDF 解析顺序：
+
+1. `pdftotext` / Poppler，优先用于稳定提取中文和布局文本。
+2. `pdf-parse` / pdf.js。
+3. 基础 PDF 文本流解析。
+4. OCR fallback：`pdftoppm` 转图片 + `tesseract`，语言为 `chi_sim+eng`。
+
+如果 OCR 依赖不可用，会返回明确提示。
+
+### Office 附件
+
+支持：
+
+| 类型 | 扩展名 | 解析方式 |
+| --- | --- | --- |
+| Word | `.docx`, `.doc` | 优先 mammoth，失败后 officeparser / OpenXML fallback |
+| Excel | `.xlsx`, `.xlsm`, `.xls` | 优先 officeparser，失败后解析工作簿 XML 预览 |
+| PowerPoint | `.pptx`, `.ppt` | 优先 officeparser，失败后解析 slide XML |
+
+Excel fallback 会提取最多前 8 个工作表、每个表前 80 行、前 40 列，并转成 Markdown 表格预览。
+
+### 附件上下文规则
+
+- 路由模型只看附件元数据，不读取附件正文。
+- 聊天模型可读取文本/Office/PDF 提取结果。
+- 图片编辑接口只接收图片附件。
+- 不支持解析的附件不会把二进制强行发给聊天模型。
+
+---
+
+## Markdown、公式与图表
+
+### 本地前端资源
+
+项目将 Markdown、公式和图表资源放在本地：
 
 ```text
 vendor/markdown-it.min.js
 vendor/katex.min.js
 vendor/katex.min.css
 vendor/fonts/*
+vendor/mermaid.min.js
 ```
 
-部署时必须确保 `vendor/` 目录被包含，否则线上会出现：
+部署时必须包含 `vendor/`，否则 Markdown、公式或 Mermaid 可能无法渲染。
 
-- `markdown-it.min.js 404`
-- `katex.min.js 404`
-- `katex.min.css 404`
-- MIME type 报错
-- Markdown / 公式无法渲染
-
-### 示例
+### Markdown 示例
 
 ````md
 # 标题
@@ -504,80 +688,167 @@ console.log('hello')
 ```
 ````
 
-数学公式：
+### 数学公式
+
+行内公式：
 
 ```md
-行内公式：$a^2+b^2=c^2$
+$a^2 + b^2 = c^2$
+```
 
 块级公式：
+
+```md
 $$
 E = mc^2
 $$
 ```
 
----
+也支持：
 
-## 图片生成与图片编辑
-
-### 文本生成图片
-
-在自动模式下，输入明确生图需求时会自动走生图流程。
-
-也可以手动切换到生图模式。
-
-### 上传图片编辑
-
-上传图片后输入修改需求，例如：
-
-```text
-把这张图改成赛博朋克风格
+```md
+\( inline math \)
+\[ block math \]
 ```
 
-系统会调用图片编辑接口。
+### Mermaid
 
-### 基于上一张图继续修改
+使用 `mermaid` 代码块：
 
-当已有生成图时，可以继续输入：
-
-```text
-基于上一张图，把背景换成雪山
+````md
+```mermaid
+flowchart TD
+  A[输入] --> B{路由}
+  B --> C[聊天]
+  B --> D[生图]
+  B --> E[修图]
 ```
-
-系统会尝试使用上一张图作为编辑输入。
-
----
-
-## 附件能力
-
-支持：
-
-- 图片文件
-- 文本文件
-- 常见代码文件
-- 多文件上传
-
-对于无法解析的文件，消息中会提示该文件未解析正文。
+````
 
 ---
 
-## 本地存储与隐私
+## 会话、本地存储与任务恢复
 
-ChatUI 不需要数据库。
+ChatUI 不需要数据库，主要使用浏览器本地存储。
 
-浏览器本地存储内容：
+### 存储位置
 
 | 数据 | 存储位置 |
 | --- | --- |
 | 接口配置 | `localStorage` |
-| 聊天显示历史 | `localStorage` |
-| 生成图片 / 历史图片 | `IndexedDB` |
+| API Key | `localStorage` |
+| 会话元信息 | `localStorage` |
+| 聊天规范消息 | `localStorage` |
+| 展示历史 display | `localStorage` |
 | 最近生成图片上下文 | `localStorage` + `IndexedDB` |
+| 上传/生成图片二进制 | `IndexedDB` |
+| 未完成 Job 记录 | `localStorage` |
 
-注意：
+### 历史恢复
 
-- API Key 保存在当前浏览器本地。
-- 清空浏览器站点数据会删除配置与历史。
-- 不建议在不可信设备上保存长期可用的 API Key。
+- `messages` 保存规范聊天历史。
+- `display` 保存富媒体展示历史。
+- 恢复时会结合两者修复历史展示。
+- 图片不直接写入 localStorage，而是保存 `indexeddb://...` 引用。
+- 清空浏览器站点数据会删除配置、历史和图片缓存。
+
+### 任务恢复
+
+- 聊天任务记录保存为 `CHAT_JOB_KEY:<sessionId>`。
+- 图片任务记录保存为 `IMAGE_JOB_KEY:<sessionId>`。
+- 页面刷新或切换回来时，会尝试恢复未完成任务。
+- 如果服务端任务已过期或服务重启导致任务不存在，会显示明确错误并清理过期 pending 状态。
+
+---
+
+## 服务端 API 与代理
+
+### 核心 API
+
+| API | 方法 | 说明 |
+| --- | --- | --- |
+| `/api/version` | GET | 返回当前应用版本，来自 `package.json` |
+| `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
+| `/api/extract-file` | POST | 附件文本提取：PDF / Office 等 |
+| `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
+
+### Job API
+
+| API | 方法 | 说明 |
+| --- | --- | --- |
+| `/api/chat-jobs` | POST | 创建聊天 Job |
+| `/api/chat-jobs/:id` | GET | 查询聊天 Job |
+| `/api/chat-jobs/:id/events` | GET | 订阅聊天 Job SSE |
+| `/api/chat-jobs/:id/abort` | POST | 中止聊天 Job |
+| `/api/image-jobs` | POST | 创建图片生成/编辑 Job |
+| `/api/image-jobs/:id` | GET | 查询图片 Job |
+| `/api/image-jobs/:id/events` | GET | 订阅图片 Job SSE |
+| `/api/image-jobs/:id/abort` | POST | 中止图片 Job |
+
+### OpenAI 兼容代理
+
+所有 `/api/*` 且不属于内部 API 的请求会走代理白名单。
+
+允许路径：
+
+```text
+/models
+/chat/completions
+/images/generations
+/images/edits
+```
+
+允许方法：
+
+```text
+GET, POST
+```
+
+代理会处理：
+
+- `baseUrl` 规范化。
+- `apiKey` 注入 Authorization。
+- 自定义 Header 透传。
+- 上游超时。
+- SSE 转发。
+- 流式聊天 Job 同步更新。
+- 错误响应标准化。
+
+### 静态资源服务
+
+- 默认 `/` 返回 `index.html`。
+- 支持 `GET` / `HEAD`。
+- 防止路径穿越。
+- JS / CSS / JSON / 图片 / 字体 MIME 类型显式设置。
+- JS / CSS / HTML 使用 `no-cache`。
+- 其他静态资源默认 `public, max-age=3600`。
+- 如果同目录存在更新的 `.br` 或 `.gz`，会按 `Accept-Encoding` 返回预压缩版本。
+
+---
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | HTTP 监听地址 |
+| `PORT` | `8765` | HTTP 监听端口 |
+| `UPSTREAM_TIMEOUT_MS` | `600000` | 上游 API 超时，默认 10 分钟 |
+| `DISALLOW_PRIVATE_UPSTREAM` | 未设置 | 设置为 `1` 时禁止代理访问私有/内网地址 |
+| `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
+| `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
+| `NODE_ENV` | Docker 中为 `production` | Node 运行环境 |
+
+示例：
+
+```bash
+HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
+```
+
+公开部署建议：
+
+```bash
+DISALLOW_PRIVATE_UPSTREAM=1 node server.js
+```
 
 ---
 
@@ -585,31 +856,42 @@ ChatUI 不需要数据库。
 
 ```text
 .
-├── app.js                         # 前端主逻辑
-├── index.html                     # 页面结构
-├── styles.css                     # 页面样式
-├── server.js                      # HTTP 入口、路由编排、兼容旧部署入口
+├── app.js                         # 浏览器端主业务编排入口
+├── index.html                     # 页面结构、模板、配置弹窗、消息模板
+├── styles.css                     # 全局样式、响应式布局、消息/图片/配置面板样式
+├── server.js                      # Node HTTP 启动入口
+├── client/                        # 前端拆分模块
+│   ├── core/                      # 纯逻辑：附件、消息、模型、reasoning、图片引用、路由上下文、存储
+│   ├── services/                  # 请求与 payload：模型、聊天、路由、生图、图片、Job
+│   ├── ui/                        # UI 辅助：消息渲染、图片操作、滚动、实时渲染、文件动作
+│   └── app/                       # 应用状态：会话、持久化、运行态、图片缓存、display items
 ├── server/                        # 服务端模块
-│   ├── app.js                     # 应用装配：JobStore、代理、路由、静态服务
-│   ├── config/                    # 端口、根目录、上游超时、代理 allowlist
+│   ├── app.js                     # 服务装配：JobStore、代理、路由、静态服务
+│   ├── config/                    # 端口、根目录、上游超时、代理 allowlist、版本
 │   ├── api/                       # HTTP 路由分发
-│   ├── http/                      # 响应头、JSON 响应、请求体读取、静态资源
+│   ├── http/                      # 请求 body、响应、安全头、静态文件服务
 │   ├── proxy/                     # OpenAI 兼容代理、图片代理、Header 规范化
-│   ├── extract/                   # 附件解析路由、PDF、Office、OpenXML ZIP、通用工具
+│   ├── extract/                   # PDF / Office / OpenXML / OCR 辅助解析
 │   ├── security/                  # 上游 URL 安全策略
-│   └── jobs/                      # 聊天任务、图片任务、SSE/abort、内存仓库、reasoning 工具
+│   └── jobs/                      # 聊天任务、图片任务、SSE、abort、内存任务仓库、reasoning
+├── test/                          # 自动化测试
+│   ├── api/                       # 服务端 API / Job / 附件解析 / 冒烟测试
+│   ├── browser/                   # 浏览器 core bundle 测试
+│   ├── unit/                      # 前端模块单元测试
+│   └── run-tests.js               # 全量测试入口
 ├── vendor/                        # 本地第三方前端资源
-│   ├── markdown-it.min.js         # Markdown 渲染
-│   ├── katex.min.js               # 数学公式渲染
-│   ├── katex.min.css              # KaTeX 样式
-│   ├── fonts/                     # KaTeX 字体文件
-│   └── mermaid.min.js             # Mermaid 图表渲染
-├── test/                          # 自动化冒烟测试
-│   └── smoke-test.js              # 启动、静态资源、API、任务生命周期测试
+│   ├── markdown-it.min.js
+│   ├── katex.min.js
+│   ├── katex.min.css
+│   ├── mermaid.min.js
+│   └── fonts/                     # KaTeX 字体
 ├── Dockerfile                     # Docker 镜像定义
 ├── .dockerignore                  # Docker 构建忽略文件
 ├── .github/workflows/dockerhub.yml# Release 后构建并推送 Docker Hub / 阿里云 ACR
-└── README.md                      # 项目说明
+├── AI_PROJECT_GUIDE.md            # 给 AI / 开发者的工程导览
+├── package.json
+├── package-lock.json
+└── README.md
 ```
 
 ---
@@ -622,28 +904,40 @@ ChatUI 不需要数据库。
 npm test
 ```
 
-当前测试会执行：
+等价于：
 
-- `server.js` / `app.js` / `test/smoke-test.js` 语法检查。
-- 启动本地测试服务。
-- 检查 `/api/version`、安全响应头、首页加载。
-- 检查本地 `vendor/` 静态资源。
-- 检查代理路径 allowlist。
-- 检查聊天任务和图片任务的创建 / 中止生命周期。
+```bash
+node test/run-tests.js
+```
 
-### 语法检查
+当前测试覆盖：
+
+- `server.js`、`app.js`、前端模块、服务端测试文件语法检查。
+- 前端 core：消息、模型、附件、图片引用、路由上下文、reasoning、storage。
+- 前端 services：模型、Job、聊天、路由、生图、图片解析。
+- 前端 UI：文件动作、实时渲染、滚动、消息渲染、消息操作、图片操作。
+- 前端 app：状态、run、会话、持久化、display item、runtime、image store。
+- browser core bundle。
+- API：Job 生命周期、附件解析、路由、冒烟。
+
+### 常用单项检查
 
 ```bash
 node --check app.js
 node --check server.js
-node --check test/smoke-test.js
+node test/unit/messages-test.js
+node test/unit/image-route-context-test.js
+node test/api/jobs-test.js
+node test/api/extract-test.js
+node test/api/smoke-test.js
 ```
 
 ### 启动检查
 
 ```bash
 node server.js
-curl -fsS http://127.0.0.1:8765
+curl -fsS http://127.0.0.1:8765/api/version
+curl -fsS http://127.0.0.1:8765/ >/dev/null
 ```
 
 ### 检查 vendor 资源
@@ -657,9 +951,9 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 
 期望：
 
-- JS 返回 `Content-Type: application/javascript`
-- CSS 返回 `Content-Type: text/css`
-- 状态码为 `200`
+- JS 返回 `Content-Type: application/javascript`。
+- CSS 返回 `Content-Type: text/css`。
+- 状态码为 `200`。
 
 ---
 
@@ -668,8 +962,6 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 项目通过 GitHub Release 触发 GitHub Actions 构建多架构 Docker 镜像，并推送到 Docker Hub 与阿里云 ACR。
 
 ### 固定镜像地址
-
-后续文档、Release Notes、部署说明默认使用以下地址：
 
 ```text
 Docker Hub: liugangqiang/chatui
@@ -681,7 +973,7 @@ Docker Hub: liugangqiang/chatui
 ### Release 触发流程
 
 1. 提交并推送 `main` 分支。
-2. 创建符合 `vMAJOR.MINOR.PATCH` 格式的 Git tag，例如 `v1.1.38`。
+2. 创建符合 `vMAJOR.MINOR.PATCH` 格式的 Git tag，例如 `v1.1.76`。
 3. 创建 GitHub Release。
 4. GitHub Actions 读取 Release tag。
 5. 校验 `package.json` 与 `package-lock.json` 版本必须等于 tag 去掉 `v` 后的版本号。
@@ -690,16 +982,14 @@ Docker Hub: liugangqiang/chatui
 
 ### 镜像标签规则
 
-当前工作流发布以下标签：
-
 | 标签 | 示例 | 说明 |
 | --- | --- | --- |
 | `latest` | `liugangqiang/chatui:latest` | 最新正式版本 |
-| `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.1.38` | 精确版本标签 |
+| `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.1.76` | 精确版本标签 |
 
 ### Release Notes 规范
 
-正式 Release Notes 必须包含以下四节：
+正式 Release Notes 必须包含：
 
 - 新增：新增能力、入口、配置、文档、部署方式。
 - 删除：移除的功能、依赖、配置或行为；没有则写“无”。
@@ -710,50 +1000,39 @@ Release Notes 应面向使用者说明实际影响，不能只写 commit message
 
 ### 发布前检查
 
-建议至少执行：
-
 ```bash
 npm test
 git diff --check
 ```
 
-如涉及 Docker 镜像内容，确认 Dockerfile 包含必要目录：
+如果涉及 Docker 镜像内容，确认 Dockerfile 包含必要目录：
 
 ```dockerfile
+COPY client ./client
 COPY server ./server
 COPY vendor ./vendor
-```
-
-如涉及前端资源，确认以下文件可在容器内访问：
-
-```text
-/vendor/markdown-it.min.js
-/vendor/katex.min.js
-/vendor/katex.min.css
-/vendor/mermaid.min.js
-/vendor/fonts/*
 ```
 
 ---
 
 ## 常见问题
 
-### 页面提示 markdown-it.min.js 或 katex.min.js 404
+### 页面提示 markdown-it.min.js、katex.min.js 或 mermaid.min.js 404
 
-说明部署产物中缺少 `vendor/` 目录。
+说明部署产物缺少 `vendor/` 目录。
 
 处理：
 
 - 确认 `vendor/markdown-it.min.js` 存在。
 - 确认 `vendor/katex.min.js` 存在。
 - 确认 `vendor/katex.min.css` 存在。
-- 确认 `vendor/fonts/` 下的 KaTeX 字体存在。
 - 确认 `vendor/mermaid.min.js` 存在。
+- 确认 `vendor/fonts/` 下的 KaTeX 字体存在。
 - 重新构建并部署。
 
 ### 控制台提示 MIME type 不支持
 
-通常是请求的 JS/CSS 文件返回了 404 HTML 或空内容。
+通常是 JS/CSS 文件请求返回了 404 HTML 或空内容。
 
 处理：
 
@@ -775,7 +1054,7 @@ curl -I http://your-host/vendor/katex.min.css
 { "id": "your-image-model", "type": "image_generation" }
 ```
 
-如果没有 `type`，模型会被标记为 `未知类型`，并同时出现在聊天和生图下拉中。
+如果没有 `type`，模型会标记为 `未知类型`，并同时出现在聊天和生图下拉中。
 
 ### 生图失败
 
@@ -786,6 +1065,11 @@ curl -I http://your-host/vendor/katex.min.css
 - 模型是否支持 OpenAI 兼容图片接口。
 - 图片尺寸是否被该模型支持。
 - API Key 是否有生图权限。
+- 上游是否支持 `/images/generations` 或 `/images/edits`。
+
+### 图片显示失败但返回了 URL
+
+可能是上游图片 URL 需要鉴权或跨域不可直接访问。ChatUI 会尝试通过 `/api/image` 同源代理下载，但要求图片 URL 与 Endpoint Base URL 同源。
 
 ### 聊天没有流式输出
 
@@ -793,13 +1077,38 @@ curl -I http://your-host/vendor/katex.min.css
 
 - 上游接口不支持 streaming。
 - 代理或网关没有正确转发 SSE。
-- 模型服务返回了非标准流式格式。
+- 模型服务返回非标准流式格式。
+- 浏览器或网络环境中断 SSE。
 
-系统会尽量降级处理，但建议检查上游接口兼容性。
+ChatUI 会尽量降级为普通请求。
+
+### PDF 没有识别出文字
+
+可能是扫描件、图片型 PDF 或复杂字体编码 PDF。
+
+建议：
+
+- 使用 Docker 镜像，镜像内置 Poppler 和 Tesseract OCR 依赖。
+- 确认 OCR 依赖可用：`pdftoppm`、`tesseract`、`chi_sim`、`eng`。
+- 或将 PDF 导出为文本/Markdown 后再上传。
 
 ### 清空对话会删除配置吗？
 
-不会。清空对话只删除聊天和图片上下文，不删除模型配置和 API Key。
+不会。清空对话只删除当前会话聊天、展示历史和图片上下文，不删除模型配置和 API Key。
+
+### 删除会话会删除图片缓存吗？
+
+会删除该会话引用到的 IndexedDB 图片，并尝试清理孤儿图片缓存。
+
+### 刷新后任务没有恢复
+
+可能原因：
+
+- 服务端内存 Job 已过期。
+- 服务端重启后内存 Job 丢失。
+- 浏览器本地 Job 记录被清理。
+
+ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过期 pending 状态。
 
 ---
 
@@ -810,9 +1119,11 @@ curl -I http://your-host/vendor/katex.min.css
 - 生产环境建议通过 HTTPS 访问。
 - 如果使用反向代理，请限制管理入口访问范围。
 - 如果接入私有模型网关，请做好鉴权和访问控制。
-- 默认允许访问本机 / 内网上游，便于本地模型网关使用；公开部署时建议设置 `DISALLOW_PRIVATE_UPSTREAM=1`，阻止代理访问私有地址段，降低 SSRF 风险。
+- 公开部署时建议设置 `DISALLOW_PRIVATE_UPSTREAM=1`，阻止代理访问私有地址段，降低 SSRF 风险。
+- 服务端代理只允许 `/models`、`/chat/completions`、`/images/generations`、`/images/edits`。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。
 - `vendor/` 是前端公开资源，不要放任何密钥。
+- API Key 保存在当前浏览器 localStorage；清空站点数据会删除配置与历史。
 
 ---
 

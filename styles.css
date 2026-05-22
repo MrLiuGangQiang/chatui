@@ -535,3 +535,21 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 .generated-image-grid{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:8px!important;max-width:100%!important;margin-top:8px!important}
 .generated-image-grid img.generated-thumb{display:block!important;flex:0 0 auto!important;margin-top:0!important}
 @media (max-width:640px){.generated-image-grid{gap:6px!important}.generated-image-grid img.generated-thumb{max-width:min(var(--thumb-w,130px),42vw)!important;max-height:min(var(--thumb-h,130px),42vw)!important}}
+
+/* Keep copy success checkmark visually centered on mobile and desktop. */
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon {
+  position: absolute !important;
+  left: calc(50% + 5px) !important;
+  top: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon {
+  left: 50% !important;
+}

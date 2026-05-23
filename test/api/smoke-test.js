@@ -60,9 +60,8 @@ async function json(res) {
     assert.ok(html.includes('./client/ui/browser.js'), 'loads browser ui adapter before app');
     assert.ok(html.includes('./client/app/browser.js'), 'loads browser app adapter before app');
     assert.ok(html.includes('registry.npmmirror.com/katex/0.16.9'), 'uses npmmirror katex CDN');
-    assert.ok(html.includes('registry.npmmirror.com/mermaid/11.15.0'), 'uses npmmirror mermaid CDN');
+    assert.ok(!html.includes('registry.npmmirror.com/mermaid/11.15.0/files/dist/mermaid.min.js'), 'mermaid CDN is not render-blocking in index');
     assert.ok(html.includes("this.src='./vendor/katex.min.js'"), 'katex CDN has local fallback');
-    assert.ok(html.includes("this.src='./vendor/mermaid.min.js'"), 'mermaid CDN has local fallback');
 
     res = await fetch(`${base}/app.js`);
     assert.strictEqual(res.status, 200, 'app js status');
@@ -87,6 +86,9 @@ async function json(res) {
     const browserApp = await res.text();
     assert.ok(browserApp.includes('window.ChatUIApp'), 'browser app exposes stable namespace');
 
+    assert.ok(appJs.includes('loadMermaidVendor'), 'mermaid is loaded lazily');
+    assert.ok(appJs.includes('registry.npmmirror.com/mermaid/11.15.0'), 'lazy mermaid uses npmmirror CDN');
+    assert.ok(appJs.includes('./vendor/mermaid.min.js'), 'lazy mermaid keeps local fallback');
     assert.ok(appJs.includes('function beginRenameSession'), 'inline session rename function exists');
     assert.ok(appJs.includes('customTitle'), 'custom session title is persisted');
     assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');

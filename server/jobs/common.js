@@ -28,7 +28,10 @@ function createJobEvents({ jobSubscribers }) {
     const subscribers = jobSubscribers.get(job.id);
     if (!subscribers) return;
     const data = `event: update\ndata: ${JSON.stringify(publicJob(job))}\n\n`;
-    for (const res of subscribers) res.write(data);
+    for (const res of subscribers) {
+      res.write(data);
+      res.flushHeaders?.();
+    }
     if (job.status === 'done' || job.status === 'error') {
       for (const res of subscribers) res.end();
       jobSubscribers.delete(job.id);
@@ -47,6 +50,7 @@ function createJobEvents({ jobSubscribers }) {
       'Access-Control-Allow-Origin': '*',
     });
     res.write(`event: update\ndata: ${JSON.stringify(publicJob(job))}\n\n`);
+    res.flushHeaders?.();
     if (job.status === 'done' || job.status === 'error') return res.end();
     if (!jobSubscribers.has(id)) jobSubscribers.set(id, new Set());
     jobSubscribers.get(id).add(res);

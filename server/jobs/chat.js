@@ -93,10 +93,12 @@ try {
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
-      updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'));
+      updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false });
+      notifyChatStreamJob(job);
     }
     if (job.buffer) {
-      updateChatJobFromStreamChunk(job, '\n');
+      updateChatJobFromStreamChunk(job, '\n', { notify: false });
+      notifyChatStreamJob(job);
     }
   }
   job.status = 'done';
@@ -109,7 +111,7 @@ try {
   clearTimeout(timer);
   delete job.controller;
   job.updatedAt = Date.now();
-  notifyJob(job);
+  notifyChatStreamJob(job);
 }
 }
 
@@ -171,7 +173,12 @@ if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服�
 sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 }
 
-function updateChatJobFromStreamChunk(job, text) {
+
+function notifyChatStreamJob(job) {
+  notifyJob(job);
+}
+
+function updateChatJobFromStreamChunk(job, text, { notify = true } = {}) {
 job.buffer = (job.buffer || '') + text;
 const events = job.buffer.split(/\r?\n\r?\n/);
 job.buffer = events.pop() || '';
@@ -193,7 +200,7 @@ for (const eventText of events) {
     if (content) message.content += content;
     if (reasoning) message.reasoning_content += reasoning;
     job.updatedAt = Date.now();
-    if (content || reasoning) notifyJob(job);
+    if (notify && (content || reasoning)) notifyChatStreamJob(job);
   } catch {}
 }
 }

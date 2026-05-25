@@ -83,6 +83,11 @@ assertRuleIncludes('Message action buttons live in normal flow below the bubble;
 ], { source: messageCss });
 assertContains('.msg-actions,\n.message.assistant.has-meta .msg-actions,\n.message.error.has-meta .msg-actions,\n.message.user.has-meta .msg-actions{\n  position:static!important;\n  order:2!important;\n  top:auto!important;\n  bottom:auto!important;', 'message actions must be normal flow and never overlay content', messageCss);
 assertContains('margin:2px 0 0!important;', 'message actions keep a tight gap below the bubble', messageCss);
+const template = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const templateBubbleIndex = template.indexOf('<div class="bubble">');
+const templateActionsIndex = template.indexOf('<div class="msg-actions">');
+assert(templateBubbleIndex >= 0 && templateActionsIndex >= 0 && templateBubbleIndex < templateActionsIndex, 'message template must put bubble before action buttons so actions cannot appear inside/over content when CSS order is stale');
+
 assertContains('.message:has(.msg-actions){\n  margin-bottom:18px!important;', 'messages with actions keep original row spacing', messageCss);
 
 console.log('css contract ok');

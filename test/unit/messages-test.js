@@ -30,6 +30,10 @@ assert.deepStrictEqual(compactAdjacentDuplicateMessages([
   { role: 'user', rawText: 'x' },
   { role: 'assistant', rawText: 'x' },
 ]).map(m => m.role), ['user', 'assistant']);
+assert.strictEqual(compactAdjacentDuplicateMessages([
+  { role: 'assistant', content: 'ok' },
+  { role: 'assistant', content: 'ok', metaText: 'TTFT 1.5s' },
+])[0].metaText, 'TTFT 1.5s');
 assert.deepStrictEqual(sanitizeStoredMessage({ role: 'assistant', content: 'ok', pending: true, streaming: true }), { role: 'assistant', content: 'ok', rawText: 'ok' });
 assert.strictEqual(assistantMessageCount([{ role: 'user' }, { role: 'assistant' }, { role: 'assistant' }]), 2);
 console.log('messages ok');

@@ -31,30 +31,23 @@
   pointer-events:none!important;
   user-select:none!important;
 }
-
 .message.has-meta .bubble-wrap,
 .bubble-wrap:has(.message-meta){
   padding-bottom:0!important;
 }
-
 .message.assistant.has-meta .bubble-wrap,
 .message.error.has-meta .bubble-wrap{
   min-width:168px!important;
 }
-
 .message.assistant.has-meta .msg-actions,
 .message.error.has-meta .msg-actions{
   left:0!important;
   right:auto!important;
-  bottom:2px!important;
 }
-
 .message.user.has-meta .msg-actions{
   right:0!important;
   left:auto!important;
-  bottom:2px!important;
 }
-
 @media (max-width:640px){
   .message-meta,
   .message.assistant.has-meta .message-meta,
@@ -67,4 +60,45 @@
   .bubble-wrap:has(.message-meta){padding-bottom:0!important;}
   .message.assistant.has-meta .bubble-wrap,
   .message.error.has-meta .bubble-wrap{min-width:156px!important;}
+}
+
+/* Message action buttons stay attached to the bubble edge without changing row spacing. */
+.bubble-wrap{
+  position:relative!important;
+}
+.msg-actions,
+.message.assistant.has-meta .msg-actions,
+.message.error.has-meta .msg-actions,
+.message.user.has-meta .msg-actions{
+  top:calc(100% + 2px)!important;
+  bottom:auto!important;
+  z-index:4!important;
+  transform:none!important;
+  margin:0!important;
+}
+.message.assistant .msg-actions,
+.message.error .msg-actions,
+.message.assistant.has-meta .msg-actions,
+.message.error.has-meta .msg-actions{
+  left:0!important;
+  right:auto!important;
+}
+.message.user .msg-actions,
+.message.user.has-meta .msg-actions{
+  left:auto!important;
+  right:0!important;
+}
+.message:has(.msg-actions){
+  margin-bottom:18px!important;
+}
+@media (max-width:640px){
+  .msg-actions,
+  .message.assistant.has-meta .msg-actions,
+  .message.error.has-meta .msg-actions,
+  .message.user.has-meta .msg-actions{
+    top:calc(100% + 1px)!important;
+  }
+  .message:has(.msg-actions){
+    margin-bottom:18px!important;
+  }
 }

@@ -779,3 +779,36 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   .message.assistant.has-meta .bubble-wrap,
   .message.error.has-meta .bubble-wrap{min-width:156px!important;}
 }
+
+/* Config modal viewport guard: keep settings/prompt dialog inside the visible viewport even when split CSS is enabled. */
+@media (min-width:641px){
+  #configModal.modal.show{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    padding:24px!important;
+  }
+  #configModal .config-dialog{
+    position:relative!important;
+    left:auto!important;
+    right:auto!important;
+    top:auto!important;
+    bottom:auto!important;
+    margin:0 auto!important;
+    width:min(980px,calc(100vw - 48px))!important;
+    height:auto!important;
+    max-height:calc(100dvh - 48px)!important;
+    display:flex!important;
+    flex-direction:column!important;
+    overflow:hidden!important;
+  }
+  #configModal .config-grid{
+    flex:1 1 auto!important;
+    min-height:0!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+  }
+  #configModal .dialog-actions{
+    flex:0 0 auto!important;
+  }
+}

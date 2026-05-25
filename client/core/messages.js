@@ -40,13 +40,28 @@ function sortCanonicalMessages(messages = []) {
     .map(item => item.message);
 }
 
+function mergeDuplicateMessageMeta(prev, message) {
+  if (!prev || !message || prev.role !== message.role) return prev;
+  return {
+    ...prev,
+    ...(!prev.metaText && message.metaText ? { metaText: message.metaText } : {}),
+    ...(!prev.rawText && message.rawText ? { rawText: message.rawText } : {}),
+    ...(!prev.html && message.html ? { html: message.html } : {}),
+    ...(!prev.displayItemId && message.displayItemId ? { displayItemId: message.displayItemId } : {}),
+    ...(!prev.imageJobId && message.imageJobId ? { imageJobId: message.imageJobId } : {}),
+  };
+}
+
 function compactAdjacentDuplicateMessages(messages = []) {
   const result = [];
   for (const message of messages) {
     const prev = result[result.length - 1];
     const raw = String(message?.rawText ?? message?.content ?? '').trim();
     const prevRaw = String(prev?.rawText ?? prev?.content ?? '').trim();
-    if (prev && prev.role === message.role && prevRaw === raw && raw) continue;
+    if (prev && prev.role === message.role && prevRaw === raw && raw) {
+      result[result.length - 1] = mergeDuplicateMessageMeta(prev, message);
+      continue;
+    }
     result.push(message);
   }
   return result;

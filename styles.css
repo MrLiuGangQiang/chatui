@@ -721,7 +721,7 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 /* Timing meta: show above message bubble, left aligned. */
 .message.has-meta .bubble-wrap,
 .bubble-wrap:has(.message-meta){
-  padding-bottom:0!important;
+  padding-bottom:34px!important;
 }
 .message-meta,
 .message.assistant .message-meta,
@@ -752,7 +752,7 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 @media (max-width:640px){
   .message.has-meta .bubble-wrap,
-  .bubble-wrap:has(.message-meta){padding-bottom:0!important;}
+  .bubble-wrap:has(.message-meta){padding-bottom:32px!important;}
   .message-meta,
   .message.assistant.has-meta .message-meta,
   .message.error.has-meta .message-meta,
@@ -763,4 +763,26 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   }
   .message.assistant.has-meta .bubble-wrap,
   .message.error.has-meta .bubble-wrap{min-width:0!important;}
+}
+
+
+/* Keep message action buttons in their own reserved row below the bubble. */
+.bubble-wrap{
+  padding-bottom:34px!important;
+}
+.msg-actions{
+  position:absolute!important;
+  left:0!important;
+  right:auto!important;
+  bottom:2px!important;
+  top:auto!important;
+  z-index:2!important;
+}
+.message.user .msg-actions{
+  left:auto!important;
+  right:0!important;
+}
+@media (max-width:640px){
+  .bubble-wrap{padding-bottom:32px!important;}
+  .msg-actions{bottom:2px!important;}
 }

@@ -60,8 +60,9 @@ async function json(res) {
     assert.ok(html.includes('./client/services/browser.js'), 'loads browser services adapter before app');
     assert.ok(html.includes('./client/ui/browser.js'), 'loads browser ui adapter before app');
     assert.ok(html.includes('./client/app/browser.js'), 'loads browser app adapter before app');
-    assert.ok(html.includes('./styles/composer.css'), 'loads composer CSS override after base stylesheet');
-    assert.ok(html.includes('./styles/messages.css'), 'loads message CSS override after base stylesheet');
+    assert.ok(html.includes('./styles.css'), 'loads root stylesheet');
+    assert.ok(!html.includes('./styles/composer.css'), 'does not load reverted composer CSS override');
+    assert.ok(!html.includes('./styles/messages.css'), 'does not load reverted message CSS override');
     assert.ok(html.includes('registry.npmmirror.com/katex/0.16.9'), 'uses npmmirror katex CDN');
     assert.ok(!html.includes('registry.npmmirror.com/mermaid/11.15.0/files/dist/mermaid.min.js'), 'mermaid CDN is not render-blocking in index');
     assert.ok(html.includes("this.src='./vendor/katex.min.js'"), 'katex CDN has local fallback');
@@ -119,20 +120,6 @@ async function json(res) {
     assert.ok(css.includes('.session-rename-btn'), 'session rename button styles exist');
     assert.ok(css.includes('.session-title-input'), 'inline session rename input styles exist');
     assert.ok(css.includes('.session-rename-btn.saving'), 'save-state rename button styles exist');
-
-    res = await fetch(`${base}/styles/composer.css`);
-    assert.strictEqual(res.status, 200, 'composer styles status');
-    const composerCss = await res.text();
-    assert.ok(composerCss.includes('Composer layout contract overrides'), 'composer styles include contract comment');
-    assert.ok(composerCss.includes('.composer-actions'), 'composer styles include action row rules');
-    assert.ok(composerCss.includes('env(safe-area-inset-bottom)'), 'composer styles include mobile safe area handling');
-
-    res = await fetch(`${base}/styles/messages.css`);
-    assert.strictEqual(res.status, 200, 'message styles status');
-    const messageCss = await res.text();
-    assert.ok(messageCss.includes('Message layout contract overrides'), 'message styles include contract comment');
-    assert.ok(messageCss.includes('.message-meta'), 'message styles include timing meta rules');
-    assert.ok(messageCss.includes('padding-bottom:0!important'), 'message styles keep timing meta out of normal layout');
 
     for (const file of ['markdown-it.min.js', 'katex.min.js', 'katex.min.css', 'mermaid.min.js', 'fonts/KaTeX_Main-Regular.woff2', 'fonts/KaTeX_Math-Italic.woff2', 'fonts/KaTeX_Size2-Regular.woff2']) {
       res = await fetch(`${base}/vendor/${file}`);

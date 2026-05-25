@@ -4,10 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '../..');
-const baseCss = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
-const composerCss = fs.readFileSync(path.join(root, 'styles/composer.css'), 'utf8');
-const messageCss = fs.readFileSync(path.join(root, 'styles/messages.css'), 'utf8');
-const css = `${baseCss}\n${composerCss}\n${messageCss}`;
+const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
 
 function assertContains(snippet, message) {
   assert.ok(css.includes(snippet), message || `styles.css contains ${snippet}`);
@@ -26,7 +23,7 @@ function assertRuleIncludes(selectorSnippet, requiredSnippets, { last = false } 
   }
 }
 
-// Layout anchors that must keep existing UI surfaces present before CSS is split.
+// Layout anchors that must keep existing UI surfaces present.
 for (const selector of [
   '.message',
   '.bubble-wrap',
@@ -36,29 +33,20 @@ for (const selector of [
   '.composer-actions',
   '.session-sidebar',
   '.session-rail',
+  '.config-dialog',
+  '.prompt-config-layout',
 ]) {
   assertContains(selector, `critical selector exists: ${selector}`);
 }
 
 // Composer layout must keep the input stack, action row, and mobile safe-area placement stable.
-assert.ok(composerCss.includes('Composer layout contract overrides'), 'composer CSS contract file is loaded by test');
-assertRuleIncludes('Composer layout contract overrides.\n * Keep input stack, composer actions, and mobile safe-area placement stable while root CSS is split.\n */\n.composer-actions', [
-  'position:absolute!important',
-  'left:12px!important',
-  'right:12px!important',
-  'bottom:12px!important',
-  'justify-content:space-between!important',
-]);
-assertRuleIncludes('.input-stack{margin:0 auto', [
-  'display:grid!important',
-  'grid-template-rows:auto 1fr auto!important',
-]);
-assert.ok(composerCss.includes('bottom:calc(8px + env(safe-area-inset-bottom))!important'), 'composer mobile safe-area bottom is preserved');
+assertContains('.composer-actions{position:absolute!important', 'composer actions should keep absolute positioning');
+assertContains('.input-stack{margin:0 auto!important;display:grid!important', 'input stack should stay grid-based');
+assertContains('env(safe-area-inset-bottom)', 'composer mobile safe-area bottom is preserved');
 
 // Timing metadata must float above bubbles and must not reintroduce normal-flow padding regressions.
-assert.ok(messageCss.includes('Message layout contract overrides'), 'message CSS contract file is loaded by test');
-assertContains('Keep timing metadata floating above bubbles without changing message/avatar/action layout.', 'timing meta contract comment exists');
-assertRuleIncludes('Message layout contract overrides.\n * Keep timing metadata floating above bubbles without changing message/avatar/action layout.\n */\n.message-meta', [
+assertContains('Timing meta: float above the bubble without changing message/avatar/button layout.', 'timing meta contract comment exists');
+assertRuleIncludes('Timing meta: float above the bubble without changing message/avatar/button layout. */\n.message-meta', [
   'position:absolute!important',
   'top:-18px!important',
   'bottom:auto!important',

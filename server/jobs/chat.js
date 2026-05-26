@@ -89,7 +89,7 @@ try {
     const text = await upstream.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-    const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.raw || '');
+    const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
     const msg = data?.choices?.[0]?.message || {};
     const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) : '';
     const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || msg.thinking || msg.reasoning_details || msg.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || outputReasoning || '');
@@ -205,7 +205,7 @@ for (const eventText of events) {
   try {
     const data = JSON.parse(dataText);
     const delta = data?.choices?.[0]?.delta || data?.choices?.[0]?.message || {};
-    const content = normalizeContentText(delta.content || delta.text || delta.output_text || data?.output_text || data?.content || data?.text || '');
+    const content = normalizeContentText(delta.content || delta.text || delta.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || '');
     const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
     if (content || reasoning) markFirstToken(job);
     if (content) message.content += content;

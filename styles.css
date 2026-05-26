@@ -610,17 +610,36 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 
 /* Copy success icon centering: override previous mobile offset. */
+.copy-btn.icon-action-btn.copied,
+.markdown-body .code-block .code-copy-icon.copied,
+.reasoning-copy-btn.copied{
+  position:relative!important;
+  display:inline-grid!important;
+  place-items:center!important;
+  padding:0!important;
+  overflow:hidden!important;
+  line-height:0!important;
+}
 .copy-btn.icon-action-btn.copied .copy-success-icon,
 .markdown-body .code-block .code-copy-icon.copied .copy-success-icon,
 .reasoning-copy-btn.copied .copy-success-icon{
   position:absolute!important;
   left:50%!important;
   top:50%!important;
-  width:16px!important;
-  height:16px!important;
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
   margin:0!important;
   transform:translate(-50%,-50%)!important;
   transform-origin:center center!important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon path,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon path,
+.reasoning-copy-btn.copied .copy-success-icon path{
+  transform-box:fill-box!important;
+  transform-origin:center center!important;
+  transform:translate(2px,-1px)!important;
 }
 @media (max-width:640px){
   .message.has-meta .bubble-wrap,
@@ -811,4 +830,107 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   #configModal .dialog-actions{
     flex:0 0 auto!important;
   }
+}
+
+
+/* Copy success icon must stay visually centered in the action button. */
+.copy-btn.icon-action-btn,
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn.copied:hover{
+  display:inline-grid!important;
+  place-items:center!important;
+  align-content:center!important;
+  justify-content:center!important;
+  vertical-align:middle!important;
+  line-height:1!important;
+}
+.copy-btn.icon-action-btn.copied{
+  width:30px!important;
+  min-width:30px!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  padding:0!important;
+  overflow:hidden!important;
+  scrollbar-gutter:auto!important;
+  white-space:normal!important;
+  box-sizing:border-box!important;
+}
+.copy-btn.icon-action-btn.copied svg,
+.copy-btn.icon-action-btn.copied .copy-success-icon{
+  display:block!important;
+  width:15px!important;
+  height:15px!important;
+  margin:auto!important;
+  transform:none!important;
+}
+.copy-btn.icon-action-btn.copied svg path,
+.copy-btn.icon-action-btn.copied svg rect{
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:2.25!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+@media (max-width:640px){
+  .copy-btn.icon-action-btn.copied{
+    width:28px!important;
+    min-width:28px!important;
+    height:24px!important;
+    min-height:24px!important;
+    max-height:24px!important;
+  }
+  .copy-btn.icon-action-btn.copied svg,
+  .copy-btn.icon-action-btn.copied .copy-success-icon{
+    width:14px!important;
+    height:14px!important;
+  }
+}
+
+/* Image preview copy: keep copy/download/close controls separate and centered. */
+.image-preview-copy{right:122px!important}
+.image-preview-action svg{width:22px!important;height:22px!important;display:block!important}
+.image-preview-action svg path,
+.image-preview-action svg rect{fill:none!important;stroke:currentColor!important;stroke-width:1.9!important;stroke-linecap:round!important;stroke-linejoin:round!important}
+.generated-image-item{display:inline-flex;flex-direction:column;align-items:flex-start;gap:7px;max-width:100%}
+.generated-image-item .image-icon-btn{margin-top:0}
+@media (max-width:640px){.image-preview-copy{right:102px!important}.generated-image-item{gap:6px}}
+
+/* Final copy success visual centering: center the checkmark stroke itself, not only the SVG box. */
+.copy-btn.icon-action-btn.copied,
+.markdown-body .code-block .code-copy-icon.copied,
+.reasoning-copy-btn.copied{
+  position:relative!important;
+  display:inline-grid!important;
+  place-items:center!important;
+  padding:0!important;
+  overflow:hidden!important;
+  line-height:0!important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon{
+  position:absolute!important;
+  left:50%!important;
+  top:50%!important;
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
+  margin:0!important;
+  transform:translate(-50%,-50%)!important;
+  transform-origin:center center!important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon path,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon path,
+.reasoning-copy-btn.copied .copy-success-icon path{
+  transform-box:fill-box!important;
+  transform-origin:center center!important;
+  transform:translate(2px,-1px)!important;
+}
+/* Preview copy button is only usable in secure contexts (HTTPS/localhost). */
+.image-preview-action.is-disabled,
+.image-preview-action:disabled{
+  opacity:.45!important;
+  cursor:not-allowed!important;
 }

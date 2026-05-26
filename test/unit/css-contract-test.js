@@ -90,4 +90,33 @@ assert(templateBubbleIndex >= 0 && templateActionsIndex >= 0 && templateBubbleIn
 
 assertContains('.message:has(.msg-actions){\n  margin-bottom:18px!important;', 'messages with actions keep original row spacing', messageCss);
 
+
+assertContains('.copy-btn.icon-action-btn,\n.copy-btn.icon-action-btn.copied,\n.copy-btn.icon-action-btn.copied:hover{\n  display:inline-grid!important;\n  place-items:center!important;', 'copy buttons use grid centering for success state', baseCss);
+assertContains('.copy-btn.icon-action-btn.copied{\n  width:30px!important;\n  min-width:30px!important;\n  height:26px!important;\n  min-height:26px!important;\n  max-height:26px!important;\n  padding:0!important;\n  overflow:hidden!important;', 'copy success state keeps fixed icon-button size without inherited tall copied layout', baseCss);
+assertContains('.copy-btn.icon-action-btn.copied svg,\n.copy-btn.icon-action-btn.copied .copy-success-icon{\n  display:block!important;\n  width:15px!important;\n  height:15px!important;\n  margin:auto!important;', 'copy success icon is centered inside the button', baseCss);
+
+
+assertContains('/* Final copy success visual centering: center the checkmark stroke itself, not only the SVG box. */', 'final copy-success centering override exists', baseCss);
+assertContains(`.copy-btn.icon-action-btn.copied .copy-success-icon path,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon path,
+.reasoning-copy-btn.copied .copy-success-icon path{
+  transform-box:fill-box!important;
+  transform-origin:center center!important;
+  transform:translate(2px,-1px)!important;`, 'copy success checkmark path is optically centered inside its svg box', baseCss);
+
+assertContains('.image-preview-copy{right:122px!important}', 'image preview copy button sits between download and close controls', baseCss);
+assertContains('.image-preview-action svg path,\n.image-preview-action svg rect{fill:none!important;stroke:currentColor!important;', 'image preview action icons use stroke rendering for copy/download svgs', baseCss);
 console.log('css contract ok');
+
+assertContains('id="imagePreviewCopy"', 'image preview keeps copy button in preview overlay only', template);
+assertNotContains('generated-image-actions', 'generated image cards must not add extra per-image button row', baseCss);
+assertNotContains('imageActionButtonsHtml(a,s)', 'generated image cards must not render extra per-image button row', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+
+assertContains('function removeGeneratedImageInlineActions', 'runtime cleanup removes previously cached generated image inline action rows', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('.content .generated-image-actions', 'runtime cleanup targets stale generated-image-actions saved in old messages', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('[data-copy-image]', 'runtime cleanup removes stale per-image copy buttons from generated image cards', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+
+assertContains('function canWriteImageClipboard(){return window.isSecureContext&&!!navigator.clipboard?.write&&"function"==typeof ClipboardItem}', 'image clipboard write requires secure context and ClipboardItem support', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持', 'image preview copy explains HTTP LAN clipboard limitation', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains(`.image-preview-action.is-disabled,
+.image-preview-action:disabled{`, 'disabled image preview copy button has visible disabled state', baseCss);

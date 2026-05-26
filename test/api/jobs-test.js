@@ -16,4 +16,6 @@ assert.deepStrictEqual(publicJob({ id: 'x', status: 'done', createdAt: 1, update
 assert.deepStrictEqual(publicJob({ id: 'x', status: 'running', createdAt: 1, updatedAt: 2, data: { ok: true }, firstTokenMs: 123, durationMs: 456, error: '' }).metrics, { firstTokenMs: 123, durationMs: 456 });
 assert.strictEqual(normalizeReasoningText([{ summary: 'a' }, { text: 'b' }]), 'a\nb');
 assert.strictEqual(normalizeContentText([{ text: 'a' }, { content: 'b' }]), 'ab');
+assert.strictEqual(normalizeContentText({ output: [{ type: 'message', content: [{ text: 'c' }] }] }), 'c');
+assert.strictEqual(normalizeContentText({ message: { content: [{ text: 'd' }] } }), 'd');
 console.log('jobs ok');

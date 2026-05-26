@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>极简聊天工具</title>
+  <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
@@ -363,6 +363,9 @@
     <div class="image-preview-mask"></div>
     <button id="imagePreviewDownload" class="image-preview-download image-preview-action" type="button" data-download-image="1" title="下载图片" aria-label="下载图片" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+    </button>
+    <button id="imagePreviewCopy" class="image-preview-copy image-preview-action" type="button" data-copy-image="1" title="复制图片" aria-label="复制图片" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
     </button>
     <button id="imagePreviewClose" class="image-preview-close" type="button">×</button>
     <img id="imagePreviewImg" alt="preview" />

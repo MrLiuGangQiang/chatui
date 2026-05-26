@@ -8,6 +8,9 @@ const { extractChatJobText, requestJson, parseSseLine } = require('../../client/
   assert.deepStrictEqual(extractChatJobText({ choices: [{ message: { content: 'hi' } }], metrics: { firstTokenMs: 321 } }), { content: 'hi', reasoning: '', firstTokenMs: 321 });
   assert.deepStrictEqual(extractChatJobText({ choices: [{ message: { content: [{ type: 'text', text: 'hi' }] } }] }), { content: 'hi', reasoning: '', firstTokenMs: null });
   assert.deepStrictEqual(extractChatJobText({ choices: [{ message: { text: 'hi' } }] }), { content: 'hi', reasoning: '', firstTokenMs: null });
+  assert.deepStrictEqual(extractChatJobText({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] }), { content: 'hi', reasoning: '', firstTokenMs: null });
+  assert.deepStrictEqual(extractChatJobText({ message: { content: [{ text: 'hi' }] } }), { content: 'hi', reasoning: '', firstTokenMs: null });
+  assert.deepStrictEqual(extractChatJobText({ response: { text: 'hi' } }), { content: 'hi', reasoning: '', firstTokenMs: null });
 
   let call;
   const payload = await requestJson({

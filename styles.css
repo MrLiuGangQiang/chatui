@@ -976,3 +976,9 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 .markdown-body img.user-attachment-image{
   transition:none!important;
 }
+
+.message.user .plain-text{
+  white-space:pre-wrap!important;
+  overflow-wrap:anywhere!important;
+  word-break:break-word!important;
+}

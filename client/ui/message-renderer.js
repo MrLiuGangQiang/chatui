@@ -16,8 +16,16 @@ function userAttachmentPreviewItems(attachments = [], fitImageThumb = (w, h) => 
     });
 }
 
-function renderUserMessageParts({ markdownHtml = '', imagePreviewHtml = '', attachmentSummaryHtml = '' } = {}) {
-  return `${markdownHtml}${imagePreviewHtml}${attachmentSummaryHtml}`;
+function renderPlainText(text = '') {
+  const div = document.createElement('div');
+  div.className = 'plain-text';
+  div.textContent = String(text || '');
+  return div.outerHTML;
 }
 
-module.exports = { attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderUserMessageParts };
+function renderUserMessageParts({ text = '', markdownHtml = '', imagePreviewHtml = '', attachmentSummaryHtml = '' } = {}) {
+  const bodyHtml = text !== '' ? renderPlainText(text) : markdownHtml;
+  return `${bodyHtml}${imagePreviewHtml}${attachmentSummaryHtml}`;
+}
+
+module.exports = { attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderPlainText, renderUserMessageParts };

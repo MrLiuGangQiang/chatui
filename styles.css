@@ -984,12 +984,9 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 
 
-/* Copy success icon: keep the transient checkmark centered in its own button.
-   Some earlier SVG rules force position:static/margin:auto, so this final rule wins. */
+/* Copy success icon: center only the temporary checkmark, do not change code button anchoring. */
 .copy-btn.icon-action-btn.copied,
 .copy-btn.icon-action-btn.copied:hover,
-.markdown-body .code-block .code-copy-icon.copied,
-.markdown-body .code-block .code-copy-icon.copied:hover,
 .reasoning-copy-btn.copied,
 .reasoning-copy-btn.copied:hover{
   position:relative!important;
@@ -998,7 +995,14 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   overflow:hidden!important;
   padding:0!important;
   line-height:0!important;
-  transform:none!important;
+}
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover{
+  display:inline-grid!important;
+  place-items:center!important;
+  overflow:hidden!important;
+  padding:0!important;
+  line-height:0!important;
 }
 .copy-btn.icon-action-btn.copied>.copy-success-icon,
 .markdown-body .code-block .code-copy-icon.copied>.copy-success-icon,
@@ -1025,4 +1029,21 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   transform:none!important;
   transform-box:view-box!important;
   transform-origin:center center!important;
+}
+
+
+/* Keep markdown code-block copy button anchored at the top-right after copied state. */
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover{
+  position:absolute!important;
+  right:6px!important;
+  top:6px!important;
+  left:auto!important;
+  bottom:auto!important;
+  transform:none!important;
+  width:26px!important;
+  height:22px!important;
+  min-width:26px!important;
 }

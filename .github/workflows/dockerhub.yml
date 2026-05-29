@@ -95,8 +95,12 @@ jobs:
           push: true
           tags: ${{ steps.meta_acr.outputs.tags }}
           labels: ${{ steps.meta_acr.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=${{ env.IMAGE_NAME }}
+            type=registry,ref=${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: |
+            type=gha,scope=${{ env.IMAGE_NAME }},mode=max
+            type=registry,ref=${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
       - name: Copy image from Alibaba Cloud ACR to Docker Hub
         shell: bash

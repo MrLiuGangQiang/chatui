@@ -2,6 +2,7 @@
 const assert = require('assert');
 const { makeJobId, publicJob } = require('../../server/jobs/common');
 const { makeChatJob } = require('../../server/jobs/chat');
+const { buildImageEditMultipartBody } = require('../../server/jobs/image');
 const { normalizeContentText, normalizeReasoningText } = require('../../server/jobs/reasoning');
 
 const supplied = 'chatjob-12345678';
@@ -18,4 +19,16 @@ assert.strictEqual(normalizeReasoningText([{ summary: 'a' }, { text: 'b' }]), 'a
 assert.strictEqual(normalizeContentText([{ text: 'a' }, { content: 'b' }]), 'ab');
 assert.strictEqual(normalizeContentText({ output: [{ type: 'message', content: [{ text: 'c' }] }] }), 'c');
 assert.strictEqual(normalizeContentText({ message: { content: [{ text: 'd' }] } }), 'd');
+
+const multipart = buildImageEditMultipartBody(
+  { model: 'gpt-image-1', prompt: '改图', size: '1024x1024' },
+  [{ name: 'a.png', type: 'image/png', data: Buffer.from('png-data').toString('base64') }]
+);
+const multipartText = multipart.body.toString('utf8');
+assert.match(multipart.headers['Content-Type'], /^multipart\/form-data; boundary=----chatui-image-edit-/);
+assert.strictEqual(Number(multipart.headers['Content-Length']), multipart.body.length);
+assert.match(multipartText, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/);
+assert.match(multipartText, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/);
+assert.match(multipartText, /Content-Disposition: form-data; name="image"; filename="a\.png"\r\nContent-Type: image\/png\r\n\r\npng-data/);
+assert.ok(multipartText.endsWith('--\r\n'));
 console.log('jobs ok');

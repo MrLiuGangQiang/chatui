@@ -4,6 +4,43 @@ const { normalizeExtraHeaders } = require('../proxy/headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
 const { makeJobId, getJobIdFromUrl, publicJob } = require('./common');
 
+function multipartEscape(value = '') {
+  return String(value || '').replace(/[\r\n"]/g, '_');
+}
+
+function appendMultipartField(parts, boundary, name, value) {
+  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${multipartEscape(name)}"\r\n\r\n${String(value)}\r\n`));
+}
+
+function appendMultipartFile(parts, boundary, name, file, index = 0) {
+  const filename = multipartEscape(file.name || `image-${index + 1}.png`);
+  const contentType = String(file.type || 'application/octet-stream').replace(/[\r\n]/g, '') || 'application/octet-stream';
+  const rawData = String(file.data || '');
+  const base64 = rawData.includes(',') ? rawData.split(',').pop() : rawData;
+  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${multipartEscape(name)}"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`));
+  parts.push(Buffer.from(base64, 'base64'));
+  parts.push(Buffer.from('\r\n'));
+}
+
+function buildImageEditMultipartBody(payload = {}, files = []) {
+  const boundary = `----chatui-image-edit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const parts = [];
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    appendMultipartField(parts, boundary, key, typeof value === 'string' ? value : JSON.stringify(value));
+  });
+  (files || []).forEach((file, index) => appendMultipartFile(parts, boundary, 'image', file || {}, index));
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+  const body = Buffer.concat(parts);
+  return {
+    body,
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': String(body.length),
+    },
+  };
+}
+
 function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
 async function runImageJob(job) {
 const controller = new AbortController();
@@ -14,15 +51,9 @@ try {
   const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
   let body;
   if (job.mode === 'edit_image') {
-    const form = new FormData();
-    Object.entries(job.payload || {}).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== '') form.append(k, v);
-    });
-    (job.files || []).forEach((item, idx) => {
-      const blob = new Blob([Buffer.from(item.data, 'base64')], { type: item.type || 'application/octet-stream' });
-      form.append('image', blob, item.name || `image-${idx + 1}.png`);
-    });
-    body = form;
+    const multipart = buildImageEditMultipartBody(job.payload, job.files);
+    Object.assign(headers, multipart.headers);
+    body = multipart.body;
   } else {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(job.payload || {});
@@ -99,4 +130,4 @@ sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   return { startImageJob, getImageJob };
 }
 
-module.exports = { createImageJobHandlers };
+module.exports = { createImageJobHandlers, buildImageEditMultipartBody };

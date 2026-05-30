@@ -1,6 +1,38 @@
 const { readBody, parseJson } = require('../../http/body');
 
 const RANGES = new Set(['today', 'yesterday', 'total']);
+const USAGE_REFRESH_LIMIT = 6;
+const USAGE_REFRESH_WINDOW_MS = 60 * 1000;
+const usageRefreshBuckets = new Map();
+
+function getClientKey(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket?.remoteAddress || 'unknown';
+}
+
+function checkUsageRefreshLimit(req, name) {
+  const key = `${name}:${getClientKey(req)}`;
+  const now = Date.now();
+  let bucket = usageRefreshBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + USAGE_REFRESH_WINDOW_MS };
+    usageRefreshBuckets.set(key, bucket);
+  }
+  if (bucket.count >= USAGE_REFRESH_LIMIT) {
+    return { allowed: false, resetMs: Math.max(0, bucket.resetAt - now) };
+  }
+  bucket.count += 1;
+  return { allowed: true, remaining: Math.max(0, USAGE_REFRESH_LIMIT - bucket.count), resetMs: Math.max(0, bucket.resetAt - now) };
+}
+
+function usageRateLimitHeaders(result = {}) {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'X-RateLimit-Limit': String(USAGE_REFRESH_LIMIT),
+    'X-RateLimit-Remaining': String(result.remaining || 0),
+    'Retry-After': String(Math.max(1, Math.ceil(Number(result.resetMs || 0) / 1000))),
+  };
+}
 
 function unavailablePayload() {
   return {
@@ -20,6 +52,15 @@ function rangeFromUrl(req) {
 function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats }) {
   async function routeRankings(req, res) {
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
+    const limitResult = checkUsageRefreshLimit(req, 'rankings');
+    if (!limitResult.allowed) {
+      return sendJson(res, 200, {
+        available: true,
+        limited: true,
+        message: '请不要频繁刷新，请一分钟后重试',
+        ranking: [],
+      }, usageRateLimitHeaders(limitResult));
+    }
     if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
     const range = rangeFromUrl(req);
     if (!range) return sendJson(res, 400, { error: { message: '不支持的排行范围' } }, { 'Access-Control-Allow-Origin': '*' });
@@ -34,7 +75,6 @@ function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats }) {
 
   async function routePersonal(req, res) {
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
-    if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
     let body;
     try {
       body = parseJson(await readBody(req));
@@ -45,6 +85,16 @@ function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats }) {
     if (!apiKey) return sendJson(res, 400, { error: { message: '缺少 api_key' } }, { 'Access-Control-Allow-Origin': '*' });
     const range = String(body?.range || 'today').trim();
     if (!RANGES.has(range)) return sendJson(res, 400, { error: { message: '不支持的统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    const limitResult = checkUsageRefreshLimit(req, 'personal');
+    if (!limitResult.allowed) {
+      return sendJson(res, 200, {
+        available: true,
+        limited: true,
+        message: '请不要频繁刷新，请一分钟后重试',
+        personal: null,
+      }, usageRateLimitHeaders(limitResult));
+    }
+    if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
     try {
       const personal = await usageStats.getPersonalRange(apiKey, range);
       return sendJson(res, 200, { available: true, range, personal }, { 'Access-Control-Allow-Origin': '*' });

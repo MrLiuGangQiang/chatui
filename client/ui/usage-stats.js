@@ -24,6 +24,34 @@
     return new Intl.NumberFormat('zh-CN').format(Number(value) || 0);
   }
 
+  function tokenPercent(part, total) {
+    const totalTokens = Number(total) || 0;
+    const partTokens = Number(part) || 0;
+    if (totalTokens <= 0 || partTokens <= 0) return 0;
+    return Math.max(0, Math.min(100, partTokens / totalTokens * 100));
+  }
+
+  function cachePercent(row = {}) {
+    return tokenPercent(row?.prompt_cached_tokens, row?.prompt_tokens);
+  }
+
+  function reasoningPercent(row = {}) {
+    return tokenPercent(row?.completion_reasoning_tokens, row?.completion_tokens);
+  }
+
+  function formatPercent(value) {
+    const number = Number(value) || 0;
+    return `${number >= 10 ? number.toFixed(1) : number.toFixed(2)}`.replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1') + '%';
+  }
+
+  function formatMetricValue(value, type) {
+    return type === 'percent' ? formatPercent(value) : formatTokens(value);
+  }
+
+  function fullMetricValue(value, type) {
+    return type === 'percent' ? formatPercent(value) : fullNumber(value);
+  }
+
   function currentApiKey() {
     const inputValue = $('apiKey')?.value?.trim();
     if (inputValue) return inputValue;
@@ -32,6 +60,10 @@
     } catch {
       return '';
     }
+  }
+
+  function shouldLoadRanking(apiKey) {
+    return Boolean(String(apiKey || '').trim());
   }
 
   function ensureDom() {
@@ -53,9 +85,9 @@
         <div class="usage-stats-head">
           <div>
             <strong id="usageStatsTitle">使用统计</strong>
-            <span id="usageStatsStatus" class="usage-stats-status" aria-live="polite"></span>
           </div>
           <div class="usage-stats-actions">
+            <span id="usageStatsStatus" class="usage-stats-status" aria-live="polite"></span>
             <button id="usageStatsRefresh" type="button" title="刷新" aria-label="刷新统计">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.66 5.66"/><path d="M4 12A8 8 0 0 1 17.66 6.34"/><path d="M17 2v5h5"/><path d="M7 22v-5H2"/></svg>
             </button>
@@ -78,8 +110,8 @@
       ['总用量', row?.total_tokens],
       ['输入', row?.prompt_tokens],
       ['输出', row?.completion_tokens],
-      ['缓存输入', row?.prompt_cached_tokens],
-      ['推理输出', row?.completion_reasoning_tokens],
+      ['缓存输入', cachePercent(row), 'percent'],
+      ['推理输出', reasoningPercent(row), 'percent'],
     ];
   }
 
@@ -106,10 +138,10 @@
       </div>
       <div class="usage-personal-side">
         <div class="usage-personal-ranges">
-          ${RANKING_TABS.map(([key, label]) => `<button type="button" data-personal-range="${key}" class="${key === activePersonalRange ? 'active' : ''}">${label.replace('排行', '')}</button>`).join('')}
+          ${RANKING_TABS.map(([key, label]) => `<button type="button" data-personal-range="${key}" class="${key === activePersonalRange ? 'active' : ''}">${rangeLabel(key)}</button>`).join('')}
         </div>
         <div class="usage-metrics usage-personal-fields">
-          ${tokenColumns(row).slice(1).map(([label, value], index) => `<div class="usage-personal-metric usage-personal-metric-${index}" title="${fullNumber(value)}"><span>${label}</span><strong>${formatTokens(value)}</strong></div>`).join('')}
+          ${tokenColumns(row).slice(1).map(([label, value, type], index) => `<div class="usage-personal-metric usage-personal-metric-${index}" title="${fullMetricValue(value, type)}"><span>${label}</span><strong>${formatMetricValue(value, type)}</strong></div>`).join('')}
         </div>
       </div>
     `;
@@ -117,6 +149,7 @@
   }
 
   function rangeLabel(range) {
+    if (range === 'total') return '所有时间';
     return RANKING_TABS.find(([key]) => key === range)?.[1]?.replace('排行', '') || '今日';
   }
 
@@ -125,16 +158,21 @@
       button.addEventListener('click', async () => {
         activePersonalRange = button.dataset.personalRange || 'today';
         document.querySelectorAll('[data-personal-range]').forEach(item => item.classList.toggle('active', item === button));
-        await loadPersonal(activePersonalRange, { force: false });
+        try {
+          clearUsageLimit();
+          await loadPersonal(activePersonalRange);
+        } catch (err) {
+          showUsageLimit(err.message || '加载失败');
+        }
       });
     });
   }
 
   function renderTokenBadges(row) {
-    return tokenColumns(row).map(([label, value], index) => `
-      <span class="usage-token-badge usage-token-badge-${index}" title="${fullNumber(value)}">
+    return tokenColumns(row).map(([label, value, type], index) => `
+      <span class="usage-token-badge usage-token-badge-${index}" title="${fullMetricValue(value, type)}">
         <em>${label}</em>
-        <strong>${formatTokens(value)}</strong>
+        <strong>${formatMetricValue(value, type)}</strong>
       </span>`).join('');
   }
 
@@ -179,12 +217,32 @@
     return window.ChatUIServices?.usageStats;
   }
 
-  async function loadRanking(range, { force = false } = {}) {
-    if (!force && cache.rankings[range]) {
-      renderRanking(cache.rankings[range], range);
+  function showUsageLimit(message) {
+    const status = $('usageStatsStatus');
+    if (!status) return;
+    status.innerHTML = `<span class="usage-stats-warning-icon" aria-hidden="true">⚠️</span><span>${escapeHtml(message || '请不要频繁刷新，请一分钟后重试')}</span>`;
+    status.classList.add('is-warning');
+  }
+
+  function clearUsageLimit() {
+    const status = $('usageStatsStatus');
+    if (!status) return;
+    status.textContent = '';
+    status.classList.remove('is-warning');
+  }
+
+  async function loadRanking(range) {
+    if (!shouldLoadRanking(currentApiKey())) {
+      cache.rankings[range] = [];
+      renderRanking([], range);
       return;
     }
     const payload = await usageService().requestRanking(range);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderRanking(cache.rankings[range] || [], range);
+      return;
+    }
     if (!payload.available) {
       cache.rankings[range] = [];
       renderRanking([], range);
@@ -194,37 +252,34 @@
     renderRanking(cache.rankings[range], range);
   }
 
-  async function loadPersonal(range, { force = false } = {}) {
+  async function loadPersonal(range) {
     const apiKey = currentApiKey();
     if (!apiKey) {
       renderPersonal(null, false);
       return;
     }
-    if (!force && cache.personal[range]) {
-      renderPersonal(cache.personal[range], true);
+    const payload = await usageService().requestPersonal(apiKey, range);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderPersonal(cache.personal[range] || null, true);
       return;
     }
-    const payload = await usageService().requestPersonal(apiKey, range);
     cache.personal[range] = payload?.personal || null;
     renderPersonal(cache.personal[range], true);
   }
 
   async function refreshUsageStats() {
-    const status = $('usageStatsStatus');
     const refresh = $('usageStatsRefresh');
-    status && (status.textContent = '');
+    clearUsageLimit();
     refresh?.classList.add('is-spinning');
     refresh && (refresh.disabled = true);
     try {
-      cache.rankings[activeRange] = null;
-      cache.personal[activePersonalRange] = null;
-      status && (status.textContent = '');
       await Promise.all([
-        loadRanking(activeRange, { force: true }),
-        loadPersonal(activePersonalRange, { force: true }),
+        loadRanking(activeRange),
+        loadPersonal(activePersonalRange),
       ]);
     } catch (err) {
-      status && (status.textContent = err.message || '加载失败');
+      showUsageLimit(err.message || '加载失败');
     } finally {
       refresh?.classList.remove('is-spinning');
       refresh && (refresh.disabled = false);
@@ -255,16 +310,16 @@
         activeRange = button.dataset.usageTab || 'today';
         document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
         try {
-          await loadRanking(activeRange, { force: false });
+          clearUsageLimit();
+          await loadRanking(activeRange);
         } catch (err) {
-          const status = $('usageStatsStatus');
-          status && (status.textContent = err.message || '加载失败');
+          showUsageLimit(err.message || '加载失败');
         }
       });
     });
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { formatTokens, trimUnit, fullNumber };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { formatTokens, trimUnit, fullNumber, tokenPercent, cachePercent, reasoningPercent, formatPercent, shouldLoadRanking };
 
   if (typeof document === 'undefined') return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

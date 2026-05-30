@@ -54,7 +54,7 @@
 .usage-stats-panel.show { display: flex; }
 
 .usage-stats-card {
-  width: min(920px, calc(100vw - 36px));
+  width: min(820px, calc(100vw - 36px));
   height: min(900px, calc(100vh - 52px));
   max-height: calc(100vh - 52px);
   overflow: hidden;
@@ -94,7 +94,7 @@
   color: transparent;
 }
 
-.usage-stats-head span {
+.usage-stats-head > div:first-child > span {
   display: block;
   margin-top: 3px;
   color: #64748b;
@@ -103,6 +103,28 @@
 }
 
 .usage-stats-status:empty { display: none; }
+.usage-stats-status.is-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  border: 1px solid rgba(245, 158, 11, .58);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: linear-gradient(135deg, rgba(255, 251, 235, .98), rgba(254, 243, 199, .96));
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(245, 158, 11, .22), 0 0 0 0 rgba(245, 158, 11, .40);
+  animation: usage-warning-blink .18s steps(2, end) 16;
+}
+
+.usage-stats-warning-icon {
+  display: inline-flex;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(146, 64, 14, .20));
+}
 
 .usage-stats-actions { display: inline-flex; align-items: center; gap: 8px; }
 
@@ -141,6 +163,17 @@
 
 @keyframes usage-spin { to { transform: rotate(360deg); } }
 
+@keyframes usage-warning-blink {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 8px 22px rgba(245, 158, 11, .22), 0 0 0 0 rgba(245, 158, 11, .36);
+  }
+  50% {
+    opacity: .38;
+    box-shadow: 0 10px 28px rgba(245, 158, 11, .34), 0 0 0 4px rgba(245, 158, 11, .13);
+  }
+}
+
 .usage-stats-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -152,7 +185,7 @@
 .usage-personal {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(220px, .58fr) minmax(0, 1.42fr);
+  grid-template-columns: minmax(190px, .54fr) minmax(0, 1.46fr);
   gap: 10px;
   align-items: stretch;
   margin: 10px 14px 8px;
@@ -461,7 +494,7 @@
 
 .usage-token-grid {
   display: grid;
-  grid-template-columns: minmax(112px, 1.05fr) minmax(100px, .95fr) minmax(100px, .95fr) minmax(120px, 1.08fr) minmax(120px, 1.08fr);
+  grid-template-columns: minmax(96px, 1fr) minmax(84px, .9fr) minmax(84px, .9fr) minmax(96px, .96fr) minmax(96px, .96fr);
   gap: 5px;
 }
 
@@ -568,7 +601,7 @@
   }
   .usage-token-grid {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     overflow: visible;
     padding-bottom: 0;

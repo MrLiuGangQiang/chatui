@@ -2,19 +2,16 @@
 const assert = require('assert');
 const { createRealtimeRenderer } = require('../../client/ui/realtime-renderer');
 
-const queue = [];
 const calls = [];
-const renderer = createRealtimeRenderer(value => calls.push(value), cb => { queue.push(cb); return queue.length - 1; }, id => { queue[id] = null; });
+const renderer = createRealtimeRenderer(value => calls.push(value));
 renderer.set('a');
 renderer.set('b');
-assert.deepStrictEqual(calls, []);
-queue.shift()();
-assert.deepStrictEqual(calls, ['b']);
-renderer.set('c');
-renderer.flush('d');
-assert.deepStrictEqual(calls, ['b', 'd']);
-renderer.set('e');
+assert.deepStrictEqual(calls, ['a', 'b']);
+renderer.flush('c');
+assert.deepStrictEqual(calls, ['a', 'b', 'c']);
+renderer.set('d');
 renderer.cancel();
-queue.forEach(cb => cb && cb());
-assert.deepStrictEqual(calls, ['b', 'd']);
+renderer.set('e');
+renderer.flush('f');
+assert.deepStrictEqual(calls, ['a', 'b', 'c', 'd']);
 console.log('realtime renderer ok');

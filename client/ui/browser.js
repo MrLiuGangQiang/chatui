@@ -17,44 +17,20 @@
 
   function createRealtimeRenderer(render, options = {}) {
     let value = '';
-    let scheduled = false;
     let cancelled = false;
-    let handle = null;
-    let lastRenderedAt = 0;
-    const minIntervalMs = Number.isFinite(options.minIntervalMs) ? Math.max(0, options.minIntervalMs) : 0;
-    const clearHandle = id => {
-      clearTimeout(id);
-      cancelAnimationFrame(id);
-    };
-    const run = () => {
-      scheduled = false;
-      handle = null;
-      lastRenderedAt = Date.now();
-      if (!cancelled) render(value);
-    };
     return {
       set(next) {
         if (cancelled) return;
         value = String(next || '');
-        if (scheduled) return;
-        scheduled = true;
-        const waitMs = Math.max(0, minIntervalMs - (Date.now() - lastRenderedAt));
-        handle = waitMs > 0 ? setTimeout(run, waitMs) : requestAnimationFrame(run);
+        render(value);
       },
       flush(next) {
         if (cancelled) return;
         value = String(next || '');
-        if (handle !== null) clearHandle(handle);
-        handle = null;
-        scheduled = false;
-        lastRenderedAt = Date.now();
         render(value);
       },
       cancel() {
         cancelled = true;
-        if (handle !== null) clearHandle(handle);
-        handle = null;
-        scheduled = false;
         value = '';
       },
     };

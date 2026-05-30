@@ -74,6 +74,13 @@
     return !!getActiveRun(appState, sessionId)?.stopped;
   }
 
+  function bindFollowingRun(appState, sessionId, jobId, type = 'chat') {
+    if (!jobId) return null;
+    const run = ensureActiveRun(appState, sessionId);
+    run.jobIds.add(`${type}:${jobId}`);
+    return run;
+  }
+
 
 
   function sessionStorageKey(baseKey, sessionId) {
@@ -217,7 +224,7 @@
 
   window.ChatUIApp = Object.freeze({
     state: Object.freeze({ createSession, ensureActiveSession, isSessionBusy }),
-    runs: Object.freeze({ makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped }),
+    runs: Object.freeze({ makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped, bindFollowingRun }),
     sessions: Object.freeze({ sessionStorageKey, deriveSessionTitle, getSessionReturnCount }),
     persistence: Object.freeze({ stripLargeDataUrlsFromText, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage }),
     displayItems: Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia }),

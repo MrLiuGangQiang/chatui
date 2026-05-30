@@ -33,4 +33,11 @@ function isRunStopped(appState, sessionId) {
   return !!getActiveRun(appState, sessionId)?.stopped;
 }
 
-module.exports = { makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped };
+function bindFollowingRun(appState, sessionId, jobId, type = 'chat', make = makeRun) {
+  if (!jobId) return null;
+  const run = ensureActiveRun(appState, sessionId, make);
+  run.jobIds.add(`${type}:${jobId}`);
+  return run;
+}
+
+module.exports = { makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped, bindFollowingRun };

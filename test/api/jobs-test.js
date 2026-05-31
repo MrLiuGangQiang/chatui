@@ -2,7 +2,7 @@
 const assert = require('assert');
 const { makeJobId, publicJob } = require('../../server/jobs/common');
 const { makeChatJob } = require('../../server/jobs/chat');
-const { buildImageEditMultipartBody, extractImageEditFiles, stripImageEditFileFields } = require('../../server/jobs/image');
+const { buildImageEditJsonPayload, buildImageEditMultipartBody, extractImageEditFiles, stripImageEditFileFields } = require('../../server/jobs/image');
 const { normalizeContentText, normalizeReasoningText } = require('../../server/jobs/reasoning');
 
 const supplied = 'chatjob-12345678';
@@ -39,4 +39,25 @@ const editBody = {
 };
 assert.deepStrictEqual(extractImageEditFiles(editBody).map(file => file.name), ['outer.png']);
 assert.deepStrictEqual(stripImageEditFileFields(editBody.payload), { model: 'gpt-image-1', prompt: '改图' });
+
+const jsonEditPayload = buildImageEditJsonPayload(
+  { model: 'gpt-image-2', prompt: '改图', files: [{ name: 'payload.png', data: 'bad' }], images: [{ image_url: 'https://example.com/ref.png' }] },
+  [{ name: 'outer.png', type: 'image/png', data: Buffer.from('outer').toString('base64') }]
+);
+assert.strictEqual(jsonEditPayload.model, 'gpt-image-2');
+assert.strictEqual(jsonEditPayload.prompt, '改图');
+assert.strictEqual(jsonEditPayload.files, undefined);
+assert.deepStrictEqual(jsonEditPayload.images, [
+  { image_url: 'https://example.com/ref.png' },
+  { image_url: `data:image/png;base64,${Buffer.from('outer').toString('base64')}` },
+]);
+
+const multiJsonEditPayload = buildImageEditJsonPayload(
+  { model: 'gpt-image-2', prompt: '合成', images: [{ name: 'dog.png', type: 'image/png', data: Buffer.from('dog').toString('base64') }] },
+  [{ name: 'cat.png', type: 'image/png', data: Buffer.from('cat').toString('base64') }]
+);
+assert.deepStrictEqual(multiJsonEditPayload.images, [
+  { image_url: `data:image/png;base64,${Buffer.from('dog').toString('base64')}` },
+  { image_url: `data:image/png;base64,${Buffer.from('cat').toString('base64')}` },
+]);
 console.log('jobs ok');

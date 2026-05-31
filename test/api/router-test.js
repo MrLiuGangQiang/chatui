@@ -72,12 +72,13 @@ async function json(res) {
     });
     assert.strictEqual(res.status, 200, 'image edit proxy accepts base64 files');
     assert.strictEqual(upstreamRequest.url, '/images/edits', 'image edit proxy target path');
-    assert.match(upstreamRequest.headers['content-type'], /^application\/json/, 'image edit proxy sends JSON image references');
-    const imageEditPayload = JSON.parse(upstreamRequest.body.toString('utf8'));
-    assert.strictEqual(imageEditPayload.model, 'gpt-image-1', 'image edit proxy keeps model field');
-    assert.strictEqual(imageEditPayload.prompt, '改图', 'image edit proxy keeps prompt field');
-    assert.deepStrictEqual(imageEditPayload.images, [{ image_url: `data:image/png;base64,${Buffer.from('outer').toString('base64')}` }], 'image edit proxy forwards image_url data URL');
-    assert.strictEqual(imageEditPayload.files, undefined, 'image edit proxy strips json file fields');
+    assert.match(upstreamRequest.headers['content-type'], /^multipart\/form-data; boundary=----chatui-image-edit-/, 'image edit proxy sends multipart body');
+    const imageEditBody = upstreamRequest.body.toString('utf8');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="model"\r\n\r\ngpt-image-1/, 'image edit proxy keeps model field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="prompt"\r\n\r\n改图/, 'image edit proxy keeps prompt field');
+    assert.match(imageEditBody, /Content-Disposition: form-data; name="image"; filename="outer\.png"\r\nContent-Type: image\/png\r\n\r\nouter/, 'image edit proxy forwards image file field');
+    assert.doesNotMatch(imageEditBody, /name="image\[\]"/, 'image edit proxy does not use image[] field');
+    assert.doesNotMatch(imageEditBody, /payload\.png|name="files"/, 'image edit proxy strips json file fields');
 
     for (let i = 0; i < 4; i += 1) {
       res = await fetch(`${base}/api/chat-jobs`, {

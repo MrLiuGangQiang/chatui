@@ -42,32 +42,6 @@ function buildImageEditMultipartBody(payload = {}, files = []) {
   };
 }
 
-function imageFileToDataUrl(file = {}) {
-  const rawData = String(file.data || '');
-  if (!rawData) return '';
-  if (/^data:image\//i.test(rawData)) return rawData;
-  const mime = String(file.type || 'image/png').replace(/[\r\n]/g, '') || 'image/png';
-  const base64 = rawData.includes(',') ? rawData.split(',').pop() : rawData;
-  return `data:${mime};base64,${base64}`;
-}
-
-function normalizeImageReference(item = {}) {
-  if (!item || typeof item !== 'object') return null;
-  if (item.image_url || item.file_id) return item;
-  const imageUrl = imageFileToDataUrl(item);
-  return imageUrl ? { image_url: imageUrl } : null;
-}
-
-function buildImageEditJsonPayload(payload = {}, files = []) {
-  const clean = stripImageEditFileFields(payload);
-  const payloadImages = Array.isArray(payload.images) ? payload.images.map(normalizeImageReference).filter(Boolean) : [];
-  const fileImages = (files || []).map(normalizeImageReference).filter(Boolean);
-  return {
-    ...clean,
-    images: [...payloadImages, ...fileImages],
-  };
-}
-
 function extractImageEditFiles(body = {}) {
   const candidates = [
     body.files,
@@ -99,10 +73,12 @@ try {
   job.serverStartAt = Date.now();
   const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
   let body;
-  headers['Content-Type'] = 'application/json';
   if (job.mode === 'edit_image') {
-    body = JSON.stringify(buildImageEditJsonPayload(job.payload, job.files));
+    const multipart = buildImageEditMultipartBody(stripImageEditFileFields(job.payload), job.files);
+    body = multipart.body;
+    Object.assign(headers, multipart.headers);
   } else {
+    headers['Content-Type'] = 'application/json';
     body = JSON.stringify(job.payload || {});
   }
   const upstream = await fetch(job.targetUrl, {
@@ -179,7 +155,6 @@ sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 module.exports = {
   createImageJobHandlers,
   buildImageEditMultipartBody,
-  buildImageEditJsonPayload,
   extractImageEditFiles,
   stripImageEditFileFields,
 };

@@ -4,7 +4,8 @@ const { normalizeExtraHeaders } = require('./headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
 const {
   extractImageEditFiles,
-  buildImageEditJsonPayload,
+  stripImageEditFileFields,
+  buildImageEditMultipartBody,
 } = require('../jobs/image');
 
 function withQueryParams(rawUrl, params) {
@@ -59,12 +60,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         notifyJob(proxyChatJob);
       }
     }
-    let upstreamPayload = payload;
+    let upstreamBody = method === 'GET' ? undefined : JSON.stringify(payload);
+    let upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
     if (isImageEdit && imageEditFiles.length) {
-      upstreamPayload = buildImageEditJsonPayload(payload, imageEditFiles);
+      const multipart = buildImageEditMultipartBody(stripImageEditFileFields(payload), imageEditFiles);
+      upstreamBody = multipart.body;
+      upstreamContentHeaders = multipart.headers;
     }
-    const upstreamBody = method === 'GET' ? undefined : JSON.stringify(upstreamPayload);
-    const upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
     const upstream = await fetch(targetUrl.toString(), {
       method,
       signal: controller.signal,

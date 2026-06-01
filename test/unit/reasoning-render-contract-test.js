@@ -31,6 +31,16 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   appJs,
+  /I\.flush\(C\)/,
+  'final response rendering should avoid an extra streaming DOM flush before final Markdown render'
+);
+assert.match(
+  appJs,
+  /deferDomUpdate/,
+  'live display persistence should be able to skip duplicate active DOM updates'
+);
+assert.doesNotMatch(
+  appJs,
   /reasoning-content"\),r=escapeHtml\(n\)\.replace\(\/\\n\/g,"<br>"\)/,
   'reasoning content should not be forced to plain text'
 );

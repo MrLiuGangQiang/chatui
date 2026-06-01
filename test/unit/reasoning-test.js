@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const assert = require('assert');
-const { normalizeReasoningText, normalizeContentText, extractStreamDelta, reasoningBudgetTokens } = require('../../client/core/reasoning');
+const { normalizeReasoningText, normalizeContentText, extractStreamDelta, extractResponsesStreamDelta, reasoningBudgetTokens } = require('../../client/core/reasoning');
 
 assert.strictEqual(normalizeReasoningText('abc'), 'abc');
 assert.strictEqual(normalizeReasoningText([{ summary: 'a' }, { thinking: 'b' }]), 'a\nb');
@@ -18,6 +18,12 @@ assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { content: [{ typ
 assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { text: 'hello' } }] }), { content: 'hello', reasoning: '' });
 assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'message', content: [{ text: 'hello' }] }] }), { content: 'hello', reasoning: '' });
 assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'reasoning', summary: 'plan' }] }), { content: '', reasoning: 'plan' });
+assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'reasoning', summary_text: 'summary text' }] }), { content: '', reasoning: 'summary text' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.output_text.delta', delta: 'hello' }), { content: 'hello', reasoning: '' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan' }), { content: '', reasoning: 'plan' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan', output_text_delta: 'wrong' }), { content: '', reasoning: 'plan' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.delta', delta: 'summary delta' }), { content: '', reasoning: 'summary delta' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.done', text: 'summary done' }), { content: '', reasoning: 'summary done' });
 assert.strictEqual(reasoningBudgetTokens('xhigh'), 16384);
 assert.strictEqual(reasoningBudgetTokens('unknown'), 4096);
 console.log('reasoning ok');

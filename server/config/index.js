@@ -8,7 +8,7 @@ const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_UPSTREAM_TIMEOUT_MS);
 const ALLOWED_PROXY_METHODS = new Set(['GET', 'POST']);
-const ALLOWED_PROXY_PATHS = [/^\/models\/?$/, /^\/chat\/completions\/?$/, /^\/images\/(generations|edits)\/?$/];
+const ALLOWED_PROXY_PATHS = [/^\/models\/?$/, /^\/chat\/completions\/?$/, /^\/responses\/?$/, /^\/images\/(generations|edits)\/?$/];
 const pkg = require('../../package.json');
 const APP_VERSION = String(pkg.version || '0.0.0');
 

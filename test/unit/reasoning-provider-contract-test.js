@@ -34,13 +34,21 @@ function extractFunctionSource(name) {
 }
 
 const source = `
-const state={reasoningMode:true,reasoningType:'high',reasoningProvider:'auto'};
+var state={reasoningMode:true,reasoningType:'high',reasoningProvider:'auto'};
+function normalizeText(value){if(!value)return '';if(typeof value==='string')return value;if(Array.isArray(value))return value.map(item=>normalizeText(item?.text||item?.content||item?.summary||item?.output_text||item)).filter(Boolean).join('');if(typeof value==='object')return normalizeText(value.text||value.content||value.summary||value.output_text||value.output||'');return String(value||'')}
+const normalizeContentText=normalizeText;
+const normalizeReasoningText=normalizeText;
 const window={ChatUICore:{reasoning:{reasoningBudgetTokens:(level)=>({low:1024,medium:4096,high:8192,xhigh:16384}[level]||4096)}}};
 ${extractFunctionSource('normalizeReasoningProvider')}
 ${extractFunctionSource('reasoningBudgetTokens')}
 ${extractFunctionSource('reasoningModelProfile')}
 ${extractFunctionSource('inferReasoningProvider')}
 ${extractFunctionSource('reasoningPayloadOptions')}
+${extractFunctionSource('responsesInputFromChatMessages')}
+${extractFunctionSource('shouldUseResponsesReasoning')}
+${extractFunctionSource('buildResponsesPayload')}
+${extractFunctionSource('extractResponsesResult')}
+${extractFunctionSource('extractResponsesStreamDelta')}
 `;
 
 const context = {};
@@ -65,6 +73,31 @@ assertJsonEqual(context.reasoningModelProfile('claude-sonnet-4.5', 'auto'), { pr
 function assertJsonEqual(actual, expected) {
   assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected));
 }
+
+
+assert.strictEqual(context.shouldUseResponsesReasoning('gpt-5', 'auto'), true);
+assert.strictEqual(context.shouldUseResponsesReasoning('claude-sonnet-4.5', 'auto'), false);
+context.state.reasoningMode = false;
+assert.strictEqual(context.shouldUseResponsesReasoning('gpt-5', 'auto'), false);
+context.state.reasoningMode = true;
+assertJsonEqual(context.responsesInputFromChatMessages([
+  { role: 'system', content: 'sys' },
+  { role: 'user', content: [{ type: 'text', text: 'hello' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }] },
+]), [
+  { role: 'system', content: 'sys' },
+  { role: 'user', content: [{ type: 'input_text', text: 'hello' }, { type: 'input_image', image_url: 'data:image/png;base64,abc' }] },
+]);
+assertJsonEqual(context.buildResponsesPayload('gpt-5', [{ role: 'user', content: 'hi' }], { reasoningEffort: 'xhigh', stream: false }), {
+  model: 'gpt-5',
+  input: [{ role: 'user', content: 'hi' }],
+  reasoning: { effort: 'xhigh', summary: 'auto' },
+});
+assertJsonEqual(context.extractResponsesResult({
+  output_text: 'answer',
+  output: [{ type: 'reasoning', summary: [{ text: 'summary' }] }],
+}), { content: 'answer', reasoning: 'summary' });
+assertJsonEqual(context.extractResponsesStreamDelta({ type: 'response.output_text.delta', delta: 'hello' }), { content: 'hello', reasoning: '' });
+assertJsonEqual(context.extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan' }), { content: '', reasoning: 'plan' });
 
 assertJsonEqual(context.reasoningPayloadOptions({ model: 'gpt-5', reasoningEffort: 'xhigh' }), { reasoning_effort: 'xhigh' });
 assertJsonEqual(context.reasoningPayloadOptions({ model: 'claude-sonnet-4.5', reasoningEffort: 'medium' }), { thinking: { type: 'enabled', budget_tokens: 4096 } });

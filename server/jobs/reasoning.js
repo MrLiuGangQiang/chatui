@@ -2,10 +2,10 @@ function normalizeReasoningText(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
-    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.reasoning || item?.thinking || item?.reasoning_content || item?.thinking_content || item?.reasoning_details || item?.output_text || item?.delta || item)).filter(Boolean).join('\n');
+    return value.map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.summary_text || item?.reasoning || item?.thinking || item?.reasoning_content || item?.thinking_content || item?.reasoning_details || item?.output_text || item?.delta || item)).filter(Boolean).join('\n');
   }
   if (typeof value === 'object') {
-    return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || value.delta || '');
+    return normalizeReasoningText(value.text || value.content || value.summary || value.summary_text || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || value.delta || '');
   }
   return String(value || '');
 }

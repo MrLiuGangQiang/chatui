@@ -7,15 +7,32 @@ const root = path.resolve(__dirname, '../..');
 const appJs = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 
 assert.match(appJs, /function updateReasoning\(/, 'updateReasoning should exist');
+assert.match(appJs, /function renderReasoningMarkdown\(/, 'reasoning should use a dedicated markdown renderer');
+assert.match(appJs, /function protectReasoningMarkdownText\(/, 'reasoning markdown should protect plain English text');
 assert.match(
   appJs,
-  /reasoning-content"\),r=escapeHtml\(n\)\.replace\(\/\\n\/g,"<br>"\)/,
-  'reasoning content should be escaped plain text, not rendered as Markdown'
+  /const e=!0===s\.done\|\|!0===s\.renderMarkdown/,
+  'reasoning stream should avoid full Markdown rendering until done'
+);
+assert.match(
+  appJs,
+  /renderReasoningMarkdown\(n\)/,
+  'reasoning final content should use dedicated Markdown rendering'
+);
+assert.match(
+  appJs,
+  /o\.textContent=n,o\.dataset\.streamingText=n/,
+  'reasoning stream should update textContent lightly to avoid flicker'
 );
 assert.doesNotMatch(
   appJs,
-  /reasoning-content"\),r=renderMarkdown\(n\)/,
-  'reasoning content must not use renderMarkdown because model thinking may contain Markdown-like symbols'
+  /setTimeout\(h,900\)/,
+  'reasoning should not be marked complete before the response stream finishes'
+);
+assert.doesNotMatch(
+  appJs,
+  /reasoning-content"\),r=escapeHtml\(n\)\.replace\(\/\\n\/g,"<br>"\)/,
+  'reasoning content should not be forced to plain text'
 );
 
 assert.match(

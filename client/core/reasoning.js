@@ -19,6 +19,7 @@ function normalizeReasoningText(value) {
       value.reasoning_details ||
       value.output_text ||
       value.delta ||
+      value.summary_text ||
       ''
     );
   }
@@ -98,13 +99,42 @@ function extractStreamDelta(event) {
       .join('');
   }
   const outputReasoning = !reasoning && Array.isArray(event?.output)
-    ? normalizeReasoningText(event.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking))
+    ? normalizeReasoningText(event.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.summary_text || item?.reasoning || item?.thinking))
     : '';
   return { content, reasoning: reasoning || outputReasoning };
+}
+
+function extractResponsesStreamDelta(event) {
+  const type = String(event?.type || '');
+  const isReasoning = /reasoning/i.test(type);
+  const isSummary = /summary/i.test(type);
+  const content = normalizeContentText(
+    (!isReasoning ? event?.delta : '') ||
+    (!isReasoning ? event?.text : '') ||
+    (!isReasoning ? event?.output_text_delta : '') ||
+    (!isReasoning ? event?.response?.output_text?.delta : '') ||
+    (type === 'response.output_text.done' ? event?.text : '') ||
+    ''
+  );
+  const reasoningDelta = isReasoning && isSummary
+    ? (event?.delta || event?.text || event?.content || event?.output_text || '')
+    : '';
+  const reasoning = normalizeReasoningText(
+    event?.summary_text_delta ||
+    event?.reasoning_summary_text_delta ||
+    event?.delta_text ||
+    event?.summary_text ||
+    event?.reasoning_summary_text ||
+    event?.summary ||
+    event?.reasoning_summary ||
+    reasoningDelta ||
+    ''
+  );
+  return { content, reasoning };
 }
 
 function reasoningBudgetTokens(level = 'medium') {
   return { low: 1024, medium: 4096, high: 8192, xhigh: 16384 }[level] || 4096;
 }
 
-module.exports = { normalizeReasoningText, normalizeContentText, extractStreamDelta, reasoningBudgetTokens };
+module.exports = { normalizeReasoningText, normalizeContentText, extractStreamDelta, extractResponsesStreamDelta, reasoningBudgetTokens };

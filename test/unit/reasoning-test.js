@@ -10,6 +10,10 @@ assert.strictEqual(normalizeContentText({ output: [{ type: 'message', content: [
 assert.strictEqual(normalizeContentText({ message: { content: [{ text: 'from nested message' }] } }), 'from nested message');
 assert.strictEqual(normalizeContentText({ response: { text: 'from response' } }), 'from response');
 assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { content: 'hi', reasoning_content: 'think' } }] }), { content: 'hi', reasoning: 'think' });
+
+assert.strictEqual(normalizeReasoningText([{ reasoning_content: 'r1' }, { thinking_content: 'r2' }, { delta: 'r3' }]), 'r1\nr2\nr3');
+assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { delta: 'thinking delta' } }] }), { content: '', reasoning: 'thinking delta' });
+assert.deepStrictEqual(extractStreamDelta({ reasoning_delta: 'event reasoning' }), { content: '', reasoning: 'event reasoning' });
 assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { content: [{ type: 'text', text: 'hello' }] } }] }), { content: 'hello', reasoning: '' });
 assert.deepStrictEqual(extractStreamDelta({ choices: [{ delta: { text: 'hello' } }] }), { content: 'hello', reasoning: '' });
 assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'message', content: [{ text: 'hello' }] }] }), { content: 'hello', reasoning: '' });

@@ -3,7 +3,7 @@ function normalizeReasoningText(value) {
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
     return value
-      .map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.reasoning || item?.thinking || item))
+      .map(item => normalizeReasoningText(item?.text || item?.content || item?.summary || item?.reasoning || item?.thinking || item?.reasoning_content || item?.thinking_content || item?.reasoning_details || item?.output_text || item?.delta || item))
       .filter(Boolean)
       .join('\n');
   }
@@ -18,6 +18,7 @@ function normalizeReasoningText(value) {
       value.thinking_content ||
       value.reasoning_details ||
       value.output_text ||
+      value.delta ||
       ''
     );
   }
@@ -61,16 +62,20 @@ function extractStreamDelta(event) {
     delta.thinking ||
     delta.reasoning_details ||
     delta.thinking_content ||
+    delta.delta ||
     message.reasoning_content ||
     message.reasoning ||
     message.thinking ||
     message.reasoning_details ||
     message.thinking_content ||
+    message.delta ||
     event?.reasoning_content ||
     event?.reasoning ||
     event?.thinking ||
     event?.reasoning_details ||
     event?.thinking_content ||
+    event?.reasoning_delta ||
+    event?.thinking_delta ||
     ''
   );
   let content = normalizeContentText(

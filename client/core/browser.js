@@ -23,8 +23,8 @@
   function normalizeReasoningText(value) {
     if (!value) return '';
     if (typeof value === 'string') return value;
-    if (Array.isArray(value)) return value.map(item => normalizeReasoningText(item && (item.text || item.content || item.summary || item.reasoning || item.thinking) || item)).filter(Boolean).join('\n');
-    if (typeof value === 'object') return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || '');
+    if (Array.isArray(value)) return value.map(item => normalizeReasoningText(item && (item.text || item.content || item.summary || item.reasoning || item.thinking || item.reasoning_content || item.thinking_content || item.reasoning_details || item.output_text || item.delta) || item)).filter(Boolean).join('\n');
+    if (typeof value === 'object') return normalizeReasoningText(value.text || value.content || value.summary || value.reasoning || value.thinking || value.reasoning_content || value.thinking_content || value.reasoning_details || value.output_text || value.delta || '');
     return String(value || '');
   }
 
@@ -43,7 +43,7 @@
     const choice = event && event.choices && event.choices[0];
     const delta = choice && choice.delta || {};
     const message = choice && choice.message || {};
-    const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || message.reasoning_content || message.reasoning || message.thinking || message.reasoning_details || message.thinking_content || event && (event.reasoning_content || event.reasoning || event.thinking || event.reasoning_details || event.thinking_content) || '');
+    const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || delta.delta || message.reasoning_content || message.reasoning || message.thinking || message.reasoning_details || message.thinking_content || message.delta || event && (event.reasoning_content || event.reasoning || event.thinking || event.reasoning_details || event.thinking_content || event.reasoning_delta || event.thinking_delta) || '');
     let content = normalizeContentText(delta.content || delta.text || delta.output_text || message.content || message.text || message.output_text || event && event.output_text || (typeof (event && event.delta) === 'string' ? event.delta : '') || event && (event.content || event.text) || '');
     if (!content && Array.isArray(event && event.output)) content = event.output.filter(item => !/reason/i.test(String(item && (item.type || item.role) || ''))).map(item => normalizeContentText(item && (item.content || item.text || item.output_text) || '')).join('');
     const outputReasoning = !reasoning && Array.isArray(event && event.output) ? normalizeReasoningText(event.output.filter(item => /reason/i.test(String(item && (item.type || item.role) || '')) || item && (item.summary || item.reasoning || item.thinking))) : '';

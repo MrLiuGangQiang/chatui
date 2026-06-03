@@ -4,9 +4,15 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to publish, for example v1.2.39
+        required: true
+        type: string
 
 concurrency:
-  group: docker-release-${{ github.event.release.tag_name }}
+  group: docker-release-${{ github.event.release.tag_name || inputs.version }}
   cancel-in-progress: true
 
 env:
@@ -25,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${{ github.event.release.tag_name || inputs.version }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must match vMAJOR.MINOR.PATCH, for example v1.0.0. Got: $VERSION" >&2
             exit 1
@@ -67,54 +73,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to Alibaba Cloud ACR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ secrets.ACR_REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
       - name: Login to Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_NAMESPACE }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker metadata for Alibaba Cloud ACR
-        id: meta_acr
+      - name: Docker metadata for Docker Hub
+        id: meta
         uses: docker/metadata-action@v6
         with:
           images: |
-            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.version.outputs.semver }}
             type=raw,value=latest
 
-      - name: Build and push to Alibaba Cloud ACR first
-        id: build_acr
+      - name: Build and push to Docker Hub
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           pull: true
-          tags: ${{ steps.meta_acr.outputs.tags }}
-          labels: ${{ steps.meta_acr.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
           cache-to: type=gha,scope=${{ env.IMAGE_NAME }},mode=max
-
-      - name: Copy image from Alibaba Cloud ACR to Docker Hub
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ACR_IMAGE="${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}"
-          DOCKERHUB_IMAGE="${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}"
-          VERSION="${{ steps.version.outputs.semver }}"
-
-          docker buildx imagetools create \
-            --tag "${DOCKERHUB_IMAGE}:${VERSION}" \
-            "${ACR_IMAGE}:${VERSION}"
-          docker buildx imagetools create \
-            --tag "${DOCKERHUB_IMAGE}:latest" \
-            "${ACR_IMAGE}:latest"

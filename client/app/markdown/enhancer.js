@@ -43,7 +43,7 @@ function wrapTables(root) {
 }
 
 function bindCopyButton(button, text, copyText) {
-  if (!button || button.dataset.copyBound === '1') return;
+  if (!button) return;
   button.dataset.copyText = text;
   button.dataset.copyBound = '1';
   button.addEventListener('click', async () => {
@@ -65,7 +65,6 @@ function bindCopyButton(button, text, copyText) {
 function enhanceCodeCopy(root, copyText) {
   if (!root?.querySelectorAll) return;
   root.querySelectorAll('pre').forEach((pre) => {
-    if (pre.closest('.mermaid-block,.markdown-mermaid-pending')) return;
     const code = pre.querySelector('code');
     const text = code?.textContent || pre.textContent || '';
     if (!text.trim()) return;
@@ -96,6 +95,141 @@ function enhanceCodeCopy(root, copyText) {
     }
     bindCopyButton(btn, text, copyText);
   });
+}
+
+function ensureMermaidSourceView(block) {
+  if (!block?.parentNode) return null;
+  block.classList.add('mermaid-block', 'markdown-mermaid-pending');
+  if (block.dataset.mermaidRendered !== '1' && block.dataset.mermaidRendered !== 'rendering' && block.dataset.mermaidRendered !== 'error') block.dataset.mermaidRendered = '0';
+  let source = block.dataset.mermaidSource || block.querySelector('code.language-mermaid')?.textContent || '';
+  block.dataset.mermaidSource = source;
+  let codeWrap = block.querySelector(':scope > .code-block');
+  if (!codeWrap) {
+    const pre = block.querySelector(':scope > pre') || block.querySelector('pre');
+    if (!pre) return null;
+    codeWrap = document.createElement('div');
+    codeWrap.className = 'code-block mermaid-source-view';
+    pre.replaceWith(codeWrap);
+    codeWrap.appendChild(pre);
+  }
+  codeWrap.classList.add('mermaid-source-view');
+  codeWrap.hidden = block.dataset.mermaidRendered === '1';
+  let code = codeWrap.querySelector('code.language-mermaid');
+  if (!code) {
+    code = codeWrap.querySelector('code') || document.createElement('code');
+    code.className = 'language-mermaid';
+    if (!code.parentNode) {
+      const pre = codeWrap.querySelector('pre') || document.createElement('pre');
+      pre.appendChild(code);
+      if (!pre.parentNode) codeWrap.appendChild(pre);
+    }
+  }
+  if (source && code.textContent !== source) code.textContent = source;
+  if (!source) {
+    source = code.textContent || '';
+    block.dataset.mermaidSource = source;
+  }
+  return { codeWrap, source };
+}
+
+function setMermaidToggleState(button, state) {
+  if (!button) return;
+  button.dataset.mermaidState = state;
+  button.classList.toggle('is-loading', state === 'rendering');
+  button.classList.toggle('is-error', state === 'error');
+  button.disabled = state === 'rendering';
+  const labels = { source: '渲染图表', rendering: '渲染中…', rendered: '查看源码', error: '渲染失败' };
+  button.textContent = labels[state] || labels.source;
+  button.title = state === 'rendered' ? '切回 Mermaid 源码' : '渲染 Mermaid 图表';
+  button.setAttribute('aria-label', button.title);
+}
+
+async function renderMermaidBlockOnDemand(block, loader = defaultLoadMermaid) {
+  if (!block?.parentNode || block.dataset.mermaidRendered === 'rendering') return { ok: false, node: block, stale: true };
+  const { codeWrap, source } = ensureMermaidSourceView(block) || {};
+  const error = block.querySelector(':scope > .markdown-error');
+  if (error) error.remove();
+  block.querySelector(':scope > .mermaid')?.remove();
+  const token = nextMermaidToken();
+  block.dataset.mermaidRendered = 'rendering';
+  block.dataset.mermaidToken = token;
+  block.dataset.mermaidSource = source || '';
+  if (codeWrap) codeWrap.hidden = true;
+  let mermaid = null;
+  try { mermaid = await loader(); } catch (err) { console.warn('[markdown] mermaid load failed:', err); }
+  if (!mermaid) return restoreMermaidFallback(block, null, token, new Error('Mermaid unavailable'));
+  try { mermaid.initialize?.({ startOnLoad: false, securityLevel: 'strict', theme: 'default', deterministicIds: false, deterministicIDSeed: undefined }); } catch {}
+  return renderSingleMermaidBlock(block, mermaid);
+}
+
+function ensureRenderedMermaidToggle(block) {
+  if (!block?.parentNode) return null;
+  let btn = block.querySelector(':scope > .mermaid-render-toggle');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'inline-copy mermaid-toggle-btn mermaid-render-toggle';
+    block.insertBefore(btn, block.firstChild);
+  }
+  if (btn.dataset.mermaidToggleBound !== '1') {
+    btn.dataset.mermaidToggleBound = '1';
+    btn.addEventListener('click', () => showMermaidSource(block));
+  }
+  setMermaidToggleState(btn, 'rendered');
+  return btn;
+}
+
+function showMermaidSource(block) {
+  if (!block?.parentNode) return;
+  const source = block.dataset.mermaidSource || block.querySelector('code.language-mermaid')?.textContent || '';
+  block.querySelector(':scope > .mermaid')?.remove();
+  block.querySelector(':scope > .mermaid-render-toggle')?.remove();
+  const error = block.querySelector(':scope > .markdown-error');
+  if (error) error.hidden = true;
+  block.dataset.mermaidRendered = '0';
+  block.dataset.mermaidToken = '';
+  block.dataset.mermaidSource = source;
+  block.classList.add('markdown-mermaid-pending');
+  block.classList.remove('mermaid-rendered-block', 'mermaid-fallback');
+  const ensured = ensureMermaidSourceView(block);
+  if (ensured?.codeWrap) ensured.codeWrap.hidden = false;
+  const toggle = block.querySelector(':scope > .code-block > .mermaid-toggle-btn');
+  setMermaidToggleState(toggle, 'source');
+}
+
+function initMermaidToggleUI(root, options = {}) {
+  const blocks = collectMermaidBlocks(root);
+  blocks.forEach((block) => {
+    const ensured = ensureMermaidSourceView(block);
+    if (!ensured) return;
+    enhanceCodeCopy(ensured.codeWrap, options.copyText);
+    let btn = ensured.codeWrap.querySelector(':scope > .mermaid-toggle-btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'inline-copy mermaid-toggle-btn';
+      const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon');
+      ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild);
+    }
+    if (btn.dataset.mermaidToggleBound !== '1') {
+      btn.dataset.mermaidToggleBound = '1';
+      btn.addEventListener('click', async () => {
+        if (block.dataset.mermaidRendered === '1') { showMermaidSource(block); return; }
+        setMermaidToggleState(btn, 'rendering');
+        const result = await renderMermaidBlockOnDemand(block, options.loadMermaid || defaultLoadMermaid);
+        if (result?.ok) setMermaidToggleState(btn, 'rendered');
+        else {
+          ensureMermaidSourceView(block);
+          const visibleBtn = block.querySelector(':scope > .code-block > .mermaid-toggle-btn') || btn;
+          setMermaidToggleState(visibleBtn, 'error');
+          visibleBtn.disabled = false;
+          setTimeout(() => { if (block.dataset.mermaidRendered === 'error') setMermaidToggleState(visibleBtn, 'source'); }, 1200);
+        }
+      });
+    }
+    setMermaidToggleState(btn, block.dataset.mermaidRendered === '1' ? 'rendered' : 'source');
+  });
+  return blocks;
 }
 
 async function defaultLoadMermaid() {
@@ -211,21 +345,23 @@ function staleMermaidBlock(holder, container, token) {
 function restoreMermaidFallback(holder, container, token, error) {
   if (!holder?.parentNode && container?.parentNode) container.replaceWith(holder);
   if (holder?.parentNode && holder.dataset?.mermaidToken === token) {
-    const source = holder.dataset.mermaidSource || '';
-    holder.replaceChildren();
+    const source = holder.dataset.mermaidSource || holder.querySelector?.('code.language-mermaid')?.textContent || '';
+    holder.querySelector(':scope > .mermaid')?.remove();
     holder.dataset.mermaidRendered = 'error';
     holder.dataset.mermaidToken = '';
-    holder.classList.remove('markdown-mermaid-pending');
-    holder.classList.add('mermaid-fallback');
-    const errorNode = document.createElement('div');
-    errorNode.className = 'markdown-error';
+    holder.dataset.mermaidSource = source;
+    holder.classList.add('markdown-mermaid-pending', 'mermaid-fallback');
+    holder.classList.remove('mermaid-rendered-block');
+    let errorNode = holder.querySelector(':scope > .markdown-error');
+    if (!errorNode) {
+      errorNode = document.createElement('div');
+      errorNode.className = 'markdown-error';
+      holder.insertBefore(errorNode, holder.firstChild);
+    }
+    errorNode.hidden = false;
     errorNode.textContent = 'Mermaid 图表渲染失败，已保留源码。';
-    const pre = document.createElement('pre');
-    const code = document.createElement('code');
-    code.className = 'language-mermaid';
-    code.textContent = source;
-    pre.appendChild(code);
-    holder.append(errorNode, pre);
+    const ensured = ensureMermaidSourceView(holder);
+    if (ensured?.codeWrap) ensured.codeWrap.hidden = false;
   }
   return { ok: false, node: holder, error };
 }
@@ -245,7 +381,10 @@ async function renderSingleMermaidBlock(holder, mermaid) {
   container.dataset.mermaidToken = token;
   container.dataset.mermaidSourceHash = String(source.length);
   container.textContent = source;
-  holder.textContent = '';
+  holder.querySelector(':scope > .mermaid')?.remove();
+  holder.querySelector(':scope > .mermaid-render-toggle')?.remove();
+  const sourceView = holder.querySelector(':scope > .code-block');
+  if (sourceView) sourceView.hidden = true;
   holder.appendChild(container);
   try {
     if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
@@ -261,9 +400,10 @@ async function renderSingleMermaidBlock(holder, mermaid) {
       if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
     }
     holder.dataset.mermaidRendered = '1';
-    holder.classList.remove('markdown-mermaid-pending');
+    holder.classList.remove('markdown-mermaid-pending', 'mermaid-fallback');
     holder.classList.add('mermaid-rendered-block');
     container.dataset.mermaidRendered = '1';
+    ensureRenderedMermaidToggle(holder);
     return { ok: true, node: container, holder };
   } catch (err) {
     console.warn('[markdown] mermaid block failed:', err);
@@ -275,7 +415,7 @@ async function renderSingleMermaidBlock(holder, mermaid) {
 async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = {}) {
   return enqueueMermaidRender(async () => {
     const force = !!options.force;
-    const blocks = collectMermaidBlocks(root).filter(node => root.contains?.(node) && node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'rendering' && node.dataset?.mermaidDeferred !== '1' && (force || isElementVisible(node)));
+    const blocks = collectMermaidBlocks(root).filter(node => root.contains?.(node) && node.dataset?.mermaidManual !== '1' && node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'rendering' && node.dataset?.mermaidDeferred !== '1' && (force || isElementVisible(node)));
     if (!blocks.length) return [];
     blocks.forEach((block) => {
       const code = block.querySelector?.('code.language-mermaid') || block;
@@ -321,8 +461,11 @@ function enhanceRenderedMarkdown(root, options = {}) {
     if (signal.cancelled) return;
     const pres = [...root.querySelectorAll('pre')];
     await idleBatch(pres, (pre) => enhanceCodeCopy(pre.parentElement || pre, options.copyText), { signal, batchSize: 4, budgetMs: 12 });
+    if (signal.cancelled) return;
+    measureStage('markdown.initMermaidToggleUI', () => initMermaidToggleUI(root, options));
   };
-  if (options.skipMermaid) return Promise.resolve([]);
+  const shouldAutoRenderMermaid = options.autoRenderMermaid === true;
+  if (options.skipMermaid || !shouldAutoRenderMermaid) return runBasic().then(() => []);
   const run = (renderOptions = {}) => runBasic().then(() => signal.cancelled ? [] : renderMermaidBlocks(root, options.loadMermaid, { force: !!options.forceMermaid || !!renderOptions.force })).catch((err) => { console.warn('[markdown] mermaid enhance failed:', err); return []; });
   if (options.deferMermaid === false) return run({ force: !!options.forceMermaid });
   return new Promise(resolve => {
@@ -340,4 +483,4 @@ function enhanceRenderedMarkdown(root, options = {}) {
   });
 }
 
-module.exports = { COPY_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };
+module.exports = { COPY_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };

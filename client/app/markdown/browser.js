@@ -103,7 +103,7 @@
   }
 
   function bindCopyButton(button, text, copyText) {
-    if (!button || button.dataset.copyBound === '1') return;
+    if (!button) return;
     button.dataset.copyText = text;
     button.dataset.copyBound = '1';
     button.addEventListener('click', async () => {
@@ -125,7 +125,6 @@
   function enhanceCodeCopy(root, copyText) {
     if (!root?.querySelectorAll) return;
     root.querySelectorAll('pre').forEach((pre) => {
-      if (pre.closest('.mermaid-block,.markdown-mermaid-pending')) return;
       const code = pre.querySelector('code');
       const text = code?.textContent || pre.textContent || '';
       if (!text.trim()) return;
@@ -157,6 +156,48 @@
       bindCopyButton(btn, text, copyText);
     });
   }
+
+  function ensureMermaidSourceView(block) {
+    if (!block?.parentNode) return null;
+    block.classList.add('mermaid-block', 'markdown-mermaid-pending');
+    if (block.dataset.mermaidRendered !== '1' && block.dataset.mermaidRendered !== 'rendering' && block.dataset.mermaidRendered !== 'error') block.dataset.mermaidRendered = '0';
+    let source = block.dataset.mermaidSource || block.querySelector('code.language-mermaid')?.textContent || '';
+    block.dataset.mermaidSource = source;
+    let codeWrap = block.querySelector(':scope > .code-block');
+    if (!codeWrap) { const pre = block.querySelector(':scope > pre') || block.querySelector('pre'); if (!pre) return null; codeWrap = document.createElement('div'); codeWrap.className = 'code-block mermaid-source-view'; pre.replaceWith(codeWrap); codeWrap.appendChild(pre); }
+    codeWrap.classList.add('mermaid-source-view');
+    codeWrap.hidden = block.dataset.mermaidRendered === '1';
+    let code = codeWrap.querySelector('code.language-mermaid');
+    if (!code) { code = codeWrap.querySelector('code') || document.createElement('code'); code.className = 'language-mermaid'; if (!code.parentNode) { const pre = codeWrap.querySelector('pre') || document.createElement('pre'); pre.appendChild(code); if (!pre.parentNode) codeWrap.appendChild(pre); } }
+    if (source && code.textContent !== source) code.textContent = source;
+    if (!source) { source = code.textContent || ''; block.dataset.mermaidSource = source; }
+    return { codeWrap, source };
+  }
+
+  function setMermaidToggleState(button, state) { if (!button) return; button.dataset.mermaidState = state; button.classList.toggle('is-loading', state === 'rendering'); button.classList.toggle('is-error', state === 'error'); button.disabled = state === 'rendering'; const labels = { source: '渲染图表', rendering: '渲染中…', rendered: '查看源码', error: '渲染失败' }; button.textContent = labels[state] || labels.source; button.title = state === 'rendered' ? '切回 Mermaid 源码' : '渲染 Mermaid 图表'; button.setAttribute('aria-label', button.title); }
+
+  async function renderMermaidBlockOnDemand(block, loader = loadMermaid) { if (!block?.parentNode || block.dataset.mermaidRendered === 'rendering') return { ok: false, node: block, stale: true }; const { codeWrap, source } = ensureMermaidSourceView(block) || {}; const error = block.querySelector(':scope > .markdown-error'); if (error) error.remove(); block.querySelector(':scope > .mermaid')?.remove(); const token = nextMermaidToken(); block.dataset.mermaidRendered = 'rendering'; block.dataset.mermaidToken = token; block.dataset.mermaidSource = source || ''; if (codeWrap) codeWrap.hidden = true; let mermaid = null; try { mermaid = await loader(); } catch (err) { console.warn('[markdown] mermaid load failed:', err); } if (!mermaid) return restoreMermaidFallback(block, null, token, new Error('Mermaid unavailable')); try { mermaid.initialize?.({ startOnLoad: false, securityLevel: 'strict', theme: 'default', deterministicIds: false, deterministicIDSeed: undefined }); } catch {} return renderSingleMermaidBlock(block, mermaid); }
+
+  function ensureRenderedMermaidToggle(block) {
+    if (!block?.parentNode) return null;
+    let btn = block.querySelector(':scope > .mermaid-render-toggle');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'inline-copy mermaid-toggle-btn mermaid-render-toggle';
+      block.insertBefore(btn, block.firstChild);
+    }
+    if (btn.dataset.mermaidToggleBound !== '1') {
+      btn.dataset.mermaidToggleBound = '1';
+      btn.addEventListener('click', () => showMermaidSource(block));
+    }
+    setMermaidToggleState(btn, 'rendered');
+    return btn;
+  }
+
+  function showMermaidSource(block) { if (!block?.parentNode) return; const source = block.dataset.mermaidSource || block.querySelector('code.language-mermaid')?.textContent || ''; block.querySelector(':scope > .mermaid')?.remove(); block.querySelector(':scope > .mermaid-render-toggle')?.remove(); const error = block.querySelector(':scope > .markdown-error'); if (error) error.hidden = true; block.dataset.mermaidRendered = '0'; block.dataset.mermaidToken = ''; block.dataset.mermaidSource = source; block.classList.add('markdown-mermaid-pending'); block.classList.remove('mermaid-rendered-block', 'mermaid-fallback'); const ensured = ensureMermaidSourceView(block); if (ensured?.codeWrap) ensured.codeWrap.hidden = false; const toggle = block.querySelector(':scope > .code-block > .mermaid-toggle-btn'); setMermaidToggleState(toggle, 'source'); }
+
+  function initMermaidToggleUI(root, options = {}) { const blocks = collectMermaidBlocks(root); blocks.forEach((block) => { const ensured = ensureMermaidSourceView(block); if (!ensured) return; enhanceCodeCopy(ensured.codeWrap, options.copyText); let btn = ensured.codeWrap.querySelector(':scope > .mermaid-toggle-btn'); if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'inline-copy mermaid-toggle-btn'; const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon'); ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild); } if (btn.dataset.mermaidToggleBound !== '1') { btn.dataset.mermaidToggleBound = '1'; btn.addEventListener('click', async () => { if (block.dataset.mermaidRendered === '1') { showMermaidSource(block); return; } setMermaidToggleState(btn, 'rendering'); const result = await renderMermaidBlockOnDemand(block, options.loadMermaid || loadMermaid); if (result?.ok) setMermaidToggleState(btn, 'rendered'); else { ensureMermaidSourceView(block); const visibleBtn = block.querySelector(':scope > .code-block > .mermaid-toggle-btn') || btn; setMermaidToggleState(visibleBtn, 'error'); visibleBtn.disabled = false; setTimeout(() => { if (block.dataset.mermaidRendered === 'error') setMermaidToggleState(visibleBtn, 'source'); }, 1200); } }); } setMermaidToggleState(btn, block.dataset.mermaidRendered === '1' ? 'rendered' : 'source'); }); return blocks; }
 
   async function loadMermaid() {
     if (global.mermaid) return global.mermaid;
@@ -205,21 +246,19 @@
   function restoreMermaidFallback(holder, container, token, error) {
     if (!holder?.parentNode && container?.parentNode) container.replaceWith(holder);
     if (holder?.parentNode && holder.dataset?.mermaidToken === token) {
-      const source = holder.dataset.mermaidSource || '';
-      holder.replaceChildren();
+      const source = holder.dataset.mermaidSource || holder.querySelector?.('code.language-mermaid')?.textContent || '';
+      holder.querySelector(':scope > .mermaid')?.remove();
       holder.dataset.mermaidRendered = 'error';
       holder.dataset.mermaidToken = '';
-      holder.classList.remove('markdown-mermaid-pending');
-      holder.classList.add('mermaid-fallback');
-      const errorNode = document.createElement('div');
-      errorNode.className = 'markdown-error';
+      holder.dataset.mermaidSource = source;
+      holder.classList.add('markdown-mermaid-pending', 'mermaid-fallback');
+      holder.classList.remove('mermaid-rendered-block');
+      let errorNode = holder.querySelector(':scope > .markdown-error');
+      if (!errorNode) { errorNode = document.createElement('div'); errorNode.className = 'markdown-error'; holder.insertBefore(errorNode, holder.firstChild); }
+      errorNode.hidden = false;
       errorNode.textContent = 'Mermaid 图表渲染失败，已保留源码。';
-      const pre = document.createElement('pre');
-      const code = document.createElement('code');
-      code.className = 'language-mermaid';
-      code.textContent = source;
-      pre.appendChild(code);
-      holder.append(errorNode, pre);
+      const ensured = ensureMermaidSourceView(holder);
+      if (ensured?.codeWrap) ensured.codeWrap.hidden = false;
     }
     return { ok: false, node: holder, error };
   }
@@ -239,7 +278,10 @@
     container.dataset.mermaidToken = token;
     container.dataset.mermaidSourceHash = String(source.length);
     container.textContent = source;
-    holder.textContent = '';
+    holder.querySelector(':scope > .mermaid')?.remove();
+    holder.querySelector(':scope > .mermaid-render-toggle')?.remove();
+    const sourceView = holder.querySelector(':scope > .code-block');
+    if (sourceView) sourceView.hidden = true;
     holder.appendChild(container);
     try {
       if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
@@ -255,9 +297,10 @@
         if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
       }
       holder.dataset.mermaidRendered = '1';
-      holder.classList.remove('markdown-mermaid-pending');
+      holder.classList.remove('markdown-mermaid-pending', 'mermaid-fallback');
       holder.classList.add('mermaid-rendered-block');
       container.dataset.mermaidRendered = '1';
+      ensureRenderedMermaidToggle(holder);
       return { ok: true, node: container, holder };
     } catch (err) {
       console.warn('[markdown] mermaid block failed:', err);
@@ -269,7 +312,7 @@
   async function renderMermaidBlocks(root, loader = loadMermaid, options = {}) {
     return enqueueMermaidRender(async () => {
       const force = !!options.force;
-      const blocks = collectMermaidBlocks(root).filter(node => root.contains?.(node) && node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'rendering' && (force || isVisible(node)));
+      const blocks = collectMermaidBlocks(root).filter(node => root.contains?.(node) && node.dataset?.mermaidManual !== '1' && node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'rendering' && (force || isVisible(node)));
       if (!blocks.length) return [];
       blocks.forEach((block) => {
         const code = block.querySelector?.('code.language-mermaid') || block;
@@ -301,7 +344,7 @@
   function cancelIdle(handle) { if (!handle) return; if (typeof handle === 'object') { if (handle.idleHandle != null && typeof global.cancelIdleCallback === 'function') global.cancelIdleCallback(handle.idleHandle); if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle); return; } if (typeof global.cancelIdleCallback === 'function') return global.cancelIdleCallback(handle); return clearTimeout(handle); }
   function isVisible(node) { if (!node?.getBoundingClientRect) return true; const r = node.getBoundingClientRect(); const h = global.innerHeight || document.documentElement.clientHeight || 800; return r.bottom >= -900 && r.top <= h + 900; }
   function idleBatch(items, each, opts = {}) { const list = [...items]; const signal = opts.signal; const batchSize = opts.batchSize || 6; const budgetMs = opts.budgetMs || 12; return new Promise(resolve => { let i = 0; const step = deadline => { if (signal?.cancelled) return resolve({ cancelled: true, processed: i }); const started = performance?.now ? performance.now() : Date.now(); let c = 0; while (i < list.length) { each(list[i], i); i += 1; c += 1; const now = performance?.now ? performance.now() : Date.now(); const left = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : Math.max(0, budgetMs - (now - started)); if (c >= batchSize || left <= 2 || now - started >= budgetMs) break; } if (i >= list.length) return resolve({ cancelled: false, processed: i }); scheduleIdle(step); }; scheduleIdle(step); }); }
-  function enhanceRenderedMarkdown(root, options = {}) { if (!root?.querySelectorAll) return Promise.resolve([]); const old = root.__chatuiEnhanceJob; old?.cancel?.(); const signal = { cancelled: false }; root.__chatuiEnhanceJob = { cancel: () => { signal.cancelled = true; } }; const basic = async () => { await idleBatch(root.querySelectorAll('h1,h2,h3,h4,h5,h6'), () => {}, { signal, batchSize: 1, budgetMs: 1 }); if (signal.cancelled) return; addHeadingAnchors(root); await idleBatch(root.querySelectorAll('table'), () => {}, { signal, batchSize: 1, budgetMs: 1 }); if (signal.cancelled) return; wrapTables(root); await idleBatch(root.querySelectorAll('pre'), pre => enhanceCodeCopy(pre.parentElement || pre, options.copyText), { signal, batchSize: 4, budgetMs: 12 }); }; if (options.skipMermaid) return basic().then(() => []); const run = (renderOptions = {}) => basic().then(() => signal.cancelled ? [] : renderMermaidBlocks(root, options.loadMermaid, { force: !!options.forceMermaid || !!renderOptions.force })).catch(err => { console.warn('[markdown] mermaid enhance failed:', err); return []; }); if (options.deferMermaid === false) return run({ force: !!options.forceMermaid }); return new Promise(resolve => { let settled = false; let forceTimer = null; const finish = promise => Promise.resolve(promise).then(result => { if (!settled) { settled = true; if (forceTimer) clearTimeout(forceTimer); resolve(result); } return result; }); const h = scheduleIdle(() => finish(run())); forceTimer = setTimeout(() => { if (!settled && root?.isConnected !== false && collectMermaidBlocks(root).some(node => node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'error')) finish(run({ force: true })); }, Number(options.mermaidFallbackMs) || 2600); root.__chatuiEnhanceJob.cancel = () => { signal.cancelled = true; cancelIdle(h); if (forceTimer) clearTimeout(forceTimer); if (!settled) { settled = true; resolve([]); } }; }); }
+  function enhanceRenderedMarkdown(root, options = {}) { if (!root?.querySelectorAll) return Promise.resolve([]); const old = root.__chatuiEnhanceJob; old?.cancel?.(); const signal = { cancelled: false }; root.__chatuiEnhanceJob = { cancel: () => { signal.cancelled = true; } }; const basic = async () => { await idleBatch(root.querySelectorAll('h1,h2,h3,h4,h5,h6'), () => {}, { signal, batchSize: 1, budgetMs: 1 }); if (signal.cancelled) return; addHeadingAnchors(root); await idleBatch(root.querySelectorAll('table'), () => {}, { signal, batchSize: 1, budgetMs: 1 }); if (signal.cancelled) return; wrapTables(root); await idleBatch(root.querySelectorAll('pre'), pre => enhanceCodeCopy(pre.parentElement || pre, options.copyText), { signal, batchSize: 4, budgetMs: 12 }); if (signal.cancelled) return; initMermaidToggleUI(root, options); }; const shouldAutoRenderMermaid = options.autoRenderMermaid === true; if (options.skipMermaid || !shouldAutoRenderMermaid) return basic().then(() => []); const run = (renderOptions = {}) => basic().then(() => signal.cancelled ? [] : renderMermaidBlocks(root, options.loadMermaid, { force: !!options.forceMermaid || !!renderOptions.force })).catch(err => { console.warn('[markdown] mermaid enhance failed:', err); return []; }); if (options.deferMermaid === false) return run({ force: !!options.forceMermaid }); return new Promise(resolve => { let settled = false; let forceTimer = null; const finish = promise => Promise.resolve(promise).then(result => { if (!settled) { settled = true; if (forceTimer) clearTimeout(forceTimer); resolve(result); } return result; }); const h = scheduleIdle(() => finish(run())); forceTimer = setTimeout(() => { if (!settled && root?.isConnected !== false && collectMermaidBlocks(root).some(node => node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'error')) finish(run({ force: true })); }, Number(options.mermaidFallbackMs) || 2600); root.__chatuiEnhanceJob.cancel = () => { signal.cancelled = true; cancelIdle(h); if (forceTimer) clearTimeout(forceTimer); if (!settled) { settled = true; resolve([]); } }; }); }
   function renderMarkdownInto(container, markdown = '', options = {}) { if (!container) return Promise.resolve({ html: renderMarkdown(markdown), mermaid: [] }); const html = renderMarkdown(markdown); container.innerHTML = html; return Promise.resolve(enhanceRenderedMarkdown(container, options)).then(mermaid => ({ html, mermaid })); }
 
   function hasConservativeInlineMathTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const tail = src.slice(Math.max(0, src.lastIndexOf('\n') + 1)); let escaped = false; for (let i = 0; i < tail.length; i += 1) { const ch = tail[i]; if (escaped) { escaped = false; continue; } if (ch === '\\') { escaped = true; continue; } if (ch === '$' && tail[i + 1] !== '$' && tail[i - 1] !== '$') return true; } return false; }
@@ -310,7 +353,7 @@
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
   function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown, renderTailText } = {}) { let raw = '', consumed = 0, tailText = '', closed = false; const renderTail = renderTailText || (text => { const span = document.createElement('span'); span.className = 'streaming-tail'; span.dataset.markdownStreamingTail = '1'; span.textContent = text; return span; }); const findTail = c => c?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null; const removeTail = c => findTail(c)?.remove(); const htmlToFrag = html => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); return tpl.content; }; const insertRendered = (target, html, before) => { const frag = htmlToFrag(html); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; }; const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) }); const enhanceSafe = (c, phase = {}) => { try { enhance?.(c, phase); } catch (err) { console.warn('[markdown] streaming enhance failed:', err); } }; return { append(delta, container) { if (closed) return { raw, consumed, tail: tailText, closed }; raw += String(delta || ''); const { stable, tail, index } = splitStableTail(raw); if (index < consumed) { if (container) { container.innerHTML = render(raw); removeTail(container); enhanceSafe(container, { reset: true }); } consumed = raw.length; tailText = ''; return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' }; } const part = stable.slice(consumed); if (container) { let tailNode = findTail(container); if (part) { const inserted = insertRendered(container, render(part), tailNode); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); } tailText = tail; tailNode = findTail(container); if (tailText) { if (tailNode) tailNode.textContent = tailText; else container.appendChild(renderTail(tailText)); } else if (tailNode) tailNode.textContent = ''; } else { if (part) consumed = stable.length; tailText = tail; } return { raw, consumed, tail: tailText, delta: part, closed }; }, set(value, container) { const next = String(value || ''); const delta = next.startsWith(raw) ? next.slice(raw.length) : next; if (!next.startsWith(raw)) this.reset(container); return this.append(delta, container); }, final(container, finalText = raw) { const next = String(finalText ?? raw ?? ''); raw = next; closed = true; let mode = 'noop', reason = ''; if (container) { removeTail(container); container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true }); mode = 'full-rerender-final'; } else { consumed = raw.length; tailText = ''; mode = 'no-container'; } return { raw, mode, reason, consumed, closed, enhanced: !!container }; }, getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; if (container) container.innerHTML = ''; } }; }
 
-  const api = Object.freeze({ renderMarkdown, renderMarkdownInto, renderMarkdownHtml: renderMarkdown, enhanceRenderedMarkdown, enhanceCodeCopy, renderMermaidBlocks, loadMermaid, createMarkdownEngine, getMarkdownEngine, findStableBoundary, splitStableTail, createStreamingRenderer, escapeHtml, dependencyLoader: global.ChatUIMarkdownDependencyLoader });
+  const api = Object.freeze({ renderMarkdown, renderMarkdownInto, renderMarkdownHtml: renderMarkdown, enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, loadMermaid, createMarkdownEngine, getMarkdownEngine, findStableBoundary, splitStableTail, createStreamingRenderer, escapeHtml, dependencyLoader: global.ChatUIMarkdownDependencyLoader });
   global.ChatUIApp = Object.freeze({ ...(global.ChatUIApp || {}), markdown: api });
   global.ChatUIMarkdown = api;
   global.ChatUIMarkdownReady = (global.ChatUIMarkdownDependencyLoader?.loadAll?.() || Promise.resolve()).catch(err => console.warn('[markdown] dependency load failed:', err));

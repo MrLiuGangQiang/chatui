@@ -3,7 +3,7 @@ const { JSDOM } = require('jsdom');
 const { createMarkdownEngine } = require('../../client/app/markdown/markdown-engine');
 const { createMarkdownRenderer } = require('../../client/app/markdown');
 const { enhanceCodeCopy } = require('../../client/app/markdown/code-copy');
-const { renderMermaidBlocks } = require('../../client/app/markdown/mermaid-renderer');
+const { initMermaidToggleUI, renderMermaidBlockOnDemand, renderMermaidBlocks } = require('../../client/app/markdown/mermaid-renderer');
 
 function renderFixture() {
   const engine = createMarkdownEngine();
@@ -100,17 +100,28 @@ async function testRendererApiAndEnhancers() {
   const renderer = createMarkdownRenderer();
   const result = await renderer.renderInto(root, '```js\nconsole.log(1)\n```\n\n```mermaid\ngraph TD; A-->B;\n```', {
     loadMermaid: async () => ({ initialize() {}, render: async id => ({ svg: `<svg id="${id}"><text>A graph</text></svg>` }) }),
-    copyText: async text => assert.strictEqual(text, 'console.log(1)\n'),
+    copyText: async text => assert.ok(['console.log(1)\n', 'graph TD; A-->B;\n'].includes(text)),
   });
   assert.ok(result.html.includes('language-js'));
   assert.ok(root.querySelector('.code-block .code-copy-icon'), 'code copy button added');
-  assert.ok(root.querySelector('.mermaid[data-mermaid-rendered="1"] svg'), 'mermaid block rendered through API');
+  const mermaidBlock = root.querySelector('.mermaid-block');
+  assert.ok(mermaidBlock.querySelector('.code-copy-icon'), 'mermaid source keeps copy button');
+  assert.ok(mermaidBlock.querySelector('.mermaid-toggle-btn'), 'mermaid render toggle added');
+  assert.ok(mermaidBlock.querySelector('code.language-mermaid').textContent.includes('graph TD'), 'mermaid source shown by default');
+  assert.strictEqual(root.querySelectorAll('.mermaid svg').length, 0, 'mermaid does not auto-render through API');
+  const clicked = await renderMermaidBlockOnDemand(mermaidBlock, async () => ({ initialize() {}, render: async id => ({ svg: `<svg id="${id}"><text>A graph</text></svg>` }) }));
+  assert.strictEqual(clicked.ok, true);
+  assert.ok(root.querySelector('.mermaid[data-mermaid-rendered="1"] svg'), 'mermaid block renders on demand');
+  root.querySelector('.mermaid-render-toggle').click();
+  assert.ok(mermaidBlock.querySelector('code.language-mermaid'), 'mermaid can switch back to source');
+  assert.strictEqual(root.querySelectorAll('.mermaid svg').length, 0, 'svg removed after switching to source');
+
 
   const fallbackRoot = dom.window.document.createElement('div');
   fallbackRoot.innerHTML = '<div class="markdown-mermaid-pending" data-mermaid-rendered="0"><pre><code class="language-mermaid">bad</code></pre></div>';
-  const statuses = await renderMermaidBlocks(fallbackRoot, async () => { throw new Error('no mermaid'); });
-  assert.strictEqual(statuses.length, 1);
-  assert.strictEqual(statuses[0].ok, false);
+  initMermaidToggleUI(fallbackRoot);
+  const statuses = await renderMermaidBlockOnDemand(fallbackRoot.querySelector('.mermaid-block'), async () => { throw new Error('no mermaid'); });
+  assert.strictEqual(statuses.ok, false);
   assert.ok(fallbackRoot.querySelector('.mermaid-fallback'), 'single mermaid failure isolated as fallback');
 
   const multiRoot = dom.window.document.createElement('div');
@@ -121,7 +132,7 @@ async function testRendererApiAndEnhancers() {
   assert.strictEqual(multiRoot.querySelectorAll('.mermaid-rendered-block').length, 4, 'each mermaid source keeps an independent holder');
   assert.strictEqual(multiRoot.querySelectorAll('.mermaid svg').length, 4, 'one svg per mermaid block');
   const holders = [...multiRoot.querySelectorAll('.mermaid-rendered-block')];
-  assert.deepStrictEqual(holders.map(node => node.textContent.trim()), ['pie title Pets', 'erDiagram', 'flowchart TD', 'sequenceDiagram']);
+  assert.deepStrictEqual(holders.map(node => node.querySelector('.mermaid text')?.textContent || ''), ['pie title Pets', 'erDiagram', 'flowchart TD', 'sequenceDiagram']);
   const ids = [...multiRoot.querySelectorAll('.mermaid')].map(node => node.id);
   assert.strictEqual(new Set(ids).size, 4, 'mermaid render ids are unique per block');
 

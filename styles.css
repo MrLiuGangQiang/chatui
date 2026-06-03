@@ -1096,3 +1096,15 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 
 /* ChatUI performance virtualization: keep offscreen placeholders stable without changing Markdown semantics. */
 .markdown-lazy-placeholder{white-space:pre-wrap;color:#334155}.message[data-lazy-markdown="1"] .content{opacity:.88}.message[data-virtualized="1"]{contain:layout style paint;content-visibility:auto}.message[data-virtualized="1"] .bubble{opacity:.78}.message[data-virtualized="1"] .markdown-lazy-placeholder{max-height:12rem;overflow:hidden}
+
+
+/* Mermaid manual toggle: default to source, render only on user click. */
+.markdown-body .mermaid-block{position:relative;padding:0;border:0;background:transparent;overflow:visible}
+.markdown-body .mermaid-block>.mermaid{margin:.55em 0 .8em;padding:10px;border:1px solid rgba(203,213,225,.72);border-radius:12px;background:rgba(248,250,252,.9);overflow:auto}
+.markdown-body .mermaid-block>.markdown-error{margin:.55em 0 .45em}
+.markdown-body .code-block .mermaid-toggle-btn{position:absolute!important;right:38px!important;top:6px!important;z-index:3;height:22px!important;min-height:22px!important;width:auto!important;min-width:66px!important;padding:1px 8px!important;line-height:18px!important;font-size:11px!important;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;border-color:rgba(148,163,184,.35)!important}
+.markdown-body .code-block .mermaid-toggle-btn:hover{background:#34373c!important;color:#fff!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-loading{opacity:.72;cursor:wait!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-error{background:rgba(239,68,68,.92)!important;color:#fff!important}
+.markdown-body .mermaid-render-toggle{float:right;margin:6px 6px 4px 8px;min-width:66px!important;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;border-color:rgba(148,163,184,.35)!important}
+.markdown-body .mermaid-source-view[hidden]{display:none!important}

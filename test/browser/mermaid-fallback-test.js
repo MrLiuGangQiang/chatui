@@ -30,26 +30,36 @@ async function connectCdp() { const tabs = await waitFor(async () => getJson(`ht
     await cdp.send('Page.navigate', { url: base });
     await waitFor(async () => cdp.evalJs('!!window.ChatUIMarkdown && !!document.body'));
     const summary = await cdp.evalJs(`(async () => {
-      window.requestIdleCallback = (cb, opts) => 900001; // never fires: fallback timer must render
+      window.requestIdleCallback = (cb, opts) => 900001;
       window.cancelIdleCallback = () => {};
       await window.ChatUIMarkdownReady;
       const box = document.createElement('div');
       box.className = 'markdown-body';
       box.style.cssText = 'position:absolute; top:5000px; width:900px; padding:24px; background:white; color:black;';
       document.body.replaceChildren(box);
-      const sources = ['flowchart TD\\n  A --> B', 'sequenceDiagram\\n  A->>B: hi', 'pie title Pets\\n  "Dogs" : 4\\n  "Cats" : 3', 'erDiagram\\n  USER ||--o{ POST : writes'];
-      const md = sources.map(src => '\`\`\`mermaid\\n' + src + '\\n\`\`\`').join('\\n\\n');
-      const promise = window.ChatUIMarkdown.renderMarkdownInto(box, md, { mermaidFallbackMs: 80, loadMermaid: async () => ({ initialize() {}, render: async (id, source) => ({ svg: '<svg id="' + id + '"><text>' + source.split('\\n')[0].replace(/[<>&]/g, '') + '</text></svg>' }) }) });
+      const nl = String.fromCharCode(10);
+      const sources = ['flowchart TD' + nl + '  A --> B', 'sequenceDiagram' + nl + '  A->>B: hi', 'pie title Pets' + nl + '  "Dogs" : 4' + nl + '  "Cats" : 3', 'erDiagram' + nl + '  USER ||--o{ POST : writes'];
+      const fence = String.fromCharCode(96,96,96);
+      const md = sources.map(src => fence + 'mermaid' + nl + src + nl + fence).join(nl + nl);
+      const rendered = await window.ChatUIMarkdown.renderMarkdownInto(box, md, { mermaidFallbackMs: 80, loadMermaid: async () => { throw new Error('should not auto-load'); } });
       await new Promise(r => setTimeout(r, 320));
-      const result = await promise;
-      await window.ChatUIMarkdown.enhanceRenderedMarkdown(box, { deferMermaid: false, loadMermaid: async () => { throw new Error('should not rerender'); } });
-      return { resultCount: result.mermaid.length, ok: result.mermaid.filter(x => x && x.ok).length, pending: box.querySelectorAll('.markdown-mermaid-pending').length, holders: box.querySelectorAll('.mermaid-rendered-block').length, svgs: box.querySelectorAll('.mermaid svg').length, errors: box.querySelectorAll('.markdown-error').length, ids: [...box.querySelectorAll('.mermaid')].map(n => n.id) };
+      const before = { resultCount: rendered.mermaid.length, pending: box.querySelectorAll('.markdown-mermaid-pending').length, toggles: box.querySelectorAll('.mermaid-toggle-btn').length, codeCopies: box.querySelectorAll('.mermaid-block .code-copy-icon').length, holders: box.querySelectorAll('.mermaid-rendered-block').length, svgs: box.querySelectorAll('.mermaid svg').length };
+      let loads = 0;
+      for (const block of [...box.querySelectorAll('.mermaid-block')]) {
+        await window.ChatUIMarkdown.renderMermaidBlockOnDemand(block, async () => { loads += 1; return { initialize() {}, render: async (id, source) => ({ svg: '<svg id="' + id + '"><text>' + source.split(nl)[0].replace(/[<>&]/g, '') + '</text></svg>' }) }; });
+      }
+      const after = { loads, holders: box.querySelectorAll('.mermaid-rendered-block').length, svgs: box.querySelectorAll('.mermaid svg').length, errors: box.querySelectorAll('.markdown-error').length, ids: [...box.querySelectorAll('.mermaid')].map(n => n.id) };
+      return { before, after };
     })()`);
-    assert.strictEqual(summary.holders, 4, `fallback renders four offscreen diagrams: ${JSON.stringify(summary)}`);
-    assert.strictEqual(summary.svgs, 4, `four SVGs after idle/visibility fallback: ${JSON.stringify(summary)}`);
-    assert.strictEqual(summary.pending, 0, `no permanent pending mermaid blocks: ${JSON.stringify(summary)}`);
-    assert.strictEqual(summary.errors, 0, `no error for valid diagrams: ${JSON.stringify(summary)}`);
-    assert.strictEqual(new Set(summary.ids).size, 4, `render IDs unique: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.before.resultCount, 0, `renderMarkdownInto does not auto-render mermaid: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.before.holders, 0, `no auto-rendered holders before click: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.before.svgs, 0, `no SVGs before click: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.before.toggles, 4, `toggle exists beside source code: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.before.codeCopies, 4, `copy buttons kept on Mermaid source: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.after.holders, 4, `manual render creates four holders: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.after.svgs, 4, `four SVGs after explicit render: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.after.errors, 0, `no error for valid diagrams: ${JSON.stringify(summary)}`);
+    assert.strictEqual(new Set(summary.after.ids).size, 4, `render IDs unique: ${JSON.stringify(summary)}`);
     console.log('mermaid fallback browser ok');
   } finally {
     cdp?.ws?.close?.();

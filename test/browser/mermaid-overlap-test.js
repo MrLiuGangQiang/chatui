@@ -64,23 +64,36 @@ async function connectCdp() {
     await cdp.send('Runtime.enable');
     await cdp.send('Page.navigate', { url: base });
     await waitFor(async () => cdp.evalJs('!!window.ChatUIMarkdown && !!document.body'));
-    await waitFor(async () => cdp.evalJs('!!window.mermaid'), 20000);
+    
     const summary = await cdp.evalJs(`(async () => {
       const box = document.createElement('div');
       box.className = 'markdown-body';
       box.style.cssText = 'width: 900px; padding: 24px; background: white; color: black;';
       document.body.replaceChildren(box);
-      const md = ['pie title Pets\\n  "Dogs" : 4\\n  "Cats" : 3', 'erDiagram\\n  USER ||--o{ POST : writes\\n  POST ||--o{ COMMENT : has', 'flowchart TD\\n  A[Start] --> B{Go?}\\n  B -->|Yes| C[Done]', 'sequenceDiagram\\n  participant U\\n  participant C\\n  U->>C: Hi\\n  C-->>U: OK'].map(src => '\`\`\`mermaid\\n' + src + '\\n\`\`\`').join('\\n\\n');
-      const rendered = await window.ChatUIMarkdown.renderMarkdownInto(box, md, { deferMermaid: false, loadMermaid: async () => ({ initialize() {}, render: async (id, source) => ({ svg: '<svg id="' + id + '"><text>' + source.split('\\n')[0].replace(/[<>&]/g, '') + '</text></svg>' }) }) });
+      const nl = String.fromCharCode(10);
+      const fence = String.fromCharCode(96,96,96);
+      const sources = ['pie title Pets' + nl + '  \"Dogs\" : 4' + nl + '  \"Cats\" : 3', 'erDiagram' + nl + '  USER ||--o{ POST : writes' + nl + '  POST ||--o{ COMMENT : has', 'flowchart TD' + nl + '  A[Start] --> B{Go?}' + nl + '  B -->|Yes| C[Done]', 'sequenceDiagram' + nl + '  participant U' + nl + '  participant C' + nl + '  U->>C: Hi' + nl + '  C-->>U: OK'];
+      const md = sources.map(src => fence + 'mermaid' + nl + src + nl + fence).join(nl + nl);
+      const rendered = await window.ChatUIMarkdown.renderMarkdownInto(box, md, { deferMermaid: false, loadMermaid: async () => { throw new Error('should not auto-render'); } });
+      if (!box.querySelectorAll('.mermaid-block').length) {
+        box.innerHTML = window.ChatUIMarkdown.renderMarkdownHtml(md);
+        await window.ChatUIMarkdown.enhanceRenderedMarkdown(box, { loadMermaid: async () => { throw new Error('should not auto-render'); } });
+      }
+      const blockCount = box.querySelectorAll('.mermaid-block').length;
+      const beforeSvgs = box.querySelectorAll('.mermaid svg').length;
+      for (const block of [...box.querySelectorAll('.mermaid-block')]) await window.ChatUIMarkdown.renderMermaidBlockOnDemand(block, async () => ({ initialize() {}, render: async (id, source) => ({ svg: '<svg id="' + id + '"><text>' + source.split(nl)[0].replace(/[<>&]/g, '') + '</text></svg>' }) }));
       await new Promise(r => setTimeout(r, 50));
       const holders = [...box.querySelectorAll('.mermaid-rendered-block')];
       const svgs = [...box.querySelectorAll('.mermaid svg')];
-      return { resultCount: rendered.mermaid.length, holders: holders.length, svgs: svgs.length, ids: [...box.querySelectorAll('.mermaid')].map(n => n.id), texts: holders.map(n => n.textContent.slice(0, 120)), pending: box.querySelectorAll('.markdown-mermaid-pending').length, errors: box.querySelectorAll('.markdown-error').length };
+      return { resultCount: rendered.mermaid.length, blockCount, beforeSvgs, toggles: box.querySelectorAll('.mermaid-render-toggle').length, holders: holders.length, svgs: svgs.length, ids: [...box.querySelectorAll('.mermaid')].map(n => n.id), texts: holders.map(n => n.textContent.slice(0, 120)), pending: box.querySelectorAll('.markdown-mermaid-pending').length, errors: box.querySelectorAll('.markdown-error').length };
     })()`);
+    assert.strictEqual(summary.resultCount, 0, `no auto mermaid render result: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.beforeSvgs, 0, `no SVG before explicit render: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.toggles, 4, `rendered diagrams keep source toggle: ${JSON.stringify(summary)}`);
     assert.strictEqual(summary.holders, 4, `four independent mermaid holders: ${JSON.stringify(summary)}`);
     assert.strictEqual(summary.svgs, 4, `four mermaid SVGs rendered: ${JSON.stringify(summary)}`);
     assert.strictEqual(new Set(summary.ids).size, 4, `render IDs unique in browser: ${JSON.stringify(summary)}`);
-    assert.strictEqual(summary.pending, 0, `no pending mermaid blocks after render: ${JSON.stringify(summary)}`);
+    assert.strictEqual(summary.pending, 0, `no pending mermaid blocks after manual render: ${JSON.stringify(summary)}`);
     assert.strictEqual(summary.errors, 0, `no mermaid errors for user fixture: ${JSON.stringify(summary)}`);
     assert(summary.texts[0].includes('Dogs') || summary.texts[0].includes('Pets'), `pie text remains in first holder: ${JSON.stringify(summary)}`);
     assert(summary.texts[1].includes('erDiagram'), `ER text remains in second holder: ${JSON.stringify(summary)}`);

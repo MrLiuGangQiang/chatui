@@ -2,7 +2,7 @@
 
 const { renderMarkdown: renderMarkdownHtml, createMarkdownEngine, getMarkdownEngine, escapeHtml, scanLatexBracketMath, restoreMathSegments } = require('./markdown-engine');
 const { sanitizeHtml } = require('./sanitizer');
-const { enhanceRenderedMarkdown, enhanceCodeCopy, renderMermaidBlocks } = require('./enhancer');
+const { enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks } = require('./enhancer');
 const { findStableBoundary, splitStableTail } = require('./stable-boundary');
 const { createStreamingRenderer } = require('./streaming-renderer');
 const dependencyLoader = require('./resource-loader');
@@ -39,6 +39,9 @@ module.exports = {
   sanitizeHtml,
   enhanceRenderedMarkdown,
   enhanceCodeCopy,
+  initMermaidToggleUI,
+  renderMermaidBlockOnDemand,
+  showMermaidSource,
   renderMermaidBlocks,
   findStableBoundary,
   splitStableTail,

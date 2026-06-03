@@ -3,7 +3,7 @@ const { JSDOM } = require('jsdom');
 const { escapeHtml, renderMath } = require('../../client/app/markdown/math-renderer');
 const { createMarkdownEngine } = require('../../client/app/markdown/markdown-engine');
 const { sanitizeHtml } = require('../../client/app/markdown/sanitizer');
-const { enhanceRenderedMarkdown, renderMermaidBlocks } = require('../../client/app/markdown/enhancer');
+const { enhanceRenderedMarkdown, renderMermaidBlockOnDemand, renderMermaidBlocks } = require('../../client/app/markdown/enhancer');
 const { createStreamingRenderer } = require('../../client/app/markdown/streaming-renderer');
 const { splitStableTail } = require('../../client/app/markdown/stable-boundary');
 
@@ -34,21 +34,27 @@ async function testCodeCopyAndMermaidDom() {
   const root = document.getElementById('root');
   const engine = createMarkdownEngine();
   root.innerHTML = engine.render('```js\nconsole.log(1)\n```\n\n```mermaid\nsequenceDiagram\nA->>B: hi\n```');
-  await enhanceRenderedMarkdown(root, { copyText: async text => assert.strictEqual(text, 'console.log(1)\n'), loadMermaid: async () => ({ initialize() {}, run: async () => {} }) });
+  await enhanceRenderedMarkdown(root, { copyText: async text => assert.ok(['console.log(1)\n', 'sequenceDiagram\nA->>B: hi\n'].includes(text)), loadMermaid: async () => ({ initialize() {}, run: async () => {} }) });
   assert(root.querySelector('.code-block .code-copy-icon[data-copy-text]'), 'copy button DOM');
-  assert(root.querySelector('.mermaid[data-mermaid-rendered="1"]'), 'mermaid rendered placeholder');
+  assert(root.querySelector('.mermaid-block .mermaid-toggle-btn'), 'mermaid toggle DOM');
+  assert(!root.querySelector('.mermaid[data-mermaid-rendered="1"]'), 'mermaid is source by default');
+  const rendered = await renderMermaidBlockOnDemand(root.querySelector('.mermaid-block'), async () => ({ initialize() {}, render: async id => ({ svg: `<svg id="${id}"></svg>` }) }));
+  assert.strictEqual(rendered.ok, true);
+  assert(root.querySelector('.mermaid[data-mermaid-rendered="1"]'), 'mermaid rendered after explicit action');
 
   const bad = document.createElement('div');
   bad.innerHTML = engine.render('```mermaid\ngantt\ntitle Bad\n```');
-  const result = await renderMermaidBlocks(bad, async () => ({ initialize() {}, run: async () => { throw new Error('bad diagram'); } }));
-  assert.strictEqual(result[0].ok, false);
+  await enhanceRenderedMarkdown(bad);
+  const result = await renderMermaidBlockOnDemand(bad.querySelector('.mermaid-block'), async () => ({ initialize() {}, run: async () => { throw new Error('bad diagram'); } }));
+  assert.strictEqual(result.ok, false);
   assert(bad.querySelector('.mermaid-fallback .markdown-error'), 'mermaid error fallback kept source');
+
   delete global.document;
   delete global.innerHeight;
   delete global.navigator;
 }
 
-async function testInvisibleMermaidIsDeferredUntilVisible() {
+async function testManualMermaidDoesNotAutoLoadWhenInvisible() {
   const dom = new JSDOM('<div id="root"><div class="markdown-mermaid-pending" data-mermaid-rendered="0"><pre><code class="language-mermaid">graph TD; A-->B;</code></pre></div></div>');
   global.document = dom.window.document;
   global.innerHeight = 800;
@@ -56,12 +62,12 @@ async function testInvisibleMermaidIsDeferredUntilVisible() {
   const block = root.querySelector('.markdown-mermaid-pending');
   block.getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
   let loads = 0;
-  const first = await renderMermaidBlocks(root, async () => { loads += 1; return { initialize() {}, render: async () => ({ svg: '<svg></svg>' }) }; });
-  assert.strictEqual(first.length, 0);
-  assert.strictEqual(loads, 0, 'offscreen mermaid should not load/render immediately');
+  await enhanceRenderedMarkdown(root, { loadMermaid: async () => { loads += 1; return { initialize() {}, render: async () => ({ svg: '<svg></svg>' }) }; } });
+  assert.strictEqual(loads, 0, 'manual mermaid should not load/render during enhancement');
   block.getBoundingClientRect = () => ({ top: 100, bottom: 200 });
-  const second = await renderMermaidBlocks(root, async () => { loads += 1; return { initialize() {}, render: async id => ({ svg: `<svg id="${id}"></svg>` }) }; });
-  assert.strictEqual(second.length, 1);
+  assert(root.querySelector('.mermaid-toggle-btn'), 'toggle exists before rendering');
+  const second = await renderMermaidBlockOnDemand(root.querySelector('.mermaid-block'), async () => { loads += 1; return { initialize() {}, render: async id => ({ svg: `<svg id="${id}"></svg>` }) }; });
+  assert.strictEqual(second.ok, true);
   assert.strictEqual(loads, 1);
   assert(root.querySelector('.mermaid-rendered-block'));
   delete global.document;
@@ -95,7 +101,7 @@ async function main() {
   testEscapeCharactersAndAttributes();
   testMarkdownBlankLinesAndFeatures();
   await testCodeCopyAndMermaidDom();
-  await testInvisibleMermaidIsDeferredUntilVisible();
+  await testManualMermaidDoesNotAutoLoadWhenInvisible();
   testStreamingSegmentsAndNoFullReplace();
 }
 
@@ -103,4 +109,4 @@ if (require.main === module) {
   main().catch(err => { console.error(err); process.exit(1); });
 }
 
-module.exports = { testEscapeCharactersAndAttributes, testMarkdownBlankLinesAndFeatures, testCodeCopyAndMermaidDom, testInvisibleMermaidIsDeferredUntilVisible, testStreamingSegmentsAndNoFullReplace };
+module.exports = { testEscapeCharactersAndAttributes, testMarkdownBlankLinesAndFeatures, testCodeCopyAndMermaidDom, testManualMermaidDoesNotAutoLoadWhenInvisible, testStreamingSegmentsAndNoFullReplace };

@@ -6,8 +6,9 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.5-code-copy-success-1" />
+  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
+  <link rel="stylesheet" href="https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css" onerror="this.onerror=null;this.href='./vendor/highlight-github.min.css'" />
+  <link rel="stylesheet" href="./styles.css?v=1.2.39-rollback-202606032016" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.21-usage-warning-flash-1" />
@@ -418,17 +419,21 @@
     </article>
   </template>
 
-  <script src="https://registry.npmmirror.com/markdown-it/13.0.2/files/dist/markdown-it.min.js" onerror="this.onerror=null;this.src='./vendor/markdown-it.min.js'"></script>
-  <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js" onerror="this.onerror=null;this.src='./vendor/katex.min.js'"></script>
+  <script>window.CHATUI_ENABLE_VIRTUAL_RENDER = false;</script>
+  <script src="./client/app/markdown/dependency-loader.js?v=2.0.0"></script>
+  <script src="./client/app/markdown/browser.js?v=1.2.39-rollback-202606032016"></script>
   <script src="./client/core/browser.js?v=1.1.89-contextual-route-4"></script>
   <script src="./client/services/fallback.js?v=1.1.93-arch-2"></script>
   <script src="./client/services/usage-stats.js?v=1.2.13-usage-stats-15"></script>
   <script src="./client/services/browser.js?v=1.1.93-arch-2"></script>
   <script src="./client/ui/browser.js?v=1.2.17-realtime-immediate-1"></script>
+  <script src="./client/ui/render-cache.js?v=1.2.39-rollback-202606032016"></script>
+  <script src="./client/ui/render-scheduler.js?v=1.2.39-rollback-202606032016"></script>
+  <script src="./client/ui/message-virtualizer.js?v=1.2.39-rollback-202606032016"></script>
   <script src="./client/ui/usage-stats.js?v=1.2.21-usage-limit-ui-1"></script>
   <script src="./client/app/browser.js?v=1.1.42-app-1"></script>
   <script src="./client/app/runtime.js?v=1.1.42-app-1"></script>
   <script src="./client/app/image-store.js?v=1.1.42-app-1"></script>
-  <script src="./app.js?v=1.2.18-stream-markdown-1"></script>
+  <script src="./app.js?v=1.2.39-rollback-202606032016"></script>
 </body>
 </html>

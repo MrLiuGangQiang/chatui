@@ -7,6 +7,8 @@ module.exports = {
   sessionConfig: require('./session-config'),
   headerParams: require('./header-params'),
   formatting: require('./formatting'),
+  // Legacy markdownUtils intentionally kept for compatibility only; main rendering uses ./markdown.
   markdownUtils: require('./markdown-utils'),
+  markdown: require('./markdown'),
   state: require('./state'),
 };

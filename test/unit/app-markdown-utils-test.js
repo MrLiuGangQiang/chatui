@@ -38,7 +38,7 @@ assert.strictEqual(
   normalizeExtendedMarkdown('Text[^1]\n\n[^1]: note **x**', { renderMarkdown: value => `<p>${value}</p>`, escapeAttr: value => `safe-${value}` }),
   'Text<sup class="footnote-ref"><a href="#fn-1" id="fnref-1">[1]</a></sup>\n\n\n<section class="footnotes">\n<ol>\n<li id="fn-safe-1">note **x** <a href="#fnref-safe-1" class="footnote-backref">↩</a></li>\n</ol>\n</section>',
 );
-assert.strictEqual(prepareMarkdownSource('a｜b text### title :rocket:'), 'a|b text\n### title 🚀');
+assert.strictEqual(prepareMarkdownSource('a｜b text### title :rocket:'), 'a｜b text### title 🚀');
 assert.strictEqual(normalizeMathExpression('1 < sup > 1 < / sup > and H < sub > 2 < / sub > O'), '1 ^{1} and H _{2} O');
 assert.strictEqual(repairLooseMathHtml('`< sup >code< / sup >`'), '`< sup >code< / sup >`');
 assert.strictEqual(prepareMarkdownSource('1 &lt; sup &gt; 1 &lt; / sup &gt;'), '1 ^{1}');
@@ -76,9 +76,9 @@ assert.strictEqual(restoreRawMathSegments('A @@MATH0@@ and @@MATH1@@', [{ raw: '
 
 assert.strictEqual(slugifyHeading(' Hello, ChatUI! 你好 '), 'hello-chatui-你好');
 assert.strictEqual(slugifyHeading('A--- B'), 'a-b');
-assert.strictEqual(repairMarkdownPunctuation('a｜b − c ＊d‘x’'), 'a|b - c *d`x`');
-assert.strictEqual(repairCollapsedMarkdownBlocks('text```js\ncode'), 'text\n```js\ncode');
-assert.strictEqual(repairCollapsedMarkdownBlocks('text### title'), 'text\n### title');
+assert.strictEqual(repairMarkdownPunctuation('a｜b − c ＊d‘x’'), 'a｜b − c ＊d‘x’');
+assert.strictEqual(repairCollapsedMarkdownBlocks('text```js\ncode'), 'text```js\ncode');
+assert.strictEqual(repairCollapsedMarkdownBlocks('text### title'), 'text### title');
 assert.deepStrictEqual(splitTableRow('| a | b |'), ['a', 'b']);
 assert.strictEqual(
   renderTables('| A | B |\n|---|---|\n| 1 | 2 |\nend'),

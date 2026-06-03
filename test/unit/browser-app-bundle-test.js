@@ -63,7 +63,7 @@ assert.strictEqual(context.window.ChatUIApp.formatting.formatElapsed(65000), '1m
 assert.strictEqual(context.window.ChatUIApp.formatting.escapeHtml('<x>'), '&lt;x&gt;');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.replaceGfmEmojiShortcodes(':rocket:'), '🚀');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.normalizeExtendedMarkdown('==xy=='), '<mark>xy</mark>');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.prepareMarkdownSource('a｜b'), 'a|b');
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.prepareMarkdownSource('a｜b'), 'a｜b');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderLists('- a'), '<ul>\n<li>a</li>\n</ul>');
 assert.ok(context.window.ChatUIApp.markdownUtils.renderMarkdownLegacy('**b**').includes('<strong>b</strong>'));
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.extractLegacyCodeBlocks('```js\nx\n```').blocks.length, 1);

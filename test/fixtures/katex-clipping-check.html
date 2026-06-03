@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KaTeX Clipping Check</title>
+  <link rel="stylesheet" href="/vendor/katex.min.css">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body{margin:0;padding:24px;background:#eef2ff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.messages{height:auto;overflow:visible;padding:0!important}.message{width:520px!important;margin:0 auto 18px!important}.bubble-wrap{max-width:480px!important}.report{position:sticky;top:0;z-index:3;margin:0 auto 12px;max-width:720px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.probe{outline:1px dashed rgba(239,68,68,.35)}.case-label{margin:.7em 0 .1em;color:#64748b;font-size:12px;font-weight:700}
+  </style>
+</head>
+<body>
+  <pre id="report" class="report">waiting</pre>
+  <main class="messages">
+    <article class="message assistant" id="mathMessage">
+      <div class="avatar">AI</div>
+      <div class="bubble-wrap">
+        <div class="bubble">
+          <div class="content markdown-body" id="mathRoot"></div>
+        </div>
+      </div>
+    </article>
+  </main>
+  <script src="/vendor/katex.min.js"></script>
+  <script src="/test/fixtures/katex-clipping-check.js"></script>
+</body>
+</html>

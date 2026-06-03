@@ -1,0 +1,343 @@
+'use strict';
+
+const { slugify } = require('./markdown-engine');
+
+const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
+
+let mermaidRenderSequence = 0;
+let mermaidRenderQueue = Promise.resolve();
+
+function nextMermaidToken() {
+  mermaidRenderSequence += 1;
+  return `mmd-${Date.now().toString(36)}-${mermaidRenderSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function enqueueMermaidRender(task) {
+  const run = mermaidRenderQueue.then(task, task);
+  mermaidRenderQueue = run.catch(() => {});
+  return run;
+}
+
+function addHeadingAnchors(root) {
+  if (!root?.querySelectorAll) return;
+  const seen = new Map();
+  root.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach((heading) => {
+    if (heading.id) return;
+    const base = slugify(heading.textContent || '');
+    if (!base) return;
+    const count = seen.get(base) || 0;
+    seen.set(base, count + 1);
+    heading.id = count ? `${base}-${count}` : base;
+  });
+}
+
+function wrapTables(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('table').forEach((table) => {
+    if (table.parentElement?.classList.contains('table-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    table.replaceWith(wrap);
+    wrap.appendChild(table);
+  });
+}
+
+function bindCopyButton(button, text, copyText) {
+  if (!button || button.dataset.copyBound === '1') return;
+  button.dataset.copyText = text;
+  button.dataset.copyBound = '1';
+  button.addEventListener('click', async () => {
+    try {
+      await (copyText ? copyText(text) : navigator.clipboard.writeText(text));
+      button.classList.remove('copy-failed');
+      button.classList.add('copied');
+      button.textContent = '✓';
+    } catch (err) {
+      console.warn('[markdown] copy failed:', err);
+      button.classList.remove('copied');
+      button.classList.add('copy-failed');
+      button.textContent = '!';
+    }
+    setTimeout(() => { button.classList.remove('copied', 'copy-failed'); button.innerHTML = COPY_ICON_SVG; }, 900);
+  });
+}
+
+function enhanceCodeCopy(root, copyText) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('pre').forEach((pre) => {
+    if (pre.closest('.mermaid-block,.markdown-mermaid-pending')) return;
+    const code = pre.querySelector('code');
+    const text = code?.textContent || pre.textContent || '';
+    if (!text.trim()) return;
+    let wrap = pre.closest('.code-block');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.className = 'code-block';
+      pre.replaceWith(wrap);
+      wrap.appendChild(pre);
+    }
+    const langClass = [...(code?.classList || [])].find(c => c.startsWith('language-')) || '';
+    const lang = langClass.replace(/^language-/, '');
+    if (lang && !/^(text|txt|plain|plaintext)$/i.test(lang) && !wrap.querySelector(':scope > .code-lang')) {
+      const label = document.createElement('span');
+      label.className = 'code-lang';
+      label.textContent = lang;
+      wrap.insertBefore(label, wrap.firstChild);
+    }
+    let btn = wrap.querySelector(':scope > .code-copy-icon');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'inline-copy code-copy-icon';
+      btn.type = 'button';
+      btn.title = '复制代码';
+      btn.setAttribute('aria-label', '复制代码');
+      btn.innerHTML = COPY_ICON_SVG;
+      wrap.insertBefore(btn, wrap.firstChild);
+    }
+    bindCopyButton(btn, text, copyText);
+  });
+}
+
+async function defaultLoadMermaid() {
+  if (window.mermaid) return window.mermaid;
+  await window.ChatUIMarkdownDependencyLoader?.loadScripts?.();
+  return window.mermaid || null;
+}
+
+function collectMermaidBlocks(root) {
+  if (!root?.querySelectorAll) return [];
+  return [...root.querySelectorAll('.markdown-mermaid-pending, pre code.language-mermaid')]
+    .map(node => node.matches?.('code.language-mermaid') ? (node.closest('.markdown-mermaid-pending,.mermaid-block') || node.closest('pre')) : node)
+    .filter(Boolean)
+    .filter((node, index, all) => all.indexOf(node) === index);
+}
+
+function scheduleIdle(callback, timeoutMs = 1200) {
+  let done = false;
+  let idleHandle = null;
+  const run = (deadline) => {
+    if (done) return;
+    done = true;
+    if (fallbackHandle) clearTimeout(fallbackHandle);
+    callback(deadline || { didTimeout: true, timeRemaining: () => 0 });
+  };
+  const fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 80);
+  if (typeof requestIdleCallback === 'function') idleHandle = requestIdleCallback(run, { timeout: timeoutMs });
+  else setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
+  return { idleHandle, fallbackHandle };
+}
+
+function cancelIdle(handle) {
+  if (!handle) return;
+  if (typeof handle === 'object') {
+    if (handle.idleHandle != null && typeof cancelIdleCallback === 'function') cancelIdleCallback(handle.idleHandle);
+    if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
+    return;
+  }
+  if (typeof cancelIdleCallback === 'function') return cancelIdleCallback(handle);
+  return clearTimeout(handle);
+}
+
+const performanceLog = [];
+
+function measureStage(name, fn, details = {}) {
+  const started = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  const finish = (result) => {
+    const ended = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    const durationMs = ended - started;
+    if (durationMs >= 50) {
+      const entry = { name, durationMs: Math.round(durationMs), ...details };
+      performanceLog.push(entry);
+      if (performanceLog.length > 80) performanceLog.shift();
+      if (typeof console !== 'undefined') console.warn?.('[ChatUI perf]', entry);
+    }
+    return result;
+  };
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') return result.then(finish, (err) => { finish(null); throw err; });
+    return finish(result);
+  } catch (err) {
+    finish(null);
+    throw err;
+  }
+}
+
+function isElementVisible(node) {
+  if (!node?.getBoundingClientRect || typeof innerHeight === 'undefined') return true;
+  const rect = node.getBoundingClientRect();
+  const margin = 900;
+  return rect.bottom >= -margin && rect.top <= innerHeight + margin;
+}
+
+function idleBatch(items, each, { batchSize = 8, budgetMs = 12, signal = null } = {}) {
+  const list = [...items];
+  return new Promise((resolve) => {
+    let index = 0;
+    const step = (deadline) => {
+      if (signal?.cancelled) return resolve({ cancelled: true, processed: index });
+      const started = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+      let count = 0;
+      while (index < list.length) {
+        each(list[index], index);
+        index += 1;
+        count += 1;
+        const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : Math.max(0, budgetMs - (now - started));
+        if (count >= batchSize || timeLeft <= 2 || now - started >= budgetMs) break;
+      }
+      if (index >= list.length) return resolve({ cancelled: false, processed: index });
+      scheduleIdle(step);
+    };
+    scheduleIdle(step);
+  });
+}
+
+function markMermaidUnavailable(blocks, error) {
+  blocks.forEach((block) => {
+    if (!block?.parentNode) return;
+    block.dataset.mermaidRendered = 'error';
+    block.dataset.mermaidToken = '';
+    block.classList.add('mermaid-fallback');
+    if (!block.querySelector('.markdown-error')) block.insertAdjacentHTML('afterbegin', '<div class="markdown-error">Mermaid 资源加载失败，已保留源码。</div>');
+  });
+  return blocks.map(block => ({ ok: false, node: block, error }));
+}
+
+function staleMermaidBlock(holder, container, token) {
+  return !holder?.parentNode || !container?.parentNode || holder.dataset?.mermaidToken !== token || container.dataset?.mermaidToken !== token;
+}
+
+function restoreMermaidFallback(holder, container, token, error) {
+  if (!holder?.parentNode && container?.parentNode) container.replaceWith(holder);
+  if (holder?.parentNode && holder.dataset?.mermaidToken === token) {
+    const source = holder.dataset.mermaidSource || '';
+    holder.replaceChildren();
+    holder.dataset.mermaidRendered = 'error';
+    holder.dataset.mermaidToken = '';
+    holder.classList.remove('markdown-mermaid-pending');
+    holder.classList.add('mermaid-fallback');
+    const errorNode = document.createElement('div');
+    errorNode.className = 'markdown-error';
+    errorNode.textContent = 'Mermaid 图表渲染失败，已保留源码。';
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.className = 'language-mermaid';
+    code.textContent = source;
+    pre.appendChild(code);
+    holder.append(errorNode, pre);
+  }
+  return { ok: false, node: holder, error };
+}
+
+async function renderSingleMermaidBlock(holder, mermaid) {
+  const token = holder.dataset.mermaidToken;
+  const source = holder.dataset.mermaidSource || holder.querySelector?.('code.language-mermaid')?.textContent || holder.textContent || '';
+  const container = document.createElement('div');
+  const renderId = `${token}-svg`;
+  container.className = 'mermaid';
+  // Keep the host container id distinct from Mermaid's render id. Mermaid v11
+  // may create/query an SVG with the render id; reusing that id on the host
+  // div makes flowcharts hit getBBox on the div instead of the generated SVG.
+  container.id = `${token}-container`;
+  container.dataset.mermaidRenderId = renderId;
+  container.dataset.mermaidRendered = 'rendering';
+  container.dataset.mermaidToken = token;
+  container.dataset.mermaidSourceHash = String(source.length);
+  container.textContent = source;
+  holder.textContent = '';
+  holder.appendChild(container);
+  try {
+    if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
+    if (typeof mermaid.render === 'function') {
+      const result = await mermaid.render(renderId, source, container);
+      if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
+      container.replaceChildren();
+      if (result?.svg) container.innerHTML = result.svg;
+      else if (result?.nodeType) container.appendChild(result);
+      result?.bindFunctions?.(container);
+    } else {
+      await mermaid.run?.({ nodes: [container] });
+      if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
+    }
+    holder.dataset.mermaidRendered = '1';
+    holder.classList.remove('markdown-mermaid-pending');
+    holder.classList.add('mermaid-rendered-block');
+    container.dataset.mermaidRendered = '1';
+    return { ok: true, node: container, holder };
+  } catch (err) {
+    console.warn('[markdown] mermaid block failed:', err);
+    if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, error: err, stale: true };
+    return restoreMermaidFallback(holder, container, token, err);
+  }
+}
+
+async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = {}) {
+  return enqueueMermaidRender(async () => {
+    const force = !!options.force;
+    const blocks = collectMermaidBlocks(root).filter(node => root.contains?.(node) && node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'rendering' && node.dataset?.mermaidDeferred !== '1' && (force || isElementVisible(node)));
+    if (!blocks.length) return [];
+    blocks.forEach((block) => {
+      const code = block.querySelector?.('code.language-mermaid') || block;
+      const source = code.textContent || '';
+      const token = nextMermaidToken();
+      if (block.dataset) {
+        block.dataset.mermaidRendered = 'rendering';
+        block.dataset.mermaidToken = token;
+        block.dataset.mermaidSource = source;
+      }
+      block.classList.add('mermaid-block');
+    });
+    let mermaid = null;
+    try { mermaid = await loader(); } catch (err) { console.warn('[markdown] mermaid load failed:', err); }
+    if (!mermaid) return markMermaidUnavailable(blocks, new Error('Mermaid unavailable'));
+    try { mermaid.initialize?.({ startOnLoad: false, securityLevel: 'strict', theme: 'default', deterministicIds: false, deterministicIDSeed: undefined }); } catch {}
+    const results = [];
+    for (const holder of blocks) {
+      if (!root.contains?.(holder) || holder.dataset?.mermaidRendered !== 'rendering') {
+        results.push({ ok: false, node: holder, stale: true });
+        continue;
+      }
+      results.push(await renderSingleMermaidBlock(holder, mermaid));
+    }
+    return results;
+  });
+}
+
+function enhanceRenderedMarkdown(root, options = {}) {
+  if (!root?.querySelectorAll) return Promise.resolve([]);
+  const previous = root.__chatuiEnhanceJob;
+  if (previous?.cancel) previous.cancel();
+  const signal = { cancelled: false };
+  root.__chatuiEnhanceJob = { cancel: () => { signal.cancelled = true; } };
+  const runBasic = async () => {
+    await idleBatch(root.querySelectorAll('h1,h2,h3,h4,h5,h6'), () => {}, { signal, batchSize: 1, budgetMs: 1 });
+    if (signal.cancelled) return;
+    measureStage('markdown.addHeadingAnchors', () => addHeadingAnchors(root));
+    if (signal.cancelled) return;
+    await idleBatch(root.querySelectorAll('table'), () => {}, { signal, batchSize: 1, budgetMs: 1 });
+    if (signal.cancelled) return;
+    measureStage('markdown.wrapTables', () => wrapTables(root));
+    if (signal.cancelled) return;
+    const pres = [...root.querySelectorAll('pre')];
+    await idleBatch(pres, (pre) => enhanceCodeCopy(pre.parentElement || pre, options.copyText), { signal, batchSize: 4, budgetMs: 12 });
+  };
+  if (options.skipMermaid) return Promise.resolve([]);
+  const run = (renderOptions = {}) => runBasic().then(() => signal.cancelled ? [] : renderMermaidBlocks(root, options.loadMermaid, { force: !!options.forceMermaid || !!renderOptions.force })).catch((err) => { console.warn('[markdown] mermaid enhance failed:', err); return []; });
+  if (options.deferMermaid === false) return run({ force: !!options.forceMermaid });
+  return new Promise(resolve => {
+    let settled = false;
+    let forceTimer = null;
+    const finish = (promise) => Promise.resolve(promise).then(result => {
+      if (!settled) { settled = true; if (forceTimer) clearTimeout(forceTimer); resolve(result); }
+      return result;
+    });
+    const handle = scheduleIdle(() => finish(run()));
+    forceTimer = setTimeout(() => {
+      if (!settled && root?.isConnected !== false && collectMermaidBlocks(root).some(node => node.dataset?.mermaidRendered !== '1' && node.dataset?.mermaidRendered !== 'error')) finish(run({ force: true }));
+    }, Number(options.mermaidFallbackMs) || 2600);
+    root.__chatuiEnhanceJob.cancel = () => { signal.cancelled = true; cancelIdle(handle); if (forceTimer) clearTimeout(forceTimer); if (!settled) { settled = true; resolve([]); } };
+  });
+}
+
+module.exports = { COPY_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };

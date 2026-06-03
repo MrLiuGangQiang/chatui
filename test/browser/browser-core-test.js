@@ -20,7 +20,7 @@ function startServer() {
 }
 
 function startBrowser() {
-  const userDataDir = fs.mkdtempSync('/tmp/chatui-core-browser-');
+  const userDataDir = fs.mkdtempSync('/tmp/chatui-md-chromium-core-');
   const child = spawn('/usr/bin/chromium', [
     '--headless=new',
     '--no-sandbox',
@@ -29,6 +29,26 @@ function startBrowser() {
     'about:blank',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   return { child, userDataDir };
+}
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function stopChild(child) {
+  return new Promise(resolve => {
+    if (!child || child.exitCode !== null || child.signalCode) return resolve();
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && !child.killed) child.kill('SIGKILL');
+    }, 1200);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.kill('SIGTERM');
+  });
+}
+
+async function removeTempDir(dir) {
+  for (let i = 0; i < 5; i += 1) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; }
+    catch (err) { if (err?.code !== 'ENOTEMPTY' || i === 4) throw err; await sleep(150); }
+  }
 }
 
 function getJson(url) {
@@ -100,6 +120,8 @@ async function connectCdp() {
     cdp = await connectCdp();
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    await cdp.send('Network.enable');
+    await cdp.send('Network.setBlockedURLs', { urls: ['https://cdn.jsdelivr.net/*'] });
     await cdp.send('Page.navigate', { url: base });
     await waitFor(async () => cdp.evalJs(`!!window.ChatUICore && !!window.ChatUIServices && !!window.ChatUI && !!window.ChatUIApp && !!document.querySelector('#prompt')`));
     const result = await cdp.evalJs(`(() => ({
@@ -133,10 +155,8 @@ async function connectCdp() {
     console.log('browser core ok');
   } finally {
     cdp?.ws?.close?.();
-    browser.child.kill('SIGTERM');
-    server.kill('SIGTERM');
-    setTimeout(() => browser.child.kill('SIGKILL'), 1000).unref?.();
-    setTimeout(() => server.kill('SIGKILL'), 1000).unref?.();
+    await Promise.all([stopChild(browser.child), stopChild(server)]);
+    await removeTempDir(browser.userDataDir);
   }
 })().catch(err => {
   console.error(err);

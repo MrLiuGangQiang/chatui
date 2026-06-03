@@ -465,18 +465,11 @@
   }
 
   function repairMarkdownPunctuation(value = '') {
-    return String(value || '')
-      .replace(/[∣｜]/g, '|')
-      .replace(/[−－—]/g, '-')
-      .replace(/[∗＊]/g, '*')
-      .replace(/[‘’]/g, '`');
+    return String(value || '');
   }
 
   function repairCollapsedMarkdownBlocks(value = '') {
-    const text = String(value || '');
-    return text
-      .replace(/([^\n])```/g, '$1\n```')
-      .replace(/([^\n])(#{1,6}\s+)/g, '$1\n$2');
+    return String(value || '');
   }
 
   function splitTableRow(value) {

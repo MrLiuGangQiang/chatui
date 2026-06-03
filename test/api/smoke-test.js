@@ -53,8 +53,11 @@ async function json(res) {
     res = await fetch(`${base}/`);
     assert.strictEqual(res.status, 200, 'index status');
     const html = await res.text();
-    assert.ok(html.includes('registry.npmmirror.com/markdown-it/13.0.2'), 'uses npmmirror markdown CDN');
-    assert.ok(html.includes("this.src='./vendor/markdown-it.min.js'"), 'markdown CDN has local fallback');
+    assert.ok(html.includes('./client/app/markdown/dependency-loader.js'), 'loads markdown dependency loader');
+    assert.ok(html.includes('./client/app/markdown/browser.js'), 'loads markdown browser renderer');
+    const dependencyLoader = await (await fetch(`${base}/client/app/markdown/dependency-loader.js`)).text();
+    assert.ok(dependencyLoader.includes('registry.npmmirror.com/markdown-it/14.2.0'), 'uses controlled domestic markdown-it CDN');
+    assert.ok(dependencyLoader.includes("local: './vendor/markdown-it.min.js'"), 'markdown CDN has local fallback');
     assert.ok(html.includes('./client/core/browser.js'), 'loads browser core adapter before app');
     assert.ok(html.includes('./client/services/fallback.js'), 'loads browser services fallback before adapter');
     assert.ok(html.includes('./client/services/browser.js'), 'loads browser services adapter before app');
@@ -63,9 +66,10 @@ async function json(res) {
     assert.ok(html.includes('./styles.css'), 'loads root stylesheet');
     assert.ok(html.includes('./styles/composer.css'), 'loads scoped composer CSS override after base stylesheet');
     assert.ok(html.includes('./styles/messages.css'), 'loads scoped message CSS override after base stylesheet');
-    assert.ok(html.includes('registry.npmmirror.com/katex/0.16.9'), 'uses npmmirror katex CDN');
-    assert.ok(!html.includes('registry.npmmirror.com/mermaid/11.15.0/files/dist/mermaid.min.js'), 'mermaid CDN is not render-blocking in index');
-    assert.ok(html.includes("this.src='./vendor/katex.min.js'"), 'katex CDN has local fallback');
+    assert.ok(dependencyLoader.includes('registry.npmmirror.com/katex/0.16.47'), 'uses controlled domestic katex CDN');
+    assert.ok(dependencyLoader.includes('registry.npmmirror.com/mermaid/11.15.0'), 'uses controlled domestic mermaid CDN');
+    assert.ok(dependencyLoader.includes("local: './vendor/katex.min.js'"), 'katex CDN has local fallback');
+    assert.ok(dependencyLoader.includes("local: './vendor/mermaid.min.js'"), 'mermaid CDN has local fallback');
 
     res = await fetch(`${base}/app.js`);
     assert.strictEqual(res.status, 200, 'app js status');
@@ -96,9 +100,9 @@ async function json(res) {
     const browserApp = await res.text();
     assert.ok(browserApp.includes('window.ChatUIApp'), 'browser app exposes stable namespace');
 
-    assert.ok(appJs.includes('loadMermaidVendor'), 'mermaid is loaded lazily');
-    assert.ok(appJs.includes('registry.npmmirror.com/mermaid/11.15.0'), 'lazy mermaid uses npmmirror CDN');
-    assert.ok(appJs.includes('./vendor/mermaid.min.js'), 'lazy mermaid keeps local fallback');
+    assert.ok(dependencyLoader.includes('id: \'mermaid\'') || dependencyLoader.includes('id: "mermaid"'), 'mermaid is loaded through markdown dependency loader');
+    assert.ok(dependencyLoader.includes('registry.npmmirror.com/mermaid/11.15.0'), 'lazy mermaid uses npmmirror CDN');
+    assert.ok(dependencyLoader.includes('./vendor/mermaid.min.js'), 'lazy mermaid keeps local fallback');
     assert.ok(appJs.includes('function beginRenameSession'), 'inline session rename function exists');
     assert.ok(appJs.includes('customTitle'), 'custom session title is persisted');
     assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');

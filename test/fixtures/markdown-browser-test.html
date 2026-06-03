@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ChatUI Markdown Browser Acceptance</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7fb;color:#111827;margin:0;padding:24px}.toolbar{position:sticky;top:0;z-index:10;background:#fff;border:1px solid #d1d5db;border-radius:12px;padding:12px;margin-bottom:16px;box-shadow:0 6px 18px rgba(15,23,42,.08)}button{margin:4px;padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}.case{background:#fff;border:1px solid #d1d5db;border-radius:12px;padding:16px;min-height:220px}.case h2{font-size:18px;margin:0 0 12px}.status{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;background:#111827;color:#e5e7eb;border-radius:8px;padding:8px;max-height:180px;overflow:auto}.message{border:1px solid #e5e7eb;border-radius:10px;padding:12px}.content.markdown-body{max-width:none}.stream-box{min-height:260px}.pass{color:#047857}.fail{color:#b91c1c}.muted{color:#6b7280}.wide{grid-column:1/-1}.spacer{height:24px}.markdown-error{background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:8px;padding:8px;margin:8px 0}.copy-result{font-weight:600}</style>
+</head>
+<body>
+  <div class="toolbar">
+    <strong>ChatUI Markdown Browser Acceptance</strong>
+    <button id="runAll">Run all</button>
+    <button id="runStreaming">Run streaming only</button>
+    <button id="simulateCdnFail">Simulate CDN fail fallback</button>
+    <button id="simulatePluginFail">Simulate plugin fail</button>
+    <span id="summary" class="muted">waiting</span>
+    <div id="log" class="status"></div>
+  </div>
+  <div class="grid">
+    <section class="case" id="basicCase"><h2>基础 Markdown</h2><div class="message"><div class="content markdown-body" id="basic"></div></div></section>
+    <section class="case" id="gfmCase"><h2>GFM</h2><div class="message"><div class="content markdown-body" id="gfm"></div></div></section>
+    <section class="case wide" id="codeCase"><h2>代码块/高亮/复制 <span class="copy-result" id="copyResult"></span></h2><div class="message"><div class="content markdown-body" id="code"></div></div></section>
+    <section class="case" id="mathCase"><h2>数学公式</h2><div class="message"><div class="content markdown-body" id="math"></div></div></section>
+    <section class="case wide" id="mermaidCase"><h2>Mermaid</h2><div class="message"><div class="content markdown-body" id="mermaid"></div></div></section>
+    <section class="case wide" id="streamCase"><h2>流式渲染</h2><div class="message"><div class="content markdown-body stream-box" id="stream"></div></div></section>
+    <section class="case wide" id="escapeCase"><h2>字符转义与空行</h2><div class="message"><div class="content markdown-body" id="escape"></div></div></section>
+    <section class="case wide" id="resourceCase"><h2>资源加载/降级</h2><div id="resourceStatus" class="status"></div><div class="message"><div class="content markdown-body" id="resourceRender"></div></div></section>
+  </div>
+  <script src="/client/app/markdown/dependency-loader.js?v=2.0.0"></script>
+  <script src="/client/app/markdown/browser.js?v=2.0.0"></script>
+  <script src="/test/fixtures/markdown-browser-test.js"></script>
+</body>
+</html>

@@ -5,9 +5,9 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self' https://registry.npmmirror.com 'unsafe-inline'",
-    "style-src 'self' https://registry.npmmirror.com 'unsafe-inline'",
-    "font-src 'self' https://registry.npmmirror.com data:",
+    "script-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net 'unsafe-inline' blob:",
+    "style-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net 'unsafe-inline'",
+    "font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net data:",
     "img-src 'self' data: blob: http: https:",
     "connect-src 'self' http: https: data: blob:",
     "media-src 'self' data: blob:",

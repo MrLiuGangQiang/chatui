@@ -109,8 +109,7 @@ assertContains('.image-preview-action svg path,\n.image-preview-action svg rect{
 console.log('css contract ok');
 
 
-assertContains('function repairMarkdownPunctuation', 'markdown renderer normalizes full-width/broken pipe and punctuation variants before rendering', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
-assertContains('function repairCollapsedMarkdownBlocks', 'markdown renderer repairs collapsed table/code block boundaries before rendering', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+assertContains('function renderMarkdown(e){const t=String(e||"")', 'markdown renderer passes source through to markdown-it without legacy punctuation/block repair pre-pass', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
 assertContains('.table-wrap{width:100%;max-width:100%;overflow-x:auto;', 'markdown tables stay inside the message bubble scroll container', baseCss);
 assertContains('.markdown-body table{width:100%;min-width:0;max-width:100%;table-layout:auto}', 'markdown tables do not force max-content width that stretches bubbles', baseCss);
 assertContains('.markdown-body td,.markdown-body th{max-width:min(420px,70vw);white-space:normal;overflow-wrap:anywhere;word-break:break-word;vertical-align:top}', 'markdown table cells wrap long malformed content instead of making a single long row', baseCss);
@@ -127,3 +126,12 @@ assertContains('function canWriteImageClipboard(){return window.isSecureContext&
 assertContains('复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持', 'image preview copy explains HTTP LAN clipboard limitation', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
 assertContains(`.image-preview-action.is-disabled,
 .image-preview-action:disabled{`, 'disabled image preview copy button has visible disabled state', baseCss);
+
+assertContains('/* KaTeX clipping fix: only math-containing markdown bubbles may expose vertical overflow; display math keeps horizontal scrolling. */', 'KaTeX clipping fix documents narrow scope', baseCss);
+assertContains('.bubble:has(.markdown-body .katex),\n  .bubble:has(.markdown-body .katex-display),', 'KaTeX fix only relaxes bubble overflow when math exists', baseCss);
+assertContains('.content:has(.katex),\n  .markdown-body:has(.katex){\n    overflow-y:visible!important;', 'KaTeX fix relaxes vertical overflow only for math markdown content', baseCss);
+assertContains('.message:has(.markdown-body .katex),\n  .message:has(.markdown-body .katex-display){\n    overflow-x:visible!important;', 'KaTeX fix neutralizes message overflow-x clip only for math messages', baseCss);
+assertContains('.markdown-body .katex-display{\n  box-sizing:border-box;\n  display:block;\n  width:100%;\n  max-width:100%;', 'KaTeX display math uses a width-bounded block scroll container', baseCss);
+assertContains('overflow-x:auto!important;\n  overflow-y:visible!important;', 'KaTeX display math scrolls horizontally without vertical clipping', baseCss);
+assertContains('padding:.85em .15em .95em!important;', 'KaTeX display math has enough vertical padding for matrices/cases/integrals/scripts', baseCss);
+assertContains('.markdown-body .katex-display>.katex{\n  display:inline-block;\n  max-width:none;\n  min-width:max-content;\n  white-space:nowrap;', 'KaTeX inner formula keeps intrinsic size inside display scroll container', baseCss);

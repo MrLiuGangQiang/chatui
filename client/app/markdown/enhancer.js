@@ -3,6 +3,11 @@
 const { slugify } = require('./markdown-engine');
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
+const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
+const MERMAID_RENDER_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
+const MERMAID_SOURCE_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
+const MERMAID_LOADING_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v3"></path><path d="M12 16v3"></path><path d="M5 12h3"></path><path d="M16 12h3"></path><path d="m7.05 7.05 2.12 2.12"></path><path d="m14.83 14.83 2.12 2.12"></path></svg>';
+const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5"></path><path d="M12 16.5h.01"></path><path d="M10.3 4.9 3.8 16.2A2 2 0 0 0 5.5 19h13a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0z"></path></svg>';
 
 let mermaidRenderSequence = 0;
 let mermaidRenderQueue = Promise.resolve();
@@ -45,20 +50,34 @@ function wrapTables(root) {
 function bindCopyButton(button, text, copyText) {
   if (!button) return;
   button.dataset.copyText = text;
+  if (button.dataset.copyBound === '1') return;
   button.dataset.copyBound = '1';
   button.addEventListener('click', async () => {
+    const currentText = button.dataset.copyText || '';
+    clearTimeout(button._copyResetTimer);
+    button.title = '复制代码';
+    button.setAttribute('aria-label', '复制代码');
     try {
-      await (copyText ? copyText(text) : navigator.clipboard.writeText(text));
+      await (copyText ? copyText(currentText) : navigator.clipboard.writeText(currentText));
       button.classList.remove('copy-failed');
       button.classList.add('copied');
-      button.textContent = '✓';
+      button.innerHTML = COPY_SUCCESS_ICON_SVG;
+      button.title = '已复制';
+      button.setAttribute('aria-label', '已复制');
     } catch (err) {
       console.warn('[markdown] copy failed:', err);
       button.classList.remove('copied');
       button.classList.add('copy-failed');
       button.textContent = '!';
+      button.title = '复制失败';
+      button.setAttribute('aria-label', '复制失败');
     }
-    setTimeout(() => { button.classList.remove('copied', 'copy-failed'); button.innerHTML = COPY_ICON_SVG; }, 900);
+    button._copyResetTimer = setTimeout(() => {
+      button.classList.remove('copied', 'copy-failed');
+      button.innerHTML = COPY_ICON_SVG;
+      button.title = '复制代码';
+      button.setAttribute('aria-label', '复制代码');
+    }, 900);
   });
 }
 
@@ -86,7 +105,7 @@ function enhanceCodeCopy(root, copyText) {
     let btn = wrap.querySelector(':scope > .code-copy-icon');
     if (!btn) {
       btn = document.createElement('button');
-      btn.className = 'inline-copy code-copy-icon';
+      btn.className = 'inline-copy code-action-icon code-copy-icon';
       btn.type = 'button';
       btn.title = '复制代码';
       btn.setAttribute('aria-label', '复制代码');
@@ -138,9 +157,10 @@ function setMermaidToggleState(button, state) {
   button.classList.toggle('is-loading', state === 'rendering');
   button.classList.toggle('is-error', state === 'error');
   button.disabled = state === 'rendering';
-  const labels = { source: '渲染图表', rendering: '渲染中…', rendered: '查看源码', error: '渲染失败' };
-  button.textContent = labels[state] || labels.source;
-  button.title = state === 'rendered' ? '切回 Mermaid 源码' : '渲染 Mermaid 图表';
+  const labels = { source: '渲染 Mermaid 图表', rendering: '正在渲染 Mermaid 图表', rendered: '查看 Mermaid 源码', error: 'Mermaid 渲染失败，返回源码' };
+  const icons = { source: MERMAID_RENDER_ICON_SVG, rendering: MERMAID_LOADING_ICON_SVG, rendered: MERMAID_SOURCE_ICON_SVG, error: MERMAID_ERROR_ICON_SVG };
+  button.innerHTML = icons[state] || icons.source;
+  button.title = labels[state] || labels.source;
   button.setAttribute('aria-label', button.title);
 }
 
@@ -168,7 +188,7 @@ function ensureRenderedMermaidToggle(block) {
   if (!btn) {
     btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'inline-copy mermaid-toggle-btn mermaid-render-toggle';
+    btn.className = 'inline-copy code-action-icon mermaid-toggle-btn mermaid-render-toggle';
     block.insertBefore(btn, block.firstChild);
   }
   if (btn.dataset.mermaidToggleBound !== '1') {
@@ -207,7 +227,7 @@ function initMermaidToggleUI(root, options = {}) {
     if (!btn) {
       btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'inline-copy mermaid-toggle-btn';
+      btn.className = 'inline-copy code-action-icon mermaid-toggle-btn';
       const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon');
       ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild);
     }
@@ -483,4 +503,4 @@ function enhanceRenderedMarkdown(root, options = {}) {
   });
 }
 
-module.exports = { COPY_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };
+module.exports = { COPY_ICON_SVG, COPY_SUCCESS_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };

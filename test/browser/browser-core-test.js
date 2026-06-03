@@ -121,7 +121,23 @@ async function connectCdp() {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Network.enable');
-    await cdp.send('Network.setBlockedURLs', { urls: ['https://cdn.jsdelivr.net/*'] });
+    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'https://cdn.jsdelivr.net/*', requestStage: 'Request' }] });
+    cdp.ws.addEventListener('message', async ev => {
+      try {
+        const msg = JSON.parse(String(ev.data));
+        if (msg.method !== 'Fetch.requestPaused') return;
+        await cdp.send('Fetch.fulfillRequest', {
+          requestId: msg.params.requestId,
+          responseCode: 204,
+          responseHeaders: [
+            { name: 'Access-Control-Allow-Origin', value: '*' },
+            { name: 'Cache-Control', value: 'no-store' },
+            { name: 'Content-Type', value: 'text/plain' },
+          ],
+          body: '',
+        });
+      } catch {}
+    });
     await cdp.send('Page.navigate', { url: base });
     await waitFor(async () => cdp.evalJs(`!!window.ChatUICore && !!window.ChatUIServices && !!window.ChatUI && !!window.ChatUIApp && !!document.querySelector('#prompt')`));
     const result = await cdp.evalJs(`(() => ({

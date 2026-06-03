@@ -63,17 +63,18 @@ async function connectCdp() {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Page.navigate', { url: base });
-    await waitFor(async () => cdp.evalJs('!!window.ChatUIMarkdown && !!document.body'));
+    await waitFor(async () => cdp.evalJs('!!window.ChatUIMarkdown && !!window.markdownit && !!document.body'));
     
     const summary = await cdp.evalJs(`(async () => {
       const box = document.createElement('div');
       box.className = 'markdown-body';
       box.style.cssText = 'width: 900px; padding: 24px; background: white; color: black;';
-      document.body.replaceChildren(box);
+      document.body.appendChild(box);
       const nl = String.fromCharCode(10);
       const fence = String.fromCharCode(96,96,96);
       const sources = ['pie title Pets' + nl + '  \"Dogs\" : 4' + nl + '  \"Cats\" : 3', 'erDiagram' + nl + '  USER ||--o{ POST : writes' + nl + '  POST ||--o{ COMMENT : has', 'flowchart TD' + nl + '  A[Start] --> B{Go?}' + nl + '  B -->|Yes| C[Done]', 'sequenceDiagram' + nl + '  participant U' + nl + '  participant C' + nl + '  U->>C: Hi' + nl + '  C-->>U: OK'];
       const md = sources.map(src => fence + 'mermaid' + nl + src + nl + fence).join(nl + nl);
+      if (window.markdownit) window.markdownit().render(md);
       const rendered = await window.ChatUIMarkdown.renderMarkdownInto(box, md, { deferMermaid: false, loadMermaid: async () => { throw new Error('should not auto-render'); } });
       if (!box.querySelectorAll('.mermaid-block').length) {
         box.innerHTML = window.ChatUIMarkdown.renderMarkdownHtml(md);

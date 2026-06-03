@@ -1046,6 +1046,29 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
   width:26px!important;
   height:22px!important;
   min-width:26px!important;
+  min-height:22px!important;
+  max-width:26px!important;
+  max-height:22px!important;
+}
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover{
+  background:rgba(16,185,129,.94)!important;
+  color:#fff!important;
+  border-color:rgba(5,150,105,.44)!important;
+  box-shadow:0 0 18px rgba(16,185,129,.24)!important;
+}
+.markdown-body .code-block .code-copy-icon.copy-failed,
+.markdown-body .code-block .code-copy-icon.copy-failed:hover{
+  background:rgba(239,68,68,.92)!important;
+  color:#fff!important;
+  border-color:rgba(239,68,68,.55)!important;
+}
+.markdown-body .code-block .mermaid-toggle-btn.copied,
+.markdown-body .mermaid-render-toggle.copied{
+  background:rgba(15,23,42,.72)!important;
+  color:#dbeafe!important;
+  border-color:rgba(148,163,184,.35)!important;
+  box-shadow:none!important;
 }
 
 /* Markdown v2 renderer: third-party markdown-it + KaTeX + Mermaid + highlight.js. */
@@ -1108,3 +1131,149 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 .markdown-body .code-block .mermaid-toggle-btn.is-error{background:rgba(239,68,68,.92)!important;color:#fff!important}
 .markdown-body .mermaid-render-toggle{float:right;margin:6px 6px 4px 8px;min-width:66px!important;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;border-color:rgba(148,163,184,.35)!important}
 .markdown-body .mermaid-source-view[hidden]{display:none!important}
+
+/* Mermaid hover final2: match Mermaid toggle buttons to code copy icon hover/active contract. */
+.markdown-body .mermaid-rendered-block{position:relative;padding-top:0}
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .mermaid-render-toggle{position:absolute!important;top:6px!important;right:6px!important;left:auto!important;bottom:auto!important;float:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:26px!important;height:22px!important;min-width:26px!important;min-height:22px!important;max-width:26px!important;max-height:22px!important;padding:0!important;margin:0!important;box-sizing:border-box!important;border:1px solid rgba(148,163,184,.35)!important;border-radius:6px!important;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;opacity:1!important;line-height:0!important;font-size:0!important;cursor:pointer!important;transform:none!important;z-index:3!important;overflow:hidden!important;box-shadow:none!important;backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important;transition:background .12s,color .12s,border-color .12s,opacity .12s!important}
+.markdown-body .code-block .mermaid-toggle-btn{right:38px!important}
+.markdown-body .mermaid-render-toggle{right:6px!important;top:6px!important}
+.markdown-body .code-block .mermaid-toggle-btn:hover,.markdown-body .code-block .mermaid-toggle-btn:focus,.markdown-body .code-block .mermaid-toggle-btn:focus-visible,.markdown-body .mermaid-render-toggle:hover,.markdown-body .mermaid-render-toggle:focus,.markdown-body .mermaid-render-toggle:focus-visible{width:26px!important;height:22px!important;min-width:26px!important;min-height:22px!important;max-width:26px!important;max-height:22px!important;padding:0!important;margin:0!important;transform:none!important;background:#34373c!important;color:#fff!important;border-color:rgba(148,163,184,.45)!important;outline:none!important}
+.markdown-body .code-block .mermaid-toggle-btn:active,.markdown-body .mermaid-render-toggle:active{width:26px!important;height:22px!important;min-width:26px!important;min-height:22px!important;transform:none!important;background:#2b2d30!important}
+.markdown-body .mermaid-toggle-btn svg,.markdown-body .mermaid-toggle-btn img{width:14px!important;height:14px!important;min-width:14px!important;min-height:14px!important;display:block!important;flex:0 0 14px!important;margin:0!important;padding:0!important;pointer-events:none!important}
+.markdown-body .mermaid-toggle-btn svg path,.markdown-body .mermaid-toggle-btn svg rect{fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-error,.markdown-body .mermaid-render-toggle.is-error{background:rgba(239,68,68,.92)!important;color:#fff!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-loading,.markdown-body .mermaid-render-toggle.is-loading{opacity:.72!important;cursor:wait!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-loading svg,.markdown-body .mermaid-render-toggle.is-loading svg{animation:.8s linear infinite refresh-spin}
+
+/* Mermaid button match: one shared code action icon contract for copy + Mermaid toggles. */
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .mermaid-render-toggle,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .mermaid-render-toggle:hover,
+.markdown-body .code-block .code-copy-icon:focus,
+.markdown-body .code-block .mermaid-toggle-btn:focus,
+.markdown-body .mermaid-render-toggle:focus,
+.markdown-body .code-block .code-copy-icon:focus-visible,
+.markdown-body .code-block .mermaid-toggle-btn:focus-visible,
+.markdown-body .mermaid-render-toggle:focus-visible,
+.markdown-body .code-block .code-copy-icon:active,
+.markdown-body .code-block .mermaid-toggle-btn:active,
+.markdown-body .mermaid-render-toggle:active{
+  display:inline-grid!important;
+  place-items:center!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:26px!important;
+  height:22px!important;
+  min-width:26px!important;
+  min-height:22px!important;
+  max-width:26px!important;
+  max-height:22px!important;
+  padding:0!important;
+  margin:0!important;
+  box-sizing:border-box!important;
+  border:1px solid rgba(148,163,184,.35)!important;
+  border-radius:6px!important;
+  background:rgba(15,23,42,.72)!important;
+  color:#dbeafe!important;
+  opacity:1!important;
+  line-height:0!important;
+  font-size:0!important;
+  box-shadow:none!important;
+  transform:none!important;
+  transition:background .12s,color .12s,border-color .12s,opacity .12s!important;
+  backdrop-filter:blur(8px)!important;
+  -webkit-backdrop-filter:blur(8px)!important;
+  overflow:hidden!important;
+  cursor:pointer!important;
+  z-index:3!important;
+  float:none!important;
+}
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-copy-icon:focus,
+.markdown-body .code-block .code-copy-icon:focus-visible,
+.markdown-body .code-block .code-copy-icon:active{
+  position:absolute!important;
+  top:6px!important;
+  right:6px!important;
+  left:auto!important;
+  bottom:auto!important;
+}
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .code-block .mermaid-toggle-btn:focus,
+.markdown-body .code-block .mermaid-toggle-btn:focus-visible,
+.markdown-body .code-block .mermaid-toggle-btn:active{
+  position:absolute!important;
+  top:6px!important;
+  right:38px!important;
+  left:auto!important;
+  bottom:auto!important;
+}
+.markdown-body .mermaid-render-toggle,
+.markdown-body .mermaid-render-toggle:hover,
+.markdown-body .mermaid-render-toggle:focus,
+.markdown-body .mermaid-render-toggle:focus-visible,
+.markdown-body .mermaid-render-toggle:active{
+  position:absolute!important;
+  top:6px!important;
+  right:6px!important;
+  left:auto!important;
+  bottom:auto!important;
+}
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .mermaid-render-toggle:hover,
+.markdown-body .code-block .code-copy-icon:focus,
+.markdown-body .code-block .mermaid-toggle-btn:focus,
+.markdown-body .mermaid-render-toggle:focus,
+.markdown-body .code-block .code-copy-icon:focus-visible,
+.markdown-body .code-block .mermaid-toggle-btn:focus-visible,
+.markdown-body .mermaid-render-toggle:focus-visible{
+  background:#34373c!important;
+  color:#fff!important;
+  border-color:rgba(148,163,184,.45)!important;
+  outline:none!important;
+}
+.markdown-body .code-block .code-copy-icon:active,
+.markdown-body .code-block .mermaid-toggle-btn:active,
+.markdown-body .mermaid-render-toggle:active{background:#2b2d30!important}
+.markdown-body .code-block .code-copy-icon svg,
+.markdown-body .code-block .mermaid-toggle-btn svg,
+.markdown-body .mermaid-render-toggle svg{
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
+  flex:0 0 15px!important;
+  display:block!important;
+  margin:0!important;
+  padding:0!important;
+  position:static!important;
+  transform:none!important;
+  pointer-events:none!important;
+  overflow:visible!important;
+}
+.markdown-body .code-block .code-copy-icon svg path,
+.markdown-body .code-block .code-copy-icon svg rect,
+.markdown-body .code-block .mermaid-toggle-btn svg path,
+.markdown-body .code-block .mermaid-toggle-btn svg rect,
+.markdown-body .mermaid-render-toggle svg path,
+.markdown-body .mermaid-render-toggle svg rect{
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:2!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+  vector-effect:non-scaling-stroke!important;
+}
+.markdown-body .mermaid-rendered-block{position:relative!important;padding-top:0!important;overflow:visible!important}
+.markdown-body .mermaid-rendered-block>.mermaid{position:relative!important;margin:.55em 0 .8em!important;padding:10px!important;overflow:auto!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-loading,
+.markdown-body .mermaid-render-toggle.is-loading{opacity:.72!important;cursor:wait!important}
+.markdown-body .code-block .mermaid-toggle-btn.is-error,
+.markdown-body .mermaid-render-toggle.is-error{background:rgba(239,68,68,.92)!important;color:#fff!important}

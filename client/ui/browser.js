@@ -85,6 +85,16 @@
     return nodeRect.bottom > viewportBottom + lowerTolerance || nodeRect.bottom < viewportTop + 80 || nodeRect.top > viewportBottom || nodeRect.bottom < viewportTop;
   }
 
+  function distanceToBottom(scroller) {
+    if (!scroller) return 0;
+    const viewport = Number.isFinite(scroller.clientHeight) ? scroller.clientHeight : 0;
+    return Math.max(0, (Number(scroller.scrollHeight) || 0) - (Number(scroller.scrollTop) || 0) - viewport);
+  }
+
+  function isNearBottom(scroller, threshold = 120) {
+    return distanceToBottom(scroller) <= threshold;
+  }
+
 
 
   function attachmentsSummaryMarkdown(attachments = []) {
@@ -193,7 +203,7 @@
     ...(window.ChatUI || {}),
     fileActions: Object.freeze({ safeFilenamePart, answerFilename }),
     realtime: Object.freeze({ createRealtimeRenderer }),
-    scroll: Object.freeze({ composerSafeBottom, activeOutputBottomTarget, isNodeAwayFromOutputFocus }),
+    scroll: Object.freeze({ composerSafeBottom, activeOutputBottomTarget, isNodeAwayFromOutputFocus, distanceToBottom, isNearBottom }),
     messages: Object.freeze({ attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderUserMessageParts }),
     actions: Object.freeze({ copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText }),
     imageActions: Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml }),

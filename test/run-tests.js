@@ -103,6 +103,9 @@ const syntaxFiles = [
   'test/unit/markdown-pipeline-slimming-test.js',
   'test/browser/mermaid-overlap-test.js',
   'test/browser/mermaid-fallback-test.js',
+  'test/browser/mermaid-icon-toggle-test.js',
+  'test/browser/code-copy-success-test.js',
+  'test/unit/regenerate-autofollow-contract-test.js',
 ];
 
 const testFiles = [
@@ -160,6 +163,9 @@ const testFiles = [
   'test/browser/browser-core-test.js',
   'test/browser/mermaid-overlap-test.js',
   'test/browser/mermaid-fallback-test.js',
+  'test/browser/mermaid-icon-toggle-test.js',
+  'test/browser/code-copy-success-test.js',
+  'test/unit/regenerate-autofollow-contract-test.js',
   'test/api/router-test.js',
   'test/api/smoke-test.js',
 ];

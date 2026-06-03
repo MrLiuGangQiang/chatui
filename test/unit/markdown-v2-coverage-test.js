@@ -36,11 +36,22 @@ async function testCodeCopyAndMermaidDom() {
   root.innerHTML = engine.render('```js\nconsole.log(1)\n```\n\n```mermaid\nsequenceDiagram\nA->>B: hi\n```');
   await enhanceRenderedMarkdown(root, { copyText: async text => assert.ok(['console.log(1)\n', 'sequenceDiagram\nA->>B: hi\n'].includes(text)), loadMermaid: async () => ({ initialize() {}, run: async () => {} }) });
   assert(root.querySelector('.code-block .code-copy-icon[data-copy-text]'), 'copy button DOM');
-  assert(root.querySelector('.mermaid-block .mermaid-toggle-btn'), 'mermaid toggle DOM');
+  const sourceToggle = root.querySelector('.mermaid-block .mermaid-toggle-btn');
+  assert(sourceToggle, 'mermaid toggle DOM');
+  assert(sourceToggle.querySelector('svg'), 'source toggle is icon-only');
+  assert(!sourceToggle.textContent.trim(), 'source toggle has no visible text');
+  assert.strictEqual(sourceToggle.getAttribute('aria-label'), '渲染 Mermaid 图表');
+  assert.strictEqual(sourceToggle.title, '渲染 Mermaid 图表');
   assert(!root.querySelector('.mermaid[data-mermaid-rendered="1"]'), 'mermaid is source by default');
   const rendered = await renderMermaidBlockOnDemand(root.querySelector('.mermaid-block'), async () => ({ initialize() {}, render: async id => ({ svg: `<svg id="${id}"></svg>` }) }));
   assert.strictEqual(rendered.ok, true);
   assert(root.querySelector('.mermaid[data-mermaid-rendered="1"]'), 'mermaid rendered after explicit action');
+  const renderedToggle = root.querySelector('.mermaid-render-toggle');
+  assert(renderedToggle, 'rendered diagram has source toggle');
+  assert(renderedToggle.querySelector('svg'), 'rendered toggle is icon-only');
+  assert(!renderedToggle.textContent.trim(), 'rendered toggle has no visible text');
+  assert.strictEqual(renderedToggle.getAttribute('aria-label'), '查看 Mermaid 源码');
+  assert.strictEqual(renderedToggle.title, '查看 Mermaid 源码');
 
   const bad = document.createElement('div');
   bad.innerHTML = engine.render('```mermaid\ngantt\ntitle Bad\n```');

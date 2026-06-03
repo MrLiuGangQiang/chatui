@@ -2,6 +2,11 @@
   'use strict';
 
   const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
+  const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
+const MERMAID_RENDER_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
+const MERMAID_SOURCE_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
+const MERMAID_LOADING_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v3"></path><path d="M12 16v3"></path><path d="M5 12h3"></path><path d="M16 12h3"></path><path d="m7.05 7.05 2.12 2.12"></path><path d="m14.83 14.83 2.12 2.12"></path></svg>';
+const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5"></path><path d="M12 16.5h.01"></path><path d="M10.3 4.9 3.8 16.2A2 2 0 0 0 5.5 19h13a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0z"></path></svg>';
   const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta']);
 
   function escapeHtml(value = '') { return String(value).replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])); }
@@ -105,20 +110,34 @@
   function bindCopyButton(button, text, copyText) {
     if (!button) return;
     button.dataset.copyText = text;
+    if (button.dataset.copyBound === '1') return;
     button.dataset.copyBound = '1';
     button.addEventListener('click', async () => {
+      const currentText = button.dataset.copyText || '';
+      clearTimeout(button._copyResetTimer);
+      button.title = '复制代码';
+      button.setAttribute('aria-label', '复制代码');
       try {
-        await (copyText ? copyText(text) : navigator.clipboard.writeText(text));
+        await (copyText ? copyText(currentText) : navigator.clipboard.writeText(currentText));
         button.classList.remove('copy-failed');
         button.classList.add('copied');
-        button.textContent = '✓';
+        button.innerHTML = COPY_SUCCESS_ICON_SVG;
+        button.title = '已复制';
+        button.setAttribute('aria-label', '已复制');
       } catch (err) {
         console.warn('[markdown] copy failed:', err);
         button.classList.remove('copied');
         button.classList.add('copy-failed');
         button.textContent = '!';
+        button.title = '复制失败';
+        button.setAttribute('aria-label', '复制失败');
       }
-      setTimeout(() => { button.classList.remove('copied', 'copy-failed'); button.innerHTML = COPY_ICON_SVG; }, 900);
+      button._copyResetTimer = setTimeout(() => {
+        button.classList.remove('copied', 'copy-failed');
+        button.innerHTML = COPY_ICON_SVG;
+        button.title = '复制代码';
+        button.setAttribute('aria-label', '复制代码');
+      }, 900);
     });
   }
 
@@ -146,7 +165,7 @@
       let btn = wrap.querySelector(':scope > .code-copy-icon');
       if (!btn) {
         btn = document.createElement('button');
-        btn.className = 'inline-copy code-copy-icon';
+        btn.className = 'inline-copy code-action-icon code-copy-icon';
         btn.type = 'button';
         btn.title = '复制代码';
         btn.setAttribute('aria-label', '复制代码');
@@ -174,7 +193,7 @@
     return { codeWrap, source };
   }
 
-  function setMermaidToggleState(button, state) { if (!button) return; button.dataset.mermaidState = state; button.classList.toggle('is-loading', state === 'rendering'); button.classList.toggle('is-error', state === 'error'); button.disabled = state === 'rendering'; const labels = { source: '渲染图表', rendering: '渲染中…', rendered: '查看源码', error: '渲染失败' }; button.textContent = labels[state] || labels.source; button.title = state === 'rendered' ? '切回 Mermaid 源码' : '渲染 Mermaid 图表'; button.setAttribute('aria-label', button.title); }
+  function setMermaidToggleState(button, state) { if (!button) return; button.dataset.mermaidState = state; button.classList.toggle('is-loading', state === 'rendering'); button.classList.toggle('is-error', state === 'error'); button.disabled = state === 'rendering'; const labels = { source: '渲染 Mermaid 图表', rendering: '正在渲染 Mermaid 图表', rendered: '查看 Mermaid 源码', error: 'Mermaid 渲染失败，返回源码' }; const icons = { source: MERMAID_RENDER_ICON_SVG, rendering: MERMAID_LOADING_ICON_SVG, rendered: MERMAID_SOURCE_ICON_SVG, error: MERMAID_ERROR_ICON_SVG }; button.innerHTML = icons[state] || icons.source; button.title = labels[state] || labels.source; button.setAttribute('aria-label', button.title); }
 
   async function renderMermaidBlockOnDemand(block, loader = loadMermaid) { if (!block?.parentNode || block.dataset.mermaidRendered === 'rendering') return { ok: false, node: block, stale: true }; const { codeWrap, source } = ensureMermaidSourceView(block) || {}; const error = block.querySelector(':scope > .markdown-error'); if (error) error.remove(); block.querySelector(':scope > .mermaid')?.remove(); const token = nextMermaidToken(); block.dataset.mermaidRendered = 'rendering'; block.dataset.mermaidToken = token; block.dataset.mermaidSource = source || ''; if (codeWrap) codeWrap.hidden = true; let mermaid = null; try { mermaid = await loader(); } catch (err) { console.warn('[markdown] mermaid load failed:', err); } if (!mermaid) return restoreMermaidFallback(block, null, token, new Error('Mermaid unavailable')); try { mermaid.initialize?.({ startOnLoad: false, securityLevel: 'strict', theme: 'default', deterministicIds: false, deterministicIDSeed: undefined }); } catch {} return renderSingleMermaidBlock(block, mermaid); }
 
@@ -184,7 +203,7 @@
     if (!btn) {
       btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'inline-copy mermaid-toggle-btn mermaid-render-toggle';
+      btn.className = 'inline-copy code-action-icon mermaid-toggle-btn mermaid-render-toggle';
       block.insertBefore(btn, block.firstChild);
     }
     if (btn.dataset.mermaidToggleBound !== '1') {
@@ -197,7 +216,7 @@
 
   function showMermaidSource(block) { if (!block?.parentNode) return; const source = block.dataset.mermaidSource || block.querySelector('code.language-mermaid')?.textContent || ''; block.querySelector(':scope > .mermaid')?.remove(); block.querySelector(':scope > .mermaid-render-toggle')?.remove(); const error = block.querySelector(':scope > .markdown-error'); if (error) error.hidden = true; block.dataset.mermaidRendered = '0'; block.dataset.mermaidToken = ''; block.dataset.mermaidSource = source; block.classList.add('markdown-mermaid-pending'); block.classList.remove('mermaid-rendered-block', 'mermaid-fallback'); const ensured = ensureMermaidSourceView(block); if (ensured?.codeWrap) ensured.codeWrap.hidden = false; const toggle = block.querySelector(':scope > .code-block > .mermaid-toggle-btn'); setMermaidToggleState(toggle, 'source'); }
 
-  function initMermaidToggleUI(root, options = {}) { const blocks = collectMermaidBlocks(root); blocks.forEach((block) => { const ensured = ensureMermaidSourceView(block); if (!ensured) return; enhanceCodeCopy(ensured.codeWrap, options.copyText); let btn = ensured.codeWrap.querySelector(':scope > .mermaid-toggle-btn'); if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'inline-copy mermaid-toggle-btn'; const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon'); ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild); } if (btn.dataset.mermaidToggleBound !== '1') { btn.dataset.mermaidToggleBound = '1'; btn.addEventListener('click', async () => { if (block.dataset.mermaidRendered === '1') { showMermaidSource(block); return; } setMermaidToggleState(btn, 'rendering'); const result = await renderMermaidBlockOnDemand(block, options.loadMermaid || loadMermaid); if (result?.ok) setMermaidToggleState(btn, 'rendered'); else { ensureMermaidSourceView(block); const visibleBtn = block.querySelector(':scope > .code-block > .mermaid-toggle-btn') || btn; setMermaidToggleState(visibleBtn, 'error'); visibleBtn.disabled = false; setTimeout(() => { if (block.dataset.mermaidRendered === 'error') setMermaidToggleState(visibleBtn, 'source'); }, 1200); } }); } setMermaidToggleState(btn, block.dataset.mermaidRendered === '1' ? 'rendered' : 'source'); }); return blocks; }
+  function initMermaidToggleUI(root, options = {}) { const blocks = collectMermaidBlocks(root); blocks.forEach((block) => { const ensured = ensureMermaidSourceView(block); if (!ensured) return; enhanceCodeCopy(ensured.codeWrap, options.copyText); let btn = ensured.codeWrap.querySelector(':scope > .mermaid-toggle-btn'); if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'inline-copy code-action-icon mermaid-toggle-btn'; const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon'); ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild); } if (btn.dataset.mermaidToggleBound !== '1') { btn.dataset.mermaidToggleBound = '1'; btn.addEventListener('click', async () => { if (block.dataset.mermaidRendered === '1') { showMermaidSource(block); return; } setMermaidToggleState(btn, 'rendering'); const result = await renderMermaidBlockOnDemand(block, options.loadMermaid || loadMermaid); if (result?.ok) setMermaidToggleState(btn, 'rendered'); else { ensureMermaidSourceView(block); const visibleBtn = block.querySelector(':scope > .code-block > .mermaid-toggle-btn') || btn; setMermaidToggleState(visibleBtn, 'error'); visibleBtn.disabled = false; setTimeout(() => { if (block.dataset.mermaidRendered === 'error') setMermaidToggleState(visibleBtn, 'source'); }, 1200); } }); } setMermaidToggleState(btn, block.dataset.mermaidRendered === '1' ? 'rendered' : 'source'); }); return blocks; }
 
   async function loadMermaid() {
     if (global.mermaid) return global.mermaid;

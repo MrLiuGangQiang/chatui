@@ -1,7 +1,7 @@
 (function initMarkdownDependencyLoader(global) {
   'use strict';
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.0.2';
   const DEFAULT_TIMEOUT_MS = 15000;
   const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists' });
   const resources = Object.freeze({
@@ -12,7 +12,8 @@
     scripts: Object.freeze([
       Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.7/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
       Object.freeze({ id: 'markdown-it', cdn: 'https://registry.npmmirror.com/markdown-it/14.2.0/files/dist/markdown-it.min.js', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
-      Object.freeze({ id: 'markdown-it-katex', cdn: 'https://registry.npmmirror.com/markdown-it-katex/2.0.3/files/index.js', local: './vendor/markdown-it-plugins/markdown-it-katex.min.js', global: 'markdownItKatex' }),
+      Object.freeze({ id: 'markdown-it-texmath', cdn: 'https://registry.npmmirror.com/markdown-it-texmath/1.0.0/files/texmath.js', local: './vendor/markdown-it-plugins/markdown-it-texmath.min.js', global: 'markdownItTexmath' }),
+      Object.freeze({ id: 'markdown-it-multimd-table', cdn: 'https://registry.npmmirror.com/markdown-it-multimd-table/4.2.3/files/dist/markdown-it-multimd-table.min.js', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
       Object.freeze({ id: 'markdown-it-task-lists', cdn: 'https://registry.npmmirror.com/markdown-it-task-lists/2.1.1/files/dist/markdown-it-task-lists.min.js', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
       Object.freeze({ id: 'markdown-it-emoji', cdn: 'https://registry.npmmirror.com/markdown-it-emoji/3.0.0/files/dist/markdown-it-emoji.min.js', local: './vendor/markdown-it-plugins/markdown-it-emoji.min.js', global: 'markdownitEmoji' }),
       Object.freeze({ id: 'markdown-it-footnote', cdn: 'https://registry.npmmirror.com/markdown-it-footnote/4.0.0/files/dist/markdown-it-footnote.min.js', local: './vendor/markdown-it-plugins/markdown-it-footnote.min.js', global: 'markdownitFootnote' }),
@@ -52,10 +53,10 @@
         const attempt = (url, from) => {
           cleanup(); node = createNode(url); node.dataset.markdownDependency = resource.id;
           node.onload = () => { cleanup(); node.dataset.markdownDependencyLoaded = from; log('info', `[markdown] dependency loaded: ${resource.id} (${from})`); resolve({ id: resource.id, from }); };
-          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${from})`, url); if (from === 'cdn' && resource.local) { attempt(resource.local, 'local'); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
+          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${from})`, url); if (from === 'local' && resource.cdn && resource.cdn !== url) { attempt(resource.cdn, 'cdn'); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
           timer = setTimeout(() => node.onerror(), DEFAULT_TIMEOUT_MS); appendNode(node);
         };
-        attempt(resource.cdn, 'cdn');
+        attempt(resource.local || resource.cdn, resource.local ? 'local' : 'cdn');
       }).catch((err) => { loadState.delete(resource.id); throw err; });
       loadState.set(resource.id, promise); return promise;
     }

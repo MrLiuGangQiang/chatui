@@ -1,10 +1,11 @@
 'use strict';
 
 const { sanitizeHtml } = require('./sanitizer');
-const { escapeHtml, scanLatexBracketMath, restoreMathSegments, applyMathPlugin } = require('./math-renderer');
+const { escapeHtml, applyMathPlugin } = require('./math-renderer');
 
 const PLUGINS = Object.freeze([
-  { packageName: 'markdown-it-katex', globalName: 'markdownItKatex', math: true },
+  { packageName: 'markdown-it-texmath', globalName: 'markdownItTexmath', math: true },
+  { packageName: 'markdown-it-multimd-table', globalName: 'markdownitMultimdTable', options: { multiline: true, rowspan: true, headerless: false, multibody: true, autolabel: true } },
   { packageName: 'markdown-it-task-lists', globalName: 'markdownItTaskLists', options: { enabled: true, label: true, labelAfter: true } },
   { packageName: 'markdown-it-emoji', globalName: 'markdownitEmoji' },
   { packageName: 'markdown-it-footnote', globalName: 'markdownitFootnote' },
@@ -15,7 +16,7 @@ const PLUGINS = Object.freeze([
   { packageName: 'markdown-it-sup', globalName: 'markdownitSup' },
 ]);
 
-const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta']);
+const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta', 'architecture-beta']);
 
 function readGlobal(name) {
   if (typeof globalThis === 'undefined') return null;
@@ -42,6 +43,44 @@ function applyPlugin(md, descriptor) {
   if (!plugin) { console.warn(`[markdown] plugin unavailable: ${descriptor.packageName}`); return false; }
   try { md.use(plugin, descriptor.options); return true; } catch (err) { console.warn(`[markdown] plugin failed: ${descriptor.packageName}`, err); return false; }
 }
+
+function normalizeEscapedUrlSlashes(markdown = '') {
+  return String(markdown || '').replace(/\b((?:https?:|mailto:|tel:)\\\/\\\/[^\s<>()\[\]{}"']+)/gi, (all) => all.replace(/\\\//g, '/'));
+}
+
+
+function encodeUtf8Base64(value = '') {
+  if (typeof Buffer !== 'undefined') return Buffer.from(String(value), 'utf8').toString('base64');
+  if (typeof btoa === 'function') return btoa(unescape(encodeURIComponent(String(value))));
+  return '';
+}
+
+function normalizeMultilineMarkdownImageDataUris(markdown = '') {
+  return String(markdown || '').replace(/!\[([^\]\n]*)\]\s*\n+\s*\(\s*(data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[A-Za-z0-9+/=\s]+)\s*\)/gi, (_all, alt, uri) => {
+    const compact = String(uri || '').replace(/\s+/g, '');
+    return `![${alt}](${compact})`;
+  });
+}
+
+function normalizeMarkdownImageDataUris(markdown = '') {
+  const src = String(markdown || '');
+  const pattern = /(!\[[^\]\n]*\]\()data:image\/svg\+xml;(?:charset=)?utf-?8,([\s\S]*?<\/svg>)\)/gi;
+  return src.replace(pattern, (all, prefix, svg) => {
+    const encoded = encodeUtf8Base64(String(svg || '').trim());
+    return encoded ? `${prefix}data:image/svg+xml;base64,${encoded})` : all;
+  });
+}
+function normalizeMarkdownSource(markdown = '') {
+  return normalizeMarkdownImageDataUris(normalizeMultilineMarkdownImageDataUris(normalizeEscapedUrlSlashes(markdown)));
+}
+
+function isSafeMarkdownLink(url = '') {
+  const href = String(url || '').trim();
+  if (/^data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(href)) return true;
+  if (/^(?:javascript|vbscript|file|data:text\/html)\s*:/i.test(href)) return false;
+  return true;
+}
+
 function applyTaskListFallback(html = '') {
   return String(html || '').replace(/<li>(\[[ xX]\]\s*)([\s\S]*?)<\/li>/g, (_all, marker, body) => {
     const checked = /x/i.test(marker);
@@ -107,9 +146,10 @@ function createMarkdownEngine(options = {}) {
       return `<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${rawHtml}</code></pre>`;
     },
   }).enable(['table', 'strikethrough']);
+  md.validateLink = isSafeMarkdownLink;
   const loadedPlugins = [];
   const mathPluginLoaded = applyMathPlugin(md, { loadOptional, katexOptions: options.katexOptions });
-  if (mathPluginLoaded) loadedPlugins.push('markdown-it-katex');
+  if (mathPluginLoaded) loadedPlugins.push('markdown-it-texmath');
   for (const desc of PLUGINS.filter(item => !item.math)) {
     if (applyPlugin(md, desc)) loadedPlugins.push(desc.packageName);
   }
@@ -137,11 +177,10 @@ function createMarkdownEngine(options = {}) {
   });
 
   function render(markdown = '') {
-    const source = String(markdown || '');
-    const bracketMath = scanLatexBracketMath(source);
+    const source = normalizeMarkdownSource(markdown);
     let html = '';
-    try { html = md.render(bracketMath.text); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; }
-    return restoreMathSegments(applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html))), bracketMath.segments, katex);
+    try { html = md.render(source); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; }
+    return applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html)));
   }
   return { md, render, plugins: loadedPlugins };
 }
@@ -150,4 +189,4 @@ let singleton = null;
 function getMarkdownEngine() { if (!singleton) singleton = createMarkdownEngine(); return singleton; }
 function renderMarkdown(markdown = '') { const engine = getMarkdownEngine(); return engine ? engine.render(markdown) : `<p>${escapeHtml(markdown).replace(/\n/g, '<br>')}</p>`; }
 
-module.exports = { PLUGINS, MERMAID_LANGS, createMarkdownEngine, getMarkdownEngine, renderMarkdown, escapeHtml, slugify, normalizeBlockquoteFencedCodeContent, scanLatexBracketMath, restoreMathSegments, decodeHtmlEntities, highlightedTextMatchesSource };
+module.exports = { PLUGINS, MERMAID_LANGS, createMarkdownEngine, getMarkdownEngine, renderMarkdown, escapeHtml, slugify, normalizeEscapedUrlSlashes, normalizeMultilineMarkdownImageDataUris, normalizeMarkdownImageDataUris, normalizeMarkdownSource, normalizeBlockquoteFencedCodeContent, decodeHtmlEntities, highlightedTextMatchesSource };

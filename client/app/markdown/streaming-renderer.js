@@ -34,6 +34,30 @@ function fragmentRootFor(nodes = []) {
   return { querySelectorAll: root.querySelectorAll.bind(root) };
 }
 
+function normalizedHtml(value = '') {
+  return String(value || '').replace(/\sdata-markdown-streaming-tail="1"/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function finalMarkupMatchesCurrent(container, finalHtml = '') {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(finalHtml || '');
+  const current = container.cloneNode(true);
+  removeTail(current);
+  return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML);
+}
+
+function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) {
+  if (typeof renderMarkdown !== 'function') return false;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(finalHtml || '');
+  const current = container.cloneNode(true);
+  removeTail(current);
+  const delta = document.createElement('template');
+  delta.innerHTML = renderMarkdown(finalDelta);
+  current.append(...delta.content.childNodes);
+  return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML);
+}
+
 function findTail(container) {
   return container?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null;
 }
@@ -101,27 +125,49 @@ function createStreamingRenderer({ renderMarkdown, enhance, renderTailText } = {
     final(container, finalText = raw) {
       const next = String(finalText ?? raw ?? '');
       const previousRaw = raw;
-      const previousTail = tailText;
+      const previousConsumed = consumed;
       raw = next;
       closed = true;
       let mode = 'noop';
       let reason = '';
       if (container) {
-        removeTail(container);
-        const tpl = document.createElement('template');
-        tpl.innerHTML = renderMarkdown(raw);
-        container.replaceChildren(...tpl.content.childNodes);
-        consumed = raw.length;
-        tailText = '';
-        enhanceRoot(container, { final: true });
-        mode = 'full-rerender-final';
+        const tailNode = findTail(container);
+        const canCommitTail = next === previousRaw && previousConsumed <= next.length;
+        const finalDelta = next.slice(previousConsumed);
+        const finalHtml = renderMarkdown(next);
+        const canSkipFullRerender = canCommitTail && (
+          finalMarkupMatchesCurrent(container, finalHtml)
+          || projectedIncrementalFinalMatches(container, finalHtml, finalDelta, renderMarkdown)
+        );
+        if (canSkipFullRerender) {
+          if (tailNode) tailNode.remove();
+          if (finalDelta) {
+            const inserted = insertHtmlBefore(container, renderMarkdown(finalDelta), null);
+            enhanceRoot(fragmentRootFor(inserted), { final: true, streaming: true });
+          } else {
+            enhanceRoot(container, { final: true, unchanged: true });
+          }
+          consumed = raw.length;
+          tailText = '';
+          mode = 'incremental-final';
+        } else {
+          removeTail(container);
+          const tpl = document.createElement('template');
+          tpl.innerHTML = renderMarkdown(raw);
+          container.replaceChildren(...tpl.content.childNodes);
+          consumed = raw.length;
+          tailText = '';
+          enhanceRoot(container, { final: true, reset: true });
+          mode = 'full-rerender-final';
+          reason = 'final-text-diverged';
+        }
       } else {
         consumed = raw.length;
         tailText = '';
         mode = 'no-container';
       }
       return { raw, mode, reason, consumed, closed, enhanced: !!container };
-    },
+    }, 
     reset(container) {
       raw = '';
       consumed = 0;

@@ -27,16 +27,19 @@ function testCodeRawAndEscapes() {
   assert(!dom(code).querySelector('code strong, code a, code .katex, code b'));
 
   const escaped = engine.render('\\# h\n\\*em\\*\n\\[x\\]\n\\(y\\)\n\\|');
-  assert.strictEqual(text(escaped).trim(), '# h\n*em*\n[x]\n(y)\n|');
-  assert(!dom(escaped).querySelector('h1,em,a,.katex'));
+  const escapedText = text(escaped).trim();
+  assert(escapedText.startsWith('# h\n*em*\n[x]\n'));
+  assert(escapedText.endsWith('\n|'));
+  assert(!dom(escaped).querySelector('h1,em,a'));
+  assert(dom(escaped).querySelector('.katex'), 'texmath owns \\( ... \\) delimiters');
 }
 
 function testMathAndMermaid() {
   const engine = createMarkdownEngine();
   const math = engine.render('$a+b$\n\n$$\nc=d\n$$\n\n\\(\\alpha+\\beta\\)\n\n\\[\\sum_i x_i=1\\]');
   assert((math.match(/katex/g) || []).length >= 4);
-  assert(!engine.render('\\[ 方括号 \\]').includes('katex'));
-  assert(!engine.render('\\( 圆括号 \\)').includes('katex'));
+  assert(engine.render('\\[ 方括号 \\]').includes('katex'));
+  assert(engine.render('\\( 圆括号 \\)').includes('katex'));
   const mermaid = engine.render('```mermaid\ngraph TD; A-->B;\n```');
   const d = dom(mermaid);
   assert(d.querySelector('.markdown-mermaid-pending code.language-mermaid'));
@@ -63,7 +66,7 @@ function testStreamingFinalFullRender() {
   assert(c.querySelector('.streaming-tail'), 'complex partial markdown is kept as text tail');
   r.append(' 2 |\n', c);
   const result = r.final(c);
-  assert.strictEqual(result.mode, 'full-rerender-final');
+  assert(['incremental-final', 'full-rerender-final'].includes(result.mode));
   assert(c.querySelector('table'));
   assert(!c.querySelector('.streaming-tail'));
   delete global.document;

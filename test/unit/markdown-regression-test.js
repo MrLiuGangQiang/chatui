@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { createMarkdownEngine } = require('../../client/app/markdown/markdown-engine');
-const { scanLatexBracketMath } = require('../../client/app/markdown/math-renderer');
 const { createStreamingRenderer } = require('../../client/app/markdown/streaming-renderer');
 const { splitStableTail } = require('../../client/app/markdown/stable-boundary');
 
@@ -68,25 +67,29 @@ function testTableAlignmentAndMathDelimiters() {
 
   const plainSquare = engine.render('\\[ 方括号 \\]');
   const plainParen = engine.render('\\( 圆括号 \\)');
-  assert(!plainSquare.includes('katex'), 'plain escaped square brackets are not math');
-  assert(!plainParen.includes('katex'), 'plain escaped parentheses are not math');
-  assert.strictEqual(new JSDOM(plainSquare).window.document.body.textContent.trim(), '[ 方括号 ]');
-  assert.strictEqual(new JSDOM(plainParen).window.document.body.textContent.trim(), '( 圆括号 )');
+  assert(plainSquare.includes('katex'), 'bracket delimiters are handled by markdown-it-texmath');
+  assert(plainParen.includes('katex'), 'paren delimiters are handled by markdown-it-texmath');
+  assert(new JSDOM(plainSquare).window.document.body.textContent.includes('方括号'));
+  assert(new JSDOM(plainParen).window.document.body.textContent.includes('圆括号'));
 
   const math = engine.render('\\( \\alpha+\\beta \\) and \\[ \\sum_i x_i = 1 \\]');
   assert((math.match(/katex/g) || []).length >= 2, 'latex delimiters still render when math-like');
-  const code = engine.render('```txt\n\\( \\alpha+\\beta \\)\n```');
+  const dollarMath = engine.render('行内公式：$E = mc^2$\n\n块级公式：\n$$ a^2 + b^2 = c^2 $$');
+  assert((dollarMath.match(/katex/g) || []).length >= 2, 'dollar math renders through markdown-it-texmath');
+  assert(!new JSDOM(dollarMath).window.document.body.textContent.includes('$E = mc^2$'), 'inline dollar delimiters are not shown as raw text');
+  const code = engine.render('```txt\n\\( \\alpha+\\beta \\)\n$E = mc^2$\n```');
   assert(!code.includes('katex'), 'code fence must not render math');
 
-  assert.strictEqual(scanLatexBracketMath('\\[ 方括号 \\]').segments.length, 0);
-  assert.strictEqual(scanLatexBracketMath('\\( \\alpha+\\beta \\)').segments.length, 1);
+  assert(!engine.render('\\vec{a}').includes('katex'), 'bare LaTeX is not guessed as math by ChatUI');
+  assert(engine.render('\\( \\alpha+\\beta \\)').includes('katex'), 'bracket math renders via markdown-it-texmath');
+  assert(engine.render('\\[ \\sum_i x_i = 1 \\]').includes('katex'), 'display bracket math renders via markdown-it-texmath');
 }
 
 function testFormulaAngleWrapperCompatibility() {
   const engine = createMarkdownEngine();
   const wrapped = engine.render('公式示例: > $score = a + b$ >');
   assert(new JSDOM(wrapped).window.document.body.textContent.includes('>'), 'non-CommonMark formula wrapper repair is no longer a semantic pre-pass');
-  assert(wrapped.includes('katex'), 'inner formula still renders via markdown-it-katex');
+  assert(wrapped.includes('katex'), 'inner formula still renders via markdown-it-texmath');
   const comparison = engine.render('a > b and $x$');
   assert(new JSDOM(comparison).window.document.body.textContent.includes('a > b'), 'comparison > preserved');
   const blockquote = engine.render('> $x$');
@@ -250,19 +253,49 @@ function testReportedCodeAndEscapeRegressions() {
   assert(!code.querySelector('a,.katex,.math-fallback,b,h1,h2,h3'), 'H code block contains no parsed markdown/math/html nodes');
 }
 
+
+function testTableMarkdownPluginAndEscapedUrlLinks() {
+  const engine = createMarkdownEngine();
+  const html = engine.render('| 项目 | 内容 |\n|---|:---:|\n| 加粗 | **bold** |\n| 链接 | https:\\/\\/openai.com |\n| 语法链接 | [OpenAI](https:\\/\\/openai.com) |');
+  const dom = new JSDOM(html);
+  const links = [...dom.window.document.querySelectorAll('td a')];
+  assert(links.some(a => a.href === 'https://openai.com/' && a.textContent === 'https://openai.com'), 'escaped bare URL inside table should be normalized and linkified');
+  assert(links.some(a => a.getAttribute('href') === 'https://openai.com' && a.textContent === 'OpenAI'), 'escaped markdown link URL inside table should be normalized');
+  assert(dom.window.document.querySelector('td strong')?.textContent === 'bold', 'inline markdown inside table remains rendered by markdown-it table plugin');
+  assert(!dom.window.document.body.textContent.includes('https:\\/\\/openai.com'), 'escaped URL slashes are not shown to the user');
+}
+
+function testStreamingFinalCommitsTailWithoutFullRerenderWhenEquivalent() {
+  const engine = createMarkdownEngine();
+  const dom = new JSDOM('<div id="c"></div>');
+  global.document = dom.window.document;
+  const c = document.getElementById('c');
+  const renderer = createStreamingRenderer({ renderMarkdown: text => engine.render(text) });
+  renderer.append('第一段\n\n', c);
+  renderer.append('第二段', c);
+  assert(c.querySelector('.streaming-tail'), 'unfinished tail is shown as text while streaming');
+  const result = renderer.final(c);
+  assert.strictEqual(result.mode, 'incremental-final', 'equivalent tail commit should not replace the whole message and flash');
+  assert(!c.querySelector('.streaming-tail'));
+  assert.strictEqual(c.querySelectorAll('p').length, 2);
+  delete global.document;
+}
+
 function main() {
   testSafeHtmlSubsetAndSecurity();
   testBrowserParityForHtmlPolicy();
   testTableAlignmentAndMathDelimiters();
+  testTableMarkdownPluginAndEscapedUrlLinks();
   testFormulaAngleWrapperCompatibility();
   testEscapesLinksAndStreamingChunks();
   testFenceAndBlockquoteCodeRegressions();
   testStreamingFenceFinalAndBlankLines();
   testReportedCodeAndEscapeRegressions();
+  testStreamingFinalCommitsTailWithoutFullRerenderWhenEquivalent();
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { testSafeHtmlSubsetAndSecurity, testBrowserParityForHtmlPolicy, testTableAlignmentAndMathDelimiters, testFormulaAngleWrapperCompatibility, testEscapesLinksAndStreamingChunks, testFenceAndBlockquoteCodeRegressions, testStreamingFenceFinalAndBlankLines, testReportedCodeAndEscapeRegressions };
+module.exports = { testSafeHtmlSubsetAndSecurity, testBrowserParityForHtmlPolicy, testTableAlignmentAndMathDelimiters, testTableMarkdownPluginAndEscapedUrlLinks, testFormulaAngleWrapperCompatibility, testEscapesLinksAndStreamingChunks, testFenceAndBlockquoteCodeRegressions, testStreamingFenceFinalAndBlankLines, testReportedCodeAndEscapeRegressions, testStreamingFinalCommitsTailWithoutFullRerenderWhenEquivalent };

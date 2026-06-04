@@ -1277,3 +1277,159 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 .markdown-body .mermaid-render-toggle.is-loading{opacity:.72!important;cursor:wait!important}
 .markdown-body .code-block .mermaid-toggle-btn.is-error,
 .markdown-body .mermaid-render-toggle.is-error{background:rgba(239,68,68,.92)!important;color:#fff!important}
+
+/* Copy success visual refresh: keep action buttons lightweight; avoid full green blocks. */
+.copy-btn.icon-action-btn.copied,
+.copy-btn.icon-action-btn.copied:hover,
+.reasoning-copy-btn.copied,
+.reasoning-copy-btn.copied:hover,
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover{
+  color:#059669!important;
+  background:rgba(255,255,255,.92)!important;
+  border-color:rgba(16,185,129,.36)!important;
+  box-shadow:0 0 0 2px rgba(16,185,129,.10),0 6px 14px rgba(15,23,42,.06)!important;
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon,
+.reasoning-copy-btn.copied .copy-success-icon,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon{
+  color:#059669!important;
+  filter:drop-shadow(0 1px 2px rgba(5,150,105,.18));
+}
+.copy-btn.icon-action-btn.copied .copy-success-icon path,
+.reasoning-copy-btn.copied .copy-success-icon path,
+.markdown-body .code-block .code-copy-icon.copied .copy-success-icon path{
+  stroke-width:2.45!important;
+}
+.message.user .copy-btn.icon-action-btn.copied,
+.message.user .copy-btn.icon-action-btn.copied:hover{
+  background:rgba(255,255,255,.86)!important;
+  border-color:rgba(5,150,105,.34)!important;
+}
+
+/* Math layout guard: long formulas must stay inside message bubbles. */
+.markdown-body .katex-display,
+.markdown-body .math-fallback{
+  max-width:100%!important;
+  overflow-x:auto!important;
+  overflow-y:visible!important;
+  -webkit-overflow-scrolling:touch!important;
+}
+.markdown-body .katex-display > .katex{
+  display:inline-block!important;
+  max-width:none!important;
+  white-space:nowrap!important;
+}
+.markdown-body .katex-html{
+  max-width:none!important;
+}
+
+
+/* Keep long links readable inside markdown tables even when the column is center/right aligned. */
+.markdown-body td a[href^="http://"],
+.markdown-body td a[href^="https://"]{
+  display:block;
+  text-align:left;
+  overflow-wrap:anywhere;
+  word-break:break-all;
+}
+
+
+/* Final guard: message action icon buttons must be visually identical. */
+.msg-actions{
+  display:flex!important;
+  align-items:center!important;
+  gap:4px!important;
+}
+.msg-actions > button.icon-action-btn,
+.msg-actions > a.icon-action-btn,
+.msg-actions > .icon-action-btn,
+.msg-actions .copy-btn.icon-action-btn,
+.msg-actions .edit-btn.icon-action-btn,
+.msg-actions .refresh-btn.icon-action-btn,
+.msg-actions .download-btn.icon-action-btn,
+.msg-actions .download-answer-btn.icon-action-btn,
+.msg-actions .image-icon-btn.icon-action-btn{
+  width:28px!important;
+  height:28px!important;
+  min-width:28px!important;
+  min-height:28px!important;
+  max-width:28px!important;
+  max-height:28px!important;
+  flex:0 0 28px!important;
+  aspect-ratio:1/1!important;
+  padding:0!important;
+  margin:0!important;
+  border-radius:8px!important;
+  box-sizing:border-box!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  place-items:center!important;
+  line-height:0!important;
+  font-size:0!important;
+  vertical-align:middle!important;
+  overflow:hidden!important;
+}
+.msg-actions > button.icon-action-btn svg,
+.msg-actions > a.icon-action-btn svg,
+.msg-actions > .icon-action-btn svg,
+.msg-actions .copy-btn.icon-action-btn svg,
+.msg-actions .edit-btn.icon-action-btn svg,
+.msg-actions .refresh-btn.icon-action-btn svg,
+.msg-actions .download-btn.icon-action-btn svg,
+.msg-actions .download-answer-btn.icon-action-btn svg,
+.msg-actions .image-icon-btn.icon-action-btn svg{
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
+  max-width:15px!important;
+  max-height:15px!important;
+  flex:0 0 15px!important;
+  display:block!important;
+  margin:0!important;
+  padding:0!important;
+  transform:none!important;
+  position:static!important;
+  overflow:visible!important;
+}
+.msg-actions > button.icon-action-btn svg path,
+.msg-actions > button.icon-action-btn svg rect,
+.msg-actions > a.icon-action-btn svg path,
+.msg-actions > a.icon-action-btn svg rect,
+.msg-actions > .icon-action-btn svg path,
+.msg-actions > .icon-action-btn svg rect{
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:2!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+  vector-effect:non-scaling-stroke!important;
+}
+@media (max-width:640px){
+  .msg-actions > button.icon-action-btn,
+  .msg-actions > a.icon-action-btn,
+  .msg-actions > .icon-action-btn,
+  .msg-actions .copy-btn.icon-action-btn,
+  .msg-actions .edit-btn.icon-action-btn,
+  .msg-actions .refresh-btn.icon-action-btn,
+  .msg-actions .download-btn.icon-action-btn,
+  .msg-actions .download-answer-btn.icon-action-btn,
+  .msg-actions .image-icon-btn.icon-action-btn{
+    width:28px!important;
+    height:28px!important;
+    min-width:28px!important;
+    min-height:28px!important;
+    max-width:28px!important;
+    max-height:28px!important;
+    flex-basis:28px!important;
+  }
+}
+
+
+/* Runtime-computed tail space lets the last message align above the fixed composer. */
+.messages{
+  padding-bottom:max(var(--composer-safe-bottom,168px),var(--session-tail-scroll-space,260px),260px)!important;
+  scroll-padding-bottom:max(var(--composer-safe-bottom,168px),var(--session-tail-scroll-space,260px),260px)!important;
+}

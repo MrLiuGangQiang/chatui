@@ -8,7 +8,7 @@
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css" onerror="this.onerror=null;this.href='./vendor/highlight-github.min.css'" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.38-copy-success-fix-202606032344" />
+  <link rel="stylesheet" href="./styles.css?v=1.2.45-tail-space-anchor-202606041144" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.21-usage-warning-flash-1" />
@@ -420,8 +420,11 @@
   </template>
 
   <script>window.CHATUI_ENABLE_VIRTUAL_RENDER = false;</script>
-  <script src="./client/app/markdown/dependency-loader.js?v=2.0.0"></script>
-  <script src="./client/app/markdown/browser.js?v=1.2.38-copy-success-fix-202606032344"></script>
+  <script src="./vendor/purify.min.js" data-markdown-dependency="dompurify" data-markdown-dependency-loaded="local"></script>
+  <script src="./vendor/markdown-it.min.js" data-markdown-dependency="markdown-it" data-markdown-dependency-loaded="local"></script>
+  <script src="./vendor/katex.min.js" data-markdown-dependency="katex" data-markdown-dependency-loaded="local"></script>
+  <script src="./client/app/markdown/dependency-loader.js?v=2.0.2-local-first-202606041145"></script>
+  <script src="./client/app/markdown/browser.js?v=1.2.50-mermaid-beta-normalize-202606041300"></script>
   <script src="./client/core/browser.js?v=1.1.89-contextual-route-4"></script>
   <script src="./client/services/fallback.js?v=1.1.93-arch-2"></script>
   <script src="./client/services/usage-stats.js?v=1.2.13-usage-stats-15"></script>
@@ -434,6 +437,6 @@
   <script src="./client/app/browser.js?v=1.2.38-mermaid-swap-icon-202606032337"></script>
   <script src="./client/app/runtime.js?v=1.1.42-app-1"></script>
   <script src="./client/app/image-store.js?v=1.1.42-app-1"></script>
-  <script src="./app.js?v=1.2.41-autofollow-realfix-20260604010839"></script>
+  <script src="./app.js?v=1.2.49-stream-code-copy-immediate-202606041148"></script>
 </body>
 </html>

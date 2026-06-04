@@ -7,7 +7,7 @@ const MERMAID_RENDER_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fil
 const MERMAID_SOURCE_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
 const MERMAID_LOADING_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v3"></path><path d="M12 16v3"></path><path d="M5 12h3"></path><path d="M16 12h3"></path><path d="m7.05 7.05 2.12 2.12"></path><path d="m14.83 14.83 2.12 2.12"></path></svg>';
 const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5"></path><path d="M12 16.5h.01"></path><path d="M10.3 4.9 3.8 16.2A2 2 0 0 0 5.5 19h13a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0z"></path></svg>';
-  const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta']);
+  const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta', 'architecture-beta']);
 
   function escapeHtml(value = '') { return String(value).replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])); }
   const SAFE_STYLE_PROPERTIES = new Set(['border', 'border-color', 'border-style', 'border-width', 'border-radius', 'border-top', 'border-top-color', 'border-top-style', 'border-top-width', 'border-right', 'border-right-color', 'border-right-style', 'border-right-width', 'border-bottom', 'border-bottom-color', 'border-bottom-style', 'border-bottom-width', 'border-left', 'border-left-color', 'border-left-style', 'border-left-width', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'color', 'background-color', 'text-align', 'font-weight', 'font-style', 'font-size', 'line-height', 'height', 'top', 'vertical-align']);
@@ -27,24 +27,46 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
     return strip(html);
   }
   function pluginExport(mod) { return mod && (mod.default || mod.full || mod); }
-  function pluginGlobal(name) { return global[name] || (name === 'markdownItTaskLists' ? global.markdownitTaskLists : null); }
-  function renderMath(raw, displayMode) { try { if (!global.katex?.renderToString) throw new Error('KaTeX unavailable'); return global.katex.renderToString(raw, { displayMode: !!displayMode, throwOnError: false, strict: false, trust: false, output: 'htmlAndMathml' }); } catch { const tag = displayMode ? 'div' : 'span'; return `<${tag} class="math-fallback" title="数学公式渲染降级">${escapeHtml(displayMode ? `$$${raw}$$` : `$${raw}$`)}</${tag}>`; } }
-  function looksLikeMath(raw = '') { const value = String(raw || '').trim(); if (!value) return false; if (/\\(?:alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|sum|prod|int|frac|sqrt|left|right|begin|end|cdot|times|leq|geq|neq|approx|infty|partial|nabla|sin|cos|tan|log|ln|lim|mathbf|mathbb|mathrm|text)\b/.test(value)) return true; if (/[A-Za-z0-9_}\])]\s*(?:[+\-*/=<>^]|<=|>=|!=|\\leq|\\geq|\\neq)\s*[A-Za-z0-9_\\{(]/.test(value)) return true; if (/(?:[+\-*/=<>^]|<=|>=|!=)\s*\\?[A-Za-z0-9]/.test(value)) return true; return false; }
-  function scanLatexBracketMath(markdown = '') {
-    const src = String(markdown || ''); const segments = []; let out = '', i = 0, lineStart = true, inFence = false, fenceChar = '', fenceLen = 0;
-    const tokenFor = (raw, displayMode) => { const token = `@@CHATUI_BRACKET_MATH_${segments.length}@@`; segments.push({ token, raw, displayMode }); return token; };
-    while (i < src.length) {
-      if (lineStart) { const lineEnd = src.indexOf('\n', i); const line = src.slice(i, lineEnd === -1 ? src.length : lineEnd); const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/); if (fence) { const marker = fence[1], rest = String(fence[2] || '').trim(); if (inFence) { if (marker[0] === fenceChar && marker.length >= fenceLen && !rest) { inFence = false; fenceChar = ''; fenceLen = 0; } } else { inFence = true; fenceChar = marker[0]; fenceLen = marker.length; } const chunk = lineEnd === -1 ? line : `${line}\n`; out += chunk; i += chunk.length; lineStart = true; continue; } }
-      if (inFence) { out += src[i]; lineStart = src[i] === '\n'; i += 1; continue; }
-      if (src.startsWith('\\[', i)) { const end = src.indexOf('\\]', i + 2); if (end !== -1) { const raw = src.slice(i + 2, end); if (looksLikeMath(raw)) { out += tokenFor(raw, true); i = end + 2; lineStart = false; continue; } } }
-      if (src.startsWith('\\(', i)) { const end = src.indexOf('\\)', i + 2); if (end !== -1) { const raw = src.slice(i + 2, end); if (looksLikeMath(raw)) { out += tokenFor(raw, false); i = end + 2; lineStart = false; continue; } } }
-      out += src[i]; lineStart = src[i] === '\n'; i += 1;
-    }
-    return { text: out, segments };
-  }
-  function restoreMath(html, segments = []) { return segments.reduce((result, item) => result.replaceAll(item.token, renderMath(item.raw, item.displayMode)), String(html || '')); }
-  function applyMathPlugin(md) { const plugin = pluginExport(pluginGlobal('markdownItKatex') || pluginGlobal('markdownitKatex')); if (!plugin) return false; try { md.use(plugin, { throwOnError: false, strict: false, trust: false, output: 'htmlAndMathml' }); return true; } catch (err) { console.warn('[markdown] math plugin failed: markdown-it-katex', err); return false; } }
-  function applyTaskListFallback(html = '') { return String(html || '').replace(/<li>(\[[ xX]\]\s*)([\s\S]*?)<\/li>/g, (_all, marker, body) => `<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled${/x/i.test(marker) ? ' checked' : ''}> ${body}</li>`).replace(/<ul>\s*<li class="task-list-item">/g, '<ul class="contains-task-list">\n<li class="task-list-item">'); }
+  function pluginGlobal(name) { return global[name] || (name === 'markdownItTaskLists' ? global.markdownitTaskLists : name === 'markdownitMultimdTable' ? (global.markdownitMultimdTable || global.markdownItMultimdTable || global.markdownItMultiMdTable) : name === 'markdownItTexmath' ? (global.markdownItTexmath || global.texmath) : null); }
+  function normalizedHtml(value = '') { return String(value || '').replace(/\sdata-markdown-streaming-tail="1"/g, '').replace(/\s+/g, ' ').trim(); }
+  function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); current.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail')?.remove(); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
+  function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) { if (typeof renderMarkdown !== 'function') return false; const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); current.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail')?.remove(); const delta = document.createElement('template'); delta.innerHTML = renderMarkdown(finalDelta); current.append(...delta.content.childNodes); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
+  function applyMathPlugin(md) { const plugin = pluginExport(pluginGlobal('markdownItTexmath') || pluginGlobal('texmath')); if (!plugin) return false; try { md.use(plugin, { engine: global.katex, delimiters: ['dollars', 'brackets', 'beg_end'], katexOptions: { throwOnError: false, strict: false, trust: false, output: 'htmlAndMathml' } }); return true; } catch (err) { console.warn('[markdown] math plugin failed: markdown-it-texmath', err); return false; } }
+  function normalizeEscapedUrlSlashes(markdown = '') { return String(markdown || '').replace(/\b((?:https?:|mailto:|tel:)\\\/\\\/[^\s<>()\[\]{}\"']+)/gi, all => all.replace(/\\\//g, '/')); }
+  
+function encodeUtf8Base64(value = '') {
+  if (typeof Buffer !== 'undefined') return Buffer.from(String(value), 'utf8').toString('base64');
+  if (typeof btoa === 'function') return btoa(unescape(encodeURIComponent(String(value))));
+  return '';
+}
+
+function normalizeMultilineMarkdownImageDataUris(markdown = '') {
+  return String(markdown || '').replace(/!\[([^\]\n]*)\]\s*\n+\s*\(\s*(data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[A-Za-z0-9+/=\s]+)\s*\)/gi, (_all, alt, uri) => {
+    const compact = String(uri || '').replace(/\s+/g, '');
+    return `![${alt}](${compact})`;
+  });
+}
+
+function normalizeMarkdownImageDataUris(markdown = '') {
+  const src = String(markdown || '');
+  const pattern = /(!\[[^\]\n]*\]\()data:image\/svg\+xml;(?:charset=)?utf-?8,([\s\S]*?<\/svg>)\)/gi;
+  return src.replace(pattern, (all, prefix, svg) => {
+    const encoded = encodeUtf8Base64(String(svg || '').trim());
+    return encoded ? `${prefix}data:image/svg+xml;base64,${encoded})` : all;
+  });
+}
+function normalizeMarkdownSource(markdown = '') {
+  return normalizeMarkdownImageDataUris(normalizeMultilineMarkdownImageDataUris(normalizeEscapedUrlSlashes(markdown)));
+}
+
+function isSafeMarkdownLink(url = '') {
+  const href = String(url || '').trim();
+  if (/^data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(href)) return true;
+  if (/^(?:javascript|vbscript|file|data:text\/html)\s*:/i.test(href)) return false;
+  return true;
+}
+
+function applyTaskListFallback(html = '') { return String(html || '').replace(/<li>(\[[ xX]\]\s*)([\s\S]*?)<\/li>/g, (_all, marker, body) => `<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled${/x/i.test(marker) ? ' checked' : ''}> ${body}</li>`).replace(/<ul>\s*<li class="task-list-item">/g, '<ul class="contains-task-list">\n<li class="task-list-item">'); }
 
   function normalizeTableAlignToken(token) { const style = token.attrGet('style') || ''; const match = style.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*(?:;|$)/i); if (!match) return; const nextStyle = style.replace(/(?:^|;)\s*text-align\s*:\s*(?:left|center|right)\s*;?/ig, '').trim(); if (nextStyle) token.attrSet('style', nextStyle); else { const styleIndex = token.attrIndex('style'); if (styleIndex >= 0) token.attrs.splice(styleIndex, 1); } const cls = `md-align-${match[1].toLowerCase()}`; const current = token.attrGet('class') || ''; if (!current.split(/\s+/).includes(cls)) token.attrSet('class', [current, cls].filter(Boolean).join(' ')); }
 
@@ -52,20 +74,22 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
   function decodeHtmlEntities(html = '') { return String(html || '').replace(/&(?:#x([0-9a-f]+)|#(\d+)|amp|lt|gt|quot|#39|apos|#96);/gi, (all, hex, dec) => { if (hex) return String.fromCodePoint(parseInt(hex, 16)); if (dec) return String.fromCodePoint(parseInt(dec, 10)); return ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&#96;': '`' }[all.toLowerCase()] || all); }); }
   function highlightedTextMatchesSource(highlighted = '', source = '') { return decodeHtmlEntities(String(highlighted || '').replace(/<[^>]*>/g, '')) === String(source || ''); }
 
+  function hasCriticalMarkdownPlugins() { return !!pluginGlobal('markdownItTexmath') && !!pluginGlobal('markdownitMultimdTable'); }
   function createMarkdownEngine() {
     const MarkdownIt = global.markdownit || global.markdownIt || global.MarkdownIt;
     if (!MarkdownIt) return null;
-    const md = MarkdownIt({ html: true, breaks: false, linkify: true, typographer: false, highlight(code, lang) { const language = String(lang || '').trim().split(/\s+/)[0]; const raw = String(code || ''); const rawHtml = escapeHtml(raw); try { if (global.hljs && language && global.hljs.getLanguage?.(language)) { const highlighted = global.hljs.highlight(raw, { language, ignoreIllegals: true }).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs language-${escapeHtml(language)}">${body}</code></pre>`; } if (global.hljs) { const highlighted = global.hljs.highlightAuto(raw).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs">${body}</code></pre>`; } } catch (err) { console.warn('[markdown] highlight failed:', err); } return `<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${rawHtml}</code></pre>`; } }).enable(['table', 'strikethrough']);
+    const md = MarkdownIt({ html: true, breaks: false, linkify: true, typographer: false, highlight(code, lang) { const language = String(lang || '').trim().split(/\s+/)[0]; const raw = String(code || ''); const rawHtml = escapeHtml(raw); try { if (global.hljs && language && global.hljs.getLanguage?.(language)) { const highlighted = global.hljs.highlight(raw, { language, ignoreIllegals: true }).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs language-${escapeHtml(language)}">${body}</code></pre>`; } if (global.hljs) { const highlighted = global.hljs.highlightAuto(raw).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs">${body}</code></pre>`; } } catch (err) { console.warn('[markdown] highlight failed:', err); } return `<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${rawHtml}</code></pre>`; } }).enable(['table', 'strikethrough']); md.validateLink = isSafeMarkdownLink;
     applyMathPlugin(md);
+    const tablePlugin = pluginExport(pluginGlobal('markdownitMultimdTable')); if (tablePlugin) { try { md.use(tablePlugin, { multiline: true, rowspan: true, headerless: false, multibody: true, autolabel: true }); } catch (err) { console.warn('[markdown] plugin failed: markdownitMultimdTable', err); } } else console.warn('[markdown] plugin unavailable: markdownitMultimdTable');
     [['markdownItTaskLists', { enabled: true, label: true, labelAfter: true }], ['markdownitEmoji'], ['markdownitFootnote'], ['markdownitDeflist'], ['markdownitAbbr'], ['markdownitMark'], ['markdownitSub'], ['markdownitSup']].forEach(([name, options]) => { const plugin = pluginExport(pluginGlobal(name)); if (plugin) { try { md.use(plugin, options); } catch (err) { console.warn(`[markdown] plugin failed: ${name}`, err); } } else console.warn(`[markdown] plugin unavailable: ${name}`); });
     const defaultFence = md.renderer.rules.fence;
     md.renderer.rules.fence = (tokens, idx, opts, env, slf) => { const token = tokens[idx]; const lang = (token.info || '').trim().split(/\s+/)[0].toLowerCase(); token.content = normalizeBlockquoteFencedCodeContent(token.content); if (MERMAID_LANGS.has(lang)) return `<div class="mermaid-block markdown-mermaid-pending" data-mermaid-rendered="0"><pre><code class="language-mermaid">${escapeHtml(token.content)}</code></pre></div>`; return defaultFence(tokens, idx, opts, env, slf); };
     const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, idx, opts, env, slf) => slf.renderToken(tokens, idx, opts));
     md.renderer.rules.link_open = (tokens, idx, opts, env, slf) => { const href = tokens[idx].attrGet('href') || ''; if (/^https?:/i.test(href)) { tokens[idx].attrSet('target', '_blank'); tokens[idx].attrSet('rel', 'noopener noreferrer'); } return defaultLinkOpen(tokens, idx, opts, env, slf); };
     ['th_open', 'td_open'].forEach(rule => { const defaultRule = md.renderer.rules[rule] || ((tokens, idx, opts, env, slf) => slf.renderToken(tokens, idx, opts)); md.renderer.rules[rule] = (tokens, idx, opts, env, slf) => { normalizeTableAlignToken(tokens[idx]); return defaultRule(tokens, idx, opts, env, slf); }; });
-    return { md, render(markdown = '') { const source = String(markdown || ''); const math = scanLatexBracketMath(source); let html = ''; try { html = md.render(math.text); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; } return restoreMath(applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html))), math.segments); } };
+    return { md, render(markdown = '') { const source = normalizeMarkdownSource(markdown); let html = ''; try { html = md.render(source); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; } return applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html))); } };
   }
-  let engine = null; function getMarkdownEngine() { if (!engine) engine = createMarkdownEngine(); return engine; }
+  let engine = null; let engineReady = false; function resetMarkdownEngine() { engine = null; engineReady = false; } function getMarkdownEngine() { const ready = hasCriticalMarkdownPlugins(); if (!engine || ready && !engineReady) { engine = createMarkdownEngine(); engineReady = ready; } return engine; }
   function renderMarkdown(markdown = '') { const current = getMarkdownEngine(); return current ? current.render(markdown) : `<p>${escapeHtml(markdown).replace(/\n/g, '<br>')}</p>`; }
 
   function slugify(value = '') { return String(value).trim().toLowerCase().replace(/[`~!@#$%^&*()+=[\]{};:'",.<>/?\\|]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''); }
@@ -221,6 +245,7 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
   async function loadMermaid() {
     if (global.mermaid) return global.mermaid;
     await global.ChatUIMarkdownDependencyLoader?.loadScripts?.();
+    resetMarkdownEngine();
     return global.mermaid || null;
   }
 
@@ -262,6 +287,118 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
     return !holder?.parentNode || !container?.parentNode || holder.dataset?.mermaidToken !== token || container.dataset?.mermaidToken !== token;
   }
 
+
+
+  function mermaidSafeId(value = '', fallback = 'item') {
+    const ascii = String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+    if (ascii && /^[a-z]/.test(ascii)) return ascii;
+    return fallback;
+  }
+
+  function mermaidQuoteLabel(value = '') {
+    return String(value || '').trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function normalizeArchitectureMermaidSource(source = '') {
+    const text = String(source || '');
+    if (!/^\s*architecture-beta\b/i.test(text)) return text;
+    return text.replace(/\[([^\]\n]*[^\x00-\x7F][^\]\n]*)\]/g, (all, label) => {
+      const trimmed = String(label || '').trim();
+      if (!trimmed || /^['"].*['"]$/.test(trimmed)) return all;
+      return `["${mermaidQuoteLabel(trimmed)}"]`;
+    });
+  }
+
+
+  function getSankeyLabelReplacements(source = '') {
+    const text = String(source || '');
+    if (!/^\s*sankey-beta\b/i.test(text)) return [];
+    const seen = new Map();
+    const replacements = [];
+    const labelFor = (raw) => {
+      const label = String(raw || '').trim();
+      if (!label || /^[\x00-\x7F]+$/.test(label)) return label;
+      if (!seen.has(label)) {
+        const id = `sankey_node_${seen.size + 1}`;
+        seen.set(label, id);
+        replacements.push({ id, label });
+      }
+      return seen.get(label);
+    };
+    text.split(/\r?\n/).slice(1).forEach((line) => {
+      const parts = line.trim().split(',');
+      if (parts.length >= 3) {
+        labelFor(parts[0]);
+        labelFor(parts[1]);
+      }
+    });
+    return replacements;
+  }
+
+  function restoreSankeySvgLabels(container, source = '') {
+    const replacements = getSankeyLabelReplacements(source);
+    if (!replacements.length || !container?.querySelectorAll) return;
+    const map = new Map(replacements.map(item => [item.id, item.label]));
+    container.querySelectorAll('text').forEach((node) => {
+      for (const [id, label] of map) {
+        if ((node.textContent || '').includes(id)) node.textContent = String(node.textContent || '').replaceAll(id, label);
+      }
+    });
+  }
+  function normalizeSankeyMermaidSource(source = '') {
+    const text = String(source || '');
+    if (!/^\s*sankey-beta\b/i.test(text)) return text;
+    const replacements = getSankeyLabelReplacements(text);
+    const map = new Map(replacements.map(item => [item.label, item.id]));
+    return text.split(/\r?\n/).map((line, index) => {
+      if (index === 0) return line.trim();
+      const parts = line.trim().split(',');
+      if (parts.length >= 3) {
+        parts[0] = map.get(parts[0].trim()) || parts[0].trim();
+        parts[1] = map.get(parts[1].trim()) || parts[1].trim();
+        return parts.join(',');
+      }
+      return line.trimStart();
+    }).join('\n');
+  }
+
+  function normalizeRadarMermaidSource(source = '') {
+    const text = String(source || '');
+    if (!/^\s*radar-beta\b/i.test(text)) return text;
+    const lines = text.split(/\r?\n/);
+    const out = [];
+    let axisLabels = null;
+    let curveCount = 0;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) { out.push(''); continue; }
+      if (/^radar-beta\b/i.test(line)) { out.push('radar-beta'); continue; }
+      const axisMatch = line.match(/^axis\s+(.+)$/i);
+      if (axisMatch && !/[\[{]/.test(axisMatch[1])) {
+        axisLabels = axisMatch[1].split(',').map(item => item.trim()).filter(Boolean);
+        out.push('axis ' + axisLabels.map((label, index) => `${mermaidSafeId(label, `axis${index + 1}`)}["${mermaidQuoteLabel(label)}"]`).join(', '));
+        continue;
+      }
+      const curveMatch = line.match(/^(?:["']([^"']+)["']|([^:]+))\s*:\s*([\d.,\s+-]+)$/);
+      if (curveMatch) {
+        curveCount += 1;
+        const label = String(curveMatch[1] || curveMatch[2] || `curve${curveCount}`).trim();
+        const values = String(curveMatch[3] || '').split(',').map(item => item.trim()).filter(Boolean).join(', ');
+        out.push(`curve ${mermaidSafeId(label, `curve${curveCount}`)}["${mermaidQuoteLabel(label)}"]{${values}}`);
+        continue;
+      }
+      out.push(line);
+    }
+    return out.join('\n');
+  }
+
+  function normalizeBetaMermaidSource(source = '') {
+    let text = String(source || '');
+    text = normalizeSankeyMermaidSource(text);
+    text = normalizeRadarMermaidSource(text);
+    text = normalizeArchitectureMermaidSource(text);
+    return text;
+  }
   function restoreMermaidFallback(holder, container, token, error) {
     if (!holder?.parentNode && container?.parentNode) container.replaceWith(holder);
     if (holder?.parentNode && holder.dataset?.mermaidToken === token) {
@@ -285,6 +422,7 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
   async function renderSingleMermaidBlock(holder, mermaid) {
     const token = holder.dataset.mermaidToken;
     const source = holder.dataset.mermaidSource || holder.querySelector?.('code.language-mermaid')?.textContent || holder.textContent || '';
+    const renderSource = normalizeBetaMermaidSource(source);
     const container = document.createElement('div');
     const renderId = `${token}-svg`;
     container.className = 'mermaid';
@@ -295,8 +433,8 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
     container.dataset.mermaidRenderId = renderId;
     container.dataset.mermaidRendered = 'rendering';
     container.dataset.mermaidToken = token;
-    container.dataset.mermaidSourceHash = String(source.length);
-    container.textContent = source;
+    container.dataset.mermaidSourceHash = String(renderSource.length);
+    container.textContent = renderSource;
     holder.querySelector(':scope > .mermaid')?.remove();
     holder.querySelector(':scope > .mermaid-render-toggle')?.remove();
     const sourceView = holder.querySelector(':scope > .code-block');
@@ -305,11 +443,13 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
     try {
       if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
       if (typeof mermaid.render === 'function') {
-        const result = await mermaid.render(renderId, source, container);
+        const result = await mermaid.render(renderId, renderSource, container);
         if (staleMermaidBlock(holder, container, token)) return { ok: false, node: holder, stale: true };
         container.replaceChildren();
-        if (result?.svg) container.innerHTML = result.svg;
-        else if (result?.nodeType) container.appendChild(result);
+        if (result?.svg) {
+          container.innerHTML = result.svg;
+          restoreSankeySvgLabels(container, source);
+        } else if (result?.nodeType) container.appendChild(result);
         result?.bindFunctions?.(container);
       } else {
         await mermaid.run?.({ nodes: [container] });
@@ -370,10 +510,10 @@ const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><pat
   function splitLines(src) { const lines = []; let start = 0; for (let i = 0; i < src.length; i += 1) if (src[i] === '\n') { lines.push({ text: src.slice(start, i), start, end: i + 1, hasNl: true }); start = i + 1; } if (start < src.length) lines.push({ text: src.slice(start), start, end: src.length, hasNl: false }); return lines; }
   function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false; const fenceOf = l => l.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/), blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete) stable = item.end; continue; } if (inMath) continue; if (blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); return Math.max(0, Math.min(stable, src.length)); }
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
-  function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown, renderTailText } = {}) { let raw = '', consumed = 0, tailText = '', closed = false; const renderTail = renderTailText || (text => { const span = document.createElement('span'); span.className = 'streaming-tail'; span.dataset.markdownStreamingTail = '1'; span.textContent = text; return span; }); const findTail = c => c?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null; const removeTail = c => findTail(c)?.remove(); const htmlToFrag = html => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); return tpl.content; }; const insertRendered = (target, html, before) => { const frag = htmlToFrag(html); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; }; const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) }); const enhanceSafe = (c, phase = {}) => { try { enhance?.(c, phase); } catch (err) { console.warn('[markdown] streaming enhance failed:', err); } }; return { append(delta, container) { if (closed) return { raw, consumed, tail: tailText, closed }; raw += String(delta || ''); const { stable, tail, index } = splitStableTail(raw); if (index < consumed) { if (container) { container.innerHTML = render(raw); removeTail(container); enhanceSafe(container, { reset: true }); } consumed = raw.length; tailText = ''; return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' }; } const part = stable.slice(consumed); if (container) { let tailNode = findTail(container); if (part) { const inserted = insertRendered(container, render(part), tailNode); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); } tailText = tail; tailNode = findTail(container); if (tailText) { if (tailNode) tailNode.textContent = tailText; else container.appendChild(renderTail(tailText)); } else if (tailNode) tailNode.textContent = ''; } else { if (part) consumed = stable.length; tailText = tail; } return { raw, consumed, tail: tailText, delta: part, closed }; }, set(value, container) { const next = String(value || ''); const delta = next.startsWith(raw) ? next.slice(raw.length) : next; if (!next.startsWith(raw)) this.reset(container); return this.append(delta, container); }, final(container, finalText = raw) { const next = String(finalText ?? raw ?? ''); raw = next; closed = true; let mode = 'noop', reason = ''; if (container) { removeTail(container); container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true }); mode = 'full-rerender-final'; } else { consumed = raw.length; tailText = ''; mode = 'no-container'; } return { raw, mode, reason, consumed, closed, enhanced: !!container }; }, getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; if (container) container.innerHTML = ''; } }; }
+  function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown, renderTailText } = {}) { let raw = '', consumed = 0, tailText = '', closed = false; const renderTail = renderTailText || (text => { const span = document.createElement('span'); span.className = 'streaming-tail'; span.dataset.markdownStreamingTail = '1'; span.textContent = text; return span; }); const findTail = c => c?.querySelector?.('[data-markdown-streaming-tail="1"], .streaming-tail') || null; const removeTail = c => findTail(c)?.remove(); const htmlToFrag = html => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); return tpl.content; }; const insertRendered = (target, html, before) => { const frag = htmlToFrag(html); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; }; const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) }); const enhanceSafe = (c, phase = {}) => { try { enhance?.(c, phase); } catch (err) { console.warn('[markdown] streaming enhance failed:', err); } }; return { append(delta, container) { if (closed) return { raw, consumed, tail: tailText, closed }; raw += String(delta || ''); const { stable, tail, index } = splitStableTail(raw); if (index < consumed) { if (container) { container.innerHTML = render(raw); removeTail(container); enhanceSafe(container, { reset: true }); } consumed = raw.length; tailText = ''; return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' }; } const part = stable.slice(consumed); if (container) { let tailNode = findTail(container); if (part) { const inserted = insertRendered(container, render(part), tailNode); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); } tailText = tail; tailNode = findTail(container); if (tailText) { if (tailNode) tailNode.textContent = tailText; else container.appendChild(renderTail(tailText)); } else if (tailNode) tailNode.textContent = ''; } else { if (part) consumed = stable.length; tailText = tail; } return { raw, consumed, tail: tailText, delta: part, closed }; }, set(value, container) { const next = String(value || ''); const delta = next.startsWith(raw) ? next.slice(raw.length) : next; if (!next.startsWith(raw)) this.reset(container); return this.append(delta, container); }, final(container, finalText = raw) { const next = String(finalText ?? raw ?? ''); const previousRaw = raw; const previousConsumed = consumed; raw = next; closed = true; let mode = 'noop', reason = ''; if (container) { const tailNode = findTail(container); const canCommitTail = next === previousRaw && previousConsumed <= next.length; const finalDelta = next.slice(previousConsumed); const finalHtml = render(next); const canSkipFullRerender = canCommitTail && (finalMarkupMatchesCurrent(container, finalHtml) || projectedIncrementalFinalMatches(container, finalHtml, finalDelta, render)); if (canSkipFullRerender) { if (tailNode) tailNode.remove(); if (finalDelta) { const inserted = insertRendered(container, render(finalDelta), null); enhanceSafe(fragmentRootFor(inserted), { final: true, streaming: true }); } else { enhanceSafe(container, { final: true, unchanged: true }); } consumed = raw.length; tailText = ''; mode = 'incremental-final'; } else { removeTail(container); container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true, reset: true }); mode = 'full-rerender-final'; reason = 'final-text-diverged'; } } else { consumed = raw.length; tailText = ''; mode = 'no-container'; } return { raw, mode, reason, consumed, closed, enhanced: !!container }; }, getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; if (container) container.innerHTML = ''; } }; }
 
-  const api = Object.freeze({ renderMarkdown, renderMarkdownInto, renderMarkdownHtml: renderMarkdown, enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, loadMermaid, createMarkdownEngine, getMarkdownEngine, findStableBoundary, splitStableTail, createStreamingRenderer, escapeHtml, dependencyLoader: global.ChatUIMarkdownDependencyLoader });
+  const api = Object.freeze({ renderMarkdown, renderMarkdownInto, normalizeBetaMermaidSource, renderMarkdownHtml: renderMarkdown, enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, loadMermaid, createMarkdownEngine, getMarkdownEngine, resetMarkdownEngine, hasCriticalMarkdownPlugins, findStableBoundary, splitStableTail, createStreamingRenderer, escapeHtml, normalizeEscapedUrlSlashes, normalizeMultilineMarkdownImageDataUris, normalizeMarkdownImageDataUris, normalizeMarkdownSource, dependencyLoader: global.ChatUIMarkdownDependencyLoader });
   global.ChatUIApp = Object.freeze({ ...(global.ChatUIApp || {}), markdown: api });
   global.ChatUIMarkdown = api;
-  global.ChatUIMarkdownReady = (global.ChatUIMarkdownDependencyLoader?.loadAll?.() || Promise.resolve()).catch(err => console.warn('[markdown] dependency load failed:', err));
+  global.ChatUIMarkdownReady = (global.ChatUIMarkdownDependencyLoader?.loadAll?.() || Promise.resolve()).then(result => { resetMarkdownEngine(); return result; }).catch(err => { console.warn('[markdown] dependency load failed:', err); resetMarkdownEngine(); return null; });
 })(typeof window !== 'undefined' ? window : globalThis);

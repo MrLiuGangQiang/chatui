@@ -4,7 +4,8 @@ const loader = require('../../client/app/markdown/dependency-loader.js');
 
 const expectedScriptIds = [
   'markdown-it',
-  'markdown-it-katex',
+  'markdown-it-texmath',
+  'markdown-it-multimd-table',
   'markdown-it-task-lists',
   'markdown-it-emoji',
   'markdown-it-footnote',
@@ -19,7 +20,7 @@ const expectedScriptIds = [
   'dompurify',
 ];
 
-assert.strictEqual(loader.VERSION, '2.0.0');
+assert.strictEqual(loader.VERSION, '2.0.2');
 assert.ok(Array.isArray(loader.resources.styles));
 assert.ok(Array.isArray(loader.resources.scripts));
 
@@ -37,6 +38,6 @@ for (const resource of loader.resources.styles) {
 }
 
 const readiness = loader.getReadiness();
-assert.strictEqual(readiness.version, '2.0.0');
+assert.strictEqual(readiness.version, '2.0.2');
 assert.strictEqual(readiness.ready, false);
 assert.deepStrictEqual(Object.keys(readiness.scripts).sort(), expectedScriptIds.sort());

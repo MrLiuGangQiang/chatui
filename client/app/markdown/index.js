@@ -1,6 +1,6 @@
 'use strict';
 
-const { renderMarkdown: renderMarkdownHtml, createMarkdownEngine, getMarkdownEngine, escapeHtml, scanLatexBracketMath, restoreMathSegments } = require('./markdown-engine');
+const { renderMarkdown: renderMarkdownHtml, createMarkdownEngine, getMarkdownEngine, escapeHtml } = require('./markdown-engine');
 const { sanitizeHtml } = require('./sanitizer');
 const { enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks } = require('./enhancer');
 const { findStableBoundary, splitStableTail } = require('./stable-boundary');
@@ -47,7 +47,5 @@ module.exports = {
   splitStableTail,
   createStreamingRenderer,
   escapeHtml,
-  scanLatexBracketMath,
-  restoreMathSegments,
   dependencyLoader,
 };

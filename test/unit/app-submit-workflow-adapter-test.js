@@ -1,0 +1,27 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+function asyncBodyOf(name) {
+  const marker = `async function ${name}(`;
+  const start = app.indexOf(marker);
+  assert.ok(start >= 0, `${name} exists`);
+  const ps = app.indexOf('(', start);
+  let pd = 0, brace = -1;
+  for (let i = ps; i < app.length; i += 1) {
+    if (app[i] === '(') pd += 1;
+    else if (app[i] === ')') { pd -= 1; if (pd === 0) { brace = app.indexOf('{', i); break; } }
+  }
+  let depth = 0;
+  for (let i = brace; i < app.length; i += 1) {
+    if (app[i] === '{') depth += 1;
+    if (app[i] === '}') { depth -= 1; if (depth === 0) return app.slice(brace + 1, i); }
+  }
+  throw new Error(`cannot read ${name}`);
+}
+const body = asyncBodyOf('onSubmit');
+assert.ok(body.includes('getSubmitWorkflow().onSubmit'), 'onSubmit delegates to submit workflow');
+assert.ok(!body.includes('prepareUserAttachmentPreviews'), 'root submit preparation implementation removed');
+assert.ok(!body.includes('getEffectiveRoute'), 'root route selection implementation removed from submit');
+assert.ok(app.includes('ChatUIAppSubmitWorkflow'), 'app requires submit workflow');
+console.log('app submit workflow adapter ok');

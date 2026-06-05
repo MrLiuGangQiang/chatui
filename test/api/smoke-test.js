@@ -100,19 +100,23 @@ async function json(res) {
     const browserApp = await res.text();
     assert.ok(browserApp.includes('window.ChatUIApp'), 'browser app exposes stable namespace');
 
+    res = await fetch(`${base}/client/app/scroll-focus-workflow.js`);
+    assert.strictEqual(res.status, 200, 'scroll focus workflow status');
+    const scrollFocusWorkflow = await res.text();
+
     assert.ok(dependencyLoader.includes('id: \'mermaid\'') || dependencyLoader.includes('id: "mermaid"'), 'mermaid is loaded through markdown dependency loader');
     assert.ok(dependencyLoader.includes('registry.npmmirror.com/mermaid/11.15.0'), 'lazy mermaid uses npmmirror CDN');
     assert.ok(dependencyLoader.includes('./vendor/mermaid.min.js'), 'lazy mermaid keeps local fallback');
     assert.ok(appJs.includes('function beginRenameSession'), 'inline session rename function exists');
     assert.ok(appJs.includes('customTitle'), 'custom session title is persisted');
     assert.ok(appJs.includes('session-rename-btn'), 'session rename button is rendered');
-    assert.ok(appJs.includes('isNodeAwayFromOutputFocus'), 'resume stream visibility check exists');
-    assert.ok(appJs.includes('ChatUI?.scroll?.isNodeAwayFromOutputFocus') || appJs.includes('t.bottom>o+40'), 'resume button appears when output is away from focus');
-    assert.ok(appJs.includes('resumeButtonSuppressUntil'), 'resume button is suppressed briefly after click');
-    assert.ok(appJs.includes('lockToStreamingOutput'), 'resume locks to active streaming output');
-    assert.ok(appJs.includes('streamFocusLocked'), 'stream focus lock state exists');
-    assert.ok(appJs.includes('state.streamFocusLocked=!1'), 'manual scrolling unlocks stream focus');
-    assert.ok(appJs.includes('document.querySelectorAll(\'.message[data-streaming="1"]\')'), 'resume button can recover active streaming node');
+    assert.ok(appJs.includes('isNodeAwayFromOutputFocus'), 'resume stream visibility adapter exists');
+    assert.ok(scrollFocusWorkflow.includes('ChatUI?.scroll?.isNodeAwayFromOutputFocus') || scrollFocusWorkflow.includes('t.bottom>o+40'), 'resume button appears when output is away from focus');
+    assert.ok(scrollFocusWorkflow.includes('resumeButtonSuppressUntil'), 'resume button is suppressed briefly after click');
+    assert.ok(appJs.includes('lockToStreamingOutput'), 'resume locks to active streaming output adapter exists');
+    assert.ok(scrollFocusWorkflow.includes('streamFocusLocked'), 'stream focus lock state exists');
+    assert.ok(scrollFocusWorkflow.includes('state.streamFocusLocked=!1'), 'manual scrolling unlocks stream focus');
+    assert.ok(scrollFocusWorkflow.includes('document.querySelectorAll(\'.message[data-streaming="1"]\')'), 'resume button can recover active streaming node');
     assert.ok(appJs.includes('session-title-input'), 'session rename uses inline input');
     assert.ok(appJs.includes('保存会话名称'), 'rename button becomes save button');
     assert.ok(!appJs.includes('会话名称已保存'), 'rename save does not show toast');

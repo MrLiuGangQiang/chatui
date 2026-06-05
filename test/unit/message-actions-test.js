@@ -23,8 +23,18 @@ const { copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFr
   assert.strictEqual(visibleCopyTextFromElement(renderedAnnouncement), '关于 AI 大模型统一使用的公告\n各位好，目前已为每位成员分配了专属 API Key。\nClaude Code：\nAPI_KEY="你的专属 key"\nBASE_URL="https://ingress.lfans.cn/anthropic"');
   assert.strictEqual(messageCopyText('关于 AI\n\n\n公告', '', renderedAnnouncement), visibleCopyTextFromElement(renderedAnnouncement));
   let copied = '';
-  await copyText('hello', { writeText: async text => { copied = text; } });
+  const ok = await copyText('hello', { writeText: async text => { copied = text; } });
+  assert.strictEqual(ok, true);
   assert.strictEqual(copied, 'hello');
+  const fallbackDoc = {
+    body: { appendChild(node) { this.node = node; } },
+    createElement() { return { style: {}, setAttribute() {}, select() { this.selected = true; }, remove() { this.removed = true; } }; },
+    execCommand(command) { this.command = command; return command === 'copy'; },
+  };
+  const fallbackOk = await copyText('fallback', { writeText: async () => { throw new Error('blocked'); } }, fallbackDoc);
+  assert.strictEqual(fallbackOk, true);
+  assert.strictEqual(fallbackDoc.body.node.value, 'fallback');
+  assert.strictEqual(fallbackDoc.body.node.removed, true);
   console.log('message actions ok');
 })().catch(err => {
   console.error(err);

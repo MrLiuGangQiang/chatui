@@ -1,3 +1,6 @@
+(function initChatUIImageGenerationService(root) {
+  'use strict';
+
 function buildPromptWithTextAttachments(prompt = '', attachments = [], isImageFile = () => false) {
   const textAttachments = attachments.filter(item => item && item.text);
   const unsupportedAttachments = attachments.filter(item => item && !item.text && !isImageFile(item));
@@ -44,9 +47,14 @@ function createImageContext({ prompt = '', routePrompt = '', attachments = [], m
   };
 }
 
-module.exports = {
+const api = Object.freeze({
   buildPromptWithTextAttachments,
   buildImagePromptWithStylePrompt,
   buildImageRequestPayload,
   createImageContext,
-};
+});
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIImageGenerationService = api;
+if (root?.window) root.window.ChatUIImageGenerationService = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

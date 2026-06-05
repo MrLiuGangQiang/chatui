@@ -26,7 +26,7 @@ function testSafeHtmlSubsetAndSecurity() {
   const unsafe = engine.render('<script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)" onclick="x()" style="color:red">bad</a><a href="data:text/html;base64,PHNjcmlwdA==">data</a>');
   assert(!unsafe.includes('<script'));
   assert(!/on\w+=/i.test(unsafe));
-  assert(!unsafe.includes('javascript:'));
+  assert(!new JSDOM(unsafe).window.document.querySelector('a[href^="javascript:"]'));
   assert(!unsafe.includes('data:text/html'));
   assert(!unsafe.includes('style="position') && !unsafe.includes('url('));
 
@@ -42,8 +42,10 @@ function testBrowserParityForHtmlPolicy() {
   const dom = new JSDOM('<!doctype html><div></div>', { runScripts: 'outside-only' });
   dom.window.markdownit = require('markdown-it');
   dom.window.DOMPurify = require('dompurify')(dom.window);
-  const code = fs.readFileSync(path.resolve(__dirname, '../../client/app/markdown/browser.js'), 'utf8');
-  vm.runInContext(code, dom.getInternalVMContext());
+  for (const file of ['source-normalizer.js', 'link-policy.js', 'mermaid-normalizer.js', 'browser-sanitizer.js', 'browser-engine.js', 'browser-enhancer.js', 'browser-streaming-renderer.js', 'browser.js']) {
+    const code = fs.readFileSync(path.resolve(__dirname, '../../client/app/markdown', file), 'utf8');
+    vm.runInContext(code, dom.getInternalVMContext(), { filename: file });
+  }
   const browserHtml = dom.window.ChatUIMarkdown.renderMarkdown('<div>ok<br><kbd>K</kbd><sub>1</sub><sup>2</sup><details><summary>s</summary>x</details></div><script>x</script><img src=x onerror=x><a href="javascript:alert(1)">bad</a>');
   const nodeHtml = createMarkdownEngine().render('<div>ok<br><kbd>K</kbd><sub>1</sub><sup>2</sup><details><summary>s</summary>x</details></div><script>x</script><img src=x onerror=x><a href="javascript:alert(1)">bad</a>');
   for (const tag of ['div', 'br', 'kbd', 'sub', 'sup', 'details', 'summary']) {

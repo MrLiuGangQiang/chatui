@@ -1,3 +1,6 @@
+(function initChatUIImageService(root) {
+  'use strict';
+
 function imageItemToResult(item) {
   const url = item?.url || '';
   const b64 = item?.b64_json || item?.image_base64 || '';
@@ -47,4 +50,9 @@ async function imageFilesToJobPayload(attachments = [], readFileAsDataURL) {
   return result;
 }
 
-module.exports = { extractImageResult, buildImageCompletionMessage, imageFileToJobPayload, imageFilesToJobPayload };
+const api = Object.freeze({ extractImageResult, buildImageCompletionMessage, imageFileToJobPayload, imageFilesToJobPayload });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIImageService = api;
+if (root?.window) root.window.ChatUIImageService = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

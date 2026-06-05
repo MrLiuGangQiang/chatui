@@ -5,6 +5,8 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '../..');
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const chatWorkflow = fs.readFileSync(path.join(root, 'client/app/chat-workflow.js'), 'utf8');
+const scrollFocusWorkflow = fs.readFileSync(path.join(root, 'client/app/scroll-focus-workflow.js'), 'utf8');
 function functionBody(name) {
   const start = app.indexOf(`function ${name}`) >= 0 ? app.indexOf(`function ${name}`) : app.indexOf(`async function ${name}`);
   assert(start >= 0, `${name} exists`);
@@ -13,7 +15,7 @@ function functionBody(name) {
   return app.slice(start, end > start ? end : app.length);
 }
 
-assert.ok(app.includes('function armStreamingOutputFocus'), 'shared streaming focus arming helper exists');
+assert.ok(app.includes('function armStreamingOutputFocus'), 'streaming focus arming adapter exists');
 assert.match(
   app,
   /function prepareRegeneratedResponse[\s\S]*armStreamingOutputFocus\(s,o,\{margin:72,clearStaleFocus:!0\}\)[\s\S]*setTimeout\(\(\)=>\{armStreamingOutputFocus\(s,o,\{margin:72\}\)/,
@@ -21,27 +23,37 @@ assert.match(
 );
 assert.match(
   app,
-  /function prepareRegeneratedResponse[\s\S]*state\.userScrollLocked=!1[\s\S]*state\.autoScrollLocked=!0[\s\S]*clearTimeout\(scrollTimer\)/,
-  'regenerate path clears stale stream focus conflicts before following',
+  /function prepareRegeneratedResponse[\s\S]*state\.userScrollLocked=!1[\s\S]*state\.autoScrollLocked=!0[\s\S]*cancelScrollTimer\(\)/,
+  'regenerate path clears stale stream focus conflicts through scroll workflow before following',
 );
 assert.ok(
   !app.includes('l=s.scrollHeight-s.scrollTop-s.clientHeight') && !app.includes('Math.max(o.bottom-r,l)'),
   'active-output pinning must not use whole conversation bottom gap; regenerating an early message would otherwise jump to the session bottom on every token',
 );
 assert.match(
-  app,
-  /function sendChat[\s\S]*setActiveOutputForSession\(i,g\)[\s\S]*lockToStreamingOutput\(g,\{margin:72\}\)/,
-  'sendChat keeps ordinary stream follow behavior',
+  chatWorkflow,
+  /async function sendChat[\s\S]*setActiveOutputForSession\(i,g\)[\s\S]*lockToStreamingOutput\(g,\{margin:72\}\)/,
+  'sendChat workflow keeps ordinary stream follow behavior',
 );
 assert.match(
   app,
-  /function shouldFollowScroll\(\)\{return!!state\.streamFocusLocked&&!state\.userScrollLocked\}/,
+  /async function sendChat\([^)]*\)\{return getChatWorkflow\(\)\.sendChat\(e,t,s,n\)\}/,
+  'app sendChat is a thin adapter to chat workflow',
+);
+assert.match(
+  scrollFocusWorkflow,
+  /function shouldFollowScroll\(\)\s*\{[\s\S]*return!!state\.streamFocusLocked&&!state\.userScrollLocked/,
   'stream append/final follow remains gated by stream focus and manual scroll lock',
 );
 assert.match(
-  app,
+  scrollFocusWorkflow,
   /function markManualMessageScroll[\s\S]*Math\.abs\(Number\(e\.deltaY\|\|0\)\)>1[\s\S]*state\.streamFocusLocked=!1[\s\S]*state\.userScrollLocked=!0/,
   'manual wheel/touch/scrollbar drag pauses streaming focus in either direction',
+);
+assert.match(
+  app,
+  /function shouldFollowScroll\([^)]*\)\{return getScrollFocusWorkflow\(\)\.shouldFollowScroll\(\)\}/,
+  'app shouldFollowScroll is a thin adapter',
 );
 const regenerateBody = functionBody('regenerateAssistantMessage');
 assert.doesNotMatch(

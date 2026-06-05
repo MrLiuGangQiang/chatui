@@ -1,3 +1,6 @@
+(function initChatUIJobService(root) {
+  'use strict';
+
 function makeClientJobId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -157,7 +160,7 @@ async function startImageGenerationJob({ payload, config, jobId, mode = 'image',
   });
 }
 
-module.exports = {
+const api = Object.freeze({
   makeClientJobId,
   makeClientImageJobId,
   makeClientChatJobId,
@@ -166,4 +169,9 @@ module.exports = {
   getJob,
   waitJobEvent,
   startImageGenerationJob,
-};
+});
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIJobService = api;
+if (root?.window) root.window.ChatUIJobService = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

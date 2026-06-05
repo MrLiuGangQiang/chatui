@@ -8,7 +8,7 @@
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
   <link rel="stylesheet" href="https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css" onerror="this.onerror=null;this.href='./vendor/highlight-github.min.css'" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.45-tail-space-anchor-202606041144" />
+  <link rel="stylesheet" href="./styles.css?v=1.2.50-progressive-md-202606051404" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.2.0-action-dom-order-1" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.21-usage-warning-flash-1" />
@@ -423,13 +423,65 @@
   <script src="./vendor/purify.min.js" data-markdown-dependency="dompurify" data-markdown-dependency-loaded="local"></script>
   <script src="./vendor/markdown-it.min.js" data-markdown-dependency="markdown-it" data-markdown-dependency-loaded="local"></script>
   <script src="./vendor/katex.min.js" data-markdown-dependency="katex" data-markdown-dependency-loaded="local"></script>
+  <script src="./client/app/markdown/source-normalizer.js?v=1.2.44-markdown-pipeline-slim-1"></script>
+  <script src="./client/app/markdown/link-policy.js?v=1.2.44-markdown-pipeline-slim-1"></script>
+  <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.44-markdown-pipeline-slim-1"></script>
+  <script src="./client/app/markdown/browser-sanitizer.js"></script>
+  <script src="./client/app/markdown/browser-engine.js?v=1.2.44-markdown-pipeline-slim-2"></script>
+  <script src="./client/app/markdown/enhancer.js?v=1.2.44-markdown-enhancer-shared-1"></script>
+  <script src="./client/app/markdown/browser-enhancer.js?v=1.2.44-markdown-browser-enhancer-adapter-1"></script>
+  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.44-markdown-pipeline-slim-4"></script>
   <script src="./client/app/markdown/dependency-loader.js?v=2.0.2-local-first-202606041145"></script>
   <script src="./client/app/markdown/browser.js?v=1.2.50-mermaid-beta-normalize-202606041300"></script>
-  <script src="./client/core/browser.js?v=1.1.89-contextual-route-4"></script>
-  <script src="./client/services/fallback.js?v=1.1.93-arch-2"></script>
+  <script src="./client/core/http.js?v=1.2.44-core-http-shared-1"></script>
+  <script src="./client/core/reasoning.js?v=1.2.44-core-reasoning-shared-1"></script>
+  <script src="./client/core/models.js?v=1.2.44-core-models-shared-1"></script>
+  <script src="./client/core/image-references.js?v=1.2.44-core-image-references-shared-1"></script>
+  <script src="./client/core/image-route-context.js?v=1.2.44-core-image-route-context-shared-1"></script>
+  <script src="./client/core/attachments.js?v=1.2.44-core-attachments-shared-1"></script>
+  <script src="./client/core/browser.js?v=1.2.44-core-browser-composition-1"></script>
+  <script src="./client/services/model-service.js?v=1.2.44-services-model-shared-1"></script>
+  <script src="./client/services/job-service.js?v=1.2.44-services-job-shared-1"></script>
+  <script src="./client/services/chat-service.js?v=1.2.44-services-chat-shared-1"></script>
+  <script src="./client/services/route-service.js?v=1.2.44-services-route-shared-1"></script>
+  <script src="./client/services/image-generation-service.js?v=1.2.44-services-image-generation-shared-1"></script>
+  <script src="./client/services/image-service.js?v=1.2.44-services-image-shared-1"></script>
+  <script src="./client/services/fallback.js?v=1.2.44-services-fallback-composition-1"></script>
   <script src="./client/services/usage-stats.js?v=1.2.13-usage-stats-15"></script>
   <script src="./client/services/browser.js?v=1.1.93-arch-2"></script>
-  <script src="./client/ui/browser.js?v=1.2.17-realtime-immediate-1"></script>
+  <script src="./client/app/state.js?v=1.2.44-app-state-shared-1"></script>
+  <script src="./client/app/sessions.js?v=1.2.44-app-sessions-shared-1"></script>
+  <script src="./client/app/session-config.js?v=1.2.44-app-session-config-shared-1"></script>
+  <script src="./client/app/header-params.js?v=1.2.44-app-header-params-shared-1"></script>
+  <script src="./client/app/formatting.js?v=1.2.44-app-formatting-shared-1"></script>
+  <script src="./client/app/markdown-utils.js?v=1.2.44-app-markdown-utils-shared-1"></script>
+  <script src="./client/app/display-items.js?v=1.2.44-app-display-items-shared-1"></script>
+  <script src="./client/app/persistence.js?v=1.2.44-app-persistence-shared-1"></script>
+  <script src="./client/app/runs.js?v=1.2.44-app-runs-shared-1"></script>
+  <script src="./client/app/model-ui.js?v=1.2.44-app-model-ui-shared-1"></script>
+  <script src="./client/app/attachments-workflow.js?v=1.2.44-app-attachments-workflow-1"></script>
+  <script src="./client/app/image-context-workflow.js?v=1.2.44-app-image-context-workflow-1"></script>
+  <script src="./client/app/session-persistence.js?v=1.2.44-app-session-persistence-1"></script>
+  <script src="./client/app/session-display.js?v=1.2.44-app-session-display-1"></script>
+  <script src="./client/app/session-ui-workflow.js?v=1.2.44-app-session-ui-workflow-1"></script>
+  <script src="./client/app/job-workflow.js?v=1.2.44-app-job-workflow-1"></script>
+  <script src="./client/app/image-result-workflow.js?v=1.2.50-remove-visible-image-number-202606051326"></script>
+  <script src="./client/app/job-resume-workflow.js?v=1.2.44-app-job-resume-workflow-1"></script>
+  <script src="./client/app/submit-workflow.js?v=1.2.44-app-submit-workflow-1"></script>
+  <script src="./client/app/chat-workflow.js?v=1.2.50-restore-stream-md-202606051418"></script>
+  <script src="./client/app/image-workflow.js?v=1.2.44-app-image-workflow-1"></script>
+  <script src="./client/app/message-workflow.js?v=1.2.50-restore-stream-md-202606051418"></script>
+  <script src="./client/app/display-history-workflow.js?v=1.2.50-session-focus-fix-202606051216"></script>
+  <script src="./client/app/scroll-focus-workflow.js?v=1.2.50-layout-stable-focus-202606051231"></script>
+  <script src="./client/app/route-decision-workflow.js?v=1.2.44-app-route-decision-workflow-1"></script>
+  <script src="./client/app/reasoning-workflow.js?v=1.2.44-app-reasoning-workflow-1"></script>
+  <script src="./client/ui/file-actions.js?v=1.2.44-ui-file-actions-shared-1"></script>
+  <script src="./client/ui/realtime-renderer.js?v=1.2.44-ui-realtime-shared-1"></script>
+  <script src="./client/ui/scroll-controller.js?v=1.2.44-ui-scroll-shared-1"></script>
+  <script src="./client/ui/message-renderer.js?v=1.2.44-ui-message-renderer-shared-1"></script>
+  <script src="./client/ui/message-actions.js?v=1.2.44-ui-message-actions-shared-1"></script>
+  <script src="./client/ui/image-actions.js?v=1.2.44-ui-image-actions-shared-1"></script>
+  <script src="./client/ui/browser.js?v=1.2.44-ui-browser-composition-1"></script>
   <script src="./client/ui/render-cache.js?v=1.2.39-rollback-202606032016"></script>
   <script src="./client/ui/render-scheduler.js?v=1.2.39-rollback-202606032016"></script>
   <script src="./client/ui/message-virtualizer.js?v=1.2.39-rollback-202606032016"></script>
@@ -437,6 +489,6 @@
   <script src="./client/app/browser.js?v=1.2.38-mermaid-swap-icon-202606032337"></script>
   <script src="./client/app/runtime.js?v=1.1.42-app-1"></script>
   <script src="./client/app/image-store.js?v=1.1.42-app-1"></script>
-  <script src="./app.js?v=1.2.49-stream-code-copy-immediate-202606041148"></script>
+  <script src="./app.js?v=1.2.50-restore-stream-md-202606051418"></script>
 </body>
 </html>

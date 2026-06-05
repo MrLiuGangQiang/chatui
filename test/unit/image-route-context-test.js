@@ -9,6 +9,7 @@ const {
   collectRecentImageReferences,
   findImageReferenceById,
   normalizeRoute,
+  inferLocalImageRoute,
   buildRouteContext,
   routeContextSize,
   DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
@@ -39,6 +40,13 @@ assert.strictEqual(route.selectedReferenceId, 'imgref_display_first');
 assert.deepStrictEqual(route.selectedImageIds, ['img_imgref_display_first_2']);
 assert.strictEqual(normalizeRoute({ mode: 'image', confidence: 1 }).target, 'new');
 assert.strictEqual(normalizeRoute({ mode: 'image', contextual_image_prompt: '按上文画海报', confidence: 1 }).contextualImagePrompt, '按上文画海报');
+assert.strictEqual(inferLocalImageRoute('生成两张图片：一个红色圆点，一个黑色圆点').mode, 'image');
+assert.strictEqual(inferLocalImageRoute('生成两张图片：一个红色圆点，一个黑色圆点').contextualImagePrompt, '生成两张图片：一个红色圆点，一个黑色圆点');
+assert.strictEqual(inferLocalImageRoute('生成一张蓝色小猫图片').mode, 'image');
+assert.strictEqual(inferLocalImageRoute('帮我画一个 logo').target, 'new');
+assert.strictEqual(inferLocalImageRoute('不要生成图片，只描述方案'), null);
+assert.strictEqual(inferLocalImageRoute('修改上一张图的背景').mode, 'edit_image');
+assert.strictEqual(inferLocalImageRoute('修改上一张图的背景').target, 'previous');
 const manyMessages = Array.from({ length: 800 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `消息${index} ${'x'.repeat(1000)}` }));
 const largeContext = buildRouteContext({
   messages: manyMessages,

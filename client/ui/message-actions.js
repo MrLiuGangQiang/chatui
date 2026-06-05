@@ -1,3 +1,6 @@
+(function initChatUIMessageActions(root) {
+  'use strict';
+
 function copySuccessState(successIconSvg, previousHtml) {
   return { className: 'copied', html: successIconSvg, restoreHtml: previousHtml, timeoutMs: 900 };
 }
@@ -49,13 +52,32 @@ function messageCopyText(rawText = '', renderedText = '', element = null) {
 }
 
 async function copyText(text, clipboard, documentRef) {
-  if (clipboard?.writeText) return clipboard.writeText(text);
+  try {
+    if (clipboard?.writeText) {
+      await clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    // Headless/HTTP contexts may reject clipboard writes even after a user-like click.
+    // Fall back to the legacy selectable textarea path so the UI can still provide
+    // deterministic copy feedback when the browser blocks the async Clipboard API.
+  }
   const textarea = documentRef.createElement('textarea');
   textarea.value = text;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
   documentRef.body.appendChild(textarea);
   textarea.select();
-  documentRef.execCommand('copy');
-  textarea.remove();
+  let copied = false;
+  try { copied = !!documentRef.execCommand?.('copy'); }
+  finally { textarea.remove(); }
+  return copied;
 }
 
-module.exports = { copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText };
+const api = Object.freeze({ copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIMessageActions = api;
+if (root?.window) root.window.ChatUIMessageActions = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

@@ -4,142 +4,6 @@ const { optionalRequire, dataUrlToBuffer, limitExtractedText, withAttachmentHead
 
 const pdfParseLib = optionalRequire('pdf-parse');
 
-function decodePdfLiteralString(value = '') {
-  return String(value || '')
-    .replace(/\\([nrtbf()\\])/g, (_, ch) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }[ch] || ch))
-    .replace(/\\([0-7]{1,3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function decodePdfHexString(hex = '') {
-  const clean = String(hex || '').replace(/\s+/g, '');
-  const bytes = [];
-  for (let i = 0; i < clean.length; i += 2) bytes.push(parseInt(clean.slice(i, i + 2).padEnd(2, '0'), 16));
-  const buf = Buffer.from(bytes.filter(n => Number.isFinite(n)));
-  if (buf.length >= 2 && ((buf[0] === 0xfe && buf[1] === 0xff) || (buf[0] === 0xff && buf[1] === 0xfe))) {
-    const be = buf[0] === 0xfe;
-    const chars = [];
-    for (let i = 2; i + 1 < buf.length; i += 2) chars.push(String.fromCharCode(be ? (buf[i] << 8) + buf[i + 1] : (buf[i + 1] << 8) + buf[i]));
-    return chars.join('').replace(/\s+/g, ' ').trim();
-  }
-  return buf.toString('utf8').replace(/\s+/g, ' ').trim();
-}
-
-function decodePdfUnicodeHex(hex = '') {
-  const clean = String(hex || '').replace(/\s+/g, '');
-  const bytes = [];
-  for (let i = 0; i < clean.length; i += 2) bytes.push(parseInt(clean.slice(i, i + 2).padEnd(2, '0'), 16));
-  const buf = Buffer.from(bytes.filter(n => Number.isFinite(n)));
-  const start = buf.length >= 2 && ((buf[0] === 0xfe && buf[1] === 0xff) || (buf[0] === 0xff && buf[1] === 0xfe)) ? 2 : 0;
-  const be = !(buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe);
-  if (buf.length - start >= 2 && (buf.length - start) % 2 === 0) {
-    const chars = [];
-    for (let i = start; i + 1 < buf.length; i += 2) chars.push(String.fromCharCode(be ? (buf[i] << 8) + buf[i + 1] : (buf[i + 1] << 8) + buf[i]));
-    return chars.join('').replace(/\s+/g, ' ').trim();
-  }
-  return buf.toString('utf8').replace(/\s+/g, ' ').trim();
-}
-
-function parsePdfObjects(latin = '') {
-  const objects = new Map();
-  const re = /(\d+)\s+\d+\s+obj\b([\s\S]*?)endobj/g;
-  let m;
-  while ((m = re.exec(latin))) objects.set(m[1], m[2]);
-  return objects;
-}
-
-function parsePdfToUnicodeMap(cmap = '') {
-  const map = new Map();
-  const oneRe = /beginbfchar([\s\S]*?)endbfchar/g;
-  const rangeRe = /beginbfrange([\s\S]*?)endbfrange/g;
-  let block;
-  while ((block = oneRe.exec(cmap))) {
-    const pairRe = /<([0-9A-Fa-f]+)>\s+<([0-9A-Fa-f]+)>/g;
-    let p;
-    while ((p = pairRe.exec(block[1]))) map.set(p[1].toUpperCase(), decodePdfUnicodeHex(p[2]));
-  }
-  while ((block = rangeRe.exec(cmap))) {
-    const lineRe = /<([0-9A-Fa-f]+)>\s+<([0-9A-Fa-f]+)>\s+(?:<([0-9A-Fa-f]+)>|\[([^\]]+)\])/g;
-    let r;
-    while ((r = lineRe.exec(block[1]))) {
-      const start = parseInt(r[1], 16);
-      const end = parseInt(r[2], 16);
-      if (r[3]) {
-        const base = parseInt(r[3], 16);
-        const width = r[3].length;
-        for (let code = start; code <= end && code - start < 512; code++) {
-          const key = code.toString(16).toUpperCase().padStart(r[1].length, '0');
-          const val = (base + code - start).toString(16).toUpperCase().padStart(width, '0');
-          map.set(key, decodePdfUnicodeHex(val));
-        }
-      } else if (r[4]) {
-        const vals = [...r[4].matchAll(/<([0-9A-Fa-f]+)>/g)].map(m => m[1]);
-        vals.forEach((val, i) => map.set((start + i).toString(16).toUpperCase().padStart(r[1].length, '0'), decodePdfUnicodeHex(val)));
-      }
-    }
-  }
-  return map;
-}
-
-function buildPdfUnicodeMaps(latin = '') {
-  const objects = parsePdfObjects(latin);
-  const maps = [];
-  for (const [id, obj] of objects.entries()) {
-    const stream = obj.match(/stream\r?\n([\s\S]*?)\r?\nendstream/)?.[1] || obj;
-    let text = stream;
-    if (/FlateDecode/.test(obj)) {
-      try { text = require('zlib').inflateSync(Buffer.from(stream, 'latin1')).toString('latin1'); } catch {}
-    }
-    if (!/beginbfchar|beginbfrange/.test(text)) continue;
-    const map = parsePdfToUnicodeMap(text);
-    if (map.size) maps.push({ id, map });
-  }
-  return maps;
-}
-
-function decodePdfHexWithMaps(hex = '', maps = []) {
-  const clean = String(hex || '').replace(/\s+/g, '').toUpperCase();
-  for (const { map } of maps) {
-    let out = '';
-    let ok = 0;
-    for (let i = 0; i < clean.length;) {
-      let hit = '';
-      let hitLen = 0;
-      for (const len of [8, 6, 4, 2]) {
-        const key = clean.slice(i, i + len);
-        if (key && map.has(key)) { hit = map.get(key); hitLen = len; break; }
-      }
-      if (hitLen) { out += hit; ok++; i += hitLen; }
-      else { i += 2; }
-    }
-    if (ok && out.trim()) return out.replace(/\s+/g, ' ').trim();
-  }
-  return decodePdfHexString(clean);
-}
-
-function extractPdfTextFromStream(stream = '', unicodeMaps = []) {
-  const chunks = [];
-  const literalRe = /\((?:\\.|[^\\()])*\)\s*Tj/g;
-  const arrayRe = /\[((?:\s*(?:\((?:\\.|[^\\()])*\)|<[^>]+>|-?\d+(?:\.\d+)?))+\s*)\]\s*TJ/g;
-  const hexRe = /<([0-9a-fA-F\s]+)>\s*Tj/g;
-  let m;
-  while ((m = literalRe.exec(stream))) chunks.push(decodePdfLiteralString(m[0].replace(/\s*Tj$/, '').slice(1, -1)));
-  while ((m = hexRe.exec(stream))) chunks.push(decodePdfHexWithMaps(m[1], unicodeMaps));
-  while ((m = arrayRe.exec(stream))) {
-    const arr = m[1] || '';
-    const parts = [];
-    const tokenRe = /\((?:\\.|[^\\()])*\)|<([0-9a-fA-F\s]+)>/g;
-    let t;
-    while ((t = tokenRe.exec(arr))) {
-      if (t[0].startsWith('(')) parts.push(decodePdfLiteralString(t[0].slice(1, -1)));
-      else parts.push(decodePdfHexWithMaps(t[1] || '', unicodeMaps));
-    }
-    if (parts.length) chunks.push(parts.join(''));
-  }
-  return chunks.filter(Boolean).join('\n');
-}
-
 async function extractPdfWithPdftotext(filename, buffer) {
   const { dir, file } = writeTempBuffer(buffer, filename);
   try {
@@ -197,57 +61,24 @@ async function extractPdfWithOcr(filename, buffer) {
   }
 }
 
-function extractPdfTextBasic(filename, dataUrl, inputBuffer = null) {
-  const zlib = require('zlib');
-  const buffer = inputBuffer || dataUrlToBuffer(dataUrl);
-  const latin = buffer.toString('latin1');
-  const unicodeMaps = buildPdfUnicodeMaps(latin);
-  const chunks = [`# PDF 附件：${filename}`, '解析说明：以下为从 PDF 文本流中提取到的正文；扫描件或复杂编码 PDF 可能只能提取部分内容。'];
-  let extracted = '';
-  const streamRe = /<<(.*?)>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let m;
-  while ((m = streamRe.exec(latin))) {
-    let data = Buffer.from(m[2], 'latin1');
-    const dict = m[1] || '';
-    try {
-      if (/FlateDecode/.test(dict)) data = zlib.inflateSync(data);
-      const text = extractPdfTextFromStream(data.toString('latin1'), unicodeMaps) || extractPdfTextFromStream(data.toString('utf8'), unicodeMaps);
-      if (text) extracted += `\n${text}`;
-    } catch {}
-    if (extracted.length > 120000) break;
-  }
-  if (!extracted.trim()) {
-    extracted = '未能从该 PDF 中提取到可用文本。它可能是扫描件、图片型 PDF，或使用了复杂字体编码；请使用 OCR 或导出为文本后再上传。';
-  }
-  chunks.push(extracted.trim());
-  return chunks.join('\n\n').slice(0, 120000);
-}
-
 async function extractPdfText(filename, dataUrl) {
   const buffer = dataUrlToBuffer(dataUrl);
   const attempts = [];
-  try {
-    const text = await extractPdfWithPdftotext(filename, buffer);
-    if (hasUsefulText(text)) return text;
-    attempts.push(text);
-  } catch {}
-  try {
-    const text = await extractPdfWithPdfParse(filename, buffer);
-    if (hasUsefulText(text)) return text;
-    attempts.push(text);
-  } catch {}
-  const basic = extractPdfTextBasic(filename, dataUrl, buffer);
-  if (hasUsefulText(basic)) return basic;
-  attempts.push(basic);
+  for (const extractor of [extractPdfWithPdftotext, extractPdfWithPdfParse]) {
+    try {
+      const text = await extractor(filename, buffer);
+      if (hasUsefulText(text)) return text;
+      attempts.push(text);
+    } catch (err) {
+      attempts.push(err?.message || String(err));
+    }
+  }
   try { return await extractPdfWithOcr(filename, buffer); }
   catch (err) {
-    const fallback = attempts.find(Boolean) || basic;
-    if (fallback && meaningfulExtractedText(fallback).clean) {
-      return `${fallback}\n\n[OCR 未执行成功：${err.message || String(err)}]`;
-    }
-    return withAttachmentHeader('PDF', filename, 'PDF/OCR fallback', `未能从该 PDF 中提取到可用文本。它可能是扫描件/图片型 PDF；OCR 未执行成功：${err.message || String(err)}。请确认 Docker 镜像已安装 poppler-utils、tesseract-ocr、tesseract-ocr-data-chi_sim 和 tesseract-ocr-data-eng。`);
+    const fallback = attempts.find(item => meaningfulExtractedText(item).clean) || '';
+    if (fallback) return `${fallback}\n\n[OCR 未执行成功：${err.message || String(err)}]`;
+    return withAttachmentHeader('PDF', filename, 'PDF tools', `未能从该 PDF 中提取到可用文本。它可能是扫描件/图片型 PDF；OCR 未执行成功：${err.message || String(err)}。请确认 Docker 镜像已安装 poppler-utils、tesseract-ocr、tesseract-ocr-data-chi_sim 和 tesseract-ocr-data-eng。`);
   }
 }
-
 
 module.exports = { extractPdfText };

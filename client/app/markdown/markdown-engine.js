@@ -2,6 +2,13 @@
 
 const { sanitizeHtml } = require('./sanitizer');
 const { escapeHtml, applyMathPlugin } = require('./math-renderer');
+const {
+  normalizeEscapedUrlSlashes,
+  normalizeMultilineMarkdownImageDataUris,
+  normalizeMarkdownImageDataUris,
+  normalizeMarkdownSource,
+} = require('./source-normalizer');
+const { isSafeMarkdownLink } = require('./link-policy');
 
 const PLUGINS = Object.freeze([
   { packageName: 'markdown-it-texmath', globalName: 'markdownItTexmath', math: true },
@@ -42,43 +49,6 @@ function applyPlugin(md, descriptor) {
   const plugin = pluginExport(loadOptional(descriptor.packageName, descriptor.globalName));
   if (!plugin) { console.warn(`[markdown] plugin unavailable: ${descriptor.packageName}`); return false; }
   try { md.use(plugin, descriptor.options); return true; } catch (err) { console.warn(`[markdown] plugin failed: ${descriptor.packageName}`, err); return false; }
-}
-
-function normalizeEscapedUrlSlashes(markdown = '') {
-  return String(markdown || '').replace(/\b((?:https?:|mailto:|tel:)\\\/\\\/[^\s<>()\[\]{}"']+)/gi, (all) => all.replace(/\\\//g, '/'));
-}
-
-
-function encodeUtf8Base64(value = '') {
-  if (typeof Buffer !== 'undefined') return Buffer.from(String(value), 'utf8').toString('base64');
-  if (typeof btoa === 'function') return btoa(unescape(encodeURIComponent(String(value))));
-  return '';
-}
-
-function normalizeMultilineMarkdownImageDataUris(markdown = '') {
-  return String(markdown || '').replace(/!\[([^\]\n]*)\]\s*\n+\s*\(\s*(data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[A-Za-z0-9+/=\s]+)\s*\)/gi, (_all, alt, uri) => {
-    const compact = String(uri || '').replace(/\s+/g, '');
-    return `![${alt}](${compact})`;
-  });
-}
-
-function normalizeMarkdownImageDataUris(markdown = '') {
-  const src = String(markdown || '');
-  const pattern = /(!\[[^\]\n]*\]\()data:image\/svg\+xml;(?:charset=)?utf-?8,([\s\S]*?<\/svg>)\)/gi;
-  return src.replace(pattern, (all, prefix, svg) => {
-    const encoded = encodeUtf8Base64(String(svg || '').trim());
-    return encoded ? `${prefix}data:image/svg+xml;base64,${encoded})` : all;
-  });
-}
-function normalizeMarkdownSource(markdown = '') {
-  return normalizeMarkdownImageDataUris(normalizeMultilineMarkdownImageDataUris(normalizeEscapedUrlSlashes(markdown)));
-}
-
-function isSafeMarkdownLink(url = '') {
-  const href = String(url || '').trim();
-  if (/^data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(href)) return true;
-  if (/^(?:javascript|vbscript|file|data:text\/html)\s*:/i.test(href)) return false;
-  return true;
 }
 
 function applyTaskListFallback(html = '') {

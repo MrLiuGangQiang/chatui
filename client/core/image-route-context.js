@@ -1,10 +1,14 @@
+(function initChatUICoreImageRouteContext(root) {
+  'use strict';
+
+const imageReferences = root?.ChatUICoreImageReferences || (typeof require === 'function' ? require('./image-references') : {});
 const {
   makeImageReferenceId,
   parseImageReferenceId,
   makeImageItemId,
   normalizeSelectedImageIds,
   normalizeImageSelection,
-} = require('./image-references');
+} = imageReferences;
 
 const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
 
@@ -224,7 +228,40 @@ function normalizeRoute(route, fallbackMode = 'chat') {
   };
 }
 
-module.exports = {
+function inferLocalImageRoute(input = '', attachments = [], normalize = normalizeRoute) {
+  if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
+  const text = String(input || '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  const hasImageAttachment = hasAttachments && attachments.some(item => item && item.is_image === true);
+  const hasNonImageAttachment = hasAttachments && attachments.some(item => item && item.is_image === false);
+  const editIntent = /(修改|编辑|调整|改一下|换背景|去掉|删除|替换|继续改|上一张|刚才那张|原图|这张图|this image|edit|modify|replace|remove)/i.test(text);
+  if (editIntent) {
+    const previousIntent = /(上一张|刚才那张|最近|继续改|previous|last)/i.test(text);
+    const uploadedIntent = /(上传|附件|原图|我发|这张图|this image|uploaded|attachment)/i.test(text);
+    const target = previousIntent || !hasImageAttachment || !uploadedIntent ? 'previous' : 'uploaded';
+    return normalize({
+      mode: 'edit_image',
+      target,
+      use_previous_image: target === 'previous',
+      selected_reference_id: target === 'previous' ? 'imgref_latest' : '',
+      contextual_image_prompt: text,
+      confidence: 0.9,
+      evidence: target === 'previous' ? '本地规则识别到编辑上一张图片请求' : '本地规则识别到编辑上传图片请求',
+    }, 'edit_image');
+  }
+  if (hasNonImageAttachment && !/(生成|画|绘制|制作|创建|出图|image|draw|generate|create|make)/i.test(text)) return null;
+  const negated = /(不要|不用|别|无需|不需要|not|don't|do not)\s*(生成|画|绘制|制作|创建|出图|image|draw|generate|create|make)/i.test(text);
+  if (negated) return null;
+  const directImageRequest = /(生成|画|绘制|制作|创建|出|给我|帮我).{0,18}(图片|图像|照片|图|海报|头像|logo|插画|表情包|壁纸|封面|image|picture|photo|poster|avatar|illustration|wallpaper)/i.test(text)
+    || /(图片|图像|照片|海报|头像|logo|插画|表情包|壁纸|封面).{0,12}(生成|画|绘制|制作|创建|出)/i.test(text)
+    || /\b(generate|draw|create|make)\b.{0,24}\b(image|picture|photo|poster|avatar|logo|illustration)\b/i.test(lower);
+  if (!directImageRequest) return null;
+  return normalize({ mode: 'image', target: 'new', use_previous_image: false, contextual_image_prompt: text, confidence: 0.95, evidence: '本地规则识别到明确生图请求' }, 'image');
+}
+
+const api = Object.freeze({
   DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
   routeContextSize,
   compactRouteMessage,
@@ -238,4 +275,10 @@ module.exports = {
   collectRecentImageReferences,
   findImageReferenceById,
   normalizeRoute,
-};
+  inferLocalImageRoute,
+});
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUICoreImageRouteContext = api;
+if (root?.window) root.window.ChatUICoreImageRouteContext = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

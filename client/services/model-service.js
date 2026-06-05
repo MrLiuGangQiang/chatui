@@ -1,3 +1,6 @@
+(function initChatUIModelService(root) {
+  'use strict';
+
 async function requestModels({ fetchImpl = fetch, baseUrl, apiKey = '', parseResponseJson, normalizeError }) {
   if (!baseUrl) throw new Error('请先配置 Endpoint Base URL');
   let response;
@@ -15,4 +18,9 @@ async function requestModels({ fetchImpl = fetch, baseUrl, apiKey = '', parseRes
   return payload;
 }
 
-module.exports = { requestModels };
+const api = Object.freeze({ requestModels });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIModelService = api;
+if (root?.window) root.window.ChatUIModelService = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

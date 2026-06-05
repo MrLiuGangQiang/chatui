@@ -1,3 +1,4 @@
+(function (root) {
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^"'<>`\s]+;base64,[A-Za-z0-9+/=]{2048,}/g, '[attachment-data-omitted]');
 }
@@ -105,7 +106,7 @@ function safeSetJobStorage(storage, key, job) {
   try { storage.removeItem(key); } catch {}
 }
 
-module.exports = {
+const persistenceApi = Object.freeze({
   stripLargeDataUrlsFromText,
   sanitizeAttachmentContextForStorage,
   sanitizeStoredDisplayItem,
@@ -114,4 +115,8 @@ module.exports = {
   stripLargePayloadData,
   compactJobForStorage,
   safeSetJobStorage,
-};
+});
+if (typeof module !== 'undefined' && module.exports) module.exports = persistenceApi;
+if (root) root.ChatUIAppPersistence = persistenceApi;
+if (root?.window) root.window.ChatUIAppPersistence = persistenceApi;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

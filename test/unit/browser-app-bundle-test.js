@@ -5,11 +5,38 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.resolve(__dirname, '../..');
+const statePath = path.join(root, 'client/app/state.js');
+const sessionsPath = path.join(root, 'client/app/sessions.js');
+const sessionConfigPath = path.join(root, 'client/app/session-config.js');
+const headerParamsPath = path.join(root, 'client/app/header-params.js');
+const formattingPath = path.join(root, 'client/app/formatting.js');
+const markdownUtilsPath = path.join(root, 'client/app/markdown-utils.js');
+const displayItemsPath = path.join(root, 'client/app/display-items.js');
+const persistencePath = path.join(root, 'client/app/persistence.js');
+const runsPath = path.join(root, 'client/app/runs.js');
 const browserAppPath = path.join(root, 'client/app/browser.js');
+const stateModule = fs.readFileSync(statePath, 'utf8');
+const sessionsModule = fs.readFileSync(sessionsPath, 'utf8');
+const sessionConfig = fs.readFileSync(sessionConfigPath, 'utf8');
+const headerParams = fs.readFileSync(headerParamsPath, 'utf8');
+const formatting = fs.readFileSync(formattingPath, 'utf8');
+const markdownUtils = fs.readFileSync(markdownUtilsPath, 'utf8');
+const displayItems = fs.readFileSync(displayItemsPath, 'utf8');
+const persistence = fs.readFileSync(persistencePath, 'utf8');
+const runs = fs.readFileSync(runsPath, 'utf8');
 const browserApp = fs.readFileSync(browserAppPath, 'utf8');
 
 const context = { window: {}, AbortController };
 vm.createContext(context);
+vm.runInContext(stateModule, context, { filename: statePath });
+vm.runInContext(sessionsModule, context, { filename: sessionsPath });
+vm.runInContext(sessionConfig, context, { filename: sessionConfigPath });
+vm.runInContext(headerParams, context, { filename: headerParamsPath });
+vm.runInContext(formatting, context, { filename: formattingPath });
+vm.runInContext(markdownUtils, context, { filename: markdownUtilsPath });
+vm.runInContext(displayItems, context, { filename: displayItemsPath });
+vm.runInContext(persistence, context, { filename: persistencePath });
+vm.runInContext(runs, context, { filename: runsPath });
 vm.runInContext(browserApp, context, { filename: browserAppPath });
 
 assert.ok(context.window.ChatUIApp, 'browser app namespace exists');
@@ -61,20 +88,15 @@ assert.strictEqual(
 );
 assert.strictEqual(context.window.ChatUIApp.formatting.formatElapsed(65000), '1m 5s');
 assert.strictEqual(context.window.ChatUIApp.formatting.escapeHtml('<x>'), '&lt;x&gt;');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.replaceGfmEmojiShortcodes(':rocket:'), '🚀');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.normalizeExtendedMarkdown('==xy=='), '<mark>xy</mark>');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.prepareMarkdownSource('a｜b'), 'a｜b');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderLists('- a'), '<ul>\n<li>a</li>\n</ul>');
-assert.ok(context.window.ChatUIApp.markdownUtils.renderMarkdownLegacy('**b**').includes('<strong>b</strong>'));
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.extractLegacyCodeBlocks('```js\nx\n```').blocks.length, 1);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownPlainTextFallback('**b**'), '<p>**b**</p>');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.slugifyHeading('Hello, ChatUI!'), 'hello-chatui');
-assert.strictEqual(
-  JSON.stringify(context.window.ChatUIApp.markdownUtils.splitTableRow('| a | b |')),
-  '["a","b"]',
-);
-assert.strictEqual(
-  JSON.stringify(context.window.ChatUIApp.markdownUtils.extractMathSegments('$x$').math),
-  '[{"raw":"x","displayMode":false}]',
-);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderLists, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownLegacy, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.extractLegacyCodeBlocks, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.replaceGfmEmojiShortcodes, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.normalizeExtendedMarkdown, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.prepareMarkdownSource, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.extractMathSegments, undefined);
+assert.strictEqual(context.window.ChatUIApp.markdownUtils.splitTableRow, undefined);
 
 console.log('browser app bundle ok');

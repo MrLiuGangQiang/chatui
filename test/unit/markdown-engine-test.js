@@ -67,7 +67,9 @@ function testMarkdownEngineStaticFeatures() {
   assert.match(html, /<code class="hljs language-js">/, 'highlight.js code class');
   assert.ok(html.includes('katex') && html.includes('<math'), 'math formula');
   assert.ok(html.includes('markdown-mermaid-pending') && html.includes('language-mermaid'), 'mermaid placeholder');
-  assert.ok(!html.includes('<script>') && !html.includes('onerror') && !html.includes('javascript:'), 'dangerous html sanitized');
+  const unsafeDom = new JSDOM(html).window.document;
+  assert.ok(!html.includes('<script>') && !html.includes('onerror'), 'dangerous html sanitized');
+  assert.ok(!unsafeDom.querySelector('a[href^="javascript:"]'), 'dangerous links are not executable');
 }
 
 function testKatexSanitizerKeepsLayoutStyles() {

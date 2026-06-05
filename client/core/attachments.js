@@ -1,4 +1,7 @@
-const imageReferences = require('./image-references');
+(function initChatUICoreAttachments(root) {
+  'use strict';
+
+const imageReferences = root?.ChatUICoreImageReferences || (typeof require === 'function' ? require('./image-references') : {});
 
 function isImageFile(file = {}) {
   const type = String(file.type || '').toLowerCase();
@@ -57,6 +60,10 @@ function normalizeImageContextForStorage(context = {}) {
   };
 }
 
+function looksLikeImageEditInstruction(text = '') {
+  return /(换|替换|改|修改|编辑|调整|优化|重做|修|去掉|加上|放大|缩小|变成|换个|换成|logo|图标|背景|颜色|字体|样式|清晰|高清|edit|change|remove|replace|add)/i.test(String(text || ''));
+}
+
 function parseImageContext(value) {
   if (!value) return null;
   if (typeof value === 'object') return normalizeImageContextForStorage(value);
@@ -103,10 +110,11 @@ function buildRouteAttachmentMetadata(attachments = []) {
   }));
 }
 
-module.exports = {
+const api = Object.freeze({
   isImageFile,
   isCompressibleRasterImage,
   formatBytes,
+  looksLikeImageEditInstruction,
   IMAGE_REFERENCE_PREFIX,
   IMAGE_ITEM_PREFIX,
   sanitizeImageReferencePart,
@@ -120,4 +128,9 @@ module.exports = {
   parseImageContext,
   getLatestImageReferenceTarget,
   buildRouteAttachmentMetadata,
-};
+});
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUICoreAttachments = api;
+if (root?.window) root.window.ChatUICoreAttachments = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

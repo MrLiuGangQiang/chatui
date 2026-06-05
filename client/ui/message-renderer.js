@@ -1,3 +1,6 @@
+(function initChatUIMessageRenderer(root) {
+  'use strict';
+
 function attachmentsSummaryMarkdown(attachments = []) {
   return attachments.length ? '\n\n' + attachments.map(item => `📎 ${item.name}`).join('\n') : '';
 }
@@ -28,4 +31,9 @@ function renderUserMessageParts({ text = '', markdownHtml = '', imagePreviewHtml
   return `${bodyHtml}${imagePreviewHtml}${attachmentSummaryHtml}`;
 }
 
-module.exports = { attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderPlainText, renderUserMessageParts };
+const api = Object.freeze({ attachmentsSummaryMarkdown, userAttachmentPreviewItems, renderPlainText, renderUserMessageParts });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIMessageRenderer = api;
+if (root?.window) root.window.ChatUIMessageRenderer = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

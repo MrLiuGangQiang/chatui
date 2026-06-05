@@ -1,6 +1,21 @@
+(function initChatUIMarkdownEnhancer(root) {
 'use strict';
 
-const { slugify } = require('./markdown-engine');
+const markdownEngine = root?.ChatUIMarkdownBrowserEngine
+  || root?.window?.ChatUIMarkdownBrowserEngine
+  || (typeof require === 'function' ? require('./markdown-engine') : {});
+const mermaidNormalizer = root?.ChatUIMarkdownMermaidNormalizer
+  || root?.window?.ChatUIMarkdownMermaidNormalizer
+  || (typeof require === 'function' ? require('./mermaid-normalizer') : {});
+const { slugify = (value = '') => String(value).trim().toLowerCase().replace(/[`~!@#$%^&*()+=[\]{};:'",.<>/?\|]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') } = markdownEngine;
+const {
+  normalizeBetaMermaidSource = source => String(source || ''),
+  normalizeArchitectureMermaidSource = source => String(source || ''),
+  normalizeSankeyMermaidSource = source => String(source || ''),
+  normalizeRadarMermaidSource = source => String(source || ''),
+  getSankeyLabelReplacements = () => [],
+  restoreSankeySvgLabels = () => {},
+} = mermaidNormalizer;
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
 const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
@@ -253,9 +268,9 @@ function initMermaidToggleUI(root, options = {}) {
 }
 
 async function defaultLoadMermaid() {
-  if (window.mermaid) return window.mermaid;
-  await window.ChatUIMarkdownDependencyLoader?.loadScripts?.();
-  return window.mermaid || null;
+  if (root?.mermaid) return root.mermaid;
+  await root?.ChatUIMarkdownDependencyLoader?.loadScripts?.();
+  return root?.mermaid || null;
 }
 
 function collectMermaidBlocks(root) {
@@ -276,7 +291,7 @@ function scheduleIdle(callback, timeoutMs = 1200) {
     callback(deadline || { didTimeout: true, timeRemaining: () => 0 });
   };
   const fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 80);
-  if (typeof requestIdleCallback === 'function') idleHandle = requestIdleCallback(run, { timeout: timeoutMs });
+  if (typeof root?.requestIdleCallback === 'function') idleHandle = root.requestIdleCallback(run, { timeout: timeoutMs });
   else setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
   return { idleHandle, fallbackHandle };
 }
@@ -284,20 +299,20 @@ function scheduleIdle(callback, timeoutMs = 1200) {
 function cancelIdle(handle) {
   if (!handle) return;
   if (typeof handle === 'object') {
-    if (handle.idleHandle != null && typeof cancelIdleCallback === 'function') cancelIdleCallback(handle.idleHandle);
+    if (handle.idleHandle != null && typeof root?.cancelIdleCallback === 'function') root.cancelIdleCallback(handle.idleHandle);
     if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
     return;
   }
-  if (typeof cancelIdleCallback === 'function') return cancelIdleCallback(handle);
+  if (typeof root?.cancelIdleCallback === 'function') return root.cancelIdleCallback(handle);
   return clearTimeout(handle);
 }
 
 const performanceLog = [];
 
 function measureStage(name, fn, details = {}) {
-  const started = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  const started = root?.performance?.now ? root.performance.now() : Date.now();
   const finish = (result) => {
-    const ended = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    const ended = root?.performance?.now ? root.performance.now() : Date.now();
     const durationMs = ended - started;
     if (durationMs >= 50) {
       const entry = { name, durationMs: Math.round(durationMs), ...details };
@@ -318,10 +333,11 @@ function measureStage(name, fn, details = {}) {
 }
 
 function isElementVisible(node) {
-  if (!node?.getBoundingClientRect || typeof innerHeight === 'undefined') return true;
+  if (!node?.getBoundingClientRect) return true;
   const rect = node.getBoundingClientRect();
   const margin = 900;
-  return rect.bottom >= -margin && rect.top <= innerHeight + margin;
+  const viewportHeight = root?.innerHeight || root?.document?.documentElement?.clientHeight || 800;
+  return rect.bottom >= -margin && rect.top <= viewportHeight + margin;
 }
 
 function idleBatch(items, each, { batchSize = 8, budgetMs = 12, signal = null } = {}) {
@@ -330,13 +346,13 @@ function idleBatch(items, each, { batchSize = 8, budgetMs = 12, signal = null } 
     let index = 0;
     const step = (deadline) => {
       if (signal?.cancelled) return resolve({ cancelled: true, processed: index });
-      const started = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+      const started = root?.performance?.now ? root.performance.now() : Date.now();
       let count = 0;
       while (index < list.length) {
         each(list[index], index);
         index += 1;
         count += 1;
-        const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        const now = root?.performance?.now ? root.performance.now() : Date.now();
         const timeLeft = typeof deadline?.timeRemaining === 'function' ? deadline.timeRemaining() : Math.max(0, budgetMs - (now - started));
         if (count >= batchSize || timeLeft <= 2 || now - started >= budgetMs) break;
       }
@@ -359,107 +375,6 @@ function markMermaidUnavailable(blocks, error) {
 }
 
 
-
-function mermaidSafeId(value = '', fallback = 'item') {
-  const ascii = String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
-  if (ascii && /^[a-z]/.test(ascii)) return ascii;
-  return fallback;
-}
-
-function mermaidQuoteLabel(value = '') {
-  return String(value || '').trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-function normalizeArchitectureMermaidSource(source = '') {
-  const text = String(source || '');
-  if (!/^\s*architecture-beta\b/i.test(text)) return text;
-  return text.replace(/\[([^\]\n]*[^\x00-\x7F][^\]\n]*)\]/g, (all, label) => {
-    const trimmed = String(label || '').trim();
-    if (!trimmed || /^['"].*['"]$/.test(trimmed)) return all;
-    return `["${mermaidQuoteLabel(trimmed)}"]`;
-  });
-}
-
-
-function getSankeyLabelReplacements(source = '') {
-  const text = String(source || '');
-  if (!/^\s*sankey-beta\b/i.test(text)) return [];
-  const seen = new Map();
-  const replacements = [];
-  const labelFor = (raw) => {
-    const label = String(raw || '').trim();
-    if (!label || /^[\x00-\x7F]+$/.test(label)) return label;
-    if (!seen.has(label)) {
-      const id = `sankey_node_${seen.size + 1}`;
-      seen.set(label, id);
-      replacements.push({ id, label });
-    }
-    return seen.get(label);
-  };
-  text.split(/\r?\n/).slice(1).forEach((line) => {
-    const parts = line.trim().split(',');
-    if (parts.length >= 3) {
-      labelFor(parts[0]);
-      labelFor(parts[1]);
-    }
-  });
-  return replacements;
-}
-
-function restoreSankeySvgLabels(container, source = '') {
-  const replacements = getSankeyLabelReplacements(source);
-  if (!replacements.length || !container?.querySelectorAll) return;
-  const map = new Map(replacements.map(item => [item.id, item.label]));
-  container.querySelectorAll('text').forEach((node) => {
-    for (const [id, label] of map) {
-      if ((node.textContent || '').includes(id)) node.textContent = String(node.textContent || '').replaceAll(id, label);
-    }
-  });
-}
-
-function normalizeSankeyMermaidSource(source = '') {
-  const text = String(source || '');
-  if (!/^\s*sankey-beta\b/i.test(text)) return text;
-  return text.split(/\r?\n/).map((line, index) => index === 0 ? line.trim() : line.trimStart()).join('\n');
-}
-
-function normalizeRadarMermaidSource(source = '') {
-  const text = String(source || '');
-  if (!/^\s*radar-beta\b/i.test(text)) return text;
-  const lines = text.split(/\r?\n/);
-  const out = [];
-  let axisLabels = null;
-  let curveCount = 0;
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) { out.push(''); continue; }
-    if (/^radar-beta\b/i.test(line)) { out.push('radar-beta'); continue; }
-    const axisMatch = line.match(/^axis\s+(.+)$/i);
-    if (axisMatch && !/[\[{]/.test(axisMatch[1])) {
-      axisLabels = axisMatch[1].split(',').map(item => item.trim()).filter(Boolean);
-      out.push('axis ' + axisLabels.map((label, index) => `${mermaidSafeId(label, `axis${index + 1}`)}["${mermaidQuoteLabel(label)}"]`).join(', '));
-      continue;
-    }
-    const curveMatch = line.match(/^(?:["']([^"']+)["']|([^:]+))\s*:\s*([\d.,\s+-]+)$/);
-    if (curveMatch) {
-      curveCount += 1;
-      const label = String(curveMatch[1] || curveMatch[2] || `curve${curveCount}`).trim();
-      const values = String(curveMatch[3] || '').split(',').map(item => item.trim()).filter(Boolean).join(', ');
-      out.push(`curve ${mermaidSafeId(label, `curve${curveCount}`)}["${mermaidQuoteLabel(label)}"]{${values}}`);
-      continue;
-    }
-    out.push(line);
-  }
-  return out.join('\n');
-}
-
-function normalizeBetaMermaidSource(source = '') {
-  let text = String(source || '');
-  text = normalizeSankeyMermaidSource(text);
-  text = normalizeRadarMermaidSource(text);
-  text = normalizeArchitectureMermaidSource(text);
-  return text;
-}
 
 function staleMermaidBlock(holder, container, token) {
   return !holder?.parentNode || !container?.parentNode || holder.dataset?.mermaidToken !== token || container.dataset?.mermaidToken !== token;
@@ -609,4 +524,9 @@ function enhanceRenderedMarkdown(root, options = {}) {
   });
 }
 
-module.exports = { normalizeBetaMermaidSource, normalizeArchitectureMermaidSource, normalizeSankeyMermaidSource, normalizeRadarMermaidSource, getSankeyLabelReplacements, restoreSankeySvgLabels, COPY_ICON_SVG, COPY_SUCCESS_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog };
+const api = Object.freeze({ normalizeBetaMermaidSource, normalizeArchitectureMermaidSource, normalizeSankeyMermaidSource, normalizeRadarMermaidSource, getSankeyLabelReplacements, restoreSankeySvgLabels, COPY_ICON_SVG, COPY_SUCCESS_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIMarkdownEnhancer = api;
+if (root?.window) root.window.ChatUIMarkdownEnhancer = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

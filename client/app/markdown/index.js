@@ -6,6 +6,9 @@ const { enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMer
 const { findStableBoundary, splitStableTail } = require('./stable-boundary');
 const { createStreamingRenderer } = require('./streaming-renderer');
 const dependencyLoader = require('./resource-loader');
+const sourceNormalizer = require('./source-normalizer');
+const linkPolicy = require('./link-policy');
+const mermaidNormalizer = require('./mermaid-normalizer');
 
 function renderMarkdown(markdown = '', options = {}) {
   const engine = options.engine || getMarkdownEngine();
@@ -48,4 +51,7 @@ module.exports = {
   createStreamingRenderer,
   escapeHtml,
   dependencyLoader,
+  sourceNormalizer,
+  linkPolicy,
+  mermaidNormalizer,
 };

@@ -1,3 +1,4 @@
+(function (root) {
 function compactDisplayItems(items = []) {
   const result = [];
   for (const item of items || []) {
@@ -31,4 +32,8 @@ function displayItemHasRichMedia(item) {
   ));
 }
 
-module.exports = { compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia };
+const displayItemsApi = Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia });
+if (typeof module !== 'undefined' && module.exports) module.exports = displayItemsApi;
+if (root) root.ChatUIAppDisplayItems = displayItemsApi;
+if (root?.window) root.window.ChatUIAppDisplayItems = displayItemsApi;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

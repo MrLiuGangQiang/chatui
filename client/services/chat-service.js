@@ -1,3 +1,6 @@
+(function initChatUIChatService(root) {
+  'use strict';
+
 function normalizeText(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -52,4 +55,9 @@ function parseSseLine(line, extractStreamDelta) {
   return { done: false, delta };
 }
 
-module.exports = { extractChatJobText, requestJson, parseSseLine };
+const api = Object.freeze({ extractChatJobText, requestJson, parseSseLine });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIChatService = api;
+if (root?.window) root.window.ChatUIChatService = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

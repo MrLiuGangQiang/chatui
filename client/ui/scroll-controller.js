@@ -1,3 +1,6 @@
+(function initChatUIScrollController(root) {
+  'use strict';
+
 function composerSafeBottom(value, fallback = 168) {
   const parsed = parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -82,4 +85,9 @@ function createAutoFollowState(options = {}) {
   return { state, begin, suppress, canFollow, markEvent, isNearBottom: scroller => isNearBottom(scroller, threshold) };
 }
 
-module.exports = { composerSafeBottom, activeOutputBottomTarget, isNodeAwayFromOutputFocus, distanceToBottom, isNearBottom, createAutoFollowState };
+const api = Object.freeze({ composerSafeBottom, activeOutputBottomTarget, isNodeAwayFromOutputFocus, distanceToBottom, isNearBottom, createAutoFollowState });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIScrollController = api;
+if (root?.window) root.window.ChatUIScrollController = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

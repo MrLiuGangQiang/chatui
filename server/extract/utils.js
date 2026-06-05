@@ -23,8 +23,11 @@ function decodeOpenXmlText(xml = '') {
 }
 
 function dataUrlToBuffer(dataUrl = '') {
-  const base64 = String(dataUrl || '').includes(',') ? String(dataUrl).split(',')[1] : String(dataUrl || '');
-  return Buffer.from(base64, 'base64');
+  const value = String(dataUrl || '');
+  if (!value.includes(',')) return Buffer.from(value, 'base64');
+  const [meta, payload = ''] = value.split(/,(.*)/s);
+  if (/;base64/i.test(meta)) return Buffer.from(payload, 'base64');
+  return Buffer.from(decodeURIComponent(payload), 'utf8');
 }
 
 function limitExtractedText(text = '', limit = 120000) {

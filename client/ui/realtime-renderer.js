@@ -1,4 +1,5 @@
-const { createStreamingRenderer } = require('../app/markdown/streaming-renderer');
+(function initChatUIRealtimeRenderer(root) {
+  'use strict';
 
 function createRealtimeRenderer(render, options = {}) {
   const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 50;
@@ -69,4 +70,15 @@ function createRealtimeRenderer(render, options = {}) {
   };
 }
 
-module.exports = { createRealtimeRenderer, createStreamingRenderer };
+const createStreamingRenderer = root?.ChatUIAppMarkdownStreamingRenderer?.createStreamingRenderer
+  || root?.window?.ChatUIAppMarkdownStreamingRenderer?.createStreamingRenderer
+  || root?.ChatUIApp?.markdown?.createStreamingRenderer
+  || root?.window?.ChatUIApp?.markdown?.createStreamingRenderer
+  || (typeof require === 'function' ? require('../app/markdown/streaming-renderer').createStreamingRenderer : undefined);
+
+const api = Object.freeze({ createRealtimeRenderer, createStreamingRenderer });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUIRealtimeRenderer = api;
+if (root?.window) root.window.ChatUIRealtimeRenderer = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

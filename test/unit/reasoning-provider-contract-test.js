@@ -7,6 +7,7 @@ const vm = require('vm');
 const root = path.resolve(__dirname, '../..');
 const appJs = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const reasoningWorkflowModule = require('../../client/app/reasoning-workflow');
 
 function extractFunctionSource(name) {
   const start = appJs.indexOf(`function ${name}`);
@@ -41,6 +42,8 @@ const normalizeReasoningText=normalizeText;
 const window={ChatUICore:{reasoning:{reasoningBudgetTokens:(level)=>({low:1024,medium:4096,high:8192,xhigh:16384}[level]||4096)}}};
 ${extractFunctionSource('normalizeReasoningProvider')}
 ${extractFunctionSource('reasoningBudgetTokens')}
+const reasoningWorkflow = ReasoningWorkflow.createReasoningWorkflow({ state, normalizeReasoningProvider, reasoningBudgetTokens });
+function getReasoningWorkflow(){ return reasoningWorkflow; }
 ${extractFunctionSource('reasoningModelProfile')}
 ${extractFunctionSource('inferReasoningProvider')}
 ${extractFunctionSource('reasoningPayloadOptions')}
@@ -51,7 +54,7 @@ ${extractFunctionSource('extractResponsesResult')}
 ${extractFunctionSource('extractResponsesStreamDelta')}
 `;
 
-const context = {};
+const context = { ReasoningWorkflow: reasoningWorkflowModule };
 vm.createContext(context);
 vm.runInContext(source, context, { filename: 'reasoning-provider-contract.vm.js' });
 

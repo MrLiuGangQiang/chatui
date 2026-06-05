@@ -2,13 +2,19 @@ const { readBody, parseJson } = require('../http/body');
 const { sendJson } = require('../http/response');
 const { extractPdfText } = require('./pdf');
 const { extractExcelText, extractPowerPointText, extractWordText } = require('./office');
+const { isTextExtractable, extractPlainText } = require('./text');
 
 async function extractFileText(req, res) {
   try {
     const body = parseJson(await readBody(req));
     const filename = String(body.filename || 'attachment').trim();
+    const type = String(body.type || '').trim();
     const dataUrl = String(body.dataUrl || '');
     if (!dataUrl) return sendJson(res, 400, { error: { message: '缺少文件内容' } });
+    if (isTextExtractable(filename, type)) {
+      const text = await extractPlainText(filename, dataUrl, type);
+      return sendJson(res, 200, { text, parser: 'plain-text' }, { 'Access-Control-Allow-Origin': '*' });
+    }
     if (/\.pdf$/i.test(filename)) {
       const text = await extractPdfText(filename, dataUrl);
       return sendJson(res, 200, { text, parser: 'pdf-basic-text-stream' }, { 'Access-Control-Allow-Origin': '*' });

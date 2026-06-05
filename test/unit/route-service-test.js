@@ -4,6 +4,7 @@ const {
   ROUTE_SYSTEM_PROMPT,
   stripJsonFence,
   parseRouteResult,
+  inferLocalImageRoute,
   buildRoutePayload,
   extractRouteText,
 } = require('../../client/services/route-service');
@@ -30,6 +31,8 @@ assert.ok(ROUTE_SYSTEM_PROMPT.includes('confidence 表示把握'));
 assert.strictEqual(stripJsonFence('```json\n{"mode":"chat"}\n```'), '{"mode":"chat"}');
 assert.strictEqual(parseRouteResult('{"mode":"image","confidence":1}', normalizeRoute).target, 'new');
 assert.strictEqual(parseRouteResult('{"mode":"image","target":"new","contextual_image_prompt":"画一只蓝色机械猫","confidence":1}', normalizeRoute).contextualImagePrompt, '画一只蓝色机械猫');
+assert.strictEqual(inferLocalImageRoute('生成两张图片：一个红色圆点，一个黑色圆点', [], normalizeRoute).mode, 'image');
+assert.strictEqual(inferLocalImageRoute('生成一张蓝色小猫图片', [], normalizeRoute).mode, 'image');
 assert.strictEqual(parseRouteResult('chat', normalizeRoute).mode, 'chat');
 assert.strictEqual(parseRouteResult('edit_image', normalizeRoute).mode, 'edit_image');
 assert.strictEqual(parseRouteResult('', normalizeRoute), null);
@@ -40,6 +43,8 @@ assert.strictEqual(payload.messages.length, 2);
 assert.ok(payload.messages[0].content.includes('selected_reference_id'));
 const userPayload = JSON.parse(payload.messages[1].content);
 assert.strictEqual(userPayload.current_input, '改最开始的图');
+assert.strictEqual(userPayload.current_mode, 'chat');
+assert.strictEqual(userPayload.auto_mode, true);
 assert.deepStrictEqual(userPayload.attachments, [{ name: 'a.png', is_image: true }]);
 assert.deepStrictEqual(userPayload.context, { recent_image_references: [] });
 assert.strictEqual(extractRouteText({ choices: [{ message: { content: 'ok' } }] }), 'ok');

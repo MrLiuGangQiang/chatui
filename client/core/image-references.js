@@ -1,3 +1,6 @@
+(function initChatUICoreImageReferences(root) {
+  'use strict';
+
 const IMAGE_REFERENCE_PREFIX = 'imgref_';
 const IMAGE_ITEM_PREFIX = 'img_';
 
@@ -55,7 +58,7 @@ function normalizeImageSelection(value, maxCount = 0) {
   return indexes.map(Number).filter(item => Number.isInteger(item) && item >= 1 && (!maxCount || item <= maxCount)).filter((item, index, list) => list.indexOf(item) === index);
 }
 
-module.exports = {
+const api = Object.freeze({
   IMAGE_REFERENCE_PREFIX,
   IMAGE_ITEM_PREFIX,
   sanitizeImageReferencePart,
@@ -65,4 +68,9 @@ module.exports = {
   normalizeSelectedImageIds,
   resolveImageSelectionFromIds,
   normalizeImageSelection,
-};
+});
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUICoreImageReferences = api;
+if (root?.window) root.window.ChatUICoreImageReferences = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

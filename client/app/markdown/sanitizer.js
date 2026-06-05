@@ -52,23 +52,16 @@ function domPurifyOptions() {
   };
 }
 
-function stripDangerousHtml(html = '') {
-  return String(html || '')
-    .replace(/<\/?(?:script|style|iframe|object|embed|base|meta|link|form|button|textarea|select|option)\b[\s\S]*?>/gi, '')
-    .replace(/\sstyle=("[^"]*"|'[^']*'|[^\s>]+)/gi, (all, raw) => {
-      const quote = raw[0] === '"' || raw[0] === "'" ? raw[0] : '';
-      const value = quote ? raw.slice(1, -1) : raw;
-      const safe = sanitizeStyleValue(value);
-      return safe ? ` style="${safe.replace(/"/g, '&quot;')}"` : '';
-    })
-    .replace(/\s(?:on\w+)=("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s(?:href|src)\s*=\s*("|')?\s*(?:javascript:|data:text\/html|vbscript:)[^"'\s>]*/gi, '')
-    .replace(/(?:javascript:|data:text\/html|vbscript:)/gi, '');
-}
-
 function createSanitizer() {
   if (typeof window !== 'undefined' && window.DOMPurify) {
-    return html => stripDangerousHtml(window.DOMPurify.sanitize(String(html || ''), domPurifyOptions()));
+    window.DOMPurify.addHook?.('uponSanitizeAttribute', (_node, data) => {
+      if (data.attrName === 'style') {
+        const safe = sanitizeStyleValue(data.attrValue);
+        if (safe) data.attrValue = safe;
+        else data.keepAttr = false;
+      }
+    });
+    return html => window.DOMPurify.sanitize(String(html || ''), domPurifyOptions());
   }
 
   try {
@@ -82,12 +75,11 @@ function createSanitizer() {
         else data.keepAttr = false;
       }
     });
-    return html => stripDangerousHtml(purify.sanitize(String(html || ''), domPurifyOptions()));
-  } catch {
-    // Restricted fallback for lightweight Node tests only. Browser runtime must use DOMPurify.
-    return stripDangerousHtml;
+    return html => purify.sanitize(String(html || ''), domPurifyOptions());
+  } catch (err) {
+    throw new Error(`DOMPurify sanitizer unavailable: ${err && err.message || err}`);
   }
 }
 
 const sanitizeHtml = createSanitizer();
-module.exports = { MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, createSanitizer, sanitizeHtml };
+module.exports = { MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, domPurifyOptions, createSanitizer, sanitizeHtml };

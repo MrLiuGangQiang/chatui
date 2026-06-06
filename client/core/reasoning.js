@@ -57,6 +57,9 @@
   }
 
   function extractResponsesStreamDelta(event) {
+    if (event && typeof event === 'object' && ('d' in event || 'r' in event)) {
+      return { content: normalizeContentText(event.d || ''), reasoning: normalizeReasoningText(event.r || '') };
+    }
     const type = String(event?.type || '');
     if (/\.done$/i.test(type) || type === 'response.completed') return { content: '', reasoning: '' };
     const isReasoning = /reasoning/i.test(type);

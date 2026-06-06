@@ -20,6 +20,7 @@ assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'message', content:
 assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'reasoning', summary: 'plan' }] }), { content: '', reasoning: 'plan' });
 assert.deepStrictEqual(extractStreamDelta({ output: [{ type: 'reasoning', summary_text: 'summary text' }] }), { content: '', reasoning: 'summary text' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.output_text.delta', delta: 'hello' }), { content: 'hello', reasoning: '' });
+assert.deepStrictEqual(extractResponsesStreamDelta({ d: 'compact', r: 'reason' }), { content: 'compact', reasoning: 'reason' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan' }), { content: '', reasoning: 'plan' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan', output_text_delta: 'wrong' }), { content: '', reasoning: 'plan' });
 assert.deepStrictEqual(extractResponsesStreamDelta({ type: 'response.reasoning_summary.delta', delta: 'summary delta' }), { content: '', reasoning: 'summary delta' });

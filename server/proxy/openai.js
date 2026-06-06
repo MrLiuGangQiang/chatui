@@ -7,6 +7,7 @@ const {
   stripImageEditFileFields,
   buildImageEditMultipartBody,
 } = require('../jobs/image');
+const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
 
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);
@@ -88,9 +89,11 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         // 已有后台流式 job 接管时，当前页面直接通过 SSE 恢复，避免重复请求/重复输出。
         return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, { 'Access-Control-Allow-Origin': '*' });
       }
+      const compactResponses = targetPath === '/responses' && wantsStream;
+      const responsesNormalizer = compactResponses ? createResponsesCompactStreamNormalizer() : null;
       res.writeHead(upstream.status, {
         ...SECURITY_HEADERS,
-        'Content-Type': contentType,
+        'Content-Type': compactResponses ? 'text/event-stream; charset=utf-8' : contentType,
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
@@ -100,9 +103,17 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       res.on('close', () => { clientOpen = false; });
       for await (const chunk of upstream.body) {
         const buf = Buffer.from(chunk);
-        if (chatJob) updateChatJobFromStreamChunk(chatJob, buf.toString('utf8'));
-        if (clientOpen && !res.destroyed) {
-          try { res.write(buf); } catch { clientOpen = false; }
+        const text = buf.toString('utf8');
+        if (chatJob) updateChatJobFromStreamChunk(chatJob, text);
+        const outbound = responsesNormalizer ? responsesNormalizer.push(text) : buf;
+        if (clientOpen && !res.destroyed && outbound && outbound.length) {
+          try { res.write(outbound); } catch { clientOpen = false; }
+        }
+      }
+      if (responsesNormalizer && clientOpen && !res.destroyed) {
+        const tail = responsesNormalizer.end();
+        if (tail) {
+          try { res.write(tail); } catch { clientOpen = false; }
         }
       }
       if (chatJob) {

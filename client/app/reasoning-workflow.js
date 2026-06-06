@@ -74,7 +74,7 @@
 
     function extractResponsesStreamDelta(e) {
       with (deps) {
-        const t=String(e?.type||"");if(/\.done$/i.test(t)||"response.completed"===t)return{content:"",reasoning:""};const s=/reasoning/i.test(t),n=/summary/i.test(t),a=s&&n?e?.delta||e?.text||e?.content||e?.output_text||"":"";return{content:normalizeContentText((s?"":e?.delta)||(s?"":e?.text)||(s?"":e?.output_text_delta)||(s?"":e?.response?.output_text?.delta)||""),reasoning:normalizeReasoningText(e?.summary_text_delta||e?.reasoning_summary_text_delta||e?.delta_text||e?.summary_text||e?.reasoning_summary_text||e?.summary||e?.reasoning_summary||a||"")}
+        if(e&&"object"==typeof e&&("d"in e||"r"in e))return{content:normalizeContentText(e.d||""),reasoning:normalizeReasoningText(e.r||"")};const t=String(e?.type||"");if(/\.done$/i.test(t)||"response.completed"===t)return{content:"",reasoning:""};const s=/reasoning/i.test(t),n=/summary/i.test(t),a=s&&n?e?.delta||e?.text||e?.content||e?.output_text||"":"";return{content:normalizeContentText((s?"":e?.delta)||(s?"":e?.text)||(s?"":e?.output_text_delta)||(s?"":e?.response?.output_text?.delta)||""),reasoning:normalizeReasoningText(e?.summary_text_delta||e?.reasoning_summary_text_delta||e?.delta_text||e?.summary_text||e?.reasoning_summary_text||e?.summary||e?.reasoning_summary||a||"")}
       }
     }
 

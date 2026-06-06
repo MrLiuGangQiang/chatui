@@ -100,6 +100,7 @@ assertJsonEqual(context.extractResponsesResult({
   output: [{ type: 'reasoning', summary: [{ text: 'summary' }] }],
 }), { content: 'answer', reasoning: 'summary' });
 assertJsonEqual(context.extractResponsesStreamDelta({ type: 'response.output_text.delta', delta: 'hello' }), { content: 'hello', reasoning: '' });
+assertJsonEqual(context.extractResponsesStreamDelta({ d: 'compact', r: 'reason' }), { content: 'compact', reasoning: 'reason' });
 assertJsonEqual(context.extractResponsesStreamDelta({ type: 'response.reasoning_summary_text.delta', delta: 'plan' }), { content: '', reasoning: 'plan' });
 
 assertJsonEqual(context.reasoningPayloadOptions({ model: 'gpt-5', reasoningEffort: 'xhigh' }), { reasoning_effort: 'xhigh' });

@@ -54,12 +54,12 @@ async function connectCdp() { const tabs = await waitFor(async () => getJson(`ht
       normalCopy.click();
       await new Promise(r => setTimeout(r, 80));
       const normalCopied = pick(normalCopy);
-      await new Promise(r => setTimeout(r, 950));
+      await new Promise(r => setTimeout(r, 2100));
       const normalReset = pick(normalCopy);
       mermaidCopy.click();
       await new Promise(r => setTimeout(r, 80));
       const mermaidCopied = pick(mermaidCopy);
-      await new Promise(r => setTimeout(r, 950));
+      await new Promise(r => setTimeout(r, 2100));
       const mermaidReset = pick(mermaidCopy);
       return { toggleAfterClick, normalCopied, normalReset, mermaidCopied, mermaidReset, copiedText: window.__copiedText };
     })()`);
@@ -73,8 +73,8 @@ async function connectCdp() { const tabs = await waitFor(async () => getJson(`ht
       assert.strictEqual(state.text, '', `success state is icon-only: ${JSON.stringify(state)}`);
       assert.strictEqual(state.title, '已复制');
       assert.strictEqual(state.aria, '已复制');
-      assert.strictEqual(state.width, '26px');
-      assert.strictEqual(state.height, '22px');
+      assert.strictEqual(state.width, '28px');
+      assert.strictEqual(state.height, '24px');
       assert(/rgba?\(16, 185, 129|rgb\(16, 185, 129|rgba?\(5, 150, 105|rgb\(5, 150, 105/.test(state.backgroundColor + state.borderTopColor + state.boxShadow), `green success feedback: ${JSON.stringify(state)}`);
     }
     for (const state of [summary.normalReset, summary.mermaidReset]) {

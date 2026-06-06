@@ -25,8 +25,8 @@ assert.strictEqual(result.copy.minWidth,result.toggle.minWidth,JSON.stringify(re
 assert.strictEqual(result.copy.minHeight,result.toggle.minHeight,JSON.stringify(result));
 assert.strictEqual(result.copy.svgWidth,result.toggle.svgWidth,JSON.stringify(result));
 assert.strictEqual(result.copy.svgHeight,result.toggle.svgHeight,JSON.stringify(result));
-assert.strictEqual(result.copy.width,'26px',JSON.stringify(result));
-assert.strictEqual(result.copy.height,'22px',JSON.stringify(result));
+assert.strictEqual(result.copy.width,'28px',JSON.stringify(result));
+assert.strictEqual(result.copy.height,'24px',JSON.stringify(result));
 assert.strictEqual(result.copiedState,true,JSON.stringify(result));
 assert(result.copied.includes('console.log(1)'),JSON.stringify(result));
 assert.strictEqual(result.mathInline,true,JSON.stringify(result));

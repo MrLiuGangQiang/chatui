@@ -12,30 +12,62 @@ function getJobIdFromUrl(req) {
     : req.url.split('?')[0].split('/').filter(Boolean).at(-1) || '');
 }
 
-function publicJob(job) {
+function publicJob(job, options = {}) {
+  const metrics = {
+    firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
+    durationMs: Number.isFinite(job.durationMs) ? job.durationMs : null,
+  };
+  const minimalCompact = (options.live === true || options.resumeUrl) && job.compactStream === true;
+  if (minimalCompact) {
+    const payload = {};
+    if (options.resumeUrl) {
+      const url = new URL(options.resumeUrl, 'http://localhost');
+      const contentLength = Math.max(0, Number(url.searchParams.get('contentLength') || 0) || 0);
+      const reasoningLength = Math.max(0, Number(url.searchParams.get('reasoningLength') || 0) || 0);
+      const message = job.data?.choices?.[0]?.message || {};
+      const content = String(message.content || '');
+      const reasoning = String(message.reasoning_content || '');
+      const contentStart = Math.min(contentLength, content.length);
+      const reasoningStart = Math.min(reasoningLength, reasoning.length);
+      if (content.length > contentStart) payload.d = content.slice(contentStart);
+      if (reasoning.length > reasoningStart) payload.r = reasoning.slice(reasoningStart);
+    } else if (job.status === 'running') {
+      const delta = job.streamDelta || {};
+      if (delta.content) payload.d = delta.content;
+      if (delta.reasoning) payload.r = delta.reasoning;
+    }
+    const shouldSendFt = Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified && !options.resumeUrl;
+    if (shouldSendFt) payload.ft = job.firstTokenMs;
+    if (job.status === 'done') payload.done = 1;
+    if (job.status === 'error') payload.e = job.error || '任务失败';
+    return payload;
+  }
   return {
     id: job.id,
     status: job.status,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     data: job.data || null,
-    metrics: {
-      firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
-      durationMs: Number.isFinite(job.durationMs) ? job.durationMs : null,
-    },
+    metrics,
     error: job.error ? { message: job.error } : null,
   };
+}
+
+function compactResumeSnapshot(job, req) {
+  return publicJob(job, { resumeUrl: req.url });
 }
 
 function createJobEvents({ jobSubscribers }) {
   function notifyJob(job) {
     const subscribers = jobSubscribers.get(job.id);
     if (!subscribers) return;
-    const data = `event: update\ndata: ${JSON.stringify(publicJob(job))}\n\n`;
+    const data = `event: update\ndata: ${JSON.stringify(publicJob(job, { live: true }))}\n\n`;
     for (const res of subscribers) {
       res.write(data);
       res.flushHeaders?.();
     }
+    if (Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified) job.firstTokenNotified = true;
+    delete job.streamDelta;
     if (job.status === 'done' || job.status === 'error') {
       for (const res of subscribers) res.end();
       jobSubscribers.delete(job.id);
@@ -53,7 +85,7 @@ function createJobEvents({ jobSubscribers }) {
       Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
     });
-    res.write(`event: update\ndata: ${JSON.stringify(publicJob(job))}\n\n`);
+    res.write(`event: update\ndata: ${JSON.stringify(compactResumeSnapshot(job, req))}\n\n`);
     res.flushHeaders?.();
     if (job.status === 'done' || job.status === 'error') return res.end();
     if (!jobSubscribers.has(id)) jobSubscribers.set(id, new Set());

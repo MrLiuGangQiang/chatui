@@ -3,7 +3,7 @@ const assert = require('assert');
 const { copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText } = require('../../client/ui/message-actions');
 
 (async () => {
-  assert.deepStrictEqual(copySuccessState('<ok>', '<old>'), { className: 'copied', html: '<ok>', restoreHtml: '<old>', timeoutMs: 900 });
+  assert.deepStrictEqual(copySuccessState('<ok>', '<old>'), { className: 'copied', html: '<ok>', restoreHtml: '<old>', timeoutMs: 2000 });
   assert.strictEqual(normalizeRenderedCopyText('第一行\n\n第二行\n\n第三行'), '第一行\n第二行\n第三行');
   assert.strictEqual(normalizeRenderedCopyText('第一段\n\n第二段\n\n\n第三段'), '第一段\n第二段\n第三段');
   assert.strictEqual(messageCopyText('**原始**\n文本', '原始\n\n文本'), '原始\n文本');
@@ -28,7 +28,7 @@ const { copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFr
   assert.strictEqual(copied, 'hello');
   const fallbackDoc = {
     body: { appendChild(node) { this.node = node; } },
-    createElement() { return { style: {}, setAttribute() {}, select() { this.selected = true; }, remove() { this.removed = true; } }; },
+    createElement() { return { style: {}, setAttribute() {}, focus() { this.focused = true; }, select() { this.selected = true; }, remove() { this.removed = true; } }; },
     execCommand(command) { this.command = command; return command === 'copy'; },
   };
   const fallbackOk = await copyText('fallback', { writeText: async () => { throw new Error('blocked'); } }, fallbackDoc);

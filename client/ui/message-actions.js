@@ -2,7 +2,7 @@
   'use strict';
 
 function copySuccessState(successIconSvg, previousHtml) {
-  return { className: 'copied', html: successIconSvg, restoreHtml: previousHtml, timeoutMs: 900 };
+  return { className: 'copied', html: successIconSvg, restoreHtml: previousHtml, timeoutMs: 2000 };
 }
 
 function normalizeRenderedCopyText(text = '') {
@@ -52,27 +52,40 @@ function messageCopyText(rawText = '', renderedText = '', element = null) {
 }
 
 async function copyText(text, clipboard, documentRef) {
+  const fallbackCopy = () => {
+    if (!documentRef?.body) return false;
+    const textarea = documentRef.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    documentRef.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    let copied = false;
+    try { copied = !!documentRef.execCommand?.('copy'); }
+    finally { textarea.remove(); }
+    return copied;
+  };
+
+  // Prefer the synchronous legacy path while the trusted click still has user activation.
+  // Some Chromium/profile combinations leave navigator.clipboard.writeText() pending
+  // instead of rejecting; awaiting it first makes the UI look like the button did nothing.
+  if (fallbackCopy()) return true;
+
   try {
     if (clipboard?.writeText) {
-      await clipboard.writeText(text);
+      await Promise.race([
+        clipboard.writeText(text),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard write timeout')), 350)),
+      ]);
       return true;
     }
   } catch (err) {
     // Headless/HTTP contexts may reject clipboard writes even after a user-like click.
-    // Fall back to the legacy selectable textarea path so the UI can still provide
-    // deterministic copy feedback when the browser blocks the async Clipboard API.
   }
-  const textarea = documentRef.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', 'readonly');
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  documentRef.body.appendChild(textarea);
-  textarea.select();
-  let copied = false;
-  try { copied = !!documentRef.execCommand?.('copy'); }
-  finally { textarea.remove(); }
-  return copied;
+  return fallbackCopy();
 }
 
 const api = Object.freeze({ copySuccessState, copyText, normalizeRenderedCopyText, visibleCopyTextFromElement, messageCopyText });

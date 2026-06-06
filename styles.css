@@ -1074,7 +1074,7 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 
 /* Markdown v2 renderer: third-party markdown-it + KaTeX + Mermaid + highlight.js. */
-.markdown-body{line-height:1.62;white-space:normal}.markdown-body p{margin:.38em 0}.markdown-body p:empty{display:none}.markdown-body>*:first-child{margin-top:0!important}.markdown-body>*:last-child{margin-bottom:0!important}.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4,.markdown-body h5,.markdown-body h6{font-weight:800;scroll-margin-top:18px}.markdown-body h1{padding-bottom:.18em;border-bottom:1px solid rgba(203,213,225,.7)}.markdown-body blockquote{background:rgba(248,250,252,.72);border-left:4px solid rgba(16,163,127,.52);border-radius:0 10px 10px 0}.markdown-body .table-wrap{margin:.65em 0;border:1px solid rgba(203,213,225,.72);border-radius:12px;overflow:auto;background:rgba(255,255,255,.62)}.markdown-body .table-wrap table,.markdown-body table{display:table;width:max-content;min-width:100%;margin:0}.markdown-body thead th{background:rgba(241,245,249,.92);font-weight:800}.markdown-body .md-align-left{text-align:left}.markdown-body .md-align-center{text-align:center}.markdown-body .md-align-right{text-align:right}.markdown-body .contains-task-list{list-style:none}.markdown-body .task-list-item-checkbox{accent-color:#10a37f}.markdown-body .code-block{position:relative;margin:.55em 0 .8em;border-radius:13px;background:#0f172a;border:1px solid rgba(15,23,42,.16);overflow:hidden}.markdown-body .code-block pre{margin:0!important;background:transparent!important;color:#e5e7eb!important;padding:34px 12px 12px!important;border-radius:0}.markdown-body .code-block code{color:inherit}.markdown-body .code-block .code-lang{position:absolute!important;left:10px!important;top:7px!important;z-index:2;color:#94a3b8;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:999px}.markdown-body .code-block .code-copy-icon{z-index:3;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;border-color:rgba(148,163,184,.35)!important}.markdown-body .code-block .code-copy-icon.copied{background:rgba(16,185,129,.94)!important;color:#fff!important}.markdown-body .code-block .code-copy-icon.copy-failed{background:rgba(239,68,68,.92)!important;color:#fff!important}.streaming-tail{white-space:pre-wrap;color:#475569}.streaming-tail::after{content:'';display:inline-block;width:7px;height:1.1em;margin-left:2px;border-radius:4px;background:#10a37f;vertical-align:-.18em;animation:markdownCursor .9s steps(2,end) infinite}@keyframes markdownCursor{50%{opacity:.25}}.mermaid,.mermaid-block,.mermaid-fallback{max-width:100%;overflow:auto;margin:.65em 0;padding:10px;border:1px solid rgba(203,213,225,.72);border-radius:12px;background:rgba(248,250,252,.9)}.mermaid svg{max-width:100%;height:auto}.markdown-error{margin:0 0 8px;padding:7px 9px;border:1px solid rgba(245,158,11,.38);border-radius:8px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:650}.math-fallback{display:inline-block;max-width:100%;overflow-x:auto}.markdown-body .katex{font-size:1.03em}.markdown-body .katex-display{overflow-y:visible;line-height:normal}.markdown-body img{max-width:100%;height:auto}.markdown-body .footnotes{margin-top:1em;padding-top:.6em;border-top:1px solid rgba(203,213,225,.72);font-size:.92em;color:#475569}
+.markdown-body{line-height:1.62;white-space:normal}.markdown-body p{margin:.38em 0}.markdown-body p:empty{display:none}.markdown-body>*:first-child{margin-top:0!important}.markdown-body>*:last-child{margin-bottom:0!important}.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4,.markdown-body h5,.markdown-body h6{font-weight:800;scroll-margin-top:18px}.markdown-body h1{padding-bottom:.18em;border-bottom:1px solid rgba(203,213,225,.7)}.markdown-body blockquote{background:rgba(248,250,252,.72);border-left:4px solid rgba(16,163,127,.52);border-radius:0 10px 10px 0}.markdown-body .table-wrap{margin:.65em 0;border:1px solid rgba(203,213,225,.72);border-radius:12px;overflow:auto;background:rgba(255,255,255,.62)}.markdown-body .table-wrap table,.markdown-body table{display:table;width:max-content;min-width:100%;margin:0}.markdown-body thead th{background:rgba(241,245,249,.92);font-weight:800}.markdown-body .md-align-left{text-align:left}.markdown-body .md-align-center{text-align:center}.markdown-body .md-align-right{text-align:right}.markdown-body .contains-task-list{list-style:none}.markdown-body .task-list-item-checkbox{accent-color:#10a37f}.markdown-body .code-block{position:relative;margin:.55em 0 .8em;border-radius:13px;background:#0f172a;border:1px solid rgba(15,23,42,.16);overflow:hidden}.markdown-body .code-block pre{margin:0!important;background:transparent!important;color:#e5e7eb!important;padding:34px 12px 12px!important;border-radius:0}.markdown-body .code-block code{color:inherit}.markdown-body .code-block .code-lang{position:absolute!important;left:10px!important;top:7px!important;z-index:2;color:#94a3b8;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:999px}.markdown-body .code-block .code-copy-icon{z-index:3;background:rgba(15,23,42,.72)!important;color:#dbeafe!important;border-color:rgba(148,163,184,.35)!important}.markdown-body .code-block .code-copy-icon.copied{background:rgba(16,185,129,.94)!important;color:#fff!important}.markdown-body .code-block .code-copy-icon.copy-failed{background:rgba(239,68,68,.92)!important;color:#fff!important}.streaming-tail{position:relative;display:inline;white-space:pre-wrap;color:#475569}.streaming-tail::after{content:'';display:inline-block;width:.58em;height:1.18em;margin-left:3px;border-radius:999px;background:linear-gradient(180deg,#7dd3fc 0%,#22c55e 45%,#10a37f 100%);box-shadow:0 0 0 1px rgba(255,255,255,.72),0 0 10px rgba(16,163,127,.55),0 0 22px rgba(14,165,233,.32);vertical-align:-.2em;animation:markdownCursorPulse 1.05s cubic-bezier(.45,0,.2,1) infinite,markdownCursorFloat 1.8s ease-in-out infinite}.streaming-tail::before{content:'';display:inline-block;width:.38em;height:.38em;margin-left:2px;margin-right:-.5em;border-radius:999px;background:rgba(34,197,94,.5);box-shadow:0 0 12px rgba(34,197,94,.45);vertical-align:.12em;animation:markdownCursorSpark 1.4s ease-in-out infinite}@keyframes markdownCursorPulse{0%,100%{opacity:1;transform:scaleY(1)}45%{opacity:.42;transform:scaleY(.72)}70%{opacity:.96;transform:scaleY(1.06)}}@keyframes markdownCursorFloat{0%,100%{filter:saturate(1)}50%{filter:saturate(1.35) brightness(1.08)}}@keyframes markdownCursorSpark{0%,100%{opacity:.15;transform:translateY(.18em) scale(.65)}45%{opacity:.9;transform:translateY(-.12em) scale(1)}70%{opacity:.28;transform:translateY(-.28em) scale(.72)}}@media (prefers-reduced-motion: reduce){.streaming-tail::before,.streaming-tail::after{animation:none}}.mermaid,.mermaid-block,.mermaid-fallback{max-width:100%;overflow:auto;margin:.65em 0;padding:10px;border:1px solid rgba(203,213,225,.72);border-radius:12px;background:rgba(248,250,252,.9)}.mermaid svg{max-width:100%;height:auto}.markdown-error{margin:0 0 8px;padding:7px 9px;border:1px solid rgba(245,158,11,.38);border-radius:8px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:650}.math-fallback{display:inline-block;max-width:100%;overflow-x:auto}.markdown-body .katex{font-size:1.03em}.markdown-body .katex-display{overflow-y:visible;line-height:normal}.markdown-body img{max-width:100%;height:auto}.markdown-body .footnotes{margin-top:1em;padding-top:.6em;border-top:1px solid rgba(203,213,225,.72);font-size:.92em;color:#475569}
 
 /* KaTeX clipping fix: only math-containing markdown bubbles may expose vertical overflow; display math keeps horizontal scrolling. */
 @supports selector(:has(*)){
@@ -1430,8 +1430,171 @@ body > .custom-select-menu.portal-menu .custom-select-main-text{
 }
 
 
-/* Runtime-computed tail space lets the last message align above the fixed composer. */
+/* Runtime-computed tail space lets the last message align above the fixed composer without feeding an unbounded layout loop. */
 .messages{
-  padding-bottom:max(var(--composer-safe-bottom,168px),var(--session-tail-scroll-space,260px),260px)!important;
-  scroll-padding-bottom:max(var(--composer-safe-bottom,168px),var(--session-tail-scroll-space,260px),260px)!important;
+  padding-bottom:var(--session-tail-scroll-space,var(--composer-safe-bottom,168px))!important;
+  scroll-padding-bottom:var(--session-tail-scroll-space,var(--composer-safe-bottom,168px))!important;
+}
+
+
+/* v1.2.76: keep copy controls visible after markdown/resource lifecycle fixes */
+.msg-actions{opacity:1!important;visibility:visible!important;pointer-events:auto!important;display:flex!important;}
+.copy-btn,.refresh-btn,.download-answer-btn,.download-btn,.edit-btn{width:30px!important;height:26px!important;min-width:30px!important;min-height:26px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;visibility:visible!important;pointer-events:auto!important;}
+.copy-btn svg,.refresh-btn svg,.download-answer-btn svg,.download-btn svg,.edit-btn svg{width:15px!important;height:15px!important;display:block!important;}
+.markdown-body .code-block{position:relative!important;}
+.markdown-body .code-block .code-copy-icon,.markdown-body .code-block .mermaid-toggle-btn{position:absolute!important;top:8px!important;right:8px!important;z-index:2!important;width:28px!important;height:24px!important;min-width:28px!important;min-height:24px!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;visibility:visible!important;opacity:1!important;border-radius:8px!important;}
+.markdown-body .code-block .mermaid-toggle-btn{right:40px!important;}
+.markdown-body .code-block .code-copy-icon svg,.markdown-body .code-block .mermaid-toggle-btn svg{width:14px!important;height:14px!important;display:block!important;}
+
+/* Fix real pointer hit testing for code/Mermaid action buttons: keep controls above <pre>. */
+.markdown-body .code-block{
+  position:relative!important;
+}
+.markdown-body .code-block pre{
+  position:relative!important;
+  z-index:1!important;
+}
+.markdown-body .code-block .code-action-icon,
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .mermaid-render-toggle{
+  position:absolute!important;
+  top:8px!important;
+  right:8px!important;
+  z-index:8!important;
+  pointer-events:auto!important;
+}
+.markdown-body .code-block .mermaid-toggle-btn{
+  right:40px!important;
+}
+.markdown-body .code-block .code-lang{
+  z-index:7!important;
+  pointer-events:none!important;
+}
+
+/* Keep code block action buttons inside the visible code frame. */
+.markdown-body .code-block{
+  position:relative!important;
+  padding-top:0!important;
+  overflow:visible!important;
+}
+.markdown-body .code-block pre{
+  margin:0!important;
+  padding-top:36px!important;
+}
+.markdown-body .code-block > .code-action-icon,
+.markdown-body .code-block > .code-copy-icon,
+.markdown-body .code-block > .mermaid-toggle-btn,
+.markdown-body .code-block > .mermaid-render-toggle{
+  top:6px!important;
+  transform:none!important;
+}
+.markdown-body .code-block > .code-copy-icon{
+  right:8px!important;
+}
+.markdown-body .code-block > .mermaid-toggle-btn,
+.markdown-body .code-block > .mermaid-render-toggle{
+  right:40px!important;
+}
+
+/* Final override: code-frame actions must not move on hover/focus/active. */
+.markdown-body .code-block > .code-copy-icon,
+.markdown-body .code-block > .code-copy-icon:hover,
+.markdown-body .code-block > .code-copy-icon:focus,
+.markdown-body .code-block > .code-copy-icon:focus-visible,
+.markdown-body .code-block > .code-copy-icon:active,
+.markdown-body .code-block > .code-copy-icon.copied,
+.markdown-body .code-block > .code-copy-icon.copied:hover,
+.markdown-body .code-block > .mermaid-toggle-btn,
+.markdown-body .code-block > .mermaid-toggle-btn:hover,
+.markdown-body .code-block > .mermaid-toggle-btn:focus,
+.markdown-body .code-block > .mermaid-toggle-btn:focus-visible,
+.markdown-body .code-block > .mermaid-toggle-btn:active,
+.markdown-body .code-block > .mermaid-render-toggle,
+.markdown-body .code-block > .mermaid-render-toggle:hover,
+.markdown-body .code-block > .mermaid-render-toggle:focus,
+.markdown-body .code-block > .mermaid-render-toggle:focus-visible,
+.markdown-body .code-block > .mermaid-render-toggle:active{
+  position:absolute!important;
+  top:6px!important;
+  left:auto!important;
+  bottom:auto!important;
+  width:28px!important;
+  height:24px!important;
+  min-width:28px!important;
+  min-height:24px!important;
+  max-width:28px!important;
+  max-height:24px!important;
+  padding:0!important;
+  margin:0!important;
+  border-radius:8px!important;
+  transform:none!important;
+  box-sizing:border-box!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  place-items:center!important;
+  line-height:0!important;
+  z-index:12!important;
+  pointer-events:auto!important;
+  transition:background .12s,color .12s,border-color .12s,opacity .12s!important;
+}
+.markdown-body .code-block > .code-copy-icon,
+.markdown-body .code-block > .code-copy-icon:hover,
+.markdown-body .code-block > .code-copy-icon:focus,
+.markdown-body .code-block > .code-copy-icon:focus-visible,
+.markdown-body .code-block > .code-copy-icon:active,
+.markdown-body .code-block > .code-copy-icon.copied,
+.markdown-body .code-block > .code-copy-icon.copied:hover{
+  right:8px!important;
+}
+.markdown-body .code-block > .mermaid-toggle-btn,
+.markdown-body .code-block > .mermaid-toggle-btn:hover,
+.markdown-body .code-block > .mermaid-toggle-btn:focus,
+.markdown-body .code-block > .mermaid-toggle-btn:focus-visible,
+.markdown-body .code-block > .mermaid-toggle-btn:active,
+.markdown-body .code-block > .mermaid-render-toggle,
+.markdown-body .code-block > .mermaid-render-toggle:hover,
+.markdown-body .code-block > .mermaid-render-toggle:focus,
+.markdown-body .code-block > .mermaid-render-toggle:focus-visible,
+.markdown-body .code-block > .mermaid-render-toggle:active{
+  right:40px!important;
+}
+
+/* Final override: rendered Mermaid toggle outside .code-block must also be immovable. */
+.markdown-body .mermaid-block > .mermaid-render-toggle,
+.markdown-body .mermaid-block > .mermaid-render-toggle:hover,
+.markdown-body .mermaid-block > .mermaid-render-toggle:focus,
+.markdown-body .mermaid-block > .mermaid-render-toggle:focus-visible,
+.markdown-body .mermaid-block > .mermaid-render-toggle:active,
+.markdown-body .mermaid-rendered-block > .mermaid-render-toggle,
+.markdown-body .mermaid-rendered-block > .mermaid-render-toggle:hover,
+.markdown-body .mermaid-rendered-block > .mermaid-render-toggle:focus,
+.markdown-body .mermaid-rendered-block > .mermaid-render-toggle:focus-visible,
+.markdown-body .mermaid-rendered-block > .mermaid-render-toggle:active{
+  position:absolute!important;
+  top:6px!important;
+  right:8px!important;
+  left:auto!important;
+  bottom:auto!important;
+  width:28px!important;
+  height:24px!important;
+  min-width:28px!important;
+  min-height:24px!important;
+  max-width:28px!important;
+  max-height:24px!important;
+  padding:0!important;
+  margin:0!important;
+  border-radius:8px!important;
+  transform:none!important;
+  box-sizing:border-box!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  place-items:center!important;
+  line-height:0!important;
+  float:none!important;
+  z-index:12!important;
+  pointer-events:auto!important;
+  transition:background .12s,color .12s,border-color .12s,opacity .12s!important;
 }

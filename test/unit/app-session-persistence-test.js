@@ -20,6 +20,9 @@ const indexedDbHtml = p.stripTransientBlobUrlsFromHtml('<img class="generated-th
 assert.ok(indexedDbHtml.includes('src="data:image/gif;base64,'), 'indexeddb src should be replaced by a transparent placeholder');
 assert.ok(indexedDbHtml.includes('data-persisted-src="indexeddb://img-1.png"'), 'indexeddb reference should be preserved for hydration');
 assert.ok(!/<img\b[^>]*\ssrc="indexeddb:\/\//.test(indexedDbHtml), 'stored/restored html must not keep indexeddb:// in img src');
+const persistedOnlyHtml = p.stripTransientBlobUrlsFromHtml('<img class="generated-thumb" data-persisted-src="indexeddb://img-2.png" src="undefined">', dom.window.document);
+assert.ok(persistedOnlyHtml.includes('src="data:image/gif;base64,'), 'persisted indexeddb refs must not keep src="undefined" after storage sanitizing');
+assert.ok(!persistedOnlyHtml.includes('src="undefined"'), 'storage sanitizer must prevent /undefined image requests on session restore');
 assert.ok(!p.stripGeneratedImageActionMarkup(html, dom.window.document).includes('data-download-image'));
 const ctx = p.sanitizeAttachmentContextForStorage({ attachments: [{ name: 'a', src: 'data:x', text: 't' }] });
 assert.strictEqual(JSON.parse(ctx).attachments[0].src, '');

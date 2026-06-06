@@ -11,6 +11,10 @@ assert(workflow.includes('function start()'), 'bootstrap workflow should expose 
 assert(workflow.includes('["baseUrl","apiKey","chatModel","routeModel","imageModel","imageSize"].forEach'), 'startup config bindings should live in bootstrap workflow');
 assert(workflow.includes('Promise.resolve().then(()=>waitForMarkdownReady())'), 'startup render sequence should live in bootstrap workflow');
 assert(workflow.includes('refreshActiveSessionOnReturn'), 'foreground refresh bindings should live in bootstrap workflow');
+assert(
+  workflow.includes('(window.requestAnimationFrame||requestAnimationFrame).call(window,'),
+  'bootstrap workflow must invoke requestAnimationFrame with the window receiver to avoid Chrome Illegal invocation',
+);
 assert(app.includes('getBootstrapWorkflow().start()'), 'app.js should delegate startup to bootstrap workflow');
 assert(!app.includes('["baseUrl","apiKey","chatModel","routeModel","imageModel","imageSize"].forEach'), 'app.js should not keep the startup binding block');
 assert(html.indexOf('client/app/bootstrap-workflow.js') > -1, 'index should load bootstrap workflow');

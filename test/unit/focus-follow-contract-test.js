@@ -24,6 +24,10 @@ assert.match(
   /function scheduleSessionTailFocusAfterLayout\(e=\{\}\)[\s\S]*ResizeObserver[\s\S]*MutationObserver[\s\S]*sessionTailFocusCleanup=\(\)=>[\s\S]*cancelSessionTailFocusAfterLayout/,
   'session switch tail focus observes post-render layout changes before final positioning',
 );
+assert.ok(
+  !scrollFocusWorkflow.includes('const s=u();'),
+  'layout-stability snapshot must not redeclare s and shadow the outer scrollVersion token',
+);
 assert.match(
   scrollFocusWorkflow,
   /function scrollToBottom\(e=!0,t=\{\}\)[\s\S]*state\.programmaticScrollUntil=Date\.now\(\)\+180[\s\S]*requestAnimationFrame[\s\S]*i\.forEach/,

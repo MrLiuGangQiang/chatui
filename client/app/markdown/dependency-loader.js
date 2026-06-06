@@ -1,8 +1,9 @@
 (function initMarkdownDependencyLoader(global) {
   'use strict';
 
-  const VERSION = '2.0.2';
+  const VERSION = '2.0.3';
   const DEFAULT_TIMEOUT_MS = 2500;
+  const LOCAL_FIRST = true;
   const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists', markdownItTexmath: 'texmath' });
   const resources = Object.freeze({
     styles: Object.freeze([
@@ -43,6 +44,7 @@
     const appendNode = (node) => (node.tagName === 'LINK' ? doc.head : doc.body || doc.head).appendChild(node);
     const log = (level, message, detail) => { try { (root.console?.[level] || root.console?.log || (() => {})).call(root.console, message, detail || ''); } catch {} };
     function markExisting(resource) { const element = doc?.querySelector?.(`[data-markdown-dependency="${resource.id}"]`); if (element && !element.dataset.markdownDependencyLoaded) element.dataset.markdownDependencyLoaded = 'global'; }
+    function loadOrder(resource) { const local = resource.local ? [{ url: resource.local, from: 'local' }] : []; const cdn = resource.cdn ? [{ url: resource.cdn, from: 'cdn' }] : []; const list = root.ChatUIMarkdownPreferCdn === true ? cdn.concat(local) : local.concat(cdn); return list.filter((item, index, all) => item.url && all.findIndex(candidate => candidate.url === item.url) === index); }
     function loadElement(resource, createNode) {
       if (!doc) return Promise.resolve({ id: resource.id, from: 'no-document' });
       if (resource.global && hasGlobal(resource.global, root)) { markExisting(resource); return Promise.resolve({ id: resource.id, from: 'global' }); }
@@ -50,25 +52,31 @@
       const promise = new Promise((resolve, reject) => {
         let node = null; let timer = null;
         const cleanup = () => { clearTimeout(timer); if (node) { node.onload = null; node.onerror = null; } };
-        const attempt = (url, from) => {
-          cleanup(); node = createNode(url); node.dataset.markdownDependency = resource.id;
-          node.onload = () => { cleanup(); const alias = GLOBAL_ALIASES[resource.global]; if (alias && !root[resource.global] && readGlobal(alias, root)) root[resource.global] = readGlobal(alias, root); node.dataset.markdownDependencyLoaded = from; log('info', `[markdown] dependency loaded: ${resource.id} (${from})`); resolve({ id: resource.id, from }); };
-          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${from})`, url); if (from === 'cdn' && resource.local && resource.local !== url) { attempt(resource.local, 'local'); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
+        const attempts = loadOrder(resource);
+        const attempt = (index = 0) => {
+          const candidate = attempts[index];
+          if (!candidate) { cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); return; }
+          cleanup(); node = createNode(candidate.url); node.dataset.markdownDependency = resource.id;
+          node.onload = () => { cleanup(); const alias = GLOBAL_ALIASES[resource.global]; if (alias && !root[resource.global] && readGlobal(alias, root)) root[resource.global] = readGlobal(alias, root); node.dataset.markdownDependencyLoaded = candidate.from; log('info', `[markdown] dependency loaded: ${resource.id} (${candidate.from})`); resolve({ id: resource.id, from: candidate.from }); };
+          node.onerror = () => { log('warn', `[markdown] dependency failed: ${resource.id} (${candidate.from})`, candidate.url); if (attempts[index + 1]) { attempt(index + 1); return; } cleanup(); reject(new Error(`Failed to load markdown dependency: ${resource.id}`)); };
           timer = setTimeout(() => node.onerror(), DEFAULT_TIMEOUT_MS); appendNode(node);
         };
-        attempt(resource.cdn || resource.local, resource.cdn ? 'cdn' : 'local');
+        attempt(0);
       }).catch((err) => { loadState.delete(resource.id); throw err; });
       loadState.set(resource.id, promise); return promise;
     }
     const loadStyle = resource => loadElement(resource, href => { const link = doc.createElement('link'); link.rel = 'stylesheet'; link.href = href; return link; });
     const loadScript = resource => loadElement(resource, src => { const script = doc.createElement('script'); script.src = src; script.defer = false; return script; });
     const loadStyles = () => Promise.allSettled(resources.styles.map(loadStyle)).then(results => results.map(r => r.status === 'fulfilled' ? r.value : { error: r.reason?.message || String(r.reason) }));
-    const loadScripts = () => Promise.all(resources.scripts.map(resource => loadScript(resource).catch(err => { log('warn', `[markdown] optional dependency unavailable: ${resource.id}`, err); return { id: resource.id, error: err.message || String(err) }; })));
-    const loadAll = () => Promise.all([loadStyles(), loadScripts()]).then(([styles, scripts]) => ({ styles, scripts, readiness: getReadiness(root) }));
-    return { VERSION, resources, getReadiness: () => getReadiness(root), loadStyles, loadScripts, loadAll };
+    const loadScripts = (filter = () => true) => Promise.all(resources.scripts.filter(filter).map(resource => loadScript(resource).catch(err => { log('warn', `[markdown] optional dependency unavailable: ${resource.id}`, err); return { id: resource.id, error: err.message || String(err) }; })));
+    const isCoreScript = resource => resource.id !== 'mermaid';
+    const loadCore = () => Promise.all([loadStyles(), loadScripts(isCoreScript)]).then(([styles, scripts]) => ({ styles, scripts, readiness: getReadiness(root) }));
+    const loadMermaid = () => loadScript(resources.scripts.find(resource => resource.id === 'mermaid')).catch(err => { log('warn', '[markdown] optional dependency unavailable: mermaid', err); return { id: 'mermaid', error: err.message || String(err) }; });
+    const loadAll = loadCore;
+    return { VERSION, DEFAULT_TIMEOUT_MS, LOCAL_FIRST, resources, getReadiness: () => getReadiness(root), loadStyles, loadScripts, loadCore, loadMermaid, loadAll };
   }
 
-  const api = { VERSION, DEFAULT_TIMEOUT_MS, resources, readGlobal, hasGlobal, getReadiness, createBrowserLoader };
+  const api = { VERSION, DEFAULT_TIMEOUT_MS, LOCAL_FIRST, resources, readGlobal, hasGlobal, getReadiness, createBrowserLoader };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (global?.document) global.ChatUIMarkdownDependencyLoader = Object.freeze(createBrowserLoader(global, global.document));
 })(typeof window !== 'undefined' ? window : globalThis);

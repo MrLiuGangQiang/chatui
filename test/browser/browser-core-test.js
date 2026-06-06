@@ -167,7 +167,7 @@ async function connectCdp() {
       displayItems: window.ChatUIApp?.displayItems?.displayItemHasRichMedia({ html: '<img class="generated-thumb" />' }),
       appReady: !!document.querySelector('#prompt')
     }))()`);
-    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, imageReferenceId: 'imgref_display_1', routeReferenceCount: 1, routeContextLimited: true, services: true, jobs: true, chat: 'ok', route: 'new', image: 2, imagePrompt: '猫\n\n图片样式要求：\n水彩', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 900, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
+    assert.deepStrictEqual(result, { core: true, http: 'X', reasoning: 'why', modelType: 'image', imageFile: true, imageReferenceId: 'imgref_display_1', routeReferenceCount: 1, routeContextLimited: true, services: true, jobs: true, chat: 'ok', route: 'new', image: 2, imagePrompt: '猫\n\n图片样式要求：\n水彩', ui: 'a b', realtime: true, scroll: 476, messageSummary: '\n\n📎 a.txt', actions: 2000, imageActions: true, appState: true, appRuns: true, appSessions: 'hello', displayItems: true, appReady: true });
     console.log('browser core ok');
   } finally {
     cdp?.ws?.close?.();

@@ -34,11 +34,13 @@ assert.ok(!indexHtml.includes('cdn.jsdelivr.net/npm/markdown-it@14.2.0'), 'old h
 assert.ok(!indexHtml.includes('./vendor/purify.min.js'), 'index must not directly serve local DOMPurify JS');
 assert.ok(!indexHtml.includes('./vendor/markdown-it.min.js'), 'index must not directly serve local markdown-it JS');
 assert.ok(!indexHtml.includes('./vendor/katex.min.js"'), 'index must not directly serve local KaTeX JS');
+assert.ok(indexHtml.includes('./vendor/katex.min.css'), 'index serves local KaTeX CSS first');
+assert.ok(indexHtml.includes('./vendor/highlight-github.min.css'), 'index serves local highlight CSS first');
 assert.ok(!indexHtml.includes('data-markdown-dependency-loaded="local"'), 'index must not mark markdown JS as local-loaded by default');
 assert.ok(dependencyLoader.includes('registry.npmmirror.com/markdown-it/14.2.0'), 'loader owns markdown-it domestic CDN');
 assert.ok(dependencyLoader.includes("local: './vendor/markdown-it.min.js'"), 'loader owns markdown-it local fallback');
-assert.ok(dependencyLoader.includes('attempt(resource.cdn || resource.local, resource.cdn ? \'cdn\' : \'local\')'), 'dependency loader tries CDN before local fallback');
-assert.ok(dependencyLoader.includes("from === 'cdn' && resource.local"), 'dependency loader falls back to local only after CDN failure');
+assert.ok(dependencyLoader.includes('const LOCAL_FIRST = true'), 'dependency loader defaults to local-first');
+assert.ok(dependencyLoader.includes("root.ChatUIMarkdownPreferCdn === true"), 'dependency loader keeps opt-in CDN preference');
 assert.ok(dependencyLoader.includes("markdownItTexmath: 'texmath'"), 'dependency loader aliases public texmath global to markdownItTexmath');
 assert.ok(dependencyLoader.includes('registry.npmmirror.com/dompurify/3.4.7'), 'loader owns DOMPurify CDN/fallback');
 

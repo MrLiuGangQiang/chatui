@@ -15,6 +15,7 @@
   const resetMarkdownEngine = browserEngine.resetMarkdownEngine || (() => {});
   const hasCriticalMarkdownPlugins = browserEngine.hasCriticalMarkdownPlugins || (() => false);
   const renderMarkdown = browserEngine.renderMarkdown || (markdown => `<p>${escapeHtml(markdown).replace(/\n/g, '<br>')}</p>`);
+  const browserStreaming = global.ChatUIMarkdownBrowserStreamingRenderer || {};
   const browserEnhancer = global.ChatUIMarkdownBrowserEnhancer || {};
   const enhanceRenderedMarkdown = browserEnhancer.enhanceRenderedMarkdown || (() => Promise.resolve([]));
   const enhanceCodeCopy = browserEnhancer.enhanceCodeCopy || (() => {});
@@ -27,7 +28,6 @@
 
   function renderMarkdownInto(container, markdown = '', options = {}) { if (!container) return Promise.resolve({ html: renderMarkdown(markdown), mermaid: [] }); const html = renderMarkdown(markdown); container.innerHTML = html; return Promise.resolve(enhanceRenderedMarkdown(container, options)).then(mermaid => ({ html, mermaid })); }
 
-  const browserStreaming = global.ChatUIMarkdownBrowserStreamingRenderer || {};
   const findStableBoundary = browserStreaming.findStableBoundary || (() => 0);
   const splitStableTail = browserStreaming.splitStableTail || (text => ({ stable: '', tail: String(text || ''), index: 0 }));
   const createStreamingRenderer = browserStreaming.createStreamingRenderer || (() => { throw new Error('ChatUIMarkdownBrowserStreamingRenderer unavailable'); });
@@ -36,5 +36,6 @@
   const api = Object.freeze({ renderMarkdown, renderMarkdownInto, normalizeBetaMermaidSource, renderMarkdownHtml: renderMarkdown, enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, loadMermaid, createMarkdownEngine, getMarkdownEngine, resetMarkdownEngine, hasCriticalMarkdownPlugins, findStableBoundary, splitStableTail, createStreamingRenderer, escapeHtml, normalizeEscapedUrlSlashes, normalizeMultilineMarkdownImageDataUris, normalizeMarkdownImageDataUris, normalizeMarkdownSource, dependencyLoader: global.ChatUIMarkdownDependencyLoader });
   global.ChatUIApp = Object.freeze({ ...(global.ChatUIApp || {}), markdown: api });
   global.ChatUIMarkdown = api;
-  global.ChatUIMarkdownReady = (global.ChatUIMarkdownDependencyLoader?.loadAll?.() || Promise.resolve()).then(result => { resetMarkdownEngine(); return result; }).catch(err => { console.warn('[markdown] dependency load failed:', err); resetMarkdownEngine(); return null; });
+  const coreMarkdownReady = global.ChatUIMarkdownDependencyLoader?.loadCore?.() || global.ChatUIMarkdownDependencyLoader?.loadAll?.() || Promise.resolve();
+  global.ChatUIMarkdownReady = coreMarkdownReady.then(result => { resetMarkdownEngine(); return result; }).catch(err => { console.warn('[markdown] dependency load failed:', err); resetMarkdownEngine(); return null; });
 })(typeof window !== 'undefined' ? window : globalThis);

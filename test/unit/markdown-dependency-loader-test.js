@@ -20,7 +20,8 @@ const expectedScriptIds = [
   'dompurify',
 ];
 
-assert.strictEqual(loader.VERSION, '2.0.2');
+assert.strictEqual(loader.VERSION, '2.0.3');
+assert.strictEqual(loader.LOCAL_FIRST, true);
 assert.ok(Array.isArray(loader.resources.styles));
 assert.ok(Array.isArray(loader.resources.scripts));
 
@@ -38,6 +39,6 @@ for (const resource of loader.resources.styles) {
 }
 
 const readiness = loader.getReadiness();
-assert.strictEqual(readiness.version, '2.0.2');
+assert.strictEqual(readiness.version, '2.0.3');
 assert.strictEqual(readiness.ready, false);
 assert.deepStrictEqual(Object.keys(readiness.scripts).sort(), expectedScriptIds.sort());

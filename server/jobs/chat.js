@@ -20,6 +20,9 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
     buffer: '',
     streamStarted: false,
     firstTokenMs: null,
+    compactStream: true,
+    streamSeq: 0,
+    streamDelta: null,
   };
 }
 
@@ -97,12 +100,10 @@ try {
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
-      updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false });
-      notifyChatStreamJob(job);
+      if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false })) notifyChatStreamJob(job);
     }
     if (job.buffer) {
-      updateChatJobFromStreamChunk(job, '\n', { notify: false });
-      notifyChatStreamJob(job);
+      if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false })) notifyChatStreamJob(job);
     }
   }
   job.status = 'done';
@@ -174,7 +175,7 @@ function getChatJob(req, res) {
 const id = getJobIdFromUrl(req);
 const job = chatJobs.get(id);
 if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
-sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+sendJson(res, 200, publicJob(job, { resumeUrl: req.url }), { 'Access-Control-Allow-Origin': '*' });
 }
 
 
@@ -193,6 +194,8 @@ job.buffer = (job.buffer || '') + text;
 const events = job.buffer.split(/\r?\n\r?\n/);
 job.buffer = events.pop() || '';
 const message = job.data.choices[0].message;
+let chunkContent = '';
+let chunkReasoning = '';
 for (const eventText of events) {
   const dataText = eventText
     .split(/\r?\n/)
@@ -208,12 +211,18 @@ for (const eventText of events) {
     const content = normalizeContentText(delta.content || delta.text || delta.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || '');
     const reasoning = normalizeReasoningText(delta.reasoning_content || delta.reasoning || delta.thinking || delta.reasoning_details || delta.thinking_content || data?.reasoning_content || data?.reasoning || data?.thinking || data?.reasoning_details || data?.thinking_content || '');
     if (content || reasoning) markFirstToken(job);
-    if (content) message.content += content;
-    if (reasoning) message.reasoning_content += reasoning;
+    if (content) { message.content += content; chunkContent += content; }
+    if (reasoning) { message.reasoning_content += reasoning; chunkReasoning += reasoning; }
     job.updatedAt = Date.now();
     if (notify && (content || reasoning)) notifyChatStreamJob(job);
   } catch {}
 }
+if (chunkContent || chunkReasoning) {
+  job.streamSeq = (job.streamSeq || 0) + 1;
+  job.streamDelta = { content: chunkContent, reasoning: chunkReasoning };
+  return true;
+}
+return false;
 }
 
   return {

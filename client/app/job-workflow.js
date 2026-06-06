@@ -48,6 +48,20 @@
     } : display;
   }
 
+  function appendResumeOffsets(url, aggregateEvent, options = {}) {
+    const message = aggregateEvent?.data?.choices?.[0]?.message || {};
+    const fallback = options.resumeOffsets || {};
+    const contentLength = String(message.content || '').length || Math.max(0, Number(fallback.contentLength) || 0);
+    const reasoningLength = String(message.reasoning_content || '').length || Math.max(0, Number(fallback.reasoningLength) || 0);
+    if (!contentLength && !reasoningLength) return url;
+    try {
+      const parsed = new URL(url, root.location?.origin || 'http://localhost');
+      parsed.searchParams.set('contentLength', String(contentLength));
+      parsed.searchParams.set('reasoningLength', String(reasoningLength));
+      return parsed.pathname + parsed.search + parsed.hash;
+    } catch { return url; }
+  }
+
   function waitJobEvent(url, onUpdate = () => {}, options = {}) {
     let abortListener = null;
     let retryTimer = null;
@@ -60,6 +74,31 @@
       let done = false;
       let retries = 0;
       let opened = false;
+      let aggregateEvent = null;
+      const normalizeCompactUpdate = event => {
+        if (!event || typeof event !== 'object') return event;
+        const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || Object.prototype.hasOwnProperty.call(event, 'ft');
+        if (!isMinimal || event.data) {
+          aggregateEvent = event;
+          return event;
+        }
+        const base = aggregateEvent && typeof aggregateEvent === 'object' ? aggregateEvent : {
+          status: 'running',
+          data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
+          metrics: {},
+        };
+        const message = { ...(base.data?.choices?.[0]?.message || {}) };
+        if (event.d) message.content = String(message.content || '') + String(event.d || '');
+        if (event.r) message.reasoning_content = String(message.reasoning_content || '') + String(event.r || '');
+        aggregateEvent = {
+          ...base,
+          status: event.e ? 'error' : event.done ? 'done' : 'running',
+          data: { choices: [{ message }] },
+          metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}) },
+          error: event.e ? { message: event.e } : base.error || null,
+        };
+        return aggregateEvent;
+      };
       const finish = (handler, value) => {
         if (done) return;
         done = true;
@@ -67,7 +106,8 @@
         try { source?.close(); } catch {}
         handler(value);
       };
-      const handleUpdate = event => {
+      const handleUpdate = rawEvent => {
+        const event = normalizeCompactUpdate(rawEvent);
         onUpdate(event);
         if (event.status === 'done') {
           const data = event.data && typeof event.data === 'object' ? { ...event.data, metrics: event.metrics || event.data.metrics || {} } : event.data;
@@ -85,7 +125,7 @@
       poll();
       const connect = () => {
         if (done) return;
-        source = new EventSourceRef(url);
+        source = new EventSourceRef(appendResumeOffsets(url, aggregateEvent, options));
         source.onopen = () => { opened = true; retries = 0; };
         source.addEventListener('update', event => {
           opened = true;

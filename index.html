@@ -6,12 +6,12 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css" onerror="this.onerror=null;this.href='./vendor/katex.min.css'" />
-  <link rel="stylesheet" href="https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css" onerror="this.onerror=null;this.href='./vendor/highlight-github.min.css'" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.50-progressive-md-202606051404" />
-  <link rel="stylesheet" href="./styles/composer.css?v=1.2.46-composer-layer-1" />
-  <link rel="stylesheet" href="./styles/messages.css?v=1.2.0-action-dom-order-1" />
-  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.21-usage-warning-flash-1" />
+  <link rel="stylesheet" href="./vendor/katex.min.css" />
+  <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
+  <link rel="stylesheet" href="./styles.css?v=1.2.82" />
+  <link rel="stylesheet" href="./styles/composer.css?v=1.2.65" />
+  <link rel="stylesheet" href="./styles/messages.css?v=1.2.65" />
+  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.65" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -420,83 +420,83 @@
   </template>
 
   <script>window.CHATUI_ENABLE_VIRTUAL_RENDER = false;</script>
-  <script src="./client/app/markdown/source-normalizer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/link-policy.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/browser-engine.js?v=1.2.45-public-cdn-20260605"></script>
-  <script src="./client/app/markdown/enhancer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/browser-enhancer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown/dependency-loader.js?v=1.2.45-public-cdn-20260605"></script>
-  <script src="./client/app/markdown/browser.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/http.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/reasoning.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/models.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/image-references.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/image-route-context.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/attachments.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/core/browser.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/model-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/job-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/chat-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/route-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/image-generation-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/image-service.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/composition.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/fallback.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/usage-stats.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/services/browser.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/state.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/sessions.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/session-config.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/header-params.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/formatting.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/markdown-utils.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/display-items.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/persistence.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/runs.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/model-ui.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/attachments-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/image-context-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/session-persistence.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/session-display.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/session-ui-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/config-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/dialog-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/image-actions-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/image-preview-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/custom-select-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/composer-layout-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/performance-workflow.js?v=1.2.45-final-architecture-20260605"></script>
-  <script src="./client/app/job-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/image-result-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/job-resume-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/submit-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/chat-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/image-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/message-workflow.js?v=1.2.47-md-focus-20260605"></script>
-  <script src="./client/app/display-history-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/scroll-focus-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/route-decision-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/reasoning-workflow.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/file-actions.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/realtime-renderer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/scroll-controller.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/message-renderer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/message-actions.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/image-actions.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/browser.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/render-cache.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/render-scheduler.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/message-virtualizer.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/ui/usage-stats.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/browser.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/runtime.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/image-store.js?v=1.2.45-arch-cleanup-20260605"></script>
-  <script src="./client/app/media-workflow.js?v=1.2.45-final-architecture-media-20260605"></script>
-  <script src="./client/app/session-panel-workflow.js?v=1.2.45-final-architecture-session-panel-20260605"></script>
-  <script src="./client/app/bootstrap-workflow.js?v=1.2.45-final-architecture-boot5-20260605"></script>
-  <script src="./app.js?v=1.2.47-md-stable-20260605"></script>
+  <script src="./client/app/markdown/source-normalizer.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/link-policy.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/browser-engine.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/enhancer.js?v=1.2.80"></script>
+  <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
+  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.75"></script>
+  <script src="./client/app/markdown/dependency-loader.js?v=1.2.84"></script>
+  <script src="./client/app/markdown/browser.js?v=1.2.75"></script>
+  <script src="./client/core/http.js?v=1.2.65"></script>
+  <script src="./client/core/reasoning.js?v=1.2.65"></script>
+  <script src="./client/core/models.js?v=1.2.65"></script>
+  <script src="./client/core/image-references.js?v=1.2.65"></script>
+  <script src="./client/core/image-route-context.js?v=1.2.65"></script>
+  <script src="./client/core/attachments.js?v=1.2.65"></script>
+  <script src="./client/core/browser.js?v=1.2.65"></script>
+  <script src="./client/services/model-service.js?v=1.2.65"></script>
+  <script src="./client/services/job-service.js?v=1.2.65"></script>
+  <script src="./client/services/chat-service.js?v=1.2.65"></script>
+  <script src="./client/services/route-service.js?v=1.2.65"></script>
+  <script src="./client/services/image-generation-service.js?v=1.2.65"></script>
+  <script src="./client/services/image-service.js?v=1.2.65"></script>
+  <script src="./client/services/composition.js?v=1.2.65"></script>
+  <script src="./client/services/fallback.js?v=1.2.65"></script>
+  <script src="./client/services/usage-stats.js?v=1.2.65"></script>
+  <script src="./client/services/browser.js?v=1.2.65"></script>
+  <script src="./client/app/state.js?v=1.2.65"></script>
+  <script src="./client/app/sessions.js?v=1.2.65"></script>
+  <script src="./client/app/session-config.js?v=1.2.65"></script>
+  <script src="./client/app/header-params.js?v=1.2.65"></script>
+  <script src="./client/app/formatting.js?v=1.2.65"></script>
+  <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
+  <script src="./client/app/display-items.js?v=1.2.65"></script>
+  <script src="./client/app/persistence.js?v=1.2.65"></script>
+  <script src="./client/app/runs.js?v=1.2.65"></script>
+  <script src="./client/app/model-ui.js?v=1.2.65"></script>
+  <script src="./client/app/attachments-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/image-context-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/session-persistence.js?v=1.2.69"></script>
+  <script src="./client/app/session-display.js?v=1.2.65"></script>
+  <script src="./client/app/session-ui-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/config-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/dialog-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/image-actions-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/image-preview-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/custom-select-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/composer-layout-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/performance-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/job-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/image-result-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/job-resume-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/submit-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/chat-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/image-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/message-workflow.js?v=1.2.75"></script>
+  <script src="./client/app/display-history-workflow.js?v=1.2.77"></script>
+  <script src="./client/app/scroll-focus-workflow.js?v=1.2.77"></script>
+  <script src="./client/app/route-decision-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/reasoning-workflow.js?v=1.2.65"></script>
+  <script src="./client/ui/file-actions.js?v=1.2.65"></script>
+  <script src="./client/ui/realtime-renderer.js?v=1.2.65"></script>
+  <script src="./client/ui/scroll-controller.js?v=1.2.65"></script>
+  <script src="./client/ui/message-renderer.js?v=1.2.65"></script>
+  <script src="./client/ui/message-actions.js?v=1.2.80"></script>
+  <script src="./client/ui/image-actions.js?v=1.2.65"></script>
+  <script src="./client/ui/browser.js?v=1.2.65"></script>
+  <script src="./client/ui/render-cache.js?v=1.2.65"></script>
+  <script src="./client/ui/render-scheduler.js?v=1.2.65"></script>
+  <script src="./client/ui/message-virtualizer.js?v=1.2.65"></script>
+  <script src="./client/ui/usage-stats.js?v=1.2.65"></script>
+  <script src="./client/app/browser.js?v=1.2.65"></script>
+  <script src="./client/app/runtime.js?v=1.2.65"></script>
+  <script src="./client/app/image-store.js?v=1.2.65"></script>
+  <script src="./client/app/media-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/session-panel-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/bootstrap-workflow.js?v=1.2.78"></script>
+  <script src="./app.js?v=1.2.83"></script>
 </body>
 </html>

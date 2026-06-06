@@ -65,8 +65,9 @@ function wrapTables(root) {
 function bindCopyButton(button, text, copyText) {
   if (!button) return;
   button.dataset.copyText = text;
-  if (button.dataset.copyBound === '1') return;
-  button.dataset.copyBound = '1';
+  if (button.__copyBound) return;
+  button.__copyBound = true;
+  button.removeAttribute('data-copy-bound');
   button.addEventListener('click', async () => {
     const currentText = button.dataset.copyText || '';
     clearTimeout(button._copyResetTimer);
@@ -92,7 +93,7 @@ function bindCopyButton(button, text, copyText) {
       button.innerHTML = COPY_ICON_SVG;
       button.title = '复制代码';
       button.setAttribute('aria-label', '复制代码');
-    }, 900);
+    }, 2000);
   });
 }
 
@@ -206,8 +207,9 @@ function ensureRenderedMermaidToggle(block) {
     btn.className = 'inline-copy code-action-icon mermaid-toggle-btn mermaid-render-toggle';
     block.insertBefore(btn, block.firstChild);
   }
-  if (btn.dataset.mermaidToggleBound !== '1') {
-    btn.dataset.mermaidToggleBound = '1';
+  if (!btn.__mermaidToggleBound) {
+    btn.__mermaidToggleBound = true;
+    btn.removeAttribute('data-mermaid-toggle-bound');
     btn.addEventListener('click', () => showMermaidSource(block));
   }
   setMermaidToggleState(btn, 'rendered');
@@ -246,8 +248,9 @@ function initMermaidToggleUI(root, options = {}) {
       const copyBtn = ensured.codeWrap.querySelector(':scope > .code-copy-icon');
       ensured.codeWrap.insertBefore(btn, copyBtn ? copyBtn.nextSibling : ensured.codeWrap.firstChild);
     }
-    if (btn.dataset.mermaidToggleBound !== '1') {
-      btn.dataset.mermaidToggleBound = '1';
+    if (!btn.__mermaidToggleBound) {
+      btn.__mermaidToggleBound = true;
+      btn.removeAttribute('data-mermaid-toggle-bound');
       btn.addEventListener('click', async () => {
         if (block.dataset.mermaidRendered === '1') { showMermaidSource(block); return; }
         setMermaidToggleState(btn, 'rendering');
@@ -269,7 +272,7 @@ function initMermaidToggleUI(root, options = {}) {
 
 async function defaultLoadMermaid() {
   if (root?.mermaid) return root.mermaid;
-  await root?.ChatUIMarkdownDependencyLoader?.loadScripts?.();
+  await (root?.ChatUIMarkdownDependencyLoader?.loadMermaid?.() || root?.ChatUIMarkdownDependencyLoader?.loadScripts?.(resource => resource?.id === 'mermaid'));
   return root?.mermaid || null;
 }
 
@@ -487,6 +490,11 @@ async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = 
 
 function enhanceRenderedMarkdown(root, options = {}) {
   if (!root?.querySelectorAll) return Promise.resolve([]);
+  try { enhanceCodeCopy(root, options.copyText); } catch (err) { console.warn('[markdown] code copy enhance failed:', err); }
+  try {
+    if (options.allowResourceLoad === true && !options.streaming) globalThis.ChatUIMarkdownBrowserStreamingRenderer?.restoreMarkdownResources?.(root, { once: options.onceResourceLoad !== false });
+    else globalThis.ChatUIMarkdownBrowserStreamingRenderer?.deferMarkdownResources?.(root);
+  } catch {}
   const previous = root.__chatuiEnhanceJob;
   if (previous?.cancel) previous.cancel();
   const signal = { cancelled: false };

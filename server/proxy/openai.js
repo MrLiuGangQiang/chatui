@@ -1,7 +1,5 @@
-const { SECURITY_HEADERS, send, sendJson, sendError } = require('../http/response');
-const { readBody, parseJson } = require('../http/body');
-const { normalizeExtraHeaders } = require('./headers');
-const { normalizeBaseUrl } = require('../security/url-policy');
+const { SECURITY_HEADERS, send, sendError } = require('../http/response');
+const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
 const {
   extractImageEditFiles,
   stripImageEditFileFields,
@@ -26,25 +24,20 @@ function withQueryParams(rawUrl, params) {
 
 function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, allowedProxyMethods, allowedProxyPaths }) {
   async function proxy(req, res) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
+  if (!allowedProxyPaths.some(re => re.test(targetPath))) {
+    return sendError(res, 403, '不允许代理该路径', 'PROXY_PATH_FORBIDDEN');
+  }
   let proxyChatJob = null;
+  const extracted = await extractProxyRequest(req, res);
+  if (!extracted) return;
+  const { body, baseUrl, apiKey, extraHeaders } = extracted;
   try {
-    const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
-    if (!allowedProxyPaths.some(re => re.test(targetPath))) {
-      return sendError(res, 403, '不允许代理该路径', 'PROXY_PATH_FORBIDDEN');
-    }
-
-    const body = parseJson(await readBody(req));
-    const baseUrl = normalizeBaseUrl(body.baseUrl);
-    const apiKey = String(body.apiKey || '').trim();
     const payload = body.payload || {};
     const query = body.query || {};
-    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
     const method = String(body.method || 'POST').toUpperCase();
     const proxyJobId = String(body.jobId || '').trim();
 
-    if (!baseUrl) return sendError(res, 400, '缺少或非法 baseUrl', 'INVALID_BASE_URL');
     if (!allowedProxyMethods.has(method)) return sendError(res, 405, '不支持的代理方法', 'PROXY_METHOD_NOT_ALLOWED');
 
     const targetUrl = withQueryParams(`${baseUrl}${targetPath}`, query);
@@ -68,17 +61,18 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       upstreamBody = multipart.body;
       upstreamContentHeaders = multipart.headers;
     }
-    const upstream = await fetch(targetUrl.toString(), {
+    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
-      signal: controller.signal,
       headers: {
         ...upstreamContentHeaders,
         ...(wantsStream ? { Accept: 'text/event-stream' } : {}),
         ...extraHeaders,
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
-      ...(method === 'GET' ? {} : { body: upstreamBody }),
+      body: method === 'GET' ? undefined : upstreamBody,
+      upstreamTimeoutMs,
     });
+    const upstream = await upstreamResponse;
 
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
     const isEventStream = contentType.toLowerCase().includes('text/event-stream');
@@ -151,25 +145,21 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 }
 
   async function proxyImage(req, res) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  const extracted = await extractProxyRequest(req, res);
+  if (!extracted) return;
+  const { body, baseUrl, apiKey, extraHeaders } = extracted;
   try {
-    const body = parseJson(await readBody(req));
-    const baseUrl = normalizeBaseUrl(body.baseUrl);
-    const apiKey = String(body.apiKey || '').trim();
-    const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
-
-    if (!baseUrl) return sendError(res, 400, '缺少或非法 baseUrl', 'INVALID_BASE_URL');
     const imageUrl = new URL(String(body.url || '').trim());
     const base = new URL(baseUrl);
     if (!['http:', 'https:'].includes(imageUrl.protocol)) return sendError(res, 400, '非法图片地址', 'INVALID_IMAGE_URL');
     if (imageUrl.origin !== base.origin) return sendError(res, 403, '只允许代理同源图片地址', 'IMAGE_PROXY_ORIGIN_FORBIDDEN');
 
-    const upstream = await fetch(imageUrl.toString(), {
+    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(imageUrl.toString(), {
       method: 'GET',
-      signal: controller.signal,
       headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+      upstreamTimeoutMs,
     });
+    const upstream = await upstreamResponse;
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
       const text = await upstream.text();

@@ -23,7 +23,6 @@ vm.runInContext(markdownUtils, context, { filename: markdownUtilsPath });
 vm.runInContext(browserApp, context, { filename: browserAppPath });
 
 assert.strictEqual(context.window.ChatUIApp.markdownUtils, context.window.ChatUIAppMarkdownUtils, 'browser app reuses shared markdown utils object');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownPlainTextFallback('**b**'), '<p>**b**</p>');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.slugifyHeading('Hello, ChatUI!'), 'hello-chatui');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownLegacy, undefined);
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderLists, undefined);

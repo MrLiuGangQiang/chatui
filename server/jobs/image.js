@@ -1,8 +1,5 @@
 const { sendJson } = require('../http/response');
-const { readBody, parseJson } = require('../http/body');
-const { normalizeExtraHeaders } = require('../proxy/headers');
-const { normalizeBaseUrl } = require('../security/url-policy');
-const { makeJobId, getJobIdFromUrl, publicJob } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 
 
 function multipartEscape(value = '') {
@@ -66,30 +63,28 @@ function stripImageEditFileFields(payload = {}) {
 
 function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
 async function runImageJob(job) {
-const controller = new AbortController();
-job.controller = controller;
-const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
+let body;
+if (job.mode === 'edit_image') {
+  const multipart = buildImageEditMultipartBody(stripImageEditFileFields(job.payload), job.files);
+  body = multipart.body;
+  Object.assign(headers, multipart.headers);
+} else {
+  headers['Content-Type'] = 'application/json';
+  body = JSON.stringify(job.payload || {});
+}
+const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+  method: 'POST',
+  headers,
+  body,
+  job,
+  upstreamTimeoutMs,
+});
 try {
   job.serverStartAt = Date.now();
-  const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
-  let body;
-  if (job.mode === 'edit_image') {
-    const multipart = buildImageEditMultipartBody(stripImageEditFileFields(job.payload), job.files);
-    body = multipart.body;
-    Object.assign(headers, multipart.headers);
-  } else {
-    headers['Content-Type'] = 'application/json';
-    body = JSON.stringify(job.payload || {});
-  }
-  const upstream = await fetch(job.targetUrl, {
-    method: 'POST',
-    signal: controller.signal,
-    headers,
-    body,
-  });
+  const upstream = await upstreamResponse;
   const text = await upstream.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  const data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   job.status = 'done';
   job.data = data;
@@ -107,12 +102,11 @@ try {
 }
 
 async function startImageJob(req, res) {
+const extracted = await extractProxyRequest(req, res);
+if (!extracted) return;
+const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const body = parseJson(await readBody(req));
-  const baseUrl = normalizeBaseUrl(body.baseUrl);
-  const apiKey = String(body.apiKey || '').trim();
   const payload = body.payload || {};
-    if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
   const jobId = makeJobId(body.jobId);
   if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const mode = body.mode === 'edit_image' ? 'edit_image' : 'image';
@@ -126,7 +120,7 @@ try {
     updatedAt: Date.now(),
     targetUrl: `${baseUrl}/images/${mode === 'edit_image' ? 'edits' : 'generations'}`,
     apiKey,
-    extraHeaders: normalizeExtraHeaders(body.headers || body.extraHeaders),
+    extraHeaders,
     payload,
     files,
     data: null,
@@ -137,14 +131,14 @@ try {
   runImageJob(job);
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
-  sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+  respondJobError(res, err);
 }
 }
 
 function getImageJob(req, res) {
 const id = getJobIdFromUrl(req);
-const job = imageJobs.get(id);
-if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+const job = findJobOr404(imageJobs, id, res);
+if (!job) return;
 sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 }
 

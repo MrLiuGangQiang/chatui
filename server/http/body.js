@@ -30,4 +30,4 @@ function parseJson(text) {
   }
 }
 
-module.exports = { MAX_BODY_BYTES, readBody, parseJson };
+module.exports = { readBody, parseJson };

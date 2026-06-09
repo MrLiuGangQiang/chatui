@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const { makeJobId, publicJob } = require('../../server/jobs/common');
-const { makeChatJob } = require('../../server/jobs/chat');
+const { createChatJobHandlers } = require('../../server/jobs/chat');
+const { makeChatJob } = createChatJobHandlers({ chatJobs: new Map(), notifyJob: () => {}, upstreamTimeoutMs: 30000 });
 const { buildImageEditMultipartBody, extractImageEditFiles, stripImageEditFileFields } = require('../../server/jobs/image');
 const { normalizeContentText, normalizeReasoningText } = require('../../server/jobs/reasoning');
 

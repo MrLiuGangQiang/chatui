@@ -1,4 +1,7 @@
 const { SECURITY_HEADERS, sendJson } = require('../http/response');
+const { readBody, parseJson } = require('../http/body');
+const { normalizeExtraHeaders } = require('../proxy/headers');
+const { normalizeBaseUrl } = require('../security/url-policy');
 
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
@@ -77,7 +80,7 @@ function createJobEvents({ jobSubscribers }) {
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
     const job = store.get(id);
-    if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+    if (!job) { res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' }); res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: '任务不存在或服务已重启' } })}\n\n`); res.end(); return; }
     res.writeHead(200, {
       ...SECURITY_HEADERS,
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -113,4 +116,45 @@ function createJobEvents({ jobSubscribers }) {
   return { notifyJob, subscribeJob, abortJob };
 }
 
-module.exports = { makeJobId, getJobIdFromUrl, publicJob, createJobEvents };
+async function extractProxyRequest(req, res) {
+  let body;
+  try {
+    body = parseJson(await readBody(req));
+  } catch (err) {
+    sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err) } });
+    return null;
+  }
+  const baseUrl = normalizeBaseUrl(body.baseUrl);
+  const apiKey = String(body.apiKey || '').trim();
+  const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
+  if (!baseUrl) {
+    sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
+    return null;
+  }
+  return { body, baseUrl, apiKey, extraHeaders };
+}
+
+function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs }) {
+  const controller = new AbortController();
+  if (job) job.controller = controller;
+  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  const response = fetch(url, { method, headers, body, signal: controller.signal });
+  return { response, controller, timer };
+}
+
+function safeParseJson(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
+function respondJobError(res, err) {
+  sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+}
+
+function findJobOr404(store, id, res) {
+  const job = store.get(id);
+  if (!job) sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+  return job;
+}
+
+module.exports = { makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 };

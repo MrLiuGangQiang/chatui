@@ -8,10 +8,11 @@
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.2.82" />
-  <link rel="stylesheet" href="./styles/composer.css?v=1.2.65" />
-  <link rel="stylesheet" href="./styles/messages.css?v=1.2.65" />
-  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.2.65" />
+  <link rel="stylesheet" href="./styles.css?v=1.3.0" />
+  <link rel="stylesheet" href="./styles/composer.css?v=1.3.0" />
+  <link rel="stylesheet" href="./styles/messages.css?v=1.3.0" />
+  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.0" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.0.0" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -65,12 +66,12 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>
           <span>清除所有会话</span>
         </button>
-        <span class="sidebar-version-badge" data-app-version aria-label="当前版本">v--</span>
-        </div>
         <a class="session-github-btn" href="https://github.com/MrLiuGangQiang/chatui" target="_blank" rel="noopener noreferrer" title="GitHub 项目" aria-label="GitHub 项目">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6A9.4 9.4 0 0 0 8.9 20c.47.09.64-.2.64-.45v-1.62c-2.6.57-3.15-1.12-3.15-1.12-.43-1.1-1.05-1.39-1.05-1.39-.86-.59.07-.58.07-.58.95.07 1.45.98 1.45.98.85 1.45 2.23 1.03 2.77.79.09-.62.33-1.03.6-1.27-2.08-.24-4.27-1.04-4.27-4.63 0-1.02.37-1.86.98-2.52-.1-.24-.43-1.2.09-2.48 0 0 .8-.26 2.61.96A9 9 0 0 1 12 6.35c.8 0 1.61.11 2.37.32 1.8-1.22 2.6-.96 2.6-.96.52 1.28.2 2.24.1 2.48.61.66.98 1.5.98 2.52 0 3.6-2.2 4.39-4.3 4.62.34.29.64.86.64 1.74v2.48c0 .25.17.54.65.45A9.4 9.4 0 0 0 12 2.6Z"/></svg>
           <span>GitHub</span>
         </a>
+        <span class="sidebar-version-badge" data-app-version aria-label="当前版本">v--</span>
+        </div>
       </div>
     </aside>
     <div id="sessionDrawerMask" class="session-drawer-mask" aria-hidden="true"></div>
@@ -231,7 +232,6 @@
               <h3>连接信息</h3>
               <p>OpenAI 兼容 Endpoint</p>
             </div>
-            <button id="headerParamsBtn" type="button" class="load-models-btn param-config-btn">参数配置</button>
           </div>
           <label>
             <span>Endpoint Base URL</span>
@@ -253,7 +253,6 @@
           <div class="connection-helper">
             <strong>连接说明</strong>
             <span>Base URL 建议填写到 <code>/v1</code>；API Key 仅保存在本地浏览器。</span>
-            <span>“参数配置”只作用于会话请求：意图判断、聊天、生图和编辑图片。</span>
           </div>
         </section>
 
@@ -330,38 +329,6 @@
         <button id="saveConfigBtn" type="button">保存配置</button>
       </div>
     </section>
-
-    <aside id="headerParamsPanel" class="header-params-panel" aria-hidden="true">
-      <div class="config-section-title header-param-panel-head">
-        <span class="config-section-icon">H</span>
-        <div>
-          <h3>Header 参数</h3>
-          <p>输入固定值，或选择内置 UUID</p>
-        </div>
-        <div class="header-param-head-actions">
-          <button id="addHeaderParamBtn" type="button" class="header-param-add-btn" title="新增 Header" aria-label="新增 Header">+</button>
-          <button id="closeHeaderParamsPanelBtn" type="button" class="header-param-close-btn" title="关闭" aria-label="关闭 Header 参数">×</button>
-        </div>
-      </div>
-      <div id="headerParamList" class="header-param-list"></div>
-      <template id="headerParamRowTemplate">
-        <div class="header-param-row">
-          <input class="header-param-name" placeholder="参数名，例如 X-Request-ID" aria-label="Header 名称" />
-          <div class="header-param-value-cell">
-            <input class="header-param-value" placeholder="参数值" aria-label="Header 值" />
-            <select class="header-param-mode" aria-label="Header 值来源">
-              <option value="manual">输入</option>
-              <option value="session_short_uuid">会话UUID</option>
-              <option value="message_short_uuid">消息UUID</option>
-            </select>
-          </div>
-          <button class="header-param-remove" type="button" title="删除" aria-label="删除 Header">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>
-          </button>
-        </div>
-      </template>
-
-    </aside>
   </div>
 
 
@@ -371,7 +338,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
     </button>
     <button id="imagePreviewCopy" class="image-preview-copy image-preview-action" type="button" data-copy-image="1" title="复制图片" aria-label="复制图片" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
     </button>
     <button id="imagePreviewClose" class="image-preview-close" type="button" title="关闭预览" aria-label="关闭预览">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>
@@ -450,7 +417,6 @@
   <script src="./client/app/state.js?v=1.2.65"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
   <script src="./client/app/session-config.js?v=1.2.65"></script>
-  <script src="./client/app/header-params.js?v=1.2.65"></script>
   <script src="./client/app/formatting.js?v=1.2.65"></script>
   <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
   <script src="./client/app/display-items.js?v=1.2.65"></script>
@@ -473,11 +439,11 @@
   <script src="./client/app/image-result-workflow.js?v=1.2.65"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.65"></script>
   <script src="./client/app/submit-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/chat-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/chat-workflow.js?v=1.3.0"></script>
   <script src="./client/app/image-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/message-workflow.js?v=1.2.85"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.0"></script>
   <script src="./client/app/display-history-workflow.js?v=1.2.77"></script>
-  <script src="./client/app/scroll-focus-workflow.js?v=1.2.77"></script>
+  <script src="./client/app/scroll-focus-workflow.js?v=1.3.0"></script>
   <script src="./client/app/route-decision-workflow.js?v=1.2.65"></script>
   <script src="./client/app/reasoning-workflow.js?v=1.2.66"></script>
   <script src="./client/ui/file-actions.js?v=1.2.65"></script>

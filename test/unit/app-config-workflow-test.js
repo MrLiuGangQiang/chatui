@@ -7,8 +7,7 @@ const dom = new JSDOM(`<!doctype html><body>
 <input id="baseUrl"><input id="apiKey"><select id="imageSize"><option value="auto">auto</option></select>
 <textarea id="systemPrompt"></textarea><textarea id="imageStylePrompt"></textarea>
 <select id="chatModel"><option value="m1">m1</option></select><select id="routeModel"><option value="m1">m1</option></select><select id="imageModel"><option value="m1">m1</option></select>
-<div id="configModal"><div class="config-dialog"></div></div><button id="headerParamsBtn"></button><div id="headerParamsPanel"></div><div id="headerParamList"></div>
-<template id="headerParamRowTemplate"><div class="header-param-row"><input class="header-param-name"><select class="header-param-mode"><option value="manual">manual</option><option value="session_short_uuid">session</option><option value="message_short_uuid">message</option></select><input class="header-param-value"><button class="header-param-remove"></button></div></template>
+<div id="configModal"><div class="config-dialog"></div></div>
 </body>`);
 const { document } = dom.window;
 const storage = new Map();
@@ -38,10 +37,6 @@ assert.strictEqual(workflow.getConfig().baseUrl, 'http://x');
 const headers1 = workflow.buildRequestHeaders();
 const headers2 = workflow.buildRequestHeaders();
 assert.strictEqual(headers1['X-Trace'], headers2['X-Trace']);
-workflow.openHeaderParamsModal();
-assert.ok(document.getElementById('headerParamsPanel').classList.contains('show'));
-workflow.closeHeaderParamsModal();
-assert.ok(!document.getElementById('headerParamsPanel').classList.contains('show'));
 workflow.openConfigModal();
 assert.ok(document.body.classList.contains('modal-open'));
 workflow.closeConfigModal();

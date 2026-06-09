@@ -12,12 +12,13 @@
   }
 
   function escapeHtml(value) {
-    return String(value).replace(/[&<>'"]/g, ch => ({
+    return String(value).replace(/[&<>"'`]/g, ch => ({
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
       "'": '&#39;',
       '"': '&quot;',
+      '`': '&#96;',
     }[ch]));
   }
 

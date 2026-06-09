@@ -68,4 +68,4 @@ function createUsageStatsRepository(pool, options = {}) {
   return { getRanking, getPersonalRange };
 }
 
-module.exports = { createUsageStatsRepository, normalizeRankingLimit };
+module.exports = { createUsageStatsRepository };

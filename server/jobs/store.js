@@ -47,4 +47,4 @@ function startJobSweeper(stores, intervalMs = Number(process.env.JOB_SWEEP_INTER
   return timer;
 }
 
-module.exports = { JobStore, createJobStores, startJobSweeper, DEFAULT_TTL_MS, DEFAULT_MAX_JOBS };
+module.exports = { JobStore, createJobStores, startJobSweeper };

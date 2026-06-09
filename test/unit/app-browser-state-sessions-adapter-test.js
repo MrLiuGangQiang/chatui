@@ -26,7 +26,7 @@ for (const file of [
   'client/app/state.js',
   'client/app/sessions.js',
   'client/app/session-config.js',
-  'client/app/header-params.js',
+  // header-params.js removed
   'client/app/formatting.js',
   'client/app/markdown-utils.js',
   'client/app/display-items.js',

@@ -18,12 +18,11 @@
       const filename = `generated-${Date.now()}-${index + 1}.png`;
       const persisted = await deps.settleWithin(deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true }), 8000, { persistedSrc: item.src, displaySrc: item.src });
       const persistedSrc = persisted?.persistedSrc || item.src;
-      // Never put indexeddb:// directly into img.src: browsers treat unknown schemes as
-      // relative network URLs (for example /indexeddb//img...), producing red failed
-      // requests in DevTools. Keep the durable ref in data-persisted-src and let
-      // hydrateMessageMedia()/resolvePersistedImages() replace the transparent placeholder
-      // with a fresh blob URL for the current document.
-      const displaySrc = String(persistedSrc || '').startsWith('indexeddb://') ? TRANSPARENT_PIXEL : persistedSrc;
+      // Use the blob URL from persistImageSrc for immediate display (avoids
+      // IndexedDB write-then-read timing issues), falling back to transparent
+      // pixel only when the blob URL is unavailable. The data-persisted-src
+      // attribute still holds the durable indexeddb:// ref for page reloads.
+      const displaySrc = persisted?.displaySrc || (String(persistedSrc || '').startsWith('indexeddb://') ? TRANSPARENT_PIXEL : persistedSrc);
       const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null) || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
       const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];

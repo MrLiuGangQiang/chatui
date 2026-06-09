@@ -8,7 +8,6 @@ const root = path.resolve(__dirname, '../..');
 const statePath = path.join(root, 'client/app/state.js');
 const sessionsPath = path.join(root, 'client/app/sessions.js');
 const sessionConfigPath = path.join(root, 'client/app/session-config.js');
-const headerParamsPath = path.join(root, 'client/app/header-params.js');
 const formattingPath = path.join(root, 'client/app/formatting.js');
 const markdownUtilsPath = path.join(root, 'client/app/markdown-utils.js');
 const displayItemsPath = path.join(root, 'client/app/display-items.js');
@@ -18,7 +17,6 @@ const browserAppPath = path.join(root, 'client/app/browser.js');
 const stateModule = fs.readFileSync(statePath, 'utf8');
 const sessionsModule = fs.readFileSync(sessionsPath, 'utf8');
 const sessionConfig = fs.readFileSync(sessionConfigPath, 'utf8');
-const headerParams = fs.readFileSync(headerParamsPath, 'utf8');
 const formatting = fs.readFileSync(formattingPath, 'utf8');
 const markdownUtils = fs.readFileSync(markdownUtilsPath, 'utf8');
 const displayItems = fs.readFileSync(displayItemsPath, 'utf8');
@@ -31,7 +29,6 @@ vm.createContext(context);
 vm.runInContext(stateModule, context, { filename: statePath });
 vm.runInContext(sessionsModule, context, { filename: sessionsPath });
 vm.runInContext(sessionConfig, context, { filename: sessionConfigPath });
-vm.runInContext(headerParams, context, { filename: headerParamsPath });
 vm.runInContext(formatting, context, { filename: formattingPath });
 vm.runInContext(markdownUtils, context, { filename: markdownUtilsPath });
 vm.runInContext(displayItems, context, { filename: displayItemsPath });
@@ -42,7 +39,6 @@ vm.runInContext(browserApp, context, { filename: browserAppPath });
 assert.ok(context.window.ChatUIApp, 'browser app namespace exists');
 assert.ok(context.window.ChatUIApp.state?.createSession, 'state module is exported');
 assert.ok(context.window.ChatUIApp.sessionConfig?.getSessionChatModel, 'session config module is exported');
-assert.ok(context.window.ChatUIApp.headerParams?.normalizeHeaderParamConfig, 'header params module is exported');
 assert.ok(context.window.ChatUIApp.formatting?.formatElapsed, 'formatting module is exported');
 assert.ok(context.window.ChatUIApp.markdownUtils?.slugifyHeading, 'markdown utils module is exported');
 assert.ok(context.window.ChatUIApp.runs?.ensureActiveRun, 'runs module is exported');
@@ -78,17 +74,8 @@ assert.strictEqual(
   context.window.ChatUIApp.sessionConfig.getSessionChatModel({ session: { chatModel: 'local' }, config: { chatModel: 'global' }, models: ['local'] }),
   'local',
 );
-assert.strictEqual(
-  JSON.stringify(context.window.ChatUIApp.headerParams.normalizeHeaderParamConfig([{ name: ' X-Trace ', mode: 'bad', value: 123 }])),
-  '[{"name":"X-Trace","mode":"manual","value":"123"}]',
-);
-assert.strictEqual(
-  JSON.stringify(context.window.ChatUIApp.headerParams.buildRequestHeadersFromParams({ params: [{ name: 'X-Msg', mode: 'message_short_uuid' }], messageUuid: () => 'm1' }).headers),
-  '{"X-Msg":"m1"}',
-);
 assert.strictEqual(context.window.ChatUIApp.formatting.formatElapsed(65000), '1m 5s');
 assert.strictEqual(context.window.ChatUIApp.formatting.escapeHtml('<x>'), '&lt;x&gt;');
-assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownPlainTextFallback('**b**'), '<p>**b**</p>');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.slugifyHeading('Hello, ChatUI!'), 'hello-chatui');
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderLists, undefined);
 assert.strictEqual(context.window.ChatUIApp.markdownUtils.renderMarkdownLegacy, undefined);

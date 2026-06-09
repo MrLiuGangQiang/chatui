@@ -7,21 +7,6 @@ function optionalRequire(name) {
   try { return require(name); } catch { return null; }
 }
 
-function escapeXmlText(text = '') {
-  return String(text)
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
-function decodeOpenXmlText(xml = '') {
-  return escapeXmlText(String(xml || '')
-    .replace(/<br\s*\/?\s*>/gi, '\n')
-    .replace(/<[^>]+>/g, ''));
-}
-
 function dataUrlToBuffer(dataUrl = '') {
   const value = String(dataUrl || '');
   if (!value.includes(',')) return Buffer.from(value, 'base64');
@@ -93,8 +78,6 @@ function hasUsefulText(text = '', minScore = 80) {
 
 module.exports = {
   optionalRequire,
-  escapeXmlText,
-  decodeOpenXmlText,
   dataUrlToBuffer,
   limitExtractedText,
   withAttachmentHeader,

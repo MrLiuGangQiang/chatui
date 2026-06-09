@@ -84,19 +84,20 @@ async function getJob({ fetchImpl = fetch, url, parseResponseJson, normalizeErro
   return payload;
 }
 
-function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, EventSourceImpl = EventSource, pollJob = null, pollIntervalMs = 2500 }) {
+function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, fetchImpl = fetch, pollJob = null, pollIntervalMs = 2500 }) {
   let abort = null;
   let pollTimer = null;
   return new Promise((resolve, reject) => {
-    let source = null;
     let finished = false;
+    let reader = null;
+    let reconnectTimer = null;
     let reconnects = 0;
-    let opened = false;
     const finish = (fn, value) => {
       if (finished) return;
       finished = true;
       clearTimeout(pollTimer);
-      try { source?.close(); } catch {}
+      clearTimeout(reconnectTimer);
+      try { reader?.cancel(); } catch {}
       fn(value);
     };
     const handleJob = job => {
@@ -105,6 +106,42 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
         const data = job.data && typeof job.data === 'object' ? { ...job.data, metrics: job.metrics || job.data.metrics || {} } : job.data;
         finish(resolve, data);
       } else if (job.status === 'error') finish(reject, new Error(job.error?.message || '任务失败'));
+    };
+    const processLine = (line, buffer) => {
+      if (line.startsWith('event: ')) buffer.event = line.slice(7).trim();
+      else if (line.startsWith('data: ')) buffer.data = (buffer.data || '') + line.slice(6);
+      else if (line === '' && buffer.data) {
+        try { handleJob(JSON.parse(buffer.data)); } catch {}
+        buffer.event = ''; buffer.data = '';
+      }
+    };
+    const readStream = async (response) => {
+      if (!response.ok || !response.body) {
+        if (!pollJob) finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
+        return;
+      }
+      const buf = { event: '', data: '' };
+      const decoder = new TextDecoder();
+      reader = response.body.getReader();
+      let leftover = '';
+      try {
+        while (!finished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          leftover += decoder.decode(value, { stream: true });
+          const lines = leftover.split('\n');
+          leftover = lines.pop() || '';
+          for (const line of lines) processLine(line, buf);
+        }
+        if (leftover) processLine(leftover, buf);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+      if (!finished) {
+        if (pollJob) return;
+        if (reconnects > 60) { finish(reject, new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送')); return; }
+        reconnectTimer = setTimeout(connect, Math.min(1000 + 250 * reconnects, 5000));
+      }
     };
     const poll = async () => {
       if (finished || !pollJob || pageUnloading()) return;
@@ -120,26 +157,18 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
     poll();
     const connect = () => {
       if (finished) return;
-      source = new EventSourceImpl(url);
-      source.onopen = () => { opened = true; reconnects = 0; };
-      source.addEventListener('update', event => {
-        opened = true;
-        handleJob(JSON.parse(event.data || '{}'));
-      });
-      source.onerror = () => {
-        source.close();
-        if (finished || pageUnloading()) return;
-        if (!opened && !pollJob) {
-          finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
-          return;
-        }
-        reconnects += 1;
-        if (reconnects > 60 && !pollJob) {
-          finish(reject, new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送'));
-          return;
-        }
-        setTimeout(connect, Math.min(1000 + 250 * reconnects, 5000));
-      };
+      reconnects += 1;
+      fetchImpl(url, { signal, headers: { Accept: 'text/event-stream' } })
+        .then(response => readStream(response))
+        .catch(err => {
+          if (finished || pageUnloading()) return;
+          if (err.name === 'AbortError') return;
+          if (!pollJob) {
+            if (reconnects <= 1) finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
+            else if (reconnects > 60) finish(reject, new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送'));
+            else reconnectTimer = setTimeout(connect, Math.min(1000 + 250 * reconnects, 5000));
+          }
+        });
     };
     connect();
   }).finally(() => {

@@ -39,5 +39,8 @@
     "officeparser": "^6.1.1",
     "pdf-parse": "^2.4.5",
     "pg": "^8.21.0"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.1.0"
   }
 }

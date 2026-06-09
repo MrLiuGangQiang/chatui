@@ -2,7 +2,8 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const { createOpenAiProxy } = require('../../server/proxy/openai');
-const { makeChatJob } = require('../../server/jobs/chat');
+const { createChatJobHandlers } = require('../../server/jobs/chat');
+const { makeChatJob } = createChatJobHandlers({ chatJobs: new Map(), notifyJob: () => {}, upstreamTimeoutMs: 30000 });
 
 function makeReq({ url, method = 'POST', body = {} }) {
   const req = new EventEmitter();

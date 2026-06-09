@@ -10,14 +10,8 @@
       .replace(/-+/g, '-');
   }
 
-  function renderMarkdownPlainTextFallback(value, { escapeHtml = String } = {}) {
-    const text = escapeHtml(String(value || ''));
-    return `<p>${text.replace(/\n/g, '<br>')}</p>`;
-  }
-
   const markdownUtilsApi = Object.freeze({
     slugifyHeading,
-    renderMarkdownPlainTextFallback,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = markdownUtilsApi;

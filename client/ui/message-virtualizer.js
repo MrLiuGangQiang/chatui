@@ -10,9 +10,7 @@
     placeholderPreviewChars: 360,
   });
 
-  function escapeHtml(value = '') {
-    return String(value || '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch]));
-  }
+  const escapeHtml = (global.ChatUIAppFormatting || global.ChatUIApp?.formatting || {}).escapeHtml || (value => String(value || '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
 
   function plainPreview(raw = '', limit = DEFAULTS.placeholderPreviewChars) {
     const text = String(raw || '');

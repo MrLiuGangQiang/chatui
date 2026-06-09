@@ -27,15 +27,15 @@ for (const fn of [
   assert.ok(!browserApp.includes(`function ${fn}`), `browser app must not duplicate ${fn}`);
 }
 
-for (const globalName of ['ChatUIAppSessionConfig', 'ChatUIAppHeaderParams', 'ChatUIAppFormatting']) {
+for (const globalName of ['ChatUIAppSessionConfig', 'ChatUIAppFormatting']) {
   assert.ok(browserApp.includes(`window.${globalName}`), `browser app should reuse ${globalName}`);
 }
+// header-params module removed, so ChatUIAppHeaderParams is no longer expected
 
 const context = { window: {}, AbortController, Date, Math };
 vm.createContext(context);
 for (const file of [
   'client/app/session-config.js',
-  'client/app/header-params.js',
   'client/app/formatting.js',
   'client/app/markdown-utils.js',
   'client/app/display-items.js',
@@ -47,13 +47,8 @@ for (const file of [
 }
 
 assert.strictEqual(context.window.ChatUIApp.sessionConfig, context.window.ChatUIAppSessionConfig);
-assert.strictEqual(context.window.ChatUIApp.headerParams, context.window.ChatUIAppHeaderParams);
 assert.strictEqual(context.window.ChatUIApp.formatting, context.window.ChatUIAppFormatting);
 assert.strictEqual(context.window.ChatUIApp.formatting.escapeHtml('<x>'), '&lt;x&gt;');
 assert.strictEqual(context.window.ChatUIApp.sessionConfig.getSessionChatModel({ session: { chatModel: 'm1' }, config: { chatModel: 'm0' }, models: ['m1'] }), 'm1');
-assert.strictEqual(
-  JSON.stringify(context.window.ChatUIApp.headerParams.normalizeHeaderParamConfig([{ name: ' X ', mode: 'bad', value: 1 }])),
-  '[{"name":"X","mode":"manual","value":"1"}]',
-);
 
 console.log('app browser shared adapters ok');

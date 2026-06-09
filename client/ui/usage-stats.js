@@ -7,7 +7,7 @@
   const CONFIG_KEY = 'openapi-chat-image-config-v2';
 
   const $ = id => document.getElementById(id);
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  const escapeHtml = (typeof window !== 'undefined' && (window.ChatUIAppFormatting || window.ChatUIApp?.formatting || {}).escapeHtml) || (value => String(value ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
 
   function formatTokens(value) {
     const number = Number(value) || 0;

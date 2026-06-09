@@ -69,7 +69,6 @@ assertRuleIncludes('.composer,\n.composer.compact-composer', [
   'isolation:isolate!important',
 ], { source: composerCss });
 assertRuleIncludes('.modal', ['z-index:50'], { source: baseCss });
-assertRuleIncludes('.header-params-panel', ['z-index:52'], { source: baseCss });
 assertRuleIncludes('.session-prompt-panel', ['z-index:100'], { source: baseCss });
 assertRuleIncludes('.input-stack{\n  margin:0 auto!important', [
   'position:relative!important',

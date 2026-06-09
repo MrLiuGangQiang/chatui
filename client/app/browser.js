@@ -3,7 +3,7 @@
 
 
   const sessionConfig = window.ChatUIAppSessionConfig || window.ChatUIApp?.sessionConfig || {};
-  const headerParams = window.ChatUIAppHeaderParams || window.ChatUIApp?.headerParams || {};
+
   const formatting = window.ChatUIAppFormatting || window.ChatUIApp?.formatting || {};
 
 
@@ -37,7 +37,7 @@
     ...(window.ChatUIApp || {}),
     state: Object.freeze(appState),
     sessionConfig: Object.freeze(sessionConfig),
-    headerParams: Object.freeze(headerParams),
+
     formatting: Object.freeze(formatting),
     markdownUtils: Object.freeze(markdownUtils),
     runs: Object.freeze(runs),

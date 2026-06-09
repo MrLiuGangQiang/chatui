@@ -1,8 +1,8 @@
 (function initChatUIAppJobWorkflow(root) {
   'use strict';
 
-  function readJsonStorage(key, storage = root.localStorage) {
-    try { return JSON.parse(storage.getItem(key) || 'null'); } catch { return null; }
+  function readJsonStorage(key, storage = root.localStorage, fallback = null) {
+    try { const raw = storage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { try { storage.removeItem(key); } catch {} return fallback; }
   }
 
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {

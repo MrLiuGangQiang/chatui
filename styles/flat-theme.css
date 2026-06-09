@@ -1,0 +1,1367 @@
+/* ===== Flat Theme v2.0 =====
+ * Design principles:
+ * - Pure flat — no gradients, no glassmorphism, no backdrop-filter
+ * - Minimal shadows — 1-2 levels at most
+ * - Consistent border-radius: 8px / 12px / 16px
+ * - Clean, modern blue accent palette
+ * - High contrast, accessible text
+ * - No background-attachment: fixed
+ */
+
+/* ═══════════════════════════════════════════
+   Root Variables
+   ═══════════════════════════════════════════ */
+:root {
+  --bg: #f8fafc !important;
+  --surface: #ffffff !important;
+  --text: #0f172a !important;
+  --muted: #64748b !important;
+  --border: #e2e8f0 !important;
+  --accent: #2563eb !important;
+  --accent-hover: #1d4ed8 !important;
+  --accent-light: #eff6ff !important;
+  --danger: #ef4444 !important;
+  --danger-hover: #dc2626 !important;
+  --success: #10b981 !important;
+  --warning: #f59e0b !important;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05) !important;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04) !important;
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08) !important;
+  --session-sidebar-width: clamp(232px, 21vw, 280px) !important;
+  --session-rail-width: 56px !important;
+  --composer-safe-bottom: 168px !important;
+}
+
+/* ═══════════════════════════════════════════
+   Body & Global
+   ═══════════════════════════════════════════ */
+body {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Session Rail (collapsed icon strip)
+   ═══════════════════════════════════════════ */
+.session-rail {
+  background: var(--surface) !important;
+  border-right: 1px solid rgba(0,0,0,0.04) !important;
+  box-shadow: 1px 0 8px rgba(0,0,0,0.03) !important;
+}
+
+.session-rail .rail-icon-btn {
+  color: var(--muted) !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  border: none !important;
+  transition: background .15s, color .15s !important;
+}
+.session-rail .rail-icon-btn:hover,
+.session-rail .rail-icon-btn.active {
+  color: var(--accent) !important;
+  background: var(--accent-light) !important;
+}
+.rail-version-badge {
+  color: #94a3b8 !important;
+  font-size: 10px !important;
+}
+
+/* ═══════════════════════════════════════════
+   Session Sidebar
+   ═══════════════════════════════════════════ */
+.session-sidebar {
+  background: var(--surface) !important;
+  border-right: 1px solid rgba(0,0,0,0.04) !important;
+  box-shadow: 1px 0 12px rgba(0,0,0,0.03) !important;
+}
+
+.session-sidebar-head {
+  border-bottom: 1px solid rgba(0,0,0,0.04) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.session-brand strong {
+  color: var(--text) !important;
+  background: none !important;
+}
+.session-brand span {
+  color: var(--muted) !important;
+}
+
+.session-collapse-btn {
+  color: var(--muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  transition: background .12s, color .12s, border-color .12s !important;
+}
+.session-collapse-btn:hover {
+  color: var(--text) !important;
+  background: #f1f5f9 !important;
+  border-color: var(--border) !important;
+}
+.session-collapse-btn:active {
+  background: #e2e8f0 !important;
+}
+
+/* New session button */
+.session-new-btn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+.session-new-btn:hover {
+  background: var(--accent-hover) !important;
+}
+
+/* ── Session Tabs ── */
+.session-tab {
+  background: transparent !important;
+  color: var(--text) !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s, border-color .12s !important;
+}
+.session-tab:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+.session-tab.active {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-color: rgba(37,99,235,0.15) !important;
+}
+.session-tab.active:hover {
+  background: #dbeafe !important;
+  color: var(--accent) !important;
+}
+.session-tab .session-title {
+  color: inherit !important;
+}
+.session-tab small {
+  color: #94a3b8 !important;
+  transition: color .12s !important;
+}
+.session-tab:hover small {
+  color: #64748b !important;
+}
+.session-tab.active small {
+  color: #60a5fa !important;
+}
+.session-tab.busy small::after {
+  color: var(--accent) !important;
+}
+.session-tab .session-delete-btn,
+.session-tab .session-rename-btn {
+  color: #94a3b8 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  border: none !important;
+  opacity: 0 !important;
+  transition: opacity .12s, background .12s, color .12s !important;
+}
+.session-tab:hover .session-delete-btn,
+.session-tab:hover .session-rename-btn {
+  opacity: 1 !important;
+  color: #94a3b8 !important;
+}
+.session-tab .session-delete-btn:hover {
+  color: var(--danger) !important;
+  background: #fef2f2 !important;
+  opacity: 1 !important;
+}
+.session-tab .session-rename-btn:hover {
+  color: var(--accent) !important;
+  background: var(--accent-light) !important;
+  opacity: 1 !important;
+}
+.session-tab.active .session-delete-btn,
+.session-tab.active .session-rename-btn {
+  color: #93c5fd !important;
+}
+.session-tab.active .session-delete-btn:hover {
+  color: var(--danger) !important;
+  background: #fef2f2 !important;
+}
+.session-tab.active .session-rename-btn:hover {
+  color: var(--accent) !important;
+  background: #dbeafe !important;
+}
+/* Renaming state */
+.session-tab.renaming .session-delete-btn,
+.session-tab.renaming .session-rename-btn {
+  opacity: 1 !important;
+}
+.session-tab.renaming .session-rename-btn.saving {
+  color: var(--accent) !important;
+}
+.session-tab.renaming .session-rename-btn.saving:hover {
+  color: var(--accent-hover) !important;
+  background: var(--accent-light) !important;
+}
+
+/* ── Session Bottom Actions ── */
+.session-bottom-actions {
+  border-top: none !important;
+  background: transparent !important;
+}
+.session-config-btn,
+.session-clear-all-btn,
+.session-github-btn {
+  color: var(--text) !important;
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s, border-color .12s !important;
+}
+.session-config-btn:hover,
+.session-clear-all-btn:hover,
+.session-github-btn:hover {
+  color: var(--text) !important;
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+.session-config-btn:active,
+.session-clear-all-btn:active,
+.session-github-btn:active {
+  background: #e2e8f0 !important;
+  color: var(--text) !important;
+}
+.session-clear-all-btn:hover {
+  color: var(--danger) !important;
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+}
+.session-clear-all-btn:active {
+  color: var(--danger) !important;
+  background: #fee2e2 !important;
+}
+
+/* Sidebar version badge */
+.sidebar-version-badge {
+  color: var(--text) !important;
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+/* ═══════════════════════════════════════════
+   Main Content Area
+   ═══════════════════════════════════════════ */
+.main {
+  background: var(--bg) !important;
+}
+
+.messages {
+  background: transparent !important;
+}
+
+/* ── Welcome Screen ── */
+.empty-welcome {
+  color: var(--muted) !important;
+}
+.welcome-title {
+  color: var(--text) !important;
+}
+.welcome-title .wc {
+  color: var(--accent) !important;
+  background: none !important;
+}
+.welcome-sub {
+  color: var(--muted) !important;
+}
+.welcome-note {
+  color: #94a3b8 !important;
+}
+
+/* ═══════════════════════════════════════════
+   Message Bubbles
+   ═══════════════════════════════════════════ */
+.message .bubble {
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+/* User message */
+.message.user .bubble {
+  background: var(--accent-light) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(37,99,235,0.12) !important;
+  border-radius: 8px !important;
+}
+
+/* Assistant message */
+.message.assistant .bubble {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+}
+
+/* Error message */
+.message.error .bubble {
+  background: #fef2f2 !important;
+  color: #991b1b !important;
+  border: 1px solid #fecaca !important;
+  border-radius: 8px !important;
+}
+
+/* ── Avatars ── */
+.message .avatar {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+.message.user .avatar {
+  background: #0f172a !important;
+  color: #fff !important;
+}
+.message.assistant .avatar {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+.message.error .avatar {
+  background: #fef2f2 !important;
+  color: #ef4444 !important;
+  border: 1px solid #fecaca !important;
+}
+
+/* ── Message Actions ── */
+.icon-action-btn,
+.msg-actions .copy-btn,
+.msg-actions .refresh-btn,
+.msg-actions .download-answer-btn,
+.msg-actions .edit-btn {
+  background: transparent !important;
+  color: #94a3b8 !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s !important;
+}
+.icon-action-btn:hover,
+.msg-actions .copy-btn:hover,
+.msg-actions .refresh-btn:hover,
+.msg-actions .download-answer-btn:hover,
+.msg-actions .edit-btn:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Composer / Input Area
+   ═══════════════════════════════════════════ */
+.composer,
+.composer.compact-composer {
+  z-index: 40 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+}
+
+/* Input stack — the bordered container */
+.input-stack,
+.input-stack:focus,
+.input-stack:focus-within {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: border-color .15s, box-shadow .15s !important;
+}
+.input-stack:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+}
+
+/* Textarea */
+.composer textarea,
+.composer textarea:focus,
+.input-stack textarea,
+.input-stack textarea:focus {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: var(--text) !important;
+  resize: none !important;
+}
+.composer textarea::placeholder,
+.input-stack textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* ── Composer action buttons (base) ── */
+.composer-actions .attach-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions button[type="submit"],
+.composer-actions #sendBtn,
+.composer-actions .reasoning-menu-btn {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s !important;
+  filter: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+.composer-actions .attach-btn svg,
+.composer-actions .reasoning-toggle svg,
+.composer-actions button[type="submit"] svg,
+.composer-actions #sendBtn svg,
+.composer-actions .reasoning-menu-btn svg {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+.composer-actions .attach-btn svg path,
+.composer-actions .reasoning-toggle svg path,
+.composer-actions button[type="submit"] svg path,
+.composer-actions #sendBtn svg path,
+.composer-actions .reasoning-menu-btn svg path {
+  stroke: currentColor !important;
+  fill: none !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+/* ── Hover states ── */
+.composer-actions .attach-btn:hover,
+.composer-actions .reasoning-toggle:hover,
+.composer-actions .reasoning-menu-btn:hover {
+  background: #e2e8f0 !important;
+  color: var(--text) !important;
+  border-color: #cbd5e1 !important;
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ── Send button ── */
+.composer-actions button[type="submit"],
+.composer-actions #sendBtn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+.composer-actions button[type="submit"]:hover,
+.composer-actions #sendBtn:hover {
+  background: var(--accent-hover) !important;
+  color: #fff !important;
+  border-color: var(--accent-hover) !important;
+  box-shadow: 0 2px 6px rgba(37,99,235,.2) !important;
+  transform: none !important;
+  filter: none !important;
+}
+.composer-actions button[type="submit"]:active,
+.composer-actions #sendBtn:active {
+  background: #1d4ed8 !important;
+  transform: scale(.97) !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ── Stop button (streaming) ── */
+.composer-actions button.stop-mode,
+.composer-actions #sendBtn.stop-mode,
+#sendBtn.stop-mode {
+  background: var(--danger) !important;
+  color: #fff !important;
+  border-color: var(--danger) !important;
+  box-shadow: 0 1px 3px rgba(239,68,68,.2) !important;
+}
+.composer-actions button.stop-mode:hover,
+.composer-actions #sendBtn.stop-mode:hover,
+#sendBtn.stop-mode:hover {
+  background: var(--danger-hover) !important;
+  border-color: var(--danger-hover) !important;
+  box-shadow: 0 2px 6px rgba(239,68,68,.25) !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* ── Reasoning toggle ── */
+.composer-actions .reasoning-toggle {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.composer-actions .reasoning-toggle:hover {
+  background: #e2e8f0 !important;
+  color: var(--text) !important;
+  border-color: #cbd5e1 !important;
+}
+.composer-actions .reasoning-toggle.active,
+.composer-actions .reasoning-toggle[aria-pressed="true"] {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+.composer-actions .reasoning-toggle.active:hover,
+.composer-actions .reasoning-toggle[aria-pressed="true"]:hover {
+  background: #dbeafe !important;
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+.composer-actions .reasoning-toggle:not(.active):not([aria-pressed="true"]) {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+.composer-actions .reasoning-toggle:not(.active):not([aria-pressed="true"]) svg {
+  opacity: 1 !important;
+}
+
+/* ── Reasoning toggle disabled / locked ── */
+.composer-actions .reasoning-toggle.locked,
+.composer-actions .reasoning-toggle:disabled {
+  opacity: .4 !important;
+  cursor: not-allowed !important;
+  filter: none !important;
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* ── Reasoning menu button ── */
+.composer-actions .reasoning-menu-btn {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-color: rgba(37,99,235,.15) !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.composer-actions .reasoning-menu-btn:hover {
+  background: #dbeafe !important;
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+.composer-actions .reasoning-menu-btn.show {
+  display: inline-flex !important;
+}
+.composer-actions .reasoning-menu-btn svg {
+  color: var(--accent) !important;
+}
+.composer-actions .reasoning-menu-btn svg path {
+  stroke: currentColor !important;
+}
+.composer-actions .reasoning-menu-sep {
+  color: #94a3b8 !important;
+}
+.composer-actions .reasoning-menu-btn.disabled,
+.composer-actions .reasoning-menu-btn:disabled {
+  opacity: .4 !important;
+  cursor: not-allowed !important;
+  filter: none !important;
+}
+
+/* ── Attachment bar ── */
+.attachment-bar.show {
+  background: transparent !important;
+}
+.attachment-chip {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  color: var(--text) !important;
+}
+.attachment-chip button {
+  color: var(--muted) !important;
+}
+.attachment-chip button:hover {
+  color: var(--danger) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Reasoning Menu
+   ═══════════════════════════════════════════ */
+.reasoning-menu,
+.reasoning-menu.show,
+#reasoningMenu,
+#reasoningMenu.show,
+[role="menu"].reasoning-menu {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.reasoning-menu-title {
+  color: var(--muted) !important;
+}
+.reasoning-menu-item {
+  border-radius: 8px !important;
+  color: var(--text) !important;
+  transition: background .1s !important;
+}
+.reasoning-menu-item:hover,
+.reasoning-menu-item.selected {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+}
+.reasoning-menu-divider {
+  border-color: var(--border) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Session Model Menu & Prompt Panel
+   ═══════════════════════════════════════════ */
+.session-model-menu,
+.session-model-menu.show,
+#sessionModelPanel,
+#sessionModelPanel.show {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.session-model-menu-item {
+  border-radius: 8px !important;
+  transition: background .1s !important;
+}
+.session-model-menu-item:hover,
+.session-model-menu-item.active {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+}
+
+.session-prompt-panel {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.session-prompt-panel-head {
+  border-bottom: 1px solid var(--border) !important;
+  background: transparent !important;
+}
+.session-prompt-input {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  color: var(--text) !important;
+  transition: border-color .15s !important;
+}
+.session-prompt-input:focus {
+  border-color: var(--accent) !important;
+  background: var(--surface) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+}
+.session-prompt-primary-btn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.session-prompt-primary-btn:hover {
+  background: var(--accent-hover) !important;
+}
+.session-prompt-secondary-btn,
+.session-prompt-ghost-btn {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.session-prompt-secondary-btn:hover,
+.session-prompt-ghost-btn:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+/* Session model button */
+.session-model-btn {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s !important;
+}
+.session-model-btn:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Config Modal
+   ═══════════════════════════════════════════ */
+#configModal .modal-mask {
+  background: rgba(15,23,42,0.4) !important;
+}
+
+#configModal .config-dialog,
+#configModal .config-dialog[style] {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-md) !important;
+  overflow: hidden !important;
+}
+
+.config-hero {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.config-kicker {
+  color: var(--accent) !important;
+}
+
+.config-card {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.config-section-icon {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-radius: 8px !important;
+}
+
+/* Config form inputs */
+#baseUrl,
+#apiKey,
+#chatModel,
+#routeModel,
+#imageModel,
+#imageSize {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+  transition: border-color .15s !important;
+}
+#baseUrl:focus,
+#apiKey:focus,
+#chatModel:focus,
+#routeModel:focus,
+#imageModel:focus,
+#imageSize:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+}
+
+.secret-field {
+  border-radius: 8px !important;
+}
+
+#toggleApiKeyVisibility {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border-radius: 6px !important;
+  transition: background .12s, color .12s !important;
+}
+#toggleApiKeyVisibility:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+.connection-helper {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  color: var(--muted) !important;
+}
+.connection-helper strong {
+  color: var(--text) !important;
+}
+.connection-helper code {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-radius: 4px !important;
+}
+
+/* Model config */
+.load-models-btn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.load-models-btn:hover {
+  background: var(--accent-hover) !important;
+}
+
+/* Dialog actions */
+#configModal .config-dialog .dialog-actions {
+  background: #f8fafc !important;
+  border-top: 1px solid var(--border) !important;
+  border-radius: 0 0 18px 18px !important;
+  box-shadow: none !important;
+}
+
+#saveConfigBtn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+#saveConfigBtn:hover {
+  background: var(--accent-hover) !important;
+}
+
+.dialog-close {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s !important;
+}
+.dialog-close:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Custom Select Dropdown
+   ═══════════════════════════════════════════ */
+.custom-select-menu {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.custom-select-option {
+  border-radius: 6px !important;
+  color: var(--text) !important;
+  transition: background .1s !important;
+}
+.custom-select-option:hover,
+.custom-select-option.selected {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Reasoning Panel (inside messages)
+   ═══════════════════════════════════════════ */
+.reasoning-panel {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.reasoning-head {
+  border-bottom: 1px solid var(--border) !important;
+}
+.reasoning-title {
+  color: var(--muted) !important;
+}
+.reasoning-copy-btn {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border-radius: 6px !important;
+  transition: background .12s, color .12s !important;
+}
+.reasoning-copy-btn:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Confirm Dialog
+   ═══════════════════════════════════════════ */
+.confirm-dialog-card {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.confirm-dialog-icon {
+  background: #fef3c7 !important;
+  color: #d97706 !important;
+  border-radius: 999px !important;
+}
+#confirmDialogTitle {
+  color: var(--text) !important;
+}
+#confirmDialogMessage {
+  color: var(--muted) !important;
+}
+#confirmDialogCancel,
+.confirm-dialog-secondary {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transition: background .12s !important;
+}
+#confirmDialogCancel:hover,
+.confirm-dialog-secondary:hover {
+  background: #f1f5f9 !important;
+}
+#confirmDialogConfirm,
+.confirm-dialog-danger {
+  background: var(--danger) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+#confirmDialogConfirm:hover,
+.confirm-dialog-danger:hover {
+  background: var(--danger-hover) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Image Preview — unified compact toolbar
+   ═══════════════════════════════════════════ */
+.image-preview {
+  background: rgba(15,23,42,0.92) !important;
+}
+
+/* All three toolbar buttons: uniform size, smaller, rounded-square */
+.image-preview-action,
+.image-preview-close {
+  top: 14px !important;
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.1) !important;
+  color: #fff !important;
+  transition: background .12s !important;
+}
+.image-preview-action:hover,
+.image-preview-close:hover {
+  background: rgba(255,255,255,.2) !important;
+}
+
+/* Tighter positioning: 34px button + 8px gap */
+.image-preview-close     { right: 14px !important; }
+.image-preview-download  { right: 56px !important; }
+.image-preview-copy      { right: 98px !important; }
+
+/* Smaller icons */
+.image-preview-action svg,
+.image-preview-close svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+/* Close button X */
+.image-preview-close {
+  font-size: 20px !important;
+}
+
+@media (max-width: 640px) {
+  .image-preview-action,
+  .image-preview-close {
+    top: 10px !important;
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 8px !important;
+  }
+  .image-preview-close     { right: 10px !important; }
+  .image-preview-download  { right: 46px !important; }
+  .image-preview-copy      { right: 82px !important; }
+  .image-preview-action svg,
+  .image-preview-close svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  .image-preview-close {
+    font-size: 18px !important;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   Usage Stats
+   ═══════════════════════════════════════════ */
+.usage-stats-button:hover {
+  background: var(--accent-hover) !important;
+  box-shadow: var(--shadow) !important;
+}
+.usage-stats-button svg {
+  filter: none !important;
+}
+.usage-stats-card {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.usage-stats-head {
+  border-bottom: 1px solid var(--border) !important;
+  background: transparent !important;
+}
+.usage-stats-head strong {
+  background: none !important;
+  color: var(--text) !important;
+}
+.usage-stats-head > div:first-child > span {
+  color: var(--muted) !important;
+}
+.usage-stats-close {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.usage-stats-close:hover {
+  background: #f1f5f9 !important;
+}
+.usage-stats-refresh {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.usage-stats-refresh:hover {
+  background: var(--accent-hover) !important;
+}
+.usage-tab {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  transition: background .12s, color .12s !important;
+}
+.usage-tab:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+.usage-tab.active {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+
+/* Resume stream button */
+.resume-stream-btn {
+  background: var(--surface) !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 999px !important;
+  box-shadow: var(--shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.resume-stream-btn:hover {
+  background: var(--accent-light) !important;
+  color: var(--accent-hover) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Upload Progress
+   ═══════════════════════════════════════════ */
+.upload-progress-track {
+  background: #e2e8f0 !important;
+  box-shadow: none !important;
+}
+.upload-progress-track > i {
+  background: var(--accent) !important;
+  box-shadow: none !important;
+  transition: width .18s ease !important;
+}
+.upload-progress-item.done .upload-progress-track > i {
+  background: var(--success) !important;
+}
+.upload-progress-item.error .upload-progress-track > i {
+  background: var(--danger) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Attachment Bar
+   ═══════════════════════════════════════════ */
+.attachment-item {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+}
+.attachment-remove-btn {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border-radius: 6px !important;
+}
+.attachment-remove-btn:hover {
+  background: #fef2f2 !important;
+  color: var(--danger) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Markdown Content
+   ═══════════════════════════════════════════ */
+.markdown-body code {
+  background: #f1f5f9 !important;
+  color: #db2777 !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+}
+
+.markdown-body pre,
+.markdown-body .code-block {
+  background: #f8fafc !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+.markdown-body pre code {
+  background: transparent !important;
+  color: #0f172a !important;
+}
+
+/* ── Code block action buttons (copy / mermaid toggle) ── */
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .code-block .mermaid-render-toggle,
+.markdown-body .mermaid-render-toggle,
+.markdown-body .mermaid-block .mermaid-render-toggle,
+.mermaid-toggle-icon {
+  background: var(--surface) !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .code-block .mermaid-render-toggle:hover,
+.markdown-body .mermaid-render-toggle:hover,
+.markdown-body .mermaid-block .mermaid-render-toggle:hover,
+.mermaid-toggle-icon:hover {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  border-color: rgba(37,99,235,.2) !important;
+}
+.markdown-body .code-block .code-copy-icon:active,
+.markdown-body .code-block .mermaid-toggle-btn:active,
+.markdown-body .code-block .mermaid-render-toggle:active,
+.markdown-body .mermaid-render-toggle:active,
+.mermaid-toggle-icon:active {
+  background: #dbeafe !important;
+  color: var(--accent-hover) !important;
+  transform: scale(.95) !important;
+}
+
+/* Mermaid error state */
+.markdown-body .code-block .mermaid-toggle-btn.is-error,
+.markdown-body .mermaid-render-toggle.is-error {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border-color: rgba(239,68,68,.2) !important;
+}
+
+/* Copied state */
+.markdown-body .code-block .code-copy-icon.copied,
+.markdown-body .code-block .code-copy-icon.copied:hover {
+  background: #ecfdf5 !important;
+  color: #059669 !important;
+  border-color: rgba(16,185,129,.25) !important;
+}
+
+/* Copy failed state */
+.markdown-body .code-block .code-copy-icon.copy-failed,
+.markdown-body .code-block .code-copy-icon.copy-failed:hover {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border-color: rgba(239,68,68,.2) !important;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent) !important;
+  border-radius: 0 8px 8px 0 !important;
+  background: #f8fafc !important;
+}
+
+.markdown-body table {
+  border-radius: 8px !important;
+  border: 1px solid var(--border) !important;
+}
+
+.markdown-body th {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+}
+
+.markdown-body td {
+  border-color: var(--border) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Pending Feedback Animation
+   ═══════════════════════════════════════════ */
+.pending-orb {
+  background: var(--accent) !important;
+  box-shadow: none !important;
+}
+.pending-dots {
+  color: var(--accent) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Mobile Session Float Button
+   ═══════════════════════════════════════════ */
+.mobile-session-float {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Generated Image Grid
+   ═══════════════════════════════════════════ */
+.generated-image-item {
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  background: #f8fafc !important;
+}
+.generated-thumb {
+  border-radius: 8px !important;
+}
+.image-download-row {
+  background: transparent !important;
+}
+.image-download-row a,
+.image-download-row button {
+  background: transparent !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+  border-radius: 8px !important;
+  transition: background .12s !important;
+}
+.image-download-row a:hover,
+.image-download-row button:hover {
+  background: var(--accent-light) !important;
+}
+
+/* ═══════════════════════════════════════════
+   Scrollbar
+   ═══════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 6px !important;
+}
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 999px !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
+}
+
+/* ═══════════════════════════════════════════
+   Disabled States
+   ═══════════════════════════════════════════ */
+button:disabled,
+.btn:disabled {
+  opacity: .45 !important;
+  filter: none !important;
+  cursor: not-allowed !important;
+}
+
+/* ═══════════════════════════════════════════
+   Scoped: Kill glassmorphism on known elements
+   ═══════════════════════════════════════════ */
+.session-sidebar,
+.session-rail,
+.composer,
+.composer.compact-composer,
+.input-stack,
+.config-dialog,
+.bubble,
+.message .bubble,
+.message.user .bubble,
+.message.assistant .bubble,
+.confirm-dialog-card,
+.usage-stats-card,
+.custom-select-menu,
+.portal-menu,
+.reasoning-menu,
+.session-model-menu,
+.session-prompt-panel {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Kill filter effects */
+.usage-stats-button,
+button:disabled,
+.btn:disabled,
+[disabled] {
+  filter: none !important;
+}
+.usage-stats-button svg {
+  filter: none !important;
+}
+
+/* Kill text gradients — only unset text-clip, preserve solid backgrounds */
+.session-brand strong,
+.welcome-title .wc,
+.usage-stats-head strong {
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+}
+
+/* ═══════════════════════════════════════════
+   Toast Notification
+   ═══════════════════════════════════════════ */
+.toast {
+  background: #1e293b !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-md) !important;
+  border: none !important;
+}
+
+/* ═══════════════════════════════════════════
+   Model Unrecognized Badge
+   ═══════════════════════════════════════════ */
+.model-unrecognized-badge {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border-radius: 4px !important;
+}
+
+/* ═══════════════════════════════════════════
+   Mini Status (model load status)
+   ═══════════════════════════════════════════ */
+.mini-status {
+  color: var(--muted) !important;
+}
+.mini-status.error {
+  color: var(--danger) !important;
+}
+.mini-status.success {
+  color: var(--success) !important;
+}

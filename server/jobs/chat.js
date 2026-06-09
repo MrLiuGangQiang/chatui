@@ -1,8 +1,6 @@
 const { sendJson } = require('../http/response');
-const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { normalizeBaseUrl } = require('../security/url-policy');
-const { makeJobId, getJobIdFromUrl, publicJob } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 
 function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
@@ -28,23 +26,21 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
 
 function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs }) {
 async function runChatJob(job) {
-const controller = new AbortController();
-job.controller = controller;
-const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...(job.extraHeaders || {}),
+    ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+  },
+  body: JSON.stringify(job.payload),
+  job,
+  upstreamTimeoutMs,
+});
 try {
-  const upstream = await fetch(job.targetUrl, {
-    method: 'POST',
-    signal: controller.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(job.extraHeaders || {}),
-      ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
-    },
-    body: JSON.stringify(job.payload),
-  });
+  const upstream = await upstreamResponse;
   const text = await upstream.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  const data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   job.status = 'done';
   job.data = data;
@@ -65,33 +61,30 @@ if (job.streamStarted) return;
 job.streamStarted = true;
 job.serverStartAt = Date.now();
 job.firstTokenMs = null;
-const controller = new AbortController();
-job.controller = controller;
-const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    ...(job.extraHeaders || {}),
+    ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+  },
+  body: JSON.stringify({ ...job.payload, stream: true }),
+  job,
+  upstreamTimeoutMs,
+});
 try {
-  const upstream = await fetch(job.targetUrl, {
-    method: 'POST',
-    signal: controller.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-      ...(job.extraHeaders || {}),
-      ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
-    },
-    body: JSON.stringify({ ...job.payload, stream: true }),
-  });
+  const upstream = await upstreamResponse;
   const contentType = upstream.headers.get('content-type') || '';
   if (!upstream.ok) {
     const text = await upstream.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    const data = safeParseJson(text);
     throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   }
   if (!upstream.body) throw new Error('上游没有返回流式响应体');
   if (!contentType.toLowerCase().includes('text/event-stream')) {
     const text = await upstream.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    const data = safeParseJson(text);
     const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
     const msg = data?.choices?.[0]?.message || {};
     const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.reasoning || item?.thinking) : '';
@@ -121,13 +114,11 @@ try {
 }
 
 async function registerChatStreamJob(req, res) {
+const extracted = await extractProxyRequest(req, res);
+if (!extracted) return;
+const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const body = parseJson(await readBody(req));
-  const baseUrl = normalizeBaseUrl(body.baseUrl);
-  const apiKey = String(body.apiKey || '').trim();
   const payload = body.payload || {};
-  const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
-  if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
   if (!job) {
@@ -137,18 +128,16 @@ try {
   if (body.start === true && !job.streamStarted && job.status === 'running') runChatStreamJob(job);
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
-  sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+  respondJobError(res, err);
 }
 }
 
 async function startChatJob(req, res) {
+const extracted = await extractProxyRequest(req, res);
+if (!extracted) return;
+const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const body = parseJson(await readBody(req));
-  const baseUrl = normalizeBaseUrl(body.baseUrl);
-  const apiKey = String(body.apiKey || '').trim();
   const payload = body.payload || {};
-  const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
-  if (!baseUrl) return sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const job = {
@@ -167,14 +156,14 @@ try {
   runChatJob(job);
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
-  sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+  respondJobError(res, err);
 }
 }
 
 function getChatJob(req, res) {
 const id = getJobIdFromUrl(req);
-const job = chatJobs.get(id);
-if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+const job = findJobOr404(chatJobs, id, res);
+if (!job) return;
 sendJson(res, 200, publicJob(job, { resumeUrl: req.url }), { 'Access-Control-Allow-Origin': '*' });
 }
 
@@ -234,4 +223,4 @@ return false;
   };
 }
 
-module.exports = { createChatJobHandlers, makeChatJob };
+module.exports = { createChatJobHandlers };

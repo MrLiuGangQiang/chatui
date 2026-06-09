@@ -18,17 +18,17 @@
           const t=$("prompt").value.trim();
           if(!t&&!state.attachments.length)return;
           unlockDoneSound(),saveConfig(!0);
-          const s=state.activeSessionId,n=ensureActiveRun(s),a=[...state.attachments];
-          let i="chat"===state.mode?state.messages.length:null,o=null,r=null,l=null,d=null,c=state.mode,m=normalizeRoute({mode:state.mode,target:"image"===state.mode?"new":"none",confidence:1},state.mode);
+          const s=state.activeSessionId,n=ensureActiveRun(s),a=[...state.attachments],u=state.sessions?.find?.(e=>e.id===s)||getActiveSession();
+          let i="chat"===state.mode?(Array.isArray(u?.messages)&&u.messages.length?u.messages.length:state.messages.length):null,o=null,r=null,l=null,d=null,c=state.mode,m=normalizeRoute({mode:state.mode,target:"image"===state.mode?"new":"none",confidence:1},state.mode);
           try{
             await prepareUserAttachmentPreviews(a);
-            if(null!==state.editingIndex&&state.editingNode&&"chat"===state.mode&&(o=applyPendingEdit(t)),!o){
-              const e=renderUserMessageWithAttachments(t||"已发送附件",a),n=buildUserMessageContent(t,a),o=buildUserApiContent(t,a),r=await buildUploadedImageContext(t,a),l=r?JSON.stringify(r):"",d=await buildUserAttachmentContext(t,a),c=d?JSON.stringify(d):"",m=addMessage("user",e,{html:!0,rawText:n,messageIndex:i,imageContext:l,attachmentContext:c}),h=appendSessionDisplayMessage(s,"user",e,{html:!0,rawText:n,messageIndex:i,imageContext:l,attachmentContext:c});
-              persistSessionDisplay(s),m.__displayItem=h,h?.id&&(m.dataset.displayItemId=h.id),state.messages.push({role:"user",content:o,html:e,rawText:n,messageIndex:i,...l?{imageContext:l}:{},...c?{attachmentContext:c}:{}}),getActiveSession().messages=cloneMessageList(state.messages)
+            if(null!==state.editingIndex&&state.editingNode&&"chat"===state.mode&&s===state.activeSessionId&&(o=applyPendingEdit(t)),!o){
+              const p=s===state.activeSessionId,e=renderUserMessageWithAttachments(t||"已发送附件",a),n=buildUserMessageContent(t,a),o=buildUserApiContent(t,a),r=await buildUploadedImageContext(t,a),l=r?JSON.stringify(r):"",d=await buildUserAttachmentContext(t,a),c=d?JSON.stringify(d):"",m=p?addMessage("user",e,{html:!0,rawText:n,messageIndex:i,imageContext:l,attachmentContext:c}):null,h=appendSessionDisplayMessage(s,"user",e,{html:!0,rawText:n,messageIndex:i,imageContext:l,attachmentContext:c}),g={role:"user",content:o,html:e,rawText:n,messageIndex:i,...l?{imageContext:l}:{},...c?{attachmentContext:c}:{}};
+              persistSessionDisplay(s),m&&(m.__displayItem=h,h?.id&&(m.dataset.displayItemId=h.id)),p?(state.messages.push(g),getActiveSession().messages=cloneMessageList(state.messages)):(u.messages=cloneMessageList([...(u.messages||[]),g]),"function"==typeof saveSessionMessages&&saveSessionMessages(s,u.messages))
             }
-            saveChatHistory(),$("prompt").value="",state.promptDrafts.set(s,""),clearAttachments(),scheduleAutoResize(),setSessionBusy(s,!0);
-            const e=getActiveSession();
-            if(o){const t=prepareReplacementResponse(o,s);r=t.node,d=t.liveItem}else r=addMessage("assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",skipSave:!0}),e&&(d=appendSessionDisplayMessage(s,"assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",pending:!0,responseIndex:state.messages.length}),r.__displayItem=d);
+            s===state.activeSessionId?saveChatHistory():"function"==typeof saveSessionMessages&&saveSessionMessages(s,u.messages||[]),s===state.activeSessionId&&($("prompt").value="",clearAttachments()),state.promptDrafts.set(s,""),scheduleAutoResize(),setSessionBusy(s,!0);
+            const e=s===state.activeSessionId?getActiveSession():u,p=s===state.activeSessionId,y=(Array.isArray(e?.messages)&&e.messages.length?e.messages.length:state.messages.length);
+            if(o){const t=prepareReplacementResponse(o,s);r=t.node,d=t.liveItem}else r=p?addMessage("assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",skipSave:!0}):null,e&&(d=appendSessionDisplayMessage(s,"assistant",pendingFeedbackHtml("已收到，马上处理"),{html:!0,rawText:"已收到，马上处理",pending:!0,responseIndex:y}),r&&(r.__displayItem=d));
             try{m=await getEffectiveRoute(t,a,s,buildRequestHeaders("message",s)),c=m.mode}catch(e){c="chat",m=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0}),console.warn("route failed, fallback to chat:",e)}
             if(n.stopped||n.abortController?.signal?.aborted)return;
             const routePrompt=String(m.contextualImagePrompt||t).trim();

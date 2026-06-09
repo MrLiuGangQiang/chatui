@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { HOST, PORT } = require('./server/config');
 const { createApp } = require('./server/app');
@@ -11,12 +12,30 @@ server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 server.requestTimeout = 120000;
 server.maxConnections = process.env.MAX_CONNECTIONS ? Number(process.env.MAX_CONNECTIONS) : Infinity;
-const pidFiles = [path.join(__dirname, 'temp', `chatui-${PORT}.pid`)];
-if (Number(PORT) === 8765) pidFiles.push(path.join(__dirname, 'temp', 'chatui-server.pid'));
+function resolvePidDir() {
+  if (process.env.CHATUI_DISABLE_PID_FILE === '1') return '';
+  const candidates = [
+    process.env.CHATUI_PID_DIR,
+    path.join(__dirname, 'temp'),
+    path.join(os.tmpdir(), 'chatui'),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {}
+  }
+  return '';
+}
+
+const pidDir = resolvePidDir();
+const pidFiles = pidDir ? [path.join(pidDir, `chatui-${PORT}.pid`)] : [];
+if (pidDir && Number(PORT) === 8765) pidFiles.push(path.join(pidDir, 'chatui-server.pid'));
 
 function writePidFiles() {
+  if (!pidFiles.length) return;
   try {
-    fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
     for (const file of pidFiles) fs.writeFileSync(file, `${process.pid}\n`);
   } catch (err) {
     console.warn('[server] failed to write pid file:', err.message || err);

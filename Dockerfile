@@ -19,6 +19,7 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8765 \
     UPSTREAM_TIMEOUT_MS=600000 \
+    CHATUI_PID_DIR=/tmp/chatui \
     POSTGRES_URL= \
     USAGE_RANKING_LIMIT=10 \
     PG_POOL_MIN=0 \

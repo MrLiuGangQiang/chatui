@@ -83,6 +83,7 @@ const syntaxFiles = [
   'server/jobs/chat.js',
   'server/proxy/responses-stream.js',
   'test/unit/openai-proxy-responses-compact-test.js',
+  'test/unit/openai-proxy-timer-scope-test.js',
   'client/app/browser.js',
   'test/api/jobs-test.js',
   'test/api/extract-test.js',
@@ -215,6 +216,8 @@ const syntaxFiles = [
   'test/unit/regenerate-autofollow-contract-test.js',
   'test/unit/focus-follow-contract-test.js',
   'test/unit/session-switch-preserves-active-messages-test.js',
+  'test/unit/server-pid-dir-contract-test.js',
+  'test/unit/container-equivalent-start-test.js',
 ];
 
 const testFiles = [
@@ -349,6 +352,10 @@ const testFiles = [
   'test/browser/refresh-persistence-test.js',
   'test/unit/regenerate-autofollow-contract-test.js',
   'test/unit/focus-follow-contract-test.js',
+  'test/unit/session-switch-preserves-active-messages-test.js',
+  'test/unit/server-pid-dir-contract-test.js',
+  'test/unit/openai-proxy-timer-scope-test.js',
+  'test/unit/container-equivalent-start-test.js',
   'test/api/router-test.js',
   'test/api/smoke-test.js',
 ];

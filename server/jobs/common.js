@@ -122,14 +122,14 @@ async function extractProxyRequest(req, res) {
   try {
     body = parseJson(await readBody(req));
   } catch (err) {
-    sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err) } });
+    sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err), code: err.code || 'INVALID_REQUEST_BODY' } });
     return null;
   }
   const baseUrl = normalizeBaseUrl(body.baseUrl);
   const apiKey = String(body.apiKey || '').trim();
   const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
   if (!baseUrl) {
-    sendJson(res, 400, { error: { message: '缺少或非法 baseUrl' } });
+    sendJson(res, 400, { error: { message: '缺少或非法 baseUrl', code: 'INVALID_BASE_URL' } });
     return null;
   }
   return { body, baseUrl, apiKey, extraHeaders };

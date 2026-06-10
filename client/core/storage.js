@@ -1,3 +1,6 @@
+(function initChatUICoreStorage(root) {
+  'use strict';
+
 function readJsonStorage(storage, key, fallback) {
   try {
     const raw = storage.getItem(key);
@@ -39,4 +42,9 @@ function collectIndexedDbKeys(value, keys = new Set()) {
   return keys;
 }
 
-module.exports = { readJsonStorage, safeSetJsonStorage, sessionStorageKey, collectIndexedDbKeys };
+const api = Object.freeze({ readJsonStorage, safeSetJsonStorage, sessionStorageKey, collectIndexedDbKeys });
+
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+if (root) root.ChatUICoreStorage = api;
+if (root?.window) root.window.ChatUICoreStorage = api;
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

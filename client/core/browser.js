@@ -7,6 +7,8 @@
   const imageReferences = global.ChatUICoreImageReferences || {};
   const imageRouteContext = global.ChatUICoreImageRouteContext || {};
   const attachments = global.ChatUICoreAttachments || {};
+  const contextBudget = global.ChatUICoreContextBudget || {};
+  const storage = global.ChatUICoreStorage || {};
 
   function browserExtractModels(payload) {
     const list = typeof sharedModels.extractModels === 'function' ? sharedModels.extractModels(payload) : [];
@@ -45,6 +47,8 @@
     imageReferences: Object.freeze(imageReferences),
     imageRouteContext: Object.freeze(imageRouteContext),
     attachments: Object.freeze(attachments),
+    contextBudget: Object.freeze(contextBudget),
+    storage: Object.freeze(storage),
   });
   if (typeof window !== 'undefined') window.ChatUICore = api;
   else global.ChatUICore = api;

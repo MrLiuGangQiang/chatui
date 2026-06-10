@@ -1,8 +1,6 @@
 (function initChatUIAppImageResultWorkflow(root) {
   'use strict';
 
-  const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
     const extracted = deps.extractImageResult(result);
     if (extracted && extracted.kind === 'empty') return { html: '没有返回图片数据', raw: extracted.raw, metaText: elapsedText ? `RT ${elapsedText}` : '' };
@@ -22,7 +20,7 @@
       // IndexedDB write-then-read timing issues), falling back to transparent
       // pixel only when the blob URL is unavailable. The data-persisted-src
       // attribute still holds the durable indexeddb:// ref for page reloads.
-      const displaySrc = persisted?.displaySrc || (String(persistedSrc || '').startsWith('indexeddb://') ? TRANSPARENT_PIXEL : persistedSrc);
+      const displaySrc = persisted?.displaySrc || (String(persistedSrc || '').startsWith('indexeddb://') ? window.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' : persistedSrc);
       const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null) || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
       const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];

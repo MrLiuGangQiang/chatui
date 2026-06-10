@@ -78,7 +78,6 @@
       return template.innerHTML;
     } catch { return text; }
   }
-  const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   function stripTransientBlobUrlsFromHtml(html = '', documentRef = root.document) {
     const stripped = stripGeneratedImageActionMarkup(String(html || '').replace(/\s(?:src|href)=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-object-url=(['"])blob:[^'"]*\1/gi, '').replace(/\sdata-preview-object-url=(['"])blob:[^'"]*\1/gi, ''), documentRef);
     try {
@@ -86,12 +85,14 @@
       template.innerHTML = stripped;
       template.content.querySelectorAll('img[data-persisted-src], img[src^="indexeddb://"]').forEach(img => {
         const persisted = img.getAttribute('data-persisted-src') || img.getAttribute('src') || '';
+        const currentSrc = img.getAttribute('src') || '';
         if (persisted && !img.getAttribute('data-persisted-src')) img.setAttribute('data-persisted-src', persisted);
         if (persisted && !img.getAttribute('data-original-src')) img.setAttribute('data-original-src', persisted);
-        if (persisted.startsWith('indexeddb://')) img.setAttribute('src', TRANSPARENT_PIXEL);
+        const shouldRemoveSrc = persisted.startsWith('indexeddb://') && (!currentSrc || currentSrc.startsWith('indexeddb://') || /^undefined|null$/i.test(currentSrc) || currentSrc.includes('[attachment-data-omitted]'));
+        if (shouldRemoveSrc) img.removeAttribute('src');
       });
       return template.innerHTML;
-    } catch { return stripped.replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} src=${quote}${TRANSPARENT_PIXEL}${quote} data-persisted-src=${quote}${src}${quote}`); }
+    } catch { return stripped.replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} data-persisted-src=${quote}${src}${quote}`); }
   }
   function sanitizeAttachmentContextForStorage(value) {
     if (!value) return '';
@@ -113,8 +114,23 @@
   }
   function sanitizeStoredMessage(message = {}, deps = {}) {
     const stripLargeDataUrlsFromText = deps.stripLargeDataUrlsFromText || (text => String(text || ''));
+    const sanitizeValue = (value, parentKey = '') => {
+      if (typeof value === 'string') {
+        // Preserve image_url.url values — they are essential for sending images to the model
+        // and stripping them causes image loss after session switch.
+        if (parentKey === 'url') return value;
+        return stripLargeDataUrlsFromText(value);
+      }
+      if (Array.isArray(value)) return value.map(item => sanitizeValue(item, ''));
+      if (value && typeof value === 'object') {
+        const copy = { ...value };
+        Object.keys(copy).forEach(key => { copy[key] = sanitizeValue(copy[key], key); });
+        return copy;
+      }
+      return value;
+    };
     const clean = { ...message };
-    clean.content = stripLargeDataUrlsFromText(clean.content || '');
+    clean.content = sanitizeValue(clean.content ?? '');
     clean.rawText = stripLargeDataUrlsFromText(clean.rawText || '');
     clean.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.html || ''), deps.document);
     clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext);

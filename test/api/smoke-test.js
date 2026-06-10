@@ -60,7 +60,6 @@ async function json(res) {
     assert.ok(dependencyLoader.includes("local: './vendor/markdown-it.min.js'"), 'markdown CDN has local fallback');
     assert.ok(html.includes('./client/core/browser.js'), 'loads browser core adapter before app');
     assert.ok(html.includes('./client/services/composition.js'), 'loads browser services composition before adapter');
-    assert.ok(html.includes('./client/services/fallback.js'), 'loads legacy browser services fallback alias before adapter');
     assert.ok(html.includes('./client/services/browser.js'), 'loads browser services adapter before app');
     assert.ok(html.includes('./client/ui/browser.js'), 'loads browser ui adapter before app');
     assert.ok(html.includes('./client/app/browser.js'), 'loads browser app adapter before app');
@@ -83,12 +82,7 @@ async function json(res) {
     res = await fetch(`${base}/client/services/composition.js`);
     assert.strictEqual(res.status, 200, 'browser services composition status');
     const browserServicesComposition = await res.text();
-    assert.ok(browserServicesComposition.includes('window.ChatUIServicesComposition'), 'browser services composition exposes explicit internal namespace');
-
-    res = await fetch(`${base}/client/services/fallback.js`);
-    assert.strictEqual(res.status, 200, 'browser services fallback alias status');
-    const browserServicesFallback = await res.text();
-    assert.ok(browserServicesFallback.includes('ChatUIServicesFallbackAlias'), 'browser services fallback remains compatibility alias');
+    assert.ok(browserServicesComposition.includes('window.ChatUIServicesFallback'), 'browser services composition preserves legacy fallback namespace');
 
     res = await fetch(`${base}/client/services/browser.js`);
     assert.strictEqual(res.status, 200, 'browser services status');

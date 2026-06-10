@@ -8,11 +8,11 @@
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.3.0" />
+  <link rel="stylesheet" href="./styles.css?v=1.3.1" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.3.0" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.0" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.0" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.0.0" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.0.2" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -60,7 +60,6 @@
         <div class="session-config-wrap">
         <button id="sidebarConfigBtn" class="session-config-btn" type="button" title="配置" aria-label="配置">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .55V20a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1-.55 1.7 1.7 0 0 0-1.87.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.55-1H4a2 2 0 0 1 0-4h.08a1.7 1.7 0 0 0 .55-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6c.35-.14.68-.32 1-.55V4a2 2 0 0 1 4 0v.08c.32.23.65.41 1 .55a1.7 1.7 0 0 0 1.87-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9c.14.35.32.68.55 1H20a2 2 0 0 1 0 4h-.08c-.23.32-.41.65-.55 1Z"/></svg>
-          <span>配置</span>
         </button>
         <button id="clearAllSessionsBtn" class="session-clear-all-btn" type="button" title="清除所有会话" aria-label="清除所有会话">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>
@@ -96,6 +95,7 @@
         <div class="input-stack">
           <div id="uploadProgress" class="upload-progress" aria-live="polite"></div>
           <div id="attachmentBar" class="attachment-bar"></div>
+          <div id="quoteBar" class="quote-preview" hidden></div>
           <textarea id="prompt" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
           <div class="composer-actions">
             <div class="composer-action-left">
@@ -369,6 +369,9 @@
           <div class="content markdown-body"></div>
         </div>
         <div class="msg-actions">
+          <button class="quote-btn icon-action-btn" type="button" title="引用消息" aria-label="引用消息">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h8"/><path d="M8 12h5"/><path d="M10 18 6 20v-4a6 6 0 0 1 0-12h12a4 4 0 0 1 0 8h-1"/></svg>
+          </button>
           <button class="edit-btn icon-action-btn" type="button" title="编辑重发" aria-label="编辑重发">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4.2L18.7 9.5a2.1 2.1 0 0 0 0-3L17.5 5.3a2.1 2.1 0 0 0-3 0L4 15.8V20Z"/><path d="M13.5 6.3l4.2 4.2"/></svg>
           </button>
@@ -394,6 +397,7 @@
   <script src="./client/app/markdown/browser-engine.js?v=1.2.65"></script>
   <script src="./client/app/markdown/enhancer.js?v=1.2.80"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
+  <script src="./client/app/image-store.js?v=1.2.65"></script>
   <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.85"></script>
   <script src="./client/app/markdown/dependency-loader.js?v=1.2.84"></script>
   <script src="./client/app/markdown/browser.js?v=1.2.75"></script>
@@ -401,17 +405,18 @@
   <script src="./client/core/reasoning.js?v=1.2.66"></script>
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.65"></script>
-  <script src="./client/core/image-route-context.js?v=1.2.65"></script>
+  <script src="./client/core/image-route-context.js?v=1.3.8"></script>
   <script src="./client/core/attachments.js?v=1.2.65"></script>
+  <script src="./client/core/context-budget.js?v=1.3.6"></script>
+  <script src="./client/core/storage.js?v=1.2.65"></script>
   <script src="./client/core/browser.js?v=1.2.65"></script>
   <script src="./client/services/model-service.js?v=1.2.65"></script>
-  <script src="./client/services/job-service.js?v=1.2.65"></script>
+  <script src="./client/services/job-service.js?v=1.2.66"></script>
   <script src="./client/services/chat-service.js?v=1.2.65"></script>
-  <script src="./client/services/route-service.js?v=1.2.65"></script>
-  <script src="./client/services/image-generation-service.js?v=1.2.65"></script>
-  <script src="./client/services/image-service.js?v=1.2.65"></script>
+  <script src="./client/services/route-service.js?v=1.3.8"></script>
+  <script src="./client/services/image-generation-service.js?v=1.3.8"></script>
+  <script src="./client/services/image-service.js?v=1.2.67"></script>
   <script src="./client/services/composition.js?v=1.2.65"></script>
-  <script src="./client/services/fallback.js?v=1.2.65"></script>
   <script src="./client/services/usage-stats.js?v=1.2.65"></script>
   <script src="./client/services/browser.js?v=1.2.65"></script>
   <script src="./client/app/state.js?v=1.2.65"></script>
@@ -423,12 +428,12 @@
   <script src="./client/app/persistence.js?v=1.2.65"></script>
   <script src="./client/app/runs.js?v=1.2.65"></script>
   <script src="./client/app/model-ui.js?v=1.2.65"></script>
-  <script src="./client/app/attachments-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/image-context-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/session-persistence.js?v=1.2.69"></script>
+  <script src="./client/app/attachments-workflow.js?v=1.2.66"></script>
+  <script src="./client/app/image-context-workflow.js?v=1.2.66"></script>
+  <script src="./client/app/session-persistence.js?v=1.3.8"></script>
   <script src="./client/app/session-display.js?v=1.2.65"></script>
   <script src="./client/app/session-ui-workflow.js?v=1.3.5"></script>
-  <script src="./client/app/config-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/config-workflow.js?v=1.2.67"></script>
   <script src="./client/app/dialog-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-actions-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-preview-workflow.js?v=1.2.65"></script>
@@ -438,11 +443,11 @@
   <script src="./client/app/job-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-result-workflow.js?v=1.2.65"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.65"></script>
-  <script src="./client/app/submit-workflow.js?v=1.3.5"></script>
-  <script src="./client/app/chat-workflow.js?v=1.3.0"></script>
-  <script src="./client/app/image-workflow.js?v=1.2.65"></script>
+  <script src="./client/app/submit-workflow.js?v=1.3.7"></script>
+  <script src="./client/app/chat-workflow.js?v=1.3.1"></script>
+  <script src="./client/app/image-workflow.js?v=1.3.8"></script>
   <script src="./client/app/message-workflow.js?v=1.3.0"></script>
-  <script src="./client/app/display-history-workflow.js?v=1.2.77"></script>
+  <script src="./client/app/display-history-workflow.js?v=1.2.78"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.0"></script>
   <script src="./client/app/route-decision-workflow.js?v=1.2.65"></script>
   <script src="./client/app/reasoning-workflow.js?v=1.2.66"></script>
@@ -459,10 +464,9 @@
   <script src="./client/ui/usage-stats.js?v=1.2.65"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
   <script src="./client/app/runtime.js?v=1.2.65"></script>
-  <script src="./client/app/image-store.js?v=1.2.65"></script>
   <script src="./client/app/media-workflow.js?v=1.2.65"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.65"></script>
   <script src="./client/app/bootstrap-workflow.js?v=1.2.78"></script>
-  <script src="./app.js?v=1.3.5"></script>
+  <script src="./app.js?v=1.3.12"></script>
 </body>
 </html>

@@ -6,11 +6,11 @@
   const escapeHtml = browserEngine.escapeHtml || (value => String(value || '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
   const renderMarkdown = browserEngine.renderMarkdown || (markdown => `<p>${escapeHtml(markdown).replace(/\n/g, '<br>')}</p>`);
   const enhanceRenderedMarkdown = browserEnhancer.enhanceRenderedMarkdown || (() => Promise.resolve([]));
-  const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  const TPX = global.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
-  function shouldDeferStreamingResourceUrl(url = '') { const value = String(url || '').trim(); return !!value && !value.startsWith('data:') && !value.startsWith('blob:') && !value.startsWith('#') && value !== TRANSPARENT_PIXEL && value !== 'about:blank'; }
+  function shouldDeferStreamingResourceUrl(url = '') { const value = String(url || '').trim(); return !!value && !value.startsWith('data:') && !value.startsWith('blob:') && !value.startsWith('#') && value !== TPX && value !== 'about:blank'; }
   const STREAMING_RESOURCE_ATTRS = Object.freeze([
-    ['img[src]', 'src', TRANSPARENT_PIXEL],
+    ['img[src]', 'src', TPX],
     ['img[srcset]', 'srcset', ''],
     ['source[src]', 'src', ''],
     ['source[srcset]', 'srcset', ''],

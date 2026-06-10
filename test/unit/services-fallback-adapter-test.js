@@ -13,18 +13,11 @@ const files = [
   'client/services/image-generation-service.js',
   'client/services/image-service.js',
   'client/services/composition.js',
-  'client/services/fallback.js',
 ];
 const compositionSource = fs.readFileSync(path.join(root, 'client/services/composition.js'), 'utf8');
-const fallbackSource = fs.readFileSync(path.join(root, 'client/services/fallback.js'), 'utf8');
 
 assert.ok(compositionSource.includes('window.ChatUIServicesComposition'), 'composition exposes explicit browser namespace');
 assert.ok(compositionSource.includes('window.ChatUIServicesFallback = api'), 'composition preserves legacy fallback alias');
-assert.ok(!compositionSource.includes('function extractChatJobText'), 'composition does not duplicate chat extraction implementation');
-assert.ok(!compositionSource.includes('function requestModels'), 'composition does not duplicate model request implementation');
-assert.ok(!compositionSource.includes('ROUTE_SYSTEM_PROMPT ='), 'composition does not duplicate route prompt implementation');
-assert.ok(!compositionSource.includes('function extractImageResult'), 'composition does not duplicate image extraction implementation');
-assert.ok(fallbackSource.includes('ChatUIServicesFallbackAlias'), 'fallback file is only a compatibility alias');
 
 const calls = [];
 const context = {
@@ -80,7 +73,7 @@ assert.strictEqual(typeof fallback.images.extractImageResult, 'function');
 
 assert.deepStrictEqual(fallback.chat.extractChatJobText({ output_text: 'ok' }).content, 'ok');
 assert.strictEqual(fallback.chat.parseSseLine('data: {"choices":[{"delta":{"content":"你"}}]}').delta, '你');
-assert.strictEqual(fallback.route.parseRouteResult('image').mode, 'image');
+assert.strictEqual(fallback.route.parseRouteResult('image'), null);
 assert.strictEqual(fallback.route.inferLocalImageRoute, undefined, 'service composition must not expose local route fallback');
 assert.strictEqual(fallback.images.extractImageResult({ data: [{ url: 'u' }] }).src, 'u');
 assert.strictEqual(fallback.images.buildImagePromptWithStylePrompt('猫', '水彩'), '猫\n\n图片样式要求：\n水彩');

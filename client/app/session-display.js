@@ -26,10 +26,8 @@
     const LAST_IMAGE_KEY = constants.LAST_IMAGE_KEY || 'last-image';
     const SESSIONS_KEY = constants.SESSIONS_KEY || 'chat-sessions';
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'chat-active-session';
-    const LEGACY_CHAT_KEY = constants.LEGACY_CHAT_KEY || CHAT_KEY;
-    const LEGACY_UI_KEY = constants.LEGACY_UI_KEY || UI_KEY;
 
-    function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '', imageContext = '', attachmentContext = '', metaText = '' } = {}) {
+    function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
       return {
         id: id || makeDisplayItemId(),
         role,
@@ -42,6 +40,7 @@
         jobId: jobId || '',
         imageContext: imageContext || '',
         attachmentContext: attachmentContext || '',
+        quoteContext: quoteContext || '',
         metaText: metaText || '',
         pending: pending ? '1' : '',
       };
@@ -82,10 +81,13 @@
       if (!message || !message.role) return null;
       let content;
       if (typeof message.content === 'string') content = message.content;
-      else if (Array.isArray(message.content)) content = message.content.filter(item => item?.type === 'text').map(item => item.text || '').join('\n') || '[非文本附件消息]';
+      else if (Array.isArray(message.content)) content = message.content.map(item => {
+        if (!item || typeof item !== 'object') return item;
+        return JSON.parse(JSON.stringify(item));
+      });
       else content = String(message.content || '');
       const clean = { role: message.role, content };
-      ['rawText', 'imageContext', 'attachmentContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId', 'metaText', 'reasoning_content'].forEach(key => {
+      ['rawText', 'imageContext', 'attachmentContext', 'quoteContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId', 'metaText', 'reasoning_content'].forEach(key => {
         if (message[key] !== undefined && message[key] !== null && message[key] !== '') clean[key] = String(message[key]);
       });
       if (message.html !== undefined && message.html !== null && message.html !== '') {
@@ -133,6 +135,7 @@
       if (options.jobId !== undefined) item.jobId = options.jobId || '';
       if (options.imageContext !== undefined) item.imageContext = options.imageContext || '';
       if (options.attachmentContext !== undefined) item.attachmentContext = options.attachmentContext || '';
+      if (options.quoteContext !== undefined) item.quoteContext = options.quoteContext || '';
       if (options.metaText !== undefined) item.metaText = options.metaText || '';
       if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning; }
       if (options.pending === false) { item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
@@ -184,13 +187,7 @@
         }));
       } catch (err) { console.warn('load sessions failed', err); }
       if (!sessions.length) {
-        const messages = readJsonStorage(LEGACY_CHAT_KEY, []);
-        const display = readJsonStorage(LEGACY_UI_KEY, []);
-        const lastGeneratedImage = readJsonStorage(LAST_IMAGE_KEY, null);
         const session = createSession();
-        session.messages = Array.isArray(messages) ? messages : [];
-        session.display = Array.isArray(display) ? display : [];
-        session.lastGeneratedImage = lastGeneratedImage;
         session.title = deriveSessionTitle(session);
         sessions = [session];
       }

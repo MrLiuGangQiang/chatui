@@ -12,6 +12,8 @@ const state = {
 };
 let switched = '';
 let savedMeta = 0;
+let savedChat = 0;
+let savedDisplay = 0;
 let activeRendered = 0;
 let listed = 0;
 let toastText = '';
@@ -29,6 +31,8 @@ const workflow = createSessionUiWorkflow({
   saveActivePromptDraft: () => {},
   restorePromptDraft: () => {},
   saveSessionsMeta: () => { savedMeta += 1; },
+  saveChatHistory: () => { savedChat += 1; },
+  saveDisplayHistory: () => { savedDisplay += 1; },
   sessionStorageKey: (key, id = state.activeSessionId) => `${key}:${id}`,
   renderActiveSession: () => { activeRendered += 1; },
   updateResumeStreamButton: () => {},
@@ -63,6 +67,8 @@ assert.strictEqual(document.querySelectorAll('.session-tab').length, 1);
 document.querySelector('.session-tab').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
 assert.strictEqual(switched, 's1');
 workflow.newSession();
+assert.strictEqual(savedChat, 1, 'newSession saves active chat before switching');
+assert.strictEqual(savedDisplay, 1, 'newSession saves active display before switching');
 assert.strictEqual(state.sessions[0].id, 's2');
 assert.strictEqual(activeRendered, 1);
 workflow.renderSessionModelArea();

@@ -36,7 +36,7 @@ async function waitReady() {
 (async () => {
   try {
     const version = await waitReady();
-    assert.strictEqual(version.version, '1.3.4');
+    assert.strictEqual(version.version, '1.3.5');
     const bad = await fetch(`http://127.0.0.1:${port}/api/models`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

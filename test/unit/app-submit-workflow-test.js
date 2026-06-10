@@ -31,7 +31,7 @@ const workflow = require('../../client/app/submit-workflow');
     editingNode: null,
   };
   const displayBySession = new Map();
-  let addMessageAfterSwitch = false;
+  let addMessageCount = 0;
   let sentSessionId = '';
   const submitRace = workflow.createSubmitWorkflow({
     state: state2,
@@ -47,7 +47,7 @@ const workflow = require('../../client/app/submit-workflow');
     buildUserApiContent: text => text,
     buildUploadedImageContext: async () => null,
     buildUserAttachmentContext: async () => null,
-    addMessage: () => { addMessageAfterSwitch = true; return {}; },
+    addMessage: () => { addMessageCount += 1; return {}; },
     appendSessionDisplayMessage: (sessionId, role, content, options) => {
       const item = { role, content, ...options };
       displayBySession.set(sessionId, [...(displayBySession.get(sessionId) || []), item]);
@@ -56,11 +56,15 @@ const workflow = require('../../client/app/submit-workflow');
     persistSessionDisplay() {},
     cloneMessageList: messages => messages.map(item => ({ ...item })),
     getActiveSession: () => state2.sessions.find(item => item.id === state2.activeSessionId),
-    saveChatHistory() { throw new Error('must not save switched active session'); },
+    saveChatHistory() {
+      if (state2.activeSessionId !== 's1') throw new Error('must not save switched active session');
+      state2.sessions[0].messages = state2.messages.map(item => ({ ...item }));
+    },
     saveSessionMessages: (sessionId, messages) => {
       const session = state2.sessions.find(item => item.id === sessionId);
       session.messages = messages.map(item => ({ ...item }));
     },
+    clearAttachments() {},
     scheduleAutoResize() {},
     setSessionBusy() {},
     pendingFeedbackHtml: text => text,
@@ -68,18 +72,20 @@ const workflow = require('../../client/app/submit-workflow');
     getEffectiveRoute: async () => ({ mode: 'chat', target: 'none' }),
     buildRequestHeaders: () => ({}),
     warnMissingModel: () => false,
-    sendChat: async (_text, _attachments, loadingNode, options) => {
-      assert.strictEqual(loadingNode, null);
+    showRunError(_sessionId, err) { throw err; },
+    sendChat: async (_text, _attachments, _loadingNode, options) => {
       sentSessionId = options.sessionId;
     },
     clearActiveRun() {},
   });
   const pending = submitRace.onSubmit({ preventDefault() {} });
+  assert.strictEqual(addMessageCount, 2, 'user message and pending assistant are rendered synchronously before async preparation');
+  assert.deepStrictEqual(state2.sessions[0].messages.map(item => item.content), ['hello'], 'user message is persisted before first await resolves');
   state2.activeSessionId = 's2';
   state2.messages = [];
   releasePreview();
   await pending;
-  assert.strictEqual(addMessageAfterSwitch, false, 'switched-away submit must not render into the new active session DOM');
+  assert.strictEqual(addMessageCount, 2, 'switched-away submit must not render additional nodes into the new active session DOM');
   assert.strictEqual(sentSessionId, 's1', 'send continues in the original session');
   assert.deepStrictEqual(state2.sessions[0].messages.map(item => item.content), ['hello'], 'user message is persisted to original session');
   assert.strictEqual(state2.sessions[1].messages.length, 0, 'new active session is not polluted');

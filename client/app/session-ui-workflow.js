@@ -15,6 +15,8 @@
     const saveActivePromptDraft = deps.saveActivePromptDraft || (() => {});
     const restorePromptDraft = deps.restorePromptDraft || (() => {});
     const saveSessionsMeta = deps.saveSessionsMeta || (() => {});
+    const saveChatHistory = deps.saveChatHistory || (() => {});
+    const saveDisplayHistory = deps.saveDisplayHistory || (() => {});
     const sessionStorageKey = deps.sessionStorageKey;
     const renderActiveSession = deps.renderActiveSession || (() => {});
     const updateResumeStreamButton = deps.updateResumeStreamButton || (() => {});
@@ -67,6 +69,7 @@
     function newSession() {
       const state = getState();
       saveActivePromptDraft();
+      try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
       const session = createSession();

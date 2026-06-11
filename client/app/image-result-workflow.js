@@ -60,6 +60,30 @@
     return {
       raw,
       metaText: elapsedText ? `RT ${elapsedText}` : '',
+      imageContext: {
+        prompt: options.prompt || '',
+        routePrompt: options.routePrompt || '',
+        mode: 'image',
+        target: 'previous',
+        referenceId,
+        selectedReferenceId: referenceId,
+        usePreviousImage: true,
+        updatedAt: Date.now(),
+        attachments: storedImages.map((item, index) => ({
+          id: deps.makeImageItemId ? deps.makeImageItemId('latest', index + 1) : `img_latest_${index + 1}`,
+          name: item.filename,
+          type: 'image/png',
+          size: 0,
+          src: item.src,
+          fromPrevious: true,
+          sourceIndex: index + 1,
+          imageId: deps.makeImageItemId ? deps.makeImageItemId('latest', index + 1) : `img_latest_${index + 1}`,
+          referenceId,
+          width: item.width || 0,
+          height: item.height || 0,
+          labels: item.labels || [],
+        })),
+      },
       html: `${countText ? `<div class="image-result-head"><span>${countText}</span></div>` : ''}<div class="generated-image-grid" data-generated-images="1">${itemsHtml.join('')}</div><div class="image-download-row">${downloadAllButton}</div>`,
     };
   }

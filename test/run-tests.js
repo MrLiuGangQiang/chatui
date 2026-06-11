@@ -227,6 +227,38 @@ function testImageOnlyAssistantMessageCanBeQuotedWithImageContext() {
   assert.strictEqual(parsed.attachments[1].imageId, 'img_imgref_latest_2');
 }
 
+function testEmptyAssistantImageContextFallsBackToGeneratedThumbs() {
+  const state = { activeSessionId: 's1', quotedMessage: null, sessions: [{ id: 's1', messages: [], display: [] }] };
+  const emptyImageContext = JSON.stringify({ prompt: '生成两张图', mode: 'image', target: 'new', attachments: [] });
+  const node = {
+    classList: { contains: name => name === 'assistant', add: () => {}, remove: () => {} },
+    dataset: { responseIndex: '1', rawText: '[base64 image] 耗时：1s', imageContext: emptyImageContext },
+    __displayItem: { imageContext: emptyImageContext },
+    querySelector: () => null,
+    textContent: '',
+  };
+  const workflow = messageWorkflow.createMessageWorkflow({
+    state,
+    document: { querySelectorAll: () => [] },
+    $: () => null,
+    getAssistantImageContext: () => ({
+      prompt: '生成两张图',
+      mode: 'image',
+      target: 'previous',
+      referenceId: 'imgref_latest',
+      attachments: [
+        { name: 'one.png', type: 'image/png', src: 'indexeddb://one', imageId: 'img_imgref_latest_1', referenceId: 'imgref_latest' },
+        { name: 'two.png', type: 'image/png', src: 'indexeddb://two', imageId: 'img_imgref_latest_2', referenceId: 'imgref_latest' },
+      ],
+    }),
+  });
+  const quote = workflow.resolveQuoteContextForNode(node);
+  assert.strictEqual(quote.content, '[图片消息]');
+  const parsed = JSON.parse(quote.imageContext);
+  assert.strictEqual(parsed.attachments.length, 2);
+  assert.strictEqual(parsed.attachments[1].imageId, 'img_imgref_latest_2');
+}
+
 function testQuoteResolverUsesCanonicalAndDisplayContext() {
   const imageContext = JSON.stringify({
     prompt: '生成两张图',
@@ -268,6 +300,7 @@ const tests = [
   testExistingImageEditGateAllowsPreviousSelection,
   testStructuredRouteDecisionCarriesRefs,
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
+  testEmptyAssistantImageContextFallsBackToGeneratedThumbs,
   testQuoteResolverUsesCanonicalAndDisplayContext,
 ];
 

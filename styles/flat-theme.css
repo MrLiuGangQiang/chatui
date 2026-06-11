@@ -1396,6 +1396,70 @@ button:disabled,
   color: var(--success) !important;
 }
 
+/* ═══════════════════════════════════════════
+   Balanced Sidebar Bottom Actions
+   ═══════════════════════════════════════════ */
+.session-bottom-actions {
+  padding-top: 8px !important;
+}
+.session-config-wrap {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.session-config-btn,
+.session-clear-all-btn,
+.session-github-btn,
+.sidebar-version-badge {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  height: 38px !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  box-sizing: border-box !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+  font-weight: 780 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+.session-config-btn {
+  flex: 1 1 auto !important;
+}
+.session-config-btn::after {
+  content: "配置";
+}
+.session-config-btn svg,
+.session-clear-all-btn svg,
+.session-github-btn svg {
+  width: 17px !important;
+  height: 17px !important;
+  flex: 0 0 17px !important;
+}
+.sidebar-version-badge {
+  color: var(--muted) !important;
+  background: rgba(255,255,255,.56) !important;
+}
+
+.session-config-wrap .session-config-btn,
+.session-config-wrap .session-clear-all-btn,
+.session-config-wrap .session-github-btn,
+.session-config-wrap .sidebar-version-badge {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  flex: 1 1 auto !important;
+}
+
 /* Final image-grid override: keep user uploads and assistant images row-first.
    This file is loaded after messages.css, so keep the authoritative rules here. */
 .message .content:has(.user-attachment-preview-grid),

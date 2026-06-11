@@ -232,6 +232,14 @@
       return null;
     }
 
+    function hasUsableImageContext(value) {
+      if (!value) return false;
+      try {
+        const context = typeof value === 'string' ? JSON.parse(value) : value;
+        return !!(context && typeof context === 'object' && Array.isArray(context.attachments) && context.attachments.length);
+      } catch { return false; }
+    }
+
     function resolveQuoteContextForNode(node) {
       if (!node) return null;
       const role = messageRoleFromNode(node);
@@ -247,6 +255,7 @@
         || ''
       );
       let imageContext = node.dataset.imageContext || displayItem?.imageContext || canonical?.imageContext || '';
+      if (imageContext && !hasUsableImageContext(imageContext)) imageContext = '';
       if (!imageContext && typeof deps.getAssistantImageContext === 'function') {
         try {
           const assistantImageContext = deps.getAssistantImageContext(node);

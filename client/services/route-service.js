@@ -1,7 +1,7 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = '你是 ChatUI 路由器，只输出 JSON。目标：判断本轮要做什么，并返回执行所需的文件/图片引用。\n\n输出字段：\n{\"mode\":\"chat|image|edit_image\",\"operation\":{\"type\":\"plain_chat|file_qa|image_qa|ocr|text_to_image|image_reference_gen|image_edit\",\"scope\":\"current|quoted|history|none\",\"prompt\":\"\",\"edit_instruction\":\"\"},\"image_refs\":[{\"role\":\"target|reference\",\"image_id\":\"\",\"reference_id\":\"\",\"index\":1,\"target\":\"uploaded|previous\",\"source\":\"current|quoted|history\"}],\"file_refs\":[{\"role\":\"source\",\"file_id\":\"\",\"index\":1,\"name\":\"\",\"source\":\"current|quoted\"}],\"target\":\"none|new|uploaded|previous\",\"use_previous_image\":false,\"selected_reference_id\":\"\",\"selected_indexes\":[],\"selected_image_ids\":[],\"need_clarification\":false,\"clarification_question\":\"\",\"intent\":\"text_to_image|image_edit|image_reference_gen|unknown\",\"edit_instruction\":\"\",\"contextual_image_prompt\":\"\",\"tasks\":[],\"confidence\":0,\"evidence\":\"\"}\n\n规则：\n1. [file id=...] / [image id=...] 只是附件索引，不是正文或图片内容。route 不接收文件正文/图片真实内容，不要编造内容。\n2. 文件只从 attachments/context.file_candidates 选；需要读文件回答时 mode=chat，operation.type=file_qa，填 file_refs。\n3. 图片只从 context.image_candidates 选；问图/OCR 用 mode=chat + image_qa/ocr + image_refs；修图用 mode=edit_image + image_edit + image_refs(role=target)。\n4. 引用场景 scope/source=quoted，只能选引用消息内候选；普通聊天不要选文件/图片。\n5. 生图 mode=image；引用型生图才填 contextual_image_prompt=引用描述+当前请求；普通生图不改写用户原文。\n6. 多图目标不明确要 need_clarification=true；不要输出 size/quality/background/format/n。' ;
+const ROUTE_SYSTEM_PROMPT = '你是 ChatUI 路由器，只输出 JSON。目标：判断本轮要做什么，并返回执行所需的文件/图片引用。\n\n输出字段：\n{\"mode\":\"chat|image|edit_image\",\"operation\":{\"type\":\"plain_chat|file_qa|image_qa|ocr|text_to_image|image_reference_gen|image_edit\",\"scope\":\"current|quoted|history|none\",\"prompt\":\"\",\"edit_instruction\":\"\"},\"image_refs\":[{\"role\":\"target|reference\",\"image_id\":\"\",\"reference_id\":\"\",\"index\":1,\"target\":\"uploaded|previous\",\"source\":\"current|quoted|history\"}],\"file_refs\":[{\"role\":\"source\",\"file_id\":\"\",\"index\":1,\"name\":\"\",\"source\":\"current|quoted\"}],\"target\":\"none|new|uploaded|previous\",\"use_previous_image\":false,\"selected_reference_id\":\"\",\"selected_indexes\":[],\"selected_image_ids\":[],\"need_clarification\":false,\"clarification_question\":\"\",\"intent\":\"text_to_image|image_edit|image_reference_gen|unknown\",\"edit_instruction\":\"\",\"contextual_image_prompt\":\"\",\"tasks\":[],\"confidence\":0,\"evidence\":\"\"}\n\n规则：\n1. [file id=...] / [image id=...] 只是附件索引，不是正文或图片内容。route 不接收文件正文/图片真实内容，不要编造内容。\n2. 文件只从 attachments/context.file_candidates 选；需要读文件回答时 mode=chat，operation.type=file_qa，填 file_refs。\n3. 图片只从 context.image_candidates 选；用户上传图和 assistant 生成图都一样有效。问图/OCR/提取图片元素/反推或逆向生成提示词 用 mode=chat + image_qa/ocr + image_refs；修图用 mode=edit_image + image_edit + image_refs(role=target)。\n4. 引用场景 scope/source=quoted，只能选引用消息内候选；若 context.image_candidates 非空，不要说没有图片；第N张按候选 index 选。\n5. 只有用户明确要求创建/画/生成一张新图片时才 mode=image；“根据图片提取/生成提示词/反推 prompt”不是生图，是图片理解。引用型生图才填 contextual_image_prompt=引用描述+当前请求；普通生图不改写用户原文。\n6. 多图目标不明确要 need_clarification=true；不要输出 size/quality/background/format/n。' ;
 
 const imageRouteContext = root?.ChatUICoreImageRouteContext
   || root?.ChatUICore?.imageRouteContext
@@ -44,6 +44,10 @@ function isPlainTextChatInput(input = '', attachments = []) {
   return true;
 }
 
+function isImagePromptExtractionInput(input = '') {
+  return /(提取|总结|分析|拆解|反推|逆向|还原).*(图片|图|画面).*(提示词|prompt|Prompt)|(?:图片|图|画面).*(元素|要素).*(提示词|prompt|Prompt)|(?:生成|生图).*(提示词|prompt|Prompt)|(?:prompt|Prompt).*(反推|逆向|还原|提取)/i.test(String(input || ''));
+}
+
 function parseRouteResult(text = '', normalizeRoute, options = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -51,6 +55,23 @@ function parseRouteResult(text = '', normalizeRoute, options = {}) {
   if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
   try {
     const parsed = normalize(JSON.parse(stripJsonFence(value)));
+    const imageCandidates = Array.isArray(options.context?.image_candidates) ? options.context.image_candidates : [];
+    const hasImageContext = imageCandidates.length > 0 || (options.attachments || []).some(item => item && item.is_image);
+    if (hasImageContext && isImagePromptExtractionInput(options.input) && parsed.mode === 'image') {
+      const first = imageCandidates.length === 1 ? imageCandidates[0] : null;
+      return normalize({
+        ...parsed,
+        mode: 'chat',
+        operation: { ...(parsed.operation || {}), type: 'image_qa', scope: first?.source || parsed.operation?.scope || 'quoted' },
+        target: first?.target || parsed.target || 'previous',
+        use_previous_image: first?.target === 'previous' || parsed.usePreviousImage || parsed.use_previous_image || false,
+        image_refs: Array.isArray(parsed.imageRefs) && parsed.imageRefs.length ? parsed.imageRefs : (Array.isArray(parsed.image_refs) && parsed.image_refs.length ? parsed.image_refs : (first ? [{ role: 'target', image_id: first.image_id || '', reference_id: first.reference_id || '', index: first.index || 1, target: first.target || 'previous', source: first.source || 'quoted' }] : [])),
+        selected_indexes: parsed.selectedIndexes?.length ? parsed.selectedIndexes : parsed.selected_indexes || (first ? [first.index || 1] : []),
+        selected_image_ids: parsed.selectedImageIds?.length ? parsed.selectedImageIds : parsed.selected_image_ids || (first?.image_id ? [first.image_id] : []),
+        intent: 'unknown',
+        evidence: '根据图片提取/反推生成提示词属于图片理解，不是直接生图',
+      }, 'chat');
+    }
     if (isPlainTextChatInput(options.input, options.attachments)) {
       const selectedReferenceId = String(parsed.selectedReferenceId || '');
       const hasExplicitReference = !!selectedReferenceId && selectedReferenceId !== 'imgref_latest';

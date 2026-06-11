@@ -316,7 +316,10 @@
         const displayByResponse = (session.display || []).find(item => item?.role === 'assistant' && String(item.responseIndex || '') === String(responseIndex));
         if (displayByResponse?.imageContext) candidates.push(displayByResponse.imageContext);
       }
-      for (const candidate of candidates) if (candidate) try { const context = typeof candidate === 'string' ? JSON.parse(candidate) : candidate; if (context && typeof context === 'object') return context; } catch {}
+      for (const candidate of candidates) if (candidate) try {
+        const context = typeof candidate === 'string' ? JSON.parse(candidate) : candidate;
+        if (context && typeof context === 'object' && Array.isArray(context.attachments) && context.attachments.length) return context;
+      } catch {}
       const images = [...node.querySelectorAll?.('img.generated-thumb, .generated-image-item img, img[data-persisted-src], img[data-original-src], img[data-persisted-url], img[data-object-url]') || []]
         .map((img, index) => {
           const src = img.dataset.persistedSrc || img.dataset.originalSrc || img.dataset.persistedUrl || img.dataset.objectUrl || img.currentSrc || img.src || '';

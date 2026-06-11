@@ -199,7 +199,7 @@ function testImageOnlyAssistantMessageCanBeQuotedWithImageContext() {
   const state = { activeSessionId: 's1', quotedMessage: null };
   const node = {
     classList: { contains: name => name === 'assistant', add: () => {}, remove: () => {} },
-    dataset: { responseIndex: '1', rawText: '' },
+    dataset: { responseIndex: '1', rawText: '[base64 image] [base64 image] 耗时：1m 29s' },
     __displayItem: {},
     querySelector: () => null,
     textContent: '',

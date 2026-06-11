@@ -56,7 +56,15 @@
     }
 
     function normalizeQuoteText(text = '', limit = 1200) {
-      return String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+      return String(text || '')
+        .replace(/\[base64 image\]/gi, '')
+        .replace(/耗时：[^\n]+/g, '')
+        .replace(/RT\s+[^\n]+/gi, '')
+        .replace(/TTFT\s+[^\n]+/gi, '')
+        .replace(/^\[图片(?:生成|编辑|修改)完成\]\s*/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, limit);
     }
 
     function escapeHtmlLocal(value = '') {
@@ -201,11 +209,12 @@
         } catch {}
       }
       if (imageContext && !node.dataset.imageContext) node.dataset.imageContext = imageContext;
-      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || (imageContext ? '[图片消息]' : ''));
-      if (!content && !imageContext) return;
+      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || '');
+      const quoteContent = content || (imageContext ? '[图片消息]' : '');
+      if (!quoteContent && !imageContext) return;
       deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
       node.classList.add('quoted');
-      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content: content || '[图片消息]', sessionId: deps.state.activeSessionId || '' };
+      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content: quoteContent, sessionId: deps.state.activeSessionId || '' };
       if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
       if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
       if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;

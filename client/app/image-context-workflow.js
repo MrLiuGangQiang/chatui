@@ -317,9 +317,9 @@
         if (displayByResponse?.imageContext) candidates.push(displayByResponse.imageContext);
       }
       for (const candidate of candidates) if (candidate) try { const context = typeof candidate === 'string' ? JSON.parse(candidate) : candidate; if (context && typeof context === 'object') return context; } catch {}
-      const images = [...node.querySelectorAll?.('img.generated-thumb[data-persisted-src], img.generated-thumb[data-original-src], img[data-persisted-src]') || []]
+      const images = [...node.querySelectorAll?.('img.generated-thumb, .generated-image-item img, img[data-persisted-src], img[data-original-src], img[data-persisted-url], img[data-object-url]') || []]
         .map((img, index) => {
-          const src = img.dataset.persistedSrc || img.dataset.originalSrc || img.currentSrc || img.src || '';
+          const src = img.dataset.persistedSrc || img.dataset.originalSrc || img.dataset.persistedUrl || img.dataset.objectUrl || img.currentSrc || img.src || '';
           if (!src) return null;
           const sourceIndex = Number(img.dataset.imageIndex) || index + 1;
           const imageId = img.dataset.imageId || '';

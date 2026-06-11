@@ -2,14 +2,16 @@
   'use strict';
 
 function imageItemToResult(item) {
-  const url = item?.url || '';
-  const b64 = item?.b64_json || item?.image_base64 || '';
+  const rawItem = typeof item === 'string' ? { url: item } : (item || {});
+  const url = rawItem.url || rawItem.image_url || rawItem.output_url || '';
+  const b64 = rawItem.b64_json || rawItem.image_base64 || rawItem.base64 || rawItem.b64 || '';
   const src = url || (b64 ? `data:image/png;base64,${b64}` : '');
   return src ? { src, url, b64, raw: url || '[base64 image]' } : null;
 }
 
 function extractImageResult(result) {
-  const items = Array.isArray(result?.data) ? result.data.map(imageItemToResult).filter(Boolean) : [];
+  const candidates = [result?.data, result?.images, result?.output, result?.result, result?.results].find(Array.isArray) || (Array.isArray(result) ? result : []);
+  const items = candidates.map(imageItemToResult).filter(Boolean);
   if (!items.length) {
     const raw = JSON.stringify(result, null, 2);
     return result?.data?.length ? { kind: 'raw', url: '', b64: '', raw } : { kind: 'empty', url: '', b64: '', raw };

@@ -51,7 +51,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       console.log('[image-generation-proxy] upstream json', JSON.stringify({ model: outboundPayload.model || '', fields: Object.keys(outboundPayload), n: outboundPayload.n || 1 }));
     }
     const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
-    const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
+    const isImageEdit = method !== 'GET' && targetPath === '/openai/image_edit';
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
@@ -69,7 +69,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (isImageEdit && imageEditFiles.length) {
       const editPayload = stripImageEditFileFields(outboundPayload);
       const multipart = buildImageEditMultipartBody(editPayload, imageEditFiles, { masks: imageEditMasks });
-      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload), images: imageEditFiles.length, hasMask: !!imageEditMasks.length, n: editPayload.n || 1 }));
+      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload), images: imageEditFiles.length, hasMask: !!imageEditMasks.length }));
       upstreamBody = multipart.body;
       upstreamContentHeaders = multipart.headers;
     }

@@ -93,7 +93,6 @@ function shouldSkipMultipartField(key, value) {
 const IMAGE_EDIT_MULTIPART_FIELDS = new Set([
   'model',
   'prompt',
-  'n',
   'size',
   'quality',
   'background',
@@ -115,14 +114,8 @@ function shouldForwardImageEditField(payload, key, value) {
   return true;
 }
 
-function normalizeImageCount(value) {
-  const count = Number.parseInt(value, 10);
-  if (!Number.isFinite(count) || count <= 1) return undefined;
-  return Math.min(Math.max(count, 1), 10);
-}
-
 function imageJobTargetPath(mode = 'image') {
-  return `/images/${mode === 'edit_image' ? 'edits' : 'generations'}`;
+  return mode === 'edit_image' ? '/openai/image_edit' : '/images/generations';
 }
 
 function isTaggedMaskFile(item = {}) {
@@ -164,7 +157,7 @@ function buildImageEditMultipartBody(payload = {}, files = [], options = {}) {
     body.append(String(key), String(fieldValue));
   });
   (files || []).filter(file => file?.data && !isTaggedMaskFile(file)).forEach((file, index) => {
-    body.append('image', imageFileToBlob(file || {}), safeMultipartFilename(file, index));
+    body.append('image[]', imageFileToBlob(file || {}), safeMultipartFilename(file, index));
   });
   const mask = normalizeFileList(options.masks)[0];
   if (mask?.data) body.append('mask', imageFileToBlob(mask), safeMultipartFilename(mask, 0));
@@ -179,6 +172,9 @@ function extractImageEditFiles(body = {}) {
     body.payload?.files,
     body.payload?.image_files,
     body.payload?.imageFiles,
+    body.image,
+    body.images,
+    body.payload?.image,
     body.payload?.images,
   ].find(items => Array.isArray(items) && items.some(item => item?.data)) || [];
   return candidates.filter(item => item?.data && !isTaggedMaskFile(item));
@@ -215,13 +211,13 @@ let body;
 if (job.mode === 'edit_image') {
   const editPayload = stripImageEditFileFields(job.payload);
   const multipart = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
-  console.log('[image-edit] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload), images: job.files?.length || 0, hasMask: !!job.masks?.length, n: editPayload.n || 1 }));
+  console.log('[image-edit] upstream multipart', JSON.stringify({ model: editPayload.model || '', targetPath: imageJobTargetPath('edit_image'), fields: Object.keys(editPayload), images: job.files?.length || 0, hasMask: !!job.masks?.length }));
   body = multipart.body;
   Object.assign(headers, multipart.headers);
 } else {
   headers['Content-Type'] = 'application/json';
   const generationPayload = stripImageEditFileFields(job.payload);
-  console.log('[image-generation] upstream json', JSON.stringify({ model: generationPayload.model || '', fields: Object.keys(generationPayload), n: generationPayload.n || 1 }));
+  console.log('[image-generation] upstream json', JSON.stringify({ model: generationPayload.model || '', fields: Object.keys(generationPayload) }));
   body = JSON.stringify(generationPayload || {});
 }
 const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
@@ -307,5 +303,4 @@ module.exports = {
   extractImageEditMasks,
   imageJobTargetPath,
   stripImageEditFileFields,
-  normalizeImageCount,
 };

@@ -326,19 +326,12 @@ function normalizePlanValue(value, fallback = 'auto') {
   return text || fallback;
 }
 
-function normalizePlanCount(value) {
-  const count = Number.parseInt(value, 10);
-  if (!Number.isFinite(count) || count < 1) return 1;
-  return Math.min(count, 10);
-}
-
 function normalizeImagePlanTask(task = {}) {
   const taskType = IMAGE_PLAN_TASK_TYPES.has(task.task_type || task.taskType) ? (task.task_type || task.taskType) : 'generate';
   return {
     task_type: taskType,
     input_images: normalizePlanInputImages(task.input_images || task.inputImages),
     prompt: String(task.prompt || '').trim(),
-    n: normalizePlanCount(task.n),
     size: normalizePlanValue(task.size),
     quality: normalizePlanValue(task.quality),
     background: normalizePlanValue(task.background),
@@ -361,7 +354,7 @@ function normalizeImagePlan(route = {}) {
 
 function modeFromImageIntent(intent, fallbackMode = 'chat') {
   // OpenAI-compatible image routing: only text_to_image uses /images/generations;
-  // everything with an input image goes through /images/edits, independent of model name.
+  // everything with an input image goes through /openai/image_edit, independent of model name.
   if (intent === 'text_to_image') return 'image';
   if (intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose' || intent === 'image_reference_gen') return 'edit_image';
   return fallbackMode;

@@ -32,19 +32,12 @@ function normalizeOutputFormat(value) {
   return ['png', 'jpeg', 'webp'].includes(text) ? text : '';
 }
 
-function normalizeCount(value) {
-  const count = Number.parseInt(value, 10);
-  return Number.isFinite(count) && count >= 1 ? Math.min(count, 10) : 0;
-}
-
-function buildImageRequestPayload({ model, prompt, n, size = 'auto', quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
+function buildImageRequestPayload({ model, prompt, size = 'auto', quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
   const payload = { model, prompt };
-  const resolvedN = normalizeCount(n);
   const resolvedSize = normalizeAutoValue(size);
   const resolvedQuality = normalizeAutoValue(quality);
   const resolvedBackground = normalizeAutoValue(background);
   const resolvedFormat = normalizeOutputFormat(output_format || format);
-  if (resolvedN > 1) payload.n = resolvedN;
   if (resolvedSize) payload.size = resolvedSize;
   if (resolvedQuality) payload.quality = resolvedQuality;
   if (resolvedBackground) payload.background = resolvedBackground;
@@ -56,7 +49,6 @@ function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
   return buildImageRequestPayload({
     model,
     prompt: task.prompt || prompt,
-    n: task.n,
     size: task.size,
     quality: task.quality,
     background: task.background,

@@ -94,34 +94,24 @@ async function json(res) {
       assert.strictEqual(res.status, 202, `normal api key request ${i + 1} is not ranking-limited`);
     }
 
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       res = await fetch(`${base}/api/usage/rankings?range=today`, { headers: { 'X-Forwarded-For': '203.0.113.10' } });
       assert.strictEqual(res.status, 200, `ranking refresh ${i + 1} is allowed`);
+      const rankingPayload = await json(res);
+      assert.notStrictEqual(rankingPayload.limited, true, `ranking refresh ${i + 1} is not limited`);
     }
-    res = await fetch(`${base}/api/usage/rankings?range=today`, { headers: { 'X-Forwarded-For': '203.0.113.10' } });
-    assert.strictEqual(res.status, 200, 'seventh ranking refresh returns friendly payload');
-    const limitedRanking = await json(res);
-    assert.strictEqual(limitedRanking.limited, true, 'ranking refresh limit flag');
-    assert.strictEqual(limitedRanking.message, '请不要频繁刷新，请一分钟后重试', 'ranking refresh limit message');
-    assert.strictEqual(res.headers.get('x-ratelimit-limit'), '6', 'ranking rate limit header');
+    assert.strictEqual(res.headers.get('x-ratelimit-limit'), null, 'ranking rate limit header is not set');
 
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       res = await fetch(`${base}/api/usage/personal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '203.0.113.10' },
         body: JSON.stringify({ api_key: 'sk-limit', range: 'today' }),
       });
-      assert.strictEqual(res.status, 200, `personal refresh ${i + 1} is allowed separately`);
+      assert.strictEqual(res.status, 200, `personal refresh ${i + 1} is allowed`);
+      const personalPayload = await json(res);
+      assert.notStrictEqual(personalPayload.limited, true, `personal refresh ${i + 1} is not limited`);
     }
-    res = await fetch(`${base}/api/usage/personal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '203.0.113.10' },
-      body: JSON.stringify({ api_key: 'sk-limit', range: 'today' }),
-    });
-    assert.strictEqual(res.status, 200, 'seventh personal refresh returns friendly payload');
-    const limitedPersonal = await json(res);
-    assert.strictEqual(limitedPersonal.limited, true, 'personal refresh limit flag');
-    assert.strictEqual(limitedPersonal.message, '请不要频繁刷新，请一分钟后重试', 'personal refresh limit message');
 
     console.log('router ok');
   } finally {

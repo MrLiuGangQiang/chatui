@@ -131,8 +131,8 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 ### 使用统计能力
 
 - 可选 PostgreSQL 使用统计，不配置数据库时自动关闭，不影响聊天、生图和附件功能。
-- 支持今日排行、昨日排行、总排行，默认每个范围返回前 10 名。
-- 支持通过环境变量调整排行榜返回数量。
+- 支持今日排行、昨日排行、总排行，默认返回全部排行数据。
+- 支持通过环境变量限制排行榜返回数量。
 - 支持个人使用统计，按当前浏览器配置的 API Key 查询。
 - 统计范围支持今日、昨日、总计切换。
 - 前端采用懒加载：打开弹窗只查当前范围，切换到哪个范围才查询哪个范围，已查询数据会在前端缓存。
@@ -781,7 +781,7 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 - 右上角使用统计按钮，点击打开独立统计弹窗。
 - 个人统计默认展示今日，并支持今日、昨日、总计切换。
 - 排行榜支持今日排行、昨日排行、总排行。
-- 排行榜默认展示前 10 名，可通过环境变量调整。
+- 排行榜默认展示全部数据，可通过环境变量限制返回数量。
 - 前三名使用金、银、铜视觉样式，但显示文本仍为 `1 / 2 / 3`。
 - 指标包括：总用量、输入、输出、缓存输入、推理输出。
 - 百万以上使用 `M`，亿以上使用 `B`，鼠标悬停可查看完整数值。
@@ -900,7 +900,7 @@ GET, POST
 | `PG_IDLE_TIMEOUT_MS` / `POSTGRES_IDLE_TIMEOUT_MS` | `30000` | PostgreSQL 连接池空闲连接回收时间 |
 | `PG_CONNECTION_TIMEOUT_MS` / `POSTGRES_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL 建连超时时间 |
 | `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
-| `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
+| `USAGE_RANKING_LIMIT` | 未设置 | 使用排行榜每个范围返回数量；未设置时返回全部排行数据 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
 
 示例：
@@ -915,9 +915,10 @@ HOST=127.0.0.1 PORT=3000 UPSTREAM_TIMEOUT_MS=900000 node server.js
 POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disable' \
 PG_POOL_MIN=0 \
 PG_POOL_MAX=10 \
-USAGE_RANKING_LIMIT=10 \
 node server.js
 ```
+
+如需限制排行榜返回数量，可额外设置 `USAGE_RANKING_LIMIT`。
 
 公开部署建议：
 

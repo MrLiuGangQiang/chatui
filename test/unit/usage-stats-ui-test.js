@@ -18,9 +18,9 @@ assert.strictEqual(tokenPercent(200, 100), 100);
 assert.strictEqual(cachePercent({ prompt_tokens: 1000, prompt_cached_tokens: 250 }), 25);
 assert.strictEqual(reasoningPercent({ completion_tokens: 1000, completion_reasoning_tokens: 125 }), 12.5);
 
-assert.strictEqual(shouldLoadRanking(''), false);
-assert.strictEqual(shouldLoadRanking('   '), false);
-assert.strictEqual(shouldLoadRanking(null), false);
+assert.strictEqual(shouldLoadRanking(''), true);
+assert.strictEqual(shouldLoadRanking('   '), true);
+assert.strictEqual(shouldLoadRanking(null), true);
 assert.strictEqual(shouldLoadRanking('sk-test'), true);
 
 console.log('usage-stats-ui tests passed');

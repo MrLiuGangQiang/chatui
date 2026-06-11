@@ -4,6 +4,10 @@
     ['yesterday', '昨日排行'],
     ['total', '总排行'],
   ];
+  const RANKING_TYPE_TABS = [
+    ['project', '项目排行'],
+    ['user', '个人排行'],
+  ];
   const CONFIG_KEY = 'openapi-chat-image-config-v2';
 
   const $ = id => document.getElementById(id);
@@ -62,8 +66,8 @@
     }
   }
 
-  function shouldLoadRanking(apiKey) {
-    return Boolean(String(apiKey || '').trim());
+  function shouldLoadRanking() {
+    return true;
   }
 
   function ensureDom() {
@@ -88,6 +92,9 @@
           </div>
           <div class="usage-stats-actions">
             <span id="usageStatsStatus" class="usage-stats-status" aria-live="polite"></span>
+            <button id="usageStatsExport" type="button" title="导出 Excel" aria-label="导出当前排行榜 Excel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            </button>
             <button id="usageStatsRefresh" type="button" title="刷新" aria-label="刷新统计">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.66 5.66"/><path d="M4 12A8 8 0 0 1 17.66 6.34"/><path d="M17 2v5h5"/><path d="M7 22v-5H2"/></svg>
             </button>
@@ -96,6 +103,9 @@
         </div>
         <div id="usagePersonal" class="usage-personal"></div>
         <div class="usage-stats-body">
+          <div class="usage-tabs usage-type-tabs" role="tablist" aria-label="排行类型">
+            ${RANKING_TYPE_TABS.map(([key, label], index) => `<button id="usageTypeTab-${key}" type="button" data-usage-type="${key}" class="${index === 0 ? 'active' : ''}">${label}</button>`).join('')}
+          </div>
           <div class="usage-tabs" role="tablist">
             ${RANKING_TABS.map(([key, label], index) => `<button type="button" data-usage-tab="${key}" class="${index === 0 ? 'active' : ''}">${label}</button>`).join('')}
           </div>
@@ -113,6 +123,11 @@
       ['缓存输入', cachePercent(row), 'percent'],
       ['推理输出', reasoningPercent(row), 'percent'],
     ];
+  }
+
+  function rankingTokenColumns(row, type = 'user') {
+    const columns = tokenColumns(row);
+    return type === 'project' ? [['占比', row?.total_percent, 'percent'], ...columns] : columns;
   }
 
   function renderPersonal(personal, hasApiKey) {
@@ -168,8 +183,8 @@
     });
   }
 
-  function renderTokenBadges(row) {
-    return tokenColumns(row).map(([label, value, type], index) => `
+  function renderTokenBadges(row, rankingType = 'user') {
+    return rankingTokenColumns(row, rankingType).map(([label, value, type], index) => `
       <span class="usage-token-badge usage-token-badge-${index}" title="${fullMetricValue(value, type)}">
         <em>${label}</em>
         <strong>${formatMetricValue(value, type)}</strong>
@@ -189,10 +204,22 @@
     return `<div class="usage-rank-index">${renderRankIcon(rank)}</div>`;
   }
 
-  function renderRanking(rows = [], range = 'today') {
+  function rankingCacheKey(type, range) {
+    const projectPart = activeProjectFilter?.id ? `:project-${activeProjectFilter.id}` : '';
+    return `${type || 'project'}:${range || 'today'}${projectPart}`;
+  }
+
+  function rankingName(row = {}, type = 'user') {
+    return type === 'project' ? row.project_name || '未分配项目' : row.username || '-';
+  }
+
+  function renderRanking(rows = [], range = 'today', type = 'user') {
     const el = $('usageRanking');
     if (!el) return;
-    const title = RANKING_TABS.find(([key]) => key === range)?.[1] || '排行';
+    const rangeTitle = RANKING_TABS.find(([key]) => key === range)?.[1] || '排行';
+    const typeTitle = RANKING_TYPE_TABS.find(([key]) => key === type)?.[1] || '个人排行';
+    const filterTitle = type === 'user' && activeProjectFilter?.name ? ` · ${activeProjectFilter.name}` : '';
+    const title = `${typeTitle} · ${rangeTitle}${filterTitle}`;
     if (!rows.length) {
       el.innerHTML = `<div class="usage-ranking-title">${title}</div><div class="usage-empty">暂无排行数据。</div>`;
       return;
@@ -201,16 +228,18 @@
       <div class="usage-ranking-title">${title}</div>
       <div class="usage-ranking-list">
         ${rows.map((row, index) => `
-          <div class="usage-ranking-row">
+          <div class="usage-ranking-row${type === 'project' ? ' usage-ranking-row-clickable' : ''}"${type === 'project' && row.project_id !== null && row.project_id !== undefined ? ` data-project-id="${escapeHtml(row.project_id)}" data-project-name="${escapeHtml(rankingName(row, type))}" role="button" tabindex="0" title="查看 ${escapeHtml(rankingName(row, type))} 项目下的个人排行"` : ''}>
             ${renderRankIndex(index)}
-            <span class="usage-ranking-user" title="${escapeHtml(row.username || '-')}">${escapeHtml(row.username || '-')}</span>
-            <div class="usage-token-grid">${renderTokenBadges(row)}</div>
+            <span class="usage-ranking-user" title="${escapeHtml(rankingName(row, type))}">${escapeHtml(rankingName(row, type))}</span>
+            <div class="usage-token-grid${type === 'project' ? ' usage-token-grid-project' : ''}">${renderTokenBadges(row, type)}</div>
           </div>`).join('')}
       </div>`;
   }
 
   let cache = { rankings: {}, personal: {} };
   let activeRange = 'today';
+  let activeRankingType = 'project';
+  let activeProjectFilter = null;
   let activePersonalRange = 'today';
 
   function usageService() {
@@ -220,7 +249,7 @@
   function showUsageLimit(message) {
     const status = $('usageStatsStatus');
     if (!status) return;
-    status.innerHTML = `<span class="usage-stats-warning-icon" aria-hidden="true">⚠️</span><span>${escapeHtml(message || '请不要频繁刷新，请一分钟后重试')}</span>`;
+    status.innerHTML = `<span class="usage-stats-warning-icon" aria-hidden="true">⚠️</span><span>${escapeHtml(message || '加载失败，请稍后重试')}</span>`;
     status.classList.add('is-warning');
   }
 
@@ -232,24 +261,25 @@
   }
 
   async function loadRanking(range) {
-    if (!shouldLoadRanking(currentApiKey())) {
-      cache.rankings[range] = [];
-      renderRanking([], range);
+    if (!shouldLoadRanking()) {
+      cache.rankings[rankingCacheKey(activeRankingType, range)] = [];
+      renderRanking([], range, activeRankingType);
       return;
     }
-    const payload = await usageService().requestRanking(range);
+    const cacheKey = rankingCacheKey(activeRankingType, range);
+    const payload = await usageService().requestRanking(range, activeRankingType, { projectId: activeProjectFilter?.id || null });
     if (payload.limited) {
       showUsageLimit(payload.message);
-      renderRanking(cache.rankings[range] || [], range);
+      renderRanking(cache.rankings[cacheKey] || [], range, activeRankingType);
       return;
     }
     if (!payload.available) {
-      cache.rankings[range] = [];
-      renderRanking([], range);
+      cache.rankings[cacheKey] = [];
+      renderRanking([], range, activeRankingType);
       return;
     }
-    cache.rankings[range] = payload.ranking || [];
-    renderRanking(cache.rankings[range], range);
+    cache.rankings[cacheKey] = payload.ranking || [];
+    renderRanking(cache.rankings[cacheKey], range, activeRankingType);
   }
 
   async function loadPersonal(range) {
@@ -286,6 +316,42 @@
     }
   }
 
+  async function exportUsageRanking() {
+    const button = $('usageStatsExport');
+    const apiKey = currentApiKey();
+    if (!apiKey) return showUsageLimit('请先配置有导出权限的 API Key');
+    clearUsageLimit();
+    button && (button.disabled = true);
+    try {
+      const { blob, filename } = await usageService().exportRanking(apiKey, activeRange, activeRankingType, { projectId: activeProjectFilter?.id || null });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename || `usage-${activeRankingType}-${activeRange}.xls`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      showUsageLimit(err.message || '导出排行榜失败');
+    } finally {
+      button && (button.disabled = false);
+    }
+  }
+
+  async function drillIntoProject(projectId, projectName) {
+    if (!projectId) return;
+    activeRankingType = 'user';
+    activeProjectFilter = { id: projectId, name: projectName || '未命名项目' };
+    document.querySelectorAll('[data-usage-type]').forEach(item => item.classList.toggle('active', item.dataset.usageType === 'user'));
+    try {
+      clearUsageLimit();
+      await loadRanking(activeRange);
+    } catch (err) {
+      showUsageLimit(err.message || '加载失败');
+    }
+  }
+
   function openPanel() {
     $('usageStatsPanel')?.classList.add('show');
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'false');
@@ -302,6 +368,7 @@
     $('usageStatsButton')?.addEventListener('click', openPanel);
     $('usageStatsClose')?.addEventListener('click', closePanel);
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
+    $('usageStatsExport')?.addEventListener('click', exportUsageRanking);
     $('usageStatsPanel')?.addEventListener('click', event => {
       if (event.target?.id === 'usageStatsPanel') closePanel();
     });
@@ -316,6 +383,32 @@
           showUsageLimit(err.message || '加载失败');
         }
       });
+    });
+    document.querySelectorAll('[data-usage-type]').forEach(button => {
+      button.addEventListener('click', async () => {
+        activeRankingType = button.dataset.usageType || 'user';
+        if (activeRankingType === 'project') activeProjectFilter = null;
+        if (activeRankingType === 'user') activeProjectFilter = null;
+        document.querySelectorAll('[data-usage-type]').forEach(item => item.classList.toggle('active', item === button));
+        try {
+          clearUsageLimit();
+          await loadRanking(activeRange);
+        } catch (err) {
+          showUsageLimit(err.message || '加载失败');
+        }
+      });
+    });
+    $('usageRanking')?.addEventListener('click', async event => {
+      const row = event.target?.closest?.('[data-project-id]');
+      if (!row) return;
+      await drillIntoProject(row.dataset.projectId, row.dataset.projectName || '');
+    });
+    $('usageRanking')?.addEventListener('keydown', async event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const row = event.target?.closest?.('[data-project-id]');
+      if (!row) return;
+      event.preventDefault();
+      await drillIntoProject(row.dataset.projectId, row.dataset.projectName || '');
     });
   }
 

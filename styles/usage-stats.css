@@ -51,7 +51,7 @@
 .usage-stats-panel.show { display: flex; }
 
 .usage-stats-card {
-  width: min(820px, calc(100vw - 36px));
+  width: min(980px, calc(100vw - 36px));
   height: min(900px, calc(100vh - 52px));
   max-height: calc(100vh - 52px);
   overflow: hidden;
@@ -382,7 +382,7 @@
 
 .usage-ranking-row {
   display: grid;
-  grid-template-columns: 30px minmax(92px, .72fr) minmax(0, 5.2fr);
+  grid-template-columns: 30px minmax(128px, .86fr) minmax(0, 5.4fr);
   align-items: center;
   gap: 8px;
   min-height: 42px;
@@ -397,6 +397,9 @@
   border-color: #93c5fd;
   background: #f8fafc;
 }
+
+.usage-ranking-row-clickable { cursor: pointer; }
+.usage-ranking-row-clickable:hover .usage-ranking-user { color: #1d4ed8; }
 
 .usage-rank-index {
   display: grid;
@@ -451,6 +454,10 @@
   display: grid;
   grid-template-columns: minmax(96px, 1fr) minmax(84px, .9fr) minmax(84px, .9fr) minmax(96px, .96fr) minmax(96px, .96fr);
   gap: 5px;
+}
+
+.usage-token-grid-project {
+  grid-template-columns: minmax(72px, .72fr) minmax(96px, 1fr) minmax(84px, .9fr) minmax(84px, .9fr) minmax(96px, .96fr) minmax(96px, .96fr);
 }
 
 .usage-token-badge {

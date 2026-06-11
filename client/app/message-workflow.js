@@ -193,14 +193,6 @@
     function selectQuotedMessage(node) {
       if (!node) return;
       const role = messageRoleFromNode(node);
-      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || '');
-      if (!content) return;
-      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
-      node.classList.add('quoted');
-      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content, sessionId: deps.state.activeSessionId || '' };
-      if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
-      if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
-      if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;
       let imageContext = node.dataset.imageContext || node.__displayItem?.imageContext || '';
       if (!imageContext && typeof deps.getAssistantImageContext === 'function') {
         try {
@@ -208,6 +200,15 @@
           if (assistantImageContext) imageContext = typeof assistantImageContext === 'string' ? assistantImageContext : JSON.stringify(assistantImageContext);
         } catch {}
       }
+      if (imageContext && !node.dataset.imageContext) node.dataset.imageContext = imageContext;
+      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || (imageContext ? '[图片消息]' : ''));
+      if (!content && !imageContext) return;
+      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
+      node.classList.add('quoted');
+      const quote = { role: role === 'assistant' ? 'assistant' : 'user', content: content || '[图片消息]', sessionId: deps.state.activeSessionId || '' };
+      if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
+      if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
+      if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;
       const attachmentContext = node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '';
       if (imageContext) quote.imageContext = imageContext;
       if (attachmentContext) quote.attachmentContext = attachmentContext;

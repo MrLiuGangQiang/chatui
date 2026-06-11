@@ -10,6 +10,7 @@ const imageJobs = require('../server/jobs/image');
 const sessionPersistence = require('../client/app/session-persistence');
 const chatWorkflow = require('../client/app/chat-workflow');
 const imageContextWorkflow = require('../client/app/image-context-workflow');
+const messageWorkflow = require('../client/app/message-workflow');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -109,9 +110,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('[file id=...]') && system.includes('附件索引占位符'));
-  assert.ok(system.includes('file_candidates') && system.includes('不接收也不需要文件正文'));
-  assert.ok(system.includes('需要基于文件回答时') && system.includes('file_refs'));
+  assert.ok(system.includes('[file id=...]') && system.includes('附件索引'));
+  assert.ok(system.includes('file_candidates') && system.includes('不接收文件正文'));
+  assert.ok(system.includes('需要读文件回答时') && system.includes('file_refs'));
   assert.ok(body.includes('"is_image": false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text": true'));
@@ -194,6 +195,38 @@ function testStructuredRouteDecisionCarriesRefs() {
   assert.strictEqual(fileRoute.fileRefs[0].file_id, 'att_1');
 }
 
+function testImageOnlyAssistantMessageCanBeQuotedWithImageContext() {
+  const state = { activeSessionId: 's1', quotedMessage: null };
+  const node = {
+    classList: { contains: name => name === 'assistant', add: () => {}, remove: () => {} },
+    dataset: { responseIndex: '1', rawText: '' },
+    __displayItem: {},
+    querySelector: () => null,
+    textContent: '',
+  };
+  const workflow = messageWorkflow.createMessageWorkflow({
+    state,
+    document: { querySelectorAll: () => [] },
+    $: id => id === 'prompt' ? ({ focus: () => {} }) : null,
+    getAssistantImageContext: () => ({
+      prompt: '生成两张圆形图片',
+      mode: 'image',
+      target: 'previous',
+      referenceId: 'imgref_latest',
+      attachments: [
+        { name: 'red.png', type: 'image/png', src: 'indexeddb://red', imageId: 'img_imgref_latest_1', referenceId: 'imgref_latest' },
+        { name: 'yellow.png', type: 'image/png', src: 'indexeddb://yellow', imageId: 'img_imgref_latest_2', referenceId: 'imgref_latest' },
+      ],
+    }),
+  });
+  workflow.selectQuotedMessage(node);
+  assert.ok(state.quotedMessage, 'image-only assistant message should be quoteable');
+  assert.strictEqual(state.quotedMessage.content, '[图片消息]');
+  const parsed = JSON.parse(state.quotedMessage.imageContext);
+  assert.strictEqual(parsed.attachments.length, 2);
+  assert.strictEqual(parsed.attachments[1].imageId, 'img_imgref_latest_2');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -205,6 +238,7 @@ const tests = [
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
   testExistingImageEditGateAllowsPreviousSelection,
   testStructuredRouteDecisionCarriesRefs,
+  testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
 ];
 
 for (const test of tests) {

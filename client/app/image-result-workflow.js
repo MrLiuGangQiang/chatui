@@ -11,6 +11,7 @@
     const config = deps.getConfig();
     const storedImages = [];
     const itemsHtml = [];
+    const referenceId = deps.makeImageReferenceId ? deps.makeImageReferenceId('latest') : 'imgref_latest';
     for (let index = 0; index < images.length; index += 1) {
       const item = images[index];
       const filename = `generated-${Date.now()}-${index + 1}.png`;
@@ -38,7 +39,7 @@
         labels,
         thumb,
       });
-      itemsHtml.push(`<div class="generated-image-item" data-image-index="${index + 1}" aria-label="第 ${index + 1} 张图片"><img class="generated-thumb" width="${thumb.width}" height="${thumb.height}" style="--thumb-w:${thumb.width}px;--thumb-h:${thumb.height}px;width:${thumb.width}px;height:${thumb.height}px;aspect-ratio:${thumb.width}/${thumb.height};object-fit:contain" src="${deps.escapeHtml(displaySrc)}" data-persisted-src="${deps.escapeHtml(persistedSrc)}" data-original-src="${deps.escapeHtml(persistedSrc)}" data-filename="${deps.escapeHtml(filename)}" data-image-id="${deps.escapeHtml(deps.makeImageItemId('latest', index + 1))}" data-image-index="${index + 1}" data-thumb-width="${thumb.width}" data-thumb-height="${thumb.height}" data-original-width="${size?.width || thumb.width}" data-original-height="${size?.height || thumb.height}" alt="第 ${index + 1} 张生成图片" /></div>`);
+      itemsHtml.push(`<div class="generated-image-item" data-image-index="${index + 1}" aria-label="第 ${index + 1} 张图片"><img class="generated-thumb" width="${thumb.width}" height="${thumb.height}" style="--thumb-w:${thumb.width}px;--thumb-h:${thumb.height}px;width:${thumb.width}px;height:${thumb.height}px;aspect-ratio:${thumb.width}/${thumb.height};object-fit:contain" src="${deps.escapeHtml(displaySrc)}" data-persisted-src="${deps.escapeHtml(persistedSrc)}" data-original-src="${deps.escapeHtml(persistedSrc)}" data-filename="${deps.escapeHtml(filename)}" data-reference-id="${deps.escapeHtml(referenceId)}" data-image-id="${deps.escapeHtml(deps.makeImageItemId('latest', index + 1))}" data-image-index="${index + 1}" data-thumb-width="${thumb.width}" data-thumb-height="${thumb.height}" data-original-width="${size?.width || thumb.width}" data-original-height="${size?.height || thumb.height}" alt="第 ${index + 1} 张生成图片" /></div>`);
     }
 
     const first = storedImages[0];

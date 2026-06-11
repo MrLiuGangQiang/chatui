@@ -322,12 +322,14 @@
           const src = img.dataset.persistedSrc || img.dataset.originalSrc || img.currentSrc || img.src || '';
           if (!src) return null;
           const sourceIndex = Number(img.dataset.imageIndex) || index + 1;
+          const imageId = img.dataset.imageId || '';
+          const referenceFromImageId = imageId.match(/^img_(imgref_.+)_\d+$/)?.[1] || '';
           return {
             name: img.dataset.filename || `quoted-image-${sourceIndex}.png`,
             type: 'image/png',
             src,
-            imageId: img.dataset.imageId || makeImageItemId('quote', sourceIndex),
-            referenceId: img.dataset.referenceId || makeImageReferenceId(displayItemId || 'quote'),
+            imageId: imageId || makeImageItemId('quote', sourceIndex),
+            referenceId: img.dataset.referenceId || referenceFromImageId || makeImageReferenceId(displayItemId || 'quote'),
             sourceIndex,
           };
         })

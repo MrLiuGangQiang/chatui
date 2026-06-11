@@ -48,10 +48,10 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     let upstreamPath = targetPath;
     let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath, contextWindowTokens });
     if (method !== 'GET' && targetPath === '/images/generations') {
-      console.log('[image-generation-proxy] upstream json', JSON.stringify({ model: outboundPayload.model || '', fields: Object.keys(outboundPayload), n: outboundPayload.n || 1 }));
+      console.log('[image-generation-proxy] upstream json', JSON.stringify({ model: outboundPayload.model || '', fields: Object.keys(outboundPayload) }));
     }
     const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
-    const isImageEdit = method !== 'GET' && targetPath === '/openai/image_edit';
+    const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
@@ -68,12 +68,12 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     let upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
     if (isImageEdit && imageEditFiles.length) {
       const editPayload = stripImageEditFileFields(outboundPayload);
-      const multipart = buildImageEditMultipartBody(editPayload, imageEditFiles, { masks: imageEditMasks });
-      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload), images: imageEditFiles.length, hasMask: !!imageEditMasks.length }));
-      upstreamBody = multipart.body;
-      upstreamContentHeaders = multipart.headers;
+      const editBody = buildImageEditMultipartBody(editPayload, imageEditFiles, { masks: imageEditMasks });
+      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: imageEditFiles.length, masks: imageEditMasks.length }));
+      upstreamBody = editBody.body;
+      upstreamContentHeaders = editBody.headers || {};
     }
-    const targetUrl = withQueryParams(`${baseUrl}${upstreamPath}`, query);
+    const targetUrl = withQueryParams(`${baseUrl.replace(/\/+$/, '')}${upstreamPath}`, query);
     const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
       headers: {

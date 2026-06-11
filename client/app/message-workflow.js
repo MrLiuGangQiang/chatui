@@ -69,11 +69,14 @@
         try { return readQuoteContext(JSON.parse(value)); } catch { return null; }
       }
       if (!value || typeof value !== 'object') return null;
-      const content = normalizeQuoteText(value.content ?? value.rawText ?? '', 1200);
-      if (!content) return null;
-      const quote = { role: value.role === 'assistant' ? 'assistant' : 'user', content };
-      ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex'].forEach(key => {
-        if (value[key] !== undefined && value[key] !== null && value[key] !== '') quote[key] = String(value[key]);
+      const hasImageContext = !!(value.imageContext || value.image_context);
+      const content = normalizeQuoteText(value.content ?? value.rawText ?? (hasImageContext ? '[图片消息]' : ''), 1200);
+      if (!content && !hasImageContext) return null;
+      const quote = { role: value.role === 'assistant' ? 'assistant' : 'user', content: content || '[图片消息]' };
+      ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex', 'imageContext', 'attachmentContext'].forEach(key => {
+        const altKey = key === 'imageContext' ? 'image_context' : key === 'attachmentContext' ? 'attachment_context' : key;
+        const raw = value[key] ?? value[altKey];
+        if (raw !== undefined && raw !== null && raw !== '') quote[key] = typeof raw === 'string' ? raw : JSON.stringify(raw);
       });
       return quote;
     }
@@ -127,7 +130,9 @@
       target.classList.remove('quote-target-flash');
       void target.offsetWidth;
       target.classList.add('quote-target-flash');
-      setTimeout(() => target.classList.remove('quote-target-flash'), 1600);
+      const clearFlash = () => target.classList.remove('quote-target-flash');
+      target.addEventListener?.('animationend', clearFlash, { once: true });
+      setTimeout(clearFlash, 2800);
       return true;
     }
 
@@ -196,6 +201,16 @@
       if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
       if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
       if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;
+      let imageContext = node.dataset.imageContext || node.__displayItem?.imageContext || '';
+      if (!imageContext && typeof deps.getAssistantImageContext === 'function') {
+        try {
+          const assistantImageContext = deps.getAssistantImageContext(node);
+          if (assistantImageContext) imageContext = typeof assistantImageContext === 'string' ? assistantImageContext : JSON.stringify(assistantImageContext);
+        } catch {}
+      }
+      const attachmentContext = node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '';
+      if (imageContext) quote.imageContext = imageContext;
+      if (attachmentContext) quote.attachmentContext = attachmentContext;
       deps.state.quotedMessage = quote;
       renderComposerQuote();
       deps.$?.('prompt')?.focus?.();

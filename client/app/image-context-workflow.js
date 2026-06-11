@@ -19,12 +19,40 @@
     const resolveImageSelectionFromIds = deps.resolveImageSelectionFromIds;
     const parseImageContext = deps.parseImageContext;
 
+    function serializeAttachmentEntry(item, index = 0) {
+      const name = item?.name || item?.file?.name || 'attachment';
+      const type = item?.type || item?.file?.type || 'application/octet-stream';
+      const size = item?.size || item?.file?.size || 0;
+      const existingId = item?.attachmentId || item?.attachment_id || item?.imageId || item?.image_id || item?.id || '';
+      const safeName = String(name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'attachment';
+      const id = existingId || `att_${Date.now().toString(36)}_${index + 1}_${safeName}`;
+      if (item && typeof item === 'object' && !item.attachmentId) item.attachmentId = id;
+      return { id, name, type, size };
+    }
+
+    function attachmentPlaceholdersMarkdown(attachments = []) {
+      return (attachments || []).map((item, index) => {
+        const meta = serializeAttachmentEntry(item, index);
+        const kind = isImageFile(item) ? 'image' : 'file';
+        return `[${kind} id=${meta.id} name=${meta.name} type=${meta.type} size=${meta.size}]`;
+      }).join('\n');
+    }
+
+    function buildUserContentWithAttachmentPlaceholders(prompt = '', attachments = []) {
+      const text = String(prompt || '').trim();
+      const placeholders = attachmentPlaceholdersMarkdown(attachments).trim();
+      return [text, placeholders].filter(Boolean).join('\n\n') || (attachments.length ? '[attachments]' : text);
+    }
+
     function serializeImageAttachment(item) {
       if (!item || !isImageFile(item)) return null;
+      const base = serializeAttachmentEntry(item);
       const src = item.dataUrl || item.src || '';
       return src ? {
-        name: item.name || item.file?.name || 'image.png',
-        type: item.type || item.file?.type || 'image/png',
+        id: base.id,
+        name: base.name || 'image.png',
+        type: base.type || 'image/png',
+        size: base.size || 0,
         src,
         fromPrevious: !!item.fromPrevious,
         sourceIndex: Number(item.sourceIndex) || 0,
@@ -35,8 +63,9 @@
 
     async function persistImageAttachmentRefs(list = []) {
       const result = [];
-      for (const item of list) {
-        const serialized = serializeImageAttachment(item);
+      for (let index = 0; index < list.length; index += 1) {
+        const item = list[index];
+        const serialized = serializeImageAttachment({ ...item, attachmentId: item?.attachmentId || item?.attachment_id || item?.id || item?.imageId || item?.image_id || serializeAttachmentEntry(item, index).id });
         if (!serialized) continue;
         let src = serialized.src;
         if (src.startsWith('data:')) {
@@ -94,12 +123,15 @@
 
     async function buildUserAttachmentContext(prompt, attachments = []) {
       const generic = [];
-      for (const item of attachments) {
+      for (let index = 0; index < attachments.length; index += 1) {
+        const item = attachments[index];
         if (isImageFile(item)) continue;
+        const meta = serializeAttachmentEntry(item, index);
         const entry = {
-          name: item.name || item.file?.name || 'attachment',
-          type: item.type || item.file?.type || 'application/octet-stream',
-          size: item.size || item.file?.size || 0,
+          id: meta.id,
+          name: meta.name,
+          type: meta.type,
+          size: meta.size,
           text: item.text || '',
           unsupportedReason: item.unsupportedReason || '',
           compressionNote: item.compressionNote || '',
@@ -111,7 +143,7 @@
         generic.push(entry);
       }
       const images = await persistImageAttachmentRefs(attachments.filter(item => isImageFile(item)));
-      return images.length || generic.length ? { prompt: prompt || '', attachments: [...images, ...generic] } : null;
+      return images.length || generic.length ? { prompt: prompt || '', content: buildUserContentWithAttachmentPlaceholders(prompt, attachments), attachments: [...images, ...generic] } : null;
     }
 
     async function restoreUserAttachmentsFromContext(value) {
@@ -129,13 +161,14 @@
               size: item.size || file.size,
               dataUrl: isImageFile({ name: item.name || file.name, type: item.type || file.type }) ? await imageRefToDataUrl(item.src, item.name || file.name) : item.src,
               text: item.text || '',
+              attachmentId: item.id || item.attachmentId || item.attachment_id || '',
               unsupportedReason: item.unsupportedReason || '',
               compressionNote: item.compressionNote || '',
               fromPrevious: !!item.fromPrevious,
             });
             continue;
           }
-          result.push({ file: null, name: item.name || 'attachment', type: item.type || 'application/octet-stream', size: item.size || 0, dataUrl: '', text: item.text || '', unsupportedReason: item.unsupportedReason || '', compressionNote: item.compressionNote || '' });
+          result.push({ file: null, name: item.name || 'attachment', type: item.type || 'application/octet-stream', size: item.size || 0, dataUrl: '', text: item.text || '', attachmentId: item.id || item.attachmentId || item.attachment_id || '', unsupportedReason: item.unsupportedReason || '', compressionNote: item.compressionNote || '' });
         } catch (err) { console.warn('restore attachment failed', err); }
       }
       return result;
@@ -236,6 +269,37 @@
 
     async function getPreviousImageAsAttachment(sessionId = getState().activeSessionId) { return (await getPreviousImageAttachments(sessionId))[0] || null; }
 
+    function cleanAssistantImagePromptText(text = '') {
+      return String(text || '')
+        .replace(/\[base64 image\]/gi, '')
+        .replace(/耗时：[^\n]+/g, '')
+        .replace(/RT\s+[^\n]+/gi, '')
+        .replace(/TTFT\s+[^\n]+/gi, '')
+        .replace(/^\[图片(?:生成|编辑|修改)完成\]\s*/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function previousUserPromptForAssistantNode(node) {
+      const responseIndex = Number(node?.dataset?.responseIndex || node?.__displayItem?.responseIndex);
+      const session = getActiveSession();
+      const messages = Array.isArray(session?.messages) ? session.messages : [];
+      if (Number.isFinite(responseIndex)) {
+        for (let index = Math.min(responseIndex - 1, messages.length - 1); index >= 0; index -= 1) {
+          const item = messages[index];
+          if (item?.role === 'user') return cleanAssistantImagePromptText(item.rawText || item.content || '');
+          if (item?.role === 'assistant') break;
+        }
+      }
+      let prev = node?.previousElementSibling || null;
+      while (prev) {
+        if (prev.classList?.contains('user')) return cleanAssistantImagePromptText(prev.dataset.rawText || prev.innerText || prev.textContent || '');
+        if (prev.classList?.contains('assistant')) break;
+        prev = prev.previousElementSibling;
+      }
+      return '';
+    }
+
     function getAssistantImageContext(node) {
       if (!node) return null;
       const candidates = [node.dataset.imageContext || '', node.__displayItem?.imageContext || ''];
@@ -245,10 +309,39 @@
         if (item?.imageContext) candidates.push(item.imageContext);
       }
       for (const candidate of candidates) if (candidate) try { const context = typeof candidate === 'string' ? JSON.parse(candidate) : candidate; if (context && typeof context === 'object') return context; } catch {}
+      const images = [...node.querySelectorAll?.('img.generated-thumb[data-persisted-src], img.generated-thumb[data-original-src], img[data-persisted-src]') || []]
+        .map((img, index) => {
+          const src = img.dataset.persistedSrc || img.dataset.originalSrc || img.currentSrc || img.src || '';
+          if (!src) return null;
+          const sourceIndex = Number(img.dataset.imageIndex) || index + 1;
+          return {
+            name: img.dataset.filename || `quoted-image-${sourceIndex}.png`,
+            type: 'image/png',
+            src,
+            imageId: img.dataset.imageId || makeImageItemId('quote', sourceIndex),
+            referenceId: img.dataset.referenceId || makeImageReferenceId(displayItemId || 'quote'),
+            sourceIndex,
+          };
+        })
+        .filter(Boolean);
+      if (images.length) {
+        const referenceId = images[0].referenceId || makeImageReferenceId(displayItemId || 'quote');
+        const contextPrompt = cleanAssistantImagePromptText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || '') || previousUserPromptForAssistantNode(node);
+        return normalizeImageContextForStorage({
+          prompt: contextPrompt,
+          mode: 'image',
+          target: 'previous',
+          referenceId,
+          selectedReferenceId: referenceId,
+          usePreviousImage: true,
+          updatedAt: Date.now(),
+          attachments: images,
+        });
+      }
       return null;
     }
 
-    return Object.freeze({ serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getUploadedImageContextByReference, getUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
+    return Object.freeze({ serializeAttachmentEntry, attachmentPlaceholdersMarkdown, buildUserContentWithAttachmentPlaceholders, serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getUploadedImageContextByReference, getUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
   }
 
   const api = Object.freeze({ createImageContextWorkflow });

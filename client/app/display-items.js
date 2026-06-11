@@ -4,12 +4,15 @@ function compactDisplayItems(items = []) {
   for (const item of items || []) {
     if (!item) continue;
     const prev = result[result.length - 1];
-    const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || ''].join('');
-    const prevKey = prev ? [prev.role || '', prev.rawText || '', prev.html || '', prev.pending || '', prev.jobId || '', prev.responseIndex || '', prev.messageIndex || ''].join('') : '';
+    const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || '', item.quoteContext || ''].join('');
+    const prevKey = prev ? [prev.role || '', prev.rawText || '', prev.html || '', prev.pending || '', prev.jobId || '', prev.responseIndex || '', prev.messageIndex || '', prev.quoteContext || ''].join('') : '';
     if (prev && key === prevKey) {
       if (item.metaText && !prev.metaText) prev.metaText = item.metaText;
       if (item.reasoningText && !prev.reasoningText) prev.reasoningText = item.reasoningText;
       if (item.keepReasoning && !prev.keepReasoning) prev.keepReasoning = item.keepReasoning;
+      if (item.quoteContext && !prev.quoteContext) prev.quoteContext = item.quoteContext;
+      if (item.imageContext && !prev.imageContext) prev.imageContext = item.imageContext;
+      if (item.attachmentContext && !prev.attachmentContext) prev.attachmentContext = item.attachmentContext;
     } else {
       result.push(item);
     }

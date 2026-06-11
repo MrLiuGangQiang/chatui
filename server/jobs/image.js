@@ -115,7 +115,15 @@ function shouldForwardImageEditField(payload, key, value) {
 }
 
 function imageJobTargetPath(mode = 'image') {
-  return mode === 'edit_image' ? '/openai/image_edit' : '/images/generations';
+  return mode === 'edit_image' ? '/images/edits' : '/images/generations';
+}
+
+function joinUrl(baseUrl = '', path = '') {
+  return `${String(baseUrl || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
+}
+
+function imageJobTargetUrl(baseUrl = '', mode = 'image', payload = {}) {
+  return joinUrl(baseUrl, imageJobTargetPath(mode, payload));
 }
 
 function isTaggedMaskFile(item = {}) {
@@ -139,6 +147,14 @@ function imageFileToBlob(file = {}) {
   return new Blob([Buffer.from(base64, 'base64')], { type: safeMultipartContentType(file.type) });
 }
 
+function imageFileToDataUrl(file = {}) {
+  const rawData = String(file.data || '').trim();
+  if (isDataUrlLike(rawData)) return rawData;
+  const base64 = rawData.includes(',') ? rawData.split(',').pop() : rawData;
+  const contentType = safeMultipartContentType(file.type);
+  return `data:${contentType};base64,${base64}`;
+}
+
 function normalizeImageEditFieldValue(key, value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   const normalizedKey = String(key || '').toLowerCase();
@@ -157,11 +173,30 @@ function buildImageEditMultipartBody(payload = {}, files = [], options = {}) {
     body.append(String(key), String(fieldValue));
   });
   (files || []).filter(file => file?.data && !isTaggedMaskFile(file)).forEach((file, index) => {
-    body.append('image[]', imageFileToBlob(file || {}), safeMultipartFilename(file, index));
+    body.append('image', imageFileToBlob(file || {}), safeMultipartFilename(file, index));
   });
   const mask = normalizeFileList(options.masks)[0];
   if (mask?.data) body.append('mask', imageFileToBlob(mask), safeMultipartFilename(mask, 0));
   return { body, headers: {} };
+}
+
+function buildOpenAiImageEditPayload(payload = {}, files = [], options = {}) {
+  const body = {};
+  const sourcePayload = stripImageEditFileFields(payload || {});
+  Object.entries(sourcePayload).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    if (String(key || '').toLowerCase() === 'n') return;
+    if (!shouldForwardImageEditField(payload, key, value)) return;
+    const fieldValue = normalizeImageEditFieldValue(key, value);
+    if (!shouldForwardImageEditField(payload, key, fieldValue)) return;
+    body[key] = fieldValue;
+  });
+  body.images = (files || [])
+    .filter(file => file?.data && !isTaggedMaskFile(file))
+    .map(file => imageFileToDataUrl(file));
+  const masks = normalizeFileList(options.masks).filter(mask => mask?.data).map(mask => imageFileToDataUrl(mask));
+  if (masks.length) body.masks = masks;
+  return body;
 }
 
 function extractImageEditFiles(body = {}) {
@@ -172,9 +207,6 @@ function extractImageEditFiles(body = {}) {
     body.payload?.files,
     body.payload?.image_files,
     body.payload?.imageFiles,
-    body.image,
-    body.images,
-    body.payload?.image,
     body.payload?.images,
   ].find(items => Array.isArray(items) && items.some(item => item?.data)) || [];
   return candidates.filter(item => item?.data && !isTaggedMaskFile(item));
@@ -210,10 +242,9 @@ const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization:
 let body;
 if (job.mode === 'edit_image') {
   const editPayload = stripImageEditFileFields(job.payload);
-  const multipart = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
-  console.log('[image-edit] upstream multipart', JSON.stringify({ model: editPayload.model || '', targetPath: imageJobTargetPath('edit_image'), fields: Object.keys(editPayload), images: job.files?.length || 0, hasMask: !!job.masks?.length }));
-  body = multipart.body;
-  Object.assign(headers, multipart.headers);
+  const editBody = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
+  console.log('[image-edit] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: job.files?.length || 0, masks: job.masks?.length || 0 }));
+  body = editBody.body;
 } else {
   headers['Content-Type'] = 'application/json';
   const generationPayload = stripImageEditFileFields(job.payload);
@@ -267,7 +298,7 @@ try {
     mode,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    targetUrl: `${baseUrl}${imageJobTargetPath(mode, payload)}`,
+    targetUrl: imageJobTargetUrl(baseUrl, mode, payload),
     apiKey,
     extraHeaders,
     payload,
@@ -302,5 +333,8 @@ module.exports = {
   extractImageEditFiles,
   extractImageEditMasks,
   imageJobTargetPath,
+  imageJobTargetUrl,
   stripImageEditFileFields,
+  buildOpenAiImageEditPayload,
+  joinUrl,
 };

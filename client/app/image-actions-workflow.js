@@ -36,7 +36,11 @@
 
     function bindImageShare(e){e.dataset.shareBound||(e.dataset.shareBound="1",e.addEventListener("click",async()=>{const t=e.dataset.filename||"generated-image.png";try{const s=await getImageActionBlob(e),n=new File([s],t,{type:s.type||"image/png"});if(!navigator.share||!navigator.canShare?.({files:[n]}))throw new Error("当前浏览器不支持文件分享");await navigator.share({files:[n],title:t})}catch(e){if("AbortError"===e?.name)return;toast(e.message||String(e))}}))}
 
-    function bindImagePreview(e){e.querySelectorAll("[data-download-image]").forEach(bindImageDownload),e.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),e.querySelectorAll("[data-share-image]").forEach(bindImageShare),e.querySelectorAll(".content img").forEach(e=>{e.dataset.previewBound="1",e.onclick=()=>openImagePreview(e.dataset.persistedSrc||e.dataset.originalSrc||e.currentSrc||e.src,e.dataset.filename||"image.png")})}
+    function bindImagePreview(e){
+      e.querySelectorAll("[data-download-image]").forEach(bindImageDownload),e.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),e.querySelectorAll("[data-share-image]").forEach(bindImageShare);
+      e.querySelectorAll(".content img").forEach(img=>{if("1"!==img.dataset.previewBound){img.dataset.previewBound="1";img.addEventListener("click",()=>openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png"))}});
+      e.querySelectorAll(".generated-image-item").forEach(item=>{if("1"!==item.dataset.previewBound){item.dataset.previewBound="1";item.addEventListener("click",event=>{if(event.target?.closest?.("button,a"))return;const img=item.querySelector("img.generated-thumb");img&&openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png")})}})
+    }
 
     return Object.freeze({ removeGeneratedImageInlineActions, moveImageActionsToMessageActions, downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml, ensureImageDownloadRow, getImageActionBlob, downloadImageActionElement, canWriteImageClipboard, imageClipboardUnsupportedMessage, copyImageActionElement, downloadAllImagesFromMessage, bindImageDownload, bindImageCopy, bindImageShare, bindImagePreview });
   }

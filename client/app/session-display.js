@@ -78,6 +78,7 @@
     }
 
     function normalizeMessageForStorage(message) {
+      const state = getState();
       if (!message || !message.role) return null;
       let content;
       if (typeof message.content === 'string') content = message.content;
@@ -87,9 +88,16 @@
       });
       else content = String(message.content || '');
       const clean = { role: message.role, content };
-      ['rawText', 'imageContext', 'attachmentContext', 'quoteContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId', 'metaText', 'reasoning_content'].forEach(key => {
+      ['rawText', 'imageContext', 'attachmentContext', 'quoteContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId', 'metaText'].forEach(key => {
         if (message[key] !== undefined && message[key] !== null && message[key] !== '') clean[key] = String(message[key]);
       });
+      if (!clean.quoteContext && message.html) {
+        const html = String(message.html || '');
+        const match = html.match(/class=["'][^"']*sent-quote-preview[^"']*["'][\s\S]*?data-quote-context=(["'])([\s\S]*?)\1/i)
+          || html.match(/data-quote-context=(["'])([\s\S]*?)\1[\s\S]*?class=["'][^"']*sent-quote-preview/i);
+        if (match?.[2]) clean.quoteContext = match[2].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      }
+      if (state.reasoningMode && message.reasoning_content !== undefined && message.reasoning_content !== null && message.reasoning_content !== '') clean.reasoning_content = String(message.reasoning_content);
       if (message.html !== undefined && message.html !== null && message.html !== '') {
         const html = String(message.html);
         if (displayItemHasRichMedia({ html })) clean.html = html;
@@ -137,7 +145,8 @@
       if (options.attachmentContext !== undefined) item.attachmentContext = options.attachmentContext || '';
       if (options.quoteContext !== undefined) item.quoteContext = options.quoteContext || '';
       if (options.metaText !== undefined) item.metaText = options.metaText || '';
-      if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning; }
+      const allowReasoning = !!state.reasoningMode;
+      if (options.reasoning !== undefined) { item.reasoningText = allowReasoning ? options.reasoning || '' : ''; item.keepReasoning = allowReasoning && !!options.keepReasoning; }
       if (options.pending === false) { item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
       if (options.deferPersist !== true) persistSessionDisplay(sessionId);
     }

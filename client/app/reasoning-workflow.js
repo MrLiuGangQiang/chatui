@@ -7,7 +7,7 @@
 
     function updateReasoning(e,t,s={}) {
       with (deps) {
-        if(!e)return;const n=String(t||"");let a=e.querySelector(".reasoning-panel");if(!n&&!s.keepEmpty)return a?.remove(),delete e.dataset.reasoningText,void(e.isConnected&&saveDisplayHistory());n&&(e.dataset.reasoningText=n),s.keepReasoning&&(e.dataset.keepReasoning="1"),a||(a=document.createElement("div"),a.className="reasoning-panel",a.innerHTML=`
+        if(!e)return; if(!state.reasoningMode){forceRemoveReasoning(e); return;} const n=String(t||"");let a=e.querySelector(".reasoning-panel");if(!n&&!s.keepEmpty)return a?.remove(),delete e.dataset.reasoningText,void(e.isConnected&&saveDisplayHistory());n&&(e.dataset.reasoningText=n),s.keepReasoning&&(e.dataset.keepReasoning="1"),a||(a=document.createElement("div"),a.className="reasoning-panel",a.innerHTML=`
               <div class="reasoning-head">
                 <div class="reasoning-title">思考中…</div>
                 <button class="reasoning-copy-btn" type="button" title="复制思考内容" aria-label="复制思考内容">
@@ -26,7 +26,7 @@
 
     function showReasoningUnavailable(e) {
       with (deps) {
-        e&&(updateReasoning(e,"当前模型或接口没有返回可展示的思考内容；已完成回答，但只能展示最终结果。",{done:!0,persistSave:!0,keepReasoning:!0,unavailable:!0}),e.querySelector(".reasoning-panel")?.classList.add("reasoning-empty"))
+        if(!state.reasoningMode)return void clearReasoning(e); e&&(updateReasoning(e,"当前模型或接口没有返回可展示的思考内容；已完成回答，但只能展示最终结果。",{done:!0,persistSave:!0,keepReasoning:!0,unavailable:!0}),e.querySelector(".reasoning-panel")?.classList.add("reasoning-empty"))
       }
     }
 
@@ -116,7 +116,7 @@
 
     function setReasoningMode(e) {
       with (deps) {
-        if(isReasoningControlLocked())return toast("输出过程中不能切换思考模式");state.reasoningMode=!!e,localStorage.setItem(REASONING_MODE_KEY,state.reasoningMode?"1":"0"),updateReasoningControls()
+        if(isReasoningControlLocked())return toast("输出过程中不能切换思考模式");state.reasoningMode=!!e,localStorage.setItem(REASONING_MODE_KEY,state.reasoningMode?"1":"0"),state.reasoningMode||clearAllReasoningDisplays(),updateReasoningControls()
       }
     }
 

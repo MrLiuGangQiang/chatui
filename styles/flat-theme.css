@@ -1395,3 +1395,62 @@ button:disabled,
 .mini-status.success {
   color: var(--success) !important;
 }
+
+/* Final image-grid override: keep user uploads and assistant images row-first.
+   This file is loaded after messages.css, so keep the authoritative rules here. */
+.message .content:has(.user-attachment-preview-grid),
+.message .content:has(.generated-image-grid){
+  width:100%!important;
+  max-width:100%!important;
+}
+.message.user .bubble:has(.user-attachment-preview-grid),
+.message.assistant .bubble:has(.generated-image-grid),
+.message.error .bubble:has(.generated-image-grid){
+  width:100%!important;
+}
+.message.user .user-attachment-preview-grid,
+.message.assistant .generated-image-grid,
+.message.error .generated-image-grid,
+.user-attachment-preview-grid,
+.generated-image-grid{
+  display:flex!important;
+  flex-direction:row!important;
+  flex-wrap:wrap!important;
+  align-items:flex-start!important;
+  gap:8px!important;
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  margin-top:8px!important;
+  grid-template-columns:none!important;
+}
+.message.user .user-attachment-preview-grid,
+.message.assistant .generated-image-grid,
+.message.error .generated-image-grid{
+  justify-content:flex-start!important;
+}
+.message.user img.user-attachment-image,
+.generated-thumb{
+  flex:0 0 auto!important;
+  width:var(--thumb-w, auto)!important;
+  height:var(--thumb-h, auto)!important;
+  max-width:min(180px,100%)!important;
+  max-height:180px!important;
+  object-fit:contain!important;
+  cursor:zoom-in!important;
+}
+.generated-image-item{
+  flex:0 0 auto!important;
+  width:auto!important;
+  max-width:100%!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
+@media (max-width:640px){
+  .message.user img.user-attachment-image,
+  .generated-thumb{
+    max-width:min(148px,100%)!important;
+    max-height:148px!important;
+  }
+}

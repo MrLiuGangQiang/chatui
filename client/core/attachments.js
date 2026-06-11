@@ -101,13 +101,32 @@ function getLatestImageReferenceTarget({ display = [], messages = [], lastGenera
   return { target: 'none', usePreviousImage: false, reason: 'no-image-reference', count: 0, selection: 'none' };
 }
 
+function buildRouteFileCandidates(attachments = []) {
+  return (attachments || [])
+    .filter(item => item && !isImageFile(item))
+    .map((item, index) => ({
+      index: index + 1,
+      file_id: item.attachmentId || item.attachment_id || item.id || '',
+      name: item.name || (item.file && item.file.name) || 'attachment',
+      type: item.type || (item.file && item.file.type) || '',
+      size: Number(item.size || (item.file && item.file.size)) || 0,
+      has_extracted_text: !!String(item.text || '').trim(),
+      unsupported_reason: item.unsupportedReason || '',
+    }));
+}
+
 function buildRouteAttachmentMetadata(attachments = []) {
-  return (attachments || []).map(item => ({
-    name: item.name || (item.file && item.file.name) || 'attachment',
-    type: item.type || (item.file && item.file.type) || '',
-    size: Number(item.size || (item.file && item.file.size)) || 0,
-    is_image: isImageFile(item),
-  }));
+  return (attachments || []).map(item => {
+    const isImage = isImageFile(item);
+    return {
+      name: item.name || (item.file && item.file.name) || 'attachment',
+      type: item.type || (item.file && item.file.type) || '',
+      size: Number(item.size || (item.file && item.file.size)) || 0,
+      is_image: isImage,
+      ...(!isImage ? { has_extracted_text: !!String(item.text || '').trim() } : {}),
+      ...(!isImage && item.unsupportedReason ? { unsupported_reason: item.unsupportedReason } : {}),
+    };
+  });
 }
 
 const api = Object.freeze({
@@ -127,6 +146,7 @@ const api = Object.freeze({
   normalizeImageContextForStorage,
   parseImageContext,
   getLatestImageReferenceTarget,
+  buildRouteFileCandidates,
   buildRouteAttachmentMetadata,
 });
 

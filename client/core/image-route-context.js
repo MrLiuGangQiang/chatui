@@ -107,11 +107,13 @@ function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_M
   const next = {
     ...context,
     recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
+    image_candidates: Array.isArray(context.image_candidates) ? [...context.image_candidates] : [],
     recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [],
     recent_uploaded_image_references: Array.isArray(context.recent_uploaded_image_references) ? [...context.recent_uploaded_image_references] : [],
   };
   if (routeContextSize(next) <= limit) return next;
   while (next.recent_messages.length && routeContextSize(next) > limit) next.recent_messages.shift();
+  while (next.image_candidates.length > 12 && routeContextSize(next) > limit) next.image_candidates.pop();
   while (next.recent_image_references.length > 1 && routeContextSize(next) > limit) next.recent_image_references.pop();
   while (next.recent_uploaded_image_references.length > 1 && routeContextSize(next) > limit) next.recent_uploaded_image_references.pop();
   const shrinkPrompt = item => {
@@ -133,26 +135,110 @@ function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_M
   return next;
 }
 
+function compactImageReferenceSummary(reference = {}) {
+  if (!reference || typeof reference !== 'object') return null;
+  return {
+    reference_id: reference.reference_id || '',
+    target: reference.target || '',
+    source: reference.source || '',
+    message_index: reference.message_index || null,
+    count: Number(reference.count) || (Array.isArray(reference.candidates) ? reference.candidates.length : 0),
+    prompt: String(reference.prompt || reference.user_prompt || '').slice(0, 120),
+    updated_at: reference.updated_at || null,
+  };
+}
+
+function compactLatestUploadedImage(value = null, uploadedLatest = null) {
+  if (!value && !uploadedLatest) return null;
+  const source = uploadedLatest || value || {};
+  return {
+    reference_id: value?.reference_id || source.reference_id || '',
+    target: value?.target || source.target || 'uploaded',
+    count: Number(value?.count) || Number(source.count) || 0,
+    updated_at: value?.updated_at || value?.updatedAt || source.updated_at || null,
+  };
+}
+
+function compactLastGeneratedImage(value = null) {
+  if (!value) return null;
+  return {
+    reference_id: value.reference_id || makeImageReferenceId('latest'),
+    target: 'previous',
+    count: Number(value.count) || (Array.isArray(value.candidates) ? value.candidates.length : 0),
+    updated_at: value.updated_at || value.updatedAt || null,
+  };
+}
+
+function buildImageCandidates(references = []) {
+  const result = [];
+  const seen = new Set();
+  for (const reference of references || []) {
+    if (!reference || typeof reference !== 'object') continue;
+    const referenceId = reference.reference_id || '';
+    const target = reference.target || '';
+    const source = reference.source || '';
+    const candidates = Array.isArray(reference.candidates) ? reference.candidates : [];
+    for (const candidate of candidates) {
+      const imageId = candidate?.image_id || '';
+      const index = Number(candidate?.index) || 0;
+      const key = imageId || `${referenceId}:${index}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        index,
+        image_id: imageId,
+        reference_id: referenceId,
+        target,
+        source,
+        filename: candidate?.filename || '',
+        labels: Array.isArray(candidate?.labels) ? candidate.labels.slice(0, 6) : [],
+        prompt: String(candidate?.prompt || reference.prompt || reference.user_prompt || '').slice(0, 120),
+      });
+    }
+  }
+  return result;
+}
+
+function latestUserImageRequest(messages = []) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'user') continue;
+    const text = messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').trim();
+    if (/画|生成|图片|图|海报|头像|插画|logo|图标|猫|狗|牛|人物|风景|背景|独立|分别|分开|拆成|修改|编辑|改/.test(text)) {
+      return { index: index + 1, content: text.slice(0, 800) };
+    }
+  }
+  return null;
+}
+
+function latestAssistantImageResult(messages = []) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'assistant') continue;
+    const text = messageText(message).trim();
+    if (/^\[图片(生成|编辑|修改)完成\]/.test(text)) return { index: index + 1, content: text.replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').slice(0, 800) };
+  }
+  return null;
+}
+
 function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUploadedImage = null, latestImageReference = null, recentImageReferences = [], maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS } = {}) {
   const allMessages = Array.isArray(messages) ? messages : [];
   const uploadedReferences = collectRecentUploadedImageReferences({ messages: allMessages, limit: Number.MAX_SAFE_INTEGER });
   const uploadedLatest = uploadedReferences[0] || null;
-  const mergedLatestUploadedImage = latestUploadedImage && uploadedLatest ? {
-    ...latestUploadedImage,
-    reference_id: latestUploadedImage.reference_id || uploadedLatest.reference_id,
-    user_prompt: uploadedLatest.user_prompt || uploadedLatest.prompt || '',
-    assistant_response: uploadedLatest.assistant_response || '',
-    candidates: uploadedLatest.candidates || [],
-  } : latestUploadedImage;
   const mergedReferences = Array.isArray(recentImageReferences) ? [...recentImageReferences] : [];
   for (const reference of uploadedReferences) if (!mergedReferences.some(item => item?.reference_id === reference.reference_id)) mergedReferences.push(reference);
   const context = {
     recent_messages: allMessages.map((message, index) => compactRouteMessage(message, index + 1)),
-    last_generated_image: lastGeneratedImage,
-    latest_uploaded_image: mergedLatestUploadedImage,
+    latest_user_image_request: latestUserImageRequest(allMessages),
+    latest_assistant_image_result: latestAssistantImageResult(allMessages),
+    image_candidates: buildImageCandidates(mergedReferences),
+    last_generated_image: compactLastGeneratedImage(lastGeneratedImage),
+    latest_uploaded_image: compactLatestUploadedImage(latestUploadedImage, uploadedLatest),
     latest_image_reference: latestImageReference && latestImageReference.target !== 'none' ? latestImageReference : null,
-    recent_image_references: mergedReferences,
-    recent_uploaded_image_references: uploadedReferences,
+    recent_image_references: [],
+    recent_uploaded_image_references: [],
   };
   return trimRouteContextToSize(context, maxChars);
 }
@@ -305,7 +391,7 @@ function findImageReferenceById({ display = [], referenceId = '' } = {}) {
   };
 }
 
-const IMAGE_PLAN_INTENTS = new Set(['text_to_image', 'image_edit_single', 'image_edit_batch', 'image_compose', 'image_reference_gen', 'unknown']);
+const IMAGE_PLAN_INTENTS = new Set(['text_to_image', 'image_edit', 'image_edit_single', 'image_edit_batch', 'image_compose', 'image_reference_gen', 'unknown']);
 const IMAGE_PLAN_TASK_TYPES = new Set(['generate', 'edit']);
 const IMAGE_PLAN_ROLES = new Set(['target', 'reference', 'subject', 'background', 'style_reference']);
 
@@ -353,10 +439,10 @@ function normalizeImagePlan(route = {}) {
 }
 
 function modeFromImageIntent(intent, fallbackMode = 'chat') {
-  // OpenAI-compatible image routing: only text_to_image uses /images/generations;
-  // everything with an input image goes through /openai/image_edit, independent of model name.
-  if (intent === 'text_to_image') return 'image';
-  if (intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose' || intent === 'image_reference_gen') return 'edit_image';
+  // OpenAI-compatible image routing: plain generation/reference generation use /images/generations;
+  // edits/composition with input images use /images/edits.
+  if (intent === 'text_to_image' || intent === 'image_reference_gen') return 'image';
+  if (intent === 'image_edit' || intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose') return 'edit_image';
   return fallbackMode;
 }
 
@@ -422,13 +508,14 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     mode: plan.needClarification ? 'chat' : mode,
     target: plan.needClarification ? 'none' : target,
     evidence,
-    usePreviousImage: mode === 'edit_image' && target === 'previous' && (confidence >= 0.75 || !evidence.length),
-    selectedIndexes,
-    selectedReferenceId,
-    selectedImageIds: selectedImageIds.length ? selectedImageIds : planIds,
+    usePreviousImage: plan.needClarification ? false : mode === 'edit_image' && target === 'previous' && (confidence >= 0.75 || !evidence.length),
+    selectedIndexes: plan.needClarification ? [] : selectedIndexes,
+    selectedReferenceId: plan.needClarification ? makeImageReferenceId('') : selectedReferenceId,
+    selectedImageIds: plan.needClarification ? [] : (selectedImageIds.length ? selectedImageIds : planIds),
     needClarification: plan.needClarification,
     clarificationQuestion: plan.clarificationQuestion,
     contextualImagePrompt: String(route && (route.contextual_image_prompt || route.contextualImagePrompt) || '').trim(),
+    editInstruction: String(route && (route.edit_instruction || route.editInstruction) || '').trim(),
     intent: plan.intent,
     tasks: plan.tasks,
     confidence,
@@ -449,6 +536,8 @@ const api = Object.freeze({
   uploadedReferenceIdForMessageIndex,
   collectRecentUploadedImageReferences,
   collectRecentImageReferences,
+  latestUserImageRequest,
+  latestAssistantImageResult,
   findImageReferenceById,
   normalizePlanInputImages,
   normalizeImagePlanTask,

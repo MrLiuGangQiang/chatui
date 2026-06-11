@@ -40,6 +40,9 @@
       ...(!current.html && next.html ? { html: next.html } : {}),
       ...(!current.displayItemId && next.displayItemId ? { displayItemId: next.displayItemId } : {}),
       ...(!current.imageJobId && next.imageJobId ? { imageJobId: next.imageJobId } : {}),
+      ...(!current.quoteContext && next.quoteContext ? { quoteContext: next.quoteContext } : {}),
+      ...(!current.imageContext && next.imageContext ? { imageContext: next.imageContext } : {}),
+      ...(!current.attachmentContext && next.attachmentContext ? { attachmentContext: next.attachmentContext } : {}),
       ...(!current.reasoning_content && next.reasoning_content ? { reasoning_content: next.reasoning_content } : {}),
     } : current;
   }
@@ -57,12 +60,15 @@
     for (const item of items || []) {
       if (!item) continue;
       const previous = result[result.length - 1];
-      const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || ''].join('');
-      const prevKey = previous ? [previous.role || '', previous.rawText || '', previous.html || '', previous.pending || '', previous.jobId || '', previous.responseIndex || '', previous.messageIndex || ''].join('') : '';
+      const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || '', item.quoteContext || ''].join('');
+      const prevKey = previous ? [previous.role || '', previous.rawText || '', previous.html || '', previous.pending || '', previous.jobId || '', previous.responseIndex || '', previous.messageIndex || '', previous.quoteContext || ''].join('') : '';
       if (previous && key === prevKey) {
         if (item.metaText && !previous.metaText) previous.metaText = item.metaText;
         if (item.reasoningText && !previous.reasoningText) previous.reasoningText = item.reasoningText;
         if (item.keepReasoning && !previous.keepReasoning) previous.keepReasoning = item.keepReasoning;
+        if (item.quoteContext && !previous.quoteContext) previous.quoteContext = item.quoteContext;
+        if (item.imageContext && !previous.imageContext) previous.imageContext = item.imageContext;
+        if (item.attachmentContext && !previous.attachmentContext) previous.attachmentContext = item.attachmentContext;
       } else result.push(item);
     }
     return result;
@@ -116,9 +122,7 @@
     const stripLargeDataUrlsFromText = deps.stripLargeDataUrlsFromText || (text => String(text || ''));
     const sanitizeValue = (value, parentKey = '') => {
       if (typeof value === 'string') {
-        // Preserve image_url.url values — they are essential for sending images to the model
-        // and stripping them causes image loss after session switch.
-        if (parentKey === 'url') return value;
+        if (/^(url|src|image|image_url|dataUrl|data_url)$/i.test(parentKey) && /^data:/i.test(value)) return '[attachment-data-omitted]';
         return stripLargeDataUrlsFromText(value);
       }
       if (Array.isArray(value)) return value.map(item => sanitizeValue(item, ''));

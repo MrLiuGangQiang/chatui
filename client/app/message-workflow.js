@@ -198,29 +198,83 @@
       renderComposerQuote();
     }
 
-    function selectQuotedMessage(node) {
-      if (!node) return;
+    function activeSession() {
+      const id = deps.state?.activeSessionId || '';
+      return (deps.state?.sessions || []).find(session => session?.id === id) || null;
+    }
+
+    function displayItemForNode(node) {
+      const session = activeSession();
+      const display = Array.isArray(session?.display) ? session.display : [];
+      const displayItemId = node?.dataset?.displayItemId || node?.__displayItem?.id || '';
+      const responseIndex = node?.dataset?.responseIndex || node?.__displayItem?.responseIndex || '';
+      const messageIndex = node?.dataset?.messageIndex || node?.__displayItem?.messageIndex || '';
+      return node?.__displayItem
+        || (displayItemId ? display.find(item => item?.id === displayItemId) : null)
+        || (responseIndex !== '' ? display.find(item => item?.role === 'assistant' && String(item.responseIndex || '') === String(responseIndex)) : null)
+        || (messageIndex !== '' ? display.find(item => item?.role === 'user' && String(item.messageIndex || '') === String(messageIndex)) : null)
+        || null;
+    }
+
+    function canonicalMessageForNode(node, role = '') {
+      const session = activeSession();
+      const messages = Array.isArray(session?.messages) ? session.messages : Array.isArray(deps.state?.messages) ? deps.state.messages : [];
+      const responseIndex = node?.dataset?.responseIndex || node?.__displayItem?.responseIndex || '';
+      const messageIndex = node?.dataset?.messageIndex || node?.__displayItem?.messageIndex || '';
+      if (role === 'assistant' && responseIndex !== '') {
+        const message = messages[Number(responseIndex)];
+        if (message?.role === 'assistant') return message;
+      }
+      if (role === 'user' && messageIndex !== '') {
+        const message = messages[Number(messageIndex)];
+        if (message?.role === 'user') return message;
+      }
+      return null;
+    }
+
+    function resolveQuoteContextForNode(node) {
+      if (!node) return null;
       const role = messageRoleFromNode(node);
-      let imageContext = node.dataset.imageContext || node.__displayItem?.imageContext || '';
+      const displayItem = displayItemForNode(node);
+      const canonical = canonicalMessageForNode(node, role);
+      const content = normalizeQuoteText(
+        node.dataset.rawText
+        || displayItem?.rawText
+        || canonical?.rawText
+        || canonical?.content
+        || node.querySelector?.('.content')?.innerText
+        || node.textContent
+        || ''
+      );
+      let imageContext = node.dataset.imageContext || displayItem?.imageContext || canonical?.imageContext || '';
       if (!imageContext && typeof deps.getAssistantImageContext === 'function') {
         try {
           const assistantImageContext = deps.getAssistantImageContext(node);
           if (assistantImageContext) imageContext = typeof assistantImageContext === 'string' ? assistantImageContext : JSON.stringify(assistantImageContext);
         } catch {}
       }
+      let attachmentContext = node.dataset.attachmentContext || displayItem?.attachmentContext || canonical?.attachmentContext || '';
+      const quoteContent = content || (imageContext ? '[图片消息]' : attachmentContext ? '[附件消息]' : '');
+      if (!quoteContent && !imageContext && !attachmentContext) return null;
       if (imageContext && !node.dataset.imageContext) node.dataset.imageContext = imageContext;
-      const content = normalizeQuoteText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || node.textContent || '');
-      const quoteContent = content || (imageContext ? '[图片消息]' : '');
-      if (!quoteContent && !imageContext) return;
-      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
-      node.classList.add('quoted');
+      if (attachmentContext && !node.dataset.attachmentContext) node.dataset.attachmentContext = attachmentContext;
       const quote = { role: role === 'assistant' ? 'assistant' : 'user', content: quoteContent, sessionId: deps.state.activeSessionId || '' };
-      if (node.dataset.displayItemId) quote.displayItemId = node.dataset.displayItemId;
-      if (node.dataset.messageIndex) quote.messageIndex = node.dataset.messageIndex;
-      if (node.dataset.responseIndex) quote.responseIndex = node.dataset.responseIndex;
-      const attachmentContext = node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '';
+      const displayItemId = node.dataset.displayItemId || displayItem?.id || canonical?.displayItemId || '';
+      const messageIndex = node.dataset.messageIndex || displayItem?.messageIndex || canonical?.messageIndex || '';
+      const responseIndex = node.dataset.responseIndex || displayItem?.responseIndex || canonical?.responseIndex || '';
+      if (displayItemId) quote.displayItemId = String(displayItemId);
+      if (messageIndex !== '') quote.messageIndex = String(messageIndex);
+      if (responseIndex !== '') quote.responseIndex = String(responseIndex);
       if (imageContext) quote.imageContext = imageContext;
       if (attachmentContext) quote.attachmentContext = attachmentContext;
+      return quote;
+    }
+
+    function selectQuotedMessage(node) {
+      const quote = resolveQuoteContextForNode(node);
+      if (!quote) return;
+      deps.document?.querySelectorAll?.('.message.quoted')?.forEach(item => item.classList.remove('quoted'));
+      node.classList.add('quoted');
       deps.state.quotedMessage = quote;
       renderComposerQuote();
       deps.$?.('prompt')?.focus?.();
@@ -307,7 +361,7 @@
       }
     }
 
-    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
+    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
   }
 
   const api = Object.freeze({ createMessageWorkflow });

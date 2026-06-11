@@ -227,6 +227,35 @@ function testImageOnlyAssistantMessageCanBeQuotedWithImageContext() {
   assert.strictEqual(parsed.attachments[1].imageId, 'img_imgref_latest_2');
 }
 
+function testQuoteResolverUsesCanonicalAndDisplayContext() {
+  const imageContext = JSON.stringify({
+    prompt: '生成两张图',
+    mode: 'image',
+    target: 'previous',
+    referenceId: 'imgref_latest',
+    attachments: [{ name: 'second.png', type: 'image/png', src: 'indexeddb://second', imageId: 'img_imgref_latest_2', referenceId: 'imgref_latest' }],
+  });
+  const attachmentContext = JSON.stringify({ attachments: [{ id: 'att_1', name: 'a.txt', type: 'text/plain', text: 'hello' }] });
+  const state = {
+    activeSessionId: 's1',
+    quotedMessage: null,
+    sessions: [{
+      id: 's1',
+      messages: [
+        { role: 'user', content: 'x' },
+        { role: 'assistant', content: '[图片生成完成]', rawText: '[base64 image] RT 1s', imageContext },
+      ],
+      display: [{ id: 'd1', role: 'assistant', responseIndex: '1', rawText: '[base64 image] TTFT 1s', attachmentContext }],
+    }],
+  };
+  const workflow = messageWorkflow.createMessageWorkflow({ state, document: { querySelectorAll: () => [] }, $: () => null });
+  const node = { classList: { contains: name => name === 'assistant', add: () => {}, remove: () => {} }, dataset: { displayItemId: 'd1', responseIndex: '1' }, __displayItem: null, querySelector: () => null, textContent: '' };
+  const quote = workflow.resolveQuoteContextForNode(node);
+  assert.strictEqual(quote.content, '[图片消息]');
+  assert.strictEqual(JSON.parse(quote.imageContext).attachments[0].imageId, 'img_imgref_latest_2');
+  assert.strictEqual(JSON.parse(quote.attachmentContext).attachments[0].id, 'att_1');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -239,6 +268,7 @@ const tests = [
   testExistingImageEditGateAllowsPreviousSelection,
   testStructuredRouteDecisionCarriesRefs,
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
+  testQuoteResolverUsesCanonicalAndDisplayContext,
 ];
 
 for (const test of tests) {

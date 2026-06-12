@@ -53,6 +53,7 @@ function createRouter(deps) {
   });
 
   const { routeUsage } = createUsageRoutes({
+    send,
     sendJson,
     sendMethodNotAllowed,
     usageStats,

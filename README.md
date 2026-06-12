@@ -781,6 +781,11 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 - 右上角使用统计按钮，点击打开独立统计弹窗。
 - 个人统计默认展示今日，并支持今日、昨日、总计切换。
 - 排行榜支持今日排行、昨日排行、总排行。
+- 部门统计需要服务端配置访问密码后启用，点击右上角刷新按钮左侧的“部门”切换按钮进入；首次进入需输入密码，校验通过后会像 API Key 一样保存到浏览器本地。
+- 部门统计支持今日排行、昨日排行、本月排行、上月排行、总排行。
+- 部门统计不受排行榜数量限制，会展示所有部门。
+- 部门排行可点击部门下钻查看该部门所有成员使用统计。
+- 部门统计支持导出 Excel XML `.xls`，第一个 Sheet 为部门排行，后续每个 Sheet 为对应部门人员使用统计。
 - 排行榜默认展示前 10 名，可通过环境变量调整。
 - 前三名使用金、银、铜视觉样式，但显示文本仍为 `1 / 2 / 3`。
 - 指标包括：总用量、输入、输出、缓存输入、推理输出。
@@ -820,6 +825,10 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
 | `/api/usage/rankings?range=today|yesterday|total` | GET | 查询指定范围排行榜，懒加载按需查询 |
 | `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key` 与 `range` |
+| `/api/usage/department/verify` | POST | 校验部门统计访问密码，body 包含 `password` |
+| `/api/usage/department/rankings` | POST | 查询部门排行，body 包含 `password` 与 `range=today|yesterday|month|last_month|total` |
+| `/api/usage/department/users` | POST | 查询部门人员统计，body 包含 `password`、`department_id` 与 `range` |
+| `/api/usage/department/export` | POST | 导出部门统计 Excel XML `.xls`，body 包含 `password` 与 `range` |
 
 ### Job API
 
@@ -904,6 +913,8 @@ GET, POST
 | `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
 | `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
+| `USAGE_DEPARTMENT_PASSWORD` | 未设置 | 部门统计访问密码；未设置时部门统计不可用，前端切换部门统计会提示未启用 |
+| `USAGE_STATS_DEPARTMENT_PASSWORD` | 未设置 | 部门统计访问密码兼容别名 |
 
 示例：
 
@@ -918,6 +929,7 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 PG_POOL_MIN=0 \
 PG_POOL_MAX=10 \
 USAGE_RANKING_LIMIT=10 \
+USAGE_DEPARTMENT_PASSWORD='请替换为强密码' \
 node server.js
 ```
 

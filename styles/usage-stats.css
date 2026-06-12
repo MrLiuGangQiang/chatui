@@ -127,6 +127,16 @@
   transition: background .12s, border-color .12s;
 }
 
+.usage-stats-actions .usage-mode-toggle,
+.usage-stats-actions .usage-export-button {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+
+.usage-stats-actions .usage-export-button { display: none; }
+.usage-stats-actions .usage-export-button.show { display: inline-flex; align-items: center; justify-content: center; }
+
 .usage-stats-actions svg {
   width: 17px;
   height: 17px;
@@ -299,6 +309,10 @@
   margin-top: 0;
 }
 
+.usage-personal.usage-department-summary {
+  display: block;
+}
+
 .usage-personal-ranges button {
   display: grid;
   place-items: center;
@@ -336,6 +350,8 @@
   border-radius: 14px;
   background: #f8fafc;
 }
+
+.usage-tabs.usage-tabs-five { grid-template-columns: repeat(5, 1fr); }
 
 .usage-tabs button {
   min-height: 30px;
@@ -393,9 +409,24 @@
   transition: border-color .12s, background .12s;
 }
 
-.usage-ranking-row:hover {
+.usage-ranking-row:hover,
+.usage-department-row:focus {
   border-color: #93c5fd;
   background: #f8fafc;
+}
+
+.usage-department-row { cursor: pointer; }
+.usage-department-row:focus { outline: 2px solid #93c5fd; outline-offset: 2px; }
+
+.usage-drill-title { justify-content: flex-start; }
+.usage-drill-title button {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .usage-rank-index {
@@ -591,5 +622,6 @@
 @media (max-width: 420px) {
   .usage-tabs { gap: 6px; }
   .usage-tabs button { font-size: 12px; }
+  .usage-tabs.usage-tabs-five { grid-template-columns: repeat(2, 1fr); }
   .usage-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

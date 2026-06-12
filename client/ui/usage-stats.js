@@ -4,7 +4,15 @@
     ['yesterday', '昨日排行'],
     ['total', '总排行'],
   ];
+  const DEPARTMENT_TABS = [
+    ['today', '今日排行'],
+    ['yesterday', '昨日排行'],
+    ['month', '本月排行'],
+    ['last_month', '上月排行'],
+    ['total', '总排行'],
+  ];
   const CONFIG_KEY = 'openapi-chat-image-config-v2';
+  const DEPARTMENT_PASSWORD_KEY = 'openapi-chat-usage-department-password';
 
   const $ = id => document.getElementById(id);
   const escapeHtml = (typeof window !== 'undefined' && (window.ChatUIAppFormatting || window.ChatUIApp?.formatting || {}).escapeHtml) || (value => String(value ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
@@ -66,6 +74,18 @@
     return Boolean(String(apiKey || '').trim());
   }
 
+  function getDepartmentPassword() {
+    try { return String(localStorage.getItem(DEPARTMENT_PASSWORD_KEY) || '').trim(); } catch { return ''; }
+  }
+
+  function setDepartmentPassword(password) {
+    try { localStorage.setItem(DEPARTMENT_PASSWORD_KEY, String(password || '').trim()); } catch {}
+  }
+
+  function clearDepartmentPassword() {
+    try { localStorage.removeItem(DEPARTMENT_PASSWORD_KEY); } catch {}
+  }
+
   function ensureDom() {
     if ($('usageStatsButton')) return;
     const button = document.createElement('button');
@@ -85,9 +105,16 @@
         <div class="usage-stats-head">
           <div>
             <strong id="usageStatsTitle">使用统计</strong>
+            <span id="usageStatsSubtitle">个人统计</span>
           </div>
           <div class="usage-stats-actions">
             <span id="usageStatsStatus" class="usage-stats-status" aria-live="polite"></span>
+            <button id="usageStatsModeToggle" class="usage-mode-toggle" type="button" title="切换部门统计" aria-label="切换部门统计">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M7 4 4 7l3 3"/><path d="M17 14l3 3-3 3"/></svg>
+            </button>
+            <button id="usageStatsExport" class="usage-export-button" type="button" title="导出部门统计 Excel" aria-label="导出部门统计 Excel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/><path d="M6 17v4"/><path d="M18 17v4"/></svg>
+            </button>
             <button id="usageStatsRefresh" type="button" title="刷新" aria-label="刷新统计">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.66 5.66"/><path d="M4 12A8 8 0 0 1 17.66 6.34"/><path d="M17 2v5h5"/><path d="M7 22v-5H2"/></svg>
             </button>
@@ -96,9 +123,7 @@
         </div>
         <div id="usagePersonal" class="usage-personal"></div>
         <div class="usage-stats-body">
-          <div class="usage-tabs" role="tablist">
-            ${RANKING_TABS.map(([key, label], index) => `<button type="button" data-usage-tab="${key}" class="${index === 0 ? 'active' : ''}">${label}</button>`).join('')}
-          </div>
+          <div id="usageTabs" class="usage-tabs" role="tablist"></div>
           <div id="usageRanking" class="usage-ranking"></div>
         </div>
       </div>`;
@@ -115,9 +140,23 @@
     ];
   }
 
+  function rawTokenColumns(row) {
+    return [
+      ['总用量', row?.total_tokens],
+      ['输入', row?.prompt_tokens],
+      ['输出', row?.completion_tokens],
+      ['缓存输入', row?.prompt_cached_tokens],
+      ['推理输出', row?.completion_reasoning_tokens],
+    ];
+  }
+
   function renderPersonal(personal, hasApiKey) {
     const el = $('usagePersonal');
     if (!el) return;
+    if (activeMode === 'department') {
+      el.innerHTML = '<div class="usage-empty">部门统计已开启。点击部门行可下钻查看人员使用统计。</div>';
+      return;
+    }
     if (!hasApiKey) {
       el.innerHTML = '<div class="usage-empty">未配置 API Key，无法展示个人统计。</div>';
       return;
@@ -138,7 +177,7 @@
       </div>
       <div class="usage-personal-side">
         <div class="usage-personal-ranges">
-          ${RANKING_TABS.map(([key, label]) => `<button type="button" data-personal-range="${key}" class="${key === activePersonalRange ? 'active' : ''}">${rangeLabel(key)}</button>`).join('')}
+          ${RANKING_TABS.map(([key]) => `<button type="button" data-personal-range="${key}" class="${key === activePersonalRange ? 'active' : ''}">${rangeLabel(key)}</button>`).join('')}
         </div>
         <div class="usage-metrics usage-personal-fields">
           ${tokenColumns(row).slice(1).map(([label, value, type], index) => `<div class="usage-personal-metric usage-personal-metric-${index}" title="${fullMetricValue(value, type)}"><span>${label}</span><strong>${formatMetricValue(value, type)}</strong></div>`).join('')}
@@ -150,7 +189,13 @@
 
   function rangeLabel(range) {
     if (range === 'total') return '所有时间';
-    return RANKING_TABS.find(([key]) => key === range)?.[1]?.replace('排行', '') || '今日';
+    if (range === 'month') return '本月';
+    if (range === 'last_month') return '上月';
+    return [...RANKING_TABS, ...DEPARTMENT_TABS].find(([key]) => key === range)?.[1]?.replace('排行', '') || '今日';
+  }
+
+  function tabLabel(range) {
+    return (activeMode === 'department' ? DEPARTMENT_TABS : RANKING_TABS).find(([key]) => key === range)?.[1] || '排行';
   }
 
   function bindPersonalRangeButtons() {
@@ -168,8 +213,9 @@
     });
   }
 
-  function renderTokenBadges(row) {
-    return tokenColumns(row).map(([label, value, type], index) => `
+  function renderTokenBadges(row, options = {}) {
+    const columns = options.raw ? rawTokenColumns(row) : tokenColumns(row);
+    return columns.map(([label, value, type], index) => `
       <span class="usage-token-badge usage-token-badge-${index}" title="${fullMetricValue(value, type)}">
         <em>${label}</em>
         <strong>${formatMetricValue(value, type)}</strong>
@@ -189,10 +235,20 @@
     return `<div class="usage-rank-index">${renderRankIcon(rank)}</div>`;
   }
 
+  function renderTabs() {
+    const tabs = activeMode === 'department' ? DEPARTMENT_TABS : RANKING_TABS;
+    const selected = activeMode === 'department' ? activeDepartmentRange : activeRange;
+    const el = $('usageTabs');
+    if (!el) return;
+    el.classList.toggle('usage-tabs-five', activeMode === 'department');
+    el.innerHTML = tabs.map(([key, label]) => `<button type="button" data-usage-tab="${key}" class="${key === selected ? 'active' : ''}">${label}</button>`).join('');
+    bindTabs();
+  }
+
   function renderRanking(rows = [], range = 'today') {
     const el = $('usageRanking');
     if (!el) return;
-    const title = RANKING_TABS.find(([key]) => key === range)?.[1] || '排行';
+    const title = tabLabel(range);
     if (!rows.length) {
       el.innerHTML = `<div class="usage-ranking-title">${title}</div><div class="usage-empty">暂无排行数据。</div>`;
       return;
@@ -200,18 +256,39 @@
     el.innerHTML = `
       <div class="usage-ranking-title">${title}</div>
       <div class="usage-ranking-list">
-        ${rows.map((row, index) => `
-          <div class="usage-ranking-row">
+        ${rows.map((row, index) => {
+          const name = activeMode === 'department' ? (row.department_name || '-') : (row.username || '-');
+          const deptAttrs = activeMode === 'department' ? ` role="button" tabindex="0" data-department-id="${escapeHtml(row.department_id)}" data-department-name="${escapeHtml(name)}"` : '';
+          return `
+          <div class="usage-ranking-row${activeMode === 'department' ? ' usage-department-row' : ''}"${deptAttrs}>
             ${renderRankIndex(index)}
-            <span class="usage-ranking-user" title="${escapeHtml(row.username || '-')}">${escapeHtml(row.username || '-')}</span>
-            <div class="usage-token-grid">${renderTokenBadges(row)}</div>
-          </div>`).join('')}
+            <span class="usage-ranking-user" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+            <div class="usage-token-grid">${renderTokenBadges(row, { raw: activeMode === 'department' })}</div>
+          </div>`;
+        }).join('')}
       </div>`;
+    bindDepartmentRows();
   }
 
-  let cache = { rankings: {}, personal: {} };
+  function renderDepartmentUsers(departmentName, rows = []) {
+    const el = $('usageRanking');
+    if (!el) return;
+    el.innerHTML = `
+      <div class="usage-ranking-title usage-drill-title"><button type="button" id="usageBackDepartments">← 部门排行</button><span>${escapeHtml(departmentName)} · ${tabLabel(activeDepartmentRange)}人员统计</span></div>
+      ${rows.length ? `<div class="usage-ranking-list">${rows.map((row, index) => `
+        <div class="usage-ranking-row">
+          ${renderRankIndex(index)}
+          <span class="usage-ranking-user" title="${escapeHtml(row.username || '-')}">${escapeHtml(row.username || '-')}</span>
+          <div class="usage-token-grid">${renderTokenBadges(row, { raw: true })}</div>
+        </div>`).join('')}</div>` : '<div class="usage-empty">暂无人员统计数据。</div>'}`;
+    $('usageBackDepartments')?.addEventListener('click', () => renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange));
+  }
+
+  let cache = { rankings: {}, personal: {}, departmentRankings: {}, departmentUsers: {} };
   let activeRange = 'today';
   let activePersonalRange = 'today';
+  let activeDepartmentRange = 'today';
+  let activeMode = 'personal';
 
   function usageService() {
     return window.ChatUIServices?.usageStats;
@@ -229,6 +306,39 @@
     if (!status) return;
     status.textContent = '';
     status.classList.remove('is-warning');
+  }
+
+  function modeToggleIcon() {
+    if (activeMode === 'department') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg>';
+    }
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01"/><path d="M15 10h.01"/></svg>';
+  }
+
+  async function promptAndVerifyDepartmentPassword() {
+    const password = String(window.prompt('请输入部门统计访问密码') || '').trim();
+    if (!password) return false;
+    const payload = await usageService().verifyDepartmentPassword(password);
+    if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
+    if (!payload?.authorized) throw new Error('密码错误，无权限访问');
+    setDepartmentPassword(password);
+    return true;
+  }
+
+  async function ensureDepartmentAccess() {
+    const savedPassword = getDepartmentPassword();
+    if (savedPassword) {
+      try {
+        const payload = await usageService().verifyDepartmentPassword(savedPassword);
+        if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
+        if (payload?.authorized) return true;
+      } catch (err) {
+        if (!String(err.message || '').includes('密码错误')) throw err;
+      }
+      clearDepartmentPassword();
+      showUsageLimit('已保存的部门统计密码无效，请重新输入');
+    }
+    return promptAndVerifyDepartmentPassword();
   }
 
   async function loadRanking(range) {
@@ -268,17 +378,56 @@
     renderPersonal(cache.personal[range], true);
   }
 
+  async function loadDepartmentRanking(range) {
+    const password = getDepartmentPassword();
+    const payload = await usageService().requestDepartmentRanking(password, range);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderRanking(cache.departmentRankings[range] || [], range);
+      return;
+    }
+    if (!payload.available) {
+      cache.departmentRankings[range] = [];
+      renderRanking([], range);
+      showUsageLimit(payload.reason || '部门统计不可用');
+      return;
+    }
+    cache.departmentRankings[range] = payload.ranking || [];
+    renderRanking(cache.departmentRankings[range], range);
+  }
+
+  async function loadDepartmentUsers(departmentId, departmentName) {
+    const cacheKey = `${activeDepartmentRange}:${departmentId}`;
+    if (cache.departmentUsers[cacheKey]) {
+      renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
+      return;
+    }
+    const payload = await usageService().requestDepartmentUsers(getDepartmentPassword(), departmentId, activeDepartmentRange);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey] || []);
+      return;
+    }
+    cache.departmentUsers[cacheKey] = payload.users || [];
+    renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
+  }
+
   async function refreshUsageStats() {
     const refresh = $('usageStatsRefresh');
     clearUsageLimit();
     refresh?.classList.add('is-spinning');
     refresh && (refresh.disabled = true);
     try {
-      await Promise.all([
-        loadRanking(activeRange),
-        loadPersonal(activePersonalRange),
-      ]);
+      if (activeMode === 'department') {
+        await loadDepartmentRanking(activeDepartmentRange);
+      } else {
+        await Promise.all([
+          loadRanking(activeRange),
+          loadPersonal(activePersonalRange),
+        ]);
+      }
     } catch (err) {
+      if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
       showUsageLimit(err.message || '加载失败');
     } finally {
       refresh?.classList.remove('is-spinning');
@@ -286,9 +435,101 @@
     }
   }
 
+  function updateModeUi() {
+    $('usageStatsTitle') && ($('usageStatsTitle').textContent = activeMode === 'department' ? '部门统计' : '使用统计');
+    $('usageStatsSubtitle') && ($('usageStatsSubtitle').textContent = activeMode === 'department' ? '部门统计' : '个人统计');
+    if ($('usageStatsModeToggle')) {
+      $('usageStatsModeToggle').innerHTML = modeToggleIcon();
+      $('usageStatsModeToggle').title = activeMode === 'department' ? '切换个人统计' : '切换部门统计';
+      $('usageStatsModeToggle').setAttribute('aria-label', activeMode === 'department' ? '切换个人统计' : '切换部门统计');
+    }
+    $('usageStatsExport')?.classList.toggle('show', activeMode === 'department');
+    $('usagePersonal')?.classList.toggle('usage-department-summary', activeMode === 'department');
+    renderTabs();
+  }
+
+  async function switchMode() {
+    clearUsageLimit();
+    if (activeMode === 'personal') {
+      try {
+        const ok = await ensureDepartmentAccess();
+        if (!ok) return;
+        activeMode = 'department';
+        updateModeUi();
+        renderPersonal(null, true);
+        await loadDepartmentRanking(activeDepartmentRange);
+      } catch (err) {
+        if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+        showUsageLimit(err.message || '密码错误，无权限访问');
+      }
+      return;
+    }
+    activeMode = 'personal';
+    updateModeUi();
+    await refreshUsageStats();
+  }
+
+  function bindDepartmentRows() {
+    document.querySelectorAll('[data-department-id]').forEach(row => {
+      const open = async () => {
+        try {
+          clearUsageLimit();
+          await loadDepartmentUsers(row.dataset.departmentId, row.dataset.departmentName || '部门');
+        } catch (err) {
+          if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+          showUsageLimit(err.message || '查询部门用户统计失败');
+        }
+      };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+    });
+  }
+
+  function bindTabs() {
+    document.querySelectorAll('[data-usage-tab]').forEach(button => {
+      button.addEventListener('click', async () => {
+        if (activeMode === 'department') activeDepartmentRange = button.dataset.usageTab || 'today';
+        else activeRange = button.dataset.usageTab || 'today';
+        document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
+        try {
+          clearUsageLimit();
+          if (activeMode === 'department') await loadDepartmentRanking(activeDepartmentRange);
+          else await loadRanking(activeRange);
+        } catch (err) {
+          if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+          showUsageLimit(err.message || '加载失败');
+        }
+      });
+    });
+  }
+
+  async function exportDepartmentUsage() {
+    try {
+      clearUsageLimit();
+      const payload = await usageService().exportDepartmentUsage(getDepartmentPassword(), activeDepartmentRange);
+      const url = URL.createObjectURL(payload.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = payload.filename || `department-usage-${activeDepartmentRange}.xls`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      if (String(err.message || '').includes('密码错误')) clearDepartmentPassword();
+      showUsageLimit(err.message || '导出部门统计失败');
+    }
+  }
+
   function openPanel() {
     $('usageStatsPanel')?.classList.add('show');
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'false');
+    updateModeUi();
     refreshUsageStats();
   }
 
@@ -299,23 +540,14 @@
 
   function bind() {
     ensureDom();
+    updateModeUi();
     $('usageStatsButton')?.addEventListener('click', openPanel);
     $('usageStatsClose')?.addEventListener('click', closePanel);
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
+    $('usageStatsModeToggle')?.addEventListener('click', switchMode);
+    $('usageStatsExport')?.addEventListener('click', exportDepartmentUsage);
     $('usageStatsPanel')?.addEventListener('click', event => {
       if (event.target?.id === 'usageStatsPanel') closePanel();
-    });
-    document.querySelectorAll('[data-usage-tab]').forEach(button => {
-      button.addEventListener('click', async () => {
-        activeRange = button.dataset.usageTab || 'today';
-        document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
-        try {
-          clearUsageLimit();
-          await loadRanking(activeRange);
-        } catch (err) {
-          showUsageLimit(err.message || '加载失败');
-        }
-      });
     });
   }
 

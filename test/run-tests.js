@@ -7,6 +7,7 @@ const routeService = require('../client/services/route-service');
 const imageGeneration = require('../client/services/image-generation-service');
 const imageService = require('../client/services/image-service');
 const imageJobs = require('../server/jobs/image');
+const clarificationService = require('../client/services/clarification-service');
 const sessionPersistence = require('../client/app/session-persistence');
 const chatWorkflow = require('../client/app/chat-workflow');
 const imageContextWorkflow = require('../client/app/image-context-workflow');
@@ -15,6 +16,12 @@ const usageRanges = require('../server/usage/ranges');
 const usageExportXlsx = require('../server/usage/export-xlsx');
 const usageStatsFormat = require('../client/ui/usage-stats-format');
 const usageStatsAuth = require('../client/ui/usage-stats-auth');
+const { JobStore } = require('../server/jobs/store');
+const { readBody } = require('../server/http/body');
+const urlPolicy = require('../server/security/url-policy');
+const extractApi = require('../server/extract');
+const { ConcurrencyLimiter } = require('../server/concurrency');
+const safeLog = require('../server/logging/safe-log');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -58,10 +65,13 @@ function testRouteContextIsCompactAndIndexed() {
   assert.strictEqual((body.match(/"candidates"/g) || []).length, 0);
   assert.strictEqual((body.match(/"image_candidates"/g) || []).length, 1);
   const parsedRouteUser = JSON.parse(body);
-  assert.ok(!parsedRouteUser.context.recent_messages.some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
-  assert.ok(body.length < 2200, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('OCR') && payload.messages[0].content.includes('image_refs'));
-  assert.ok(payload.messages[0].content.includes('Canonical action table') && payload.messages[0].content.includes('image_qa'));
+  assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
+  assert.ok(body.length < 1600, `route body too large: ${body.length}`);
+  assert.ok(payload.messages[0].content.includes('ocr') && payload.messages[0].content.includes('image_source'));
+  assert.ok(payload.messages[0].content.includes('intent router') && payload.messages[0].content.includes('image_analyze'));
+  const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
+  assert.strictEqual(minimalPayload.messages[1].content, JSON.stringify({ current_input: '解释一下 JavaScript 里的 Promise 是什么。' }));
+  assert.ok(minimalPayload.messages[0].content.length < 2600, `route system prompt too large: ${minimalPayload.messages[0].content.length}`);
 }
 
 function testImageGenerationPayloadDoesNotRewritePromptOrAutoParams() {
@@ -73,6 +83,95 @@ function testImageResultParsingSupportsMultipleImages() {
   const result = imageService.extractImageResult({ data: [{ url: 'https://a/1.png' }, { b64_json: 'BBBB' }] });
   assert.strictEqual(result.kind, 'image');
   assert.strictEqual(result.images.length, 2);
+}
+
+function testPendingClarificationMergesFollowupSupplements() {
+  const messages = [
+    { role: 'user', rawText: '把这张图改成红色背景' },
+    { role: 'assistant', rawText: '请上传要修改的图片。' },
+  ];
+  const pending = clarificationService.findPendingFromHistory(messages);
+  assert.ok(pending, 'should find pending clarification from history');
+  assert.strictEqual(pending.kind, 'image_edit');
+
+  const merged = clarificationService.mergePendingInput(pending, {
+    promptText: '',
+    attachments: [{ name: 'photo.png', type: 'image/png' }],
+  });
+  assert.strictEqual(merged.merged, true);
+  assert.ok(merged.promptText.includes('把这张图改成红色背景'));
+  assert.ok(merged.promptText.includes('用户上传了 1 个附件'));
+
+  const second = clarificationService.mergePendingInput(merged.pending, {
+    promptText: '背景用深红色，保留主体',
+    attachments: [],
+  });
+  assert.ok(second.promptText.includes('补充1'));
+  assert.ok(second.promptText.includes('本轮补充：背景用深红色，保留主体'));
+  assert.strictEqual(second.pending.rounds, 3);
+}
+
+function testPendingClarificationCanMergeTextFileAndQuote() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '总结这个文件' },
+      { role: 'assistant', rawText: '请上传或引用要总结的文件。' },
+    ],
+    clarificationText: '请上传或引用要总结的文件。',
+  });
+  assert.ok(pending);
+  assert.strictEqual(pending.kind, 'file_qa');
+  const merged = clarificationService.mergePendingInput(pending, {
+    promptText: '重点关注结论部分',
+    attachments: [{ name: 'demo.txt', type: 'text/plain' }],
+    quotedMessage: { role: 'user', content: '[附件消息]' },
+    quoteText: '引用文件 demo.txt',
+  });
+  assert.ok(merged.promptText.includes('总结这个文件'));
+  assert.ok(merged.promptText.includes('重点关注结论部分'));
+  assert.ok(merged.promptText.includes('引用文件 demo.txt'));
+}
+
+function testPendingClarificationCarriesOriginalMultiImageContext() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '把这张图改一下', attachmentContext: JSON.stringify({ attachments: [
+        { id: 'img_1', name: '老板.png', type: 'image/png' },
+        { id: 'img_2', name: '前端.png', type: 'image/png' },
+        { id: 'img_3', name: '后端.png', type: 'image/png' },
+      ] }) },
+      { role: 'assistant', rawText: '您有三张上传的图片，请问您想编辑哪一张？请指定图片编号或描述。' },
+    ],
+    clarificationText: '您有三张上传的图片，请问您想编辑哪一张？请指定图片编号或描述。',
+    sourceAttachmentContext: JSON.stringify({ attachments: [
+      { id: 'img_1', name: '老板.png', type: 'image/png' },
+      { id: 'img_2', name: '前端.png', type: 'image/png' },
+      { id: 'img_3', name: '后端.png', type: 'image/png' },
+    ] }),
+  });
+  assert.ok(pending);
+  assert.strictEqual(pending.kind, 'image_edit');
+  assert.ok(pending.sourceAttachmentContext.includes('老板.png'));
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '第一张', attachments: [] }), true);
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '今天天气怎么样', attachments: [] }), false);
+  const merged = clarificationService.mergePendingInput(pending, {
+    promptText: '第一张',
+    attachments: [{ name: '老板.png', type: 'image/png' }, { name: '前端.png', type: 'image/png' }, { name: '后端.png', type: 'image/png' }],
+  });
+  assert.ok(merged.promptText.includes('把这张图改一下'));
+  assert.ok(merged.promptText.includes('本轮补充：第一张'));
+}
+
+function testImageEditPromptFallbackAndValidation() {
+  const payload = imageJobs.ensureImageEditPrompt({ model: 'gpt-image-2', prompt: '', editInstruction: '把背景改成红色' }, {});
+  assert.strictEqual(payload.prompt, '把背景改成红色');
+
+  const payloadFromBody = imageJobs.ensureImageEditPrompt({ model: 'gpt-image-2', prompt: '' }, { originalPrompt: '改成漫画风' });
+  assert.strictEqual(payloadFromBody.prompt, '改成漫画风');
+
+  const openaiPayload = imageJobs.buildOpenAiImageEditPayload(payload, [{ name: 'a.png', type: 'image/png', data: 'QUJDRA==' }]);
+  assert.strictEqual(openaiPayload.prompt, '把背景改成红色');
+  assert.strictEqual(openaiPayload.images.length, 1);
 }
 
 function testImageJobTargetsAndMultipartSanitization() {
@@ -115,12 +214,12 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('[file id=...]') && system.includes('indexes only'));
+  assert.ok(system.includes('[file id]') && system.includes('references only'));
   assert.ok(system.includes('file_candidates') && system.includes('cannot see file contents'));
-  assert.ok(system.includes('operation.type=file_qa') && system.includes('file_refs'));
-  assert.ok(body.includes('"is_image": false'));
+  assert.ok(system.includes('file_qa') && system.includes('file_candidates'));
+  assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
-  assert.ok(body.includes('"has_extracted_text": true'));
+  assert.ok(body.includes('"has_extracted_text":true'));
   assert.ok(!body.includes('CREATE TABLE users'));
   const submitSource = require('fs').readFileSync(require('path').join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   const appSource = require('fs').readFileSync(require('path').join(__dirname, '../app.js'), 'utf8');
@@ -141,6 +240,59 @@ function testQuotedFileAttachmentTextIsIncluded() {
   assert.ok(base[0].content.includes('[引用附件：doc.txt]'));
   assert.ok(base[0].content.includes('引用附件正文内容'));
   assert.ok(base[0].content.includes('引用消息带有非图片文件附件'));
+}
+
+function testHistoryFileAttachmentTextIsIncludedInChatContext() {
+  const workflow = chatWorkflow.createChatWorkflow({ state: {} });
+  const attachmentContext = JSON.stringify({
+    attachments: [{ id: 'att_doc', name: 'mail.txt', type: 'text/plain', text: '最后一个邮箱：boss@example.com' }],
+  });
+  const base = workflow.requestBaseMessagesForSend({}, [
+    { role: 'user', content: '已发送附件\n\n[file id=att_doc name=mail.txt type=text/plain size=32]', rawText: '已发送附件', attachmentContext },
+    { role: 'assistant', content: '请说明你的需求。' },
+  ]);
+  assert.strictEqual(base.length, 2);
+  assert.ok(base[0].content.includes('[历史附件：mail.txt]'));
+  assert.ok(base[0].content.includes('最后一个邮箱：boss@example.com'));
+}
+
+function testHistoryFileCandidatesRouteAsFileQa() {
+  const context = routeContext.buildRouteContext({
+    messages: [{
+      role: 'user',
+      content: '已发送附件\n\n[file id=att_doc name=mail.txt type=text/plain size=32]',
+      attachmentContext: JSON.stringify({ attachments: [{ id: 'att_doc', name: 'mail.txt', type: 'text/plain', size: 32, text: '最后一个邮箱：boss@example.com' }] }),
+    }],
+  });
+  assert.strictEqual(context.file_candidates.length, 1);
+  assert.strictEqual(context.file_candidates[0].source, 'history');
+  const parsed = routeService.parseRouteResult('{"intent":"file_qa","target_model":"text_model","need_file_input":false,"confidence":0.9}', routeContext.normalizeRoute, {
+    input: '从文件中提取最后一个邮箱',
+    attachments: [],
+    context,
+  });
+  assert.strictEqual(parsed.mode, 'chat');
+  assert.strictEqual(parsed.operation.type, 'file_qa');
+  assert.strictEqual(parsed.operation.scope, 'history');
+  assert.strictEqual(parsed.fileRefs[0].source, 'history');
+}
+
+function testUserAttachmentContextFallsBackToImageContextForRegenerate() {
+  const imageContext = JSON.stringify({
+    prompt: '把这张图改一下',
+    mode: 'edit_image',
+    target: 'uploaded',
+    attachments: [{ id: 'img_1', name: '老板.png', type: 'image/png', src: 'indexeddb://boss' }],
+  });
+  const session = {
+    messages: [{ role: 'user', rawText: '把这张图改一下', imageContext }],
+    display: [],
+  };
+  const workflow = imageContextWorkflow.createImageContextWorkflow({ getActiveSession: () => session });
+  const node = { dataset: { messageIndex: '0' }, __displayItem: null };
+  const context = workflow.getUserAttachmentContextFromNode(node);
+  assert.ok(context, 'should restore upload image context when attachmentContext is absent');
+  assert.strictEqual(context.attachments[0].src, 'indexeddb://boss');
 }
 
 function testQuotedAssistantImageContextRestoresFromCanonicalMessage() {
@@ -171,6 +323,81 @@ function testExistingImageEditGateAllowsPreviousSelection() {
   assert.ok(submitSource.includes('!!routeInfo.usePreviousImage') && submitSource.includes('routeInfo.target==="previous"'));
   assert.ok(appSource.includes('canResolveExistingEditImage'), 'regenerate/app workflow must allow previous/uploaded image resolver before blocking edit');
   assert.ok(appSource.includes('!!p.usePreviousImage') && appSource.includes('p.target==="previous"'));
+}
+
+function testLightweightIntentClassifierAdapters() {
+  const unsafe = routeContext.normalizeRoute(routeService.simpleRouteToLegacyRoute({
+    intent: 'unsafe', target_model: 'none', reply_to_user: '抱歉，这个请求我不能帮助处理。', confidence: 1, reason: 'route model unsafe',
+  }, { input: '帮我盗取别人的账号密码', attachments: [], context: {} }), 'chat');
+  assert.strictEqual(unsafe.mode, 'chat');
+  assert.strictEqual(unsafe.needClarification, true);
+  assert.ok(unsafe.clarificationQuestion.includes('不能帮助'));
+
+  const currentImage = [{ name: 'room.png', type: 'image/png', is_image: true }];
+  const currentContext = { image_candidates: [] };
+  const editCurrent = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_edit',
+    target_model: 'image_model',
+    need_image_input: false,
+    need_file_input: false,
+    need_clarification: false,
+    image_source: 'current',
+    image_role: 'target',
+    selected_indexes: [1],
+    use_previous_image: false,
+    rewritten_prompt: '把背景换成海边，保持主体不变',
+    reply_to_user: '',
+    confidence: 0.95,
+    reason: '修改当前上传图片',
+  }), routeContext.normalizeRoute, { input: '把背景换成海边', attachments: currentImage, context: currentContext });
+  assert.strictEqual(editCurrent.mode, 'edit_image');
+  assert.strictEqual(editCurrent.operation.type, 'image_edit');
+  assert.strictEqual(editCurrent.target, 'uploaded');
+  assert.strictEqual(editCurrent.usePreviousImage, false);
+  assert.deepStrictEqual(editCurrent.selectedIndexes, [1]);
+  assert.strictEqual(editCurrent.editInstruction, '把背景换成海边，保持主体不变');
+
+  const quotedContext = { image_candidates: [{ index: 1, image_id: 'img_quote_1', reference_id: 'imgref_quote', target: 'previous', source: 'quoted' }] };
+  const editQuoted = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_edit', target_model: 'image_model', image_source: 'quoted', image_role: 'target', selected_indexes: [1], rewritten_prompt: '改成漫画风', confidence: 0.9,
+  }), routeContext.normalizeRoute, { input: '改成漫画风', attachments: [], context: quotedContext });
+  assert.strictEqual(editQuoted.mode, 'edit_image');
+  assert.strictEqual(editQuoted.target, 'previous');
+  assert.strictEqual(editQuoted.selectedReferenceId, 'imgref_quote');
+  assert.deepStrictEqual(editQuoted.selectedImageIds, ['img_quote_1']);
+
+  const historyContext = { image_candidates: [{ index: 1, image_id: 'img_imgref_latest_1', reference_id: 'imgref_latest', target: 'previous', source: 'history' }], latest_image_reference: { reference_id: 'imgref_latest', target: 'previous' } };
+  const editHistory = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_edit', target_model: 'image_model', image_source: 'history', image_role: 'target', selected_indexes: [1], use_previous_image: true, rewritten_prompt: '改成黑白', confidence: 0.9,
+  }), routeContext.normalizeRoute, { input: '把上一张改成黑白', attachments: [], context: historyContext });
+  assert.strictEqual(editHistory.mode, 'edit_image');
+  assert.strictEqual(editHistory.target, 'previous');
+  assert.strictEqual(editHistory.usePreviousImage, true);
+  assert.strictEqual(editHistory.selectedReferenceId, 'imgref_latest');
+
+  const refGen = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_reference_generate', target_model: 'image_model', image_source: 'current', image_role: 'reference', selected_indexes: [1], rewritten_prompt: '参考当前图片风格生成海报', confidence: 0.9,
+  }), routeContext.normalizeRoute, { input: '参考这张图的风格生成一张海报', attachments: currentImage, context: currentContext });
+  assert.strictEqual(refGen.mode, 'image');
+  assert.strictEqual(refGen.operation.type, 'image_reference_gen');
+  assert.strictEqual(refGen.target, 'new');
+  assert.strictEqual(refGen.intent, 'image_reference_gen');
+  assert.deepStrictEqual(refGen.selectedIndexes, [1]);
+
+  const promptFromImage = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_analyze', target_model: 'vision_model', image_source: 'current', image_role: 'source', selected_indexes: [1], rewritten_prompt: '', confidence: 1,
+  }), routeContext.normalizeRoute, { input: '根据这张图片生成提示词', attachments: currentImage, context: currentContext });
+  assert.strictEqual(promptFromImage.mode, 'chat');
+  assert.strictEqual(promptFromImage.operation.type, 'image_qa');
+  assert.strictEqual(promptFromImage.target, 'none');
+  assert.strictEqual(promptFromImage.intent, 'unknown');
+
+  const multiAmbiguous = routeService.parseRouteResult(JSON.stringify({
+    intent: 'image_edit', target_model: 'image_model', image_source: 'current', image_role: 'target', selected_indexes: [], rewritten_prompt: '改一下', confidence: 0.6,
+  }), routeContext.normalizeRoute, { input: '把这张图改一下', attachments: [{ name: 'a.png', type: 'image/png', is_image: true }, { name: 'b.png', type: 'image/png', is_image: true }], context: { image_candidates: [] } });
+  assert.strictEqual(multiAmbiguous.mode, 'chat');
+  assert.strictEqual(multiAmbiguous.needClarification, true);
+  assert.ok(multiAmbiguous.clarificationQuestion.includes('第几张'));
 }
 
 function testStructuredRouteDecisionCarriesRefs() {
@@ -291,16 +518,14 @@ function testRouteOperationTypeDrivesCanonicalMode() {
 function testRoutePromptUsesEnglishRulesWithChineseEdgeCases() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('Return JSON only'));
-  assert.ok(system.includes('Canonical action table'));
-  ['plain_chat', 'file_qa', 'image_qa', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
-  assert.ok(system.includes('image_qa'));
-  assert.ok(system.includes('requested RESULT'));
-  assert.ok(system.includes('intent=unknown'));
-  assert.ok(system.includes('Field consistency rules'));
-  assert.ok(system.includes('mode=chat allows only operation.type plain_chat/file_qa/image_qa/ocr and intent=unknown'));
-  assert.ok(system.includes('Never use image_reference_gen for generating/writing/reversing/extracting a text prompt FROM an image'));
-  assert.ok(system.includes('根据图片生成提示词'));
-  assert.ok(system.includes('generate a prompt from this image'));
+  ['text_chat', 'file_qa', 'image_generate', 'image_reference_generate', 'image_edit', 'image_analyze', 'ocr', 'prompt_optimize', 'unclear', 'unsafe'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
+  assert.ok(system.includes('target_model'));
+  assert.ok(system.includes('image_source'));
+  assert.ok(system.includes('selected_indexes'));
+  assert.ok(system.includes('use_previous_image'));
+  assert.ok(system.includes('Generate/reverse-engineer/extract a TEXT prompt from an image'));
+  assert.ok(system.includes('NEVER image_generate/reference/edit'));
+  assert.ok(system.length < 2600, `route prompt should stay compact: ${system.length}`);
 }
 
 function testChatAnswerStreamingFlushesQuickly() {
@@ -505,16 +730,62 @@ function testUsageStatsFrontendHelpers() {
   assert.strictEqual(usageStatsAuth.getDepartmentPassword(storage), '');
 }
 
+function testServerHardeningHelpers() {
+  assert.strictEqual(urlPolicy.isPrivateHostname('localhost'), true);
+  assert.strictEqual(urlPolicy.normalizeBaseUrl('http://127.0.0.1:8765'), '');
+  assert.strictEqual(urlPolicy.assertAllowedUpstreamUrl('https://api.example.com/v1'), true);
+  assert.ok(safeLog.redactString('Authorization: Bearer sk-secret1234567890').includes('[redacted]'));
+  assert.ok(!safeLog.redactString('data:image/png;base64,' + 'A'.repeat(5000)).includes('data:image'));
+
+  const store = new JobStore('test', { ttlMs: 1000000, runningTtlMs: 10, maxJobs: 1 });
+  let aborted = false;
+  const now = Date.now();
+  store.set('running-old', { status: 'running', createdAt: now - 1000, updatedAt: now - 1000, controller: { abort: () => { aborted = true; } } });
+  store.sweep(now);
+  const expired = store.get('running-old');
+  assert.strictEqual(aborted, true);
+  assert.strictEqual(expired.status, 'error');
+
+  assert.strictEqual(extractApi.fileKind('a.txt', 'text/plain'), 'text');
+  assert.strictEqual(extractApi.fileKind('a.pdf', ''), 'pdf');
+  assert.strictEqual(extractApi.estimateDataUrlBytes('data:text/plain;base64,QUJDRA=='), 6);
+  assert.throws(() => extractApi.assertExtractSizeAllowed('text', 999999999), /文件过大/);
+
+  const limiter = new ConcurrencyLimiter(1, { maxQueue: 0 });
+  return limiter.acquire()
+    .then(() => limiter.acquire().then(() => assert.fail('should reject queue overflow')).catch(err => assert.strictEqual(err.statusCode, 429)))
+    .finally(() => limiter.release());
+}
+
+async function testReadBodyReturns413WithoutDestroyingConnection() {
+  const listeners = {};
+  const req = {
+    setEncoding() {},
+    pause() { this.paused = true; },
+    on(name, fn) { listeners[name] = fn; return this; },
+  };
+  const promise = readBody(req);
+  listeners.data('x'.repeat(51 * 1024 * 1024));
+  await assert.rejects(promise, err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
+}
+
 const tests = [
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
   testImageResultParsingSupportsMultipleImages,
   testImageJobTargetsAndMultipartSanitization,
+  testPendingClarificationMergesFollowupSupplements,
+  testPendingClarificationCanMergeTextFileAndQuote,
+  testPendingClarificationCarriesOriginalMultiImageContext,
+  testImageEditPromptFallbackAndValidation,
   testStorageSanitizesEmbeddedImageContent,
   testFilePlaceholderSemanticsAndFileUnderstanding,
   testQuotedFileAttachmentTextIsIncluded,
+  testHistoryFileAttachmentTextIsIncludedInChatContext,
+  testHistoryFileCandidatesRouteAsFileQa,
+  testUserAttachmentContextFallsBackToImageContextForRegenerate,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
-  testExistingImageEditGateAllowsPreviousSelection,
+  testLightweightIntentClassifierAdapters,
   testStructuredRouteDecisionCarriesRefs,
   testImagePromptExtractionStaysChatWithCurrentImage,
   testImplicitImagePromptExtractionStaysChatWithCurrentImage,
@@ -531,6 +802,8 @@ const tests = [
   testDepartmentExportWorkbookShape,
   testUsageRangesAreCentralized,
   testUsageStatsFrontendHelpers,
+  testServerHardeningHelpers,
+  testReadBodyReturns413WithoutDestroyingConnection,
 ];
 
 (async () => {

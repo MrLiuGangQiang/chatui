@@ -1,5 +1,7 @@
-﻿const { sendJson } = require('../http/response');
+const { sendJson } = require('../http/response');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
+const { safeLog } = require('../logging/safe-log');
+const { limiter, withLimiter } = require('../concurrency');
 
 
 function isDataUrlLike(value) {
@@ -236,6 +238,33 @@ function stripImageEditFileFields(payload = {}) {
   return next;
 }
 
+function resolveImageEditPrompt(payload = {}, body = {}) {
+  return String(
+    payload.prompt
+    || payload.editInstruction
+    || payload.edit_instruction
+    || payload.routePrompt
+    || payload.route_prompt
+    || payload.originalPrompt
+    || payload.original_prompt
+    || body.prompt
+    || body.editInstruction
+    || body.edit_instruction
+    || body.routePrompt
+    || body.route_prompt
+    || body.originalPrompt
+    || body.original_prompt
+    || ''
+  ).trim();
+}
+
+function ensureImageEditPrompt(payload = {}, body = {}) {
+  const next = { ...(payload || {}) };
+  const prompt = resolveImageEditPrompt(next, body);
+  if (prompt) next.prompt = prompt;
+  return next;
+}
+
 function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
 async function runImageJob(job) {
 const headers = { ...(job.extraHeaders || {}), ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}) };
@@ -243,12 +272,12 @@ let body;
 if (job.mode === 'edit_image') {
   const editPayload = stripImageEditFileFields(job.payload);
   const editBody = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
-  console.log('[image-edit] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: job.files?.length || 0, masks: job.masks?.length || 0 }));
+  safeLog('[image-edit] upstream multipart', { model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: job.files?.length || 0, masks: job.masks?.length || 0 });
   body = editBody.body;
 } else {
   headers['Content-Type'] = 'application/json';
   const generationPayload = stripImageEditFileFields(job.payload);
-  console.log('[image-generation] upstream json', JSON.stringify({ model: generationPayload.model || '', fields: Object.keys(generationPayload) }));
+  safeLog('[image-generation] upstream json', { model: generationPayload.model || '', fields: Object.keys(generationPayload) });
   body = JSON.stringify(generationPayload || {});
 }
 const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
@@ -284,14 +313,16 @@ const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const payload = body.payload || {};
+  let payload = body.payload || {};
   const jobId = makeJobId(body.jobId);
   if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
   const masks = extractImageEditMasks(body);
   const mode = body.mode === 'edit_image' || imageFiles.length ? 'edit_image' : 'image';
+  if (mode === 'edit_image') payload = ensureImageEditPrompt(payload, body);
   if (mode === 'edit_image' && !imageFiles.length) return sendJson(res, 400, { error: { message: '图片编辑任务缺少图片附件' } });
+  if (mode === 'edit_image' && !String(payload.prompt || '').trim()) return sendJson(res, 400, { error: { message: '图片编辑任务缺少 prompt，请输入要如何修改图片' } });
   const job = {
     id: jobId,
     status: 'running',
@@ -309,7 +340,11 @@ try {
     durationMs: null,
   };
   imageJobs.set(job.id, job);
-  runImageJob(job);
+  withLimiter(limiter, () => runImageJob(job)).catch(err => {
+    job.status = 'error';
+    job.error = err.message || String(err);
+    job.updatedAt = Date.now();
+  });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
   respondJobError(res, err);
@@ -335,6 +370,7 @@ module.exports = {
   imageJobTargetPath,
   imageJobTargetUrl,
   stripImageEditFileFields,
+  ensureImageEditPrompt,
   buildOpenAiImageEditPayload,
   joinUrl,
 };

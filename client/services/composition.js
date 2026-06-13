@@ -16,6 +16,7 @@
   const routeService = browser.ChatUIRouteService || root.ChatUIRouteService || {};
   const imageGenerationService = browser.ChatUIImageGenerationService || root.ChatUIImageGenerationService || {};
   const imageService = browser.ChatUIImageService || root.ChatUIImageService || {};
+  const clarificationService = browser.ChatUIClarificationService || root.ChatUIClarificationService || {};
 
   function fetchImpl() { return global.fetch.bind(global); }
   function parseResponseJson(response) {
@@ -61,7 +62,8 @@
   const route = Object.freeze({
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
-    parseRouteResult: (text, normalizeRoute) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute),
+    simpleRouteToLegacyRoute: (simple, options) => routeService.simpleRouteToLegacyRoute(simple, options),
+    parseRouteResult: (text, normalizeRoute, options) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
   });
@@ -78,7 +80,7 @@
     imageFilesToJobPayload: (list, readFileAsDataURL) => imageService.imageFilesToJobPayload(list, readFileAsDataURL),
   });
 
-  const api = Object.freeze({ models, jobs, chat, route, images });
+  const api = Object.freeze({ models, jobs, chat, route, images, clarification: clarificationService });
   if (typeof window !== 'undefined') {
     window.ChatUIServicesComposition = api;
     window.ChatUIServicesFallback = api;

@@ -2,6 +2,7 @@ const { SECURITY_HEADERS, sendJson } = require('../http/response');
 const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { normalizeBaseUrl } = require('../security/url-policy');
+const { safeLog, redactUrl } = require('../logging/safe-log');
 
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
@@ -80,7 +81,7 @@ function createJobEvents({ jobSubscribers }) {
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
     const job = store.get(id);
-    console.log('[subscribeJob] url=' + req.url + ' id=' + id + ' found=' + !!job);
+    safeLog('[subscribeJob]', { id, found: !!job, path: redactUrl(req.url) });
     if (!job) { res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' }); res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: '任务不存在或服务已重启' } })}\n\n`); res.end(); return; }
     res.writeHead(200, {
       ...SECURITY_HEADERS,

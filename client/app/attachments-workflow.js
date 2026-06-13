@@ -28,7 +28,7 @@
   function createAttachmentsWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const getElement = deps.getElement || (() => null);
-    const escapeHtml = deps.escapeHtml || (value => String(value || ''));
+    const escapeHtml = deps.escapeHtml || (value => String(value || '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
     const autoResize = deps.autoResize || (() => {});
     const updateSendAvailability = deps.updateSendAvailability || (() => {});
     const openImagePreview = deps.openImagePreview || (() => {});

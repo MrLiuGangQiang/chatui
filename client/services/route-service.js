@@ -1,7 +1,31 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = "You are the ChatUI intent router. Return JSON only. Do not answer the user.\nYour only job is to classify the current turn into exactly one canonical action and return the references required by that action.\n\nDecision principle:\n1. First decide the canonical action from the user's requested RESULT, not from keywords alone.\n2. Then fill mode, operation.type, intent, target, refs, and prompt fields so they are mutually consistent.\n3. If fields would conflict, operation.type is the canonical action and all other fields must match it.\n\nRequired JSON schema:\n{\"mode\":\"chat|image|edit_image\",\"operation\":{\"type\":\"plain_chat|file_qa|image_qa|ocr|text_to_image|image_reference_gen|image_edit\",\"scope\":\"current|quoted|history|none\",\"prompt\":\"\",\"edit_instruction\":\"\"},\"image_refs\":[{\"role\":\"target|reference|source\",\"image_id\":\"\",\"reference_id\":\"\",\"index\":1,\"target\":\"uploaded|previous\",\"source\":\"current|quoted|history\"}],\"file_refs\":[{\"role\":\"source\",\"file_id\":\"\",\"index\":1,\"name\":\"\",\"source\":\"current|quoted\"}],\"target\":\"none|new|uploaded|previous\",\"use_previous_image\":false,\"selected_reference_id\":\"\",\"selected_indexes\":[],\"selected_image_ids\":[],\"need_clarification\":false,\"clarification_question\":\"\",\"intent\":\"text_to_image|image_edit|image_reference_gen|unknown\",\"edit_instruction\":\"\",\"contextual_image_prompt\":\"\",\"tasks\":[],\"confidence\":0,\"evidence\":\"\"}\n\nCanonical action table. Pick exactly one:\n\nA. plain_chat\n- Use when the user asks ordinary text/chat questions and no file/image understanding or image creation/editing is required.\n- Output: mode=chat, operation.type=plain_chat, intent=unknown, target=none, image_refs=[], file_refs=[].\n\nB. file_qa\n- Use when the user asks to read, summarize, count, translate, extract, analyze, or answer questions about attached/quoted files.\n- Files are selected only from attachments/context.file_candidates.\n- Output: mode=chat, operation.type=file_qa, intent=unknown, target=none, fill file_refs.\n- Chinese examples: 这个附件是什么；总结这个 PDF；文件里面有多少条；提取邮箱。\n\nC. image_qa\n- Use when the requested RESULT is text based on existing image(s): describe, analyze, compare, evaluate, identify, OCR-like visual understanding, extract elements, or write/reverse-engineer/generate a TEXT PROMPT from an image.\n- If an image is attached/selected/quoted and the user says “reverse prompt”, “generate prompt”, “write prompt”, “反推提示词”, “逆向生成提示词”, or “提示词尽量详细”, this is image_qa, even if the word image/图片 is omitted.\n- Output: mode=chat, operation.type=image_qa, intent=unknown, target=none, fill image_refs with role=source or reference.\n- Never use image_reference_gen for generating/writing/reversing/extracting a text prompt FROM an image.\n- Chinese examples that MUST be image_qa: 根据图片生成提示词；逆向生成提示词尽量详细；基于这张图写 prompt；反推提示词；提取图片提示词；看看这张图适合什么文案。\n- English examples that MUST be image_qa: generate a prompt from this image; reverse prompt from image; write a detailed prompt based on this picture.\n\nD. ocr\n- Use when the requested RESULT is text recognition/extraction from image(s).\n- Output: mode=chat, operation.type=ocr, intent=unknown, target=none, fill image_refs.\n\nE. text_to_image\n- Use only when the requested RESULT is a NEW image created from text and no existing image must be used as visual input.\n- Output: mode=image, operation.type=text_to_image, intent=text_to_image, target=new, image_refs=[], contextual_image_prompt=\"\".\n- Do not rewrite the user's prompt here.\n\nF. image_reference_gen\n- Use only when the requested RESULT is a NEW image and existing image(s) are used as visual reference/style/subject input.\n- Output: mode=image, operation.type=image_reference_gen, intent=image_reference_gen, target=new, fill image_refs with role=reference/source, fill contextual_image_prompt with reference description + current image creation request.\n- Valid examples: 参考这张图再生成一张海报；按这张图的风格画一张新图；use this image as style reference to generate a poster.\n- Invalid examples: 根据图片生成提示词；reverse prompt from this image. These are image_qa.\n\nG. image_edit\n- Use only when the requested RESULT is modifying existing image(s): remove/add/replace/change/enhance/upscale/recolor/crop/retouch.\n- Output: mode=edit_image, operation.type=image_edit, intent=image_edit, target=uploaded or previous, fill image_refs with role=target, put the modification in edit_instruction.\n\nReference selection rules:\n1. [file id=...] and [image id=...] are indexes only. You cannot see file contents or image pixels in this router call. Do not invent visual/file contents.\n2. Select images only from current image attachments and context.image_candidates. Uploaded images and assistant-generated images are both valid.\n3. Quoted-message context must use scope/source=quoted and only choose quoted candidates.\n4. If context.image_candidates is non-empty, do not claim there is no image.\n5. “第N张 / the Nth image” selects candidate index N.\n6. If multiple possible targets exist and the user did not specify which one, set need_clarification=true and ask one short clarification_question.\n\nField consistency rules:\n- mode=chat allows only operation.type plain_chat/file_qa/image_qa/ocr and intent=unknown.\n- mode=image allows only operation.type text_to_image/image_reference_gen and intent text_to_image/image_reference_gen.\n- mode=edit_image allows only operation.type image_edit and intent=image_edit.\n- target must be none for chat, new for image, uploaded/previous for edit_image.\n- Do not output size, quality, background, format, n, or image API parameters.\n- confidence should reflect routing certainty, not answer certainty.\n- evidence should briefly cite the rule used." ;
+const ROUTE_SYSTEM_PROMPT = `You are a ChatUI intent router. Return JSON only, no prose.
+
+Return exactly:
+{"intent":"text_chat|file_qa|image_generate|image_reference_generate|image_edit|image_analyze|ocr|prompt_optimize|unclear|unsafe","target_model":"text_model|vision_model|image_model|none","need_image_input":false,"need_file_input":false,"need_clarification":false,"image_source":"none|current|quoted|history","image_role":"none|source|reference|target","selected_indexes":[],"use_previous_image":false,"rewritten_prompt":"","reply_to_user":"","confidence":0,"reason":""}
+
+Model map: text_chat/file_qa/prompt_optimize=>text_model; image_analyze/ocr=>vision_model; image_generate/image_reference_generate/image_edit=>image_model; unclear/unsafe=>none.
+
+Rules:
+- Text Q&A/code/writing/translation/summary/chat => text_chat.
+- File read/summarize/extract/analyze => file_qa; if no file candidate, target_model=none, need_file_input=true, need_clarification=true.
+- Text-only draw/generate/design image/logo/poster/avatar/cover/wallpaper/illustration/photo style => image_generate.
+- Use an existing image only as visual/style/subject/composition reference to create a NEW image => image_reference_generate, image_role=reference. Not image_edit.
+- Modify existing image/change background/remove/add/replace/upscale/repair/clearer/style/watermark removal => image_edit, image_role=target.
+- Understand/describe/analyze image or what is in it => image_analyze, image_role=source.
+- Generate/reverse-engineer/extract a TEXT prompt from an image => image_analyze, target_model=vision_model, image_role=source, rewritten_prompt="". NEVER image_generate/reference/edit.
+- OCR/read text in image => ocr.
+- Optimize/write prompt without image analysis => prompt_optimize.
+- Vague “做一下/处理一下/弄一下/优化一下” with no object/detail => unclear.
+- Unsafe illegal/sexual/violent/self-harm/privacy-invasive => unsafe, target_model=none, reply_to_user refusal.
+
+Resource:
+- current attachments => image_source=current; quoted message => quoted; previous/last/刚才/上一张/继续改 => history.
+- If multiple image/file candidates and user did not specify which, need_clarification=true and selected_indexes=[]. If one obvious candidate, selected_indexes=[1].
+- rewritten_prompt only for image_generate/image_reference_generate/image_edit; otherwise "".
+- reply_to_user only for clarification or unsafe. Do not invent file/image content. You cannot see file contents or image pixels in router. file_candidates and image_candidates are references only; [file id] / [image id] placeholders are not content.`
 
 const imageRouteContext = root?.ChatUICoreImageRouteContext
   || root?.ChatUICore?.imageRouteContext
@@ -62,13 +86,182 @@ function imagePromptExtractionRef({ imageCandidates = [], attachments = [], pars
   return [];
 }
 
+const SIMPLE_INTENTS = new Set(['text_chat', 'file_qa', 'image_generate', 'image_reference_generate', 'image_edit', 'image_analyze', 'ocr', 'prompt_optimize', 'unclear', 'unsafe']);
+const SIMPLE_MODELS = new Set(['text_model', 'vision_model', 'image_model', 'none']);
+const IMAGE_SOURCES = new Set(['none', 'current', 'quoted', 'history']);
+const IMAGE_ROLES = new Set(['none', 'source', 'reference', 'target']);
+
+function normalizeSelectedIndexes(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => Number(item)).filter(item => Number.isInteger(item) && item >= 1).filter((item, index, list) => list.indexOf(item) === index);
+}
+
+function currentImageCount(attachments = []) {
+  return (attachments || []).filter(item => item && item.is_image).length;
+}
+
+function currentFileCount(attachments = []) {
+  return (attachments || []).filter(item => item && !item.is_image).length;
+}
+
+function contextImageCandidates(context = {}, source = '') {
+  const list = Array.isArray(context?.image_candidates) ? context.image_candidates : [];
+  if (!source || source === 'none') return [];
+  if (source === 'history') return list.filter(item => item?.source !== 'quoted');
+  return list.filter(item => item?.source === source || (source === 'current' && item?.target === 'uploaded'));
+}
+
+function contextFileCandidates(context = {}, source = '') {
+  const list = Array.isArray(context?.file_candidates) ? context.file_candidates : [];
+  if (!source || source === 'none') return [];
+  return list.filter(item => !item?.source || item.source === source);
+}
+
+function inferSourceFromContext(intent, simpleSource, attachments = [], context = {}) {
+  if (IMAGE_SOURCES.has(simpleSource) && simpleSource !== 'none') return simpleSource;
+  const needsImage = ['image_reference_generate', 'image_edit', 'image_analyze', 'ocr'].includes(intent);
+  if (!needsImage) return 'none';
+  if (currentImageCount(attachments)) return 'current';
+  const candidates = Array.isArray(context?.image_candidates) ? context.image_candidates : [];
+  if (candidates.some(item => item?.source === 'quoted')) return 'quoted';
+  if (candidates.length || context?.latest_image_reference || context?.last_generated_image || context?.latest_uploaded_image) return 'history';
+  return 'none';
+}
+
+function defaultIndexesForSource(source, attachments = [], context = {}) {
+  const count = source === 'current' ? currentImageCount(attachments) : contextImageCandidates(context, source).length;
+  return count === 1 ? [1] : [];
+}
+
+function selectedCandidatesForSource(source, indexes = [], attachments = [], context = {}) {
+  if (source === 'current') return [];
+  const candidates = contextImageCandidates(context, source);
+  if (!indexes.length) return candidates.length === 1 ? [candidates[0]] : [];
+  return candidates.filter(item => indexes.includes(Number(item.index)));
+}
+
+function targetForSource(source, intent, candidate = null) {
+  if (intent === 'image_generate' || intent === 'image_reference_generate') return 'new';
+  if (intent !== 'image_edit') return 'none';
+  if (source === 'current') return 'uploaded';
+  if (candidate?.target === 'uploaded') return 'uploaded';
+  return 'previous';
+}
+
+function imageRefTargetForSource(source, candidate = null) {
+  if (source === 'current') return 'uploaded';
+  return candidate?.target === 'uploaded' ? 'uploaded' : 'previous';
+}
+
+function referenceIdForSource(source, selected = [], context = {}, usePreviousImage = false) {
+  const fromCandidate = selected.find(item => item?.reference_id)?.reference_id;
+  if (fromCandidate) return fromCandidate;
+  if (source === 'history' && context?.latest_image_reference?.reference_id) return context.latest_image_reference.reference_id;
+  if (source === 'history' && usePreviousImage) return 'imgref_latest';
+  return '';
+}
+
+function isSimpleClassifierResult(value = {}) {
+  return value && typeof value === 'object' && (SIMPLE_INTENTS.has(String(value.intent || '')) || 'target_model' in value || 'image_source' in value || 'image_role' in value);
+}
+
+function simpleRouteToLegacyRoute(simple = {}, options = {}) {
+  const input = String(options.input || '').trim();
+  const attachments = options.attachments || [];
+  const context = options.context || {};
+  let intent = SIMPLE_INTENTS.has(String(simple.intent || '')) ? String(simple.intent) : 'unclear';
+  let targetModel = SIMPLE_MODELS.has(String(simple.target_model || simple.targetModel || '')) ? String(simple.target_model || simple.targetModel) : '';
+  const confidence = Number.isFinite(Number(simple.confidence)) ? Math.max(0, Math.min(1, Number(simple.confidence))) : 0;
+  const reason = String(simple.reason || '').trim();
+  let needClarification = !!(simple.need_clarification || simple.needClarification);
+  const needImageInput = !!(simple.need_image_input || simple.needImageInput);
+  const needFileInput = !!(simple.need_file_input || simple.needFileInput);
+  let imageSource = inferSourceFromContext(intent, String(simple.image_source || simple.imageSource || 'none'), attachments, context);
+  let imageRole = IMAGE_ROLES.has(String(simple.image_role || simple.imageRole || '')) ? String(simple.image_role || simple.imageRole) : 'none';
+  let selectedIndexes = normalizeSelectedIndexes(simple.selected_indexes || simple.selectedIndexes);
+  let usePreviousImage = !!(simple.use_previous_image || simple.usePreviousImage);
+  const reply = String(simple.reply_to_user || simple.replyToUser || '').trim();
+  const rewrittenPrompt = String(simple.rewritten_prompt || simple.rewrittenPrompt || '').trim();
+
+  if (intent === 'unsafe') {
+    return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: reply || '抱歉，这个请求我不能帮助处理。', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 1, evidence: reason || '不安全请求' };
+  }
+
+  const hasResolvableImageInput = ['image_reference_generate', 'image_edit', 'image_analyze', 'ocr'].includes(intent) && inferSourceFromContext(intent, imageSource, attachments, context) !== 'none' && (currentImageCount(attachments) || contextImageCandidates(context, imageSource).length || imageSource === 'current');
+  const hasResolvableFileInput = intent === 'file_qa' && (currentFileCount(attachments) || contextFileCandidates(context, 'current').length || contextFileCandidates(context, 'quoted').length || contextFileCandidates(context, 'history').length);
+  const blocksForImageInput = needImageInput && !hasResolvableImageInput;
+  const blocksForFileInput = needFileInput && !hasResolvableFileInput;
+
+  if (intent === 'unclear' || needClarification || blocksForImageInput || blocksForFileInput) {
+    return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: reply || (blocksForFileInput ? '请先上传文件，或说明要处理哪个文件。' : blocksForImageInput ? '请先上传图片，或说明要处理哪一张历史图片。' : '请说明你想让我做什么。'), intent: intent === 'image_edit' ? 'image_edit' : 'unknown', edit_instruction: rewrittenPrompt, contextual_image_prompt: '', tasks: [], confidence: confidence || 0.6, evidence: reason || '意图或目标资源不明确' };
+  }
+
+  if (['image_reference_generate', 'image_edit', 'image_analyze', 'ocr'].includes(intent)) {
+    if (!selectedIndexes.length) selectedIndexes = defaultIndexesForSource(imageSource, attachments, context);
+    const sourceCount = imageSource === 'current' ? currentImageCount(attachments) : contextImageCandidates(context, imageSource).length;
+    if (!selectedIndexes.length && sourceCount > 1) {
+      return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: '请明确要处理第几张图片。', intent: intent === 'image_edit' ? 'image_edit' : 'unknown', edit_instruction: rewrittenPrompt, contextual_image_prompt: '', tasks: [], confidence: confidence || 0.6, evidence: reason || '存在多张候选图片但未指定序号' };
+    }
+  }
+
+  if (intent === 'text_chat' || intent === 'prompt_optimize') {
+    return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: false, clarification_question: '', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.9, evidence: reason || '文字任务' };
+  }
+
+  if (intent === 'file_qa') {
+    const source = String(simple.file_source || simple.fileSource || '') || (currentFileCount(attachments) ? 'current' : (contextFileCandidates(context, 'quoted').length ? 'quoted' : (contextFileCandidates(context, 'history').length ? 'history' : 'current')));
+    const files = contextFileCandidates(context, source);
+    const fileIndexes = normalizeSelectedIndexes(simple.selected_indexes || simple.selectedIndexes);
+    const selectedFiles = fileIndexes.length ? files.filter(item => fileIndexes.includes(Number(item.index))) : files.length === 1 ? [files[0]] : files;
+    const fileRefs = selectedFiles.map((item, idx) => ({ role: 'source', file_id: item.file_id || item.id || '', index: Number(item.index) || idx + 1, name: item.name || '', source: source === 'quoted' ? 'quoted' : source === 'history' ? 'history' : 'current' }));
+    return { mode: 'chat', operation: { type: 'file_qa', scope: source === 'quoted' ? 'quoted' : source === 'history' ? 'history' : 'current', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: fileRefs, target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: false, clarification_question: '', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.9, evidence: reason || '文件问答' };
+  }
+
+  if (intent === 'image_generate') {
+    return { mode: 'image', operation: { type: 'text_to_image', scope: 'none', prompt: rewrittenPrompt || input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'new', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: false, clarification_question: '', intent: 'text_to_image', edit_instruction: '', contextual_image_prompt: rewrittenPrompt || '', tasks: [], confidence: confidence || 0.95, evidence: reason || '纯文本生图' };
+  }
+
+  if (intent === 'image_reference_generate' || intent === 'image_edit' || intent === 'image_analyze' || intent === 'ocr') {
+    const selected = selectedCandidatesForSource(imageSource, selectedIndexes, attachments, context);
+    const first = selected[0] || null;
+    const role = intent === 'image_edit' ? 'target' : intent === 'image_reference_generate' ? 'reference' : 'source';
+    const refs = selectedIndexes.map(index => {
+      const candidate = selected.find(item => Number(item.index) === Number(index)) || (selectedIndexes.length === 1 ? first : null);
+      return {
+        role,
+        image_id: candidate?.image_id || '',
+        reference_id: candidate?.reference_id || referenceIdForSource(imageSource, selected, context, usePreviousImage),
+        index,
+        target: imageRefTargetForSource(imageSource, candidate),
+        source: imageSource === 'history' ? 'history' : imageSource,
+      };
+    });
+    const selectedIds = refs.map(ref => ref.image_id).filter(Boolean);
+    const selectedReferenceId = referenceIdForSource(imageSource, selected, context, usePreviousImage) || refs.find(ref => ref.reference_id)?.reference_id || '';
+    if (intent === 'image_reference_generate') {
+      return { mode: 'image', operation: { type: 'image_reference_gen', scope: imageSource === 'none' ? 'current' : imageSource, prompt: rewrittenPrompt || input, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'new', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_reference_gen', edit_instruction: '', contextual_image_prompt: rewrittenPrompt || input, tasks: [], confidence: confidence || 0.9, evidence: reason || '参考图生成新图' };
+    }
+    if (intent === 'image_edit') {
+      const target = targetForSource(imageSource, intent, first);
+      usePreviousImage = usePreviousImage || (imageSource === 'history' && target === 'previous');
+      return { mode: 'edit_image', operation: { type: 'image_edit', scope: imageSource === 'none' ? 'current' : imageSource, prompt: '', edit_instruction: rewrittenPrompt || input }, image_refs: refs, file_refs: [], target, use_previous_image: usePreviousImage, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_edit', edit_instruction: rewrittenPrompt || input, contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || '修改已有图片' };
+    }
+    const type = intent === 'ocr' ? 'ocr' : 'image_qa';
+    return { mode: 'chat', operation: { type, scope: imageSource === 'none' ? 'current' : imageSource, prompt: input, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || (intent === 'ocr' ? '图片文字识别' : '图片理解') };
+  }
+
+  return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: reply || '请说明你想让我做什么。', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.5, evidence: reason || '无法识别意图' };
+}
+
 function parseRouteResult(text = '', normalizeRoute, options = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
   const normalize = normalizeRoute || imageRouteContext.normalizeRoute;
   if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
   try {
-    const parsed = normalize(JSON.parse(stripJsonFence(value)));
+    const raw = JSON.parse(stripJsonFence(value));
+    const legacyInput = isSimpleClassifierResult(raw) ? simpleRouteToLegacyRoute(raw, options) : raw;
+    const parsed = normalize(legacyInput);
     const imageCandidates = Array.isArray(options.context?.image_candidates) ? options.context.image_candidates : [];
     const attachments = options.attachments || [];
     const hasImageContext = imageCandidates.length > 0 || attachments.some(item => item && item.is_image);
@@ -81,12 +274,13 @@ function parseRouteResult(text = '', normalizeRoute, options = {}) {
         ...parsed,
         mode: 'chat',
         operation: { ...(parsed.operation || {}), type: 'image_qa', scope: first?.source || refs[0]?.source || parsed.operation?.scope || 'current' },
-        target: first?.target || parsed.target || 'previous',
-        use_previous_image: first?.target === 'previous' || parsed.usePreviousImage || parsed.use_previous_image || false,
+        target: 'none',
+        use_previous_image: false,
         image_refs: refs,
         selected_indexes: parsed.selectedIndexes?.length ? parsed.selectedIndexes : parsed.selected_indexes || selectedIndexes,
         selected_image_ids: parsed.selectedImageIds?.length ? parsed.selectedImageIds : parsed.selected_image_ids || selectedImageIds,
         intent: 'unknown',
+        contextual_image_prompt: '',
         evidence: '根据图片提取/反推生成提示词属于图片理解，不是直接生图',
       }, 'chat');
     }
@@ -111,8 +305,8 @@ function buildFileCandidatesFromAttachments(attachments = []) {
       name: item.name || 'attachment',
       type: item.type || '',
       size: Number(item.size) || 0,
-      has_extracted_text: !!item.has_extracted_text,
-      unsupported_reason: item.unsupported_reason || '',
+      has_extracted_text: !!(item.has_extracted_text || item.hasExtractedText),
+      unsupported_reason: item.unsupported_reason || item.unsupportedReason || '',
     }));
 }
 
@@ -133,14 +327,30 @@ function compactRoutePayloadContext(context = {}, input = '', attachments = []) 
   return next;
 }
 
-function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT } = {}) {
+function compactRouteUserPayload({ input = '', attachments = [], context = {}, currentMode = 'chat', autoMode = true } = {}) {
   const routeContext = compactRoutePayloadContext(context, input, attachments);
+  const payload = { current_input: input };
+  if (currentMode && currentMode !== 'chat') payload.current_mode = currentMode;
+  if (autoMode === false) payload.auto_mode = false;
+  if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
+  const compactContext = Object.fromEntries(Object.entries(routeContext || {}).filter(([, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (!value) return false;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return true;
+  }));
+  if (Object.keys(compactContext).length) payload.context = compactContext;
+  return payload;
+}
+
+function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT } = {}) {
+  const userPayload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode });
   return {
     model,
     temperature: 0,
     messages: [
       { role: 'system', content: systemPrompt + UPLOADED_IMAGE_ROUTE_PROMPT },
-      { role: 'user', content: JSON.stringify({ current_input: input, current_mode: currentMode, auto_mode: autoMode, attachments, context: routeContext }, null, 2) },
+      { role: 'user', content: JSON.stringify(userPayload) },
     ],
   };
 }
@@ -159,9 +369,11 @@ const api = Object.freeze({
   isPlainTextChatInput,
   isImagePromptExtractionInput,
   isImplicitImagePromptExtractionInput,
+  simpleRouteToLegacyRoute,
   parseRouteResult,
   buildFileCandidatesFromAttachments,
   compactRoutePayloadContext,
+  compactRouteUserPayload,
   buildRoutePayload,
   extractRouteText,
 });

@@ -5,7 +5,7 @@
     if (!deps.state) throw new Error('state is required');
     const ensureChatAttachmentImageDataUrls = deps.ensureChatAttachmentImageDataUrls || (async list => list || []);
 
-    function quotedAttachmentTextFromContext(value, limit = 12000) {
+    function attachmentTextFromContext(value, { label = '附件', limit = 12000 } = {}) {
       if (!value) return '';
       let context = value;
       if (typeof context === 'string') {
@@ -14,8 +14,12 @@
       const attachments = Array.isArray(context?.attachments) ? context.attachments : [];
       const parts = attachments
         .filter(item => item && !/^image\//i.test(String(item.type || '')) && String(item.text || '').trim())
-        .map(item => `[引用附件：${item.name || 'attachment'}]\n${String(item.text || '').trim()}`);
+        .map(item => `[${label}：${item.name || 'attachment'}]\n${String(item.text || '').trim()}`);
       return parts.join('\n\n').slice(0, limit);
+    }
+
+    function quotedAttachmentTextFromContext(value, limit = 12000) {
+      return attachmentTextFromContext(value, { label: '引用附件', limit });
     }
 
     function quotedFileCandidatesFromContext(value) {
@@ -53,10 +57,23 @@
       }];
     }
 
+    function messagesWithAttachmentText(messages = [], totalLimit = 24000) {
+      let remaining = Math.max(0, Number(totalLimit) || 0);
+      return (Array.isArray(messages) ? messages : []).map(message => {
+        const text = remaining > 0 ? attachmentTextFromContext(message?.attachmentContext || message?.attachment_context || '', { label: '历史附件', limit: remaining }) : '';
+        if (!text) return message;
+        remaining -= text.length;
+        const content = Array.isArray(message.content) ? message.content : String(message.content ?? message.rawText ?? '');
+        const nextContent = Array.isArray(content) ? content : [String(content || '').trim(), text].filter(Boolean).join('\n\n');
+        return { ...message, content: nextContent };
+      });
+    }
+
     function requestBaseMessagesForSend(options = {}, messages = []) {
       if (options.quotedMessage) return normalizeQuotedBaseMessages(options.requestBaseMessages);
-      if (Array.isArray(options.requestBaseMessages)) return options.requestBaseMessages;
-      return options.userAlreadyAdded && messages.at?.(-1)?.role === 'user' ? messages.slice(0, -1) : messages;
+      if (Array.isArray(options.requestBaseMessages)) return messagesWithAttachmentText(options.requestBaseMessages);
+      const base = options.userAlreadyAdded && messages.at?.(-1)?.role === 'user' ? messages.slice(0, -1) : messages;
+      return messagesWithAttachmentText(base);
     }
 
     function systemPromptForSend(options = {}, session = {}, config = {}) {
@@ -97,7 +114,7 @@
       }
     }
 
-    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, requestBaseMessagesForSend, systemPromptForSend, appendWithOverlap });
+    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, messagesWithAttachmentText, requestBaseMessagesForSend, systemPromptForSend, appendWithOverlap });
   }
 
   const api = Object.freeze({ createChatWorkflow });

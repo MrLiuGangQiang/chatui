@@ -59,6 +59,7 @@
           hasImageStylePromptOverride: !!session.hasImageStylePromptOverride,
           chatModel: state.models.includes(session.chatModel) ? session.chatModel : '',
           headerValues: session.headerValues && typeof session.headerValues === 'object' ? session.headerValues : {},
+          pendingClarification: session.pendingClarification && typeof session.pendingClarification === 'object' ? session.pendingClarification : null,
           createdAt: session.createdAt || Date.now(),
           updatedAt: session.updatedAt || Date.now(),
         }));
@@ -187,6 +188,7 @@
           hasImageStylePromptOverride: !!item.hasImageStylePromptOverride,
           chatModel: state.models.includes(item.chatModel) ? item.chatModel : '',
           headerValues: item.headerValues && typeof item.headerValues === 'object' ? item.headerValues : {},
+          pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
           createdAt: item.createdAt || Date.now(),
           updatedAt: item.updatedAt || Date.now(),
           messages: readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []),

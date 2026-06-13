@@ -1576,3 +1576,38 @@ button:disabled,
     max-height:148px!important;
   }
 }
+
+
+/* Compact user text/file-style messages: reduce blank-line height and preview gap. */
+.message.user .bubble{
+  line-height:1.34!important;
+}
+.message.user .plain-text{
+  line-height:1.34!important;
+  white-space:pre-line!important;
+  overflow-wrap:anywhere!important;
+  word-break:break-word!important;
+}
+.message.user .user-attachment-preview-grid{
+  margin-top:4px!important;
+  gap:6px!important;
+}
+.message.user .content:has(.user-attachment-preview-grid) .plain-text{
+  margin-bottom:0!important;
+}
+
+/* Compact plain message text: applies to normal text-only bubbles too. */
+.message .plain-text,
+.message .content{
+  line-height:1.34!important;
+}
+.message.assistant .markdown-body,
+.message.error .markdown-body{
+  line-height:1.42!important;
+}
+.markdown-body p{
+  margin-top:.28em!important;
+  margin-bottom:.28em!important;
+}
+.markdown-body p:first-child{margin-top:0!important;}
+.markdown-body p:last-child{margin-bottom:0!important;}

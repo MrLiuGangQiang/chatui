@@ -1,6 +1,7 @@
 const { SECURITY_HEADERS, send, sendError } = require('../http/response');
 const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
 const { limiter } = require('../concurrency');
+const { safeLog } = require('../logging/safe-log');
 const {
   extractImageEditFiles,
   extractImageEditMasks,
@@ -33,11 +34,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   }
   let proxyChatJob = null;
   let upstreamTimer = null;
+  let limiterAcquired = false;
   const extracted = await extractProxyRequest(req, res);
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
-  await limiter.acquire();
   try {
+    await limiter.acquire();
+    limiterAcquired = true;
     const payload = body.payload || {};
     const query = body.query || {};
     const method = String(body.method || 'POST').toUpperCase();
@@ -48,7 +51,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     let upstreamPath = targetPath;
     let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath, contextWindowTokens });
     if (method !== 'GET' && targetPath === '/images/generations') {
-      console.log('[image-generation-proxy] upstream json', JSON.stringify({ model: outboundPayload.model || '', fields: Object.keys(outboundPayload) }));
+      safeLog('[image-generation-proxy] upstream json', { model: outboundPayload.model || '', fields: Object.keys(outboundPayload) });
     }
     const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
     const isImageEdit = method !== 'GET' && targetPath === '/images/edits';
@@ -69,7 +72,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (isImageEdit && imageEditFiles.length) {
       const editPayload = stripImageEditFileFields(outboundPayload);
       const editBody = buildImageEditMultipartBody(editPayload, imageEditFiles, { masks: imageEditMasks });
-      console.log('[image-edit-proxy] upstream multipart', JSON.stringify({ model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: imageEditFiles.length, masks: imageEditMasks.length }));
+      safeLog('[image-edit-proxy] upstream multipart', { model: editPayload.model || '', fields: Object.keys(editPayload).filter(key => String(key || '').toLowerCase() !== 'n'), images: imageEditFiles.length, masks: imageEditMasks.length });
       upstreamBody = editBody.body;
       upstreamContentHeaders = editBody.headers || {};
     }
@@ -155,7 +158,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     }
   } finally {
     if (upstreamTimer) clearTimeout(upstreamTimer);
-    limiter.release();
+    if (limiterAcquired) limiter.release();
   }
 }
 

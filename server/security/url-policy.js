@@ -20,7 +20,11 @@ function isPrivateHostname(hostname = '') {
   return false;
 }
 
-function assertAllowedUpstreamUrl(url, { allowPrivate = process.env.DISALLOW_PRIVATE_UPSTREAM !== '1' } = {}) {
+function privateUpstreamAllowed() {
+  return process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM === '1' || process.env.ALLOW_PRIVATE_UPSTREAM === '1';
+}
+
+function assertAllowedUpstreamUrl(url, { allowPrivate = privateUpstreamAllowed() } = {}) {
   const parsed = url instanceof URL ? url : new URL(String(url || ''));
   if (!['http:', 'https:'].includes(parsed.protocol)) return false;
   if (!allowPrivate && isPrivateHostname(parsed.hostname)) return false;
@@ -39,4 +43,4 @@ function normalizeBaseUrl(value) {
   }
 }
 
-module.exports = { isPrivateHostname, assertAllowedUpstreamUrl, normalizeBaseUrl };
+module.exports = { isPrivateHostname, assertAllowedUpstreamUrl, normalizeBaseUrl, privateUpstreamAllowed };

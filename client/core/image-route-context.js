@@ -50,6 +50,35 @@ function uploadedAttachmentsFromMessage(message = {}) {
   return [];
 }
 
+function uploadedFileAttachmentsFromMessage(message = {}) {
+  const attachmentContext = parseJsonObject(message.attachmentContext);
+  if (!attachmentContext?.attachments?.length) return [];
+  return attachmentContext.attachments.filter(item => item && !isImageAttachmentMeta(item));
+}
+
+function buildFileCandidates(messages = []) {
+  const result = [];
+  for (let messageIndex = (Array.isArray(messages) ? messages.length : 0) - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex];
+    if (message?.role !== 'user') continue;
+    const files = uploadedFileAttachmentsFromMessage(message);
+    for (const file of files) {
+      result.push({
+        index: result.length + 1,
+        source: 'history',
+        file_id: file.id || file.attachmentId || file.attachment_id || '',
+        name: file.name || file.filename || 'attachment',
+        type: file.type || 'application/octet-stream',
+        size: Number(file.size) || 0,
+        has_extracted_text: !!String(file.text || '').trim(),
+        unsupported_reason: file.unsupportedReason || file.unsupported_reason || '',
+        message_index: messageIndex + 1,
+      });
+    }
+  }
+  return result;
+}
+
 function messageText(message = {}, fallback = '') {
   return String(Array.isArray(message?.content) ? message.rawText || fallback : message?.rawText || message?.content || fallback || '').trim();
 }
@@ -234,6 +263,7 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
     latest_user_image_request: latestUserImageRequest(allMessages),
     latest_assistant_image_result: latestAssistantImageResult(allMessages),
     image_candidates: buildImageCandidates(mergedReferences),
+    file_candidates: buildFileCandidates(allMessages),
     last_generated_image: compactLastGeneratedImage(lastGeneratedImage),
     latest_uploaded_image: compactLatestUploadedImage(latestUploadedImage, uploadedLatest),
     latest_image_reference: latestImageReference && latestImageReference.target !== 'none' ? latestImageReference : null,
@@ -519,7 +549,7 @@ function normalizeRouteImageRefs(route = {}) {
     const imageId = String(item?.image_id || item?.imageId || '').trim();
     const referenceId = makeImageReferenceId(item?.reference_id || item?.referenceId || referenceIdFromImageId(imageId) || '');
     const index = Number(item?.index || item?.image_index || item?.imageIndex) || (imageId ? planSelectedIndexes([imageId], referenceId)[0] : 0) || idx + 1;
-    const role = ['target', 'reference'].includes(item?.role) ? item.role : 'target';
+    const role = ['target', 'reference', 'source'].includes(item?.role) ? item.role : 'target';
     const target = ['uploaded', 'previous'].includes(item?.target) ? item.target : (/^imgref_uploaded_/i.test(referenceId) ? 'uploaded' : 'previous');
     const source = ['current', 'quoted', 'history'].includes(item?.source) ? item.source : 'current';
     return { role, image_id: imageId, reference_id: referenceId, index, target, source };
@@ -533,7 +563,7 @@ function normalizeRouteFileRefs(route = {}) {
     file_id: String(item?.file_id || item?.fileId || item?.id || '').trim(),
     index: Number(item?.index) || idx + 1,
     name: String(item?.name || '').trim(),
-    source: ['current', 'quoted'].includes(item?.source) ? item.source : 'current',
+    source: ['current', 'quoted', 'history'].includes(item?.source) ? item.source : 'current',
   })).filter(item => item.file_id || item.index || item.name);
 }
 

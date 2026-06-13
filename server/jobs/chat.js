@@ -3,6 +3,8 @@ const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../client/core/context-budget');
+const { safeLog, redactUrl } = require('../logging/safe-log');
+const { limiter, withLimiter } = require('../concurrency');
 
 function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
   return {
@@ -146,14 +148,18 @@ if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
   const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
-  console.log('[chat-stream-job] upstream payload', JSON.stringify(summarizeChatPayload(payload)));
+  safeLog('[chat-stream-job] upstream payload', summarizeChatPayload(payload));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
   if (!job) {
     job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders });
     chatJobs.set(jobId, job);
   }
-  if (body.start === true && !job.streamStarted && job.status === 'running') runChatStreamJob(job);
+  if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(limiter, () => runChatStreamJob(job)).catch(err => {
+    job.status = 'error';
+    job.error = err.message || String(err);
+    job.updatedAt = Date.now();
+  });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
   respondJobError(res, err);
@@ -166,7 +172,7 @@ if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
   const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
-  console.log('[chat-job] upstream payload', JSON.stringify(summarizeChatPayload(payload)));
+  safeLog('[chat-job] upstream payload', summarizeChatPayload(payload));
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const job = {
@@ -182,7 +188,11 @@ try {
     error: '',
   };
   chatJobs.set(job.id, job);
-  runChatJob(job);
+  withLimiter(limiter, () => runChatJob(job)).catch(err => {
+    job.status = 'error';
+    job.error = err.message || String(err);
+    job.updatedAt = Date.now();
+  });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
   respondJobError(res, err);
@@ -190,7 +200,7 @@ try {
 }
 
 function getChatJob(req, res) {
-console.log('[getChatJob] url=' + req.url + ' — EventSource will FAIL if this is being called for /events URL');
+safeLog('[getChatJob]', { path: redactUrl(req.url) });
 const id = getJobIdFromUrl(req);
 const job = findJobOr404(chatJobs, id, res);
 if (!job) return;

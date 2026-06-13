@@ -33,7 +33,8 @@ function normalizeOutputFormat(value) {
 }
 
 function buildImageRequestPayload({ model, prompt, size = 'auto', quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
-  const payload = { model, prompt };
+  const normalizedPrompt = String(prompt || '').trim();
+  const payload = { model, prompt: normalizedPrompt };
   const resolvedSize = normalizeAutoValue(size);
   const resolvedQuality = normalizeAutoValue(quality);
   const resolvedBackground = normalizeAutoValue(background);

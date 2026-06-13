@@ -178,17 +178,22 @@
       if (!node) return null;
       const activeSession = getActiveSession();
       const candidates = [node.dataset.attachmentContext || '', node.__displayItem?.attachmentContext || ''];
+      const imageCandidates = [node.dataset.imageContext || '', node.__displayItem?.imageContext || ''];
       const messageIndex = node.dataset.messageIndex || node.__displayItem?.messageIndex || '';
       if (messageIndex !== '') {
         const context = activeSession?.messages?.[Number(messageIndex)]?.attachmentContext;
         if (context) candidates.push(context);
+        const imageContext = activeSession?.messages?.[Number(messageIndex)]?.imageContext;
+        if (imageContext) imageCandidates.push(imageContext);
       }
       const displayItemId = node.dataset.displayItemId || node.__displayItem?.id || '';
       if (displayItemId) {
         const item = (activeSession?.display || []).find(item => item.id === displayItemId);
         if (item?.attachmentContext) candidates.push(item.attachmentContext);
+        if (item?.imageContext) imageCandidates.push(item.imageContext);
       }
       for (const candidate of candidates) if (candidate) try { return typeof candidate === 'string' ? JSON.parse(candidate) : candidate; } catch {}
+      for (const candidate of imageCandidates) if (candidate) try { return typeof candidate === 'string' ? JSON.parse(candidate) : candidate; } catch {}
       return null;
     }
 

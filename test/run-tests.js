@@ -230,6 +230,14 @@ function testStorageSanitizesEmbeddedImageContent() {
   assert.ok(!JSON.stringify(cleanWithDefaultStripper).includes('data:image'));
 }
 
+function testPersistedAttachmentPreviewSurvivesDataUrlStripping() {
+  const html = '<div class="user-attachment-preview-grid"><img class="user-attachment-image" src="data:image/png;base64,' + 'A'.repeat(3000) + '" data-persisted-src="indexeddb://att-1" alt="a.png"></div>';
+  const clean = sessionPersistence.sanitizeStoredDisplayItem({ role: 'user', html }, { stripLargeDataUrlsFromText });
+  assert.ok(clean.html.includes('data-persisted-src="indexeddb://att-1"'), 'persisted IndexedDB image reference should survive sanitization');
+  assert.ok(!clean.html.includes('data:image/png;base64'), 'large inline image payload should be stripped from stored HTML');
+  assert.ok(!clean.html.includes('image-missing'), 'image should not be marked missing when persisted src remains');
+}
+
 function testFilePlaceholderSemanticsAndFileUnderstanding() {
   const payload = routeService.buildRoutePayload({
     model: 'route-model',
@@ -953,10 +961,11 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
-  const source = fs.readFileSync(path.join(__dirname, '../client/app/session-persistence.js'), 'utf8');
-  assert.ok(source.includes('img[src*="attachment-data-omitted"]'), 'sanitizer should remove omitted attachment placeholders from img src');
-  assert.ok(source.includes('img[data-persisted-src*="attachment-data-omitted"]'), 'sanitizer should remove omitted attachment placeholders from persisted image src');
-  assert.ok(source.includes("img.removeAttribute('src');"), 'omitted attachment image placeholders should not trigger browser requests');
+  const html = '<div><img src="[attachment-data-omitted]" data-persisted-src="[image-data-omitted]" alt="bad.png"></div>';
+  const clean = sessionPersistence.sanitizeStoredDisplayItem({ role: 'user', html }, { stripLargeDataUrlsFromText });
+  assert.ok(!clean.html.includes('src="[attachment-data-omitted]"'), 'sanitizer should remove omitted attachment placeholders from img src');
+  assert.ok(!clean.html.includes('data-persisted-src="[image-data-omitted]"'), 'sanitizer should remove omitted attachment placeholders from persisted image src');
+  assert.ok(!clean.html.includes('attachment-data-omitted') && !clean.html.includes('image-data-omitted'), 'omitted placeholders should not remain in image markup');
 }
 
 const tests = [
@@ -969,6 +978,7 @@ const tests = [
   testPendingClarificationCarriesOriginalMultiImageContext,
   testImageEditPromptFallbackAndValidation,
   testStorageSanitizesEmbeddedImageContent,
+  testPersistedAttachmentPreviewSurvivesDataUrlStripping,
   testFilePlaceholderSemanticsAndFileUnderstanding,
   testQuotedFileAttachmentTextIsIncluded,
   testHistoryFileAttachmentTextIsIncludedInChatContext,

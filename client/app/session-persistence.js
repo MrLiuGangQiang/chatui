@@ -89,11 +89,19 @@
     try {
       const template = documentRef.createElement('template');
       template.innerHTML = stripped;
-      template.content.querySelectorAll('img[src*="attachment-data-omitted"], img[src*="image-data-omitted"], img[data-persisted-src*="attachment-data-omitted"], img[data-persisted-src*="image-data-omitted"]').forEach(img => {
-        img.removeAttribute('src');
-        img.removeAttribute('data-persisted-src');
-        img.classList.add('image-missing');
-        if (!img.getAttribute('alt')) img.setAttribute('alt', '图片数据已省略');
+      template.content.querySelectorAll('img').forEach(img => {
+        const src = img.getAttribute('src') || '';
+        const persisted = img.getAttribute('data-persisted-src') || '';
+        const srcOmitted = src.includes('attachment-data-omitted') || src.includes('image-data-omitted');
+        const persistedOmitted = persisted.includes('attachment-data-omitted') || persisted.includes('image-data-omitted');
+        if (!srcOmitted && !persistedOmitted) return;
+        if (srcOmitted) img.removeAttribute('src');
+        if (persistedOmitted) img.removeAttribute('data-persisted-src');
+        const remainingPersisted = img.getAttribute('data-persisted-src') || '';
+        if (!remainingPersisted) {
+          img.classList.add('image-missing');
+          if (!img.getAttribute('alt')) img.setAttribute('alt', '图片数据已省略');
+        }
       });
       template.content.querySelectorAll('img[data-persisted-src], img[src^="indexeddb://"]').forEach(img => {
         const persisted = img.getAttribute('data-persisted-src') || img.getAttribute('src') || '';
@@ -104,7 +112,12 @@
         if (shouldRemoveSrc) img.removeAttribute('src');
       });
       return template.innerHTML;
-    } catch { return stripped.replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} data-persisted-src=${quote}${src}${quote}`); }
+    } catch {
+      return stripped
+        .replace(/(<img\b[^>]*?)\ssrc=(['"])[^'"]*(?:attachment-data-omitted|image-data-omitted)[^'"]*\2/gi, '$1')
+        .replace(/(<img\b[^>]*?)\sdata-persisted-src=(['"])[^'"]*(?:attachment-data-omitted|image-data-omitted)[^'"]*\2/gi, '$1')
+        .replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} data-persisted-src=${quote}${src}${quote}`);
+    }
   }
   function sanitizeAttachmentContextForStorage(value) {
     if (!value) return '';

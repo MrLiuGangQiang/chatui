@@ -47,6 +47,65 @@
       return chunks.length ? chunks : [src];
     }
 
+    function getLongAnswerApi() {
+      return root?.ChatUILongAnswerRenderer || root?.window?.ChatUILongAnswerRenderer || (typeof window !== 'undefined' ? window.ChatUILongAnswerRenderer : null);
+    }
+
+    function chatuiFallbackContentHash(value = '') {
+      const text = String(value || '');
+      let hash = 2166136261;
+      for (let i = 0; i < text.length; i += 1) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+      return `${text.length}:${(hash >>> 0).toString(36)}`;
+    }
+
+    function shouldUseLongAnswerRenderer(text = '', options = {}) {
+      const api = getLongAnswerApi();
+      if (api?.shouldUseLongAnswerRenderer) return api.shouldUseLongAnswerRenderer(text, options);
+      const raw = String(text || '');
+      return raw.length >= (options.streaming ? 12000 : 18000) || raw.split('\n').length >= (options.streaming ? 220 : 320);
+    }
+
+    function createLongAnswerRendererFor(messageNode) {
+      const api = getLongAnswerApi();
+      if (!api?.createLongAnswerRenderer) return null;
+      return api.createLongAnswerRenderer(messageNode, {
+        state: deps.state,
+        document: deps.document || root?.document,
+        window: deps.window || root?.window,
+        performance: deps.performance || root?.performance,
+        $: deps.$,
+        renderMarkdown: deps.renderMarkdown,
+        splitMarkdownRenderChunks,
+        bindInlineCopyButtons: deps.bindInlineCopyButtons,
+        enhanceRenderedMarkdown: deps.enhanceRenderedMarkdown,
+        hydrateMessageMedia: deps.hydrateMessageMedia,
+        resetMessageActionStates: deps.resetMessageActionStates,
+        cleanupGeneratedImageNumberArtifacts,
+        chatuiLogLongTask: deps.chatuiLogLongTask || root?.chatuiLogLongTask,
+        contentHash: deps.chatuiContentHash || root?.chatuiContentHash || chatuiFallbackContentHash,
+        isNearViewport: deps.chatuiIsNearViewport || root?.chatuiIsNearViewport,
+        setTimeout: deps.setTimeout || root?.setTimeout,
+        clearTimeout: deps.clearTimeout || root?.clearTimeout,
+      });
+    }
+
+    function ensureLongAnswerRenderer(messageNode) {
+      if (!messageNode.__longAnswerRenderer) messageNode.__longAnswerRenderer = createLongAnswerRendererFor(messageNode);
+      return messageNode.__longAnswerRenderer;
+    }
+
+    function cancelLongAnswerRenderer(messageNode) {
+      try { messageNode?.__longAnswerRenderer?.cancel?.(); } catch {}
+      if (messageNode) delete messageNode.__longAnswerRenderer;
+    }
+
+    function renderLongAnswerFinal(messageNode, content, text, hash) {
+      try { messageNode.__markdownStreamingRenderer?.reset?.(); } catch {}
+      delete messageNode.__markdownStreamingRenderer;
+      const renderer = ensureLongAnswerRenderer(messageNode);
+      return renderer?.final?.(content, String(text || ''), hash) || null;
+    }
+
     function messageRoleLabel(role = '') {
       return role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息';
     }
@@ -354,19 +413,210 @@
 
     function updateMessage(e, t, s = {}) {
       with (deps) {
-        const n=e.querySelector(".content"),a=s.noScroll?(state.userScrollLocked?preserveMessageViewport(e):preserveMessageBottomAnchor(e,72)):null,o=String(s.rawText??t??""),r=chatuiContentHash(o),streamingFinalShouldPin=e===state.activeOutputNode&&!state.userScrollLocked;if(e.dataset.rawHash===r&&e.dataset.renderedHash===r&&e.dataset.enhancedHash===r&&!s.html&&!s.metaText){cleanupGeneratedImageNumberArtifacts(e),delete e.dataset.streaming,delete e.dataset.streamKind,delete e.dataset.streamRunToken;return}let i=!1;if(e.__markdownStreamingRenderer?.final&&!s.html&&!e.classList?.contains("user")){try{const o=e.__markdownStreamingRenderer.final(n,String(s.rawText??t??""));i=!!o,e.dataset.renderedHash=r,o?.enhanced&&(e.dataset.enhancedHash=r),e.dataset.markdownFinalEnhanced=o?.enhanced?"1":"",e.dataset.markdownFinalMode=o?.mode||"final";o?.reason&&(e.dataset.markdownFinalReason=o.reason),streamingFinalShouldPin&&pinNodeBottomToTarget(e,{margin:72})}catch{}delete e.__markdownStreamingRenderer}if(delete e.dataset.streaming,delete e.dataset.streamKind,delete e.dataset.streamRunToken,e===state.activeOutputNode&&!s.skipSave&&(state.streamFocusLocked=!1,!state.userScrollLocked&&pinNodeBottomToTarget(e,{margin:72})),e.dataset.rawText=o,e.dataset.rawHash=r,s.skipSave?e.dataset.persist="0":delete e.dataset.persist,void 0!==s.messageIndex&&null!==s.messageIndex&&(e.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(e.dataset.responseIndex=String(s.responseIndex)),!i){if(s.html)n.innerHTML=stripTransientBlobUrlsFromHtml(t),e.dataset.renderedHash=r,delete e.dataset.enhancedHash;else if(chatuiShouldLazyRender(e.classList?.contains("user")?"user":"assistant",o,{...s,final:!0})&&!chatuiIsNearViewport(e))chatuiQueueLazyMessage(e,o);else{const l=chatuiPerfNow();if(!e.classList?.contains("user")&&shouldProgressiveRenderMarkdown(o)){renderMarkdownProgressively(e,o,r)}else{n.innerHTML=e.classList?.contains("user")?renderUserMessageContent(String(t||"")):renderMarkdown(String(t||"")),e.dataset.renderedHash=r}delete e.dataset.enhancedHash,e.dataset.lazyMarkdown="0",chatuiLogLongTask("message.update.renderMarkdown",chatuiPerfNow()-l,{chars:o.length})}}cleanupGeneratedImageNumberArtifacts(e),resetMessageActionStates(e),void 0!==s.metaText&&setMessageMetaText(e,s.metaText);if("1"!==e.dataset.markdownFinalEnhanced&&e.dataset.lazyMarkdown!=="1"&&e.dataset.enhancedHash!==r&&e.dataset.progressiveRendering!=="1"){bindInlineCopyButtons(e),enhanceRenderedMarkdown(e,{deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(e),hydrateMessageMedia(e,{save:!0!==s.skipSave}),e.dataset.enhancedHash=r}if(streamingFinalShouldPin){const pinFinal=()=>pinNodeBottomToTarget(e,{margin:72});requestAnimationFrame?.(pinFinal),setTimeout(pinFinal,120),setTimeout(pinFinal,420)}delete e.dataset.markdownFinalEnhanced,s.noScroll?(state.scrollVersion+=1,cancelScrollTimer(),a&&(a(),requestAnimationFrame(a),setTimeout(a,80)),setTimeout(updateResumeStreamButton,0)):!0===s.followActive||state.activeOutputNode===e?s.forceScroll??!0===s.followActive?!1===s.settleScroll?(cancelScrollTimer(),scrollToActiveOutput(e,{force:!0,active:!0,settle:!1}),cancelScrollTimer()):scrollToActiveOutput(e,{force:!0,active:!0,settle:!0}):(state.activeOutputNode=e,state.scrollVersion+=1,cancelScrollTimer()):scrollToBottom(s.forceScroll??!1)
+        const n = e.querySelector('.content');
+        const a = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
+        const o = String(s.rawText ?? t ?? '');
+        const r = chatuiContentHash(o);
+        const streamingFinalShouldPin = e === state.activeOutputNode && !state.userScrollLocked;
+        if (e.dataset.rawHash === r && e.dataset.renderedHash === r && e.dataset.enhancedHash === r && !s.html && !s.metaText) {
+          cleanupGeneratedImageNumberArtifacts(e);
+          delete e.__streamRawText;
+          delete e.dataset.streaming;
+          delete e.dataset.streamKind;
+          delete e.dataset.streamRunToken;
+          return;
+        }
+        let i = false;
+        const useLongAnswerFinal = !s.html && !e.classList?.contains('user') && (shouldUseLongAnswerRenderer(o, { final: true }) || e.__longAnswerRenderer);
+        if (useLongAnswerFinal) {
+          try {
+            const result = renderLongAnswerFinal(e, n, o, r);
+            i = !!result;
+            e.dataset.renderedHash = r;
+            e.dataset.markdownFinalMode = result?.mode || 'block-progressive-final';
+            e.dataset.markdownFinalReason = result?.reason || 'long-answer-renderer';
+            streamingFinalShouldPin && pinNodeBottomToTarget(e, { margin: 72 });
+          } catch (err) {
+            console.warn('[long-answer] final render failed, falling back:', err);
+            cancelLongAnswerRenderer(e);
+          }
+        } else if (e.__markdownStreamingRenderer?.final && !s.html && !e.classList?.contains('user')) {
+          try {
+            const o = e.__markdownStreamingRenderer.final(n, String(s.rawText ?? t ?? ''));
+            i = !!o;
+            e.dataset.renderedHash = r;
+            o?.enhanced && (e.dataset.enhancedHash = r);
+            e.dataset.markdownFinalEnhanced = o?.enhanced ? '1' : '';
+            e.dataset.markdownFinalMode = o?.mode || 'final';
+            o?.reason && (e.dataset.markdownFinalReason = o.reason);
+            streamingFinalShouldPin && pinNodeBottomToTarget(e, { margin: 72 });
+          } catch {}
+          delete e.__markdownStreamingRenderer;
+        }
+        if (!useLongAnswerFinal) cancelLongAnswerRenderer(e);
+        delete e.dataset.streaming;
+        delete e.dataset.streamKind;
+        delete e.dataset.streamRunToken;
+        if (e === state.activeOutputNode && !s.skipSave) {
+          state.streamFocusLocked = false;
+          !state.userScrollLocked && pinNodeBottomToTarget(e, { margin: 72 });
+        }
+        e.dataset.rawText = o;
+        delete e.__streamRawText;
+        delete e.__streamRawLength;
+        e.dataset.rawHash = r;
+        s.skipSave ? e.dataset.persist = '0' : delete e.dataset.persist;
+        void 0 !== s.messageIndex && null !== s.messageIndex && (e.dataset.messageIndex = String(s.messageIndex));
+        void 0 !== s.responseIndex && null !== s.responseIndex && (e.dataset.responseIndex = String(s.responseIndex));
+        if (!i) {
+          if (s.html) {
+            n.innerHTML = stripTransientBlobUrlsFromHtml(t);
+            e.dataset.renderedHash = r;
+            delete e.dataset.enhancedHash;
+          } else if (chatuiShouldLazyRender(e.classList?.contains('user') ? 'user' : 'assistant', o, { ...s, final: true }) && !chatuiIsNearViewport(e)) {
+            chatuiQueueLazyMessage(e, o);
+          } else {
+            const l = chatuiPerfNow();
+            if (!e.classList?.contains('user') && shouldProgressiveRenderMarkdown(o)) renderMarkdownProgressively(e, o, r);
+            else {
+              n.innerHTML = e.classList?.contains('user') ? renderUserMessageContent(String(t || '')) : renderMarkdown(String(t || ''));
+              e.dataset.renderedHash = r;
+            }
+            delete e.dataset.enhancedHash;
+            e.dataset.lazyMarkdown = '0';
+            chatuiLogLongTask('message.update.renderMarkdown', chatuiPerfNow() - l, { chars: o.length });
+          }
+        }
+        cleanupGeneratedImageNumberArtifacts(e);
+        resetMessageActionStates(e);
+        void 0 !== s.metaText && setMessageMetaText(e, s.metaText);
+        if ('1' !== e.dataset.markdownFinalEnhanced && e.dataset.lazyMarkdown !== '1' && e.dataset.enhancedHash !== r && e.dataset.progressiveRendering !== '1') {
+          bindInlineCopyButtons(e);
+          enhanceRenderedMarkdown(e, { deferMermaid: true, allowResourceLoad: true });
+          cleanupGeneratedImageNumberArtifacts(e);
+          hydrateMessageMedia(e, { save: true !== s.skipSave });
+          e.dataset.enhancedHash = r;
+        }
+        if (streamingFinalShouldPin) {
+          const pinFinal = () => pinNodeBottomToTarget(e, { margin: 72 });
+          requestAnimationFrame?.(pinFinal);
+          setTimeout(pinFinal, 120);
+          setTimeout(pinFinal, 420);
+        }
+        delete e.dataset.markdownFinalEnhanced;
+        s.noScroll ? (state.scrollVersion += 1, cancelScrollTimer(), a && (a(), requestAnimationFrame(a), setTimeout(a, 80)), setTimeout(updateResumeStreamButton, 0)) : !0 === s.followActive || state.activeOutputNode === e ? s.forceScroll ?? !0 === s.followActive ? !1 === s.settleScroll ? (cancelScrollTimer(), scrollToActiveOutput(e, { force: !0, active: !0, settle: !1 }), cancelScrollTimer()) : scrollToActiveOutput(e, { force: !0, active: !0, settle: !0 }) : (state.activeOutputNode = e, state.scrollVersion += 1, cancelScrollTimer()) : scrollToBottom(s.forceScroll ?? !1);
       }
     }
 
     function updateMessageContentLight(e, t, s = {}) {
       with (deps) {
-        if(shouldSuppressRunUi(s.sessionId||state.activeSessionId,s.runToken))return;const n=e?.querySelector(".content");if(!n)return;const l=String(s.rawText??t??""),d=chatuiContentHash(l);if(!s.html&&"chat"!==s.streamKind&&!e.classList?.contains("user")&&e.dataset.rawHash===d&&e.dataset.renderedHash===d&&e.dataset.enhancedHash===d&&!s.forceRender){cleanupGeneratedImageNumberArtifacts(e);return}const o=s.noScroll?(state.userScrollLocked?preserveMessageViewport(e):preserveMessageBottomAnchor(e,72)):null,a=l;e.dataset.rawText=a,e.dataset.rawHash=d,e.dataset.streaming="1",void 0!==s.streamKind&&(e.dataset.streamKind=s.streamKind||""),void 0!==s.runToken&&(e.dataset.streamRunToken=s.runToken||""),s.skipSave&&(e.dataset.persist="0");if("chat"===s.streamKind&&!s.html&&!e.classList?.contains("user")){delete e.dataset.enhancedHash;let r=e.__markdownStreamingRenderer;if(!r||s.resetStream){r=window.ChatUIApp?.markdown?.createStreamingRenderer?.({renderMarkdown,enhance:(root,phase={})=>{bindInlineCopyButtons(root);enhanceRenderedMarkdown(root,{skipMermaid:!0,streaming:!!phase.streaming,deferMermaid:!0,allowResourceLoad:!!phase.final})}}),e.__markdownStreamingRenderer=r,n.innerHTML=""}if(r&&s.chunk!==!1){const l=String(t??"");const d=s.delta?l:l.startsWith(r.getRaw?.()||"")?l.slice((r.getRaw?.()||"").length):a.startsWith(r.getRaw?.()||"")?a.slice((r.getRaw?.()||"").length):l;r.append(d,n)}else if(n.textContent!==a)n.textContent=a}else{const i=s.html?String(t||""):e.classList?.contains("user")?renderUserMessageContent(a):renderMarkdown(a);n.innerHTML!==i&&(n.innerHTML=i,e.dataset.renderedHash=d,delete e.dataset.enhancedHash,resetMessageActionStates(e),cleanupGeneratedImageNumberArtifacts(e),"chat"!==s.streamKind&&(bindInlineCopyButtons(e),enhanceRenderedMarkdown(e,{allowResourceLoad:!1}),cleanupGeneratedImageNumberArtifacts(e),hydrateMessageMedia(e,{save:!1}),e.dataset.enhancedHash=d))}cleanupGeneratedImageNumberArtifacts(e);if(s.noScroll)o&&o();else scrollToActiveOutput(e,{force:!0,active:!0,settle:!1,margin:72});setTimeout(updateResumeStreamButton,0)
+        if (shouldSuppressRunUi(s.sessionId || state.activeSessionId, s.runToken)) return;
+        const n = e?.querySelector('.content');
+        if (!n) return;
+        const streamChat = 'chat' === s.streamKind && !s.html && !e.classList?.contains('user');
+        const deltaText = streamChat && s.delta ? String(t ?? '') : '';
+        const l = streamChat && s.delta ? deltaText : String(s.rawText ?? t ?? '');
+        const d = streamChat ? `stream:${(Number(e.__streamRawLength) || 0) + (s.delta ? deltaText.length : l.length)}` : chatuiContentHash(l);
+        if (!s.html && 'chat' !== s.streamKind && !e.classList?.contains('user') && e.dataset.rawHash === d && e.dataset.renderedHash === d && e.dataset.enhancedHash === d && !s.forceRender) {
+          cleanupGeneratedImageNumberArtifacts(e);
+          return;
+        }
+        const o = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
+        const a = l;
+        if (streamChat) {
+          e.__streamRawLength = (Number(e.__streamRawLength) || 0) + (s.delta ? deltaText.length : a.length);
+          e.dataset.rawText = `__streaming:${e.__streamRawLength}`;
+        } else {
+          delete e.__streamRawText;
+          delete e.__streamRawLength;
+          e.dataset.rawText = a;
+        }
+        e.dataset.rawHash = d;
+        e.dataset.streaming = '1';
+        void 0 !== s.streamKind && (e.dataset.streamKind = s.streamKind || '');
+        void 0 !== s.runToken && (e.dataset.streamRunToken = s.runToken || '');
+        s.skipSave && (e.dataset.persist = '0');
+        if (streamChat) {
+          delete e.dataset.enhancedHash;
+          try { e.__markdownStreamingRenderer?.reset?.(); } catch {}
+          delete e.__markdownStreamingRenderer;
+          const renderer = ensureLongAnswerRenderer(e);
+          if (renderer) {
+            const delta = s.delta ? deltaText : a;
+            renderer.append(delta, n);
+            e.dataset.renderedHash = d;
+            e.dataset.lazyMarkdown = '0';
+          } else if (n.textContent !== a) n.textContent = a;
+        } else {
+          cancelLongAnswerRenderer(e);
+          const i = s.html ? String(t || '') : e.classList?.contains('user') ? renderUserMessageContent(a) : renderMarkdown(a);
+          n.innerHTML !== i && (n.innerHTML = i, e.dataset.renderedHash = d, delete e.dataset.enhancedHash, resetMessageActionStates(e), cleanupGeneratedImageNumberArtifacts(e), 'chat' !== s.streamKind && (bindInlineCopyButtons(e), enhanceRenderedMarkdown(e, { allowResourceLoad: !1 }), cleanupGeneratedImageNumberArtifacts(e), hydrateMessageMedia(e, { save: !1 }), e.dataset.enhancedHash = d));
+        }
+        cleanupGeneratedImageNumberArtifacts(e);
+        if (s.noScroll) o && o(); else scrollToActiveOutput(e, { force: !0, active: !0, settle: !1, margin: 72 });
+        setTimeout(updateResumeStreamButton, 0);
       }
     }
 
     function addMessage(e, t, s = {}) {
       with (deps) {
-        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{skipMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
+        clearEmpty();
+        const n = $('messageTemplate').content.firstElementChild.cloneNode(!0);
+        n.classList.add(e);
+        n.querySelector('.avatar').textContent = 'user' === e ? '我' : 'error' === e ? '!' : 'AI';
+        const a = n.querySelector('.content');
+        const i = s.rawText ?? t;
+        const q = quoteContextJson(s.quoteContext);
+        const hash = chatuiContentHash(i);
+        const o = chatuiShouldLazyRender(e, i, s);
+        const useLongAnswer = 'assistant' === e && !s.html && !s.deferEnhance && shouldUseLongAnswerRenderer(i, { final: true });
+        n.dataset.rawText = i;
+        n.dataset.rawHash = hash;
+        q && (n.dataset.quoteContext = q, n.classList.add('has-quote'));
+        s.skipSave && (n.dataset.persist = '0');
+        void 0 !== s.messageIndex && null !== s.messageIndex && (n.dataset.messageIndex = String(s.messageIndex));
+        void 0 !== s.responseIndex && null !== s.responseIndex && (n.dataset.responseIndex = String(s.responseIndex));
+        s.attachmentContext && (n.dataset.attachmentContext = s.attachmentContext);
+        s.imageContext && (n.dataset.imageContext = s.imageContext);
+        if (s.deferEnhance && 'assistant' === e && !s.html) a.innerHTML = '';
+        else if (s.html) a.innerHTML = ('user' === e ? withSentQuotePreview(stripTransientBlobUrlsFromHtml(t), q) : stripTransientBlobUrlsFromHtml(t));
+        else if (useLongAnswer) a.innerHTML = '';
+        else if (o) a.innerHTML = chatuiPlainPreview(i);
+        else a.innerHTML = 'user' === e ? withSentQuotePreview(renderUserMessageContent(String(t || '')), q) : renderMarkdown(String(t || ''));
+        cleanupGeneratedImageNumberArtifacts(n);
+        bindSentQuotePreviews(n);
+        n.querySelector('.quote-btn')?.addEventListener('click', () => selectQuotedMessage(n));
+        const r = n.querySelector('.edit-btn');
+        'user' === e ? r.addEventListener('click', () => editUserMessage(n)) : r.remove();
+        const l = n.querySelector('.refresh-btn');
+        'assistant' === e || 'error' === e ? l.addEventListener('click', () => regenerateAssistantMessage(n)) : l.remove();
+        n.querySelector('.copy-btn')?.addEventListener('click', async () => { await copyText(messageCopyText(n.dataset.rawText, a.innerText || a.textContent || '', a)); showCopySuccess(n.querySelector('.copy-btn')); });
+        const d = n.querySelector('.download-answer-btn');
+        'assistant' === e ? d?.addEventListener('click', () => downloadAnswerFile(n, d)) : d?.remove();
+        $('messages').appendChild(n);
+        if (useLongAnswer) renderLongAnswerFinal(n, a, String(i || ''), hash);
+        else if (s.deferEnhance) {
+          n.dataset.renderedHash = n.dataset.rawHash;
+          n.dataset.deferEnhance = '1';
+          bindInlineCopyButtons(n);
+          cleanupGeneratedImageNumberArtifacts(n);
+          hydrateMessageMedia(n, { save: !s.skipSave });
+        } else if (o) chatuiQueueLazyMessage(n, i, { force: s.forceLazy });
+        else {
+          n.dataset.renderedHash = n.dataset.rawHash;
+          bindInlineCopyButtons(n);
+          enhanceRenderedMarkdown(n, { skipMermaid: !0, allowResourceLoad: !0 });
+          cleanupGeneratedImageNumberArtifacts(n);
+          hydrateMessageMedia(n, { save: !s.skipSave });
+          bindSentQuotePreviews(n);
+          n.dataset.enhancedHash = n.dataset.rawHash;
+        }
+        chatuiRefreshVirtualizer();
+        setMessageMetaText(n, s.metaText || '');
+        n.querySelector('img.generated-thumb') && !s.deferEnhance && revealNodeAboveComposer(n);
+        s.noScroll || s.deferSave || scrollToBottom(!0);
+        s.skipSave || s.deferSave || saveDisplayHistory();
+        return n;
       }
     }
 

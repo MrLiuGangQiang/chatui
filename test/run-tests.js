@@ -28,6 +28,7 @@ const responsesStream = require('../server/proxy/responses-stream');
 const appState = require('../client/app/state');
 const sessionDisplay = require('../client/app/session-display');
 const formatting = require('../client/app/formatting');
+const longAnswerRenderer = require('../client/app/long-answer-renderer');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -606,6 +607,22 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.ok(!source.includes('},{minIntervalMs:140}),S=createRealtimeRenderer'), 'answer stream renderer should not use the old 140ms cadence');
 }
 
+function testLongAnswerRendererIsWired() {
+  assert.strictEqual(longAnswerRenderer.shouldUseLongAnswerRenderer('短回答', { streaming: true }), false);
+  assert.strictEqual(longAnswerRenderer.shouldUseLongAnswerRenderer('x'.repeat(13000), { streaming: true }), true);
+  assert.strictEqual(longAnswerRenderer.shouldUseLongAnswerRenderer('x'.repeat(19000), { final: true }), true);
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
+  assert.ok(index.includes('client/app/long-answer-renderer.js'), 'long-answer renderer should be loaded before message workflow');
+  assert.ok(workflow.includes('e.__streamRawLength = (Number(e.__streamRawLength) || 0)'), 'streaming path should keep only raw length metadata on DOM-side state');
+  assert.ok(workflow.includes('e.dataset.rawText = `__streaming:${e.__streamRawLength}`'), 'streaming data-raw-text should remain a small marker until final');
+  assert.ok(workflow.includes("const streamChat = 'chat' === s.streamKind"), 'streaming path should bypass cumulative full-text Markdown/hash work');
+  assert.ok(workflow.includes('renderer.append(delta, n)'), 'streaming path should append only delta through the cheap long-answer stream renderer');
+  const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(chatWorkflow.includes('__longAnswerRenderer?.getRaw'), 'chat workflow should compute UI deltas from the long-answer renderer state');
+  assert.ok(workflow.includes('block-progressive-final'), 'final path should use block progressive renderer for long answers');
+}
+
 function testStreamingTailCaretIsVividWithoutDot() {
   const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
   assert.ok(css.includes('.streaming-tail::before'));
@@ -993,6 +1010,7 @@ const tests = [
   testRouteOperationTypeDrivesCanonicalMode,
   testRoutePromptUsesEnglishRulesWithChineseEdgeCases,
   testChatAnswerStreamingFlushesQuickly,
+  testLongAnswerRendererIsWired,
   testStreamingTailCaretIsVividWithoutDot,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testEnglishImagePromptExtractionStaysChatWithCurrentImage,

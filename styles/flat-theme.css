@@ -1617,3 +1617,27 @@ button:disabled,
 }
 .markdown-body p:first-child{margin-top:0!important;}
 .markdown-body p:last-child{margin-bottom:0!important;}
+
+/* Long-answer rendering: stream as cheap text, then progressively upgrade visible blocks. */
+.message .long-answer-stream,
+.message .long-answer-block.plain-text{
+  white-space:pre-wrap!important;
+  overflow-wrap:anywhere!important;
+  word-break:break-word!important;
+  line-height:1.38!important;
+}
+.message .long-answer-block-root{
+  display:block!important;
+}
+.message .long-answer-block{
+  contain:layout style paint!important;
+  content-visibility:auto!important;
+  contain-intrinsic-size:1px 220px;
+  margin:0 0 .35em 0!important;
+}
+.message .long-answer-block-pending{
+  color:inherit!important;
+}
+.message .long-answer-block-rendered{
+  contain-intrinsic-size:auto!important;
+}

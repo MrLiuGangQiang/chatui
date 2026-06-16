@@ -5,8 +5,12 @@
     streamChars: 12000,
     finalChars: 18000,
     streamNodeChars: 6000,
-    streamingCommitMinChars: 1200,
-    streamingMaxImmediateBlocks: 8,
+    streamingCommitMinChars: 0,
+    streamingMaxImmediateBlocks: 16,
+    streamingMergeMinChars: 1000,
+    streamingMergeMaxChars: 6000,
+    streamingSyncBudgetMs: 6,
+    streamingSyncMaxBlocksPerFrame: 4,
     initialMarkdownBlocks: 16,
     blockSoftChars: 14000,
     blockHardChars: 12000,
@@ -74,6 +78,7 @@
     let blockRoot = null, tailNode = null, pendingText = '';
     let blocks = [], queue = [], queued = new Set(), rendered = new Set();
     let idleHandle = null, fallbackHandle = null, observer = null, cancelled = false, finalHash = '';
+    let streamSyncWindowStart = 0, streamSyncUsedMs = 0, streamSyncBlocks = 0;
 
     const now = () => perf?.now ? perf.now() : Date.now();
     const scheduleTimeout = (fn, ms = 0) => deps.setTimeout ? deps.setTimeout.call(win || root || null, fn, ms) : setTimeout(fn, ms);
@@ -125,6 +130,49 @@
       front ? queue.unshift(index) : queue.push(index);
     };
 
+    const resetStreamingSyncWindowIfNeeded = () => {
+      const t = now();
+      if (!streamSyncWindowStart || t - streamSyncWindowStart > 16) {
+        streamSyncWindowStart = t;
+        streamSyncUsedMs = 0;
+        streamSyncBlocks = 0;
+      }
+    };
+
+    const canRenderStreamingBlockNow = () => {
+      resetStreamingSyncWindowIfNeeded();
+      if (streamSyncBlocks >= cfg.streamingSyncMaxBlocksPerFrame) return false;
+      if (streamSyncUsedMs >= cfg.streamingSyncBudgetMs) return false;
+      return true;
+    };
+
+    const noteStreamingRenderCost = duration => {
+      resetStreamingSyncWindowIfNeeded();
+      streamSyncUsedMs += Math.max(0, Number(duration) || 0);
+      streamSyncBlocks += 1;
+    };
+
+    const mergeSmallStreamingChunks = chunks => {
+      const merged = [];
+      let buf = '';
+      for (const chunk of chunks) {
+        const value = String(chunk || '');
+        if (!value) continue;
+        if (!buf) {
+          buf = value;
+          continue;
+        }
+        const nextLen = buf.length + value.length;
+        if (buf.length < cfg.streamingMergeMinChars && nextLen <= cfg.streamingMergeMaxChars) buf += value;
+        else {
+          merged.push(buf);
+          buf = value;
+        }
+      }
+      if (buf) merged.push(buf);
+      return merged;
+    };
+
     const ensureBlockRoot = content => {
       if (!doc || !content) return null;
       if (blockRoot?.isConnected && tailNode?.isConnected) return blockRoot;
@@ -150,7 +198,8 @@
       node.dataset.longAnswerBlock = String(index);
       node.textContent = chunk;
       blocks.push({ text: chunk, node });
-      if (renderNow) {
+      const doRenderNow = renderNow && canRenderStreamingBlockNow();
+      if (doRenderNow) {
         const started = now();
         try {
           node.classList.remove('plain-text', 'long-answer-block-pending');
@@ -161,7 +210,9 @@
           cleanup(node);
           rendered.add(index);
           node.dataset.rendered = '1';
-          logLongTask('message.longAnswer.streamRenderNow', now() - started, { chars: chunk.length, index });
+          const duration = now() - started;
+          noteStreamingRenderCost(duration);
+          logLongTask('message.longAnswer.streamRenderNow', duration, { chars: chunk.length, index });
         } catch (err) {
           console.warn('[long-answer] stream block render failed:', err);
           node.classList.add('plain-text', 'long-answer-block-error');
@@ -171,7 +222,7 @@
       }
       blockRoot.insertBefore(node, tailNode);
       blockRoot.dataset.longAnswerBlocks = String(blocks.length);
-      if (!renderNow) enqueue(index, front);
+      if (!doRenderNow) enqueue(index, front);
       try { observer?.observe?.(node); } catch {}
     };
 
@@ -194,9 +245,10 @@
       });
       let stableCount = 0;
       if (force) stableCount = chunks.length;
-      else if (pendingText.length >= cfg.streamingCommitMinChars && chunks.length > 1) stableCount = Math.min(chunks.length - 1, cfg.streamingMaxImmediateBlocks);
-      else if (pendingText.length >= cfg.blockHardChars && chunks.length === 1 && shouldCommitStreamingTail(chunks[0])) stableCount = 1;
-      for (let i = 0; i < stableCount; i += 1) appendBlockNode(chunks[i], { front: true, renderNow: !force });
+      else if (chunks.length > 1) stableCount = Math.min(chunks.length - 1, cfg.streamingMaxImmediateBlocks);
+      else if (chunks.length === 1 && shouldCommitStreamingTail(chunks[0])) stableCount = 1;
+      const stableChunks = force ? chunks.slice(0, stableCount) : mergeSmallStreamingChunks(chunks.slice(0, stableCount));
+      for (let i = 0; i < stableChunks.length; i += 1) appendBlockNode(stableChunks[i], { front: true, renderNow: !force });
       pendingText = chunks.slice(stableCount).join('');
       tailNode.textContent = pendingText;
       tailNode.hidden = !pendingText;
@@ -345,7 +397,11 @@
       ensureBlockRoot(content);
       if (!blocks.length && !pendingText) pendingText = String(text || '');
       commitStreamingChunks(content, { force: true });
-      blocks.forEach((_, index) => enqueue(index, index < Math.max(cfg.initialMarkdownBlocks, 48)));
+      promoteVisibleBlocks(96);
+      const seedLimit = blocks.length <= 80 ? blocks.length : Math.min(blocks.length, Math.max(cfg.initialMarkdownBlocks, 24));
+      for (let index = 0; index < seedLimit; index += 1) {
+        if (blocks.length <= 80 || isNearViewport(blocks[index]?.node)) enqueue(index, true);
+      }
     };
 
     const final = (content, text = raw, hash = '') => {
@@ -389,7 +445,7 @@
       final,
       cancel,
       getRaw: () => raw,
-      stats: () => ({ rawLength: raw.length, blocks: blocks.length, queued: queue.length, rendered: rendered.size, mode: messageNode.dataset.longAnswerMode || '' }),
+      stats: () => ({ rawLength: raw.length, blocks: blocks.length, queued: queue.length, rendered: rendered.size, mode: messageNode.dataset.longAnswerMode || '', streamSync: { usedMs: Math.round(streamSyncUsedMs), blocks: streamSyncBlocks } }),
     };
   }
 

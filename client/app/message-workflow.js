@@ -569,7 +569,7 @@
         const q = quoteContextJson(s.quoteContext);
         const hash = chatuiContentHash(i);
         const o = chatuiShouldLazyRender(e, i, s);
-        const useLongAnswer = 'assistant' === e && !s.html && !s.deferEnhance && shouldUseLongAnswerRenderer(i, { final: true });
+        const useLongAnswer = 'assistant' === e && !s.html && !s.deferEnhance && (shouldUseLongAnswerRenderer(i, { final: true }) || s.forceLazy);
         n.dataset.rawText = i;
         n.dataset.rawHash = hash;
         q && (n.dataset.quoteContext = q, n.classList.add('has-quote'));

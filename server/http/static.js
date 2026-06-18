@@ -20,7 +20,7 @@ const MIME = {
 };
 
 const ASSET_MANIFEST_ID = 'chatuiAssetManifest';
-const BUNDLE_VERSION = '1.3.28-arch31';
+const BUNDLE_VERSION = '1.3.28-arch37';
 const BUNDLE_PATHS = {
   '/assets/chatui.bundle.css': 'css',
   '/assets/chatui.bundle.js': 'js',

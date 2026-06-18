@@ -3,6 +3,8 @@
 
 const ROUTE_SYSTEM_PROMPT = `Route ChatUI requests. Return JSON only; do not answer the user.
 
+Input priority: current_input is the newest user message and the primary, highest-priority intent. attachments are resources for current_input. context.recent_messages and other context are background/reference only; use them only to resolve explicit references such as previous/last/this/that/it/继续/上一张/这张/那个文件. Never let older context override, replace, or continue a different task when current_input states a new intent.
+
 Input: current_input, attachments, context.image_candidates, context.file_candidates, context.recent_messages, current_mode, auto_mode. Candidates are metadata/placeholders only; do not infer file/image contents.
 
 Output exactly:

@@ -372,7 +372,6 @@ body {
   background: #f1f5f9 !important;
   color: var(--text) !important;
 }
-
 /* ═══════════════════════════════════════════
    Composer / Input Area
    ═══════════════════════════════════════════ */
@@ -948,6 +947,17 @@ body {
    ═══════════════════════════════════════════ */
 .image-preview {
   background: rgba(15,23,42,0.92) !important;
+}
+
+.image-preview img {
+  cursor: zoom-in !important;
+  transform-origin: center center !important;
+  transition: transform .12s ease !important;
+  will-change: transform !important;
+}
+
+.image-preview img.is-zoomed {
+  cursor: zoom-out !important;
 }
 
 /* All three toolbar buttons: uniform size, smaller, rounded-square */
@@ -2649,19 +2659,24 @@ body{
   }
 }
 
-/* Final message action state lock: identical colors for every button state. */
+/* Final message action polish: glassy rounded buttons with subtle per-action accents. */
 :root{
-  --msg-action-fg:#98a2b3;
+  --msg-action-fg:#64748b;
+  --msg-action-bg:rgba(255,255,255,.74);
+  --msg-action-border:rgba(148,163,184,.22);
+  --msg-action-shadow:0 6px 16px rgba(15,23,42,.06),inset 0 1px 0 rgba(255,255,255,.88);
   --msg-action-hover-fg:#4d6bfe;
-  --msg-action-hover-bg:#eef3ff;
+  --msg-action-hover-bg:linear-gradient(135deg,rgba(239,246,255,.98),rgba(240,253,250,.94));
+  --msg-action-hover-border:rgba(77,107,254,.24);
+  --msg-action-hover-shadow:0 9px 22px rgba(77,107,254,.13),inset 0 1px 0 rgba(255,255,255,.94);
   --msg-action-active-fg:#3152d4;
-  --msg-action-active-bg:#e1e8ff;
+  --msg-action-active-bg:rgba(225,232,255,.9);
   --msg-action-success-fg:#059669;
-  --msg-action-success-bg:#ecfdf5;
+  --msg-action-success-bg:linear-gradient(135deg,rgba(236,253,245,.98),rgba(240,253,250,.92));
   --msg-action-busy-fg:#4d6bfe;
-  --msg-action-busy-bg:#eef3ff;
+  --msg-action-busy-bg:linear-gradient(135deg,rgba(239,246,255,.98),rgba(238,242,255,.92));
   --msg-action-danger-fg:#dc2626;
-  --msg-action-danger-bg:#fef2f2;
+  --msg-action-danger-bg:linear-gradient(135deg,rgba(254,242,242,.98),rgba(255,247,237,.92));
   --msg-action-disabled-fg:#c8ced8;
 }
 .msg-actions,
@@ -2693,11 +2708,14 @@ body{
 .msg-actions button,
 .msg-actions .icon-action-btn{
   color:var(--msg-action-fg)!important;
-  background:transparent!important;
-  border:0!important;
-  box-shadow:none!important;
+  background:var(--msg-action-bg)!important;
+  border:1px solid var(--msg-action-border)!important;
+  box-shadow:var(--msg-action-shadow)!important;
   opacity:1!important;
   filter:none!important;
+  backdrop-filter:blur(10px) saturate(145%)!important;
+  -webkit-backdrop-filter:blur(10px) saturate(145%)!important;
+  transition:color .14s ease,background .14s ease,border-color .14s ease,box-shadow .14s ease,transform .12s ease!important;
 }
 .msg-actions button:hover,
 .msg-actions .icon-action-btn:hover,
@@ -2705,13 +2723,17 @@ body{
 .msg-actions .icon-action-btn:focus-visible{
   color:var(--msg-action-hover-fg)!important;
   background:var(--msg-action-hover-bg)!important;
-  border:0!important;
+  border-color:var(--msg-action-hover-border)!important;
+  box-shadow:var(--msg-action-hover-shadow)!important;
   outline:0!important;
+  transform:translateY(-1px)!important;
 }
 .msg-actions button:active,
 .msg-actions .icon-action-btn:active{
   color:var(--msg-action-active-fg)!important;
   background:var(--msg-action-active-bg)!important;
+  transform:translateY(0) scale(.96)!important;
+  box-shadow:0 4px 12px rgba(15,23,42,.08),inset 0 1px 3px rgba(15,23,42,.08)!important;
 }
 .msg-actions button.copied,
 .msg-actions .icon-action-btn.copied,
@@ -2719,6 +2741,8 @@ body{
 .msg-actions .icon-action-btn.success{
   color:var(--msg-action-success-fg)!important;
   background:var(--msg-action-success-bg)!important;
+  border-color:rgba(5,150,105,.24)!important;
+  box-shadow:0 8px 20px rgba(5,150,105,.11),inset 0 1px 0 rgba(255,255,255,.92)!important;
 }
 .msg-actions button.refreshing,
 .msg-actions .icon-action-btn.refreshing,
@@ -2728,6 +2752,8 @@ body{
 .msg-actions .icon-action-btn.busy{
   color:var(--msg-action-busy-fg)!important;
   background:var(--msg-action-busy-bg)!important;
+  border-color:rgba(77,107,254,.24)!important;
+  box-shadow:0 8px 20px rgba(77,107,254,.11),inset 0 1px 0 rgba(255,255,255,.92)!important;
   opacity:1!important;
 }
 .msg-actions button.copy-failed,
@@ -2738,11 +2764,15 @@ body{
 .msg-actions .icon-action-btn.error{
   color:var(--msg-action-danger-fg)!important;
   background:var(--msg-action-danger-bg)!important;
+  border-color:rgba(220,38,38,.22)!important;
+  box-shadow:0 8px 20px rgba(220,38,38,.1),inset 0 1px 0 rgba(255,255,255,.92)!important;
 }
 .msg-actions button:disabled,
 .msg-actions .icon-action-btn:disabled{
   color:var(--msg-action-disabled-fg)!important;
-  background:transparent!important;
+  background:rgba(248,250,252,.58)!important;
+  border-color:rgba(203,213,225,.18)!important;
+  box-shadow:none!important;
   opacity:1!important;
 }
 .msg-actions button.refreshing:disabled,
@@ -2753,7 +2783,54 @@ body{
 .msg-actions .icon-action-btn.busy:disabled{
   color:var(--msg-action-busy-fg)!important;
   background:var(--msg-action-busy-bg)!important;
+  border-color:rgba(77,107,254,.24)!important;
+  box-shadow:0 8px 20px rgba(77,107,254,.11),inset 0 1px 0 rgba(255,255,255,.92)!important;
   opacity:1!important;
+}
+.msg-actions .quote-btn.icon-action-btn:hover,
+.msg-actions .quote-btn.icon-action-btn:focus-visible{
+  color:#2563eb!important;
+  border-color:rgba(37,99,235,.26)!important;
+}
+.msg-actions .quote-btn.icon-action-btn{
+  color:#2563eb!important;
+  border-color:rgba(37,99,235,.18)!important;
+  background:var(--msg-action-bg)!important;
+}
+.msg-actions .edit-btn.icon-action-btn:hover,
+.msg-actions .edit-btn.icon-action-btn:focus-visible{
+  color:#0f766e!important;
+  border-color:rgba(15,118,110,.26)!important;
+}
+.msg-actions .edit-btn.icon-action-btn{
+  color:#0f766e!important;
+  border-color:rgba(15,118,110,.18)!important;
+  background:var(--msg-action-bg)!important;
+}
+.msg-actions .refresh-btn.icon-action-btn:hover,
+.msg-actions .refresh-btn.icon-action-btn:focus-visible{
+  color:#ea580c!important;
+  border-color:rgba(234,88,12,.24)!important;
+  background:var(--msg-action-hover-bg)!important;
+  box-shadow:var(--msg-action-hover-shadow)!important;
+}
+.msg-actions .refresh-btn.icon-action-btn{
+  color:#ea580c!important;
+  border-color:rgba(234,88,12,.18)!important;
+  background:var(--msg-action-bg)!important;
+}
+.msg-actions .copy-btn.icon-action-btn:hover,
+.msg-actions .copy-btn.icon-action-btn:focus-visible,
+.msg-actions .download-answer-btn.icon-action-btn:hover,
+.msg-actions .download-answer-btn.icon-action-btn:focus-visible{
+  color:#0891b2!important;
+  border-color:rgba(8,145,178,.24)!important;
+}
+.msg-actions .copy-btn.icon-action-btn,
+.msg-actions .download-answer-btn.icon-action-btn{
+  color:#0891b2!important;
+  border-color:rgba(8,145,178,.18)!important;
+  background:var(--msg-action-bg)!important;
 }
 .msg-actions svg{
   color:currentColor!important;
@@ -3123,4 +3200,44 @@ body{
   .history-anchor-nav{
     display:none!important;
   }
+}
+
+/* Refined force-image action: light magic-wand icon, not the heavy image-box glyph. */
+.msg-actions .force-image-btn.icon-action-btn {
+  color: #7c3aed !important;
+  border-color: rgba(124, 58, 237, .16) !important;
+  background: var(--msg-action-bg) !important;
+}
+.msg-actions .force-image-btn.icon-action-btn:hover,
+.msg-actions .force-image-btn.icon-action-btn:focus-visible {
+  color: #6d28d9 !important;
+  border-color: rgba(124, 58, 237, .34) !important;
+  background: var(--msg-action-hover-bg) !important;
+  box-shadow: var(--msg-action-hover-shadow) !important;
+}
+.msg-actions .force-image-btn.icon-action-btn svg {
+  width: 15.5px !important;
+  height: 15.5px !important;
+}
+.msg-actions .force-image-btn.icon-action-btn .force-image-sparkle {
+  fill: currentColor !important;
+  stroke: none !important;
+}
+.msg-actions .force-image-btn.icon-action-btn .force-image-wand,
+.msg-actions .force-image-btn.icon-action-btn .force-image-wand-tip,
+.msg-actions .force-image-btn.icon-action-btn .force-image-frame {
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+.msg-actions .force-image-btn.icon-action-btn .force-image-wand {
+  stroke-width: 2.15 !important;
+}
+.msg-actions .force-image-btn.icon-action-btn .force-image-wand-tip,
+.msg-actions .force-image-btn.icon-action-btn .force-image-frame {
+  stroke-width: 1.75 !important;
+}
+.msg-actions .force-image-btn.icon-action-btn .force-image-frame {
+  opacity: .58 !important;
 }

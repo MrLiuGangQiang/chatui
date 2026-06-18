@@ -643,10 +643,20 @@ function testRoutePromptUsesEnglishRulesWithChineseEdgeCases() {
   assert.ok(system.includes('selected_indexes'));
   assert.ok(system.includes('use_previous_image'));
   assert.ok(system.includes('Input: current_input, attachments'));
+  assert.ok(system.includes('current_input is the newest user message and the primary, highest-priority intent'), 'route prompt should make latest user input the highest-priority intent');
+  assert.ok(system.includes('context.recent_messages and other context are background/reference only'), 'route prompt should keep history as reference-only background');
+  assert.ok(system.includes('Never let older context override, replace, or continue a different task'), 'route prompt should prevent older context from overriding the new user intent');
+  assert.ok(system.includes('上一张') && system.includes('那个文件'), 'route prompt should allow context only for explicit references');
   assert.ok(system.includes('Output exactly'));
   assert.ok(system.includes('Meanings: chat=text/file answer'));
   assert.ok(system.includes('do not infer file/image contents'));
-  assert.ok(system.length < 2600, `route prompt should stay compact: ${system.length}`);
+  assert.ok(system.length < 3100, `route prompt should stay compact: ${system.length}`);
+  const payload = routeService.compactRouteUserPayload({
+    input: '重新写一段产品介绍，不要画图',
+    context: { recent_messages: [{ role: 'user', content: '上一轮：画一张猫图' }, { role: 'assistant', content: '[图片生成完成] 猫图' }] },
+  });
+  assert.strictEqual(payload.current_input, '重新写一段产品介绍，不要画图', 'route payload should keep latest user input as a separate primary field');
+  assert.ok(payload.context.recent_messages.some(item => item.content.includes('画一张猫图')), 'history can still be present only as background context');
 }
 
 function testChatAnswerStreamingFlushesQuickly() {
@@ -669,7 +679,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.26') && index.includes('flat-theme.css?v=2.1.19'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.88') && index.includes('message-workflow.js?v=1.3.26') && index.includes('flat-theme.css?v=2.1.24'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -1453,8 +1463,8 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch31'), 'config default change should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch31'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch37'), 'config default change should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1482,8 +1492,42 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('forceImageFromUserMessage'), 'app should expose force-image action to the message workflow');
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
-  assert.ok(index.includes('message-workflow.js?v=1.3.26') && index.includes('app.js?v=1.3.26-ds11') && index.includes('chatui.bundle.js?v=1.3.28-arch31'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch31'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
+  assert.ok(index.includes('message-workflow.js?v=1.3.26') && index.includes('app.js?v=1.3.26-ds11') && index.includes('assets/chatui.bundle.css?v=1.3.28-arch37') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match the force-image bundle cache-busting version');
+}
+
+function testImagePreviewWheelZoom() {
+  const workflow = fs.readFileSync(path.join(__dirname, '../client/app/image-preview-workflow.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles.css'), 'utf8');
+  const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  assert.ok(workflow.includes('MIN_PREVIEW_SCALE = 0.5') && workflow.includes('MAX_PREVIEW_SCALE = 5'), 'image preview zoom should clamp wheel scale to a safe range');
+  assert.ok(workflow.includes('addEventListener("wheel"') && workflow.includes('event.preventDefault()') && workflow.includes('zoomImagePreview(event.deltaY)') && workflow.includes('{passive:!1}'), 'image preview should handle wheel gestures for zoom without page scrolling');
+  assert.ok(workflow.includes('resetPreviewZoom()') && workflow.includes('applyPreviewScale(1)'), 'opening and closing preview should reset zoom state');
+  assert.ok(workflow.includes('img.style.transform=`scale(${previewScale})`') && workflow.includes('dataset.previewScale') && workflow.includes('classList.toggle("is-zoomed"'), 'zoom should update the preview image transform and state class');
+  assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
+  assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
+  assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match image preview zoom bundle cache-busting');
+}
+
+function testMessageActionButtonsUsePolishedStyle() {
+  const flatCss = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  assert.ok(flatCss.includes('Final message action polish: glassy rounded buttons with subtle per-action accents'), 'message actions should document the shared polished style layer');
+  assert.ok(flatCss.includes('--msg-action-bg:rgba(255,255,255,.74)') && flatCss.includes('--msg-action-border:rgba(148,163,184,.22)') && flatCss.includes('--msg-action-shadow:0 6px 16px'), 'message actions should use the same glassy button surface as the force-image polish');
+  assert.ok(flatCss.includes('backdrop-filter:blur(10px) saturate(145%)') && flatCss.includes('transition:color .14s ease'), 'message action buttons should have refined blur and motion polish');
+  assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn{') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn{') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn{') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn,') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn{'), 'all message buttons should be colored in the normal state, not only on hover');
+  assert.ok(flatCss.includes('background:var(--msg-action-bg)!important') && flatCss.includes('background: var(--msg-action-bg) !important'), 'message button backgrounds should stay unified while icons and borders carry color');
+  assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
+  assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
+  assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.28-arch37') && index.includes('chatui.bundle.js?v=1.3.28-arch37') && index.includes('styles/flat-theme.css?v=2.1.24'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch37'"), 'server bundle version should match message action polish cache-busting');
 }
 
 const tests = [
@@ -1564,6 +1608,8 @@ const tests = [
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
   testRegenerateRemovesOldAssistantImmediately,
   testForceImageButtonOnUserMessages,
+  testImagePreviewWheelZoom,
+  testMessageActionButtonsUsePolishedStyle,
 ];
 
 (async () => {

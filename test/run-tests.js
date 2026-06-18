@@ -1443,6 +1443,20 @@ function testArchitectureBoundaryScaffolding() {
   sourceAssertions.assertIncludes(app, 'CONFIG_KEY=storageKeys.CONFIG_KEY||"openapi-chat-image-config-v2"', 'app should keep literal storage-key fallback for safe rollback');
 }
 
+function testConfigBaseUrlDefault() {
+  const configWorkflow = require('../client/app/config-workflow');
+  const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(__dirname, '../server/http/static.js'), 'utf8');
+  assert.strictEqual(configWorkflow.DEFAULT_BASE_URL, 'https://ingress.lfans.cn/v1', 'config workflow should expose the default Endpoint Base URL');
+  assert.strictEqual(configWorkflow.defaults.baseUrl, 'https://ingress.lfans.cn/v1', 'new installs should default Endpoint Base URL to ingress.lfans.cn');
+  assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
+  assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
+  assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
+  assert.ok(index.includes('config-workflow.js?v=1.2.68') && index.includes('chatui.bundle.js?v=1.3.28-arch30'), 'config default change should bump cache-busting versions');
+  assert.ok(staticSource.includes("BUNDLE_VERSION = '1.3.28-arch30'"), 'server bundle version should match the index cache-busting version');
+}
+
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
   const html = '<div><img src="[attachment-data-omitted]" data-persisted-src="[image-data-omitted]" alt="bad.png"></div>';
   const clean = sessionPersistence.sanitizeStoredDisplayItem({ role: 'user', html }, { stripLargeDataUrlsFromText });
@@ -1531,6 +1545,7 @@ const tests = [
   testSessionDisplayUpdatesFinalClarificationHtml,
   testClarificationAssistantNodeKeepsStableDisplayIdentity,
   testArchitectureBoundaryScaffolding,
+  testConfigBaseUrlDefault,
   testOmittedAttachmentDataDoesNotRenderAsImageUrl,
   testRegenerateRemovesOldAssistantImmediately,
 ];

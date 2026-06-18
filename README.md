@@ -346,7 +346,7 @@ docker run -d \
 
 | 配置项 | 说明 |
 | --- | --- |
-| Endpoint Base URL | OpenAI 兼容接口地址，例如 `https://api.openai.com/v1` |
+| Endpoint Base URL | OpenAI 兼容接口地址；默认 `https://ingress.lfans.cn/v1`，也可改成自己的服务，例如 `https://api.openai.com/v1` |
 | API Key | 接口密钥，保存在浏览器本地 |
 | 聊天模型 | 用于聊天、路由判断和文本回复 |
 | 路由模型 | 用于判断聊天/生图/修图；为空时使用聊天模型 |
@@ -358,6 +358,7 @@ docker run -d \
 Endpoint 示例：
 
 ```text
+https://ingress.lfans.cn/v1
 https://api.openai.com/v1
 https://your-gateway.example.com/v1
 http://127.0.0.1:8000/v1

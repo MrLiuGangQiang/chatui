@@ -1,7 +1,8 @@
 (function initChatUIAppConfigWorkflow(root) {
   'use strict';
 
-  const defaults = Object.freeze({ baseUrl: '', apiKey: '', headerParams: [], chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', directMode: false, models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
+  const DEFAULT_BASE_URL = 'https://ingress.lfans.cn/v1';
+  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', headerParams: [], chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', directMode: false, models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
 
   function createConfigWorkflow(deps = {}) {
     const { state, getElement, localStorage, document, window, crypto, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, getActiveSession, saveSessionsMeta, toast } = deps;
@@ -15,9 +16,9 @@
 
     function toggleApiKeyVisibility(){const e=getElement("apiKey");e&&(setApiKeyVisible("password"===e.type),e.focus())}
 
-    function loadConfig(){const e=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{})),t={...defaults,...e};getElement("baseUrl").value=t.baseUrl||"",getElement("apiKey").value=t.apiKey||"",getElement("imageSize").value=t.imageSize||defaults.imageSize,updateCustomSelect(getElement("imageSize")),getElement("systemPrompt").value=t.systemPrompt||"",getElement("imageStylePrompt")&&(getElement("imageStylePrompt").value=t.imageStylePrompt||""),state.models=Array.isArray(t.models)?t.models:[],state.modelMeta=normalizeModelMeta(state.models,t.modelMeta||{});const n=new Set(state.models),a=n.has(t.chatModel)?t.chatModel:"",i=n.has(t.routeModel)?t.routeModel:"",o=n.has(t.imageModel)?t.imageModel:"";renderModelOptions(a,o,i),t.chatModel===a&&t.routeModel===i&&t.imageModel===o||saveConfig(!0)}
+    function loadConfig(){const e=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{})),t={...defaults,...e};getElement("baseUrl").value=t.baseUrl||defaults.baseUrl,getElement("apiKey").value=t.apiKey||"",getElement("imageSize").value=t.imageSize||defaults.imageSize,updateCustomSelect(getElement("imageSize")),getElement("systemPrompt").value=t.systemPrompt||"",getElement("imageStylePrompt")&&(getElement("imageStylePrompt").value=t.imageStylePrompt||""),state.models=Array.isArray(t.models)?t.models:[],state.modelMeta=normalizeModelMeta(state.models,t.modelMeta||{});const n=new Set(state.models),a=n.has(t.chatModel)?t.chatModel:"",i=n.has(t.routeModel)?t.routeModel:"",o=n.has(t.imageModel)?t.imageModel:"";renderModelOptions(a,o,i),t.chatModel===a&&t.routeModel===i&&t.imageModel===o||saveConfig(!0)}
 
-    function getConfig(){const e=readJsonStorage(CONFIG_KEY,{});return{baseUrl:getElement("baseUrl").value.trim().replace(/\/$/,""),apiKey:getElement("apiKey").value.trim(),headerParams:normalizeHeaderParamConfig(e.headerParams),chatModel:getElement("chatModel").value.trim(),routeModel:getElement("routeModel")?.value.trim()||"",imageModel:getElement("imageModel").value.trim(),imageSize:getElement("imageSize").value,systemPrompt:getElement("systemPrompt")?.value.trim()||"",imageStylePrompt:getElement("imageStylePrompt")?.value.trim()||"",directMode:!!e.directMode,models:state.models,context:e.context&&"object"==typeof e.context?e.context:{}}}
+    function getConfig(){const e=readJsonStorage(CONFIG_KEY,{});return{baseUrl:(getElement("baseUrl").value.trim()||defaults.baseUrl).replace(/\/$/,""),apiKey:getElement("apiKey").value.trim(),headerParams:normalizeHeaderParamConfig(e.headerParams),chatModel:getElement("chatModel").value.trim(),routeModel:getElement("routeModel")?.value.trim()||"",imageModel:getElement("imageModel").value.trim(),imageSize:getElement("imageSize").value,systemPrompt:getElement("systemPrompt")?.value.trim()||"",imageStylePrompt:getElement("imageStylePrompt")?.value.trim()||"",directMode:!!e.directMode,models:state.models,context:e.context&&"object"==typeof e.context?e.context:{}}}
 
     function normalizeHeaderParamConfig(e=[]){return(Array.isArray(e)?e:[]).map(e=>({name:String(e?.name||"").trim(),mode:["manual","session_short_uuid","message_short_uuid"].includes(e?.mode)?e.mode:"manual",value:String(e?.value||"")})).filter(e=>e.name)}
 
@@ -38,7 +39,7 @@
     return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
   }
 
-  const api = Object.freeze({ createConfigWorkflow, defaults });
+  const api = Object.freeze({ createConfigWorkflow, defaults, DEFAULT_BASE_URL });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppConfigWorkflow = api;
   if (root?.window) root.window.ChatUIAppConfigWorkflow = api;

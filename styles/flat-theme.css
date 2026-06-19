@@ -1998,6 +1998,14 @@ body{
   line-height:1.35!important;
   white-space:nowrap!important;
 }
+@keyframes pendingOrbPulse{
+  0%,100%{transform:scale(.82);opacity:.62;box-shadow:0 0 0 4px rgba(77,107,254,.10)}
+  50%{transform:scale(1);opacity:1;box-shadow:0 0 0 7px rgba(77,107,254,.16)}
+}
+@keyframes pendingDotBounce{
+  0%,80%,100%{transform:translateY(0);opacity:.42}
+  40%{transform:translateY(-3px);opacity:1}
+}
 .pending-orb{
   width:9px!important;
   height:9px!important;
@@ -2005,6 +2013,7 @@ body{
   background:var(--ds-accent)!important;
   border-radius:50%!important;
   box-shadow:0 0 0 5px rgba(77,107,254,.1)!important;
+  animation:pendingOrbPulse 1.25s ease-in-out infinite!important;
 }
 .pending-text,
 .pending-dots{
@@ -2012,7 +2021,65 @@ body{
   white-space:nowrap!important;
 }
 .pending-dots i{
+  display:inline-block!important;
+  width:4px!important;
+  height:4px!important;
+  margin:0 1px!important;
+  border-radius:50%!important;
   background:var(--ds-accent)!important;
+  animation:pendingDotBounce 1.1s ease-in-out infinite!important;
+}
+.pending-dots i:nth-child(2){
+  animation-delay:.16s!important;
+}
+.pending-dots i:nth-child(3){
+  animation-delay:.32s!important;
+}
+.manual-intent-card{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:12px!important;
+  max-width:520px!important;
+  padding:14px 16px!important;
+  background:linear-gradient(180deg,rgba(77,107,254,.06),rgba(77,107,254,.025))!important;
+  border:1px solid rgba(77,107,254,.16)!important;
+  border-radius:16px!important;
+}
+.manual-intent-title{
+  color:var(--ds-text)!important;
+  font-size:15px!important;
+  line-height:1.55!important;
+  font-weight:650!important;
+}
+.manual-intent-actions{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+}
+.manual-intent-actions button{
+  appearance:none!important;
+  border:1px solid var(--ds-line)!important;
+  border-radius:999px!important;
+  padding:7px 16px!important;
+  background:#fff!important;
+  color:var(--ds-text)!important;
+  font:inherit!important;
+  font-size:14px!important;
+  font-weight:650!important;
+  line-height:1.35!important;
+  cursor:pointer!important;
+  box-shadow:0 1px 2px rgba(15,23,42,.04)!important;
+  transition:background .15s ease,border-color .15s ease,color .15s ease,transform .15s ease!important;
+}
+.manual-intent-actions button:hover{
+  border-color:rgba(77,107,254,.42)!important;
+  background:rgba(77,107,254,.08)!important;
+  color:var(--ds-accent)!important;
+  transform:translateY(-1px)!important;
+}
+.manual-intent-actions button:focus-visible{
+  outline:2px solid rgba(77,107,254,.32)!important;
+  outline-offset:2px!important;
 }
 @media (max-width:640px){
   .pending-feedback{
@@ -2029,6 +2096,14 @@ body{
   }
   .pending-dots{
     gap:2px!important;
+  }
+  .manual-intent-card{
+    padding:12px!important;
+    border-radius:14px!important;
+  }
+  .manual-intent-actions button{
+    flex:1 1 72px!important;
+    padding:8px 12px!important;
   }
 }
 /* DeepSeek-like thought panel. JS toggles data-collapsed without changing persisted content. */

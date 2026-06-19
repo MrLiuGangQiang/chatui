@@ -27,10 +27,14 @@
           const quotedMessage="chat"===submitMode&&!state.editingIndex?getQuotedMessage?.():null,quoteContext=quotedMessage?JSON.stringify(quotedMessage):"";
           const parseContextValue=value=>{if(!value)return null;if(typeof value==="string")try{return JSON.parse(value)}catch{return null}return typeof value==="object"?value:null};
           const escapeHtmlLocal=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+          let routeUi=null;
+          const getEffectiveRouteWithSlowNotice=(input,routeAttachments,routeSessionId,headers,context)=>routeUi.getEffectiveRouteWithSlowNotice(input,routeAttachments,headers,context);
+          const waitManualIntentChoice=options=>routeUi.waitManualIntentChoice(options);
           const previewQuoteText=value=>String(value||"").replace(/\s+/g," ").trim().slice(0,48);
           const withPendingQuotePreview=(html="",quoteContextValue="")=>{if(!quoteContextValue||/class=["'][^"']*sent-quote-preview/.test(String(html||"")))return String(html||"");let quote=null;try{quote="string"==typeof quoteContextValue?JSON.parse(quoteContextValue):quoteContextValue}catch{return String(html||"")}if(!quote)return String(html||"");const label=quote.role==="assistant"?"AI":"用户",text=previewQuoteText(quote.content||quote.rawText||"追问来源");return `<button class="sent-quote-preview pending-clarification-source" type="button" data-quote-context="${escapeHtmlLocal(JSON.stringify(quote))}" title="基于这条消息追问"><span class="sent-quote-label">追问 ${escapeHtmlLocal(label)}</span><span class="sent-quote-text">${escapeHtmlLocal(text)}</span></button>${String(html||"")}`};
           let quotedImageContext=parseContextValue(quotedMessage?.imageContext),quotedImageAttachments=[];
           let replacement=null,assistantNode=null,liveItem=null,preparedChatJobId="",routeMode=submitMode,routeInfo=normalizeRoute({mode:submitMode,target:"image"===submitMode?"new":"none",confidence:1},submitMode),userNode=null,userDisplayItem=null,requestBaseMessages=null,imageContext="",attachmentContext="";
+          routeUi=createRouteRecognitionUi({sessionId,assistantNode:()=>assistantNode,liveItem:()=>liveItem,responseIndex:()=>responseIndex,getPromptText:()=>promptText,getPreparedChatJobId:()=>preparedChatJobId});
           try{
             if(null!==state.editingIndex&&state.editingNode&&"chat"===submitMode&&isTargetActive())replacement=applyPendingEdit(promptText);
             if(!replacement){
@@ -45,7 +49,8 @@
               persistTargetMessages()
             }
             $("prompt").value="",state.promptDrafts.set(sessionId,""),clearAttachments(),clearQuotedMessage?.(),scheduleAutoResize(),setSessionBusy(sessionId,!0);
-            const sessionForReply=isTargetActive()?getActiveSession():targetSession,responseIndex=Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length;
+            const sessionForReply=isTargetActive()?getActiveSession():targetSession;
+            responseIndex=Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length;
             const prepareManagedChatJobForLiveItem=()=>{if("chat"!==submitMode||!liveItem||preparedChatJobId)return;if(typeof shouldPrepareManagedChatJob==="function"&&!shouldPrepareManagedChatJob(sessionId))return;preparedChatJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():"";if(!preparedChatJobId)return;liveItem.jobId=preparedChatJobId;liveItem.responseIndex=String(responseIndex);assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=String(responseIndex));typeof saveChatJob==="function"&&saveChatJob(sessionId,{id:preparedChatJobId,prompt:promptText,startedAt:Date.now(),displayItemId:liveItem.id||"",responseIndex,mode:"chat"});persistSessionDisplay(sessionId)};
             if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem()}
             else {
@@ -100,12 +105,12 @@
               persistTargetMessages()
             }
             if(hasQuotedMessage){
-              try{routeInfo=await getEffectiveRoute(promptText,[],sessionId,buildRequestHeaders("message",sessionId),buildQuotedRouteContext()),routeMode=routeInfo.mode}catch(e){routeMode="chat",routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0,evidence:"引用专用意图识别失败，默认走聊天"},"chat"),console.warn("quoted route failed, fallback to chat:",e)}
+              try{routeInfo=await getEffectiveRouteWithSlowNotice(promptText,[],sessionId,buildRequestHeaders("message",sessionId),buildQuotedRouteContext()),routeMode=routeInfo.mode}catch(e){if(isRouteIntentTimeout(e)){routeInfo=await waitManualIntentChoice({hasQuotedImage,quotedImageSource,quotedReferenceId,quotedIndexes,requestAttachments}),routeMode=routeInfo.mode}else{routeMode="chat",routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0,evidence:"引用专用意图识别失败，默认走聊天"},"chat"),console.warn("quoted route failed, fallback to chat:",e)}}
               if(hasQuotedImage&&"edit_image"===routeMode){
                 if(!(routeInfo.selectedImageIds?.length||routeInfo.selectedIndexes?.length)){routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,need_clarification:!0,clarification_question:"请明确要修改引用消息中的哪一张或哪几张图片。",intent:"image_edit",edit_instruction:routeInfo.editInstruction||promptText,confidence:routeInfo.confidence||.6,evidence:"引用图片编辑未能识别具体图片索引"},"chat"),routeMode="chat"}
                 else routeInfo=normalizeRoute({...routeInfo,mode:"edit_image",target:quotedImageSource,selected_reference_id:quotedReferenceId||routeInfo.selectedReferenceId,use_previous_image:!1,confidence:routeInfo.confidence||1,evidence:routeInfo.evidence||"引用图片为准，按引用图片执行编辑"},"edit_image"),routeMode="edit_image"
               }else if(!hasQuotedImage&&"edit_image"===routeMode){routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:1,evidence:"引用内容不含可编辑图片，改为聊天"},"chat"),routeMode="chat"}
-            }else try{routeInfo=await getEffectiveRoute(effectivePromptText,requestAttachments,sessionId,buildRequestHeaders("message",sessionId)),routeMode=routeInfo.mode}catch(e){routeMode="chat",routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0}),console.warn("route failed, fallback to chat:",e)}
+            }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,sessionId,buildRequestHeaders("message",sessionId),null),routeMode=routeInfo.mode}catch(e){if(isRouteIntentTimeout(e)){routeInfo=await waitManualIntentChoice({requestAttachments}),routeMode=routeInfo.mode}else{routeMode="chat",routeInfo=normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:0}),console.warn("route failed, fallback to chat:",e)}}
             if(routeInfo.needClarification){preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);const e=routeInfo.clarificationQuestion||"请问你要编辑哪一张图？可以说第一张、第二张，或选择全部。",t={role:"assistant",content:e,rawText:e,responseIndex};typeof updateMessage==="function"&&assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,e,{rawText:e,responseIndex}));liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",e,{rawText:e,pending:!1,responseIndex}):(liveItem.content=e,liveItem.rawText=e,liveItem.pending=!1,persistSessionDisplay(sessionId)));if(isTargetActive()){state.messages.push(t);sessionForReply.messages=cloneMessageList(state.messages)}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),t]);const createdPending=pendingMerge?.merged?{...pendingMerge.pending,clarificationText:e,updatedAt:Date.now()}:clarification.createPendingClarification?.({messages:sessionForReply.messages||targetSession.messages||state.messages||[],clarificationText:e,routeInfo,sourceImageContext:imageContext||null,sourceAttachmentContext:attachmentContext||null,sourceQuoteContext:quoteContext||null});if(createdPending){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}isTargetActive()?saveChatHistory():saveSessionMessages(sessionId,targetSession.messages);saveSessionsMeta?.();return}
             if(run.stopped||run.abortController?.signal?.aborted)return;
             if(isTargetActive()&&updateModeUi(routeMode,state.autoMode),isTargetActive()&&warnMissingModel(routeMode,!0)){
@@ -122,7 +127,7 @@
           }catch(err){
             run.stopped||"AbortError"===err?.name||showRunError(sessionId,err,liveItem,assistantNode)
           }finally{
-            setSessionBusy(sessionId,!1),clearActiveRun(sessionId,run),$("prompt").focus()
+            stopRouteSlowNoticeTimer(),setSessionBusy(sessionId,!1),clearActiveRun(sessionId,run),$("prompt").focus()
           }
 
       }

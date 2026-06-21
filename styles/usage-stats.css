@@ -355,7 +355,7 @@
   background: #f8fafc;
 }
 
-.usage-tabs.usage-tabs-five { grid-template-columns: repeat(5, 1fr); }
+.usage-tabs.usage-tabs-department { grid-template-columns: repeat(7, 1fr); }
 
 .usage-tabs button {
   min-height: 30px;
@@ -626,6 +626,6 @@
 @media (max-width: 420px) {
   .usage-tabs { gap: 6px; }
   .usage-tabs button { font-size: 12px; }
-  .usage-tabs.usage-tabs-five { grid-template-columns: repeat(2, 1fr); }
+  .usage-tabs.usage-tabs-department { grid-template-columns: repeat(2, 1fr); }
   .usage-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

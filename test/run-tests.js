@@ -130,6 +130,15 @@ function testPendingClarificationMergesFollowupSupplements() {
   assert.strictEqual(second.pending.rounds, 3);
 }
 
+function testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup() {
+  const messages = [
+    { role: 'user', rawText: '介绍一下 React useMemo' },
+    { role: 'assistant', rawText: '可以，先说结论：useMemo 用来缓存计算结果。你平时主要用 React 还是 Vue？' },
+  ];
+  assert.strictEqual(clarificationService.isClarificationResponse(messages[1].rawText), false);
+  assert.strictEqual(clarificationService.findPendingFromHistory(messages), null);
+}
+
 function testPendingClarificationCanMergeTextFileAndQuote() {
   const pending = clarificationService.createPendingClarification({
     messages: [
@@ -185,8 +194,66 @@ function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
+  assert.ok(!submit.includes('findPendingFromHistory?.(targetSession.messages||state.messages||[])'), 'pending clarification must be an explicit one-shot state, not inferred repeatedly from history');
+  assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
+  assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.56'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.58'), 'submit workflow cache version should be bumped for pending clarification fix');
+}
+
+function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '把这几张图改成头像' },
+      { role: 'assistant', rawText: '请明确要处理第几张图片。' },
+    ],
+    clarificationText: '请明确要处理第几张图片。',
+  });
+  assert.ok(pending);
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '讲讲 useMemo', attachments: [] }), false, 'unrelated next turn should not be treated as a follow-up answer');
+
+  const firstAnswer = clarificationService.mergePendingInput(pending, {
+    promptText: '第一张',
+    attachments: [],
+  });
+  assert.ok(firstAnswer.merged);
+  assert.ok(firstAnswer.promptText.includes('把这几张图改成头像'));
+  assert.ok(firstAnswer.promptText.includes('本轮补充：第一张'));
+
+  const nextPending = {
+    ...firstAnswer.pending,
+    clarificationText: '第一张要改成什么风格？',
+  };
+  const secondAnswer = clarificationService.mergePendingInput(nextPending, {
+    promptText: '改成漫画风，保留脸部特征',
+    attachments: [],
+  });
+  assert.ok(secondAnswer.merged, 'a new explicit pending clarification should continue the multi-round chain');
+  assert.ok(secondAnswer.promptText.includes('把这几张图改成头像'));
+  assert.ok(secondAnswer.promptText.includes('补充1：第一张'));
+  assert.ok(secondAnswer.promptText.includes('本轮补充：改成漫画风，保留脸部特征'));
+}
+
+function testPendingClarificationCoversImageEditFallbackBranch() {
+  const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
+  const fallbackIndex = submit.indexOf('if("edit_image"===routeMode&&!editAttachments.length&&!canResolveExistingEditImage)');
+  assert.ok(fallbackIndex >= 0, 'image edit missing-attachment fallback should exist');
+  const fallbackBlock = submit.slice(fallbackIndex, submit.indexOf('if(pendingMerge?.merged&&targetSession.pendingClarification)', fallbackIndex));
+  assert.ok(fallbackBlock.includes('clarification.createPendingClarification?.'), 'missing image/edit target fallback must create explicit one-shot pending clarification');
+  assert.ok(fallbackBlock.includes('targetSession.pendingClarification=createdPending'), 'fallback pending clarification should be persisted to the session');
+  assert.ok(fallbackBlock.includes('saveSessionsMeta?.()'), 'fallback pending clarification should persist session metadata before returning');
+
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '把这张图改成红色背景' },
+      { role: 'assistant', rawText: '没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改。' },
+    ],
+    clarificationText: '没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改。',
+  });
+  assert.ok(pending);
+  assert.strictEqual(pending.kind, 'image_edit');
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '', attachments: [{ name: 'photo.png', type: 'image/png' }] }), true, 'uploading the requested image should answer the one-shot pending clarification');
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '', attachments: [{ name: 'note.txt', type: 'text/plain' }] }), false, 'non-image attachment should not answer image edit clarification');
 }
 
 function testImageEditPromptFallbackAndValidation() {
@@ -975,7 +1042,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.56') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.58') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch67'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1698,7 +1765,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.56') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.58') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -1713,9 +1780,12 @@ const tests = [
   testImageResultParsingSupportsMultipleImages,
   testImageJobTargetsAndMultipartSanitization,
   testPendingClarificationMergesFollowupSupplements,
+  testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup,
   testPendingClarificationCanMergeTextFileAndQuote,
   testPendingClarificationCarriesOriginalMultiImageContext,
   testPendingClarificationClearsAfterMergedSend,
+  testPendingClarificationOneShotMissAndMultiRoundContinuity,
+  testPendingClarificationCoversImageEditFallbackBranch,
   testImageEditPromptFallbackAndValidation,
   testStorageSanitizesEmbeddedImageContent,
   testPersistedAttachmentPreviewSurvivesDataUrlStripping,

@@ -1,16 +1,18 @@
 (() => {
-  const DEFAULT_RANKING_TABS = [
-    ['today', '今日排行'],
-    ['yesterday', '昨日排行'],
-    ['total', '总排行'],
-  ];
-  const DEFAULT_DEPARTMENT_TABS = [
-    ['today', '今日排行'],
-    ['yesterday', '昨日排行'],
-    ['month', '本月排行'],
-    ['last_month', '上月排行'],
-    ['total', '总排行'],
-  ];
+  const sharedRanges = (typeof window !== 'undefined' && window.ChatUIUsageRanges)
+    || (typeof require === 'function' ? require('../../../shared/usage/ranges') : {});
+  const RANGE_DEFINITIONS = sharedRanges.RANGE_DEFINITIONS || {};
+  const PERSONAL_RANGES = sharedRanges.PERSONAL_RANGES || ['today', 'yesterday', 'total'];
+  const DEPARTMENT_RANGES = sharedRanges.DEPARTMENT_RANGES || ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total'];
+  const rangeTabs = typeof sharedRanges.rangeTabs === 'function'
+    ? sharedRanges.rangeTabs
+    : ranges => ranges.map(range => [range, RANGE_DEFINITIONS[range]?.label || range]);
+  const rangeShortLabel = typeof sharedRanges.rangeShortLabel === 'function'
+    ? sharedRanges.rangeShortLabel
+    : range => RANGE_DEFINITIONS[range]?.shortLabel || RANGE_DEFINITIONS[range]?.label?.replace('排行', '') || '今日';
+
+  const DEFAULT_RANKING_TABS = rangeTabs(PERSONAL_RANGES);
+  const DEFAULT_DEPARTMENT_TABS = rangeTabs(DEPARTMENT_RANGES);
 
   function resolveDefaultFormat() {
     if (typeof window !== 'undefined' && window.ChatUIUsageStatsFormat) return window.ChatUIUsageStatsFormat;
@@ -49,10 +51,9 @@
     }
 
     function rangeLabel(range) {
-      if (range === 'total') return '所有时间';
-      if (range === 'month') return '本月';
-      if (range === 'last_month') return '上月';
-      return [...RANKING_TABS, ...DEPARTMENT_TABS].find(([key]) => key === range)?.[1]?.replace('排行', '') || '今日';
+      return rangeShortLabel(range)
+        || [...RANKING_TABS, ...DEPARTMENT_TABS].find(([key]) => key === range)?.[1]?.replace('排行', '')
+        || '今日';
     }
 
     function tabLabel(range, mode = 'personal') {
@@ -89,6 +90,9 @@
     }
 
     return {
+      RANGE_DEFINITIONS,
+      PERSONAL_RANGES,
+      DEPARTMENT_RANGES,
       RANKING_TABS,
       DEPARTMENT_TABS,
       tokenColumns,
@@ -103,8 +107,12 @@
   }
 
   const api = {
+    RANGE_DEFINITIONS,
+    PERSONAL_RANGES,
+    DEPARTMENT_RANGES,
     DEFAULT_RANKING_TABS,
     DEFAULT_DEPARTMENT_TABS,
+    rangeTabs,
     createUsageStatsViewHelpers,
     ...createUsageStatsViewHelpers(resolveDefaultFormat()),
   };

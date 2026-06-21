@@ -18,7 +18,9 @@
   }
 
   function isClarificationResponse(text = '') {
-    return /(请|需要|麻烦|可以).*(上传|提供|补充|明确|说明|选择)|哪一张|第几张|哪个文件|哪个附件|要处理什么|想让我怎么/i.test(String(text || ''));
+    const value = String(text || '').trim();
+    if (!value) return false;
+    return /((请|需要|麻烦).*(上传|提供|补充|明确|选择)|请.*说明.*(哪|哪个|哪张|哪个文件|哪个附件|要处理什么|想让我怎么)|哪一张|第几张|哪个文件|哪个附件|要处理什么|想让我怎么|没有可编辑的图片|请先上传|请上传|请明确)/i.test(value);
   }
 
   function isImageEditIntent(text = '') {

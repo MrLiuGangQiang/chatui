@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const usageRanges = require('../../server/usage/ranges');
+const sharedUsageRanges = require('../../shared/usage/ranges');
 const usageExportXlsx = require('../../server/usage/export-xlsx');
 const usageValidator = require('../../server/validators/usage.validator');
 const usageService = require('../../server/services/usage.service');
@@ -48,7 +49,9 @@ async function testDepartmentExportWorkbookShape() {
 
 function testUsageRangesAreCentralized() {
   assert.deepStrictEqual(usageRanges.PERSONAL_RANGES, ['today', 'yesterday', 'total']);
-  assert.deepStrictEqual(usageRanges.DEPARTMENT_RANGES, ['today', 'yesterday', 'month', 'last_month', 'total']);
+  assert.deepStrictEqual(usageRanges.DEPARTMENT_RANGES, ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
+  assert.strictEqual(usageRanges.RANGE_DEFINITIONS, sharedUsageRanges.RANGE_DEFINITIONS);
+  assert.deepStrictEqual(usageRanges.rangeTabs(usageRanges.DEPARTMENT_RANGES), sharedUsageRanges.rangeTabs(sharedUsageRanges.DEPARTMENT_RANGES));
   assert.strictEqual(usageRanges.isPersonalRange('month'), false);
   assert.strictEqual(usageRanges.isDepartmentRange('month'), true);
   for (const range of usageRanges.DEPARTMENT_RANGES) {
@@ -78,8 +81,12 @@ function testUsageStatsFrontendHelpers() {
 
 function testUsageStatsViewHelpersPreserveMarkupAndLabels() {
   assert.deepStrictEqual(usageStatsView.DEFAULT_RANKING_TABS.map(([key]) => key), ['today', 'yesterday', 'total']);
-  assert.deepStrictEqual(usageStatsView.DEFAULT_DEPARTMENT_TABS.map(([key]) => key), ['today', 'yesterday', 'month', 'last_month', 'total']);
+  assert.deepStrictEqual(usageStatsView.DEFAULT_DEPARTMENT_TABS.map(([key]) => key), ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
+  assert.deepStrictEqual(usageStatsView.DEFAULT_DEPARTMENT_TABS, sharedUsageRanges.rangeTabs(sharedUsageRanges.DEPARTMENT_RANGES));
+  assert.strictEqual(usageStatsView.rangeLabel('week'), '本周');
+  assert.strictEqual(usageStatsView.rangeLabel('last_week'), '上周');
   assert.strictEqual(usageStatsView.rangeLabel('last_month'), '上月');
+  assert.strictEqual(usageStatsView.tabLabel('week', 'department'), '本周排行');
   assert.strictEqual(usageStatsView.tabLabel('month', 'department'), '本月排行');
   assert.deepStrictEqual(usageStatsView.rawTokenColumns({ prompt_cached_tokens: 7 })[3], ['缓存输入', 7]);
   const badges = usageStatsView.renderTokenBadges({ total_tokens: 1000, prompt_tokens: 500, completion_tokens: 500, prompt_cached_tokens: 100, completion_reasoning_tokens: 50 });
@@ -110,11 +117,12 @@ function testUsageStatsModuleLoadsWithCommonJsFacade() {
 function testUsageStatsScriptsLoadInExpectedOrder() {
   const index = require('fs').readFileSync(require('path').join(__dirname, '../../index.html'), 'utf8');
   const serviceIndex = index.indexOf('client/services/usage-stats.js');
+  const rangesIndex = index.indexOf('shared/usage/ranges.js');
   const formatIndex = index.indexOf('client/ui/usage-stats-format.js');
   const authIndex = index.indexOf('client/ui/usage-stats-auth.js');
   const viewIndex = index.indexOf('client/features/usage-stats/view-helpers.js');
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
-  assert.ok(serviceIndex > -1 && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load service, format/auth, view helpers, then UI');
+  assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
 }
 
 function testUsageValidatorNormalizesInputs() {
@@ -164,9 +172,14 @@ async function testUsageServiceBuildsDepartmentExportWorkbookFromRepository() {
       return { start_time: new Date('2026-06-12T00:00:00+08:00'), end_time: new Date('2026-06-12T13:00:05+08:00') };
     },
   };
-  const workbook = await usageService.getDepartmentExportWorkbook(usageStats, 'today');
+  const workbook = await usageService.getDepartmentExportWorkbook(usageStats, 'last_week');
   assert.ok(Buffer.isBuffer(workbook));
-  assert.deepStrictEqual(calls, [['ranking', 'today'], ['users', 'dept-1', 'today'], ['bounds', 'today']]);
+  assert.deepStrictEqual(calls, [['ranking', 'last_week'], ['users', 'dept-1', 'last_week'], ['bounds', 'last_week']]);
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(workbook);
+  const workbookXml = await zip.file('xl/workbook.xml').async('string');
+  assert.ok(workbookXml.includes('部门上周排行统计'));
+  assert.ok(workbookXml.includes('研发部上周排行统计'));
 }
 
 function testConfigPublicConfigReader() {

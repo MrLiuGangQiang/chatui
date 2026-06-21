@@ -1,20 +1,10 @@
 (() => {
-  const RANKING_TABS = [
-    ['today', '今日排行'],
-    ['yesterday', '昨日排行'],
-    ['total', '总排行'],
-  ];
-  const DEPARTMENT_TABS = [
-    ['today', '今日排行'],
-    ['yesterday', '昨日排行'],
-    ['month', '本月排行'],
-    ['last_month', '上月排行'],
-    ['total', '总排行'],
-  ];
   const format = (typeof window !== 'undefined' && window.ChatUIUsageStatsFormat) || (typeof require === 'function' ? require('./usage-stats-format') : {});
   const auth = (typeof window !== 'undefined' && window.ChatUIUsageStatsAuth) || (typeof require === 'function' ? require('./usage-stats-auth') : {});
   const view = (typeof window !== 'undefined' && window.ChatUIUsageStatsViewHelpers) || (typeof require === 'function' ? require('../features/usage-stats/view-helpers') : {});
   const viewHelpers = typeof view.createUsageStatsViewHelpers === 'function' ? view.createUsageStatsViewHelpers(format) : view;
+  const RANKING_TABS = viewHelpers.RANKING_TABS || viewHelpers.DEFAULT_RANKING_TABS || [];
+  const DEPARTMENT_TABS = viewHelpers.DEPARTMENT_TABS || viewHelpers.DEFAULT_DEPARTMENT_TABS || [];
 
   const $ = id => document.getElementById(id);
   const {
@@ -167,7 +157,7 @@
     const selected = activeMode === 'department' ? activeDepartmentRange : activeRange;
     const el = $('usageTabs');
     if (!el) return;
-    el.classList.toggle('usage-tabs-five', activeMode === 'department');
+    el.classList.toggle('usage-tabs-department', activeMode === 'department');
     el.innerHTML = tabs.map(([key, label]) => `<button type="button" data-usage-tab="${key}" class="${key === selected ? 'active' : ''}">${label}</button>`).join('');
     bindTabs();
   }

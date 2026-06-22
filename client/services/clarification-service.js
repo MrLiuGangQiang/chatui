@@ -35,6 +35,37 @@
     return 'general';
   }
 
+  function expectsSelection(text = '') {
+    return /(第几|哪一?张|哪几张|哪一个|哪个|选择|指定.*(编号|序号)|全部|全都)/i.test(String(text || ''));
+  }
+
+  function expectsUpload(text = '') {
+    return /(上传|提供|补充|发送|引用).*(图片|图|文件|文档|附件)|请先上传|请上传|没有可编辑的图片/i.test(String(text || ''));
+  }
+
+  function expectsEditDetail(text = '') {
+    return /(改成什么|什么风格|怎么改|如何修改|修改成|具体.*(风格|颜色|背景|效果|要求)|补充.*(风格|颜色|背景|效果|要求))/i.test(String(text || ''));
+  }
+
+  function expectsImageVariant(text = '') {
+    const value = String(text || '');
+    return /(哪一?种|什么样|具体.*(样式|类型|款式|风格|用途)|补充.*(样式|类型|款式|用途)|样式|类型|款式|用途|效果|结构|示意|实物|安装)/i.test(value)
+      && /(图|图片|画面|照片|示意|轨道|窗帘|产品|生成)/i.test(value);
+  }
+
+  function expectedAnswerTypes({ kind = 'general', originalText = '', clarificationText = '' } = {}) {
+    const combined = `${originalText}\n${clarificationText}`;
+    const expects = [];
+    if (expectsUpload(combined)) expects.push('upload');
+    if (expectsSelection(combined)) expects.push('selection');
+    if (expectsImageVariant(combined)) expects.push('image_variant');
+    if (expectsEditDetail(combined)) expects.push('edit_detail');
+    if (kind === 'file_qa' && !expects.includes('upload')) expects.push('file_reference');
+    if ((kind === 'image' || kind === 'image_edit') && !expects.length) expects.push('image_detail');
+    if (!expects.length) expects.push('confirmation_or_detail');
+    return [...new Set(expects)];
+  }
+
   function normalizePendingClarification(value = null) {
     if (!value || typeof value !== 'object') return null;
     const originalText = String(value.originalText || value.original_text || '').trim();
@@ -45,6 +76,8 @@
       originalText,
       clarificationText: String(value.clarificationText || value.clarification_text || '').trim(),
       supplements: Array.isArray(value.supplements) ? value.supplements : [],
+      expects: Array.isArray(value.expects) && value.expects.length ? value.expects : expectedAnswerTypes({ kind: value.kind || 'general', originalText, clarificationText: value.clarificationText || value.clarification_text || '' }),
+      routeInfo: value.routeInfo || value.route_info || null,
       sourceImageContext: value.sourceImageContext || value.source_image_context || null,
       sourceAttachmentContext: value.sourceAttachmentContext || value.source_attachment_context || null,
       sourceQuoteContext: value.sourceQuoteContext || value.source_quote_context || null,
@@ -73,6 +106,7 @@
       kind,
       originalText: latestUser.text,
       clarificationText,
+      expects: expectedAnswerTypes({ kind, originalText: latestUser.text, clarificationText }),
       routeInfo: routeInfo ? { mode: routeInfo.mode, target: routeInfo.target, intent: routeInfo.intent } : null,
       sourceImageContext,
       sourceAttachmentContext,
@@ -101,6 +135,7 @@
       kind: inferPendingKind({ originalText: latestUser.text, clarificationText }),
       originalText: latestUser.text,
       clarificationText,
+      expects: expectedAnswerTypes({ kind: inferPendingKind({ originalText: latestUser.text, clarificationText }), originalText: latestUser.text, clarificationText }),
       sourceImageContext: latestUser.message?.imageContext || latestUser.message?.image_context || null,
       sourceAttachmentContext: latestUser.message?.attachmentContext || latestUser.message?.attachment_context || null,
       sourceQuoteContext: latestUser.message?.quoteContext || latestUser.message?.quote_context || null,
@@ -127,31 +162,51 @@
   }
 
   function asksForImageVariant(text = '') {
-    const value = String(text || '');
-    return /(哪一?种|什么样|具体.*(样式|类型|款式|风格|用途)|补充.*(样式|类型|款式|用途)|样式|类型|款式|用途|效果|结构|示意|实物|安装)/i.test(value)
-      && /(图|图片|画面|照片|示意|轨道|窗帘|产品|生成)/i.test(value);
+    return expectsImageVariant(text);
   }
 
-  function isLikelyClarificationAnswer(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
+  function isClearlyNewTask(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return false;
+    if (/^(讲讲|介绍|解释|搜索|查询|打开|帮我写|写一篇|生成一篇|总结一下|翻译一下|计算|对比一下)/i.test(value)) return true;
+    if (/^(为什么|怎么|如何|多少|今天|天气|新闻|几点|哪里|谁|什么是)/i.test(value)) return true;
+    return false;
+  }
+
+  function classifyPendingTurn(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
     const normalized = normalizePendingClarification(pending);
-    if (!normalized) return false;
+    if (!normalized) return { action: 'none', reason: 'no_pending', pending: null };
     const text = String(promptText || '').trim();
     const hasAttachments = hasAnyAttachment(attachments);
     const hasImages = hasImageAttachment(attachments, isImageFile);
-    if (quotedMessage) return true;
+    const expects = Array.isArray(normalized.expects) && normalized.expects.length ? normalized.expects : expectedAnswerTypes(normalized);
+    if (quotedMessage) return { action: 'apply', reason: 'quoted_message', pending: normalized };
     if (hasAttachments) {
-      if (normalized.kind === 'image_edit' || normalized.kind === 'image') return hasImages;
-      return true;
+      if (expects.includes('upload') || expects.includes('file_reference')) {
+        if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_upload' : 'wrong_attachment_type', pending: normalized };
+        return { action: 'apply', reason: 'attachment_answer', pending: normalized };
+      }
+      if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_attachment_answer' : 'wrong_attachment_type', pending: normalized };
+      return { action: 'apply', reason: 'attachment_answer', pending: normalized };
     }
-    if (!text) return false;
-    if (isSelectionAnswer(text)) return true;
+    if (!text) return { action: 'clear', reason: 'empty_next_turn', pending: normalized };
+    if (isSelectionAnswer(text)) return { action: 'apply', reason: 'selection_answer', pending: normalized };
+    if (isClearlyNewTask(text) && !isShortClarificationPhrase(text)) return { action: 'clear', reason: 'new_task', pending: normalized };
+    if (expects.includes('image_variant') && isShortClarificationPhrase(text)) return { action: 'apply', reason: 'short_image_variant', pending: normalized };
+    if (expects.includes('edit_detail') && (isImageEditIntent(text) || isShortClarificationPhrase(text))) return { action: 'apply', reason: 'edit_detail', pending: normalized };
+    if (expects.includes('file_reference')) return /(这个|该|上面|刚才|文件|文档|附件|重点|结论|摘要|页|表|列|行)/i.test(text)
+      ? { action: 'apply', reason: 'file_reference_text', pending: normalized }
+      : { action: 'clear', reason: 'not_file_answer', pending: normalized };
     if (normalized.kind === 'image_edit' || normalized.kind === 'image') {
-      if (asksForImageVariant(normalized.clarificationText) && isShortClarificationPhrase(text)) return true;
-      if (/(这张|那张|上面|刚才|原图|图片|图\d*|背景|主体|颜色|风格|保留|去掉|删除|替换|改成|换成|清晰|抠图)/i.test(text)) return true;
-      return false;
+      if (/(这张|那张|上面|刚才|原图|图片|图\d*|背景|主体|颜色|风格|保留|去掉|删除|替换|改成|换成|清晰|抠图)/i.test(text)) return { action: 'apply', reason: 'image_context_text', pending: normalized };
+      return { action: 'clear', reason: 'not_image_answer', pending: normalized };
     }
-    if (normalized.kind === 'file_qa') return /(这个|该|上面|刚才|文件|文档|附件|重点|结论|摘要|页|表|列|行)/i.test(text);
-    return /^(是|不是|对|不对|可以|继续|确认|好|就这样|按这个|没错)$/i.test(text);
+    if (/^(是|不是|对|不对|可以|继续|确认|好|就这样|按这个|没错)$/i.test(text) || isShortClarificationPhrase(text)) return { action: 'apply', reason: 'general_detail', pending: normalized };
+    return { action: 'clear', reason: 'not_pending_answer', pending: normalized };
+  }
+
+  function isLikelyClarificationAnswer(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
+    return classifyPendingTurn(pending, { promptText, attachments, quotedMessage, isImageFile }).action === 'apply';
   }
 
   function shouldApplyPending(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
@@ -202,10 +257,13 @@
     isUploadImageClarification,
     isImageEditIntent,
     inferPendingKind,
+    expectedAnswerTypes,
     normalizePendingClarification,
     createPendingClarification,
     findPendingFromHistory,
     asksForImageVariant,
+    classifyPendingTurn,
+    isClearlyNewTask,
     isSelectionAnswer,
     isShortClarificationPhrase,
     isLikelyClarificationAnswer,

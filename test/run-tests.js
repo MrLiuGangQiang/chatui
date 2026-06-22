@@ -207,6 +207,30 @@ function testPendingClarificationAcceptsShortImageVariantAnswer() {
   assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '今天天气怎么样', attachments: [] }), false, 'unrelated ordinary question should not continue pending image request');
 }
 
+function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '窗帘的交叉轨道给我一个图片' },
+      { role: 'assistant', rawText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。' },
+    ],
+    clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
+  });
+  assert.ok(pending.expects.includes('image_variant'));
+  assert.deepStrictEqual(clarificationService.classifyPendingTurn(pending, { promptText: '弯轨交叉', attachments: [] }).action, 'apply');
+  const miss = clarificationService.classifyPendingTurn(pending, { promptText: '讲讲 useMemo', attachments: [] });
+  assert.strictEqual(miss.action, 'clear', 'clear stale pending state when the next turn is clearly a new task');
+
+  const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
+  const nextQuestion = '弯轨交叉要做成什么风格？';
+  const nextPending = {
+    ...firstAnswer.pending,
+    clarificationText: nextQuestion,
+    expects: clarificationService.expectedAnswerTypes({ ...firstAnswer.pending, clarificationText: nextQuestion }),
+  };
+  assert.ok(nextPending.expects.includes('edit_detail'), 'new clarification question should recompute expected answer type for multi-round follow-up');
+  assert.strictEqual(clarificationService.classifyPendingTurn(nextPending, { promptText: '实物照片风格', attachments: [] }).action, 'apply');
+}
+
 function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
@@ -215,8 +239,9 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.58'), 'submit workflow cache version should be bumped for pending clarification fix');
-  assert.ok(index.includes('clarification-service.js?v=1.0.2'), 'clarification service cache version should be bumped for short follow-up fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.59'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('clarification-service.js?v=1.0.3'), 'clarification service cache version should be bumped for pending state machine fix');
+  assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
 function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
@@ -1060,7 +1085,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.58') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.59') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch67'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1783,7 +1808,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.58') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.59') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -1802,6 +1827,7 @@ const tests = [
   testPendingClarificationCanMergeTextFileAndQuote,
   testPendingClarificationCarriesOriginalMultiImageContext,
   testPendingClarificationAcceptsShortImageVariantAnswer,
+  testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound,
   testPendingClarificationClearsAfterMergedSend,
   testPendingClarificationOneShotMissAndMultiRoundContinuity,
   testPendingClarificationCoversImageEditFallbackBranch,

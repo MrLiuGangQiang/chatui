@@ -117,6 +117,21 @@
       || /(第\s*\d+\s*张|第[一二三四五六七八九十]+张|图片?\s*\d+|image\s*\d+)/i.test(value);
   }
 
+  function isShortClarificationPhrase(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return false;
+    if (/[？?。.!！]/.test(value)) return false;
+    if (value.length > 24) return false;
+    if (/^(讲讲|介绍|解释|为什么|怎么|如何|多少|今天|天气|新闻|搜索|查询|打开|帮我写|写一篇)/i.test(value)) return false;
+    return /^[\p{Script=Han}\w\s\-_/、，,]+$/u.test(value);
+  }
+
+  function asksForImageVariant(text = '') {
+    const value = String(text || '');
+    return /(哪一?种|什么样|具体.*(样式|类型|款式|风格|用途)|补充.*(样式|类型|款式|用途)|样式|类型|款式|用途|效果|结构|示意|实物|安装)/i.test(value)
+      && /(图|图片|画面|照片|示意|轨道|窗帘|产品|生成)/i.test(value);
+  }
+
   function isLikelyClarificationAnswer(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return false;
@@ -131,6 +146,7 @@
     if (!text) return false;
     if (isSelectionAnswer(text)) return true;
     if (normalized.kind === 'image_edit' || normalized.kind === 'image') {
+      if (asksForImageVariant(normalized.clarificationText) && isShortClarificationPhrase(text)) return true;
       if (/(这张|那张|上面|刚才|原图|图片|图\d*|背景|主体|颜色|风格|保留|去掉|删除|替换|改成|换成|清晰|抠图)/i.test(text)) return true;
       return false;
     }
@@ -189,7 +205,9 @@
     normalizePendingClarification,
     createPendingClarification,
     findPendingFromHistory,
+    asksForImageVariant,
     isSelectionAnswer,
+    isShortClarificationPhrase,
     isLikelyClarificationAnswer,
     shouldApplyPending,
     mergePendingInput,

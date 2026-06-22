@@ -190,6 +190,23 @@ function testPendingClarificationCarriesOriginalMultiImageContext() {
   assert.ok(merged.promptText.includes('本轮补充：第一张'));
 }
 
+function testPendingClarificationAcceptsShortImageVariantAnswer() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '窗帘的交叉轨道给我一个图片' },
+      { role: 'assistant', rawText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。' },
+    ],
+    clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
+  });
+  assert.ok(pending);
+  assert.ok(['image', 'image_edit'].includes(pending.kind));
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '弯轨交叉', attachments: [] }), true, 'short variant/style answer should continue the pending image generation request');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
+  assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
+  assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
+  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '今天天气怎么样', attachments: [] }), false, 'unrelated ordinary question should not continue pending image request');
+}
+
 function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
@@ -199,6 +216,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   assert.ok(index.includes('submit-workflow.js?v=1.3.58'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('clarification-service.js?v=1.0.2'), 'clarification service cache version should be bumped for short follow-up fix');
 }
 
 function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
@@ -1783,6 +1801,7 @@ const tests = [
   testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup,
   testPendingClarificationCanMergeTextFileAndQuote,
   testPendingClarificationCarriesOriginalMultiImageContext,
+  testPendingClarificationAcceptsShortImageVariantAnswer,
   testPendingClarificationClearsAfterMergedSend,
   testPendingClarificationOneShotMissAndMultiRoundContinuity,
   testPendingClarificationCoversImageEditFallbackBranch,

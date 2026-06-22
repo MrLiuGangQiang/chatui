@@ -8,6 +8,44 @@
     return payload?.error?.message || payload?.message || payload?.raw || fallback;
   }
 
+  function tokenRow(row = []) {
+    return {
+      username: row[0] || '',
+      total_tokens: Number(row[1]) || 0,
+      prompt_tokens: Number(row[2]) || 0,
+      completion_tokens: Number(row[3]) || 0,
+      prompt_cached_tokens: Number(row[4]) || 0,
+      completion_reasoning_tokens: Number(row[5]) || 0,
+    };
+  }
+
+  function departmentRow(row = []) {
+    return {
+      department_id: row[0] == null ? '' : String(row[0]),
+      department_name: row[1] || '',
+      total_tokens: Number(row[2]) || 0,
+      prompt_tokens: Number(row[3]) || 0,
+      completion_tokens: Number(row[4]) || 0,
+      prompt_cached_tokens: Number(row[5]) || 0,
+      completion_reasoning_tokens: Number(row[6]) || 0,
+    };
+  }
+
+  function expandOverview(payload) {
+    if (!payload?.ok || !Array.isArray(payload.rows)) return payload;
+    return { available: true, ranking_range: payload.rr, personal_range: payload.pr, ranking: payload.rows.map(tokenRow), personal: payload.personal ? tokenRow(payload.personal) : null };
+  }
+
+  function expandDepartmentSummary(payload) {
+    if (!payload?.ok || !Array.isArray(payload.rows)) return payload;
+    return { available: true, authorized: payload.authorized !== false, range: payload.r, ranking: payload.rows.map(departmentRow) };
+  }
+
+  function expandDepartmentUsers(payload) {
+    if (!payload?.ok || !Array.isArray(payload.rows)) return payload;
+    return { available: true, range: payload.r, department_id: payload.d, users: payload.rows.map(tokenRow) };
+  }
+
   async function requestRanking(range = 'today') {
     const response = await fetch(`/api/usage/rankings?range=${encodeURIComponent(range)}`, { method: 'GET' });
     const payload = await parseJson(response);
@@ -27,6 +65,17 @@
     return payload;
   }
 
+  async function requestOverview(apiKey, rankingRange = 'today', personalRange = 'today') {
+    const response = await fetch('/api/usage/overview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey || '', ranking_range: rankingRange, personal_range: personalRange, compact: true }),
+    });
+    const payload = await parseJson(response);
+    if (!response.ok) throw new Error(errorMessage(payload, '查询使用统计失败'));
+    return expandOverview(payload);
+  }
+
   async function verifyDepartmentPassword(password) {
     const response = await fetch('/api/usage/department/verify', {
       method: 'POST',
@@ -42,22 +91,33 @@
     const response = await fetch('/api/usage/department/rankings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, range }),
+      body: JSON.stringify({ password, range, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询部门统计失败'));
-    return payload;
+    return expandDepartmentSummary(payload);
+  }
+
+  async function requestDepartmentSummary(password, range = 'today') {
+    const response = await fetch('/api/usage/department/summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, range, compact: true }),
+    });
+    const payload = await parseJson(response);
+    if (!response.ok) throw new Error(errorMessage(payload, '查询部门统计失败'));
+    return expandDepartmentSummary(payload);
   }
 
   async function requestDepartmentUsers(password, departmentId, range = 'today') {
     const response = await fetch('/api/usage/department/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, department_id: departmentId, range }),
+      body: JSON.stringify({ password, department_id: departmentId, range, compact: true }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '查询部门用户统计失败'));
-    return payload;
+    return expandDepartmentUsers(payload);
   }
 
   async function exportDepartmentUsage(password, range = 'today') {
@@ -80,9 +140,11 @@
 
   window.ChatUIServices = window.ChatUIServices || {};
   window.ChatUIServices.usageStats = {
+    requestOverview,
     requestRanking,
     requestPersonal,
     verifyDepartmentPassword,
+    requestDepartmentSummary,
     requestDepartmentRanking,
     requestDepartmentUsers,
     exportDepartmentUsage,

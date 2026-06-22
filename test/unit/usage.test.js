@@ -182,6 +182,42 @@ async function testUsageServiceBuildsDepartmentExportWorkbookFromRepository() {
   assert.ok(workbookXml.includes('研发部上周排行统计'));
 }
 
+async function testUsageServiceOptimizesDepartmentExportWithBulkUsers() {
+  const calls = [];
+  const usageStats = {
+    async getDepartmentRanking(range) {
+      calls.push(['ranking', range]);
+      return [{ department_id: 'dept-1', department_name: '研发部', total_tokens: 100, prompt_tokens: 60, completion_tokens: 40, prompt_cached_tokens: 20, completion_reasoning_tokens: 5 }];
+    },
+    async getAllDepartmentUsers(range) {
+      calls.push(['all-users', range]);
+      return [{ department_id: 'dept-1', username: '张三', total_tokens: 80, prompt_tokens: 50, completion_tokens: 30, prompt_cached_tokens: 10, completion_reasoning_tokens: 2 }];
+    },
+    async getDepartmentUsers() {
+      calls.push(['users-fallback']);
+      return [];
+    },
+    async getDepartmentRangeBounds(range) {
+      calls.push(['bounds', range]);
+      return { start_time: new Date('2026-06-12T00:00:00+08:00'), end_time: new Date('2026-06-12T13:00:05+08:00') };
+    },
+  };
+  const workbook = await usageService.getDepartmentExportWorkbook(usageStats, 'today');
+  assert.ok(Buffer.isBuffer(workbook));
+  assert.deepStrictEqual(calls, [['ranking', 'today'], ['all-users', 'today'], ['bounds', 'today']]);
+}
+
+async function testUsageServiceOverviewCombinesPersonalAndRanking() {
+  const calls = [];
+  const usageStats = {
+    async getRanking(range) { calls.push(['ranking', range]); return [{ username: 'A', total_tokens: 1 }]; },
+    async getPersonalRange(apiKey, range) { calls.push(['personal', apiKey, range]); return { username: 'Me', total_tokens: 2 }; },
+  };
+  const overview = await usageService.getOverview(usageStats, 'sk-test', 'today', 'yesterday');
+  assert.deepStrictEqual(calls, [['ranking', 'today'], ['personal', 'sk-test', 'yesterday']]);
+  assert.deepStrictEqual(overview, { ranking: [{ username: 'A', total_tokens: 1 }], personal: { username: 'Me', total_tokens: 2 } });
+}
+
 function testConfigPublicConfigReader() {
   const fs = require('fs');
   const os = require('os');
@@ -206,5 +242,7 @@ module.exports = [
   testUsageValidatorNormalizesInputs,
   testUsageValidatorRateLimitPreservesContract,
   testUsageServiceBuildsDepartmentExportWorkbookFromRepository,
+  testUsageServiceOptimizesDepartmentExportWithBulkUsers,
+  testUsageServiceOverviewCombinesPersonalAndRanking,
   testConfigPublicConfigReader,
 ];

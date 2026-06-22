@@ -19,6 +19,14 @@ function departmentUnavailablePayload(reason = '部门统计密码未配置，�
   };
 }
 
+function compactTokenRow(row = {}) {
+  return [row.username || '', row.total_tokens || 0, row.prompt_tokens || 0, row.completion_tokens || 0, row.prompt_cached_tokens || 0, row.completion_reasoning_tokens || 0];
+}
+
+function compactDepartmentRow(row = {}) {
+  return [row.department_id || '', row.department_name || '', row.total_tokens || 0, row.prompt_tokens || 0, row.completion_tokens || 0, row.prompt_cached_tokens || 0, row.completion_reasoning_tokens || 0];
+}
+
 async function readJsonBody(req, res, sendJson) {
   try {
     return parseJson(await readBody(req));
@@ -42,6 +50,44 @@ function validateDepartmentAccess(body, res, sendJson) {
 }
 
 function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, send }) {
+  async function routeOverview(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    const apiKey = usageValidator.normalizeApiKey(body);
+    const rankingRange = usageValidator.normalizePersonalRange(body?.ranking_range || body?.rankingRange || body?.range);
+    const personalRange = usageValidator.normalizePersonalRange(body?.personal_range || body?.personalRange || body?.range);
+    if (!rankingRange || !personalRange) return sendJson(res, 400, { error: { message: '不支持的统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    const limitResult = usageValidator.checkUsageRefreshLimit(req, 'overview');
+    if (!limitResult.allowed) {
+      return sendJson(res, 200, {
+        available: true,
+        limited: true,
+        message: '请不要频繁刷新，请一分钟后重试',
+        ranking: [],
+        personal: null,
+      }, usageValidator.usageRateLimitHeaders(limitResult));
+    }
+    if (!usageStats) return sendJson(res, 200, unavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const overview = await usageService.getOverview(usageStats, apiKey, rankingRange, personalRange);
+      if (body?.compact) {
+        return sendJson(res, 200, {
+          ok: 1,
+          available: true,
+          rr: rankingRange,
+          pr: personalRange,
+          rows: (overview.ranking || []).map(compactTokenRow),
+          personal: overview.personal ? compactTokenRow(overview.personal) : null,
+        }, { 'Access-Control-Allow-Origin': '*' });
+      }
+      return sendJson(res, 200, { available: true, ranking_range: rankingRange, personal_range: personalRange, ...overview }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] overview query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询使用统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
   async function routeRankings(req, res) {
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
     const limitResult = usageValidator.checkUsageRefreshLimit(req, 'rankings');
@@ -103,6 +149,33 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, sen
     return sendJson(res, 200, { available: true, authorized: true }, { 'Access-Control-Allow-Origin': '*' });
   }
 
+  async function routeDepartmentSummary(req, res) {
+    if (req.method !== 'POST') return sendMethodNotAllowed(res);
+    const body = await readJsonBody(req, res, sendJson);
+    if (!body) return;
+    if (!validateDepartmentAccess(body, res, sendJson)) return;
+    if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
+    const range = usageValidator.normalizeDepartmentRange(body?.range);
+    if (!range) return sendJson(res, 400, { error: { message: '不支持的部门统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
+    try {
+      const summary = await usageService.getDepartmentSummary(usageStats, range);
+      if (body?.compact) {
+        return sendJson(res, 200, {
+          ok: 1,
+          available: true,
+          authorized: true,
+          r: range,
+          rows: (summary.ranking || []).map(compactDepartmentRow),
+        }, { 'Access-Control-Allow-Origin': '*' });
+      }
+      return sendJson(res, 200, { available: true, authorized: true, range, ...summary }, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      console.error('[usage] department summary query failed:', err);
+      return sendJson(res, 500, { error: { message: '查询部门统计失败' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  }
+
+
   async function routeDepartmentRankings(req, res) {
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
@@ -132,6 +205,9 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, sen
     if (!departmentId) return sendJson(res, 400, { error: { message: '缺少部门主键' } }, { 'Access-Control-Allow-Origin': '*' });
     try {
       const users = await usageService.getDepartmentUsers(usageStats, departmentId, range);
+      if (body?.compact) {
+        return sendJson(res, 200, { ok: 1, available: true, r: range, d: departmentId, rows: users.map(compactTokenRow) }, { 'Access-Control-Allow-Origin': '*' });
+      }
       return sendJson(res, 200, { available: true, range, department_id: departmentId, users }, { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
       console.error('[usage] department users query failed:', err);
@@ -169,9 +245,11 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, sen
   }
 
   return {
+    routeOverview,
     routeRankings,
     routePersonal,
     routeDepartmentVerify,
+    routeDepartmentSummary,
     routeDepartmentRankings,
     routeDepartmentUsers,
     routeDepartmentExport,

@@ -166,6 +166,36 @@ async function testApiContractUsageConfiguredValidationShapes() {
   assert.deepStrictEqual(invalidPersonalRange.json, { error: { message: '不支持的统计范围' } });
 }
 
+async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
+  const previousPassword = process.env.USAGE_DEPARTMENT_PASSWORD;
+  process.env.USAGE_DEPARTMENT_PASSWORD = 'dep-pass';
+  try {
+    const overview = await invokeUsageRoute('/api/usage/overview', {
+      method: 'POST',
+      body: JSON.stringify({ api_key: 'sk-test', ranking_range: 'today', personal_range: 'yesterday', compact: true }),
+      usageStats: {
+        async getRanking(range) { return [{ username: `rank-${range}`, total_tokens: 10, prompt_tokens: 6, completion_tokens: 4, prompt_cached_tokens: 1, completion_reasoning_tokens: 2 }]; },
+        async getPersonalRange(apiKey, range) { return { username: `${apiKey}-${range}`, total_tokens: 20, prompt_tokens: 12, completion_tokens: 8, prompt_cached_tokens: 3, completion_reasoning_tokens: 4 }; },
+      },
+    });
+    assert.strictEqual(overview.status, 200);
+    assert.deepStrictEqual(overview.json, { ok: 1, available: true, rr: 'today', pr: 'yesterday', rows: [['rank-today', 10, 6, 4, 1, 2]], personal: ['sk-test-yesterday', 20, 12, 8, 3, 4] });
+
+    const summary = await invokeUsageRoute('/api/usage/department/summary', {
+      method: 'POST',
+      body: JSON.stringify({ password: 'dep-pass', range: 'today', compact: true }),
+      usageStats: {
+        async getDepartmentRanking(range) { return [{ department_id: 'dept-1', department_name: `研发-${range}`, total_tokens: 30, prompt_tokens: 18, completion_tokens: 12, prompt_cached_tokens: 5, completion_reasoning_tokens: 6 }]; },
+      },
+    });
+    assert.strictEqual(summary.status, 200);
+    assert.deepStrictEqual(summary.json, { ok: 1, available: true, authorized: true, r: 'today', rows: [['dept-1', '研发-today', 30, 18, 12, 5, 6]] });
+  } finally {
+    if (previousPassword === undefined) delete process.env.USAGE_DEPARTMENT_PASSWORD;
+    else process.env.USAGE_DEPARTMENT_PASSWORD = previousPassword;
+  }
+}
+
 async function testApiContractJobMissingAndAbortShapes() {
   await withServer(async baseUrl => {
     const missingChat = await request(baseUrl, '/api/chat-jobs/missing-job');
@@ -190,5 +220,6 @@ module.exports = [
   testApiContractMethodAndCorsPreflight,
   testApiContractUsageUnavailableAndValidationShapes,
   testApiContractUsageConfiguredValidationShapes,
+  testApiContractUsageCombinedEndpointsKeepCompatibility,
   testApiContractJobMissingAndAbortShapes,
 ];

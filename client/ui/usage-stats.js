@@ -93,7 +93,6 @@
     }
     if (!personal) {
       el.innerHTML = '<div class="usage-empty">暂无个人统计数据。</div>';
-      bindPersonalRangeButtons();
       return;
     }
     const row = personal;
@@ -114,7 +113,6 @@
         </div>
       </div>
     `;
-    bindPersonalRangeButtons();
   }
 
   function rangeLabel(range) {
@@ -123,21 +121,6 @@
 
   function tabLabel(range) {
     return viewHelpers.tabLabel(range, activeMode);
-  }
-
-  function bindPersonalRangeButtons() {
-    document.querySelectorAll('[data-personal-range]').forEach(button => {
-      button.addEventListener('click', async () => {
-        activePersonalRange = button.dataset.personalRange || 'today';
-        document.querySelectorAll('[data-personal-range]').forEach(item => item.classList.toggle('active', item === button));
-        try {
-          clearUsageLimit();
-          await loadPersonal(activePersonalRange);
-        } catch (err) {
-          showUsageLimit(err.message || '加载失败');
-        }
-      });
-    });
   }
 
   function renderTokenBadges(row, options = {}) {
@@ -159,7 +142,6 @@
     if (!el) return;
     el.classList.toggle('usage-tabs-department', activeMode === 'department');
     el.innerHTML = tabs.map(([key, label]) => `<button type="button" data-usage-tab="${key}" class="${key === selected ? 'active' : ''}">${label}</button>`).join('');
-    bindTabs();
   }
 
   function renderRanking(rows = [], range = 'today') {
@@ -184,7 +166,6 @@
           </div>`;
         }).join('')}
       </div>`;
-    bindDepartmentRows();
   }
 
   function renderDepartmentUsers(departmentName, rows = []) {
@@ -198,10 +179,10 @@
           <span class="usage-ranking-user" title="${escapeHtml(row.username || '-')}">${escapeHtml(row.username || '-')}</span>
           <div class="usage-token-grid">${renderTokenBadges(row, { raw: true })}</div>
         </div>`).join('')}</div>` : '<div class="usage-empty">暂无人员统计数据。</div>'}`;
-    $('usageBackDepartments')?.addEventListener('click', () => renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange));
   }
 
-  let cache = { rankings: {}, personal: {}, departmentRankings: {}, departmentUsers: {} };
+  const CACHE_TTL_MS = 30 * 1000;
+  let cache = { rankings: {}, personal: {}, departmentRankings: {}, departmentUsers: {}, fetchedAt: {} };
   let activeRange = 'today';
   let activePersonalRange = 'today';
   let activeDepartmentRange = 'today';
@@ -210,6 +191,29 @@
   function clearDepartmentCache() {
     cache.departmentRankings = {};
     cache.departmentUsers = {};
+    Object.keys(cache.fetchedAt).forEach(key => key.startsWith('department:') && delete cache.fetchedAt[key]);
+  }
+
+  function cacheFresh(key) {
+    return Date.now() - Number(cache.fetchedAt[key] || 0) < CACHE_TTL_MS;
+  }
+
+  function markFetched(key) {
+    cache.fetchedAt[key] = Date.now();
+  }
+
+  function shortHash(value = '') {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function personalCacheKey(range, apiKey = currentApiKey()) {
+    return `personal:${shortHash(apiKey)}:${range}`;
   }
 
   function usageService() {
@@ -262,10 +266,15 @@
     return promptAndVerifyDepartmentPassword();
   }
 
-  async function loadRanking(range) {
+  async function loadRanking(range, options = {}) {
     if (!shouldLoadRanking(currentApiKey())) {
       cache.rankings[range] = [];
       renderRanking([], range);
+      return;
+    }
+    const cacheKey = `ranking:${range}`;
+    if (!options.force && cacheFresh(cacheKey) && cache.rankings[range]) {
+      renderRanking(cache.rankings[range], range);
       return;
     }
     const payload = await usageService().requestRanking(range);
@@ -280,28 +289,85 @@
       return;
     }
     cache.rankings[range] = payload.ranking || [];
+    markFetched(cacheKey);
     renderRanking(cache.rankings[range], range);
   }
 
-  async function loadPersonal(range) {
+  async function loadPersonal(range, options = {}) {
     const apiKey = currentApiKey();
     if (!apiKey) {
       renderPersonal(null, false);
       return;
     }
+    const cacheKey = personalCacheKey(range, apiKey);
+    if (!options.force && cacheFresh(cacheKey) && Object.prototype.hasOwnProperty.call(cache.personal, cacheKey)) {
+      renderPersonal(cache.personal[cacheKey] || null, true);
+      return;
+    }
     const payload = await usageService().requestPersonal(apiKey, range);
     if (payload.limited) {
       showUsageLimit(payload.message);
-      renderPersonal(cache.personal[range] || null, true);
+      renderPersonal(cache.personal[cacheKey] || null, true);
       return;
     }
-    cache.personal[range] = payload?.personal || null;
-    renderPersonal(cache.personal[range], true);
+    cache.personal[cacheKey] = payload?.personal || null;
+    markFetched(cacheKey);
+    renderPersonal(cache.personal[cacheKey], true);
   }
 
-  async function loadDepartmentRanking(range) {
+  async function loadOverview(options = {}) {
+    const apiKey = currentApiKey();
+    if (!apiKey) {
+      cache.rankings[activeRange] = [];
+      renderRanking([], activeRange);
+      renderPersonal(null, false);
+      return;
+    }
+    const rankingKey = `ranking:${activeRange}`;
+    const personalKey = personalCacheKey(activePersonalRange, apiKey);
+    if (!options.force && cacheFresh(rankingKey) && cacheFresh(personalKey) && cache.rankings[activeRange] && Object.prototype.hasOwnProperty.call(cache.personal, personalKey)) {
+      renderRanking(cache.rankings[activeRange], activeRange);
+      renderPersonal(cache.personal[personalKey] || null, true);
+      return;
+    }
+    const service = usageService();
+    if (!service?.requestOverview) {
+      await Promise.all([loadRanking(activeRange, options), loadPersonal(activePersonalRange, options)]);
+      return;
+    }
+    const payload = await service.requestOverview(apiKey, activeRange, activePersonalRange);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderRanking(cache.rankings[activeRange] || [], activeRange);
+      renderPersonal(cache.personal[personalKey] || null, true);
+      return;
+    }
+    if (!payload.available) {
+      cache.rankings[activeRange] = [];
+      cache.personal[personalKey] = null;
+      renderRanking([], activeRange);
+      renderPersonal(null, true);
+      return;
+    }
+    cache.rankings[activeRange] = payload.ranking || [];
+    cache.personal[personalKey] = payload.personal || null;
+    markFetched(rankingKey);
+    markFetched(personalKey);
+    renderRanking(cache.rankings[activeRange], activeRange);
+    renderPersonal(cache.personal[personalKey], true);
+  }
+
+  async function loadDepartmentRanking(range, options = {}) {
     const password = getDepartmentPassword();
-    const payload = await usageService().requestDepartmentRanking(password, range);
+    const cacheKey = `department:ranking:${range}`;
+    if (!options.force && cacheFresh(cacheKey) && cache.departmentRankings[range]) {
+      renderRanking(cache.departmentRankings[range], range);
+      return;
+    }
+    const service = usageService();
+    const payload = service?.requestDepartmentSummary
+      ? await service.requestDepartmentSummary(password, range)
+      : await service.requestDepartmentRanking(password, range);
     if (payload.limited) {
       showUsageLimit(payload.message);
       renderRanking(cache.departmentRankings[range] || [], range);
@@ -314,6 +380,7 @@
       return;
     }
     cache.departmentRankings[range] = payload.ranking || [];
+    markFetched(cacheKey);
     renderRanking(cache.departmentRankings[range], range);
   }
 
@@ -340,12 +407,9 @@
     refresh && (refresh.disabled = true);
     try {
       if (activeMode === 'department') {
-        await loadDepartmentRanking(activeDepartmentRange);
+        await loadDepartmentRanking(activeDepartmentRange, { force: true });
       } else {
-        await Promise.all([
-          loadRanking(activeRange),
-          loadPersonal(activePersonalRange),
-        ]);
+        await loadOverview({ force: true });
       }
     } catch (err) {
       if (String(err.message || '').includes('密码错误')) {
@@ -397,49 +461,66 @@
     await refreshUsageStats();
   }
 
-  function bindDepartmentRows() {
-    document.querySelectorAll('[data-department-id]').forEach(row => {
-      const open = async () => {
-        try {
-          clearUsageLimit();
-          await loadDepartmentUsers(row.dataset.departmentId, row.dataset.departmentName || '部门');
-        } catch (err) {
-          if (String(err.message || '').includes('密码错误')) {
-            clearDepartmentPassword();
-            clearDepartmentCache();
-          }
-          showUsageLimit(err.message || '查询部门用户统计失败');
-        }
-      };
-      row.addEventListener('click', open);
-      row.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          open();
-        }
-      });
-    });
+  async function handlePersonalRangeClick(button) {
+    activePersonalRange = button.dataset.personalRange || 'today';
+    document.querySelectorAll('[data-personal-range]').forEach(item => item.classList.toggle('active', item === button));
+    try {
+      clearUsageLimit();
+      await loadPersonal(activePersonalRange);
+    } catch (err) {
+      showUsageLimit(err.message || '加载失败');
+    }
   }
 
-  function bindTabs() {
-    document.querySelectorAll('[data-usage-tab]').forEach(button => {
-      button.addEventListener('click', async () => {
-        if (activeMode === 'department') activeDepartmentRange = button.dataset.usageTab || 'today';
-        else activeRange = button.dataset.usageTab || 'today';
-        document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
-        try {
-          clearUsageLimit();
-          if (activeMode === 'department') await loadDepartmentRanking(activeDepartmentRange);
-          else await loadRanking(activeRange);
-        } catch (err) {
-          if (String(err.message || '').includes('密码错误')) {
-            clearDepartmentPassword();
-            clearDepartmentCache();
-          }
-          showUsageLimit(err.message || '加载失败');
-        }
-      });
-    });
+  async function handleUsageTabClick(button) {
+    if (activeMode === 'department') activeDepartmentRange = button.dataset.usageTab || 'today';
+    else activeRange = button.dataset.usageTab || 'today';
+    document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
+    try {
+      clearUsageLimit();
+      if (activeMode === 'department') await loadDepartmentRanking(activeDepartmentRange);
+      else await loadRanking(activeRange);
+    } catch (err) {
+      if (String(err.message || '').includes('密码错误')) {
+        clearDepartmentPassword();
+        clearDepartmentCache();
+      }
+      showUsageLimit(err.message || '加载失败');
+    }
+  }
+
+  async function openDepartmentRow(row) {
+    try {
+      clearUsageLimit();
+      await loadDepartmentUsers(row.dataset.departmentId, row.dataset.departmentName || '部门');
+    } catch (err) {
+      if (String(err.message || '').includes('密码错误')) {
+        clearDepartmentPassword();
+        clearDepartmentCache();
+      }
+      showUsageLimit(err.message || '查询部门用户统计失败');
+    }
+  }
+
+  function handleDelegatedPanelClick(event) {
+    const target = event.target;
+    if (target?.id === 'usageStatsPanel') return closePanel();
+    const backButton = target?.closest?.('#usageBackDepartments');
+    if (backButton) return renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange);
+    const personalRangeButton = target?.closest?.('[data-personal-range]');
+    if (personalRangeButton) return handlePersonalRangeClick(personalRangeButton);
+    const tabButton = target?.closest?.('[data-usage-tab]');
+    if (tabButton) return handleUsageTabClick(tabButton);
+    const departmentRow = target?.closest?.('[data-department-id]');
+    if (departmentRow) return openDepartmentRow(departmentRow);
+  }
+
+  function handleDelegatedPanelKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const departmentRow = event.target?.closest?.('[data-department-id]');
+    if (!departmentRow) return;
+    event.preventDefault();
+    openDepartmentRow(departmentRow);
   }
 
   async function exportDepartmentUsage() {
@@ -483,9 +564,8 @@
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
     $('usageStatsModeToggle')?.addEventListener('click', switchMode);
     $('usageStatsExport')?.addEventListener('click', exportDepartmentUsage);
-    $('usageStatsPanel')?.addEventListener('click', event => {
-      if (event.target?.id === 'usageStatsPanel') closePanel();
-    });
+    $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
+    $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = { currentApiKey, renderPersonal, renderRanking, renderDepartmentUsers };

@@ -35,6 +35,13 @@ function normalizeDepartmentRow(row = {}) {
   };
 }
 
+function normalizeDepartmentUserRow(row = {}) {
+  return {
+    department_id: row.department_id == null ? '' : String(row.department_id),
+    ...normalizeTokenRow(row),
+  };
+}
+
 function normalizeRankingLimit(value, fallback = 10) {
   const limit = Number(value || fallback);
   if (!Number.isFinite(limit) || limit <= 0) return fallback;
@@ -119,6 +126,24 @@ function createUsageStatsRepository(pool, options = {}) {
     return result.rows.map(normalizeTokenRow);
   }
 
+  async function getAllDepartmentUsers(range) {
+    const filter = DEPARTMENT_RANGE_FILTERS[range];
+    if (!filter) throw new Error(`Unsupported department usage range: ${range}`);
+    const sql = `
+      SELECT
+        ul.project_id::text AS department_id,
+        COALESCE(ak."name", '') AS username,
+        ${TOKEN_COLUMNS}
+      FROM usage_logs ul
+      INNER JOIN api_keys ak ON ul.api_key_id = ak.id
+      WHERE ${filter}
+      GROUP BY ul.project_id, ak."name"
+      ORDER BY ul.project_id, total_tokens DESC
+    `;
+    const result = await pool.query(sql);
+    return result.rows.map(normalizeDepartmentUserRow);
+  }
+
   async function getDepartmentRangeBounds(range) {
     const sql = DEPARTMENT_RANGE_BOUNDS_SQL[range];
     if (!sql) throw new Error(`Unsupported department usage range: ${range}`);
@@ -126,7 +151,7 @@ function createUsageStatsRepository(pool, options = {}) {
     return normalizeRangeBounds(result.rows[0]);
   }
 
-  return { getRanking, getPersonalRange, getDepartmentRanking, getDepartmentUsers, getDepartmentRangeBounds };
+  return { getRanking, getPersonalRange, getDepartmentRanking, getDepartmentUsers, getAllDepartmentUsers, getDepartmentRangeBounds };
 }
 
 module.exports = { createUsageStatsRepository };

@@ -231,6 +231,26 @@ function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRoun
   assert.strictEqual(clarificationService.classifyPendingTurn(nextPending, { promptText: '实物照片风格', attachments: [] }).action, 'apply');
 }
 
+function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '窗帘的交叉轨道给我一个图片' },
+      { role: 'assistant', rawText: '[图片生成完成] 生成一张清晰的窗帘交叉轨道示意图。' },
+      { role: 'user', rawText: '不是这个啊' },
+      { role: 'assistant', rawText: '你想要的是哪种窗帘交叉轨道图片？可以描述一下你要的样式，例如：实物产品图、安装结构图、顶装/侧装、双轨交叉、弯轨交叉，或发一张参考图。' },
+    ],
+    clarificationText: '你想要的是哪种窗帘交叉轨道图片？可以描述一下你要的样式，例如：实物产品图、安装结构图、顶装/侧装、双轨交叉、弯轨交叉，或发一张参考图。',
+    routeInfo: { mode: 'chat', intent: 'image_edit' },
+  });
+  assert.ok(pending);
+  assert.strictEqual(pending.originalText, '窗帘的交叉轨道给我一个图片', 'vague negative feedback should preserve the previous image request as pending origin');
+  assert.strictEqual(clarificationService.classifyPendingTurn(pending, { promptText: '弯轨交叉', quotedMessage: { role: 'user', content: '不是这个啊' }, attachments: [] }).action, 'apply');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', quotedMessage: { role: 'user', content: '不是这个啊' }, quoteText: '不是这个啊' });
+  assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
+  assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
+  assert.ok(!merged.promptText.startsWith('不是这个啊'), 'merged prompt should not degrade to the vague feedback text');
+}
+
 function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
@@ -239,8 +259,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.59'), 'submit workflow cache version should be bumped for pending clarification fix');
-  assert.ok(index.includes('clarification-service.js?v=1.0.3'), 'clarification service cache version should be bumped for pending state machine fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.60'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('clarification-service.js?v=1.0.4'), 'clarification service cache version should be bumped for pending state machine fix');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
@@ -1085,7 +1105,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.59') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.60') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch67'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1528,7 +1548,7 @@ function testChatJobIdIsPersistedBeforeRouteResolution() {
   const routeIndex = submit.indexOf('routeInfo=await getEffectiveRoute');
   assert.ok(prepareIndex >= 0 && routeIndex > prepareIndex, 'submit should prepare and persist a managed chat job id before route resolution can be interrupted by refresh');
   assert.ok(submit.includes('saveChatJob(sessionId,{id:preparedChatJobId,prompt:promptText,startedAt:Date.now(),displayItemId:liveItem.id||"",responseIndex,mode:"chat"})'), 'submit should immediately save the client chat job id with display item and response index');
-  assert.ok(submit.includes('await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacement?.responseIndex,requestBaseMessages,quotedMessage,clientJobId:preparedChatJobId})'), 'sendChat should receive the pre-persisted job id instead of allocating a second id');
+  assert.ok(submit.includes('await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacement?.responseIndex,requestBaseMessages,quotedMessage:pendingMerge?.merged?null:quotedMessage,clientJobId:preparedChatJobId})'), 'sendChat should receive the pre-persisted job id and ignore unrelated quoted messages when a pending clarification was merged');
   assert.ok(chat.includes('let f=useManagedChatJob?(n.clientJobId||u?.jobId||makeClientChatJobId()):null'), 'chat workflow should reuse the pre-persisted job id and only allocate a fallback when absent');
   assert.ok(chat.includes('persistChatJobSnapshot') && chat.includes('deps.saveChatJobWithMedia(sessionId, { ...job, payload })'), 'chat workflow should enrich the same job record with payload once the final payload exists');
   assert.ok(app.includes('makeClientChatJobId,saveChatJob,clearChatJob,shouldPrepareManagedChatJob'), 'app bootstrap should inject the single chat job id lifecycle into submit workflow');
@@ -1808,7 +1828,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.59') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.60') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -1828,6 +1848,7 @@ const tests = [
   testPendingClarificationCarriesOriginalMultiImageContext,
   testPendingClarificationAcceptsShortImageVariantAnswer,
   testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound,
+  testPendingClarificationUsesPreviousImageRequestForVagueFeedback,
   testPendingClarificationClearsAfterMergedSend,
   testPendingClarificationOneShotMissAndMultiRoundContinuity,
   testPendingClarificationCoversImageEditFallbackBranch,

@@ -98,15 +98,36 @@
     return null;
   }
 
+  function isVagueImageFeedback(text = '') {
+    return /^(不是(这个|这样|这种)?|不对|不太对|不满意|换一个|重新来|重做|不要这个|不是这个啊|不行)$/i.test(String(text || '').trim());
+  }
+
+  function findPreviousImageRequest(messages = [], beforeIndex = messages.length) {
+    for (let i = Math.min(beforeIndex - 1, messages.length - 1); i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role !== 'user') continue;
+      const text = textOfMessage(message).replace(/\n\s*\[(image|file) id=.*$/is, '').trim();
+      if (!text || isVagueImageFeedback(text)) continue;
+      if (/(画|生成|图片|图|海报|头像|插画|logo|图标|照片|示意|产品图|效果图|窗帘|轨道|修改|编辑|改)/i.test(text)) return { text, index: i, message };
+    }
+    return null;
+  }
+
   function createPendingClarification({ messages = [], clarificationText = '', routeInfo = null, sourceImageContext = null, sourceAttachmentContext = null, sourceQuoteContext = null } = {}) {
     const latestUser = findLastUserBeforeAssistant(messages, messages.length);
     if (!latestUser?.text) return null;
-    const kind = inferPendingKind({ originalText: latestUser.text, clarificationText });
+    const routePrompt = String(routeInfo?.contextualImagePrompt || routeInfo?.contextual_image_prompt || routeInfo?.editInstruction || routeInfo?.edit_instruction || '').trim();
+    const routeLooksImage = /image|edit|图|图片|生成|修改|编辑/i.test(`${routeInfo?.mode || ''} ${routeInfo?.intent || ''} ${clarificationText}`);
+    const previousImageRequest = routeLooksImage && isVagueImageFeedback(latestUser.text)
+      ? (routePrompt ? { text: routePrompt, index: latestUser.index, message: latestUser.message } : findPreviousImageRequest(messages, latestUser.index))
+      : null;
+    const originalText = previousImageRequest?.text || latestUser.text;
+    const kind = inferPendingKind({ originalText, clarificationText });
     return normalizePendingClarification({
       kind,
-      originalText: latestUser.text,
+      originalText,
       clarificationText,
-      expects: expectedAnswerTypes({ kind, originalText: latestUser.text, clarificationText }),
+      expects: expectedAnswerTypes({ kind, originalText, clarificationText }),
       routeInfo: routeInfo ? { mode: routeInfo.mode, target: routeInfo.target, intent: routeInfo.intent } : null,
       sourceImageContext,
       sourceAttachmentContext,
@@ -180,7 +201,6 @@
     const hasAttachments = hasAnyAttachment(attachments);
     const hasImages = hasImageAttachment(attachments, isImageFile);
     const expects = Array.isArray(normalized.expects) && normalized.expects.length ? normalized.expects : expectedAnswerTypes(normalized);
-    if (quotedMessage) return { action: 'apply', reason: 'quoted_message', pending: normalized };
     if (hasAttachments) {
       if (expects.includes('upload') || expects.includes('file_reference')) {
         if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_upload' : 'wrong_attachment_type', pending: normalized };
@@ -189,6 +209,7 @@
       if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_attachment_answer' : 'wrong_attachment_type', pending: normalized };
       return { action: 'apply', reason: 'attachment_answer', pending: normalized };
     }
+    if (quotedMessage && (expects.includes('upload') || expects.includes('file_reference'))) return { action: 'apply', reason: 'quoted_message', pending: normalized };
     if (!text) return { action: 'clear', reason: 'empty_next_turn', pending: normalized };
     if (isSelectionAnswer(text)) return { action: 'apply', reason: 'selection_answer', pending: normalized };
     if (isClearlyNewTask(text) && !isShortClarificationPhrase(text)) return { action: 'clear', reason: 'new_task', pending: normalized };
@@ -263,7 +284,9 @@
     findPendingFromHistory,
     asksForImageVariant,
     classifyPendingTurn,
+    findPreviousImageRequest,
     isClearlyNewTask,
+    isVagueImageFeedback,
     isSelectionAnswer,
     isShortClarificationPhrase,
     isLikelyClarificationAnswer,

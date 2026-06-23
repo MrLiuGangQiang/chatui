@@ -99,7 +99,7 @@
   }
 
   function isVagueImageFeedback(text = '') {
-    return /^(不是(这个|这样|这种)?|不对|不太对|不满意|换一个|重新来|重做|不要这个|不是这个啊|不行)$/i.test(String(text || '').trim());
+    return /^(不是(这个|这样|这种)?|不对|不太对|不满意|不满意[，,\s]*(帮我)?改(一下)?|换一个|重新来|重做|不要这个|不是这个啊|不行)$/i.test(String(text || '').trim());
   }
 
   function findPreviousImageRequest(messages = [], beforeIndex = messages.length) {
@@ -113,6 +113,89 @@
     return null;
   }
 
+  function findPreviousImageResultContext(messages = [], beforeIndex = messages.length) {
+    for (let i = Math.min(beforeIndex - 1, messages.length - 1); i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role !== 'assistant') continue;
+      const context = message.imageContext || message.image_context;
+      if (context) return context;
+    }
+    return null;
+  }
+
+  const CONTINUATION_SYSTEM_PROMPT = `你是 ChatUI 任务延续分类器，只返回 JSON。
+
+你的任务：判断最新用户输入是否在回答/延续一个未完成的追问，并生成 final_prompt。
+
+重要原则：你不是提示词优化器。final_prompt 只做最小语义补全：根据 base_task 和当前回答补齐省略对象或引用。不要添加用户没说的风格、画质、镜头、构图、氛围、细节或创意发挥。尽量保留用户原话。
+
+必须返回：
+{"relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"answer_text":"","final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"should_merge":false,"should_clear_pending":false,"reason":""}
+
+规则：
+- pending_answer：用户在回答追问。
+- revision/continuation：用户在延续或修改 base_task。
+- new_task：用户开启无关新任务。
+- unclear：信息不足。
+- final_prompt 必须是可直接执行的自然请求，不能包含“本轮补充/原始任务”等内部事务文本。
+- 如果生成 final_prompt 需要加入 base_task/current_input 都没有的信息，就不要加入。
+- 示例：base_task=晚霞图，current_input=山巅的 => final_prompt=山巅的晚霞图。
+- 示例：base_task=晚霞图，current_input=不要湖泊 => final_prompt=晚霞图，不要湖泊。`;
+
+  function buildContinuationClassifierPayload({ model, pending, currentInput = '', attachments = [], quoteText = '', recentMessages = [] } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    return {
+      model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: CONTINUATION_SYSTEM_PROMPT },
+        { role: 'user', content: JSON.stringify({
+          pending: normalized ? {
+            kind: normalized.kind,
+            base_task: normalized.originalText,
+            question: normalized.clarificationText,
+            expects: normalized.expects || [],
+            route_info: normalized.routeInfo || null,
+            has_source_image: !!normalized.sourceImageContext,
+            has_source_attachment: !!normalized.sourceAttachmentContext,
+            supplements: normalized.supplements || [],
+          } : null,
+          current_input: String(currentInput || '').trim(),
+          attachments: (attachments || []).map((item, index) => ({
+            index: index + 1,
+            name: item?.name || item?.file?.name || '',
+            type: item?.type || item?.file?.type || '',
+            is_image: /^image\//i.test(String(item?.type || item?.file?.type || '')),
+          })),
+          quote_text: String(quoteText || '').trim(),
+          recent_messages: (recentMessages || []).slice(-6).map((item, index) => ({ index: index + 1, role: item?.role || '', content: textOfMessage(item).slice(0, 500) })),
+        }) },
+      ],
+    };
+  }
+
+  function parseContinuationClassifierResult(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return null;
+    try {
+      const raw = JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+      const relation = ['pending_answer', 'revision', 'continuation', 'new_task', 'unclear'].includes(String(raw.relation || '')) ? String(raw.relation) : 'unclear';
+      const finalTaskMode = ['image', 'edit_image', 'chat', 'file_qa', 'unknown'].includes(String(raw.final_task_mode || raw.finalTaskMode || '')) ? String(raw.final_task_mode || raw.finalTaskMode) : 'unknown';
+      const selectedIndexes = Array.isArray(raw.selected_indexes || raw.selectedIndexes) ? (raw.selected_indexes || raw.selectedIndexes).map(Number).filter(item => Number.isInteger(item) && item > 0) : [];
+      return {
+        relation,
+        confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0)),
+        answerText: String(raw.answer_text || raw.answerText || '').trim(),
+        finalPrompt: String(raw.final_prompt || raw.finalPrompt || '').trim(),
+        finalTaskMode,
+        selectedIndexes,
+        shouldMerge: !!(raw.should_merge || raw.shouldMerge),
+        shouldClearPending: !!(raw.should_clear_pending || raw.shouldClearPending),
+        reason: String(raw.reason || '').trim(),
+      };
+    } catch { return null; }
+  }
+
   function createPendingClarification({ messages = [], clarificationText = '', routeInfo = null, sourceImageContext = null, sourceAttachmentContext = null, sourceQuoteContext = null } = {}) {
     const latestUser = findLastUserBeforeAssistant(messages, messages.length);
     if (!latestUser?.text) return null;
@@ -123,13 +206,14 @@
       : null;
     const originalText = previousImageRequest?.text || latestUser.text;
     const kind = inferPendingKind({ originalText, clarificationText });
+    const previousImageContext = !sourceImageContext && routeLooksImage ? findPreviousImageResultContext(messages, latestUser.index) : null;
     return normalizePendingClarification({
       kind,
       originalText,
       clarificationText,
       expects: expectedAnswerTypes({ kind, originalText, clarificationText }),
       routeInfo: routeInfo ? { mode: routeInfo.mode, target: routeInfo.target, intent: routeInfo.intent } : null,
-      sourceImageContext,
+      sourceImageContext: sourceImageContext || previousImageContext,
       sourceAttachmentContext,
       sourceQuoteContext,
       createdAt: Date.now(),
@@ -234,12 +318,13 @@
     return isLikelyClarificationAnswer(pending, { promptText, attachments, quotedMessage, isImageFile });
   }
 
-  function mergePendingInput(pending, { promptText = '', attachments = [], quotedMessage = null, quoteText = '' } = {}) {
+  function mergePendingInput(pending, { promptText = '', attachments = [], quotedMessage = null, quoteText = '', finalPrompt = '', finalTaskMode = '', selectedIndexes = [] } = {}) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return { promptText, merged: false, pending: null };
     const supplementText = String(promptText || '').trim();
-    const parts = [normalized.originalText];
-    if (normalized.supplements?.length) {
+    const modelFinalPrompt = String(finalPrompt || '').trim();
+    const parts = modelFinalPrompt ? [modelFinalPrompt] : [normalized.originalText];
+    if (!modelFinalPrompt && normalized.supplements?.length) {
       normalized.supplements.forEach((item, index) => {
         const text = String(item?.text || '').trim();
         const notes = [];
@@ -248,14 +333,17 @@
         if (text || notes.length) parts.push(`补充${index + 1}：${[text, notes.join('，')].filter(Boolean).join('；')}`);
       });
     }
-    if (supplementText) parts.push(`本轮补充：${supplementText}`);
-    if (quotedMessage) parts.push(`本轮引用：${quoteText || textOfMessage(quotedMessage) || '[quoted_message]'}`);
-    if (attachments?.length && !supplementText) parts.push(`本轮补充：用户上传了 ${attachments.length} 个附件。`);
+    if (!modelFinalPrompt && supplementText) parts.push(`本轮补充：${supplementText}`);
+    if (!modelFinalPrompt && quotedMessage) parts.push(`本轮引用：${quoteText || textOfMessage(quotedMessage) || '[quoted_message]'}`);
+    if (!modelFinalPrompt && attachments?.length && !supplementText) parts.push(`本轮补充：用户上传了 ${attachments.length} 个附件。`);
     const mergedPrompt = parts.filter(Boolean).join('\n\n');
     return {
       promptText: mergedPrompt,
       originalPromptText: normalized.originalText,
       supplementText,
+      finalPrompt: modelFinalPrompt,
+      finalTaskMode: String(finalTaskMode || '').trim(),
+      selectedIndexes: Array.isArray(selectedIndexes) ? selectedIndexes : [],
       merged: true,
       pending: {
         ...normalized,
@@ -274,6 +362,10 @@
   }
 
   const api = Object.freeze({
+    CONTINUATION_SYSTEM_PROMPT,
+    buildContinuationClassifierPayload,
+    parseContinuationClassifierResult,
+    findPreviousImageResultContext,
     isClarificationResponse,
     isUploadImageClarification,
     isImageEditIntent,

@@ -1,20 +1,33 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = `Route ChatUI requests. Return JSON only; do not answer the user.
+const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 意图路由器，只返回 JSON，不回答用户。
 
-Input priority: current_input is the newest user message and the primary, highest-priority intent. attachments are resources for current_input. context.recent_messages and other context are background/reference only; use them only to resolve explicit references such as previous/last/this/that/it/继续/上一张/这张/那个文件. Never let older context override, replace, or continue a different task when current_input states a new intent.
+判断原则：
+- current_input 是最新用户输入，优先级最高。
+- attachments 是本轮资源。
+- context 只用于解析明确引用：上一张、这张、刚才、继续、那个文件等；历史不能覆盖新任务。
+- image_candidates/file_candidates 只是候选元数据，不要猜图片或文件内容。
+- 写/改写/翻译/优化图片提示词属于 chat；只有用户明确要生成真实图片才是 image_generate。
 
-Input: current_input, attachments, context.image_candidates, context.file_candidates, context.recent_messages, current_mode, auto_mode. Candidates are metadata/placeholders only; do not infer file/image contents.
-
-Output exactly:
+必须返回：
 {"route":"chat|vision|image_generate|image_edit|unclear|unsafe","need_image_input":false,"need_file_input":false,"need_clarification":false,"image_source":"none|current|quoted|history","selected_indexes":[],"use_previous_image":false,"instruction":"","reply_to_user":"","confidence":0,"reason":""}
 
-Meanings: chat=text/file answer; vision=image-to-text answer; image_generate=new image; image_edit=modify selected existing image; unclear=missing route/resource/selection; unsafe=refuse.
+route 含义：
+- chat：文字聊天、写作、翻译、总结、文件问答、提示词写作
+- vision：看图回答、识图、OCR
+- image_generate：生成新图片
+- image_edit：修改已有图片
+- unclear：缺资源、缺选择或意图不清
+- unsafe：拒绝
 
-Requests to optimize/rewrite/translate/expand/write an image prompt are text-writing tasks and must route to chat, not image_generate. Only route to image_generate when the user asks to create/render/draw an actual image.
-
-Select resources by image_source and 1-based selected_indexes. If one needed candidate is implied, select it. If multiple candidates fit and user did not identify one, selected_indexes=[] and need_clarification=true. Set need_image_input/need_file_input only when the chosen route lacks required resource. instruction is only for image_generate/image_edit. reply_to_user is only for clarification/refusal.`
+资源规则：
+- image_source 只能是 none/current/quoted/history。
+- selected_indexes 用 1-based 编号。
+- 需要图片或文件但没有时，设置 need_image_input/need_file_input 和 need_clarification。
+- 多个候选都可能符合但用户没指定时，selected_indexes=[]，need_clarification=true。
+- instruction 只给 image_generate/image_edit 用。
+- reply_to_user 只给追问或拒绝用。`
 
 const imageRouteContext = root?.ChatUICoreImageRouteContext
   || root?.ChatUICore?.imageRouteContext

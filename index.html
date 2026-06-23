@@ -73,7 +73,14 @@
     </button>
     <main class="main">
       <nav id="historyAnchorNav" class="history-anchor-nav is-empty" aria-label="历史问题定位" aria-hidden="true"></nav>
-      <section id="messages" class="messages"></section>
+      <section id="messages" class="messages">
+        <div class="empty-welcome" aria-hidden="true">
+          <div class="welcome-title">ChatUI奥哲AI小助手</div>
+          <div class="welcome-sub">专注对话 · 智能思考 · 灵感生图 · 高效创作</div>
+          <div class="welcome-chips"><span>智能路由</span><span>文件理解</span><span>图像生成</span></div>
+          <div class="welcome-note">本项目使用openclaw开发 手工编码量为零</div>
+        </div>
+      </section>
 
       <button id="resumeStreamBtn" class="resume-stream-btn" type="button" aria-label="回到正在输出" title="回到正在输出">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
@@ -432,7 +439,7 @@
   <script src="./client/services/image-service.js?v=1.2.67"></script>
   <script src="./client/services/attachment-service.js?v=1.0.0"></script>
   <script src="./client/services/runtime-service.js?v=1.0.0"></script>
-  <script src="./client/services/clarification-service.js?v=1.0.4"></script>
+  <script src="./client/services/clarification-service.js?v=1.0.5"></script>
   <script src="./client/services/composition.js?v=1.2.67"></script>
   <script src="./client/services/usage-stats.js?v=1.2.67"></script>
   <script src="./client/ui/usage-stats-format.js?v=1.0.0"></script>
@@ -472,7 +479,7 @@
   <script src="./client/app/image-result-workflow.js?v=1.2.67"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.66"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.0.0"></script>
-  <script src="./client/app/submit-workflow.js?v=1.3.60"></script>
+  <script src="./client/app/submit-workflow.js?v=1.3.61"></script>
   <script src="./client/app/chat-workflow.js?v=1.3.16"></script>
   <script src="./client/app/image-workflow.js?v=1.3.15"></script>
   <script src="./client/app/message-workflow.js?v=1.3.28"></script>

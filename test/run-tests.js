@@ -130,6 +130,53 @@ function testPendingClarificationMergesFollowupSupplements() {
   assert.strictEqual(second.pending.rounds, 3);
 }
 
+function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
+  const pending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', rawText: '我要一个晚霞图' },
+      { role: 'assistant', rawText: '[图片生成完成] 我要一个晚霞图', imageContext: JSON.stringify({ mode: 'image', target: 'previous', prompt: '我要一个晚霞图' }) },
+      { role: 'user', rawText: '不满意，帮我改' },
+      { role: 'assistant', rawText: '你想怎么改？' },
+    ],
+    clarificationText: '你想怎么改？',
+    routeInfo: { mode: 'chat', intent: 'image_edit' },
+  });
+  assert.ok(pending);
+  assert.strictEqual(pending.originalText, '我要一个晚霞图');
+  assert.ok(pending.sourceImageContext, 'vague image feedback should carry previous generated image context');
+
+  const payload = clarificationService.buildContinuationClassifierPayload({
+    model: 'gpt-5.5',
+    pending,
+    currentInput: '山巅的',
+  });
+  assert.strictEqual(payload.temperature, 0);
+  assert.ok(payload.messages[0].content.includes('你不是提示词优化器'));
+  assert.ok(payload.messages[0].content.includes('最小语义补全'));
+  assert.ok(!/高清|电影感|氛围感/.test(payload.messages[0].content), 'classifier prompt should not encourage creative embellishment');
+
+  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    relation: 'pending_answer',
+    confidence: 0.97,
+    answer_text: '山巅的',
+    final_prompt: '山巅的晚霞图',
+    final_task_mode: 'edit_image',
+    selected_indexes: [1],
+    should_merge: true,
+    should_clear_pending: true,
+  }));
+  assert.strictEqual(decision.finalPrompt, '山巅的晚霞图');
+  const merged = clarificationService.mergePendingInput(pending, {
+    promptText: '山巅的',
+    finalPrompt: decision.finalPrompt,
+    finalTaskMode: decision.finalTaskMode,
+    selectedIndexes: decision.selectedIndexes,
+  });
+  assert.strictEqual(merged.promptText, '山巅的晚霞图');
+  assert.ok(!merged.promptText.includes('本轮补充'), 'model final_prompt should prevent internal transaction text from entering image prompt');
+  assert.ok(!merged.promptText.includes('突出'), 'minimal final_prompt must not add creative details');
+}
+
 function testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup() {
   const messages = [
     { role: 'user', rawText: '介绍一下 React useMemo' },
@@ -259,8 +306,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.60'), 'submit workflow cache version should be bumped for pending clarification fix');
-  assert.ok(index.includes('clarification-service.js?v=1.0.4'), 'clarification service cache version should be bumped for pending state machine fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.61'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('clarification-service.js?v=1.0.5'), 'clarification service cache version should be bumped for pending state machine fix');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
@@ -403,9 +450,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('metadata/placeholders'));
-  assert.ok(system.includes('do not infer file/image contents'));
-  assert.ok(system.includes('context.file_candidates'));
+  assert.ok(system.includes('候选元数据'));
+  assert.ok(system.includes('不要猜图片或文件内容'));
+  assert.ok(system.includes('file_candidates'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
@@ -805,23 +852,22 @@ function testRouteOperationTypeDrivesCanonicalMode() {
   assert.strictEqual(imageEdit.operation.type, 'image_edit');
 }
 
-function testRoutePromptUsesEnglishRulesWithChineseEdgeCases() {
+function testRoutePromptUsesChineseCompactRules() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.ok(system.includes('Return JSON only'));
+  assert.ok(system.includes('只返回 JSON'));
   ['chat', 'vision', 'image_generate', 'image_edit', 'unclear', 'unsafe'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
   ['text_chat', 'file_qa', 'image_reference_generate', 'image_analyze', 'ocr', 'prompt_optimize', 'target_model', 'image_role', 'rewritten_prompt'].forEach(type => assert.ok(!system.includes(type), `route prompt should not expose legacy field/type ${type}`));
   assert.ok(system.includes('image_source'));
   assert.ok(system.includes('selected_indexes'));
   assert.ok(system.includes('use_previous_image'));
-  assert.ok(system.includes('Input: current_input, attachments'));
-  assert.ok(system.includes('current_input is the newest user message and the primary, highest-priority intent'), 'route prompt should make latest user input the highest-priority intent');
-  assert.ok(system.includes('context.recent_messages and other context are background/reference only'), 'route prompt should keep history as reference-only background');
-  assert.ok(system.includes('Never let older context override, replace, or continue a different task'), 'route prompt should prevent older context from overriding the new user intent');
+  assert.ok(system.includes('current_input 是最新用户输入，优先级最高'), 'route prompt should make latest user input the highest-priority intent');
+  assert.ok(system.includes('context 只用于解析明确引用'), 'route prompt should keep history as reference-only background');
+  assert.ok(system.includes('历史不能覆盖新任务'), 'route prompt should prevent older context from overriding the new user intent');
   assert.ok(system.includes('上一张') && system.includes('那个文件'), 'route prompt should allow context only for explicit references');
-  assert.ok(system.includes('Output exactly'));
-  assert.ok(system.includes('Meanings: chat=text/file answer'));
-  assert.ok(system.includes('do not infer file/image contents'));
-  assert.ok(system.length < 3100, `route prompt should stay compact: ${system.length}`);
+  assert.ok(system.includes('必须返回'));
+  assert.ok(system.includes('chat：文字聊天'));
+  assert.ok(system.includes('不要猜图片或文件内容'));
+  assert.ok(system.length < 1600, `route prompt should stay compact: ${system.length}`);
   const payload = routeService.compactRouteUserPayload({
     input: '重新写一段产品介绍，不要画图',
     context: { recent_messages: [{ role: 'user', content: '上一轮：画一张猫图' }, { role: 'assistant', content: '[图片生成完成] 猫图' }] },
@@ -880,27 +926,21 @@ function testSessionSwitchFocusesBottom() {
   assert.ok(css.includes('scroll-behavior:auto!important;'), 'session switch should disable smooth scroll behavior');
 }
 
-function testLegacyWelcomeScreenIsRemoved() {
-  const files = ['../index.html', '../app.js', '../styles.css', '../styles/flat-theme.css'];
-  const legacyNeedles = [
-    ['empty', 'welcome'].join('-'),
-    ['welcome', 'title'].join('-'),
-    ['welcome', 'sub'].join('-'),
-    ['welcome', 'note'].join('-'),
-    ['render', 'Empty', 'Welcome'].join(''),
-    String.fromCodePoint(26497, 31616, 32842, 22825, 24037, 20855),
-    ['ChatUI', String.fromCodePoint(26497, 31616)].join(''),
-    String.fromCodePoint(22885, 21746, 65, 73),
-    String.fromCodePoint(20154, 20026, 32534, 30721, 37327),
-    String.fromCodePoint(19987, 27880, 23545, 35805),
-    String.fromCodePoint(28789, 24863, 29983, 22270),
-  ];
-  for (const rel of files) {
-    const source = fs.readFileSync(path.join(__dirname, rel), 'utf8');
-    for (const needle of legacyNeedles) {
-      assert.ok(!source.includes(needle), `legacy welcome residue should be removed from ${rel}: ${needle}`);
-    }
-  }
+function testLegacyWelcomeScreenIsRestored() {
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/flat-theme.css'), 'utf8');
+  assert.ok(index.includes('empty-welcome'), 'initial empty session should include the old welcome screen markup');
+  assert.ok(index.includes('ChatUI奥哲AI小助手'), 'old welcome title should be restored');
+  assert.ok(!index.includes('AI Workspace'), 'welcome screen should not include the removed AI Workspace label');
+  assert.ok(index.includes('智能路由') && index.includes('文件理解') && index.includes('图像生成'), 'welcome screen should include the polished AI accents without English label or extra icon');
+  assert.ok(!index.includes('welcome-orbit'), 'welcome screen should not include the removed orbit icon');
+  assert.ok(index.includes('专注对话 · 智能思考 · 灵感生图 · 高效创作'), 'old welcome subtitle should be restored');
+  assert.ok(index.includes('本项目使用openclaw开发 手工编码量为零'), 'old welcome note should use the requested wording');
+  assert.ok(app.includes('function renderEmptyWelcome'), 'empty session renderer should recreate the old welcome screen after session switches');
+  assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
+  assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('radial-gradient'), 'polished welcome screen styles should be restored');
+  assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
 
 function testHistoryRenderLoadsNewestMessagesFirst() {
@@ -1105,7 +1145,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.60') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.16') && index.includes('submit-workflow.js?v=1.3.61') && index.includes('chatui.bundle.js?v=1.3.48-arch67'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch67'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1828,7 +1868,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.60') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.61') && index.includes('chat-workflow.js?v=1.3.16') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.41-ds31') && index.includes('flat-theme.css?v=2.1.44'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -1843,6 +1883,7 @@ const tests = [
   testImageResultParsingSupportsMultipleImages,
   testImageJobTargetsAndMultipartSanitization,
   testPendingClarificationMergesFollowupSupplements,
+  testPendingClarificationModelFinalPromptIsMinimalAndWins,
   testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup,
   testPendingClarificationCanMergeTextFileAndQuote,
   testPendingClarificationCarriesOriginalMultiImageContext,
@@ -1869,12 +1910,12 @@ const tests = [
   testImplicitImagePromptExtractionStaysChatWithCurrentImage,
   testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent,
   testRouteOperationTypeDrivesCanonicalMode,
-  testRoutePromptUsesEnglishRulesWithChineseEdgeCases,
+  testRoutePromptUsesChineseCompactRules,
   testChatAnswerStreamingFlushesQuickly,
   testStreamingTailRendersLightweightCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testSessionSwitchFocusesBottom,
-  testLegacyWelcomeScreenIsRemoved,
+  testLegacyWelcomeScreenIsRestored,
   testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,
   testScrollMetricsHelpersArePureAndReusedByWorkflow,

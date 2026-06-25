@@ -1521,6 +1521,13 @@ function testResumeStreamingDoesNotUseStatusTextAsOffset() {
   assert.ok(app.includes('pendingJob&&resumeSessionJobs(e);try{'), 'foreground refresh should resume pending jobs even when busy state was lost after reload');
 }
 
+function testRestorePendingReusesExistingAssistantNodeByResponseIndex() {
+  const source = fs.readFileSync(path.join(__dirname, '../client/app/display-history-workflow.js'), 'utf8');
+  assert.ok(source.includes("node = nodes.find(candidate => candidate.classList.contains('assistant') && candidate.dataset.responseIndex === String(responseIndex))"), 'pending restore should find an existing assistant node by responseIndex before adding a new node');
+  assert.ok(source.includes('node.__displayItem = item;'), 'pending restore should rebind the pending display item to the existing node');
+  assert.ok(!source.includes('dataset.displayItemId!==t.id'), 'pending restore must not remove/recreate the assistant node only because displayItemId changed');
+}
+
 async function testManagedJobAbortUsesJobService() {
   const jobService = require('../client/services/job-service');
   const calls = [];
@@ -1966,6 +1973,7 @@ const tests = [
   testLargeMarkdownCompletionRefocusesTail,
   testStreamingDownloadActionIsDisabled,
   testResumeStreamingDoesNotUseStatusTextAsOffset,
+  testRestorePendingReusesExistingAssistantNodeByResponseIndex,
   testManagedJobAbortUsesJobService,
   testAttachmentTextExtractionUsesService,
   testRuntimeVersionUsesService,

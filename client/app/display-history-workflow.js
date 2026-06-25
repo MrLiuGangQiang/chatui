@@ -120,9 +120,67 @@
       }
     }
 
-    function restorePendingDisplayItems(e, t = []) {
+    function restorePendingDisplayItems(session, pendingItems = []) {
       with (deps) {
-        if(!e||!t.length)return;const s=new Set([loadImageJob(e.id)?.id,loadLatestChatJob(e.id)?.id].filter(Boolean)),a=!!(isSessionBusy(e.id)||getActiveRun(e.id)),i=Array.isArray(e.messages)?e.messages.filter(e=>"user"===e?.role).length:0,o=Array.isArray(e.messages)?e.messages.filter(e=>"assistant"===e?.role&&!isChatStatusText(e.content||e.rawText||"")).length:0,r=i>0&&o>=i;r&&clearChatJob(e.id);const d=t=>{if(!isImagePendingDisplayItem(t))return!1;const s=String(t.jobId||""),n=String(t.id||""),a=String(t.responseIndex||"");return(e.messages||[]).some(e=>"assistant"===e?.role&&/^\[图片(生成|编辑|修改)完成\]/.test(String(e.content||""))&&(s&&String(e.imageJobId||"")===s||n&&String(e.displayItemId||"")===n||a&&String(e.responseIndex||"")===a))},c=t=>!isImagePendingDisplayItem(t)&&sessionHasCompletedAssistantForResponse(e,t.responseIndex),m=t=>!!String(t.rawText||"").trim()&&!isChatStatusText(t.rawText||""),l=t=>isImagePendingDisplayItem(t)?!d(t)&&t.jobId&&s.has(t.jobId):!c(t)&&((t.jobId&&s.has(t.jobId))||(!t.jobId&&a)||m(t)),n=t.filter(e=>"1"===e?.pending&&l(e));if(e.display?.length){const t=e.display.length;e.display=e.display.filter(e=>!("1"===e?.pending&&!l(e))),e.display.length!==t&&persistSessionDisplay(e.id)}if(n.length){e.display||=[];for(const t of n){t.id||(t.id=makeDisplayItemId());let s=e.display.find(e=>e.id===t.id);s?Object.assign(s,t):e.display.push(t);if(e.id===state.activeSessionId){let s=null;const n=[...$("messages").querySelectorAll(".message")];t.id&&(s=n.find(e=>e.dataset.displayItemId===t.id)||null),!s&&t.jobId&&(s=n.find(e=>e.dataset.jobId===t.jobId)||null);const a=Number(t.responseIndex);if(!s||Number.isFinite(a)&&a>=0&&s.classList.contains("assistant")&&s.dataset.responseIndex===String(a)&&s.dataset.displayItemId!==t.id){Number.isFinite(a)&&a>=0&&n.find(e=>e.classList.contains("assistant")&&e.dataset.responseIndex===String(a))?.remove(),s=addDisplayItemNode(t),t.jobId&&(s.dataset.jobId=t.jobId);if(Number.isFinite(a)&&a>=0){const e=[...$("messages").querySelectorAll(".message")].find(e=>e!==s&&Number(e.classList.contains("user")?e.dataset.messageIndex:e.dataset.responseIndex)>a);e&&e.parentNode&&e.parentNode.insertBefore(s,e)}}}}e.display=compactDisplayItems(e.display).slice(-80),persistSessionDisplay(e.id)}
+        if (!session || !pendingItems.length) return;
+        const activeJobIds = new Set([loadImageJob(session.id)?.id, loadLatestChatJob(session.id)?.id].filter(Boolean));
+        const sessionActive = !!(isSessionBusy(session.id) || getActiveRun(session.id));
+        const userCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'user').length : 0;
+        const assistantCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'assistant' && !isChatStatusText(item.content || item.rawText || '')).length : 0;
+        const hasCompletePair = userCount > 0 && assistantCount >= userCount;
+        if (hasCompletePair) clearChatJob(session.id);
+        const hasCompletedImage = item => {
+          if (!isImagePendingDisplayItem(item)) return false;
+          const jobId = String(item.jobId || ''), displayId = String(item.id || ''), responseIndex = String(item.responseIndex || '');
+          return (session.messages || []).some(message => message?.role === 'assistant' && /^\[图片(生成|编辑|修改)完成\]/.test(String(message.content || '')) && (
+            jobId && String(message.imageJobId || '') === jobId ||
+            displayId && String(message.displayItemId || '') === displayId ||
+            responseIndex && String(message.responseIndex || '') === responseIndex
+          ));
+        };
+        const hasCompletedChat = item => !isImagePendingDisplayItem(item) && sessionHasCompletedAssistantForResponse(session, item.responseIndex);
+        const hasMeaningfulText = item => !!String(item.rawText || '').trim() && !isChatStatusText(item.rawText || '');
+        const shouldKeepPending = item => isImagePendingDisplayItem(item)
+          ? !hasCompletedImage(item) && item.jobId && activeJobIds.has(item.jobId)
+          : !hasCompletedChat(item) && ((item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
+        const keptPending = pendingItems.filter(item => item?.pending === '1' && shouldKeepPending(item));
+        if (session.display?.length) {
+          const before = session.display.length;
+          session.display = session.display.filter(item => !(item?.pending === '1' && !shouldKeepPending(item)));
+          if (session.display.length !== before) persistSessionDisplay(session.id);
+        }
+        if (!keptPending.length) return;
+        session.display ||= [];
+        for (const item of keptPending) {
+          item.id ||= makeDisplayItemId();
+          const stored = session.display.find(candidate => candidate.id === item.id);
+          if (stored) Object.assign(stored, item);
+          else session.display.push(item);
+          if (session.id !== state.activeSessionId) continue;
+          let node = null;
+          const nodes = [...$('messages').querySelectorAll('.message')];
+          if (item.id) node = nodes.find(candidate => candidate.dataset.displayItemId === item.id) || null;
+          if (!node && item.jobId) node = nodes.find(candidate => candidate.dataset.jobId === item.jobId) || null;
+          const responseIndex = Number(item.responseIndex);
+          if (!node && Number.isFinite(responseIndex) && responseIndex >= 0) {
+            node = nodes.find(candidate => candidate.classList.contains('assistant') && candidate.dataset.responseIndex === String(responseIndex)) || null;
+          }
+          if (!node) {
+            node = addDisplayItemNode(item);
+            if (item.jobId) node.dataset.jobId = item.jobId;
+            if (Number.isFinite(responseIndex) && responseIndex >= 0) {
+              const anchor = [...$('messages').querySelectorAll('.message')].find(candidate => candidate !== node && Number(candidate.classList.contains('user') ? candidate.dataset.messageIndex : candidate.dataset.responseIndex) > responseIndex);
+              if (anchor?.parentNode) anchor.parentNode.insertBefore(node, anchor);
+            }
+          } else {
+            node.__displayItem = item;
+            if (item.id) node.dataset.displayItemId = item.id;
+            if (item.jobId) node.dataset.jobId = item.jobId;
+            if (Number.isFinite(responseIndex) && responseIndex >= 0) node.dataset.responseIndex = String(responseIndex);
+          }
+        }
+        session.display = compactDisplayItems(session.display).slice(-80);
+        persistSessionDisplay(session.id);
       }
     }
 

@@ -1123,10 +1123,12 @@ function testStreamingOutputSmoothnessOptimizations() {
   const realtime = fs.readFileSync(path.join(__dirname, '../client/ui/realtime-renderer.js'), 'utf8');
   const message = fs.readFileSync(path.join(__dirname, '../client/app/message-workflow.js'), 'utf8');
   const scroll = fs.readFileSync(path.join(__dirname, '../client/app/scroll-focus-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   assert.ok(realtime.includes('const requestedIntervalMs') && realtime.includes('Math.max(16, requestedIntervalMs)'), 'explicit realtime render intervals such as 40ms should not be clamped back to the old 80ms default');
   assert.ok(!realtime.includes('Math.max(lowerBoundMs'), 'realtime renderer should not let the default lower bound override a tighter explicit stream interval');
   assert.ok(message.includes("const rawHash = chatStream ? '' : chatuiContentHash(rawValue)") && message.includes('dataset.streamingRawLength'), 'chat streaming updates should avoid full-response hash calculation on every chunk');
   assert.ok(scroll.includes('let activeOutputRaf') && scroll.includes('pendingActiveOutput') && scroll.includes('lockToStreamingOutput(pending.node, pending.options)'), 'streaming output scroll follow should be coalesced into one rAF update');
+  assert.ok(app.includes('if(!0===a.deferDomUpdate&&e===state.activeSessionId&&a.skipDisplayUpdate)return;let i=null'), 'active streaming chunks should not rescan the whole message DOM when the visible node and display update are already handled');
 }
 
 function testResumeStreamButtonAnchorsAboveComposer() {

@@ -114,7 +114,32 @@
     }
     return inFence;
   }
-  function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete) stable = item.end; continue; } if (inMath) continue; if (blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); return Math.max(0, Math.min(stable, src.length)); }
+  function isMarkdownTableRow(line = '') { const value = String(line || '').trim(); return /^\|.*\|$/.test(value) || /\S\s*\|\s*\S/.test(value); }
+  function isMarkdownTableDivider(line = '') { return /^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || '').trim()); }
+  function activeTableBlockStart(text = '') {
+    const src = String(text || '').replace(/\r\n?/g, '\n');
+    if (!src || /\n\s*\n$/.test(src)) return -1;
+    const beforeTailEnd = src.endsWith('\n') ? src.length - 1 : src.length;
+    const blockBreak = src.lastIndexOf('\n\n', Math.max(0, beforeTailEnd - 1));
+    const start = blockBreak >= 0 ? blockBreak + 2 : 0;
+    let first = '', second = '', count = 0;
+    for (let offset = start; offset < src.length;) {
+      const nl = src.indexOf('\n', offset);
+      const end = nl >= 0 ? nl : src.length;
+      const line = src.slice(offset, end);
+      if (line.trim()) {
+        count += 1;
+        if (count === 1) first = line;
+        else if (count === 2) { second = line; break; }
+      }
+      if (nl < 0) break;
+      offset = nl + 1;
+    }
+    if (!count) return -1;
+    if (count === 1) return isMarkdownTableRow(first) ? start : -1;
+    return isMarkdownTableRow(first) && isMarkdownTableDivider(second) ? start : -1;
+  }
+  function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete) stable = item.end; continue; } if (inMath) continue; if (blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); const tableStart = activeTableBlockStart(src); if (tableStart >= 0) stable = Math.min(stable, tableStart); return Math.max(0, Math.min(stable, src.length)); }
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
   function createStreamingRenderer({ renderMarkdown: render = renderMarkdown, enhance = enhanceRenderedMarkdown } = {}) {
     let raw = '', consumed = 0, tailText = '', closed = false;
@@ -180,8 +205,11 @@
         scanOffset = end;
       }
       let index = scanStable;
-      if (!scanInFence && !scanInMath && raw.endsWith('\n') && !hasConservativeInlineMathTail(raw)) index = Math.max(index, raw.length);
-      if (hasConservativeInlineMathTail(raw)) index = Math.min(index, Math.max(0, raw.lastIndexOf('\n', raw.length - 2) + 1));
+      const inlineMathTail = hasConservativeInlineMathTail(raw);
+      if (!scanInFence && !scanInMath && raw.endsWith('\n') && !inlineMathTail) index = Math.max(index, raw.length);
+      if (inlineMathTail) index = Math.min(index, Math.max(0, raw.lastIndexOf('\n', raw.length - 2) + 1));
+      const tableStart = activeTableBlockStart(raw);
+      if (tableStart >= 0) index = Math.min(index, tableStart);
       index = Math.max(consumed, Math.min(index, raw.length));
       return { stable: raw.slice(0, index), tail: raw.slice(index), index };
     };
@@ -204,6 +232,16 @@
         return { raw, consumed, tail: tailText, delta: part, closed };
       },
       set(value, container) { const next = String(value || ''); const delta = next.startsWith(raw) ? next.slice(raw.length) : next; if (!next.startsWith(raw)) this.reset(container); return this.append(delta, container); },
+      preview(value, container) {
+        const next = String(value || '');
+        if (closed) return { raw, consumed, tail: tailText, closed, skipped: true };
+        if (!next.startsWith(raw)) this.reset(container);
+        raw = next;
+        const tail = raw.slice(Math.min(consumed, raw.length));
+        if (container) syncTailNode(container, tail, { keepCursor: raw.length > 0 });
+        tailText = tail;
+        return { raw, consumed, tail: tailText, closed, skipped: true, preview: true };
+      },
       final(container, finalText = raw) {
         const next = String(finalText ?? raw ?? ''), previousRaw = raw, previousConsumed = consumed;
         raw = next; closed = true;
@@ -230,6 +268,7 @@
   const api = Object.freeze({
     findStableBoundary,
     splitStableTail,
+    activeTableBlockStart,
     createStreamingRenderer,
     deferStreamingResources,
     restoreStreamingResources,

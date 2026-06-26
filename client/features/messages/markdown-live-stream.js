@@ -46,11 +46,12 @@
     function append(container, value = '', meta = {}) {
       const next = String(value || '');
       const now = getNow();
-      const force = !!meta.force || now - lastRenderAt >= minIntervalMs || next.endsWith('\n\n') || next.length - raw.length > 3000;
+      const deltaLength = Math.max(0, next.length - raw.length);
+      const force = !!meta.force || now - lastRenderAt >= minIntervalMs || next.endsWith('\n') || deltaLength > 3000;
       raw = next;
-      if (!force && !meta.final) return { raw, skipped: true };
       const active = ensure(container);
       if (!active) return { raw, skipped: true, missingRenderer: true };
+      if (!force && !meta.final) return active.preview?.(next, container) || { raw, skipped: true };
       lastRenderAt = now;
       return active.set(next, container);
     }

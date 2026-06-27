@@ -93,9 +93,10 @@
       const right = String(chunk || '');
       if (!right) return left;
       if (!left || right.startsWith(left)) return right;
+      if (left.endsWith(right)) return left;
       if (left.startsWith(right)) return left;
-      const max = Math.min(left.length, right.length);
-      for (let size = max; size > 0; size -= 1) {
+      const maxOverlapScan = Math.min(left.length, right.length, 4096);
+      for (let size = maxOverlapScan; size > 0; size -= 1) {
         if (left.slice(-size) === right.slice(0, size)) return left + right.slice(size);
       }
       return left + right;

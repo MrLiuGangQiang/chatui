@@ -3850,6 +3850,33 @@ body{
   right: 7px !important;
 }
 
+/* Keep the fixed composer in lockstep with the message column when the session sidebar collapses. */
+@media (min-width:841px){
+  body:not(.session-sidebar-collapsed) .composer,
+  body:not(.session-sidebar-collapsed) .composer.compact-composer{
+    width:var(--ds-chat-column)!important;
+    max-width:var(--ds-chat-column)!important;
+    left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important;
+    right:auto!important;
+    transform:none!important;
+  }
+  body.session-sidebar-collapsed .composer,
+  body.session-sidebar-collapsed .composer.compact-composer{
+    width:calc((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.94)!important;
+    max-width:calc(100vw - var(--session-rail-width) - var(--chat-content-gap)*2)!important;
+    left:calc(var(--session-rail-width) + var(--chat-content-gap) + ((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.03))!important;
+    right:auto!important;
+    transform:none!important;
+  }
+}
+@media (min-width:1600px){
+  body.session-sidebar-collapsed .composer,
+  body.session-sidebar-collapsed .composer.compact-composer{
+    width:calc((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.96)!important;
+    left:calc(var(--session-rail-width) + var(--chat-content-gap) + ((100vw - var(--session-rail-width) - var(--chat-content-gap)*2)*.02))!important;
+  }
+}
+
 /* Config copy buttons stay outside inputs; only the API-key visibility icon remains inside the key field. */
 .config-dialog .config-field-actions,
 .config-dialog .secret-field {

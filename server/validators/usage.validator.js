@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { isDepartmentRange, isPersonalRange } = require('../usage/ranges');
 
-const USAGE_REFRESH_LIMIT = 6;
+const USAGE_REFRESH_LIMIT = 12;
 const USAGE_REFRESH_WINDOW_MS = 60 * 1000;
 const usageRefreshBuckets = new Map();
 

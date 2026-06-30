@@ -46,7 +46,7 @@
     }),
   });
 
-  const PERSONAL_RANGES = Object.freeze(['today', 'yesterday', 'total']);
+  const PERSONAL_RANGES = Object.freeze(['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
   const DEPARTMENT_RANGES = Object.freeze(['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
 
   function pickRangeField(ranges, field) {

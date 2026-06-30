@@ -2,7 +2,7 @@
   const sharedRanges = (typeof window !== 'undefined' && window.ChatUIUsageRanges)
     || (typeof require === 'function' ? require('../../../shared/usage/ranges') : {});
   const RANGE_DEFINITIONS = sharedRanges.RANGE_DEFINITIONS || {};
-  const PERSONAL_RANGES = sharedRanges.PERSONAL_RANGES || ['today', 'yesterday', 'total'];
+  const PERSONAL_RANGES = sharedRanges.PERSONAL_RANGES || ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total'];
   const DEPARTMENT_RANGES = sharedRanges.DEPARTMENT_RANGES || ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total'];
   const rangeTabs = typeof sharedRanges.rangeTabs === 'function'
     ? sharedRanges.rangeTabs
@@ -57,7 +57,8 @@
     }
 
     function tabLabel(range, mode = 'personal') {
-      return (mode === 'department' ? DEPARTMENT_TABS : RANKING_TABS).find(([key]) => key === range)?.[1] || '排行';
+      if (mode === 'personal') return rangeLabel(range);
+      return DEPARTMENT_TABS.find(([key]) => key === range)?.[1] || '排行';
     }
 
     function renderTokenBadges(row, options = {}) {

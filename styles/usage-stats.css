@@ -304,8 +304,8 @@
 
 .usage-personal-ranges {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
   margin-top: 0;
 }
 
@@ -322,7 +322,8 @@
   place-items: center;
   border: 1px solid #e2e8f0;
   border-radius: 999px;
-  padding: 6px 8px;
+  min-width: 0;
+  padding: 6px 4px;
   background: #ffffff;
   color: #64748b;
   font-size: 11px;
@@ -346,7 +347,7 @@
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   margin: 0 0 10px;
   padding: 6px;
@@ -626,6 +627,8 @@
 @media (max-width: 420px) {
   .usage-tabs { gap: 6px; }
   .usage-tabs button { font-size: 12px; }
-  .usage-tabs.usage-tabs-department { grid-template-columns: repeat(2, 1fr); }
+  .usage-tabs,
+  .usage-tabs.usage-tabs-department,
+  .usage-personal-ranges { grid-template-columns: repeat(2, 1fr); }
   .usage-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

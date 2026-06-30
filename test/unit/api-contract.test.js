@@ -124,7 +124,7 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
       personal: null,
     });
 
-    const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings?range=month');
+    const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings?range=bad');
     assert.strictEqual(invalidRangeWithoutDatabase.res.status, 200);
     assertCorsJson(invalidRangeWithoutDatabase);
     assert.deepStrictEqual(invalidRangeWithoutDatabase.json, {
@@ -151,14 +151,14 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
 }
 
 async function testApiContractUsageConfiguredValidationShapes() {
-  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings?range=month', { usageStats: { async getRanking() { return []; } } });
+  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings?range=bad', { usageStats: { async getRanking() { return []; } } });
   assert.strictEqual(invalidRankingRange.status, 400);
   assert.strictEqual(invalidRankingRange.headers['Access-Control-Allow-Origin'], '*');
   assert.deepStrictEqual(invalidRankingRange.json, { error: { message: '不支持的排行范围' } });
 
   const invalidPersonalRange = await invokeUsageRoute('/api/usage/personal', {
     method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-test', range: 'month' }),
+    body: JSON.stringify({ api_key: 'sk-test', range: 'bad' }),
     usageStats: { async getPersonalRange() { return null; } },
   });
   assert.strictEqual(invalidPersonalRange.status, 400);

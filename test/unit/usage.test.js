@@ -48,11 +48,11 @@ async function testDepartmentExportWorkbookShape() {
 }
 
 function testUsageRangesAreCentralized() {
-  assert.deepStrictEqual(usageRanges.PERSONAL_RANGES, ['today', 'yesterday', 'total']);
+  assert.deepStrictEqual(usageRanges.PERSONAL_RANGES, ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
   assert.deepStrictEqual(usageRanges.DEPARTMENT_RANGES, ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
   assert.strictEqual(usageRanges.RANGE_DEFINITIONS, sharedUsageRanges.RANGE_DEFINITIONS);
   assert.deepStrictEqual(usageRanges.rangeTabs(usageRanges.DEPARTMENT_RANGES), sharedUsageRanges.rangeTabs(sharedUsageRanges.DEPARTMENT_RANGES));
-  assert.strictEqual(usageRanges.isPersonalRange('month'), false);
+  assert.strictEqual(usageRanges.isPersonalRange('month'), true);
   assert.strictEqual(usageRanges.isDepartmentRange('month'), true);
   for (const range of usageRanges.DEPARTMENT_RANGES) {
     assert.ok(usageRanges.DEPARTMENT_RANGE_FILTERS[range], `missing department filter for ${range}`);
@@ -80,8 +80,9 @@ function testUsageStatsFrontendHelpers() {
 
 
 function testUsageStatsViewHelpersPreserveMarkupAndLabels() {
-  assert.deepStrictEqual(usageStatsView.DEFAULT_RANKING_TABS.map(([key]) => key), ['today', 'yesterday', 'total']);
+  assert.deepStrictEqual(usageStatsView.DEFAULT_RANKING_TABS.map(([key]) => key), ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
   assert.deepStrictEqual(usageStatsView.DEFAULT_DEPARTMENT_TABS.map(([key]) => key), ['today', 'yesterday', 'week', 'last_week', 'month', 'last_month', 'total']);
+  assert.deepStrictEqual(usageStatsView.DEFAULT_RANKING_TABS, sharedUsageRanges.rangeTabs(sharedUsageRanges.PERSONAL_RANGES));
   assert.deepStrictEqual(usageStatsView.DEFAULT_DEPARTMENT_TABS, sharedUsageRanges.rangeTabs(sharedUsageRanges.DEPARTMENT_RANGES));
   assert.strictEqual(usageStatsView.rangeLabel('week'), '本周');
   assert.strictEqual(usageStatsView.rangeLabel('last_week'), '上周');
@@ -129,13 +130,13 @@ function testUsageValidatorNormalizesInputs() {
   assert.strictEqual(usageValidator.normalizeApiKey({ api_key: '  sk-a  ' }), 'sk-a');
   assert.strictEqual(usageValidator.normalizeApiKey({ apiKey: '  sk-b  ' }), 'sk-b');
   assert.strictEqual(usageValidator.normalizePersonalRange('yesterday'), 'yesterday');
-  assert.strictEqual(usageValidator.normalizePersonalRange('month'), null);
+  assert.strictEqual(usageValidator.normalizePersonalRange('month'), 'month');
   assert.strictEqual(usageValidator.normalizeDepartmentRange('month'), 'month');
   assert.strictEqual(usageValidator.normalizeDepartmentRange('bad'), null);
   assert.strictEqual(usageValidator.normalizeDepartmentId({ department_id: '  dept-1  ' }), 'dept-1');
   assert.strictEqual(usageValidator.normalizeDepartmentId({ departmentId: '  dept-2  ' }), 'dept-2');
   assert.strictEqual(usageValidator.rangeFromUrl({ url: '/api/usage/rankings?range=total', headers: {}, socket: {} }), 'total');
-  assert.strictEqual(usageValidator.rangeFromUrl({ url: '/api/usage/rankings?range=month', headers: {}, socket: {} }), null);
+  assert.strictEqual(usageValidator.rangeFromUrl({ url: '/api/usage/rankings?range=bad', headers: {}, socket: {} }), null);
 }
 
 function testUsageValidatorRateLimitPreservesContract() {
@@ -150,7 +151,7 @@ function testUsageValidatorRateLimitPreservesContract() {
   assert.deepStrictEqual(third, { allowed: false, resetMs: 998 });
   assert.deepStrictEqual(usageValidator.usageRateLimitHeaders(third), {
     'Access-Control-Allow-Origin': '*',
-    'X-RateLimit-Limit': '6',
+    'X-RateLimit-Limit': '12',
     'X-RateLimit-Remaining': '0',
     'Retry-After': '1',
   });

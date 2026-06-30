@@ -14,6 +14,7 @@
   const jobService = browser.ChatUIJobService || root.ChatUIJobService || {};
   const chatService = browser.ChatUIChatService || root.ChatUIChatService || {};
   const routeService = browser.ChatUIRouteService || root.ChatUIRouteService || {};
+  const promptComposerService = browser.ChatUIPromptComposerService || root.ChatUIPromptComposerService || {};
   const imageGenerationService = browser.ChatUIImageGenerationService || root.ChatUIImageGenerationService || {};
   const imageService = browser.ChatUIImageService || root.ChatUIImageService || {};
   const attachmentService = browser.ChatUIAttachmentService || root.ChatUIAttachmentService || {};
@@ -64,11 +65,25 @@
 
   const route = Object.freeze({
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
+    INTENT_REVIEW_SYSTEM_PROMPT: routeService.INTENT_REVIEW_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
+    taskContractForRoute: (route, options) => routeService.taskContractForRoute(route, options),
+    applyTaskContract: (route, options) => routeService.applyTaskContract(route, options),
+    needsIntentReview: (routeInfo, context) => routeService.needsIntentReview(routeInfo, context),
     apiRouteToExecutionRoute: (simple, options) => routeService.apiRouteToExecutionRoute(simple, options),
     parseRouteResult: (text, normalizeRoute, options) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
+    buildIntentReviewPayload: options => routeService.buildIntentReviewPayload(options),
+    buildImageFollowupRoutePayload: options => routeService.buildImageFollowupRoutePayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
+  });
+
+  const promptComposer = Object.freeze({
+    latestImagePromptFromContext: context => promptComposerService.latestImagePromptFromContext(context),
+    composeChatPrompt: (task, context, input) => promptComposerService.composeChatPrompt(task, context, input),
+    composeImageGeneratePrompt: (task, context, input) => promptComposerService.composeImageGeneratePrompt(task, context, input),
+    composeImageEditPrompt: (task, context, input) => promptComposerService.composeImageEditPrompt(task, context, input),
+    composeForTask: (task, context, input) => promptComposerService.composeForTask(task, context, input),
   });
 
   const images = Object.freeze({
@@ -91,7 +106,7 @@
     requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options)),
   });
 
-  const api = Object.freeze({ models, jobs, chat, route, images, attachments: attachmentsApi, runtime, clarification: clarificationService });
+  const api = Object.freeze({ models, jobs, chat, route, promptComposer, images, attachments: attachmentsApi, runtime, clarification: clarificationService });
   if (typeof window !== 'undefined') {
     window.ChatUIServicesComposition = api;
     window.ChatUIServicesFallback = api;

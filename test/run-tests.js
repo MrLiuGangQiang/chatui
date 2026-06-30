@@ -5,7 +5,9 @@ const { JSDOM } = require('jsdom');
 
 const routeContext = require('../client/core/image-route-context');
 const routeDecision = require('../client/core/route-decision');
+const intentContract = require('../client/core/intent-contract');
 const routeService = require('../client/services/route-service');
+const promptComposer = require('../client/services/prompt-composer-service');
 const imageGeneration = require('../client/services/image-generation-service');
 const imageService = require('../client/services/image-service');
 const imageJobs = require('../server/jobs/image');
@@ -43,6 +45,78 @@ const serverSmokeTests = require('./smoke/server-smoke.test');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
+}
+
+function testIntentContractNormalizesRouteAndExecution() {
+  const route = routeContext.normalizeRoute({
+    mode: 'image',
+    operation: { type: 'text_to_image', scope: 'none', prompt: '生成一张猫图' },
+    contextual_image_prompt: '生成一张猫图',
+    confidence: 0.91,
+    evidence: '视觉产物生成',
+  }, 'image');
+  const task = intentContract.routeToTaskContract(route, { input: '生成一张猫图' });
+  assert.strictEqual(task.intent, 'image.generate');
+  assert.strictEqual(task.execution.api, 'image_generation');
+  assert.strictEqual(task.execution.operation, 'text_to_image');
+  assert.strictEqual(task.prompt_plan.final_instruction, '生成一张猫图');
+
+  const edit = intentContract.normalizeTaskContract({ intent: 'image.edit', target: { type: 'previous_image', source: 'history', selected_indexes: [1] }, prompt_plan: { final_instruction: '把背景换成白色' } });
+  assert.strictEqual(edit.execution.api, 'image_edit');
+  assert.strictEqual(edit.execution.operation, 'edit_image');
+  assert.deepStrictEqual(edit.target.selected_indexes, [1]);
+}
+
+function testPromptComposerPreservesIntentWithoutOverOptimizing() {
+  const context = { last_generated_image: { prompt: '生成一个可打印、可涂色、可裁剪组装的二年级学科骰子模板' } };
+  const task = intentContract.normalizeTaskContract({
+    intent: 'image.generate',
+    task_type: 'correction',
+    prompt_plan: {
+      current_user_intent: '正方体怎么都7个面了？',
+      constraints: ['正方体只能有 6 个面'],
+      do_not_add: ['不要新增用户未要求的风格、对象、背景、文字或构图。'],
+      final_instruction: '重新生成并修正面数错误',
+    },
+  });
+  const prompt = promptComposer.composeImageGeneratePrompt(task, context, '正方体怎么都7个面了？');
+  assert.ok(prompt.includes('骰子模板'));
+  assert.ok(prompt.includes('正方体怎么都7个面了'));
+  assert.ok(prompt.includes('正方体只能有 6 个面'));
+  assert.ok(prompt.includes('不要新增用户未要求'));
+  assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(prompt), 'composer must not add unrelated style polish');
+}
+
+function testRouteResultCarriesTaskContractAndComposedPrompt() {
+  const context = { last_generated_image: { prompt: '生成一个可打印骰子展开图' } };
+  const parsed = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate',
+    confidence: 0.92,
+    reason: '上一张图结构错误，需重做',
+    instruction: '重新生成，修正正方体面数错误',
+  }), routeContext.normalizeRoute, { input: '正方体怎么都7个面了？', attachments: [], context });
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.taskContract.intent, 'image.generate');
+  assert.strictEqual(parsed.taskContract.execution.api, 'image_generation');
+  assert.ok(parsed.contextualImagePrompt.includes('生成一个可打印骰子展开图'));
+  assert.ok(parsed.contextualImagePrompt.includes('正方体怎么都7个面了'));
+  assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(parsed.contextualImagePrompt), 'route prompt must not add unrelated style polish');
+}
+
+function testRouteInstructionDoesNotPolluteImagePrompt() {
+  const context = { last_generated_image: { prompt: '做一个可打印、可涂色、可裁剪组装的二年级学科骰子展开图模板' } };
+  const parsed = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_generate',
+    confidence: 0.96,
+    reason: '上一张图面数错误，需要重做',
+    instruction: '重新生成正确的6面骰子展开图，带清晰裁剪线、折叠线和少量粘贴边，3D高清电影感',
+  }), routeContext.normalizeRoute, { input: '还是不对，面数错了', attachments: [], context });
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.taskContract.execution.api, 'image_generation');
+  assert.ok(parsed.contextualImagePrompt.includes('骰子展开图模板'));
+  assert.ok(parsed.contextualImagePrompt.includes('还是不对，面数错了'));
+  assert.ok(!parsed.contextualImagePrompt.includes('粘贴边'), 'route model invented construction detail must not enter final image prompt');
+  assert.ok(!/3D|高清|电影感/i.test(parsed.contextualImagePrompt), 'route model invented style detail must not enter final image prompt');
 }
 
 function testRouteContextIsCompactAndIndexed() {
@@ -307,7 +381,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.61'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.62'), 'submit workflow cache version should be bumped for pending clarification fix');
   assert.ok(index.includes('clarification-service.js?v=1.0.5'), 'clarification service cache version should be bumped for pending state machine fix');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -704,6 +778,21 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(promptFromImage.target, 'none');
   assert.strictEqual(promptFromImage.intent, 'unknown');
 
+
+  const contextualUnclear = routeService.parseRouteResult(JSON.stringify({
+    route: 'unclear', need_clarification: true, reply_to_user: '请说明你想让我做什么。', confidence: 0.35,
+  }), routeContext.normalizeRoute, { input: '还是不对', attachments: [], context: { recent_messages: [{ role: 'user', content: '上一轮：帮我分析 ChatUI 路由问题' }] } });
+  assert.strictEqual(contextualUnclear.mode, 'chat');
+  assert.strictEqual(contextualUnclear.needClarification, false);
+  assert.strictEqual(contextualUnclear.operation.scope, 'context');
+
+  const resourceClarification = routeService.parseRouteResult(JSON.stringify({
+    route: 'unclear', need_clarification: true, image_source: 'history', selected_indexes: [1], use_previous_image: true, reply_to_user: '想怎么改？请说明具体修改要求。', confidence: 0.92,
+  }), routeContext.normalizeRoute, { input: '把这张改一下', attachments: [], context: { image_candidates: [{ index: 1, source: 'history', target: 'previous', image_id: 'img_1' }] } });
+  assert.strictEqual(resourceClarification.mode, 'chat');
+  assert.strictEqual(resourceClarification.needClarification, true);
+  assert.ok(resourceClarification.clarificationQuestion.includes('怎么改'));
+
   const multiAmbiguous = routeService.parseRouteResult(JSON.stringify({
     route: 'image_edit', image_source: 'current', selected_indexes: [], instruction: '改一下', confidence: 0.6,
   }), routeContext.normalizeRoute, { input: '把这张图改一下', attachments: [{ name: 'a.png', type: 'image/png', is_image: true }, { name: 'b.png', type: 'image/png', is_image: true }], context: { image_candidates: [] } });
@@ -853,6 +942,52 @@ function testRouteOperationTypeDrivesCanonicalMode() {
   assert.strictEqual(imageEdit.operation.type, 'image_edit');
 }
 
+function testImageResultCorrectionRebuildsImagePrompt() {
+  const originalPrompt = '生成一张 A4 竖版黑白线稿图片，内容是适合小学二年级学生打印、涂色、剪裁、折叠组装的骰子展开图。展开图由 6 个大小相同的正方形组成标准十字形结构。';
+  const input = '正方体怎么都7个面了';
+  const context = routeContext.buildRouteContext({
+    messages: [
+      { role: 'user', content: originalPrompt },
+      { role: 'assistant', content: `[图片生成完成] ${originalPrompt}` },
+      { role: 'user', content: input },
+    ],
+    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png' }], updatedAt: Date.now() },
+    maxChars: 12000,
+  });
+  assert.strictEqual(context.last_generated_image.count, 1);
+  assert.ok(context.last_generated_image.prompt.includes('骰子展开图'));
+
+  const modelRoute = {
+    route: 'image_generate',
+    confidence: 0.92,
+    reason: '上一轮生成图被指出结构错误，应按原始目标重新生成',
+    instruction: '重新生成骰子展开图，修正正方体不能有 7 个面的问题，保持原始可打印、涂色、剪裁、折叠组装要求',
+  };
+  const parsed = routeService.parseRouteResult(JSON.stringify(modelRoute), routeContext.normalizeRoute, { input, attachments: [], context });
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.operation.type, 'text_to_image');
+  assert.strictEqual(parsed.needClarification, false);
+  assert.ok(parsed.contextualImagePrompt.includes(originalPrompt), 'context prompt should preserve original image goal');
+  assert.ok(parsed.contextualImagePrompt.includes(input) || parsed.contextualImagePrompt.includes('7 个面'), 'context prompt should include latest correction');
+
+  const currentCorrectionContext = routeContext.buildRouteContext({
+    messages: [
+      { role: 'user', content: originalPrompt },
+      { role: 'assistant', content: `[图片生成完成] ${originalPrompt}` },
+      { role: 'user', content: '这张图不对，面数错了' },
+    ],
+    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png' }] },
+  });
+  assert.strictEqual(routeService.latestImagePromptFromContext(currentCorrectionContext), originalPrompt, 'current correction text must not replace the original image prompt');
+  const parsedCurrentCorrection = routeService.parseRouteResult(JSON.stringify({ route: 'image_generate', confidence: 0.9, instruction: '修正面数错误，重新生成' }), routeContext.normalizeRoute, { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
+  assert.strictEqual(parsedCurrentCorrection.mode, 'image');
+  assert.ok(parsedCurrentCorrection.contextualImagePrompt.includes(originalPrompt));
+  assert.ok(parsedCurrentCorrection.contextualImagePrompt.includes('面数错了') || parsedCurrentCorrection.contextualImagePrompt.includes('修正面数错误'));
+
+  const misclassified = routeService.parseRouteResult(JSON.stringify({ route: 'chat', confidence: 0.8 }), routeContext.normalizeRoute, { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
+  assert.strictEqual(misclassified.mode, 'chat', 'post-processing must not keyword-force model chat into image; route prompt should drive correct intent');
+}
+
 function testRoutePromptUsesChineseCompactRules() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('只返回 JSON'));
@@ -864,6 +999,8 @@ function testRoutePromptUsesChineseCompactRules() {
   assert.ok(system.includes('current_input 是最新用户输入，优先级最高'), 'route prompt should make latest user input the highest-priority intent');
   assert.ok(system.includes('context 只用于解析明确引用'), 'route prompt should keep history as reference-only background');
   assert.ok(system.includes('历史不能覆盖新任务'), 'route prompt should prevent older context from overriding the new user intent');
+  assert.ok(system.includes('可视化产物') && system.includes('可打印成品'), 'route prompt should classify visual artifacts semantically as image generation');
+  assert.ok(system.includes('上一轮有图片生成/编辑结果') && system.includes('不要把“已重新生成/已修改”作为 chat 文本回答'), 'route prompt should classify image result corrections as executable image tasks');
   assert.ok(system.includes('上一张') && system.includes('那个文件'), 'route prompt should allow context only for explicit references');
   assert.ok(system.includes('必须返回'));
   assert.ok(system.includes('chat：文字聊天'));
@@ -889,7 +1026,7 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.appendWithOverlap('abcXYZ', 'cXYZ'), 'abcXYZ', 'overlap helper should not duplicate repeated tail chunks');
   assert.strictEqual(workflow.appendWithOverlap('a'.repeat(5000), 'a'.repeat(5000) + 'b'), 'a'.repeat(5000) + 'b', 'overlap helper should keep long cumulative chunks correct without scanning the full response tail');
   assert.ok(source.includes('const maxOverlapScan = Math.min(left.length, right.length, 4096)'), 'overlap helper should cap per-chunk overlap scanning to avoid long-stream slowdown');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch70') && bundle.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch79') && bundle.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
 function testStreamingTailRendersLightweightCursor() {
@@ -906,7 +1043,7 @@ function testStreamingTailRendersLightweightCursor() {
   assert.ok(css.includes('prefers-reduced-motion:reduce'), 'streaming caret animation should respect reduced motion');
   assert.ok(!css.includes('@keyframes streaming-caret-neon') && !css.includes('animation: streaming-caret-neon'), 'streaming caret should avoid the old heavy neon animation');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('message-workflow.js?v=1.3.29') && index.includes('flat-theme.css?v=2.1.53'), 'cache-busting versions should be bumped for streaming cursor fixes');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('flat-theme.css?v=2.1.53'), 'cache-busting versions should be bumped for streaming cursor fixes');
 }
 
 
@@ -952,7 +1089,7 @@ function testLegacyWelcomeScreenIsRestored() {
   assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
   assert.ok(app.includes('function shouldShowEmptyWelcome'), 'welcome renderer should gate on real empty session state');
   assert.ok(app.includes('!s&&!n&&!a'), 'welcome should render only when messages, pending display items, and non-welcome DOM are all empty');
-  assert.ok(index.includes('./app.js?v=1.3.49-anchorfix1'), 'app.js cache version should change after welcome no-flash logic updates');
+  assert.ok(index.includes('./app.js?v=1.3.56-stopfix2'), 'app.js cache version should change after stop-stream cleanup updates');
   assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('font-weight:820') && css.includes('repeating-linear-gradient(90deg,transparent 0 26px') && css.includes('linear-gradient(100deg,#111827 0%,#1d2b5f 26%,#4d6bfe 52%,#18b9ee 72%,#111827 100%)') && !css.includes('conic-gradient(from 210deg') && !css.includes('content:"AI"'), 'welcome screen should be cooler and more premium while still matching the calm flat theme');
   assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
@@ -1079,7 +1216,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.29') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.12') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -1133,7 +1270,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('const inlineMathTail = hasConservativeInlineMathTail(raw)') && browserStreaming.includes('if (inlineMathTail)'), 'streaming boundary scan should reuse inline-math tail detection within a frame');
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('markdown-live-stream.js?v=1.0.2') && index.includes('message-workflow.js?v=1.3.29'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.89') && index.includes('markdown-live-stream.js?v=1.0.2') && index.includes('message-workflow.js?v=1.3.31-scrollfix'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
@@ -1203,6 +1340,8 @@ function testStreamingOutputSmoothnessOptimizations() {
   assert.ok(realtime.includes('const requestedIntervalMs') && realtime.includes('Math.max(16, requestedIntervalMs)'), 'explicit realtime render intervals such as 40ms should not be clamped back to the old 80ms default');
   assert.ok(!realtime.includes('Math.max(lowerBoundMs'), 'realtime renderer should not let the default lower bound override a tighter explicit stream interval');
   assert.ok(message.includes("const rawHash = chatStream ? '' : chatuiContentHash(rawValue)") && message.includes('dataset.streamingRawLength'), 'chat streaming updates should avoid full-response hash calculation on every chunk');
+  assert.ok(message.includes("const managesStreamingOutput = !!(chatStream && streamSessionId)") && message.includes('setActiveOutputForSession(streamSessionId, e)') && message.includes('e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked'), 'all chat streaming chunks should register the visible node as the active streaming output without rearming follow after manual scrolling');
+  assert.ok(message.includes('s.noScroll && !managesStreamingOutput') && message.includes('else if (managesStreamingOutput)'), 'streaming updates should not run viewport-restore noScroll on every chunk; active-output follow should own scroll positioning');
   assert.ok(scroll.includes('let activeOutputRaf') && scroll.includes('pendingActiveOutput') && scroll.includes('lockToStreamingOutput(pending.node, pending.options)'), 'streaming output scroll follow should be coalesced into one rAF update');
   assert.ok(app.includes('if(!0===a.deferDomUpdate&&e===state.activeSessionId&&a.skipDisplayUpdate)return;let i=null'), 'active streaming chunks should not rescan the whole message DOM when the visible node and display update are already handled');
 }
@@ -1227,8 +1366,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.61') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.62') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -1686,8 +1825,15 @@ function testChatJobIdIsPersistedBeforeRouteResolution() {
 
 function testSessionDisplayUpdatesFinalClarificationHtml() {
   const source = fs.readFileSync(path.join(__dirname, '../client/app/session-display.js'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(source.includes('if (options.deferPersist !== true) item.html ='), 'final display updates should refresh item html');
   assert.ok(!source.includes('options.deferPersist !== true && options.pending !== false'), 'final pending=false updates must not skip html refresh');
+  assert.ok(!chat.includes('pending:!1,responseIndex:m,metaText:M,reasoning:R,keepReasoning:!!R,deferDomUpdate'), 'chat final update must persist pending=false even when the DOM node was updated directly');
+  const e2e = fs.readFileSync(path.join(__dirname, '../temp/run-final-full-e2e.js'), 'utf8');
+  assert.ok(e2e.includes('async function waitForCompletion(beforeLen, timeoutMs, expected = {})'), 'full E2E should pass case expectations into completion waiting');
+  assert.ok(e2e.includes('if (gotAssistant && !data.pending && stableCount >= 1) break;'), 'full E2E should sample once after pending clears to avoid stale storage reads');
+  assert.ok(e2e.includes('const transientDone = data?.newMessages?.some(m => m.role === \'assistant\')'), 'full E2E should distinguish persisted completed clarify/chat answers from transient pending snapshots');
+  assert.ok(e2e.includes("assistantIncludes: ['baseUrl']"), 'error-handling E2E should require the visible invalid-baseUrl message');
 }
 
 function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
@@ -1733,7 +1879,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -1742,7 +1888,7 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.17') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
@@ -1751,7 +1897,7 @@ function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
   assert.ok(reasoningSource.includes('t.focus?.({preventScroll:!0})') && reasoningSource.includes('active.blur?.()'), 'closing reasoning menu should move or clear focus before aria-hidden=true');
   assert.ok(reasoningSource.indexOf('active&&e.contains?.(active)') < reasoningSource.indexOf('e.setAttribute("aria-hidden","true")'), 'focus should be released before setting aria-hidden on reasoning menu');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'reasoning menu accessibility fix should bump cache versions');
+  assert.ok(index.includes('reasoning-workflow.js?v=1.3.29-ds3') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'reasoning menu accessibility fix should bump cache versions');
 }
 
 function testCodeActionHoverAndHistoryAnchorActivePolish() {
@@ -1839,8 +1985,8 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
   assert.ok(configSource.includes('(getElement("baseUrl").value.trim()||defaults.baseUrl).replace'), 'getConfig should fall back to the default Endpoint when the field is blank');
   assert.ok(index.includes('placeholder="https://ingress.lfans.cn/v1"') && index.includes('默认使用 <code>https://ingress.lfans.cn/v1</code>'), 'settings UI should show the new default Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.69') && index.includes('chatui.bundle.js?v=1.3.48-arch70'), 'config default change should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.69') && index.includes('chatui.bundle.js?v=1.3.48-arch79'), 'config default change should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match the index cache-busting version');
 }
 
 function testOmittedAttachmentDataDoesNotRenderAsImageUrl() {
@@ -1869,8 +2015,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"已收到，正在准备图片")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.29') && index.includes('app.js?v=1.3.49-anchorfix1') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch70') && index.includes('styles/flat-theme.css?v=2.1.53'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match the force-image bundle cache-busting version');
+  assert.ok(index.includes('message-workflow.js?v=1.3.31-scrollfix') && index.includes('app.js?v=1.3.56-stopfix2') && index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch79') && index.includes('styles/flat-theme.css?v=2.1.53'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
 function testImagePreviewWheelZoom() {
@@ -1886,8 +2032,8 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.48-arch70') && index.includes('styles/flat-theme.css?v=2.1.53'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.66') && index.includes('chatui.bundle.js?v=1.3.48-arch79') && index.includes('styles/flat-theme.css?v=2.1.53'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -1910,8 +2056,8 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch70') && index.includes('styles/flat-theme.css?v=2.1.53'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch79') && index.includes('styles/flat-theme.css?v=2.1.53'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
@@ -1921,8 +2067,8 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(flatCss.includes('.pending-feedback{') && flatCss.includes('flex-wrap:nowrap!important') && flatCss.includes('white-space:nowrap!important'), 'pending feedback should keep waiting text on one line');
   assert.ok(flatCss.includes('.pending-text,') && flatCss.includes('.pending-dots{') && flatCss.includes('flex:0 0 auto!important'), 'pending feedback text and dots should not shrink into wrapped fragments');
   assert.ok(flatCss.includes('@media (max-width:640px)') && flatCss.includes('font-size:14px!important') && flatCss.includes('gap:6px!important'), 'mobile pending feedback should be compact enough to avoid wrapping');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch70') && index.includes('styles/flat-theme.css?v=2.1.53'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch70'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.48-arch67') && index.includes('chatui.bundle.js?v=1.3.48-arch79') && index.includes('styles/flat-theme.css?v=2.1.53'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.48-arch79'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
@@ -1960,7 +2106,7 @@ function testRouteTimeoutShowsSlowNoticeThenManualChoice() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.61') && index.includes('chat-workflow.js?v=1.3.17') && index.includes('route-decision-workflow.js?v=1.3.16') && index.includes('app.js?v=1.3.49-anchorfix1') && index.includes('flat-theme.css?v=2.1.53'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.62') && index.includes('chat-workflow.js?v=1.3.17') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.56-stopfix2') && index.includes('flat-theme.css?v=2.1.53'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {
@@ -1970,6 +2116,10 @@ function testDockerfileIncludesSharedRuntimeModules() {
 }
 
 const tests = [
+  testIntentContractNormalizesRouteAndExecution,
+  testPromptComposerPreservesIntentWithoutOverOptimizing,
+  testRouteResultCarriesTaskContractAndComposedPrompt,
+  testRouteInstructionDoesNotPolluteImagePrompt,
   testDockerfileIncludesSharedRuntimeModules,
   testRouteContextIsCompactAndIndexed,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -2003,6 +2153,7 @@ const tests = [
   testImplicitImagePromptExtractionStaysChatWithCurrentImage,
   testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent,
   testRouteOperationTypeDrivesCanonicalMode,
+  testImageResultCorrectionRebuildsImagePrompt,
   testRoutePromptUsesChineseCompactRules,
   testChatAnswerStreamingFlushesQuickly,
   testStreamingTailRendersLightweightCursor,

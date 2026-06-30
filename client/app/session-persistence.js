@@ -128,11 +128,26 @@
       return JSON.stringify(clean);
     } catch { return ''; }
   }
+
+  function escapeRegExp(value = '') {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  function stripLeadingMessageMeta(text = '', metaText = '') {
+    let result = String(text || '');
+    const meta = String(metaText || '').trim();
+    if (meta) result = result.replace(new RegExp(`^\\s*${escapeRegExp(meta)}\\s*(?:\\n+|$)`, 'i'), '');
+    return result.replace(/^\s*(?:TTFT|RT)\s+\d+(?:\.\d+)?\s*(?:ms|s)(?:\s*·\s*(?:TTFT|RT)\s+\d+(?:\.\d+)?\s*(?:ms|s))*\s*(?:\n+|$)/i, '');
+  }
+  function displayHtmlHasRichMedia(html = '') {
+    return /data-persisted-src=|data-persisted-href=|user-attachment-preview-grid|class=["'][^"']*(?:generated-thumb|user-attachment-image)|image-download-row/i.test(String(html || ''));
+  }
   function sanitizeStoredDisplayItem(item = {}, deps = {}) {
     const stripLargeDataUrlsFromText = deps.stripLargeDataUrlsFromText || (text => String(text || ''));
     const clean = { ...item };
-    clean.rawText = stripLargeDataUrlsFromText(clean.rawText || '');
+    const rawText = stripLargeDataUrlsFromText(clean.rawText || '');
+    clean.rawText = stripLeadingMessageMeta(rawText, clean.metaText);
     clean.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.html || ''), deps.document);
+    if (clean.rawText !== rawText && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
     clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext);
     clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext);
     return clean;
@@ -154,8 +169,11 @@
     };
     const clean = { ...message };
     clean.content = sanitizeValue(clean.content ?? '');
-    clean.rawText = stripLargeDataUrlsFromText(clean.rawText || '');
+    if (typeof clean.content === 'string') clean.content = stripLeadingMessageMeta(clean.content, clean.metaText);
+    const rawText = stripLargeDataUrlsFromText(clean.rawText || '');
+    clean.rawText = stripLeadingMessageMeta(rawText, clean.metaText);
     clean.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.html || ''), deps.document);
+    if ((clean.rawText !== rawText || (typeof message.content === 'string' && clean.content !== message.content)) && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
     clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext);
     clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext);
     return clean;

@@ -468,7 +468,6 @@
           return;
         }
 
-        const restoreViewport = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
         e.dataset.rawText = rawValue;
         if (chatStream) {
           e.dataset.streamingRawLength = String(rawValue.length);
@@ -483,6 +482,15 @@
           delete e.dataset.streamingRawLength;
           delete e.dataset.lastStreamingRaw;
         }
+        const streamSessionId = s.sessionId || state.activeSessionId;
+        const managesStreamingOutput = !!(chatStream && streamSessionId);
+        if (managesStreamingOutput) {
+          if (e.dataset.sessionId !== streamSessionId || state.activeOutputNode !== e) setActiveOutputForSession(streamSessionId, e);
+          if (streamSessionId === state.activeSessionId && e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked || state.activeOutputNode !== e || s.forceStreamFocus)) {
+            armStreamingOutputFocus(streamSessionId, e, { margin: 72, clearStaleFocus: !!s.clearStaleFocus });
+          }
+        }
+        const restoreViewport = s.noScroll && !managesStreamingOutput ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
         e.dataset.streaming = '1';
         if (void 0 !== s.streamKind) e.dataset.streamKind = s.streamKind || '';
         if (void 0 !== s.runToken) e.dataset.streamRunToken = s.runToken || '';
@@ -531,8 +539,10 @@
           cleanupGeneratedImageNumberArtifacts(e);
         }
 
-        if (s.noScroll) restoreViewport && restoreViewport();
-        else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+        if (restoreViewport) restoreViewport();
+        else if (managesStreamingOutput) {
+          if (!state.userScrollLocked && (s.forceScroll || shouldFollowScroll() || state.activeOutputNode === e)) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+        } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         updateResumeStreamButton();
       }
     }

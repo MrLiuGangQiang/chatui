@@ -389,7 +389,7 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.48-arch70"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.48-arch79"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
@@ -413,8 +413,9 @@
   <script src="./client/core/reasoning.js?v=1.2.66"></script>
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.65"></script>
-  <script src="./client/core/image-route-context.js?v=1.3.13"></script>
-  <script src="./client/core/route-decision.js?v=1.3.1"></script>
+  <script src="./client/core/image-route-context.js?v=1.3.14"></script>
+  <script src="./client/core/route-decision.js?v=1.3.3"></script>
+  <script src="./client/core/intent-contract.js?v=1.0.0"></script>
   <script src="./client/core/attachments.js?v=1.2.68"></script>
   <script src="./shared/config/context-budget.js?v=1.0.0"></script>
   <script src="./shared/usage/ranges.js?v=1.0.0"></script>
@@ -427,7 +428,8 @@
   <script src="./client/services/model-service.js?v=1.2.65"></script>
   <script src="./client/services/job-service.js?v=1.2.66"></script>
   <script src="./client/services/chat-service.js?v=1.2.65"></script>
-  <script src="./client/services/route-service.js?v=1.3.42"></script>
+  <script src="./client/services/prompt-composer-service.js?v=1.0.0"></script>
+  <script src="./client/services/route-service.js?v=1.3.47"></script>
   <script src="./client/services/image-generation-service.js?v=1.3.9"></script>
   <script src="./client/services/image-service.js?v=1.2.67"></script>
   <script src="./client/services/attachment-service.js?v=1.0.0"></script>
@@ -451,8 +453,8 @@
   <script src="./client/app/model-ui.js?v=1.2.65"></script>
   <script src="./client/app/attachments-workflow.js?v=1.2.70"></script>
   <script src="./client/app/image-context-workflow.js?v=1.2.75"></script>
-  <script src="./client/app/session-persistence.js?v=1.3.13"></script>
-  <script src="./client/app/session-display.js?v=1.2.69"></script>
+  <script src="./client/app/session-persistence.js?v=1.3.14-stopfix"></script>
+  <script src="./client/app/session-display.js?v=1.2.70-stopfix"></script>
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>
@@ -472,14 +474,14 @@
   <script src="./client/app/image-result-workflow.js?v=1.2.67"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.2.66"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.0.0"></script>
-  <script src="./client/app/submit-workflow.js?v=1.3.61"></script>
+  <script src="./client/app/submit-workflow.js?v=1.3.62"></script>
   <script src="./client/app/chat-workflow.js?v=1.3.17"></script>
   <script src="./client/app/image-workflow.js?v=1.3.15"></script>
-  <script src="./client/app/message-workflow.js?v=1.3.29"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.31-scrollfix"></script>
   <script src="./client/app/display-history-workflow.js?v=1.2.81"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.33"></script>
-  <script src="./client/app/route-decision-workflow.js?v=1.3.16"></script>
+  <script src="./client/app/route-decision-workflow.js?v=1.3.18"></script>
   <script src="./client/app/reasoning-workflow.js?v=1.3.29-ds3"></script>
   <script src="./client/ui/file-actions.js?v=1.2.65"></script>
   <script src="./client/ui/realtime-renderer.js?v=1.2.65"></script>
@@ -497,7 +499,7 @@
   <script src="./client/app/media-workflow.js?v=1.2.66"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
   <script src="./client/app/bootstrap-workflow.js?v=1.2.83"></script>
-  <script src="./app.js?v=1.3.49-anchorfix1"></script>
+  <script src="./app.js?v=1.3.56-stopfix2"></script>
   </template>
 </body>
 </html>

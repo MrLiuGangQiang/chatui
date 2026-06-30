@@ -193,7 +193,8 @@ function compactLastGeneratedImage(value = null) {
   return {
     reference_id: value.reference_id || makeImageReferenceId('latest'),
     target: 'previous',
-    count: Number(value.count) || (Array.isArray(value.candidates) ? value.candidates.length : 0),
+    count: Number(value.count) || (Array.isArray(value.candidates) ? value.candidates.length : 0) || (Array.isArray(value.images) ? value.images.length : 0) || (value.src ? 1 : 0),
+    prompt: String(value.prompt || value.user_prompt || '').slice(0, 300),
     updated_at: value.updated_at || value.updatedAt || null,
   };
 }
@@ -234,7 +235,7 @@ function latestUserImageRequest(messages = []) {
     const message = allMessages[index];
     if (message?.role !== 'user') continue;
     const text = messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').trim();
-    if (/画|生成|图片|图|海报|头像|插画|logo|图标|猫|狗|牛|人物|风景|背景|独立|分别|分开|拆成|修改|编辑|改/.test(text)) {
+    if (/画|生成|图片|图|图纸|展开图|模板|可打印|涂色|裁剪|剪裁|折叠|组装|骰子|六面体|立方体|卡片|贴纸|海报|头像|插画|logo|图标|猫|狗|牛|人物|风景|背景|独立|分别|分开|拆成|修改|编辑|改/.test(text)) {
       return { index: index + 1, content: text.slice(0, 800) };
     }
   }
@@ -533,7 +534,7 @@ function targetFromPlan(plan = {}, mode = 'chat') {
 function normalizeRouteOperation(route = {}, mode = 'chat') {
   const raw = route && typeof route.operation === 'object' ? route.operation : {};
   const validTypes = new Set(['plain_chat', 'file_qa', 'image_qa', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit']);
-  const validScopes = new Set(['current', 'quoted', 'history', 'none']);
+  const validScopes = new Set(['current', 'quoted', 'history', 'none', 'context']);
   const fallbackType = mode === 'image' ? 'text_to_image' : mode === 'edit_image' ? 'image_edit' : 'plain_chat';
   return {
     type: validTypes.has(raw.type) ? raw.type : fallbackType,

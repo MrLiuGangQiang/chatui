@@ -199,8 +199,8 @@
           pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
           createdAt: item.createdAt || Date.now(),
           updatedAt: item.updatedAt || Date.now(),
-          messages: readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []),
-          display: readJsonStorage(sessionStorageKey(UI_KEY, item.id), []),
+          messages: (readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []) || []).map(sanitizeStoredMessage).filter(Boolean),
+          display: compactDisplayItems((readJsonStorage(sessionStorageKey(UI_KEY, item.id), []) || []).map(sanitizeStoredDisplayItem)).slice(-80),
           lastGeneratedImage: readJsonStorage(sessionStorageKey(LAST_IMAGE_KEY, item.id), null),
           busy: false,
         }));

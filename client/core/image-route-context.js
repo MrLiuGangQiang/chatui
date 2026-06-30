@@ -210,12 +210,14 @@ function buildImageCandidates(references = []) {
     const candidates = Array.isArray(reference.candidates) ? reference.candidates : [];
     for (const candidate of candidates) {
       const imageId = candidate?.image_id || '';
-      const index = Number(candidate?.index) || 0;
-      const key = imageId || `${referenceId}:${index}`;
+      const sourceIndex = Number(candidate?.index) || 0;
+      const index = result.length + 1;
+      const key = imageId || `${referenceId}:${sourceIndex}`;
       if (!key || seen.has(key)) continue;
       seen.add(key);
       result.push({
         index,
+        source_index: sourceIndex || index,
         image_id: imageId,
         reference_id: referenceId,
         target,

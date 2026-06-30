@@ -3047,6 +3047,27 @@ body{
 .message[data-streaming="1"] .markdown-body{
   transition:none!important;
 }
+.message[data-streaming="1"].has-meta .bubble-wrap,
+.message[data-streaming="1"] .bubble-wrap:has(.message-meta){
+  padding-top:0!important;
+  padding-bottom:0!important;
+}
+.message[data-streaming="1"] .message-meta,
+.message[data-streaming="1"].has-meta .message-meta{
+  position:static!important;
+  order:0!important;
+  align-self:flex-start!important;
+  min-height:14px!important;
+  max-width:100%!important;
+  margin:0 0 4px!important;
+  padding:0 2px!important;
+  transform:none!important;
+  pointer-events:auto!important;
+  transition:none!important;
+}
+.message[data-streaming="1"] .bubble{
+  order:1!important;
+}
 .message[data-streaming="1"] .bubble-wrap{
   padding-bottom:0!important;
 }

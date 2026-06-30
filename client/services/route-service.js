@@ -14,7 +14,7 @@ const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 意图路由器，只返回 JSON，�
 
 上一轮有图片生成/编辑结果时，用户指出错误或继续调整：能定位且要改原图用 image_edit；要求重做/重新生成或只是指出结果不符合原需求用 image_generate；instruction 保留原始图片目标+当前纠错；不要把“已重新生成/已修改”作为 chat 文本回答。
 
-参数：instruction 只做意图和显式约束摘要，不要写成完整生图/修图 prompt；不要新增 current_input 和 context 中没有的对象、风格、构图、材质、背景、装饰或制作细节。缺图片/文件或多候选未指定才 need_clarification；selected_indexes 用 1-based；reply_to_user 只给追问或拒绝。`
+参数：instruction 只做意图和显式约束摘要，不要写成完整生图/修图 prompt；不要新增 current_input 和 context 中没有的对象、风格、构图、材质、背景、装饰或制作细节。缺图片/文件或多候选未指定才 need_clarification；有 image_candidates 时 selected_indexes 按候选 index；reply_to_user 只给追问或拒绝。`
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `你是 ChatUI 意图复判器，只返回 JSON，不回答用户。
 场景：首轮意图识别低置信、参数冲突，或最近一轮是工具结果而 current_input 可能是在评价/修正/延续该结果。
@@ -65,6 +65,7 @@ const {
   inferSourceFromContext,
   defaultIndexesForSource,
   selectedCandidatesForSource,
+  candidateExecutionIndexes,
   targetForEditSource,
   imageRefTargetForSource,
   referenceIdForSource,
@@ -206,9 +207,12 @@ function apiRouteToExecutionRoute(simple = {}, options = {}) {
   if (route === 'image_generate' || route === 'image_edit' || route === 'vision') {
     const selected = selectedCandidatesForSource(imageSource, selectedIndexes, attachments, context);
     const first = selected[0] || null;
+    const executionIndexes = typeof candidateExecutionIndexes === 'function' ? candidateExecutionIndexes(selected) : [];
+    const effectiveSelectedIndexes = executionIndexes.length ? executionIndexes : selectedIndexes;
     const role = route === 'image_edit' ? 'target' : route === 'image_generate' ? 'reference' : 'source';
-    const refs = selectedIndexes.map(index => {
-      const candidate = selected.find(item => Number(item.index) === Number(index)) || (selectedIndexes.length === 1 ? first : null);
+    const refs = (selected.length ? selected : effectiveSelectedIndexes).map(item => {
+      const candidate = selected.length ? item : (selected.find(candidate => Number(candidate.index) === Number(item)) || (effectiveSelectedIndexes.length === 1 ? first : null));
+      const index = Number(candidate && (candidate.source_index || candidate.sourceIndex || candidate.index)) || Number(item) || 1;
       return {
         role,
         image_id: candidate?.image_id || '',
@@ -222,16 +226,16 @@ function apiRouteToExecutionRoute(simple = {}, options = {}) {
     const selectedReferenceId = referenceIdForSource(imageSource, selected, context, usePreviousImage) || refs.find(ref => ref.reference_id)?.reference_id || '';
     if (route === 'image_generate') {
       const prompt = buildContextualImageInstruction(input, context, instruction);
-      return { mode: 'image', operation: { type: 'image_reference_gen', scope: imageSource === 'none' ? 'current' : imageSource, prompt, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'new', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_reference_gen', edit_instruction: '', contextual_image_prompt: prompt, tasks: [], confidence: confidence || 0.9, evidence: reason || '参考图生成新图' };
+      return { mode: 'image', operation: { type: 'image_reference_gen', scope: imageSource === 'none' ? 'current' : imageSource, prompt, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'new', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: effectiveSelectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_reference_gen', edit_instruction: '', contextual_image_prompt: prompt, tasks: [], confidence: confidence || 0.9, evidence: reason || '参考图生成新图' };
     }
     if (route === 'image_edit') {
       const target = targetForEditSource(imageSource, first);
       usePreviousImage = usePreviousImage || (imageSource === 'history' && target === 'previous');
-      return { mode: 'edit_image', operation: { type: 'image_edit', scope: imageSource === 'none' ? 'current' : imageSource, prompt: '', edit_instruction: instruction || input }, image_refs: refs, file_refs: [], target, use_previous_image: usePreviousImage, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_edit', edit_instruction: instruction || input, contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || '修改已有图片' };
+      return { mode: 'edit_image', operation: { type: 'image_edit', scope: imageSource === 'none' ? 'current' : imageSource, prompt: '', edit_instruction: instruction || input }, image_refs: refs, file_refs: [], target, use_previous_image: usePreviousImage, selected_reference_id: selectedReferenceId, selected_indexes: effectiveSelectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'image_edit', edit_instruction: instruction || input, contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || '修改已有图片' };
     }
     const isOcr = /(?:ocr|OCR|识别文字|文字识别|读文字|读取文字|提取文字)/i.test([input, instruction].filter(Boolean).join('\n'));
     const type = isOcr ? 'ocr' : 'image_qa';
-    return { mode: 'chat', operation: { type, scope: imageSource === 'none' ? 'current' : imageSource, prompt: input, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: selectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || (isOcr ? '图片文字识别' : '图片理解') };
+    return { mode: 'chat', operation: { type, scope: imageSource === 'none' ? 'current' : imageSource, prompt: input, edit_instruction: '' }, image_refs: refs, file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: selectedReferenceId, selected_indexes: effectiveSelectedIndexes, selected_image_ids: selectedIds, need_clarification: false, clarification_question: '', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.95, evidence: reason || (isOcr ? '图片文字识别' : '图片理解') };
   }
 
   return { mode: 'chat', operation: { type: 'plain_chat', scope: 'none', prompt: input, edit_instruction: '' }, image_refs: [], file_refs: [], target: 'none', use_previous_image: false, selected_reference_id: '', selected_indexes: [], selected_image_ids: [], need_clarification: true, clarification_question: reply || '请说明你想让我做什么。', intent: 'unknown', edit_instruction: '', contextual_image_prompt: '', tasks: [], confidence: confidence || 0.5, evidence: reason || '无法识别意图' };

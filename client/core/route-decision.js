@@ -94,6 +94,13 @@ function selectedCandidatesForSource(source, indexes = [], attachments = [], con
   return candidates.filter(item => indexes.includes(Number(item.index)));
 }
 
+function candidateExecutionIndexes(selected = []) {
+  return selected
+    .map(item => Number(item && (item.source_index || item.sourceIndex || item.index)))
+    .filter(item => Number.isInteger(item) && item >= 1)
+    .filter((item, index, list) => list.indexOf(item) === index);
+}
+
 function targetForEditSource(source, candidate = null) {
   if (source === 'current') return 'uploaded';
   if (candidate?.target === 'uploaded') return 'uploaded';
@@ -130,6 +137,7 @@ const api = Object.freeze({
   inferSourceFromContext,
   defaultIndexesForSource,
   selectedCandidatesForSource,
+  candidateExecutionIndexes,
   targetForEditSource,
   imageRefTargetForSource,
   referenceIdForSource,

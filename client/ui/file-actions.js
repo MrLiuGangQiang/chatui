@@ -1,8 +1,10 @@
 (function initChatUIFileActions(root) {
   'use strict';
 
+const fileNames = root?.ChatUIFileNames || (typeof require === 'function' ? require('../../shared/file-names') : null);
+
 function safeFilenamePart(value = '') {
-  return String(value || '')
+  return fileNames?.safeFilenamePart ? fileNames.safeFilenamePart(value, 'assistant-answer', 32) : String(value || '')
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -10,9 +12,9 @@ function safeFilenamePart(value = '') {
 }
 
 function answerFilename({ text = '', date = new Date() } = {}) {
+  if (fileNames?.timestampedFilename) return fileNames.timestampedFilename({ ext: 'md', date });
   const stamp = date.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const firstLine = String(text || '').split('\n').find(Boolean) || 'assistant-answer';
-  return `${stamp}-${safeFilenamePart(firstLine)}.md`;
+  return `${stamp}.md`;
 }
 
 const api = Object.freeze({ safeFilenamePart, answerFilename });

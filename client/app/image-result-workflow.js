@@ -3,6 +3,7 @@
 
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
     const extracted = deps.extractImageResult(result);
+    const fileNames = root?.ChatUIFileNames || (typeof window !== 'undefined' ? window.ChatUIFileNames : null);
     if (extracted && extracted.kind === 'empty') return { html: '没有返回图片数据', raw: extracted.raw, metaText: elapsedText ? `RT ${elapsedText}` : '' };
     if (extracted && extracted.kind === 'raw') return { html: `<pre>${deps.escapeHtml(extracted.raw)}</pre>`, raw: extracted.raw, metaText: elapsedText ? `RT ${elapsedText}` : '' };
     const images = Array.isArray(extracted?.images) && extracted.images.length ? extracted.images : [];
@@ -14,7 +15,7 @@
     const referenceId = deps.makeImageReferenceId ? deps.makeImageReferenceId('latest') : 'imgref_latest';
     for (let index = 0; index < images.length; index += 1) {
       const item = images[index];
-      const filename = `generated-${Date.now()}-${index + 1}.png`;
+      const filename = fileNames?.timestampedFilename ? fileNames.timestampedFilename({ ext: 'png' }) : `${Date.now()}.png`;
       const persisted = await deps.settleWithin(deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true }), 8000, { persistedSrc: item.src, displaySrc: item.src });
       const persistedSrc = persisted?.persistedSrc || item.src;
       // Use the blob URL from persistImageSrc for immediate display (avoids

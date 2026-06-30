@@ -3,6 +3,10 @@
 
   function createImageActionsWorkflow(deps = {}) {
     const { document, window, navigator, ClipboardItem, File, Image, URL, fetch, getImageBlob, toast, resetActionButtonState, markActionButtonBusy, restoreActionButtonSoon, openImagePreview, escapeAttr } = deps;
+    const fileNames = window?.ChatUIFileNames || root?.ChatUIFileNames;
+    function downloadFilename(filename, fallbackStem = 'generated-image', fallbackExt = 'png') {
+      return fileNames?.timestampExistingFilename ? fileNames.timestampExistingFilename(filename, { fallbackStem, fallbackExt }) : (filename || `${fallbackStem}.${fallbackExt}`);
+    }
 
     function removeGeneratedImageInlineActions(e){e?.querySelectorAll?.(".content img.generated-thumb").forEach(e=>{let t=e.nextElementSibling;for(;t&&(t.matches?.(".image-icon-btn,[data-download-image],[data-copy-image],[data-share-image],.generated-image-actions")||!String(t.textContent||"").trim()&&0===t.children.length);){const e=t.nextElementSibling;t.remove(),t=e}}),e?.querySelectorAll?.(".content .generated-image-actions").forEach(e=>e.remove())}
 
@@ -20,7 +24,7 @@
 
     async function getImageActionBlob(e){const t=e.dataset.persistedHref||e.getAttribute?.("href")||"";if(t.startsWith("indexeddb://")){const e=await getImageBlob(t.replace("indexeddb://",""));if(!e)throw new Error("图片缓存不存在，请重新生成");return e}if(/^https?:|^data:|^blob:/i.test(t)){const e=await fetch(t);if(e.ok)return e.blob()}throw new Error("图片缓存不存在，请重新生成")}
 
-    async function downloadImageActionElement(e){const t=e.dataset.filename||"generated-image.png";try{const s=await getImageActionBlob(e),n=URL.createObjectURL(s),a=document.createElement("a");a.href=n,a.download=t,a.rel="noreferrer",document.body.appendChild(a),a.click(),a.remove(),setTimeout(()=>URL.revokeObjectURL(n),3e4)}catch(e){toast(e.message||String(e))}}
+    async function downloadImageActionElement(e){const t=downloadFilename(e.dataset.filename,"generated-image","png");try{const s=await getImageActionBlob(e),n=URL.createObjectURL(s),a=document.createElement("a");a.href=n,a.download=t,a.rel="noreferrer",document.body.appendChild(a),a.click(),a.remove(),setTimeout(()=>URL.revokeObjectURL(n),3e4)}catch(e){toast(e.message||String(e))}}
 
     function canWriteImageClipboard(){return window.isSecureContext&&!!navigator.clipboard?.write&&"function"==typeof ClipboardItem}
 
@@ -28,13 +32,13 @@
 
     async function copyImageActionElement(e){try{if(!canWriteImageClipboard())throw new Error(imageClipboardUnsupportedMessage());const t=await getImageActionBlob(e),s=t.type&&/^image\//i.test(t.type)?t.type:"image/png",n="image/png"===s?t:await new Promise((e,n)=>{const a=new Image,i=URL.createObjectURL(t);a.onload=()=>{try{const t=document.createElement("canvas");t.width=a.naturalWidth||a.width,t.height=a.naturalHeight||a.height,t.getContext("2d").drawImage(a,0,0),t.toBlob(t=>{URL.revokeObjectURL(i),t?e(t):n(new Error("图片转换失败"))},"image/png")}catch(e){URL.revokeObjectURL(i),n(e)}},a.onerror=()=>{URL.revokeObjectURL(i),n(new Error("图片转换失败"))},a.src=i});await navigator.clipboard.write([new ClipboardItem({[n.type||"image/png"]:n})]),toast("图片已复制")}catch(e){toast(e.message||String(e))}}
 
-    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");for(const e of t){const t=document.createElement("button");t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=e.dataset.filename||"generated-image.png",await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
+    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");for(const e of t){const t=document.createElement("button");t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=downloadFilename(e.dataset.filename,"generated-image","png"),await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
 
     function bindImageDownload(e){e.dataset.downloadBound||(e.dataset.downloadBound="1",e.addEventListener("click",()=>downloadImageActionElement(e)))}
 
     function bindImageCopy(e){e.dataset.copyBound||(e.dataset.copyBound="1",e.addEventListener("click",()=>copyImageActionElement(e)))}
 
-    function bindImageShare(e){e.dataset.shareBound||(e.dataset.shareBound="1",e.addEventListener("click",async()=>{const t=e.dataset.filename||"generated-image.png";try{const s=await getImageActionBlob(e),n=new File([s],t,{type:s.type||"image/png"});if(!navigator.share||!navigator.canShare?.({files:[n]}))throw new Error("当前浏览器不支持文件分享");await navigator.share({files:[n],title:t})}catch(e){if("AbortError"===e?.name)return;toast(e.message||String(e))}}))}
+    function bindImageShare(e){e.dataset.shareBound||(e.dataset.shareBound="1",e.addEventListener("click",async()=>{const t=downloadFilename(e.dataset.filename,"generated-image","png");try{const s=await getImageActionBlob(e),n=new File([s],t,{type:s.type||"image/png"});if(!navigator.share||!navigator.canShare?.({files:[n]}))throw new Error("当前浏览器不支持文件分享");await navigator.share({files:[n],title:t})}catch(e){if("AbortError"===e?.name)return;toast(e.message||String(e))}}))}
 
     function bindImagePreview(e){
       e.querySelectorAll("[data-download-image]").forEach(bindImageDownload),e.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),e.querySelectorAll("[data-share-image]").forEach(bindImageShare);

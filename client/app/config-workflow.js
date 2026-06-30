@@ -12,9 +12,11 @@
 
     function normalizeModelMeta(e,t={}){const s={};return(Array.isArray(e)?e:[]).forEach(e=>{const n=t?.[e]||{};s[e]={id:e,type:String(n.type||"").trim(),unrecognized:!0===n.unrecognized||!String(n.type||"").trim()}}),s}
 
-    function setApiKeyVisible(e){const t=getElement("apiKey"),s=getElement("toggleApiKeyVisibility");t&&s&&(t.type=e?"text":"password",s.classList.toggle("visible",e),s.setAttribute("aria-label",e?"隐藏 API Key":"显示 API Key"),s.setAttribute("aria-pressed",e?"true":"false"))}
+    function setApiKeyVisible(e){const t=getElement("apiKey"),s=getElement("toggleApiKeyVisibility");t&&s&&(t.type=e?"text":"password",s.classList.toggle("visible",e),s.classList.toggle("showing",e),s.setAttribute("aria-label",e?"隐藏 API Key":"显示 API Key"),s.setAttribute("aria-pressed",e?"true":"false"))}
 
     function toggleApiKeyVisibility(){const e=getElement("apiKey");e&&(setApiKeyVisible("password"===e.type),e.focus())}
+
+    async function copyConfigField(e){const t=getElement(e),s=String(t?.value||"").trim();if(!s)return toast?.("暂无可复制内容");try{if(window?.ChatUI?.actions?.copyText)await window.ChatUI.actions.copyText(s,window.navigator?.clipboard,document);else if(window?.navigator?.clipboard?.writeText)await window.navigator.clipboard.writeText(s);else{const e=document.createElement("textarea");e.value=s,e.setAttribute("readonly",""),e.style.position="fixed",e.style.opacity="0",document.body.appendChild(e),e.select(),document.execCommand("copy"),e.remove()}toast?.("已复制")}catch(e){toast?.("复制失败，请手动复制")}}
 
     function loadConfig(){const e=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{})),t={...defaults,...e};getElement("baseUrl").value=t.baseUrl||defaults.baseUrl,getElement("apiKey").value=t.apiKey||"",getElement("imageSize").value=t.imageSize||defaults.imageSize,updateCustomSelect(getElement("imageSize")),getElement("systemPrompt").value=t.systemPrompt||"",getElement("imageStylePrompt")&&(getElement("imageStylePrompt").value=t.imageStylePrompt||""),state.models=Array.isArray(t.models)?t.models:[],state.modelMeta=normalizeModelMeta(state.models,t.modelMeta||{});const n=new Set(state.models),a=n.has(t.chatModel)?t.chatModel:"",i=n.has(t.routeModel)?t.routeModel:"",o=n.has(t.imageModel)?t.imageModel:"";renderModelOptions(a,o,i),t.chatModel===a&&t.routeModel===i&&t.imageModel===o||saveConfig(!0)}
 
@@ -36,7 +38,7 @@
 
     function closeConfigModal(){document.body.classList.remove("modal-open"),getElement("configModal").classList.remove("show"),getElement("configModal").setAttribute("aria-hidden","true")}
 
-    return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
+    return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, copyConfigField, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
   }
 
   const api = Object.freeze({ createConfigWorkflow, defaults, DEFAULT_BASE_URL });

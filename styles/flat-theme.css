@@ -786,6 +786,37 @@ body {
   box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
 }
 
+.config-field-actions,
+.secret-field {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.config-field-actions input,
+.secret-field input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+.config-copy-btn {
+  flex: 0 0 auto !important;
+  min-width: 52px !important;
+  height: 36px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: var(--muted) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: background .12s, color .12s, border-color .12s !important;
+}
+.config-copy-btn:hover {
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+  border-color: #cbd5e1 !important;
+}
+
 .secret-field {
   border-radius: 8px !important;
 }
@@ -3656,4 +3687,230 @@ body{
 .markdown-body .code-block .mermaid-toggle-btn:active,
 .markdown-body .code-block .mermaid-render-toggle:active{
   transform:none !important;
+}
+
+/* Config copy controls: align URL/API-key copy actions and prevent the legacy password-eye button from overlapping. */
+.config-dialog .config-field-actions,
+.config-dialog .secret-field {
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+  width: 100% !important;
+  position: relative !important;
+}
+.config-dialog .config-field-actions input,
+.config-dialog .secret-field input {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  padding-right: 12px !important;
+}
+.config-dialog .secret-toggle,
+.config-dialog .config-copy-btn {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  flex: 0 0 auto !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  border: 1px solid rgba(203,213,225,.82) !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.78) !important;
+  color: #475569 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 6px 14px rgba(15,23,42,.045) !important;
+}
+.config-dialog .secret-toggle {
+  width: 38px !important;
+  min-width: 38px !important;
+  padding: 0 !important;
+}
+.config-dialog .config-copy-btn {
+  min-width: 54px !important;
+  padding: 0 11px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.config-dialog .secret-toggle:hover,
+.config-dialog .config-copy-btn:hover {
+  color: #0f766e !important;
+  border-color: rgba(20,184,166,.42) !important;
+  background: rgba(240,253,250,.94) !important;
+}
+.config-dialog .secret-toggle svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+/* Config copy icon buttons: match the API-key visibility button exactly. */
+.config-dialog .config-copy-btn {
+  width: 38px !important;
+  min-width: 38px !important;
+  padding: 0 !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+.config-dialog .config-copy-btn svg,
+.config-dialog .secret-toggle svg {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.9 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+
+/* Restore mutually-exclusive API-key visibility icons after icon-button normalization. */
+.config-dialog .secret-toggle .eye-open,
+.config-dialog .secret-toggle .eye-closed {
+  display: none !important;
+}
+.config-dialog .secret-toggle:not(.showing):not(.visible) .eye-open,
+.config-dialog .secret-toggle.showing .eye-closed,
+.config-dialog .secret-toggle.visible .eye-closed {
+  display: block !important;
+}
+.config-dialog .config-copy-btn svg {
+  display: block !important;
+}
+
+/* Config field trailing icons: icons live inside full-width inputs instead of shortening the field. */
+.config-dialog .config-field-actions,
+.config-dialog .secret-field {
+  display: block !important;
+  position: relative !important;
+  width: 100% !important;
+}
+.config-dialog .config-field-actions input,
+.config-dialog .secret-field input {
+  display: block !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+}
+.config-dialog .config-field-actions input {
+  padding-right: 48px !important;
+}
+.config-dialog .secret-field input {
+  padding-right: 88px !important;
+}
+.config-dialog .secret-toggle,
+.config-dialog .config-copy-btn {
+  position: absolute !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 2 !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+}
+.config-dialog .secret-toggle:hover,
+.config-dialog .config-copy-btn:hover {
+  color: #0f766e !important;
+  background: rgba(15,118,110,.08) !important;
+  border-color: transparent !important;
+}
+.config-dialog .config-field-actions .config-copy-btn {
+  right: 7px !important;
+}
+.config-dialog .secret-field .secret-toggle {
+  right: 43px !important;
+}
+.config-dialog .secret-field .config-copy-btn {
+  right: 7px !important;
+}
+
+/* Config copy buttons stay outside inputs; only the API-key visibility icon remains inside the key field. */
+.config-dialog .config-field-actions,
+.config-dialog .secret-field {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: 100% !important;
+  position: relative !important;
+}
+.config-dialog .config-field-actions input,
+.config-dialog .secret-field input {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+.config-dialog .config-field-actions input {
+  padding-right: 12px !important;
+}
+.config-dialog .secret-field input {
+  padding-right: 48px !important;
+}
+.config-dialog .config-copy-btn {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  flex: 0 0 32px !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+}
+.config-dialog .secret-field .secret-toggle {
+  position: absolute !important;
+  top: 50% !important;
+  right: 45px !important;
+  transform: translateY(-50%) !important;
+  z-index: 2 !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+}
+
+/* Final config layout: copy icons live inside both URL and API-key inputs. */
+.config-dialog .config-field-actions,
+.config-dialog .secret-field {
+  display: block !important;
+  position: relative !important;
+  width: 100% !important;
+}
+.config-dialog .config-field-actions input,
+.config-dialog .secret-field input {
+  display: block !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+}
+.config-dialog .config-field-actions input {
+  padding-right: 48px !important;
+}
+.config-dialog .secret-field input {
+  padding-right: 88px !important;
+}
+.config-dialog .config-copy-btn,
+.config-dialog .secret-field .secret-toggle {
+  position: absolute !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 2 !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  flex: 0 0 auto !important;
+}
+.config-dialog .config-field-actions .config-copy-btn {
+  right: 7px !important;
+}
+.config-dialog .secret-field .secret-toggle {
+  right: 43px !important;
+}
+.config-dialog .secret-field .config-copy-btn {
+  right: 7px !important;
 }

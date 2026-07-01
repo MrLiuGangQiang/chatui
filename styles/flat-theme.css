@@ -3992,3 +3992,21 @@ body{
     transform:none!important;
   }
 }
+
+/* Streaming messages must not expose hover action controls until final layout settles. */
+.message[data-streaming="1"] .msg-actions,
+.message[data-streaming="1"]:hover .msg-actions,
+.message[data-streaming="1"]:focus-within .msg-actions,
+.message[data-streaming="1"] .msg-actions:hover{
+  display:none!important;
+  width:0!important;
+  height:0!important;
+  min-width:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  transition:none!important;
+}

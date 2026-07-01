@@ -332,12 +332,21 @@
         const rawValue = String(s.rawText ?? t ?? "");
         const rawHash = chatuiContentHash(rawValue);
         const streamingFinalShouldPin = e === state.activeOutputNode && !state.userScrollLocked;
+        const wasStreaming = e.dataset.streaming === '1';
+        const clearStreamingState = () => {
+          if (s.skipSave) return;
+          const clear = () => {
+            delete e.dataset.streaming;
+            delete e.dataset.streamKind;
+            delete e.dataset.streamRunToken;
+          };
+          if (!wasStreaming) return clear();
+          requestAnimationFrame?.(() => requestAnimationFrame?.(clear) || clear()) || setTimeout(clear, 32);
+        };
         const canAutoFollowNow = () => !state.userScrollLocked && shouldFollowScroll();
         if (e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.html && !s.metaText) {
           cleanupGeneratedImageNumberArtifacts(e);
-          delete e.dataset.streaming;
-          delete e.dataset.streamKind;
-          delete e.dataset.streamRunToken;
+          clearStreamingState();
           return;
         }
 
@@ -383,9 +392,7 @@
         delete e.dataset.streamingMarkdownTail;
         delete e.dataset.lastStreamingRaw;
 
-        delete e.dataset.streaming;
-        delete e.dataset.streamKind;
-        delete e.dataset.streamRunToken;
+        clearStreamingState();
         if (e === state.activeOutputNode && !s.skipSave) {
           state.streamFocusLocked = false;
           if (canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });

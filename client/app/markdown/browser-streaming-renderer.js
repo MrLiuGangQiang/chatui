@@ -96,6 +96,12 @@
   function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); return normalizedHtml(container.innerHTML) === normalizedHtml(tpl.innerHTML); }
   function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) { if (typeof renderMarkdown !== 'function') return false; const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); const delta = document.createElement('template'); delta.innerHTML = renderMarkdown(finalDelta); current.append(...delta.content.childNodes); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
 
+  const STREAMING_TAIL_SCAN_LIMIT = 65536;
+  function boundedStreamingScanTail(text = '') {
+    const value = String(text || '');
+    return value.length > STREAMING_TAIL_SCAN_LIMIT ? value.slice(-STREAMING_TAIL_SCAN_LIMIT) : value;
+  }
+
   function hasConservativeInlineMathTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const tail = src.slice(Math.max(0, src.lastIndexOf('\n') + 1)); let escaped = false; for (let i = 0; i < tail.length; i += 1) { const ch = tail[i]; if (escaped) { escaped = false; continue; } if (ch === '\\') { escaped = true; continue; } if (ch === '$' && tail[i + 1] !== '$' && tail[i - 1] !== '$') return true; } return false; }
   function splitLines(src) { const lines = []; let start = 0; for (let i = 0; i < src.length; i += 1) if (src[i] === '\n') { lines.push({ text: src.slice(start, i), start, end: i + 1, hasNl: true }); start = i + 1; } if (start < src.length) lines.push({ text: src.slice(start), start, end: src.length, hasNl: false }); return lines; }
   function fenceOfLine(line = '') { return String(line || '').match(/^\s{0,3}(`{3,}|~{3,})(.*)$/) || String(line || '').match(/^\s{0,3}>\s?(`{3,}|~{3,})(.*)$/); }
@@ -176,7 +182,11 @@
       if (!next && !options.keepCursor) return removeTailNode();
       const node = ensureTailNode(container);
       if (!node || !tailTextNode) return;
-      if (tailTextNode.nodeValue !== next) tailTextNode.nodeValue = next;
+      const current = tailTextNode.nodeValue || '';
+      if (current !== next) {
+        if (next.startsWith(current) && typeof tailTextNode.appendData === 'function') tailTextNode.appendData(next.slice(current.length));
+        else tailTextNode.nodeValue = next;
+      }
       if (node.parentNode === container && node !== container.lastChild) container.appendChild(node);
     };
     const enhanceSafe = (c, phase = {}) => {
@@ -185,7 +195,7 @@
         enhance?.(c, phase);
       } catch (err) { console.warn('[markdown] streaming enhance failed:', err); }
     };
-    const hasInlineMathTailBefore = index => hasConservativeInlineMathTail(raw.slice(0, index));
+    const hasInlineMathTailBefore = index => hasConservativeInlineMathTail(raw.slice(Math.max(0, index - STREAMING_TAIL_SCAN_LIMIT), index));
     const splitStableTailIncremental = () => {
       if (scanOffset > raw.length || consumed > raw.length) return splitStableTail(raw);
       const blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l);
@@ -205,10 +215,13 @@
         scanOffset = end;
       }
       let index = scanStable;
-      const inlineMathTail = hasConservativeInlineMathTail(raw);
+      const tailScan = boundedStreamingScanTail(raw);
+      const tailScanOffset = raw.length - tailScan.length;
+      const inlineMathTail = hasConservativeInlineMathTail(tailScan);
       if (!scanInFence && !scanInMath && raw.endsWith('\n') && !inlineMathTail) index = Math.max(index, raw.length);
       if (inlineMathTail) index = Math.min(index, Math.max(0, raw.lastIndexOf('\n', raw.length - 2) + 1));
-      const tableStart = activeTableBlockStart(raw);
+      const tableStartLocal = activeTableBlockStart(tailScan);
+      const tableStart = tableStartLocal >= 0 ? tailScanOffset + tableStartLocal : -1;
       if (tableStart >= 0) index = Math.min(index, tableStart);
       index = Math.max(consumed, Math.min(index, raw.length));
       return { stable: raw.slice(0, index), tail: raw.slice(index), index };

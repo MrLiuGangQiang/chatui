@@ -19,6 +19,9 @@ function testSubmitHelpersParseAndPreviewQuoteContext() {
 
 function testSubmitHelpersUnderstandingClassifiers() {
   assert.strictEqual(helpers.isImageUnderstandingChat('这张图里有什么文字？'), true);
+  assert.strictEqual(helpers.isImageUnderstandingChat('看看这个'), true);
+  assert.strictEqual(helpers.isImageUnderstandingChat('看一下'), true);
+  assert.strictEqual(helpers.isImageUnderstandingChat('这是什么'), true);
   assert.strictEqual(helpers.isImageUnderstandingChat('解释一下 Promise'), false);
   assert.strictEqual(helpers.isFileUnderstandingChat('总结这个 PDF 里的内容'), true);
   assert.strictEqual(helpers.isFileUnderstandingChat('帮我画一只猫'), false);

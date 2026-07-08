@@ -58,15 +58,25 @@ function testIntentContractNormalizesRouteAndExecution() {
     evidence: '视觉产物生成',
   }, 'image');
   const task = intentContract.routeToTaskContract(route, { input: '生成一张猫图' });
+  assert.strictEqual(task.schema_version, 'task_contract.v2');
   assert.strictEqual(task.intent, 'image.generate');
   assert.strictEqual(task.execution.api, 'image_generation');
   assert.strictEqual(task.execution.operation, 'text_to_image');
   assert.strictEqual(task.prompt_plan.final_instruction, '生成一张猫图');
+  assert.ok(Array.isArray(task.resources));
+  assert.ok(Array.isArray(task.steps));
 
-  const edit = intentContract.normalizeTaskContract({ intent: 'image.edit', target: { type: 'previous_image', source: 'history', selected_indexes: [1] }, prompt_plan: { final_instruction: '把背景换成白色' } });
+  const edit = intentContract.normalizeTaskContract({ intent: 'image.edit', resources: [{ type: 'image', source: 'history', role: 'target', index: 1 }], prompt_plan: { final_instruction: '把背景换成白色' } });
   assert.strictEqual(edit.execution.api, 'image_edit');
   assert.strictEqual(edit.execution.operation, 'edit_image');
+  assert.strictEqual(edit.resources[0].role, 'target');
   assert.deepStrictEqual(edit.target.selected_indexes, [1]);
+
+  const compare = intentContract.normalizeTaskContract({ intent: 'vision_qa', execution: { api: 'vision', operation: 'image_compare' }, resources: [{ type: 'image', source: 'history', role: 'compare_a', index: 1 }, { type: 'image', source: 'current', role: 'compare_b', index: 1 }], prompt_plan: { final_instruction: '比较差异' } });
+  assert.strictEqual(compare.execution.operation, 'image_compare');
+  assert.strictEqual(compare.resources.length, 2);
+  assert.ok(compare.resources.some(item => item.source === 'history' && item.role === 'compare_a'));
+  assert.ok(compare.resources.some(item => item.source === 'current' && item.role === 'compare_b'));
 }
 
 function testPromptComposerPreservesIntentWithoutOverOptimizing() {
@@ -161,8 +171,9 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('"route":"chat|vision|image_generate|image_edit|unclear|unsafe"'));
-  assert.ok(payload.messages[0].content.includes('image_source'));
+  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v2"'));
+  assert.ok(payload.messages[0].content.includes('"resources"'));
+  assert.ok(payload.messages[0].content.includes('"steps"'));
   const payloadJson = JSON.stringify(payload);
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking|thinking_budget|thinkingConfig)/i.test(payloadJson), 'route recognition payload should not send thinking/reasoning params');
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
@@ -592,7 +603,7 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   const body = payload.messages[1].content;
   assert.ok(system.includes('候选元数据'));
   assert.ok(system.includes('不要猜图片或文件内容'));
-  assert.ok(system.includes('file_candidates'));
+  assert.ok(system.includes('resources'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
@@ -864,6 +875,54 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(multiAmbiguous.mode, 'chat');
   assert.strictEqual(multiAmbiguous.needClarification, true);
   assert.ok(multiAmbiguous.clarificationQuestion.includes('第几张'));
+
+  const currentVisionOverride = routeService.parseRouteResult(JSON.stringify({
+    route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
+  }), routeContext.normalizeRoute, { input: '每一项给我一个评语', attachments: currentImage, context: historyContext });
+  assert.strictEqual(currentVisionOverride.mode, 'chat');
+  assert.strictEqual(currentVisionOverride.operation.type, 'image_qa');
+  assert.strictEqual(currentVisionOverride.operation.scope, 'current');
+  assert.deepStrictEqual(currentVisionOverride.selectedIndexes, [1]);
+
+  const currentEditOverride = routeService.parseRouteResult(JSON.stringify({
+    route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
+  }), routeContext.normalizeRoute, { input: '把背景换成蓝色', attachments: currentImage, context: historyContext });
+  assert.strictEqual(currentEditOverride.mode, 'edit_image');
+  assert.strictEqual(currentEditOverride.operation.type, 'image_edit');
+  assert.strictEqual(currentEditOverride.operation.scope, 'current');
+  assert.strictEqual(currentEditOverride.target, 'uploaded');
+  assert.strictEqual(currentEditOverride.usePreviousImage, false);
+
+  const currentGenericOverride = routeService.parseRouteResult(JSON.stringify({
+    route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
+  }), routeContext.normalizeRoute, { input: '给我点建议', attachments: currentImage, context: historyContext });
+  assert.strictEqual(currentGenericOverride.mode, 'chat');
+  assert.strictEqual(currentGenericOverride.operation.type, 'image_qa');
+  assert.strictEqual(currentGenericOverride.operation.scope, 'current');
+  assert.deepStrictEqual(currentGenericOverride.selectedIndexes, [1]);
+
+  const textOnlyWithImage = routeService.parseRouteResult(JSON.stringify({
+    route: 'chat', confidence: 0.8, reason: '普通文本问题',
+  }), routeContext.normalizeRoute, { input: '解释一下 Promise 是什么', attachments: currentImage, context: historyContext });
+  assert.strictEqual(textOnlyWithImage.mode, 'chat');
+  assert.strictEqual(textOnlyWithImage.operation.type, 'plain_chat');
+  assert.strictEqual(textOnlyWithImage.operation.scope, 'none');
+
+  const explicitHistoryKeepsHistory = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit', image_source: 'history', selected_indexes: [1], use_previous_image: true, instruction: '改成黑白', confidence: 0.9,
+  }), routeContext.normalizeRoute, { input: '把上一张改成黑白', attachments: currentImage, context: historyContext });
+  assert.strictEqual(explicitHistoryKeepsHistory.mode, 'edit_image');
+  assert.strictEqual(explicitHistoryKeepsHistory.operation.scope, 'history');
+  assert.strictEqual(explicitHistoryKeepsHistory.target, 'previous');
+  assert.strictEqual(explicitHistoryKeepsHistory.usePreviousImage, true);
+
+  const currentHistoryCompare = routeService.parseRouteResult(JSON.stringify({
+    route: 'chat', confidence: 0.7, reason: '模型误判成普通聊天',
+  }), routeContext.normalizeRoute, { input: '这个图片和上一个图片有什么区别', attachments: currentImage, context: historyContext });
+  assert.strictEqual(currentHistoryCompare.mode, 'chat');
+  assert.strictEqual(currentHistoryCompare.operation.type, 'image_qa');
+  assert.ok(currentHistoryCompare.imageRefs.some(ref => ref.source === 'history'));
+  assert.ok(currentHistoryCompare.imageRefs.some(ref => ref.source === 'current'));
 }
 
 function testRouteDecisionHelpersArePureAndReusedByService() {
@@ -872,6 +931,12 @@ function testRouteDecisionHelpersArePureAndReusedByService() {
   assert.strictEqual(routeService.cleanQuotedContent, routeDecision.cleanQuotedContent);
   assert.strictEqual(routeService.isPromptWritingInput, routeDecision.isPromptWritingInput);
   assert.strictEqual(routeService.isImagePromptExtractionInput, routeDecision.isImagePromptExtractionInput);
+  assert.strictEqual(routeService.isImageUnderstandingInput, routeDecision.isImageUnderstandingInput);
+  assert.strictEqual(routeService.isImageEditInput, routeDecision.isImageEditInput);
+  assert.strictEqual(routeService.isExplicitTextOnlyInput, routeDecision.isExplicitTextOnlyInput);
+  assert.strictEqual(routeService.isExplicitHistoryImageInput, routeDecision.isExplicitHistoryImageInput);
+  assert.strictEqual(routeService.isImageComparisonWithHistoryInput, routeDecision.isImageComparisonWithHistoryInput);
+  assert.strictEqual(routeService.isHistoryOnlyImageInput, routeDecision.isHistoryOnlyImageInput);
 
   assert.deepStrictEqual(routeDecision.normalizeSelectedIndexes(['2', 1, 2, 0, -1, 'x', 3.5, 1]), [2, 1]);
   assert.strictEqual(routeDecision.currentImageCount([{ is_image: true }, { is_image: false }, null, { is_image: true }]), 2);
@@ -880,6 +945,16 @@ function testRouteDecisionHelpersArePureAndReusedByService() {
   assert.ok(routeDecision.isPromptWritingInput('帮我优化这个图片提示词'));
   assert.strictEqual(routeDecision.isPromptWritingInput('用这个提示词画一张图'), false);
   assert.ok(routeDecision.isImagePromptExtractionInput('根据这张图片生成提示词'));
+  assert.ok(routeDecision.isImageUnderstandingInput('每一项给我一个评语'));
+  assert.ok(routeDecision.isImageUnderstandingInput('看看这个'));
+  assert.ok(routeDecision.isImageEditInput('把背景换成蓝色'));
+  assert.ok(routeDecision.isExplicitTextOnlyInput('解释一下 Promise 是什么'));
+  assert.ok(routeDecision.isExplicitTextOnlyInput('不要看图，只聊文字'));
+  assert.strictEqual(routeDecision.isExplicitTextOnlyInput('每一项给我一个评语'), false);
+  assert.ok(routeDecision.isExplicitHistoryImageInput('把上一张改成黑白'));
+  assert.ok(routeDecision.isImageComparisonWithHistoryInput('这个图片和上一个图片有什么区别'));
+  assert.ok(routeDecision.isHistoryOnlyImageInput('不要看这张，把上一张改成黑白'));
+  assert.strictEqual(routeDecision.isHistoryOnlyImageInput('这个图片和上一个图片有什么区别'), false);
   assert.strictEqual(routeDecision.isPlainTextChatInput('解释一下 Promise 是什么', []), true);
   assert.strictEqual(routeDecision.isPlainTextChatInput('画一张猫图', []), false);
 
@@ -917,6 +992,25 @@ function testStructuredRouteDecisionCarriesRefs() {
   assert.strictEqual(fileRoute.mode, 'chat');
   assert.strictEqual(fileRoute.operation.type, 'file_qa');
   assert.strictEqual(fileRoute.fileRefs[0].file_id, 'att_1');
+
+  const taskRoute = routeService.parseRouteResult(JSON.stringify({
+    schema_version: 'task_contract.v2',
+    intent: 'vision_qa',
+    execution: { api: 'vision', operation: 'image_compare' },
+    resources: [
+      { type: 'image', source: 'history', role: 'compare_a', index: 1, reference_id: 'imgref_latest' },
+      { type: 'image', source: 'current', role: 'compare_b', index: 1 },
+    ],
+    prompt_plan: { final_instruction: '比较这张和上一张有什么不同' },
+    confidence: 0.93,
+  }), routeContext.normalizeRoute, { input: '这张和上一张有什么不同', attachments: [{ name: 'new.png', type: 'image/png', is_image: true }], context: { image_candidates: [{ index: 1, source: 'history', reference_id: 'imgref_latest', target: 'previous' }] } });
+  assert.strictEqual(taskRoute.mode, 'chat');
+  assert.strictEqual(taskRoute.operation.type, 'image_compare');
+  assert.strictEqual(taskRoute.taskContract.schema_version, 'task_contract.v2');
+  assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'history' && item.role === 'compare_a'));
+  assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'current' && item.role === 'compare_b'));
+  assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'history'));
+  assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'current'));
 }
 
 function testImagePromptExtractionStaysChatWithCurrentImage() {
@@ -1056,21 +1150,20 @@ function testImageResultCorrectionRebuildsImagePrompt() {
 function testRoutePromptUsesChineseCompactRules() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('只返回 JSON'));
-  ['chat', 'vision', 'image_generate', 'image_edit', 'unclear', 'unsafe'].forEach(type => assert.ok(system.includes(type), `route protocol should define ${type}`));
-  ['text_chat', 'file_qa', 'image_reference_generate', 'image_analyze', 'ocr', 'prompt_optimize', 'target_model', 'image_role', 'rewritten_prompt'].forEach(type => assert.ok(!system.includes(type), `route prompt should not expose legacy field/type ${type}`));
-  assert.ok(system.includes('image_source'));
-  assert.ok(system.includes('selected_indexes'));
-  assert.ok(system.includes('use_previous_image'));
+  ['chat', 'vision_qa', 'image.generate', 'image.edit', 'file.qa', 'multi_step', 'clarify', 'refuse'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
+  ['text_chat', 'image_reference_generate', 'image_analyze', 'target_model', 'rewritten_prompt'].forEach(type => assert.ok(!system.includes(type), `route prompt should not expose legacy field/type ${type}`));
+  assert.ok(system.includes('resources'));
+  assert.ok(system.includes('steps'));
+  assert.ok(system.includes('image_compare'));
   assert.ok(system.includes('current_input 是最新用户输入，优先级最高'), 'route prompt should make latest user input the highest-priority intent');
   assert.ok(system.includes('context 只用于解析明确引用'), 'route prompt should keep history as reference-only background');
   assert.ok(system.includes('历史不能覆盖新任务'), 'route prompt should prevent older context from overriding the new user intent');
-  assert.ok(system.includes('可视化产物') && system.includes('可打印成品'), 'route prompt should classify visual artifacts semantically as image generation');
-  assert.ok(system.includes('上一轮有图片生成/编辑结果') && system.includes('不要把“已重新生成/已修改”作为 chat 文本回答'), 'route prompt should classify image result corrections as executable image tasks');
+  assert.ok(system.includes('参考已有图片生成新图') && system.includes('修改已有图片'), 'route prompt should classify visual artifacts semantically');
   assert.ok(system.includes('上一张') && system.includes('那个文件'), 'route prompt should allow context only for explicit references');
   assert.ok(system.includes('必须返回'));
-  assert.ok(system.includes('chat：文字聊天'));
+  assert.ok(system.includes('普通文字聊天'));
   assert.ok(system.includes('不要猜图片或文件内容'));
-  assert.ok(system.length < 1600, `route prompt should stay compact: ${system.length}`);
+  assert.ok(system.length < 3600, `route prompt should stay compact: ${system.length}`);
   const payload = routeService.compactRouteUserPayload({
     input: '重新写一段产品介绍，不要画图',
     context: { recent_messages: [{ role: 'user', content: '上一轮：画一张猫图' }, { role: 'assistant', content: '[图片生成完成] 猫图' }] },

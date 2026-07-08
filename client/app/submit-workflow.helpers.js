@@ -33,7 +33,7 @@ function withPendingQuotePreview(html = '', quoteContextValue = '') {
 }
 
 function isImageUnderstandingChat(promptText = '') {
-  return /(图里|图片里|画面|这张图|这张图片|这些图|这些图片|哪张|看图|识别|描述|分析|评价|适合|像什么|是什么|有什么|对比|比较|提取文字|提取.*文字|识别文字|文字识别|读文字|读取文字|ocr|OCR|image|picture|photo|describe|analy[sz]e|what.*(in|on).*image)/i.test(String(promptText || ''));
+  return /(图里|图片里|画面|这张图|这张图片|这些图|这些图片|哪张|看图|看一下|看下|看看|看看这个|识别|描述|分析|评价|适合|像什么|是什么|这是什么|这个是什么|有什么|对比|比较|提取文字|提取.*文字|识别文字|文字识别|读文字|读取文字|ocr|OCR|image|picture|photo|describe|analy[sz]e|what.*(in|on).*image)/i.test(String(promptText || ''));
 }
 
 function isFileUnderstandingChat(promptText = '') {

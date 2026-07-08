@@ -482,7 +482,7 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
 function canonicalRouteAction(route = {}) {
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
   const operationType = String(route?.operation?.type || '').trim();
-  if (['plain_chat', 'file_qa', 'image_qa', 'ocr'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
+  if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
   if (operationType === 'image_edit') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
   if (operationType === 'image_reference_gen') return { mode: 'image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
@@ -535,7 +535,7 @@ function targetFromPlan(plan = {}, mode = 'chat') {
 
 function normalizeRouteOperation(route = {}, mode = 'chat') {
   const raw = route && typeof route.operation === 'object' ? route.operation : {};
-  const validTypes = new Set(['plain_chat', 'file_qa', 'image_qa', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit']);
+  const validTypes = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit']);
   const validScopes = new Set(['current', 'quoted', 'history', 'none', 'context']);
   const fallbackType = mode === 'image' ? 'text_to_image' : mode === 'edit_image' ? 'image_edit' : 'plain_chat';
   return {

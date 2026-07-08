@@ -45,6 +45,47 @@ function isPromptWritingInput(input = '') {
   return new RegExp(`${writingVerb}.{0,24}${promptWord}|${promptWord}.{0,24}${writingVerb}`, 'i').test(text);
 }
 
+function isImageUnderstandingInput(input = '') {
+  return /(图里|图片里|画面|这张图|这张图片|这些图|这些图片|哪张|看图|看一下|看下|看看|看看这个|识别|描述|分析|评价|评语|逐项|每一项|哪里不对|适合|像什么|是什么|这是什么|这个是什么|有什么|对比|比较|提取文字|提取.*文字|识别文字|文字识别|读文字|读取文字|ocr|OCR|image|picture|photo|describe|analy[sz]e|what.*(in|on).*image)/i.test(String(input || ''));
+}
+
+function isImageEditInput(input = '') {
+  return /(改|修改|编辑|调整|优化|重做|修复|修一下|去掉|去除|删除|移除|抠图|加上|添加|加个|放大|缩小|裁剪|变成|改成|换成|替换|换个|边框|水印|背景|颜色|字体|样式|清晰|高清|漫画|卡通|黑白|美化|edit|change|remove|replace|add|background|style|color|enhance|upscale)/i.test(String(input || ''));
+}
+
+function isExplicitTextOnlyInput(input = '') {
+  const text = String(input || '').trim();
+  if (!text) return false;
+  if (/(不用|不要|无需).{0,8}(看图|看图片|分析图|处理图|编辑图|改图|图片|图像)|只聊文字|纯文本|不处理图片|ignore (the )?(image|picture|photo)|text[-\s]?only/i.test(text)) return true;
+  if (isPromptWritingInput(text)) return true;
+  if (/(解释|说明|介绍|讲讲|科普|翻译|改写|润色|总结|写一[篇段封]|起草|生成文案|代码|函数|报错|bug|算法|Promise|JavaScript|Python|SQL|Linux|Docker|Git|API|接口|数据库|正则|作文|邮件|合同|方案|计划|文档|脚本)/i.test(text) && !/(这张|这个|图|图片|画面|照片|附件|上面|里面|每一项|逐项|标注|截图)/i.test(text)) return true;
+  return false;
+}
+
+function isExplicitHistoryImageInput(input = '') {
+  return /(上一张|上张|前一张|刚才那张|刚刚那张|之前那张|历史|原图|继续|基于刚才|基于上一张|那张图|那个图)/i.test(String(input || ''));
+}
+
+function isImageComparisonWithHistoryInput(input = '') {
+  const text = String(input || '').trim();
+  if (!text) return false;
+  const hasCurrent = /(这张|这个|这幅|这图|当前|本轮|新图|现在这张|this|current|new)/i.test(text);
+  const hasHistory = isExplicitHistoryImageInput(text) || /(上一个|前一个|之前的|刚才的|last|previous)/i.test(text);
+  const hasRelation = /(区别|差别|不同|差异|变化|对比|比较|相比|比一比|哪里不一样|哪里变了|difference|compare|versus|vs\.?)/i.test(text);
+  return hasCurrent && hasHistory && hasRelation;
+}
+
+function isHistoryOnlyImageInput(input = '') {
+  const text = String(input || '').trim();
+  if (!isExplicitHistoryImageInput(text)) return false;
+  return /(不要|别|不用|无需).{0,8}(这张|这个|当前|本轮|新图)|只(看|处理|改|编辑|用).{0,12}(上一张|上张|前一张|刚才那张|之前那张|历史|原图)|继续|基于刚才|基于上一张/i.test(text);
+}
+
+function isCurrentImageDeicticInput(input = '') {
+  const text = String(input || '').trim();
+  return /(这张图|这张图片|这幅图|这个图|这图|当前图|当前图片|这张|这个图片)/i.test(text);
+}
+
 function normalizeSelectedIndexes(value) {
   if (!Array.isArray(value)) return [];
   return value.map(item => Number(item)).filter(item => Number.isInteger(item) && item >= 1).filter((item, index, list) => list.indexOf(item) === index);
@@ -129,6 +170,13 @@ const api = Object.freeze({
   isImagePromptExtractionInput,
   isImplicitImagePromptExtractionInput,
   isPromptWritingInput,
+  isImageUnderstandingInput,
+  isImageEditInput,
+  isExplicitTextOnlyInput,
+  isExplicitHistoryImageInput,
+  isImageComparisonWithHistoryInput,
+  isHistoryOnlyImageInput,
+  isCurrentImageDeicticInput,
   normalizeSelectedIndexes,
   currentImageCount,
   currentFileCount,

@@ -2658,10 +2658,11 @@ function testImageSuccessResultReconciliation() {
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   assert.ok(imageWorkflow.includes('reconcileSuccessfulImageResult(n,c,'), 'normal image success path should call the shared reconciliation');
   assert.ok(resumeWorkflow.includes('reconcileSuccessfulImageResult(e,i,s,m)'), 'resumed image success path should call the shared reconciliation');
+  assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
   assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=1.3.70-session-render-reset'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.69-image-success-reconcile') && index.includes('app.js?v=1.3.70-session-render-reset'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=1.3.70-session-render-reset'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testDockerfileIncludesSharedRuntimeModules() {

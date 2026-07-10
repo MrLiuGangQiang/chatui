@@ -70,7 +70,7 @@ async function testImageJobStartGenerationContract() {
   assert.strictEqual(result.json.status, 'running');
   const job = result.imageJobs.get('imgjob-generate1');
   assert.strictEqual(job.mode, 'image');
-  assert.strictEqual(job.targetUrl, 'https://ingress.lfans.cn/v1/images/generations');
+  assert.strictEqual(job.targetUrl, 'https://api.example.com/v1/images/generations');
   assert.deepStrictEqual(job.files, []);
   assert.deepStrictEqual(job.masks, []);
 }
@@ -98,7 +98,7 @@ async function testImageJobAsyncCompletionContract() {
     error: '',
   });
   assert.strictEqual(result.fetchCalls.length, 1);
-  assert.strictEqual(String(result.fetchCalls[0].url), 'https://ingress.lfans.cn/v1/images/generations');
+  assert.strictEqual(String(result.fetchCalls[0].url), 'https://api.example.com/v1/images/generations');
 }
 
 async function testImageJobAsyncErrorContract() {
@@ -207,7 +207,7 @@ async function testImageJobStartEditAutoModeContract() {
   assert.strictEqual(result.res.status, 202);
   const job = result.imageJobs.get('imgjob-editauto1');
   assert.strictEqual(job.mode, 'edit_image');
-  assert.strictEqual(job.targetUrl, 'https://ingress.lfans.cn/v1/images/edits');
+  assert.strictEqual(job.targetUrl, 'https://api.example.com/v1/images/edits');
   assert.strictEqual(job.files.length, 1);
   assert.strictEqual(job.masks.length, 0);
   assert.strictEqual(job.payload.prompt, '改成蓝色');

@@ -1,7 +1,7 @@
 const { sendJson } = require('../http/response');
 const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { FIXED_UPSTREAM_BASE_URL } = require('../config');
+const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { Agent } = require('undici');
 const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
@@ -44,7 +44,11 @@ async function extractProxyRequest(req, res) {
     sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err), code: err.code || 'INVALID_REQUEST_BODY' } });
     return null;
   }
-  const baseUrl = normalizeBaseUrl(FIXED_UPSTREAM_BASE_URL);
+  // The browser sends the configured endpoint with every request.  Keep a
+  // server-side default only for legacy clients that do not send baseUrl.
+  // Previously this was overwritten with a fixed gateway, which made image
+  // jobs use a different upstream from the one configured by the user.
+  const baseUrl = normalizeBaseUrl(body.baseUrl || DEFAULT_UPSTREAM_BASE_URL);
   const apiKey = String(body.apiKey || '').trim();
   const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
   if (!baseUrl) {

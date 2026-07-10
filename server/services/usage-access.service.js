@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { FIXED_UPSTREAM_BASE_URL } = require('../config');
+const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10 * 1000;
@@ -28,7 +28,7 @@ function createUsageAccessValidator({ fetchImpl = global.fetch, now = () => Date
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(`${FIXED_UPSTREAM_BASE_URL}/models`, {
+      const response = await fetchImpl(`${DEFAULT_UPSTREAM_BASE_URL}/models`, {
         headers: { Authorization: `Bearer ${normalizedKey}` },
         signal: controller.signal,
       });

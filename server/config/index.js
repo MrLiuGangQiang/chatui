@@ -3,7 +3,7 @@ const { createPublicConfigReader } = require('./public-config');
 
 const PORT = Number(process.env.PORT || 8765);
 const HOST = process.env.HOST || '0.0.0.0';
-const FIXED_UPSTREAM_BASE_URL = 'https://ingress.lfans.cn/v1';
+const DEFAULT_UPSTREAM_BASE_URL = String(process.env.DEFAULT_UPSTREAM_BASE_URL || 'https://ingress.lfans.cn/v1').trim().replace(/\/+$/, '');
 const ROOT = path.resolve(__dirname, '../..');
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
@@ -19,7 +19,7 @@ const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTok
 module.exports = {
   PORT,
   HOST,
-  FIXED_UPSTREAM_BASE_URL,
+  DEFAULT_UPSTREAM_BASE_URL,
   ROOT,
   ROOT_WITH_SEP,
   UPSTREAM_TIMEOUT_MS,

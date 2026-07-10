@@ -1978,7 +1978,7 @@ function testFileUploadReturnsFocusToComposerSubmitPath() {
   assert.ok(bootstrapSource.includes('e.target.value="",updateSendAvailability?.();const t=$("prompt"),s=$("sendBtn"),n=t&&!t.disabled?t:s,o=()=>n?.focus?.();(window.requestAnimationFrame||window.setTimeout).call(window,o,0),window.setTimeout.call(window,o,80)'), 'file input change should move focus away from file button/input to prompt or send button with browser-bound timers');
   assert.ok(attachmentSource.includes('root.requestAnimationFrame.call(root, focus)'), 'attachment workflow should call requestAnimationFrame with the window/root binding');
   assert.ok(attachmentSource.includes('function focusComposerSubmitTarget()'), 'attachment workflow should centralize post-upload focus restore');
-  assert.ok(attachmentSource.includes('finishUploadProgressSoon();\n      focusComposerSubmitTarget();'), 'addFiles completion should restore focus to composer submit target');
+  assert.ok(attachmentSource.replace(/\r\n/g, '\n').includes('finishUploadProgressSoon();\n      focusComposerSubmitTarget();'), 'addFiles completion should restore focus to composer submit target');
 }
 
 function testImageBubblesAreShrinkWrapped() {
@@ -2355,14 +2355,25 @@ function testConfigBaseUrlDefault() {
   const configWorkflow = require('../client/app/config-workflow');
   const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  const bundleSource = fs.readFileSync(path.join(__dirname, '../server/services/static-bundle.service.js'), 'utf8');
-  assert.strictEqual(configWorkflow.DEFAULT_BASE_URL, 'https://ingress.lfans.cn/v1', 'config workflow should expose the default Endpoint Base URL');
+  assert.strictEqual(configWorkflow.DEFAULT_BASE_URL, 'https://ingress.lfans.cn/v1', 'config workflow should expose the fallback Endpoint Base URL');
   assert.strictEqual(configWorkflow.defaults.baseUrl, 'https://ingress.lfans.cn/v1', 'new installs should default Endpoint Base URL to ingress.lfans.cn');
-  assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should populate the Endpoint field with the default when storage is empty');
-  assert.ok(configSource.includes('baseUrl:DEFAULT_BASE_URL') && configSource.includes('getElement("baseUrl").readOnly=!0'), 'config workflow should always preserve the fixed, read-only Endpoint Base URL');
-  assert.ok(index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" readonly'), 'settings UI should show the fixed, read-only Endpoint to users');
-  assert.ok(index.includes('config-workflow.js?v=1.2.72') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config default change should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match the index cache-busting version');
+  assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should restore the saved Endpoint field and use the default only when storage is empty');
+  assert.ok(configSource.includes('baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, "")') && configSource.includes('getElement("baseUrl").readOnly=!1'), 'config workflow should submit the editable Endpoint Base URL after removing a trailing slash');
+  assert.ok(index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" />') && !index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" readonly'), 'settings UI should allow users to edit Endpoint Base URL');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream'), 'config workflow changes should bump browser cache-busting version');
+
+  const values = new Map([['config', JSON.stringify({ baseUrl: 'https://gateway.example/v1/' })]]);
+  const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };
+  const elements = new Map(['baseUrl', 'apiKey', 'chatModel', 'routeModel', 'imageModel', 'imageSize', 'systemPrompt', 'imageStylePrompt'].map(id => [id, { value: '', readOnly: false }]));
+  const workflow = configWorkflow.createConfigWorkflow({
+    state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
+    getElement: id => elements.get(id), localStorage: storage, sessionStorage: storage,
+    document: { body: { classList: { add() {}, remove() {} } } }, window: { sessionStorage: storage, setTimeout }, crypto: { getRandomValues() {} }, CONFIG_KEY: 'config',
+    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({ headerValues: {} }), saveSessionsMeta() {}, toast() {},
+  });
+  workflow.loadConfig();
+  assert.strictEqual(elements.get('baseUrl').value, 'https://gateway.example/v1/', 'loadConfig should preserve a saved Endpoint Base URL');
+  assert.strictEqual(workflow.getConfig().baseUrl, 'https://gateway.example/v1', 'request config should use the saved Endpoint Base URL with its trailing slash normalized');
 }
 
 function testConfigCopyButtonsForBaseUrlAndApiKey() {
@@ -2379,7 +2390,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.72') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=1.3.69-durable-image-result') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match config copy cache-busting');
 }
 

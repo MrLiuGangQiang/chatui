@@ -248,7 +248,10 @@ function buildImageEditMultipartBody(payload = {}, files = [], options = {}) {
   if (mask?.data) parts.push(buildMultipartFilePart(boundary, 'mask', mask, 0));
   parts.push(Buffer.from(`--${boundary}--\r\n`, 'utf8'));
   const body = Buffer.concat(parts);
-  return { body, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) } };
+  // Node's fetch/undici determines the byte length for Buffer bodies. Setting an
+  // explicit Content-Length alongside it makes undici reject the request before
+  // it reaches the upstream endpoint (UND_ERR_INVALID_ARG).
+  return { body, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` } };
 }
 
 function buildOpenAiImageEditPayload(payload = {}, files = [], options = {}) {

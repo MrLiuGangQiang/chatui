@@ -666,7 +666,7 @@ function testImageJobTargetsAndMultipartSanitization() {
   const multipart = imageJobs.buildImageEditMultipartBody({ model: 'gpt-image-2', prompt: '改成黑白' }, [{ name: 'logo.png', type: 'image/png', data: 'QUJDRA==' }]);
   assert.ok(Buffer.isBuffer(multipart.body));
   assert.ok(multipart.headers['Content-Type'].includes('multipart/form-data; boundary='));
-  assert.strictEqual(multipart.headers['Content-Length'], String(multipart.body.length));
+  assert.ok(!Object.prototype.hasOwnProperty.call(multipart.headers, 'Content-Length'), 'undici must infer Buffer multipart length; an explicit header is rejected before dispatch');
   const boundary = multipart.headers['Content-Type'].match(/boundary=(.+)$/)?.[1];
   assert.ok(boundary, 'multipart boundary should be present');
   const multipartText = multipart.body.toString('latin1');
@@ -894,10 +894,9 @@ function testLightweightIntentClassifierAdapters() {
     confidence: 0.95,
     reason: '改图接口',
   }), routeContext.normalizeRoute, { input: '参考这个图做一个后端', attachments: currentImage, context: currentContext });
-  assert.strictEqual(apiEditCurrent.mode, 'edit_image');
+  assert.strictEqual(apiEditCurrent.mode, 'edit_image', '路由模型已明确 image_edit 时应保留图片编辑语义，由编辑请求层校验附件与参数');
   assert.strictEqual(apiEditCurrent.operation.type, 'image_edit');
   assert.strictEqual(apiEditCurrent.target, 'uploaded');
-  assert.strictEqual(apiEditCurrent.editInstruction, '参考这个图做一个后端');
 
   const apiVisionCurrent = routeService.parseRouteResult(JSON.stringify({
     route: 'vision', image_source: 'current', selected_indexes: [1], confidence: 0.95,
@@ -1007,6 +1006,19 @@ function testLightweightIntentClassifierAdapters() {
   assert.strictEqual(currentEditOverride.operation.scope, 'none');
   assert.strictEqual(currentEditOverride.target, 'none');
   assert.strictEqual(currentEditOverride.usePreviousImage, false);
+
+  const misclassifiedVisualQuestion = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit', image_source: 'current', selected_indexes: [1], instruction: '给出修改建议', confidence: 0.94, reason: '模型误判为编辑',
+  }), routeContext.normalizeRoute, { input: '这张图片有什么修改建议？', attachments: currentImage, context: currentContext });
+  assert.strictEqual(misclassifiedVisualQuestion.mode, 'chat', '带图问答不能因路由模型误判进入图片编辑接口');
+  assert.strictEqual(misclassifiedVisualQuestion.operation.type, 'image_qa');
+  assert.strictEqual(misclassifiedVisualQuestion.taskContract.intent, 'vision_qa');
+  assert.strictEqual(misclassifiedVisualQuestion.taskContract.execution.api, 'vision');
+
+  const explicitEditStillEdits = routeService.parseRouteResult(JSON.stringify({
+    route: 'image_edit', image_source: 'current', selected_indexes: [1], instruction: '把背景换成蓝色', confidence: 0.94,
+  }), routeContext.normalizeRoute, { input: '请把这张图片的背景换成蓝色', attachments: currentImage, context: currentContext });
+  assert.strictEqual(explicitEditStillEdits.mode, 'edit_image', '明确编辑图片仍应走图片编辑接口');
 
   const currentGenericOverride = routeService.parseRouteResult(JSON.stringify({
     route: 'chat', confidence: 0.8, reason: '模型误判成普通聊天',
@@ -1156,8 +1168,8 @@ function testImplicitImagePromptExtractionFollowsAiRouteWithCurrentImage() {
     attachments: [{ name: 'sunset.jpg', type: 'image/jpeg', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'edit_image');
-  assert.strictEqual(parsed.operation.type, 'image_edit');
+  assert.strictEqual(parsed.mode, 'chat', '反推图片提示词是视觉理解，不得执行图片编辑');
+  assert.strictEqual(parsed.operation.type, 'image_qa');
   assert.strictEqual(parsed.imageRefs.length, 0);
 }
 

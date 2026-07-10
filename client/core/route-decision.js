@@ -53,6 +53,12 @@ function isImageEditInput(input = '') {
   return /(改|修改|编辑|调整|优化|重做|修复|修一下|去掉|去除|删除|移除|抠图|加上|添加|加个|放大|缩小|裁剪|变成|改成|换成|替换|换个|边框|水印|背景|颜色|字体|样式|清晰|高清|漫画|卡通|黑白|美化|edit|change|remove|replace|add|background|style|color|enhance|upscale)/i.test(String(input || ''));
 }
 
+function isImageEditCommand(input = '') {
+  const text = String(input || '').trim();
+  if (!text || /(?:什么|哪些|怎么|如何|能否|是否|建议|评价|评语|分析|描述|识别|看[一一下看]|tell me|what|how|suggest|advice|analy[sz]e|describe)/i.test(text)) return false;
+  return /(?:请|帮我|给我|将|把|用|对|替我)?(?:这张|这个|上一张|上张|前一张|刚才那张|之前那张|图片|图像|照片|photo|image)?.{0,12}(?:改成|改为|修改为|编辑成|换成|替换成|去掉|去除|删除|移除|添加|加上|裁剪|抠图|放大|缩小|变成|修复|美化|黑白|漫画|卡通|change|replace|remove|add|crop|enhance|upscale)/i.test(text);
+}
+
 function isExplicitTextOnlyInput(input = '') {
   const text = String(input || '').trim();
   if (!text) return false;
@@ -172,6 +178,7 @@ const api = Object.freeze({
   isPromptWritingInput,
   isImageUnderstandingInput,
   isImageEditInput,
+  isImageEditCommand,
   isExplicitTextOnlyInput,
   isExplicitHistoryImageInput,
   isImageComparisonWithHistoryInput,

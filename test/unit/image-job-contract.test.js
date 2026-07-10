@@ -114,7 +114,7 @@ async function testImageJobAsyncErrorContract() {
   assert.strictEqual(result.res.status, 202);
   const job = result.imageJobs.get('imgjob-upstreamerr1');
   assert.strictEqual(job.status, 'error');
-  assert.strictEqual(job.error, '连接上游接口失败：quota exceeded');
+  assert.strictEqual(job.error, '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度');
   assert.strictEqual(job.controller, undefined);
   assert.strictEqual(result.notifications.length, 1);
   assert.deepStrictEqual(result.notifications[0], {
@@ -122,7 +122,7 @@ async function testImageJobAsyncErrorContract() {
     status: 'error',
     mode: 'image',
     data: null,
-    error: '连接上游接口失败：quota exceeded',
+    error: '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度',
   });
 }
 
@@ -290,13 +290,23 @@ function testImageJobStateMutationHelpersContract() {
 
 function testImageJobErrorFormatterContract() {
   assert.strictEqual(formatImageJobError({ name: 'AbortError', message: 'aborted' }), '上游请求超时');
-  assert.strictEqual(formatImageJobError(new Error('quota exceeded')), '连接上游接口失败：quota exceeded');
+  assert.strictEqual(formatImageJobError(new Error('quota exceeded')), '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度');
   assert.strictEqual(formatImageJobError('network down'), '连接上游接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用');
+  assert.strictEqual(formatImageJobError({ upstreamStatus: 401, message: 'Invalid API key' }), '上游拒绝了该请求（HTTP 401）：当前 API Key 未被该 Endpoint 接受，请确认 Key 的权限、所属渠道和有效期');
+  assert.strictEqual(formatImageJobError({ upstreamStatus: 403, message: 'Forbidden' }), '上游拒绝了该请求（HTTP 403）：当前 API Key 或账号没有访问此模型/图片能力的权限');
 }
 
 function testImageUpstreamResponseParserContract() {
   assert.deepStrictEqual(parseImageUpstreamResponse({ ok: true, status: 200 }, '{"data":[{"url":"https://img.example/out.png"}]}'), { data: [{ url: 'https://img.example/out.png' }] });
   assert.deepStrictEqual(parseImageUpstreamResponse({ ok: true, status: 200 }, 'not-json'), { raw: 'not-json' });
+  assert.throws(
+    () => parseImageUpstreamResponse({ ok: false, status: 401 }, '{"error":{"message":"Invalid API key"}}'),
+    err => err.message === 'Invalid API key' && err.upstreamStatus === 401
+  );
+  assert.throws(
+    () => parseImageUpstreamResponse({ ok: false, status: 403 }, '{"error":{"message":"Forbidden"}}'),
+    err => err.message === 'Forbidden' && err.upstreamStatus === 403
+  );
   assert.throws(
     () => parseImageUpstreamResponse({ ok: false, status: 400 }, '{"error":{"message":"bad image"}}'),
     err => err.message === 'bad image'
@@ -375,7 +385,7 @@ function testImageUpstreamRequestEditMultipartContract() {
 
   assert.strictEqual(request.headers.Authorization, 'Bearer sk-edit');
   assert.match(request.headers['Content-Type'], /^multipart\/form-data; boundary=chatui-/);
-  assert.strictEqual(request.headers['Content-Length'], String(request.body.length));
+  assert.ok(!Object.prototype.hasOwnProperty.call(request.headers, 'Content-Length'), 'undici must infer Buffer multipart length; an explicit header is rejected before dispatch');
   assert.ok(Buffer.isBuffer(request.body));
   const multipart = request.body.toString('latin1');
   assert.ok(multipart.includes('name="model"'));

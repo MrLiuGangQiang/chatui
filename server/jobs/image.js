@@ -83,9 +83,17 @@ function buildImageUpstreamRequest(job = {}) {
   return { headers, body: JSON.stringify(generationPayload || {}) };
 }
 
+function createUpstreamHttpError(upstream = {}, data = null, text = '') {
+  const message = data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`;
+  const err = new Error(message);
+  err.upstreamStatus = Number(upstream.status) || 0;
+  err.upstreamCode = data?.error?.code || data?.code || '';
+  return err;
+}
+
 function parseImageUpstreamResponse(upstream = {}, text = '') {
   const data = safeParseJson(text);
-  if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
+  if (!upstream.ok) throw createUpstreamHttpError(upstream, data, text);
   return data;
 }
 
@@ -167,6 +175,7 @@ module.exports = {
   createImageJobHandlers,
   createImageJobFromRequestBody,
   createImageJobValidationError,
+  createUpstreamHttpError,
   formatImageJobError,
   imageUpstreamBaseHeaders,
   markImageJobDone,

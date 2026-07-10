@@ -94,14 +94,27 @@ function respondJobError(res, err) {
 
 function normalizeUpstreamErrorMessage(err, { aborted = false } = {}) {
   if (aborted || err?.name === 'AbortError') return '上游请求超时';
+  const upstreamStatus = Number(err?.upstreamStatus || err?.statusCode || 0);
+  if (upstreamStatus === 401) return '上游拒绝了该请求（HTTP 401）：当前 API Key 未被该 Endpoint 接受，请确认 Key 的权限、所属渠道和有效期';
+  if (upstreamStatus === 403) return '上游拒绝了该请求（HTTP 403）：当前 API Key 或账号没有访问此模型/图片能力的权限';
+  if (upstreamStatus === 429) return '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度';
   const message = String(err?.message || err || '').trim();
+  if (/\b401\b|unauthorized|invalid api key|incorrect api key|authentication|authentication_error/i.test(message)) {
+    return '上游拒绝了该请求（HTTP 401）：当前 API Key 未被该 Endpoint 接受，请确认 Key 的权限、所属渠道和有效期';
+  }
+  if (/\b403\b|forbidden|permission denied|insufficient[_ ]permissions?/i.test(message)) {
+    return '上游拒绝了该请求（HTTP 403）：当前 API Key 或账号没有访问此模型/图片能力的权限';
+  }
+  if (/\b429\b|rate limit|quota|insufficient[_ ]quota/i.test(message)) {
+    return '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度';
+  }
   if (/fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network/i.test(message)) {
     return '连接上游接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用';
   }
   if (/circuit breaker|skip candidate|raw request middleware/i.test(message)) {
     return '上游接口暂时不可用：请求被上游熔断或候选通道跳过，请稍后重试或检查 Endpoint 服务状态';
   }
-  return `连接上游接口失败：${message || '未知错误'}`;
+  return `上游请求失败：${message || '未知错误'}`;
 }
 
 function findJobOr404(store, id, res) {

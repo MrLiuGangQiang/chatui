@@ -64,6 +64,7 @@ const {
   isPromptWritingInput,
   isImageUnderstandingInput,
   isImageEditInput,
+  isImageEditCommand,
   isExplicitTextOnlyInput,
   isExplicitHistoryImageInput,
   isImageComparisonWithHistoryInput,
@@ -133,14 +134,17 @@ function applyTaskContract(route = {}, options = {}) {
   const input = String(options.input || '').trim();
   const context = options.context || {};
   let next = { ...route, taskContract };
-  if (taskContract.intent === 'image.generate') {
+  if (route.operation?.type === 'image_qa' && taskContract.intent !== 'vision_qa') {
+    next = { ...next, taskContract: taskContractForRoute({ ...route, intent: 'vision_qa' }, options) };
+  }
+  if (next.taskContract.intent === 'image.generate') {
     const prompt = promptComposer?.composeImageGeneratePrompt
-      ? promptComposer.composeImageGeneratePrompt(taskContract, context, input)
+      ? promptComposer.composeImageGeneratePrompt(next.taskContract, context, input)
       : (route.contextualImagePrompt || route.operation?.prompt || input);
     next = { ...next, contextualImagePrompt: prompt, operation: { ...(next.operation || {}), prompt } };
-  } else if (taskContract.intent === 'image.edit') {
+  } else if (next.taskContract.intent === 'image.edit') {
     const editInstruction = promptComposer?.composeImageEditPrompt
-      ? promptComposer.composeImageEditPrompt(taskContract, context, input)
+      ? promptComposer.composeImageEditPrompt(next.taskContract, context, input)
       : (route.editInstruction || route.operation?.edit_instruction || input);
     next = { ...next, editInstruction, operation: { ...(next.operation || {}), edit_instruction: editInstruction } };
   }
@@ -178,7 +182,8 @@ function enforceCurrentImageIntent(simple = {}, options = {}) {
   if (imageSource && imageSource !== 'none' && imageSource !== 'current') return simple;
   const next = { ...simple, image_source: 'current', imageSource: 'current', need_image_input: false, needImageInput: false, need_clarification: false, needClarification: false, use_previous_image: false, usePreviousImage: false };
   if (!normalizeSelectedIndexes(simple.selected_indexes || simple.selectedIndexes).length && currentImageCount(attachments) === 1) next.selected_indexes = [1];
-  if ((!route || route === 'chat' || route === 'unclear') && isImageEditInput(input)) return { ...next, route: 'image_edit', instruction: simple.instruction || input, confidence: Math.max(Number(simple.confidence) || 0, 0.88), reason: simple.reason || '本轮上传图片且输入为图片编辑意图' };
+  if (route === 'image_edit' && isImageUnderstandingInput(input) && !isImageEditCommand(input)) return { ...next, route: 'vision', confidence: Math.max(Number(simple.confidence) || 0, 0.88), reason: simple.reason || '当前图片为视觉问答，不执行图片编辑' };
+  if ((!route || route === 'chat' || route === 'unclear') && isImageEditCommand(input)) return { ...next, route: 'image_edit', instruction: simple.instruction || input, confidence: Math.max(Number(simple.confidence) || 0, 0.88), reason: simple.reason || '本轮上传图片且输入为图片编辑意图' };
   if ((!route || route === 'chat' || route === 'unclear') && isImageUnderstandingInput(input)) return { ...next, route: 'vision', confidence: Math.max(Number(simple.confidence) || 0, 0.88), reason: simple.reason || '本轮上传图片且输入为图片理解意图' };
   if (!route || route === 'chat' || route === 'unclear') return { ...next, route: 'vision', confidence: Math.max(Number(simple.confidence) || 0, 0.78), reason: simple.reason || '本轮图片是当前输入的一部分，非明确纯文本任务默认按图片理解处理' };
   if (route === 'vision' || route === 'image_edit' || route === 'image_generate') return next;
@@ -189,7 +194,8 @@ function apiRouteToExecutionRoute(simple = {}, options = {}) {
   const input = String(options.input || '').trim();
   const attachments = options.attachments || [];
   const context = options.context || {};
-  const route = API_ROUTES.has(String(simple.route || simple.api || '')) ? String(simple.route || simple.api) : 'unclear';
+  let route = API_ROUTES.has(String(simple.route || simple.api || '')) ? String(simple.route || simple.api) : 'unclear';
+  if (route === 'image_edit' && (isImageUnderstandingInput(input) || isImagePromptExtractionInput(input) || isImplicitImagePromptExtractionInput(input)) && !isImageEditCommand(input)) route = 'vision';
   const confidence = Number.isFinite(Number(simple.confidence)) ? Math.max(0, Math.min(1, Number(simple.confidence))) : 0;
   const reason = String(simple.reason || '').trim();
   const explicitImageRefs = Array.isArray(simple.image_refs) && simple.image_refs.length ? simple.image_refs : (Array.isArray(simple.imageRefs) ? simple.imageRefs : []);
@@ -312,6 +318,11 @@ function parseRouteResult(text = '', normalizeRoute, options = {}) {
   if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
   try {
     const raw = JSON.parse(stripJsonFence(value));
+    if (raw?.mode === 'edit_image' && currentImageCount(options.attachments || []) && (isImageUnderstandingInput(options.input) || isImagePromptExtractionInput(options.input) || isImplicitImagePromptExtractionInput(options.input)) && !isImageEditCommand(options.input)) {
+      raw.mode = 'chat';
+      raw.intent = 'vision_qa';
+      raw.operation = { ...(raw.operation || {}), type: 'image_qa', scope: raw.operation?.scope || 'current', prompt: String(options.input || raw.operation?.prompt || '').trim(), edit_instruction: '' };
+    }
     const rawTaskContract = raw && typeof raw === 'object' && (raw.schema_version || raw.schemaVersion || raw.execution || raw.resources || raw.steps) && !raw.mode && !isSimpleClassifierResult(raw)
       ? intentContract?.normalizeTaskContract?.(raw, options)
       : null;

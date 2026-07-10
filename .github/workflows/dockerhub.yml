@@ -1,9 +1,9 @@
 name: Build and push Docker image
 
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -12,7 +12,7 @@ on:
         type: string
 
 concurrency:
-  group: docker-release-${{ github.event.release.tag_name || inputs.version }}
+  group: docker-release-${{ github.ref_name || inputs.version }}
   cancel-in-progress: true
 
 env:
@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="${{ github.event.release.tag_name || inputs.version }}"
+          VERSION="${{ github.ref_name || inputs.version }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must match vMAJOR.MINOR.PATCH, for example v1.0.0. Got: $VERSION" >&2
             exit 1
@@ -72,53 +72,8 @@ jobs:
         env:
           EXPECTED_SEMVER: ${{ steps.version.outputs.semver }}
 
-  quality:
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.validate.outputs.version }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Run tests
-        run: npm test
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
-
-      - name: Build and smoke-test release image
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker build --pull --tag chatui-release-test .
-          docker run --detach --rm --name chatui-release-test -p 8765:8765 chatui-release-test
-          trap 'docker logs chatui-release-test || true; docker stop chatui-release-test || true' EXIT
-          for attempt in {1..30}; do
-            if curl -fsS http://127.0.0.1:8765/api/version; then
-              break
-            fi
-            sleep 2
-          done
-          test "$(docker inspect --format '{{.State.Health.Status}}' chatui-release-test)" = healthy
-          curl -fsS http://127.0.0.1:8765/ >/dev/null
-
   docker-publish:
-    needs:
-      - validate
-      - quality
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

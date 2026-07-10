@@ -887,6 +887,9 @@ GET, POST
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `8765` | HTTP 监听端口 |
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游 API 超时，默认 10 分钟 |
+| `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
+| `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
+| `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image Base64 payloads are never logged. |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
 | `DISALLOW_PRIVATE_UPSTREAM` | 未设置 | 设置为 `1` 时禁止代理访问私有/内网地址 |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
@@ -908,8 +911,20 @@ GET, POST
 | `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
 | `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
-| `USAGE_DEPARTMENT_PASSWORD` | 未设置 | 部门统计访问密码；未设置时部门统计不可用，前端切换部门统计会提示未启用 |
-| `USAGE_STATS_DEPARTMENT_PASSWORD` | 未设置 | 部门统计访问密码兼容别名 |
+| `USAGE_DEPARTMENT_PASSWORD` | `not set` | Password for department statistics; disabled when unset. |
+| `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | Compatible alias for the department statistics password. |
+
+Docker proxy example (the proxy URL must be reachable **from inside the container**):
+
+```bash
+docker run -d --name chatui --restart unless-stopped -p 8765:8765 \
+  -e CHATUI_UPSTREAM_PROXY=http://host.docker.internal:7890 \
+  -e CHATUI_VERBOSE_LOGS=1 \
+  liugangqiang/chatui:1.3.73
+```
+
+If text requests work but visual chat fails, run `docker logs --tail 200 chatui` after one failed upload. The log records only target host/path, outbound byte size and the underlying network code (such as `ECONNRESET`); it does not include credentials or image data.
+
 
 示例：
 

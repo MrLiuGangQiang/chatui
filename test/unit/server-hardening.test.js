@@ -6,7 +6,7 @@ const jobUrl = require('../../server/jobs/job-url');
 const { readBody } = require('../../server/http/body');
 const staticHttp = require('../../server/http/static');
 const urlPolicy = require('../../server/security/url-policy');
-const { fetchWithValidatedRedirects } = require('../../server/jobs/common');
+const { fetchWithValidatedRedirects, configuredUpstreamProxyUrl, readUpstreamErrorDetails, summarizeUpstreamRequest, normalizeUpstreamErrorMessage } = require('../../server/jobs/common');
 const extractApi = require('../../server/extract');
 const { ConcurrencyLimiter } = require('../../server/concurrency');
 const safeLog = require('../../server/logging/safe-log');
@@ -221,6 +221,36 @@ async function testConnectionLookupRejectsMixedOrReboundPrivateAddresses() {
   assert.strictEqual(dispatcherAttached, true, 'public upstream fetches should use the guarded socket dispatcher');
 }
 
+function testUpstreamErrorDiagnosticsAreSafeAndActionable() {
+  const original = { CHATUI_UPSTREAM_PROXY: process.env.CHATUI_UPSTREAM_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, HTTP_PROXY: process.env.HTTP_PROXY };
+  process.env.CHATUI_UPSTREAM_PROXY = 'http://explicit-proxy.example:8080';
+  assert.strictEqual(configuredUpstreamProxyUrl(), 'http://explicit-proxy.example:8080');
+  delete process.env.CHATUI_UPSTREAM_PROXY;
+  process.env.HTTPS_PROXY = 'http://https-proxy.example:8080';
+  assert.strictEqual(configuredUpstreamProxyUrl(), 'http://https-proxy.example:8080');
+  for (const [key, value] of Object.entries(original)) value === undefined ? delete process.env[key] : process.env[key] = value;
+
+  const networkError = Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+  });
+  assert.deepStrictEqual(readUpstreamErrorDetails(networkError).codes, ['ECONNRESET']);
+  assert.match(normalizeUpstreamErrorMessage(networkError), /ECONNRESET/);
+  assert.match(normalizeUpstreamErrorMessage(networkError), /Docker/);
+
+  const body = JSON.stringify({ image: 'data:image/png;base64,very-secret' });
+  const summary = summarizeUpstreamRequest('https://api.example.com/v1/chat/completions?api_key=do-not-log', {
+    method: 'POST',
+    body,
+    job: { payload: { messages: [{ content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,very-secret' } }] }] } },
+  });
+  assert.deepStrictEqual(summary, {
+    target: 'https://api.example.com/v1/chat/completions',
+    method: 'POST',
+    outboundBytes: Buffer.byteLength(body, 'utf8'),
+    imageParts: 1,
+  });
+}
+
 function testSendErrorKeepsLegacyContract() {
   const res = createMockResponse();
   sendError(res, 418, '旧错误文案', 'LEGACY_CODE', { field: 'name' }, { 'X-Test': 'ok' });
@@ -262,6 +292,7 @@ module.exports = [
   testServerHardeningHelpers,
   testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests,
   testConnectionLookupRejectsMixedOrReboundPrivateAddresses,
+  testUpstreamErrorDiagnosticsAreSafeAndActionable,
   testSendErrorKeepsLegacyContract,
   testAppErrorHelpersAreSendErrorCompatible,
 ];

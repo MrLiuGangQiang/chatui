@@ -131,6 +131,15 @@ function collectRecentUploadedImageReferences({ messages = [], limit = 6 } = {})
   return references;
 }
 
+function trimRouteContextToTokenWindow(context = {}, contextWindowTokens) {
+  const budget = root?.ChatUISharedContextBudget || (typeof module !== 'undefined' && module.exports ? require('../../shared/config/context-budget') : null);
+  if (!budget?.estimateTextTokens || !budget?.inputBudgetForContextWindow) return context;
+  const limit = budget.inputBudgetForContextWindow(contextWindowTokens);
+  const next = { ...context, recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [] };
+  while (next.recent_messages.length && budget.estimateTextTokens(JSON.stringify(next)) > limit) next.recent_messages.shift();
+  return next;
+}
+
 function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
   const limit = Number(maxChars) || DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
   const next = {
@@ -255,7 +264,7 @@ function latestAssistantImageResult(messages = []) {
   return null;
 }
 
-function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUploadedImage = null, latestImageReference = null, recentImageReferences = [], maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS } = {}) {
+function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUploadedImage = null, latestImageReference = null, recentImageReferences = [], maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS, contextWindowTokens } = {}) {
   const allMessages = Array.isArray(messages) ? messages : [];
   const uploadedReferences = collectRecentUploadedImageReferences({ messages: allMessages, limit: Number.MAX_SAFE_INTEGER });
   const uploadedLatest = uploadedReferences[0] || null;
@@ -273,7 +282,7 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
     recent_image_references: [],
     recent_uploaded_image_references: [],
   };
-  return trimRouteContextToSize(context, maxChars);
+  return trimRouteContextToSize(trimRouteContextToTokenWindow(context, contextWindowTokens), maxChars);
 }
 
 function imageCandidateLabels(text = '') {
@@ -631,6 +640,7 @@ const api = Object.freeze({
   DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
   routeContextSize,
   compactRouteMessage,
+  trimRouteContextToTokenWindow,
   trimRouteContextToSize,
   buildRouteContext,
   imageCandidateLabels,

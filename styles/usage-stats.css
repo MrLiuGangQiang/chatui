@@ -78,26 +78,28 @@
 
 .usage-feedback-panel { position: fixed; inset: 0; z-index: 74; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15,23,42,.46); backdrop-filter: blur(3px); }
 .usage-feedback-panel.show { display: flex; }
-.usage-feedback-card { width: min(520px, 100%); overflow: hidden; border: 1px solid #dbe5f0; border-radius: 16px; background: #fff; color: #0f172a; box-shadow: 0 22px 60px rgba(15,23,42,.24); }
-.usage-feedback-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 17px; border-bottom: 1px solid #e8eef5; }
-.usage-feedback-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.usage-feedback-icon { width: 38px; height: 38px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 11px; background: #eff6ff; color: #2563eb; }
-.usage-feedback-icon svg, .usage-feedback-foot #usageFeedbackSubmit svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.usage-feedback-head strong { display: block; font-size: 17px; line-height: 1.25; }
-.usage-feedback-head span { display: block; margin-top: 3px; color: #64748b; font-size: 12px; line-height: 1.45; }
-.usage-feedback-head button { width: 32px; height: 32px; flex: 0 0 auto; border: 0; border-radius: 9px; background: transparent; color: #64748b; font-size: 23px; line-height: 1; cursor: pointer; transition: background .14s,color .14s; }
+.usage-feedback-card { width: min(500px, 100%); overflow: hidden; border: 1px solid #dbe5f0; border-radius: 14px; background: #fff; color: #0f172a; box-shadow: 0 18px 48px rgba(15,23,42,.22); }
+.usage-feedback-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e8eef5; }
+.usage-feedback-heading { min-width: 0; }
+.usage-feedback-foot #usageFeedbackSubmit svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.usage-feedback-head strong { display: block; font-size: 16px; line-height: 1.25; }
+.usage-feedback-head button { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: 7px; background: transparent; color: #64748b; font-size: 21px; line-height: 1; cursor: pointer; transition: background .14s,color .14s; }
 .usage-feedback-head button:hover { background: #f1f5f9; color: #0f172a; }
-.usage-feedback-body { padding: 20px 22px 16px; }
-.usage-feedback-body label { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; color: #1e293b; font-size: 14px; font-weight: 700; }
+.usage-feedback-body { padding: 14px 16px 12px; }
+.usage-feedback-body label { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; color: #1e293b; font-size: 13px; font-weight: 700; }
 .usage-feedback-body label em { color: #dc2626; font-size: 12px; font-style: normal; font-weight: 600; }
-.usage-feedback-body textarea { box-sizing: border-box; width: 100%; min-height: 170px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px 13px; outline: none; color: #0f172a; background: #fff; font: inherit; font-size: 14px; line-height: 1.65; transition: border-color .14s, box-shadow .14s; }
+.usage-feedback-body textarea { box-sizing: border-box; width: 100%; min-height: 128px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 9px; padding: 10px 11px; outline: none; color: #0f172a; background: #fff; font: inherit; font-size: 14px; line-height: 1.55; transition: border-color .14s, box-shadow .14s; }
 .usage-feedback-body textarea::placeholder { color: #94a3b8; }
 .usage-feedback-body textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.14); }
-.usage-feedback-hint { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: #94a3b8; font-size: 12px; line-height: 1.4; }
-.usage-feedback-status { min-height: 18px; margin-top: 12px; color: #15803d; font-size: 12px; font-weight: 600; }
+.usage-feedback-notice { display: flex; align-items: center; gap: 7px; margin: 8px 0 0; padding: 7px 9px; border: 1px solid #dbeafe; border-radius: 7px; background: #f8fbff; color: #526782; font-size: 12px; line-height: 1.4; }
+.usage-feedback-notice svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; fill: none; stroke: #3b82f6; stroke-width: 1.9; stroke-linecap: round; }
+.usage-feedback-notice > div { min-width: 0; flex: 1; }
+.usage-feedback-notice > div > span { display: block; }
+.usage-feedback-notice > #usageFeedbackCount { flex: 0 0 auto; padding-top: 1px; color: #94a3b8; font-size: 11px; white-space: nowrap; }
+.usage-feedback-status { min-height: 16px; margin-top: 8px; color: #15803d; font-size: 12px; font-weight: 600; }
 .usage-feedback-status.is-error { color: #dc2626; }
-.usage-feedback-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid #e8eef5; background: #f8fafc; }
-.usage-feedback-foot button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #cbd5e1; border-radius: 9px; padding: 0 15px; background: #fff; color: #334155; font-size: 13px; font-weight: 700; cursor: pointer; transition: border-color .14s, background .14s, box-shadow .14s; }
+.usage-feedback-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid #e8eef5; background: #f8fafc; }
+.usage-feedback-foot button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 13px; background: #fff; color: #334155; font-size: 13px; font-weight: 700; cursor: pointer; transition: border-color .14s, background .14s, box-shadow .14s; }
 .usage-feedback-foot button:hover { border-color: #94a3b8; background: #f8fafc; }
 .usage-feedback-foot #usageFeedbackSubmit { border-color: #2563eb; background: #2563eb; color: #fff; box-shadow: 0 1px 2px rgba(37,99,235,.22); }
 .usage-feedback-foot #usageFeedbackSubmit:hover { border-color: #1d4ed8; background: #1d4ed8; }

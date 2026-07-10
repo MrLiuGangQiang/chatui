@@ -88,13 +88,13 @@
     feedbackPanel.innerHTML = `
       <div class="usage-feedback-card" role="dialog" aria-modal="true" aria-labelledby="usageFeedbackTitle">
         <div class="usage-feedback-head">
-          <div class="usage-feedback-heading"><span class="usage-feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15a4 4 0 0 1-4 4H9l-5 3v-7a4 4 0 0 1-2-3.46V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M7 10h10"/><path d="M7 14h6"/></svg></span><div><strong id="usageFeedbackTitle">问题反馈</strong><span>提交后将发送给管理员处理</span></div></div>
+          <div class="usage-feedback-heading"><strong id="usageFeedbackTitle">问题反馈</strong></div>
           <button id="usageFeedbackClose" type="button" aria-label="关闭反馈">×</button>
         </div>
         <div class="usage-feedback-body">
           <label for="usageFeedbackContent">反馈内容 <em>必填</em></label>
           <textarea id="usageFeedbackContent" maxlength="4000" placeholder="请描述问题现象、复现步骤和期望结果。"></textarea>
-          <div class="usage-feedback-hint"><span>请勿填写 API Key、密码等敏感信息</span><span id="usageFeedbackCount">0 / 4000</span></div>
+          <div class="usage-feedback-notice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7h.01"/></svg><div><span>你的反馈会实时推送给公司同事，请描述清楚问题。</span></div><span id="usageFeedbackCount">0 / 4000</span></div>
           <div id="usageFeedbackStatus" class="usage-feedback-status" aria-live="polite"></div>
         </div>
         <div class="usage-feedback-foot"><button id="usageFeedbackCancel" type="button">取消</button><button id="usageFeedbackSubmit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>提交反馈</button></div>

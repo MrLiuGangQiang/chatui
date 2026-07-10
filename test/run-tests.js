@@ -188,6 +188,21 @@ function testRouteInstructionDoesNotPolluteImagePrompt() {
   assert.ok(!/3D|高清|电影感/i.test(parsed.contextualImagePrompt), 'route model invented style detail must not enter final image prompt');
 }
 
+
+function testRouteContextUsesTokenWindowAndDropsOldestMessages() {
+  const messages = [
+    { role: 'user', content: 'oldest-' + '甲'.repeat(120) },
+    { role: 'assistant', content: 'middle-' + '乙'.repeat(120) },
+    { role: 'user', content: 'latest-' + '丙'.repeat(30) },
+  ];
+  const full = routeContext.buildRouteContext({ messages, contextWindowTokens: 10000 });
+  assert.strictEqual(full.recent_messages.length, 3, 'history below the token window must be retained');
+  const trimmed = routeContext.buildRouteContext({ messages, contextWindowTokens: 220 });
+  assert.ok(trimmed.recent_messages.length < 3, 'history above the token window must be trimmed');
+  assert.ok(!trimmed.recent_messages.some(item => String(item.content).startsWith('oldest-')), 'the oldest route message must be discarded first');
+  assert.ok(trimmed.recent_messages.some(item => String(item.content).startsWith('latest-')), 'the latest user message must be retained');
+}
+
 function testRouteContextIsCompactAndIndexed() {
   const imageContext = JSON.stringify({
     target: 'uploaded',
@@ -2326,6 +2341,16 @@ function testAppBootstrapContextHelper() {
   sourceAssertions.assertInOrder(index, './client/app/app-context.js', './app.js', 'app context should load before app bootstrap');
 }
 
+
+function testChatAndRouteUsePublicContextWindow() {
+  const chatSource = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
+  const routeSource = fs.readFileSync(path.join(__dirname, '../client/app/route-decision-workflow.js'), 'utf8');
+  const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(chatSource.includes('await loadPublicContext?.();') && chatSource.includes('applyOutboundContextBudget(rawMessages,a)'), 'normal chat must refresh and apply the public context token window before building its request');
+  assert.ok(routeSource.includes('await loadPublicContext?.();') && routeSource.includes('contextWindowTokens=config?.context?.windowTokens'), 'route decision must use the same public context token window');
+  assert.ok(appSource.includes('createChatWorkflow({state,loadPublicContext,getConfig'), 'app bootstrap must provide public-context loading to normal chat');
+}
+
 function testConfigBaseUrlDefault() {
   const configWorkflow = require('../client/app/config-workflow');
   const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
@@ -2362,10 +2387,10 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
   const configSource = fs.readFileSync(path.join(__dirname, '../client/app/config-workflow.js'), 'utf8');
   const configModule = require('../client/app/config-workflow');
   const routeWorkflow = require('../client/app/route-decision-workflow');
-  assert.ok(!configSource.includes('apiKey:t.apiKey'), 'saveConfig must not persist API keys in localStorage');
-  assert.ok(configSource.includes('legacyApiKey=String(e.apiKey||"")') && configSource.includes('legacyApiKey&&delete e.apiKey'), 'loadConfig should migrate and remove legacy persisted API keys');
+  assert.ok(!configSource.includes('apiKey:t.apiKey'), 'saveConfig must keep API keys outside the general JSON config object');
+  assert.ok(configSource.includes('legacyApiKey=String(e.apiKey||"")') && configSource.includes('legacyApiKey&&delete e.apiKey'), 'loadConfig should migrate legacy API keys into the dedicated persistent key');
   assert.ok(configSource.includes('(legacyApiKey||t.chatModel!==a'), 'legacy API-key migration should immediately rewrite sanitized config');
-  assert.ok(configSource.includes('API_KEY_SESSION_KEY') && configSource.includes('writeSessionApiKey(t.apiKey)'), 'API keys should persist only in tab-scoped sessionStorage so refresh keeps credentials without long-term localStorage exposure');
+  assert.ok(configSource.includes('API_KEY_STORAGE_KEY') && configSource.includes('writePersistedApiKey(t.apiKey)'), 'API keys should persist in a dedicated localStorage key so closing and reopening the browser keeps credentials');
 
   const localValues = new Map(), sessionValues = new Map();
   const makeStorage = values => ({ getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) });
@@ -2379,10 +2404,10 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
   });
   elements.get('apiKey').value = 'sk-session-only';
   config.saveConfig(true);
-  assert.strictEqual(sessionStorage.getItem('test-config:api-key'), 'sk-session-only');
-  assert.ok(!localStorage.getItem('test-config').includes('sk-session-only'), 'localStorage config must not contain the API key');
+  assert.strictEqual(localStorage.getItem('test-config:api-key'), 'sk-session-only');
+  assert.ok(!localStorage.getItem('test-config').includes('sk-session-only'), 'general localStorage config must not contain the API key');
   elements.get('apiKey').value = '';
-  assert.strictEqual(config.getConfig().apiKey, 'sk-session-only', 'API key should survive a page refresh through sessionStorage');
+  assert.strictEqual(config.getConfig().apiKey, 'sk-session-only', 'API key should survive closing and reopening the browser through localStorage');
 
   const workflow = routeWorkflow.createRouteDecisionWorkflow({ state: { sessions: [], messages: [], activeSessionId: '', attachments: [] } });
   const summary = workflow.summarizeIntentTrace({
@@ -2621,6 +2646,7 @@ const tests = [
   testRouteInstructionDoesNotPolluteImagePrompt,
   testDockerfileIncludesSharedRuntimeModules,
   testImageSuccessResultReconciliation,
+  testRouteContextUsesTokenWindowAndDropsOldestMessages,
   testRouteContextIsCompactAndIndexed,
   testImageCandidatesUseGlobalIndexesAndExecuteSourceIndexes,
   testImageGenerationPayloadDoesNotRewritePromptOrAutoParams,
@@ -2730,6 +2756,7 @@ const tests = [
   testCodeActionHoverAndHistoryAnchorActivePolish,
   testArchitectureBoundaryScaffolding,
   testAppBootstrapContextHelper,
+  testChatAndRouteUsePublicContextWindow,
   testConfigBaseUrlDefault,
   testConfigCopyButtonsForBaseUrlAndApiKey,
   testSensitiveConfigAndIntentTraceAreNotPersisted,

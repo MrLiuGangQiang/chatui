@@ -46,19 +46,61 @@
       ...(!current.reasoning_content && next.reasoning_content ? { reasoning_content: next.reasoning_content } : {}),
     } : current;
   }
+  function messageIdentity(message) {
+    if (!message || !['user', 'assistant'].includes(message.role)) return '';
+    const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
+    return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
+  }
+  function preferStoredMessage(current, next) {
+    const currentText = String(current?.content || current?.rawText || '');
+    const nextText = String(next?.content || next?.rawText || '');
+    const currentIsStatus = /^(正在处理中|正在生成图片|正在修改图片|正在恢复图片)/.test(currentText);
+    const nextIsStatus = /^(正在处理中|正在生成图片|正在修改图片|正在恢复图片)/.test(nextText);
+    if (currentIsStatus !== nextIsStatus) return currentIsStatus ? next : current;
+    return nextText.length > currentText.length ? next : mergeMessageMeta(current, next);
+  }
   function compactAdjacentDuplicateMessages(messages = [], normalizeMessageForStorage = value => value) {
     const result = [];
+    const byIdentity = new Map();
     for (const message of sortCanonicalMessages(messages).map(normalizeMessageForStorage).filter(Boolean)) {
+      const identity = messageIdentity(message);
+      const existingIndex = identity ? byIdentity.get(identity) : undefined;
+      if (existingIndex !== undefined) {
+        result[existingIndex] = preferStoredMessage(result[existingIndex], message);
+        continue;
+      }
       const previous = result[result.length - 1];
       if (previous && previous.role === message.role && previous.content === message.content) result[result.length - 1] = mergeMessageMeta(previous, message);
-      else result.push(message);
+      else {
+        result.push(message);
+        if (identity) byIdentity.set(identity, result.length - 1);
+      }
     }
     return result;
   }
+  function displayItemIdentity(item) {
+    if (!item || !['user', 'assistant'].includes(item.role)) return '';
+    const value = item.role === 'user' ? item.messageIndex : item.responseIndex;
+    return value !== undefined && value !== null && value !== '' ? `${item.role}:${value}` : '';
+  }
+  function preferDisplayItem(current, next) {
+    const currentRich = !!(current?.html || current?.imageContext || current?.attachmentContext);
+    const nextRich = !!(next?.html || next?.imageContext || next?.attachmentContext);
+    if (currentRich !== nextRich) return nextRich ? next : current;
+    if (!!current?.pending !== !!next?.pending) return current?.pending ? next : current;
+    return String(next?.rawText || '').length > String(current?.rawText || '').length ? next : current;
+  }
   function compactDisplayItems(items = []) {
     const result = [];
+    const byIdentity = new Map();
     for (const item of items || []) {
       if (!item) continue;
+      const identity = displayItemIdentity(item);
+      const existingIndex = identity ? byIdentity.get(identity) : undefined;
+      if (existingIndex !== undefined) {
+        result[existingIndex] = preferDisplayItem(result[existingIndex], item);
+        continue;
+      }
       const previous = result[result.length - 1];
       const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || '', item.quoteContext || ''].join('');
       const prevKey = previous ? [previous.role || '', previous.rawText || '', previous.html || '', previous.pending || '', previous.jobId || '', previous.responseIndex || '', previous.messageIndex || '', previous.quoteContext || ''].join('') : '';
@@ -69,7 +111,10 @@
         if (item.quoteContext && !previous.quoteContext) previous.quoteContext = item.quoteContext;
         if (item.imageContext && !previous.imageContext) previous.imageContext = item.imageContext;
         if (item.attachmentContext && !previous.attachmentContext) previous.attachmentContext = item.attachmentContext;
-      } else result.push(item);
+      } else {
+        result.push(item);
+        if (identity) byIdentity.set(identity, result.length - 1);
+      }
     }
     return result;
   }

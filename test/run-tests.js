@@ -2665,6 +2665,27 @@ function testImageSuccessResultReconciliation() {
   assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=1.3.70-session-render-reset'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
+function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
+  const result = sessionPersistence.compactAdjacentDuplicateMessages([
+    { role: 'user', content: '请上传合同截图', rawText: '请上传合同截图', messageIndex: 0 },
+    { role: 'assistant', content: '正在处理中 请稍后', rawText: '正在处理中 请稍后', responseIndex: 1 },
+    { role: 'assistant', content: '请上传“老客户H2合同盘面截图”', rawText: '请上传“老客户H2合同盘面截图”', responseIndex: 1, displayItemId: 'final-answer' },
+  ]);
+  assert.deepStrictEqual(result, [
+    { role: 'user', content: '请上传合同截图', rawText: '请上传合同截图', messageIndex: '0' },
+    { role: 'assistant', content: '请上传“老客户H2合同盘面截图”', rawText: '请上传“老客户H2合同盘面截图”', responseIndex: '1', displayItemId: 'final-answer' },
+  ], 'a completed response must replace its stale pending record at the same restore index');
+}
+
+function testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex() {
+  const result = sessionPersistence.compactDisplayItems([
+    { id: 'text-fallback', role: 'assistant', rawText: '[base64 image]', responseIndex: '3' },
+    { id: 'image-result', role: 'assistant', rawText: '[图片生成完成]', html: '<img data-persisted-src="indexeddb://images/final">', imageContext: '{"images":["indexeddb://images/final"]}', responseIndex: '3' },
+  ]);
+  assert.strictEqual(result.length, 1, 'duplicate display records must collapse to one restored response');
+  assert.strictEqual(result[0].id, 'image-result', 'the durable rich-media record must win over the text fallback');
+  assert.ok(result[0].html.includes('data-persisted-src'), 'the persisted image reference must survive compaction');
+}
 function testDockerfileIncludesSharedRuntimeModules() {
   const dockerfile = fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8');
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
@@ -2680,6 +2701,8 @@ const tests = [
   testPromptComposerPreservesIntentWithoutOverOptimizing,
   testRouteResultCarriesTaskContractAndComposedPrompt,
   testRouteInstructionDoesNotPolluteImagePrompt,
+  testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex,
+  testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex,
   testDockerfileIncludesSharedRuntimeModules,
   testImageSuccessResultReconciliation,
   testRouteContextUsesTokenWindowAndDropsOldestMessages,

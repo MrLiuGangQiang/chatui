@@ -51,7 +51,17 @@
     const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
     return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
   }
+  function isDurableImageMessage(message) {
+    return /^\[图片(生成|编辑|修改)完成\]/.test(String(message?.content || message?.rawText || ''))
+      || /data-persisted-src=(['"])indexeddb:\/\//i.test(String(message?.html || ''))
+      || /indexeddb:\/\//i.test(String(message?.imageContext || ''));
+  }
   function preferStoredMessage(current, next) {
+    const currentIsImageResult = isDurableImageMessage(current);
+    const nextIsImageResult = isDurableImageMessage(next);
+    // A completed image is the only durable record that can restore the generated
+    // result. It must win if a stale clarification/pending reply reused its index.
+    if (currentIsImageResult !== nextIsImageResult) return nextIsImageResult ? next : current;
     const currentText = String(current?.content || current?.rawText || '');
     const nextText = String(next?.content || next?.rawText || '');
     const currentIsStatus = /^(正在处理中|正在生成图片|正在修改图片|正在恢复图片)/.test(currentText);
@@ -83,7 +93,18 @@
     const value = item.role === 'user' ? item.messageIndex : item.responseIndex;
     return value !== undefined && value !== null && value !== '' ? `${item.role}:${value}` : '';
   }
+  function isDurableImageDisplayItem(item) {
+    const html = String(item?.html || '');
+    return (/class=(['"])[^'"]*generated-thumb/i.test(html) && /data-persisted-src=(['"])indexeddb:\/\//i.test(html))
+      || /data-persisted-src=(['"])indexeddb:\/\//i.test(html)
+      || /indexeddb:\/\//i.test(String(item?.imageContext || ''));
+  }
   function preferDisplayItem(current, next) {
+    const currentIsImageResult = isDurableImageDisplayItem(current);
+    const nextIsImageResult = isDurableImageDisplayItem(next);
+    // Plain assistant HTML is not rich media. Preserve the IndexedDB-backed image
+    // card rather than whichever colliding response happens to have more text.
+    if (currentIsImageResult !== nextIsImageResult) return nextIsImageResult ? next : current;
     const currentRich = !!(current?.html || current?.imageContext || current?.attachmentContext);
     const nextRich = !!(next?.html || next?.imageContext || next?.attachmentContext);
     if (currentRich !== nextRich) return nextRich ? next : current;

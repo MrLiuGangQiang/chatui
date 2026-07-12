@@ -2686,6 +2686,25 @@ function testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex() {
   assert.strictEqual(result[0].id, 'image-result', 'the durable rich-media record must win over the text fallback');
   assert.ok(result[0].html.includes('data-persisted-src'), 'the persisted image reference must survive compaction');
 }
+function testSessionPersistenceKeepsDurableImageWhenAStaleTextReplyCollides() {
+  const result = sessionPersistence.compactAdjacentDuplicateMessages([
+    { role: 'assistant', content: '[图片编辑完成] 客户经营策略信息图', html: '<img class="generated-thumb" data-persisted-src="indexeddb://img/final">', responseIndex: '6' },
+    { role: 'assistant', content: '请上传或重新附加“客户H2的合同盘面截图”，当前未检测到可用的图片资源。', responseIndex: '6' },
+  ]);
+  assert.strictEqual(result.length, 1, 'colliding response records must compact to one message');
+  assert.match(result[0].content, /^\[图片编辑完成\]/, 'the completed image canonical record must not be overwritten by a stale text response');
+  assert.ok(result[0].html.includes('indexeddb://img/final'), 'the IndexedDB image reference must remain in canonical history');
+}
+
+function testSessionPersistenceKeepsDurableImageDisplayWhenAStaleTextReplyCollides() {
+  const result = sessionPersistence.compactDisplayItems([
+    { id: 'image-result', role: 'assistant', rawText: '[图片编辑完成]', html: '<div class="generated-image-grid"><img class="generated-thumb" data-persisted-src="indexeddb://img/final"></div>', responseIndex: '6', imageContext: '{"attachments":[{"src":"indexeddb://img/final"}]}' },
+    { id: 'stale-clarification', role: 'assistant', rawText: '请上传或重新附加合同截图', html: '<div class="markdown-body">请上传或重新附加合同截图</div>', responseIndex: '6' },
+  ]);
+  assert.strictEqual(result.length, 1, 'colliding display records must compact to one item');
+  assert.strictEqual(result[0].id, 'image-result', 'the IndexedDB-backed image display must win over stale text HTML');
+  assert.ok(result[0].html.includes('indexeddb://img/final'), 'the result card must retain its persisted source');
+}
 function testDockerfileIncludesSharedRuntimeModules() {
   const dockerfile = fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8');
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
@@ -2703,6 +2722,8 @@ const tests = [
   testRouteInstructionDoesNotPolluteImagePrompt,
   testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex,
   testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex,
+  testSessionPersistenceKeepsDurableImageWhenAStaleTextReplyCollides,
+  testSessionPersistenceKeepsDurableImageDisplayWhenAStaleTextReplyCollides,
   testDockerfileIncludesSharedRuntimeModules,
   testImageSuccessResultReconciliation,
   testRouteContextUsesTokenWindowAndDropsOldestMessages,

@@ -78,7 +78,7 @@
     return Object.freeze({ openImageDb, putImageBlob, getImageBlob, clearImageDb, deleteImageDbKeys, getImageDbKeys });
   }
 
-  function collectIndexedDbKeys(value, keys = new Set()) {
+  function collectIndexedDbKeys(value, keys = new Set(), seen = new WeakSet()) {
     if (!value) return keys;
     if (typeof value === 'string') {
       const re = /indexeddb:\/\/([^"'<>`\s]+)/g;
@@ -86,11 +86,11 @@
       while ((match = re.exec(value))) keys.add(match[1]);
       return keys;
     }
-    if (Array.isArray(value)) {
-      value.forEach(item => collectIndexedDbKeys(item, keys));
-      return keys;
-    }
-    if (typeof value === 'object') Object.values(value).forEach(item => collectIndexedDbKeys(item, keys));
+    if (typeof value !== 'object') return keys;
+    if (seen.has(value)) return keys;
+    seen.add(value);
+    if (Array.isArray(value)) value.forEach(item => collectIndexedDbKeys(item, keys, seen));
+    else Object.values(value).forEach(item => collectIndexedDbKeys(item, keys, seen));
     return keys;
   }
 

@@ -102,13 +102,18 @@ async function testApiContractMethodAndCorsPreflight() {
     const options = await request(baseUrl, '/api/version', { method: 'OPTIONS' });
     assert.strictEqual(options.res.status, 204);
     assert.strictEqual(options.res.headers.get('access-control-allow-origin'), '*');
-    assert.match(options.res.headers.get('access-control-allow-methods') || '', /GET,POST,OPTIONS/);
+    assert.match(options.res.headers.get('access-control-allow-methods') || '', /GET,POST,DELETE,OPTIONS/);
     assert.match(options.res.headers.get('access-control-allow-headers') || '', /Content-Type/);
 
     const wrongMethod = await request(baseUrl, '/api/version', { method: 'POST', body: '{}' });
     assert.strictEqual(wrongMethod.res.status, 405);
     assertJson(wrongMethod);
     assert.deepStrictEqual(wrongMethod.json, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Method Not Allowed' } });
+
+    const disposedMissingJob = await request(baseUrl, '/api/chat-jobs/not-found', { method: 'DELETE' });
+    assert.strictEqual(disposedMissingJob.res.status, 200);
+    assertCorsJson(disposedMissingJob);
+    assert.deepStrictEqual(disposedMissingJob.json, { disposed: true, existed: false });
   });
 }
 

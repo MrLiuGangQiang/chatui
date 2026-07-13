@@ -31,6 +31,9 @@ const responsesStream = require('../server/proxy/responses-stream');
 const appState = require('../client/app/state');
 const appContext = require('../client/app/app-context');
 const sessionDisplay = require('../client/app/session-display');
+const messageRecords = require('../client/app/message-records');
+const sessionStore = require('../client/app/session-store');
+const displayHistoryWorkflow = require('../client/app/display-history-workflow');
 const formatting = require('../client/app/formatting');
 const markdownEngine = require('../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../client/app/markdown/source-normalizer');
@@ -366,7 +369,7 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=1.3.70-session-render-reset') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'download filename changes should bump browser cache versions');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=2.1.0-session-lifecycle') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'download filename changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match download filename cache-busting');
 }
 
@@ -840,6 +843,57 @@ function testQuotedAssistantImageContextRestoresFromCanonicalMessage() {
   const restored = workflow.getAssistantImageContext(node);
   assert.ok(restored, 'assistant image context should restore from canonical message by responseIndex');
   assert.strictEqual(restored.attachments[0].src, 'indexeddb://cat');
+}
+
+async function testUploadedImageUsesOneDurableBlobAcrossMessageContexts() {
+  const writes = [];
+  const workflow = imageContextWorkflow.createImageContextWorkflow({
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    dataUrlToBlob: async src => ({ src }),
+    putImageBlob: async (key, blob) => { writes.push({ key, blob }); },
+    makeImageItemId: (referenceId, index) => `img_${referenceId}_${index}`,
+    normalizeImageSelection: value => value,
+    normalizeSelectedImageIds: value => value,
+  });
+  const attachment = {
+    attachmentId: 'att_one',
+    name: 'one.png',
+    type: 'image/png',
+    size: 4,
+    dataUrl: 'data:image/png;base64,AAAA',
+  };
+
+  const imageContext = await workflow.buildUploadedImageContext('inspect this', [attachment]);
+  const attachmentContext = await workflow.buildUserAttachmentContext('inspect this', [attachment]);
+
+  assert.strictEqual(writes.length, 1, 'one uploaded image must create only one IndexedDB Blob');
+  assert.strictEqual(writes[0].key, 'attachment-att_one');
+  assert.strictEqual(attachment.previewSrc, 'indexeddb://attachment-att_one', 'the first durable write must be cached on the attachment object');
+  assert.strictEqual(attachment.persistedSrc, 'indexeddb://attachment-att_one');
+  assert.strictEqual(imageContext.attachments[0].src, 'indexeddb://attachment-att_one');
+  assert.strictEqual(attachmentContext.attachments[0].src, 'indexeddb://attachment-att_one', 'imageContext and attachmentContext must reuse the same Blob reference');
+
+  const previewWrites = [];
+  const previewWorkflow = imageContextWorkflow.createImageContextWorkflow({
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    dataUrlToBlob: async src => ({ src }),
+    putImageBlob: async (key, blob) => { previewWrites.push({ key, blob }); },
+    makeImageItemId: (referenceId, index) => `img_${referenceId}_${index}`,
+    normalizeImageSelection: value => value,
+    normalizeSelectedImageIds: value => value,
+  });
+  const previewed = {
+    attachmentId: 'att_previewed',
+    name: 'previewed.png',
+    type: 'image/png',
+    dataUrl: 'data:image/png;base64,BBBB',
+    previewSrc: 'indexeddb://already-persisted',
+  };
+  const previewImageContext = await previewWorkflow.buildUploadedImageContext('', [previewed]);
+  const previewAttachmentContext = await previewWorkflow.buildUserAttachmentContext('', [previewed]);
+  assert.strictEqual(previewWrites.length, 0, 'a preview-persisted image must not be written again while building contexts');
+  assert.strictEqual(previewImageContext.attachments[0].src, 'indexeddb://already-persisted');
+  assert.strictEqual(previewAttachmentContext.attachments[0].src, 'indexeddb://already-persisted');
 }
 
 function testExistingImageEditGateAllowsPreviousSelection() {
@@ -1360,6 +1414,84 @@ function testSessionSwitchFocusesBottom() {
   assert.ok(css.includes('scroll-behavior:auto!important;'), 'session switch should disable smooth scroll behavior');
 }
 
+async function testDeleteSessionCleansRuntimeResources() {
+  const { createSessionUiWorkflow } = require('../client/app/session-ui-workflow');
+  const calls = [];
+  const storage = new Map();
+  const localStorage = {
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: key => storage.delete(key),
+  };
+  const state = {
+    sessions: [{ id: 'delete-me', messages: [] }, { id: 'keep-me', messages: [] }],
+    activeSessionId: 'keep-me',
+    busySessions: new Set(['delete-me']),
+    activeOutputSessions: new Map([['delete-me', {}]]),
+    activeRuns: new Map(),
+    liveRuns: new Map([['delete-me', {}]]),
+    stoppedSessions: new Map([['delete-me', 'token']]),
+    promptDrafts: new Map([['delete-me', 'draft']]),
+    resumingJobs: new Set(['chat:delete-me', 'image:delete-me']),
+    followingChatJobs: new Set(['chat-job']),
+    followingImageJobs: new Set(['image-job']),
+  };
+  const workflow = createSessionUiWorkflow({
+    getState: () => state,
+    getElement: () => null,
+    document: { createElement: () => ({}) },
+    localStorage,
+    createSession: () => ({ id: 'new-session', messages: [] }),
+    deriveSessionTitle: () => '待删除',
+    sessionTitleHtml: () => '',
+    getSessionReturnCount: () => 0,
+    isSessionBusy: () => false,
+    sessionStorageKey: (key, id) => `${key}:${id || 'default'}`,
+    showConfirmDialog: async () => true,
+    disposeSessions: async (sessions, remaining) => calls.push(`dispose:${sessions.map(item => item.id).join(',')}:${remaining.map(item => item.id).join(',')}`),
+  });
+
+  await workflow.deleteSession('delete-me');
+
+  assert.deepStrictEqual(calls, ['dispose:delete-me:keep-me'], 'session deletion must use the single resource lifecycle boundary');
+  assert.deepStrictEqual(state.sessions.map(session => session.id), ['keep-me']);
+  const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(index.includes('session-ui-workflow.js?v=1.3.13-resource-manager'), 'session deletion cleanup should bump the browser cache version');
+}
+
+async function testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNetwork() {
+  const { createSessionResourceLifecycle } = require('../client/app/session-resources');
+  const deletedSnapshots = [];
+  const state = {
+    sessions: [{ id: 'delete-me', messages: [], display: [] }],
+    disposedSessionIds: new Set(),
+    busySessions: new Set(),
+    activeOutputSessions: new Map(),
+    activeRuns: new Map([['delete-me', { jobIds: new Set(['chat:slow-job']), abortController: { abort() {} } }]]),
+    liveRuns: new Map(),
+    stoppedSessions: new Map(),
+    promptDrafts: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(['slow-job']),
+    followingImageJobs: new Set(),
+  };
+  const lifecycle = createSessionResourceLifecycle({
+    getState: () => state,
+    document: { getElementById: () => null },
+    localStorage: { getItem: () => null, removeItem: () => {} },
+    collectSessionImageKeys: () => [],
+    collectAllSessionImageKeys: () => new Set(),
+    deleteImageDbKeys: async () => {},
+    deleteOrphanImageBlobs: async () => {},
+    deleteSessionSnapshot: async id => { deletedSnapshots.push(id); },
+    disposeManagedJob: () => new Promise(() => {}),
+    sessionStorageKey: (key, id) => `${key}:${id}`,
+    sessionChatJobKey: id => `chat-job:${id}`,
+    sessionImageJobKey: id => `image-job:${id}`,
+  });
+  await lifecycle.disposeSessions(state.sessions, []);
+  assert.deepStrictEqual(deletedSnapshots, ['delete-me'], 'IndexedDB session deletion must start before a slow managed-job network disposal completes');
+}
+
 function testLegacyWelcomeScreenIsRestored() {
   const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
@@ -1376,7 +1508,7 @@ function testLegacyWelcomeScreenIsRestored() {
   assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
   assert.ok(app.includes('function shouldShowEmptyWelcome'), 'welcome renderer should gate on real empty session state');
   assert.ok(app.includes('!s&&!n&&!a'), 'welcome should render only when messages, pending display items, and non-welcome DOM are all empty');
-  assert.ok(index.includes('./app.js?v=1.3.70-session-render-reset'), 'app.js cache version should change after stop-stream cleanup updates');
+  assert.ok(index.includes('./app.js?v=2.1.0-session-lifecycle'), 'app.js cache version should change after stop-stream cleanup updates');
   assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('font-weight:820') && css.includes('repeating-linear-gradient(90deg,transparent 0 26px') && css.includes('linear-gradient(100deg,#111827 0%,#1d2b5f 26%,#4d6bfe 52%,#18b9ee 72%,#111827 100%)') && !css.includes('conic-gradient(from 210deg') && !css.includes('content:"AI"'), 'welcome screen should be cooler and more premium while still matching the calm flat theme');
   assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
@@ -1394,7 +1526,7 @@ function testHistoryRenderLoadsNewestMessagesFirst() {
   assert.ok(source.includes('displayLookupCache=new WeakMap') && source.includes('displayLookupForSession'), 'display cache matching should pre-index display items instead of rescanning display for every canonical message');
   assert.ok(source.includes('if(Number.isFinite(n)){i=[...t?.querySelectorAll?.(".message.user")') && source.indexOf('if(Number.isFinite(n)){i=[...t?.querySelectorAll?.(".message.user")') < source.indexOf('if(Number.isFinite(a)){const e=[...t?.querySelectorAll?.(".message.user")'), 'history anchor materialization should resolve canonical messageIndex before falling back to DOM userIndex');
   assert.ok(source.includes('data-history-detached-anchor="1"') && !source.includes('forceRenderCanonicalMessages(o);i=[...t?.querySelectorAll?.(".message.user")'), 'history anchor jump should materialize the requested item without a full canonical rebuild');
-  assert.ok(source.includes('renderCanonicalMessagesNewestFirst(t,state.messages),restorePendingDisplayItems'), 'loadChatHistory should use newest-first render instead of full chronological render');
+  assert.ok(source.includes('i=loadChatHistory({render:!0})') && source.includes('restorePendingDisplayItems(t,a)'), 'session restore should render canonical history newest-first, then overlay pending-only display items');
   assert.ok(source.includes('dataset?.tailFirstHistory==="1")return'), 'canonical repair should not fight tail-first history rendering');
   assert.ok(source.includes('dataset?.historyBackfill==="1")return'), 'canonical repair should not fight in-progress reverse backfill');
   const perf = fs.readFileSync(path.join(__dirname, '../client/app/performance-workflow.js'), 'utf8');
@@ -1689,9 +1821,10 @@ function testStreamingOutputSmoothnessOptimizations() {
   assert.ok(app.includes('if(!0===a.deferDomUpdate&&e===state.activeSessionId&&a.skipDisplayUpdate)return;let i=null'), 'active streaming chunks should not rescan the whole message DOM when the visible node and display update are already handled');
   const displayHistorySource = fs.readFileSync(path.join(__dirname, '../client/app/display-history-workflow.js'), 'utf8');
   const sessionUiSource = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
-  assert.ok(displayHistorySource.includes('if ("0" === node.dataset.persist && node.__displayItem) return Object.assign(node.__displayItem, item);'), 'transient streaming nodes must snapshot their latest raw/html/index/job fields before session switch, otherwise output is lost or resumes from stale placeholder');
-  assert.ok(sessionUiSource.includes('saveDisplayHistory({ includeTransient: true })'), 'session switching/new-session should persist transient streaming display items before replacing the visible DOM');
-  assert.ok(app.includes('saveDisplayHistory({includeTransient:!0})'), 'root bundle should preserve transient streaming display items during session switching');
+  assert.ok(displayHistorySource.includes('const currentPending = (session.display || []).filter') && displayHistorySource.includes('const pendingIds = new Set') && displayHistorySource.includes('const pendingJobIds = new Set') && displayHistorySource.includes("node.__displayItem?.pending === '1'"), 'session switching must snapshot only canonical pending items while still capturing their latest DOM text/html/job fields');
+  assert.ok(!displayHistorySource.includes("node.dataset.persist === '0'") && !displayHistorySource.includes('|| !!node.dataset.jobId'), 'completed nodes must never become pending again merely because they were created with skipSave or still carry a job id');
+  assert.ok(sessionUiSource.includes('saveChatHistory(); saveDisplayHistory();'), 'new-session switching should persist canonical messages and pending tasks before replacing the visible DOM');
+  assert.ok(app.includes('saveChatHistory(),saveDisplayHistory()'), 'root session switching should persist canonical messages and pending tasks without transient-display mode flags');
 }
 
 function testResumeStreamButtonAnchorsAboveComposer() {
@@ -1893,7 +2026,462 @@ function testQuoteResolverUsesCanonicalAndDisplayContext() {
   assert.strictEqual(JSON.parse(quote.attachmentContext).attachments[0].id, 'att_1');
 }
 
-function testSessionPromptDraftPersistsPerSession() {
+
+function testLegacyImageMigrationPrefersRichCanonicalPresentation() {
+  const prompt = '\u665a\u971e\u4e0b\u7684\u57ce\u5e02';
+  const imageContext = JSON.stringify({
+    prompt,
+    mode: 'image',
+    attachments: [{ name: 'sunset.png', type: 'image/png', src: 'indexeddb://generated-sunset' }],
+  });
+  const result = messageRecords.migrateLegacySession({
+    sessionId: 'legacy-image-session',
+    messages: [{
+      role: 'assistant',
+      content: '[base64 image] \u8017\u65f6\uff1a2m 6s',
+      rawText: '[base64 image] \u8017\u65f6\uff1a2m 6s',
+      html: '<p>stale placeholder</p>',
+      responseIndex: '3',
+    }],
+    display: [
+      { id: 'stale-text', role: 'assistant', responseIndex: '3', rawText: 'stale text', html: '<p>stale text</p>' },
+      {
+        id: 'rich-image',
+        role: 'assistant',
+        responseIndex: '3',
+        rawText: '[base64 image]\n\u8017\u65f6\uff1a2m 6s',
+        html: '<div class="generated-image-grid" data-generated-images="1"><img class="generated-thumb" data-persisted-src="indexeddb://generated-sunset"></div>',
+        imageContext,
+      },
+    ],
+  });
+  assert.strictEqual(result.messages.length, 1);
+  const message = result.messages[0];
+  assert.strictEqual(message.presentation.kind, 'image-result');
+  assert.strictEqual(message.content, `[\u56fe\u7247\u751f\u6210\u5b8c\u6210] ${prompt}`);
+  assert.ok(!message.rawText.includes('[base64 image]'), 'base64 rendering placeholders must never become canonical image text');
+  assert.ok(message.presentation.html.includes('generated-image-grid'), 'rich image markup should win over a stale text display item at the same response index');
+  assert.strictEqual(message.presentation.images[0].src, 'indexeddb://generated-sunset');
+}
+
+function testAttachmentPresentationRebuildsFromCanonicalDescriptors() {
+  const attachmentContext = JSON.stringify({
+    prompt: '',
+    content: '[attachments]',
+    attachments: [
+      { id: 'mail', name: 'mail.txt', type: 'text/plain', src: 'indexeddb://attachment-mail' },
+      { id: 'sheet', name: 'budget.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', src: 'indexeddb://attachment-budget' },
+    ],
+  });
+  const message = messageRecords.normalizeCanonicalMessage({
+    role: 'user',
+    content: '[attachments]',
+    rawText: '\u5df2\u53d1\u9001\u9644\u4ef6',
+    attachmentContext,
+    messageIndex: '0',
+  }, { sessionId: 'attachment-session', sequence: 0 });
+  assert.strictEqual(message.presentation.kind, 'attachment');
+  assert.strictEqual(message.presentation.displayText, '\u9644\u4ef6\uff1amail.txt\u3001budget.xlsx');
+  assert.deepStrictEqual(message.presentation.attachments.map(item => item.name), ['mail.txt', 'budget.xlsx']);
+  assert.notStrictEqual(message.presentation.displayText, '\u5df2\u53d1\u9001\u9644\u4ef6');
+}
+
+function testCanonicalRendererPrefersImageDescriptorsOverStaleHtml() {
+  const calls = [];
+  const state = { activeSessionId: 'renderer-session', reasoningMode: false };
+  const workflow = displayHistoryWorkflow.createDisplayHistoryWorkflow({
+    state,
+    $: () => null,
+    document: {},
+    messageRecords,
+    extractQuoteContextFromHtml: () => '',
+    displayItemHasRichMedia: item => /generated-image-grid|generated-thumb/.test(String(item?.html || '')),
+    addMessage: (role, content, options) => {
+      calls.push({ role, content, options });
+      return { dataset: {} };
+    },
+  });
+  workflow.renderMessageFromCanonical({ id: state.activeSessionId }, {
+    role: 'assistant',
+    content: '[\u56fe\u7247\u751f\u6210\u5b8c\u6210] cat',
+    rawText: '[base64 image] \u8017\u65f6\uff1a2m 6s',
+    html: '<p>[base64 image] \u8017\u65f6\uff1a2m 6s</p>',
+    responseIndex: '1',
+    imageContext: JSON.stringify({
+      prompt: 'cat',
+      attachments: [{ name: 'cat.png', type: 'image/png', src: 'indexeddb://generated-cat', width: 512, height: 512 }],
+    }),
+  }, 1);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].options.html, true);
+  assert.ok(calls[0].content.includes('generated-image-grid'), 'durable image descriptors should rebuild the generated-image UI');
+  assert.ok(calls[0].content.includes('indexeddb://generated-cat'), 'the descriptor-backed durable image reference must be rendered');
+  assert.ok(!calls[0].content.includes('[base64 image]'), 'stale placeholder HTML must not override canonical image descriptors');
+}
+
+function testCanonicalRendererPrefersAttachmentDescriptorsOverGenericHtml() {
+  const calls = [];
+  const state = { activeSessionId: 'renderer-attachment-session', reasoningMode: false };
+  const workflow = displayHistoryWorkflow.createDisplayHistoryWorkflow({
+    state,
+    $: () => null,
+    document: {},
+    messageRecords,
+    extractQuoteContextFromHtml: () => '',
+    displayItemHasRichMedia: () => true,
+    renderUserMessageWithAttachments: (text, attachments) => `<div class="rebuilt-attachments">${text}|${attachments.map(item => item.name).join(',')}</div>`,
+    addMessage: (role, content, options) => {
+      calls.push({ role, content, options });
+      return { dataset: {} };
+    },
+  });
+  workflow.renderMessageFromCanonical({ id: state.activeSessionId }, {
+    role: 'user',
+    content: '[attachments]',
+    rawText: '\u5df2\u53d1\u9001\u9644\u4ef6',
+    html: '<p>\u5df2\u53d1\u9001\u9644\u4ef6</p>',
+    messageIndex: '0',
+    attachmentContext: JSON.stringify({
+      attachments: [
+        { id: 'mail', name: 'mail.txt', type: 'text/plain', src: 'indexeddb://attachment-mail' },
+        { id: 'sheet', name: 'budget.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      ],
+    }),
+  }, 0);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].options.html, true);
+  assert.ok(calls[0].content.includes('mail.txt,budget.xlsx'), 'attachment descriptors should restore file names even when persisted HTML is generic');
+  assert.ok(!calls[0].content.includes('<p>\u5df2\u53d1\u9001\u9644\u4ef6</p>'), 'generic attachment HTML must remain only a compatibility fallback');
+}
+
+function testCanonicalBrowserRendererDependenciesAreSharedAndDefined() {
+  const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(
+    app.includes('function downloadAllImagesButtonHtml(){return downloadImageButtonHtml('),
+    'the browser bundle must define the canonical image renderer dependency before wiring the workflow'
+  );
+  assert.ok(
+    app.includes('renderUserMessageWithAttachments,downloadAllImagesButtonHtml}))'),
+    'the canonical history workflow must receive the shared download-all action renderer'
+  );
+  assert.ok(
+    app.includes('makeImageItemId,downloadAllImagesButtonHtml,saveLatestGeneratedImage'),
+    'live and restored image rendering must use the same action renderer dependency'
+  );
+  assert.ok(
+    !app.includes('downloadAllImagesButtonHtml:()=>downloadImageButtonHtml'),
+    'the download-all renderer must not be duplicated as an anonymous live-only implementation'
+  );
+}
+
+async function testActiveSessionMessagesUseOneCanonicalCommitBoundary() {
+  const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  const session = { ...appState.createSession('active'), id: 'active-session', messages: [{ role: 'user', content: 'old' }] };
+  const state = { sessions: [session], activeSessionId: session.id, messages: [{ role: 'user', content: 'stale working copy' }], models: [], reasoningMode: false };
+  const workflow = sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => session,
+    createSession: appState.createSession,
+    deriveSessionTitle: item => item.title || '\u65b0\u5bf9\u8bdd',
+    sessionStorageKey: (key, sessionId = state.activeSessionId) => `${key}:${sessionId}`,
+    readJsonStorage: (_key, fallback) => fallback,
+    safeSetJsonStorage: (_key, value) => value,
+    compactDisplayItems: items => items,
+    compactAdjacentDuplicateMessages: items => items,
+    sanitizeStoredDisplayItem: item => item,
+    sanitizeStoredMessage: item => item,
+    renderSessionList: () => {},
+    localStorage: storage,
+    messageRecords,
+    snapshotStore: { schedulePut: async () => {} },
+    constants: { CHAT_KEY: 'chat', UI_KEY: 'ui', SESSIONS_KEY: 'sessions', ACTIVE_SESSION_KEY: 'active' },
+  });
+  const next = [
+    { role: 'user', content: 'question', messageIndex: '0' },
+    { role: 'assistant', content: 'answer', responseIndex: '1' },
+  ];
+  await workflow.saveSessionMessages(session.id, next);
+  assert.strictEqual(state.messages, session.messages, 'active working state must point at the canonical list committed by saveSessionMessages');
+  assert.deepStrictEqual(state.messages.map(item => item.content), ['question', 'answer']);
+  const source = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  assert.ok(source.includes('function activeSessionMessages(){return Array.isArray(state.messages)?cloneMessageList(state.messages):[]}'), 'active-session saves should use the explicit working source');
+  assert.ok(!source.includes('e.length>=s.length?e:s'), 'message ownership must not be selected by a longer-array heuristic');
+  assert.ok(source.includes('function saveChatHistory(){const e=getActiveSession();if(e)return saveSessionMessages(e.id,activeSessionMessages())}'), 'saveChatHistory must delegate to the same canonical commit boundary without cloning a second owner');
+  assert.match(source, /async function clearChat\(\)\{[^}]*await getSessionDisplayWorkflow\(\)\.commitSession\(e\)/, 'clearing a chat must commit the complete empty session body once');
+  assert.ok(!source.includes('const s=saveSessionMessages(e.id,[]),n=persistSessionDisplay(e.id)'), 'clearing a chat must not enqueue duplicate snapshots');
+}
+
+function testCanonicalPresentationSanitizesTransientMediaReferences() {
+  const durableContext = JSON.stringify({
+    prompt: 'cat',
+    mode: 'image',
+    attachments: [{
+      name: 'cat.png',
+      type: 'image/png',
+      src: 'indexeddb://cat-image',
+      dataUrl: 'data:image/png;base64,temporary',
+      objectUrl: 'blob:temporary-object',
+    }],
+  });
+  const sanitized = sessionPersistence.sanitizeStoredMessage({
+    role: 'assistant',
+    content: '[\u56fe\u7247\u751f\u6210\u5b8c\u6210] cat',
+    imageContext: durableContext,
+    presentation: {
+      kind: 'image-result',
+      html: '<img src="blob:temporary-preview" data-persisted-src="indexeddb://cat-image">',
+      images: [{ src: 'data:image/png;base64,temporary', url: 'indexeddb://cat-image', objectUrl: 'blob:temporary-object' }],
+    },
+  }, { stripLargeDataUrlsFromText });
+  const parsedContext = JSON.parse(sanitized.imageContext);
+  assert.strictEqual(parsedContext.attachments[0].src, 'indexeddb://cat-image');
+  assert.strictEqual(parsedContext.attachments[0].dataUrl, '');
+  assert.strictEqual(parsedContext.attachments[0].objectUrl, '');
+  assert.ok(!sanitized.presentation.html.includes('blob:'), 'presentation HTML must not persist page-scoped blob URLs');
+  assert.strictEqual(sanitized.presentation.images[0].src, '');
+  assert.strictEqual(sanitized.presentation.images[0].url, 'indexeddb://cat-image');
+
+  const normalized = messageRecords.normalizeCanonicalMessage(sanitized, { sessionId: 'sanitized-image', sequence: 0 });
+  assert.strictEqual(normalized.presentation.images[0].src, 'indexeddb://cat-image', 'canonical presentation should rebuild from durable context rather than transient HTML');
+}
+
+function testSessionQuotaFailureNeverTruncatesCanonicalHistory() {
+  let removed = 0;
+  const storage = {
+    setItem() {
+      const error = new Error('Quota exceeded');
+      error.name = 'QuotaExceededError';
+      throw error;
+    },
+    removeItem() { removed += 1; },
+  };
+  const history = Array.from({ length: 120 }, (_, index) => ({ role: 'user', content: `message-${index}`, messageIndex: String(index) }));
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const returned = sessionPersistence.safeSetJsonStorage('history', history, 5, storage);
+    assert.strictEqual(returned, history);
+    assert.strictEqual(returned.length, 120);
+    assert.strictEqual(removed, 0, 'quota fallback must keep the previous backup instead of deleting it');
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
+function testPendingDisplaySnapshotCannotOverwriteCanonicalMessages() {
+  const dom = new JSDOM(`<!doctype html><div id="messages">
+    <div class="message assistant" data-persist="0" data-display-item-id="completed-display" data-job-id="completed-job" data-raw-text="completed"><div class="content">completed</div></div>
+    <div class="message assistant" data-persist="0" data-display-item-id="pending-display" data-job-id="pending-job" data-raw-text="latest pending"><div class="content">latest pending</div></div>
+  </div>`);
+  const document = dom.window.document;
+  const completedNode = document.querySelector('[data-display-item-id="completed-display"]');
+  const pendingNode = document.querySelector('[data-display-item-id="pending-display"]');
+  completedNode.__displayItem = { id: 'completed-display', role: 'assistant', rawText: 'completed', jobId: 'completed-job', pending: '' };
+  pendingNode.__displayItem = { id: 'pending-display', role: 'assistant', rawText: 'stale pending', html: 'stale pending', jobId: 'pending-job', responseIndex: '7', pending: '1' };
+  const canonicalMessages = Array.from({ length: 18 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `canonical-${index}`, sequence: index }));
+  const session = { id: 'pending-only', messages: canonicalMessages, display: [pendingNode.__displayItem], updatedAt: 1 };
+  const before = JSON.parse(JSON.stringify(session.messages));
+  let persisted = 0;
+  const workflow = displayHistoryWorkflow.createDisplayHistoryWorkflow({
+    state: { activeSessionId: session.id, reasoningMode: false },
+    document,
+    $: id => document.getElementById(id),
+    getActiveSession: () => session,
+    compactDisplayItems: items => items,
+    makeDisplayItemId: () => 'generated-display-id',
+    persistSessionDisplay: () => { persisted += 1; },
+    sanitizeStoredDisplayItem: item => ({ ...item }),
+    readMessageMetaText: () => '',
+  });
+  workflow.saveDisplayHistory();
+  assert.deepStrictEqual(session.messages, before, 'DOM serialization must never replace or truncate canonical completed messages');
+  assert.strictEqual(session.display.length, 1);
+  assert.strictEqual(session.display[0].id, 'pending-display');
+  assert.strictEqual(session.display[0].rawText, 'latest pending');
+  assert.strictEqual(session.display[0].pending, '1');
+  assert.strictEqual(completedNode.__displayItem.pending, '', 'a completed skipSave node must not be reclassified as pending');
+  assert.strictEqual(persisted, 1);
+}
+
+async function testSessionSnapshotPersistsFullCanonicalHistoryAndPendingOnly() {
+  const storageMap = new Map();
+  const storage = {
+    getItem: key => storageMap.get(key) || null,
+    setItem: (key, value) => storageMap.set(key, String(value)),
+    removeItem: key => storageMap.delete(key),
+  };
+  const messages = Array.from({ length: 64 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `canonical-${index}`,
+    ...(index % 2 ? { responseIndex: String(index) } : { messageIndex: String(index) }),
+  }));
+  const session = {
+    ...appState.createSession('snapshot'),
+    id: 'snapshot-session',
+    messages: [],
+    display: [
+      { id: 'completed', role: 'assistant', rawText: 'done', pending: '' },
+      { id: 'pending', role: 'assistant', rawText: 'running', jobId: 'job-running', pending: '1' },
+    ],
+  };
+  const state = { sessions: [session], activeSessionId: session.id, messages: [], models: [], reasoningMode: false };
+  let writtenSnapshot = null;
+  const workflow = sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => session,
+    createSession: appState.createSession,
+    deriveSessionTitle: item => item.title || '\u65b0\u5bf9\u8bdd',
+    sessionStorageKey: (key, sessionId = state.activeSessionId) => `${key}:${sessionId}`,
+    readJsonStorage: (key, fallback) => { try { return JSON.parse(storage.getItem(key) || ''); } catch { return fallback; } },
+    safeSetJsonStorage: (key, value) => { storage.setItem(key, JSON.stringify(value)); return value; },
+    compactDisplayItems: items => items,
+    compactAdjacentDuplicateMessages: sessionPersistence.compactAdjacentDuplicateMessages,
+    sanitizeStoredDisplayItem: item => sessionPersistence.sanitizeStoredDisplayItem(item, { stripLargeDataUrlsFromText }),
+    sanitizeStoredMessage: message => sessionPersistence.sanitizeStoredMessage(message, { stripLargeDataUrlsFromText }),
+    renderSessionList: () => {},
+    makeDisplayItemId: () => 'display-id',
+    localStorage: storage,
+    messageRecords,
+    sessionStoreApi: sessionStore,
+    snapshotStore: { schedulePut: async snapshot => { writtenSnapshot = JSON.parse(JSON.stringify(snapshot)); } },
+    constants: { CHAT_KEY: 'chat', UI_KEY: 'ui', SESSIONS_KEY: 'sessions', ACTIVE_SESSION_KEY: 'active' },
+  });
+  await workflow.saveSessionMessages(session.id, messages);
+  assert.strictEqual(session.messages.length, 64);
+  assert.strictEqual(writtenSnapshot.messages.length, 64, 'IndexedDB snapshot must store the complete canonical history, not a rendered tail');
+  assert.deepStrictEqual(writtenSnapshot.pendingDisplay.map(item => item.id), ['pending']);
+  assert.ok(writtenSnapshot.updatedAt === session.snapshotUpdatedAt && session.snapshotUpdatedAt > 0);
+  assert.strictEqual(storageMap.has(`chat:${session.id}`), false, 'canonical session history must not be duplicated into localStorage');
+  assert.strictEqual(storageMap.has(`ui:${session.id}`), false, 'pending display state must live in the same IndexedDB snapshot');
+}
+
+function createSessionRevisionTestWorkflow({ state, storage, snapshotStore }) {
+  return sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => state.sessions.find(item => item.id === state.activeSessionId),
+    createSession: appState.createSession,
+    deriveSessionTitle: item => item.title || '\u65b0\u5bf9\u8bdd',
+    sessionStorageKey: (key, sessionId = state.activeSessionId) => `${key}:${sessionId}`,
+    readJsonStorage: (key, fallback) => { try { return JSON.parse(storage.getItem(key) || ''); } catch { return fallback; } },
+    compactDisplayItems: items => items,
+    compactAdjacentDuplicateMessages: sessionPersistence.compactAdjacentDuplicateMessages,
+    sanitizeStoredDisplayItem: item => item,
+    sanitizeStoredMessage: message => message,
+    renderSessionList: () => {},
+    localStorage: storage,
+    messageRecords,
+    sessionStoreApi: sessionStore,
+    snapshotStore,
+    constants: { CHAT_KEY: 'chat', UI_KEY: 'ui', LAST_IMAGE_KEY: 'image', SESSIONS_KEY: 'sessions', ACTIVE_SESSION_KEY: 'active' },
+  });
+}
+
+async function testUncommittedMetadataRevisionCannotHideLateSnapshot() {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key),
+  };
+  const sessionId = 'late-snapshot-session';
+  values.set('sessions', JSON.stringify([{
+    id: sessionId,
+    title: 'late snapshot',
+    updatedAt: 5000,
+    // 300 was requested before refresh, but neither local backup nor IndexedDB
+    // had confirmed that revision when this page loaded.
+    snapshotUpdatedAt: 300,
+    persistenceUpdatedAt: 300,
+    chatBackupUpdatedAt: 100,
+    displayBackupUpdatedAt: 100,
+  }]));
+  values.set('active', sessionId);
+  values.set(`chat:${sessionId}`, JSON.stringify({
+    backupVersion: 2,
+    updatedAt: 100,
+    data: [{ role: 'user', content: 'very old local backup', messageIndex: '0' }],
+  }));
+  values.set(`ui:${sessionId}`, JSON.stringify({ backupVersion: 2, updatedAt: 100, data: [] }));
+  let snapshot = {
+    id: sessionId,
+    snapshotVersion: 2,
+    updatedAt: 200,
+    messages: [{ role: 'user', content: 'durable before refresh', messageIndex: '0' }],
+    pendingDisplay: [],
+  };
+  const state = { sessions: [], activeSessionId: '', messages: [], models: [], reasoningMode: false };
+  const workflow = createSessionRevisionTestWorkflow({
+    state,
+    storage,
+    snapshotStore: { supported: true, getSnapshot: async () => JSON.parse(JSON.stringify(snapshot)) },
+  });
+
+  await workflow.loadSessions();
+  const loaded = state.sessions[0];
+  assert.deepStrictEqual(loaded.messages.map(item => item.content), ['durable before refresh']);
+  assert.strictEqual(loaded.snapshotUpdatedAt, 200, 'an attempted metadata revision must not masquerade as a durable snapshot revision');
+  assert.strictEqual(loaded.persistenceUpdatedAt, 300, 'the requested revision is retained separately for monotonic future writes');
+
+  snapshot = {
+    ...snapshot,
+    updatedAt: 300,
+    messages: [
+      { role: 'user', content: 'durable before refresh', messageIndex: '0' },
+      { role: 'assistant', content: 'late committed answer', responseIndex: '1' },
+    ],
+  };
+  const reloaded = await workflow.reloadSessionSnapshot(sessionId);
+  assert.strictEqual(reloaded, true, 'a late IndexedDB commit must still be eligible after the page has loaded');
+  assert.deepStrictEqual(loaded.messages.map(item => item.content), ['durable before refresh', 'late committed answer']);
+  assert.strictEqual(loaded.updatedAt, 5000, 'snapshot revisions must remain independent from user-facing session metadata timestamps');
+}
+
+async function testSnapshotReloadUsesIndependentRevisionTimestamp() {
+  const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  const session = {
+    ...appState.createSession('revision'),
+    id: 'revision-session',
+    messages: [{ role: 'user', content: 'old', messageIndex: '0' }],
+    updatedAt: 5000,
+    snapshotUpdatedAt: 100,
+  };
+  const state = { sessions: [session], activeSessionId: session.id, messages: [], models: [], reasoningMode: false };
+  const workflow = sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => session,
+    createSession: appState.createSession,
+    deriveSessionTitle: item => item.title || '\u65b0\u5bf9\u8bdd',
+    sessionStorageKey: (key, sessionId = state.activeSessionId) => `${key}:${sessionId}`,
+    readJsonStorage: (_key, fallback) => fallback,
+    safeSetJsonStorage: (_key, value) => value,
+    compactDisplayItems: items => items,
+    compactAdjacentDuplicateMessages: sessionPersistence.compactAdjacentDuplicateMessages,
+    sanitizeStoredDisplayItem: item => item,
+    sanitizeStoredMessage: message => message,
+    renderSessionList: () => {},
+    localStorage: storage,
+    messageRecords,
+    snapshotStore: {
+      getSnapshot: async () => ({
+        id: session.id,
+        snapshotVersion: 2,
+        updatedAt: 200,
+        messages: [
+          { role: 'user', content: 'new question', messageIndex: '0' },
+          { role: 'assistant', content: 'new answer', responseIndex: '1' },
+        ],
+        pendingDisplay: [],
+      }),
+    },
+  });
+  const reloaded = await workflow.reloadSessionSnapshot(session.id);
+  assert.strictEqual(reloaded, true, 'new snapshots must be compared with snapshotUpdatedAt, not unrelated metadata updatedAt');
+  assert.deepStrictEqual(session.messages.map(item => item.content), ['new question', 'new answer']);
+  assert.strictEqual(session.snapshotUpdatedAt, 200);
+  assert.strictEqual(session.updatedAt, 5000, 'newer metadata timestamps should remain intact after loading a message snapshot');
+}
+
+async function testSessionPromptDraftPersistsPerSession() {
   const store = new Map();
   const storage = {
     getItem: key => store.has(key) ? store.get(key) : null,
@@ -1929,7 +2517,7 @@ function testSessionPromptDraftPersistsPerSession() {
 
   state.sessions = [];
   state.activeSessionId = '';
-  workflow.loadSessions();
+  await workflow.loadSessions();
   assert.strictEqual(state.sessions.find(item => item.id === 'session-a').promptDraft, 'A 草稿');
   assert.strictEqual(state.sessions.find(item => item.id === 'session-b').promptDraft, 'B 草稿');
 }
@@ -2083,7 +2671,7 @@ function testResumeStreamingDoesNotUseStatusTextAsOffset() {
   assert.ok(app.includes('resumeSessionJobs(t.id)}'), 'session render should always attempt to rebind or resume pending jobs after switch/render');
   assert.ok(app.includes('state.pageUnloading=!1;const t=loadImageJob'), 'resume should clear stale page-unloading state after refresh/pageshow');
   assert.ok(app.includes('if(s?.id){if(sessionHasCompletedAssistantForResponse(n,s.responseIndex))return clearChatJob(e);return void setTimeout(()=>resumeChatJob(e),0)}'), 'chat resume should be keyed by the stored job response index, not only by user/assistant counts');
-  assert.ok(app.includes('pendingJob&&resumeSessionJobs(e);try{'), 'foreground refresh should resume pending jobs even when busy state was lost after reload');
+  assert.ok(app.includes('const t=!!(loadImageJob(e)?.id||loadLatestChatJob(e)?.id)') && app.includes('t&&resumeSessionJobs(e);try{'), 'foreground refresh should resume pending jobs even when busy state was lost after reload');
 }
 
 function testRestorePendingReusesExistingAssistantNodeByResponseIndex() {
@@ -2221,7 +2809,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0);'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=1.3.70-session-render-reset') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'cache versions should be bumped for regenerate early-refresh recovery');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('app.js?v=2.1.0-session-lifecycle') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'cache versions should be bumped for regenerate early-refresh recovery');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2241,8 +2829,11 @@ function testReasoningPreferenceIsSessionScoped() {
   assert.ok(reasoningSource.includes('session.reasoningProvider = state.reasoningProvider'), 'reasoning provider changes should write active session');
   assert.ok(reasoningSource.includes('typeof saveSessionsMeta === "function" && saveSessionsMeta()'), 'reasoning preference changes should save session metadata');
 
-  const uiSource = fs.readFileSync(path.join(__dirname, '../client/app/session-ui-workflow.js'), 'utf8');
-  assert.ok(uiSource.includes('loadReasoningPreference();\n        renderActiveSession();'), 'switching sessions should reload reasoning preference before rendering active session');
+  const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+  const switchStart = appSource.indexOf('function switchSession');
+  const switchReasoning = appSource.indexOf('loadReasoningPreference()', switchStart);
+  const switchRender = appSource.indexOf('renderActiveSession({reason:"switch-bottom"', switchStart);
+  assert.ok(switchStart >= 0 && switchReasoning > switchStart && switchRender > switchReasoning, 'switching sessions should reload reasoning preference before rendering active session');
 }
 
 function testReasoningCompletionEmptyStateText() {
@@ -2298,7 +2889,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(activeBlock.includes('box-shadow:inset 0 0 0 1px rgba(37,99,235,.10)'), 'active history item should use a subtle inset boundary');
   const activeBeforeBlock = css.match(/\.history-anchor-item\.active::before\{[\s\S]*?\}/)?.[0] || '';
   assert.ok(activeBeforeBlock.includes('linear-gradient(180deg,var(--history-anchor-accent),var(--history-anchor-accent-2))'), 'active history item should use a slim gradient marker');
-  const railBlock = css.match(/\.history-anchor-rail-bar\.active::before,\n\.history-anchor-rail-bar\.hover::before\{[\s\S]*?\}/)?.[0] || '';
+  const railBlock = css.match(/\.history-anchor-rail-bar\.active::before,\r?\n\.history-anchor-rail-bar\.hover::before\{[\s\S]*?\}/)?.[0] || '';
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
@@ -2414,7 +3005,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=1.2.84') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=1.3.70-session-render-reset') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=2.0.0-async-sessions') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=2.1.0-session-lifecycle') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match config copy cache-busting');
 }
 
@@ -2489,7 +3080,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('app.js?v=1.3.70-session-render-reset') && index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.33-streamsync') && index.includes('app.js?v=2.1.0-session-lifecycle') && index.includes('assets/chatui.bundle.css?v=1.3.49-arch95-regen-early-resume') && index.includes('chatui.bundle.js?v=1.3.49-arch95-regen-early-resume') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.49-arch95-regen-early-resume'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
@@ -2611,7 +3202,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=1.3.70-session-render-reset') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.74-quoted-chat-image-normalize') && index.includes('chat-workflow.js?v=1.3.19-answer-start-scope') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.0-session-lifecycle') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -2661,8 +3252,8 @@ function testImageSuccessResultReconciliation() {
   assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
-  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=1.3.70-session-render-reset'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=1.3.70-session-render-reset'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.0-session-lifecycle'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.70-skip-completed-image') && index.includes('app.js?v=2.1.0-session-lifecycle'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
@@ -2724,6 +3315,18 @@ const tests = [
   testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex,
   testSessionPersistenceKeepsDurableImageWhenAStaleTextReplyCollides,
   testSessionPersistenceKeepsDurableImageDisplayWhenAStaleTextReplyCollides,
+  testLegacyImageMigrationPrefersRichCanonicalPresentation,
+  testAttachmentPresentationRebuildsFromCanonicalDescriptors,
+  testCanonicalRendererPrefersImageDescriptorsOverStaleHtml,
+  testCanonicalRendererPrefersAttachmentDescriptorsOverGenericHtml,
+  testCanonicalBrowserRendererDependenciesAreSharedAndDefined,
+  testActiveSessionMessagesUseOneCanonicalCommitBoundary,
+  testCanonicalPresentationSanitizesTransientMediaReferences,
+  testSessionQuotaFailureNeverTruncatesCanonicalHistory,
+  testPendingDisplaySnapshotCannotOverwriteCanonicalMessages,
+  testSessionSnapshotPersistsFullCanonicalHistoryAndPendingOnly,
+  testUncommittedMetadataRevisionCannotHideLateSnapshot,
+  testSnapshotReloadUsesIndependentRevisionTimestamp,
   testDockerfileIncludesSharedRuntimeModules,
   testImageSuccessResultReconciliation,
   testRouteContextUsesTokenWindowAndDropsOldestMessages,
@@ -2756,6 +3359,7 @@ const tests = [
   testHistoryFileCandidatesRouteAsFileQa,
   testUserAttachmentContextFallsBackToImageContextForRegenerate,
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
+  testUploadedImageUsesOneDurableBlobAcrossMessageContexts,
   testLightweightIntentClassifierAdapters,
   testRouteDecisionHelpersArePureAndReusedByService,
   testStructuredRouteDecisionCarriesRefs,
@@ -2769,6 +3373,8 @@ const tests = [
   testStreamingTailRendersWithoutCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
   testSessionSwitchFocusesBottom,
+  testDeleteSessionCleansRuntimeResources,
+  testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNetwork,
   testLegacyWelcomeScreenIsRestored,
   testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,

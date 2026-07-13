@@ -106,7 +106,23 @@ function createJobEvents({ jobSubscribers }) {
     return job;
   }
 
-  return { notifyJob, subscribeJob, abortJob };
+  function disposeJob(store, id, message = '会话已删除，任务已清理') {
+    const job = store.get(id);
+    if (job && job.status !== 'done' && job.status !== 'error') abortJob(store, id, message);
+    else {
+      const subscribers = jobSubscribers.get(id);
+      if (subscribers) {
+        for (const res of subscribers) {
+          try { res.end(); } catch {}
+        }
+        jobSubscribers.delete(id);
+      }
+    }
+    store.delete(id);
+    return job || null;
+  }
+
+  return { notifyJob, subscribeJob, abortJob, disposeJob };
 }
 
 module.exports = { getJobIdFromUrl, publicJob, compactResumeSnapshot, createJobEvents };

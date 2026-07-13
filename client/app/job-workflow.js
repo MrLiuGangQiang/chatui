@@ -6,6 +6,7 @@
   }
 
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {
+    if (deps.isSessionDisposed?.(sessionId)) return;
     const keyFn = kind === 'image' ? deps.sessionImageJobKey : deps.sessionChatJobKey;
     if (!keyFn) throw new Error('session job key helper is required');
     return deps.safeSetJobStorage(keyFn(sessionId), job);
@@ -32,6 +33,7 @@
   }
 
   function savePendingSubmit(sessionId = '', pendingSubmit = {}, deps = {}) {
+    if (deps.isSessionDisposed?.(sessionId)) return;
     return (deps.storage || root.localStorage).setItem(pendingSubmitKey(sessionId), JSON.stringify({ ...pendingSubmit, savedAt: Date.now() }));
   }
 

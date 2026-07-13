@@ -44,10 +44,31 @@
       return [text, placeholders].filter(Boolean).join('\n\n') || (attachments.length ? '[attachments]' : text);
     }
 
+    function durableAttachmentRef(value = '') {
+      const ref = String(value || '').trim();
+      return ref && !/^(?:data:|blob:)/i.test(ref) ? ref : '';
+    }
+
+    function preferredImageAttachmentSrc(item = {}) {
+      const candidates = [
+        item.persistedSrc,
+        item.persisted_src,
+        item.previewSrc,
+        item.preview_src,
+        item.src,
+        item.url,
+        item.dataUrl,
+        item.data_url,
+      ];
+      return candidates.map(durableAttachmentRef).find(Boolean)
+        || candidates.map(value => String(value || '').trim()).find(Boolean)
+        || '';
+    }
+
     function serializeImageAttachment(item) {
       if (!item || !isImageFile(item)) return null;
       const base = serializeAttachmentEntry(item);
-      const src = item.dataUrl || item.src || '';
+      const src = preferredImageAttachmentSrc(item);
       return src ? {
         id: base.id,
         name: base.name || 'image.png',
@@ -65,16 +86,22 @@
       const result = [];
       for (let index = 0; index < list.length; index += 1) {
         const item = list[index];
-        const serialized = serializeImageAttachment({ ...item, attachmentId: item?.attachmentId || item?.attachment_id || item?.id || item?.imageId || item?.image_id || serializeAttachmentEntry(item, index).id });
+        const attachmentId = item?.attachmentId || item?.attachment_id || item?.id || item?.imageId || item?.image_id || serializeAttachmentEntry(item, index).id;
+        const serialized = serializeImageAttachment({ ...item, attachmentId });
         if (!serialized) continue;
         let src = serialized.src;
         if (src.startsWith('data:')) {
           try {
             const blob = await dataUrlToBlob(src);
-            const key = `edit-attachment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+            const safeId = String(serialized.id || attachmentId || `image-${index + 1}`).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 96) || `image-${index + 1}`;
+            const key = `attachment-${safeId}`;
             await putImageBlob(key, blob);
             src = `indexeddb://${key}`;
           } catch { src = serialized.src; }
+        }
+        if (item && typeof item === 'object' && durableAttachmentRef(src)) {
+          item.persistedSrc = src;
+          item.previewSrc = src;
         }
         result.push({ ...serialized, src });
       }
@@ -154,12 +181,16 @@
         try {
           if (item.src) {
             const file = await imageRefToFile(item.src, item.name || 'attachment');
+            const image = isImageFile({ name: item.name || file.name, type: item.type || file.type });
+            const durableSrc = durableAttachmentRef(item.src);
             result.push({
               file,
               name: item.name || file.name,
               type: item.type || file.type || 'application/octet-stream',
               size: item.size || file.size,
-              dataUrl: isImageFile({ name: item.name || file.name, type: item.type || file.type }) ? await imageRefToDataUrl(item.src, item.name || file.name) : item.src,
+              dataUrl: image ? await imageRefToDataUrl(item.src, item.name || file.name) : item.src,
+              previewSrc: image ? durableSrc : '',
+              persistedSrc: image ? durableSrc : '',
               text: item.text || '',
               attachmentId: item.id || item.attachmentId || item.attachment_id || '',
               unsupportedReason: item.unsupportedReason || '',
@@ -359,7 +390,7 @@
       return null;
     }
 
-    return Object.freeze({ serializeAttachmentEntry, attachmentPlaceholdersMarkdown, buildUserContentWithAttachmentPlaceholders, serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getUploadedImageContextByReference, getUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
+    return Object.freeze({ serializeAttachmentEntry, attachmentPlaceholdersMarkdown, buildUserContentWithAttachmentPlaceholders, durableAttachmentRef, preferredImageAttachmentSrc, serializeImageAttachment, persistImageAttachmentRefs, normalizeImageContextForStorage, buildUploadedImageContext, persistGenericAttachmentSrc, buildUserAttachmentContext, restoreUserAttachmentsFromContext, getUserAttachmentContextFromNode, getLatestUploadedImageContext, getUploadedImageContextByReference, getUploadedImageContext, getLatestUploadedImageAttachments, setImageContext, restoreImageAttachmentsFromContext, getPreviousImageAttachments, getPreviousImageAsAttachment, getAssistantImageContext });
   }
 
   const api = Object.freeze({ createImageContextWorkflow });

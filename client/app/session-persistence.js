@@ -185,12 +185,36 @@
         .replace(/(<img\b[^>]*?)\ssrc=(['"])(indexeddb:\/\/[^'"]*)\2/gi, (_all, before, quote, src) => `${before} data-persisted-src=${quote}${src}${quote}`);
     }
   }
-  function sanitizeAttachmentContextForStorage(value) {
+  const TRANSIENT_MEDIA_FIELD_RE = /^(?:url|src|image|image_url|dataUrl|data_url|previewSrc|preview_src|objectUrl|object_url)$/i;
+  const TRANSIENT_MEDIA_ARRAY_RE = /^(?:images?|attachments?)$/i;
+
+  function sanitizeStorageValue(value, stripLargeDataUrlsFromText = text => String(text || ''), parentKey = '') {
+    if (typeof value === 'string') {
+      if ((TRANSIENT_MEDIA_FIELD_RE.test(parentKey) || TRANSIENT_MEDIA_ARRAY_RE.test(parentKey)) && /^(?:data:|blob:)/i.test(value)) return '';
+      return stripLargeDataUrlsFromText(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map(item => sanitizeStorageValue(item, stripLargeDataUrlsFromText, parentKey)).filter(item => item !== '');
+    }
+    if (value && typeof value === 'object') {
+      const copy = { ...value };
+      Object.keys(copy).forEach(key => { copy[key] = sanitizeStorageValue(copy[key], stripLargeDataUrlsFromText, key); });
+      return copy;
+    }
+    return value;
+  }
+
+  function sanitizeAttachmentContextForStorage(value, stripLargeDataUrlsFromText = text => String(text || '')) {
     if (!value) return '';
     try {
       const context = typeof value === 'string' ? JSON.parse(value) : value;
-      if (!context || typeof context !== 'object') return '';
-      const clean = { ...context, attachments: Array.isArray(context.attachments) ? context.attachments.map(item => { const copy = { ...item }; if (copy.src && String(copy.src).startsWith('data:')) copy.src = ''; return copy; }).filter(item => item.name || item.src || item.text) : [] };
+      if (!context || typeof context !== 'object' || Array.isArray(context)) return '';
+      const clean = sanitizeStorageValue(context, stripLargeDataUrlsFromText);
+      if (Array.isArray(clean.attachments)) {
+        clean.attachments = clean.attachments.filter(item => item && typeof item === 'object' && (
+          item.name || item.filename || item.src || item.url || item.text || item.id || item.attachmentId || item.attachment_id || item.imageId || item.image_id
+        ));
+      }
       return JSON.stringify(clean);
     } catch { return ''; }
   }
@@ -214,47 +238,43 @@
     clean.rawText = stripLeadingMessageMeta(rawText, clean.metaText);
     clean.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.html || ''), deps.document);
     if (clean.rawText !== rawText && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
-    clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext);
-    clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext);
+    clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext, stripLargeDataUrlsFromText);
+    clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext, stripLargeDataUrlsFromText);
+    if (clean.presentation && typeof clean.presentation === 'object' && !Array.isArray(clean.presentation)) {
+      clean.presentation = sanitizeStorageValue(clean.presentation, stripLargeDataUrlsFromText);
+      clean.presentation.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.presentation.html || ''), deps.document);
+    }
     return clean;
   }
   function sanitizeStoredMessage(message = {}, deps = {}) {
     const stripLargeDataUrlsFromText = deps.stripLargeDataUrlsFromText || (text => String(text || ''));
-    const sanitizeValue = (value, parentKey = '') => {
-      if (typeof value === 'string') {
-        if (/^(url|src|image|image_url|dataUrl|data_url)$/i.test(parentKey) && /^data:/i.test(value)) return '[attachment-data-omitted]';
-        return stripLargeDataUrlsFromText(value);
-      }
-      if (Array.isArray(value)) return value.map(item => sanitizeValue(item, ''));
-      if (value && typeof value === 'object') {
-        const copy = { ...value };
-        Object.keys(copy).forEach(key => { copy[key] = sanitizeValue(copy[key], key); });
-        return copy;
-      }
-      return value;
-    };
     const clean = { ...message };
-    clean.content = sanitizeValue(clean.content ?? '');
+    clean.content = sanitizeStorageValue(clean.content ?? '', stripLargeDataUrlsFromText);
     if (typeof clean.content === 'string') clean.content = stripLeadingMessageMeta(clean.content, clean.metaText);
     const rawText = stripLargeDataUrlsFromText(clean.rawText || '');
     clean.rawText = stripLeadingMessageMeta(rawText, clean.metaText);
     clean.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.html || ''), deps.document);
     if ((clean.rawText !== rawText || (typeof message.content === 'string' && clean.content !== message.content)) && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
-    clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext);
-    clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext);
+    clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext, stripLargeDataUrlsFromText);
+    clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext, stripLargeDataUrlsFromText);
+    if (clean.presentation && typeof clean.presentation === 'object' && !Array.isArray(clean.presentation)) {
+      clean.presentation = sanitizeStorageValue(clean.presentation, stripLargeDataUrlsFromText);
+      clean.presentation.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.presentation.html || ''), deps.document);
+    }
     return clean;
   }
 
   function safeSetJsonStorage(key, value, maxItems = 80, storage = root.localStorage) {
-    let list = Array.isArray(value) ? value : value ? [value] : [];
-    for (let count = Math.min(Number(maxItems) || 80, list.length || 1); count >= 0; count = Math.floor(count / 2)) {
-      const payload = Array.isArray(value) ? list.slice(-count) : value;
-      try { storage.setItem(key, JSON.stringify(payload)); return payload; }
-      catch (err) { if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err; }
-      if (count <= 1) break;
+    // Never turn a storage quota failure into data deletion. IndexedDB session
+    // snapshots are authoritative; localStorage is only a compatibility backup.
+    // Keep the previous backup intact and always return the complete in-memory value.
+    try {
+      storage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err;
+      try { root?.console?.warn?.('localStorage backup quota exceeded; full session history retained in memory/IndexedDB', key); } catch {}
     }
-    try { storage.removeItem(key); } catch {}
-    return Array.isArray(value) ? [] : null;
+    return value;
   }
   function stripLargePayloadData(value, stripLargeDataUrlsFromText = text => String(text || '')) {
     if (typeof value === 'string') return stripLargeDataUrlsFromText(value);

@@ -18,21 +18,14 @@
     const saveSessionsMeta = deps.saveSessionsMeta || (() => {});
     const saveChatHistory = deps.saveChatHistory || (() => {});
     const saveDisplayHistory = deps.saveDisplayHistory || (() => {});
-    const sessionStorageKey = deps.sessionStorageKey;
     const renderActiveSession = deps.renderActiveSession || (() => {});
     const updateResumeStreamButton = deps.updateResumeStreamButton || (() => {});
     const updateSendAvailability = deps.updateSendAvailability || (() => {});
     const closeSessionDrawer = deps.closeSessionDrawer || (() => {});
     const showConfirmDialog = deps.showConfirmDialog || (async () => false);
-    const deleteSessionImageBlobs = deps.deleteSessionImageBlobs || (async () => {});
-    const clearChatJob = deps.clearChatJob || (() => {});
-    const clearImageJob = deps.clearImageJob || (() => {});
-    const setSessionBusy = deps.setSessionBusy || (() => {});
     const syncActiveSession = deps.syncActiveSession || (() => {});
-    const collectAllSessionImageKeys = deps.collectAllSessionImageKeys || (() => new Set());
-    const deleteImageDbKeys = deps.deleteImageDbKeys || (async () => {});
-    const deleteOrphanImageBlobs = deps.deleteOrphanImageBlobs || (async () => {});
     const clearAttachments = deps.clearAttachments || (() => {});
+    const disposeSessions = deps.disposeSessions || (async () => {});
     const toast = deps.toast || (() => {});
     const getActiveSession = deps.getActiveSession;
     const getConfig = deps.getConfig;
@@ -41,9 +34,6 @@
     const closeSessionModelPanel = deps.closeSessionModelPanel || (() => {});
     const sessionConfig = deps.sessionConfig || {};
     const constants = deps.constants || {};
-    const CHAT_KEY = constants.CHAT_KEY || 'chat-history';
-    const UI_KEY = constants.UI_KEY || 'chat-ui';
-    const LAST_IMAGE_KEY = constants.LAST_IMAGE_KEY || 'last-image';
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'active-session';
 
     function renderSessionList() {
@@ -70,13 +60,13 @@
     function newSession() {
       const state = getState();
       saveActivePromptDraft();
-      try { saveChatHistory(); saveDisplayHistory({ includeTransient: true }); } catch (err) { console.warn('save session before new session failed', err); }
+      try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
       const session = createSession();
       state.sessions.unshift(session);
       state.activeSessionId = session.id;
-      state.messages = [];
+      state.messages = session.messages;
       state.lastGeneratedImage = null;
       state.activeOutputNode = null;
       state.activeOutputSessions.delete(session.id);
@@ -85,11 +75,8 @@
       $('resumeStreamBtn')?.classList.remove('show');
       $('resumeStreamBtn')?.setAttribute('aria-hidden', 'true');
       saveSessionsMeta();
-      localStorageRef.setItem(sessionStorageKey(CHAT_KEY), '[]');
-      localStorageRef.setItem(sessionStorageKey(UI_KEY), '[]');
-      localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
-      renderActiveSession();
       loadReasoningPreference();
+      renderActiveSession();
       updateResumeStreamButton();
       updateSendAvailability();
       closeSessionDrawer();
@@ -102,30 +89,37 @@
       if (!session) return;
       const title = deriveSessionTitle(session);
       if (!await showConfirmDialog({ title: '删除会话', message: `确定删除会话“${title}”吗？此操作不可撤销。`, confirmText: '删除', cancelText: '取消' })) return;
+
+      const wasActive = state.activeSessionId === sessionId;
       const remaining = state.sessions.filter(item => item.id !== sessionId);
-      await deleteSessionImageBlobs(session, remaining);
-      clearChatJob(sessionId);
-      clearImageJob(sessionId);
-      setSessionBusy(sessionId, false);
-      localStorageRef.removeItem(sessionStorageKey(CHAT_KEY, sessionId));
-      localStorageRef.removeItem(sessionStorageKey(UI_KEY, sessionId));
-      localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY, sessionId));
-      state.busySessions.delete(sessionId);
-      state.activeOutputSessions.delete(sessionId);
-      state.activeRuns.delete(sessionId);
-      state.stoppedSessions.delete(sessionId);
-      state.sessions = remaining;
-      if (!state.sessions.length) state.sessions = [createSession()];
-      if (state.activeSessionId === sessionId) {
+      const nextSessions = remaining.length ? remaining : [createSession()];
+      const disposal = disposeSessions([session], nextSessions);
+      state.sessions = nextSessions;
+
+      if (wasActive) {
+        clearAttachments();
+        state.attachments = [];
+        state.editingIndex = null;
+        state.editingNode = null;
+        state.activeOutputNode = null;
         state.activeSessionId = state.sessions[0].id;
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
         syncActiveSession({ skipSave: true });
         loadReasoningPreference();
-        renderActiveSession();
       }
+
       saveSessionsMeta();
+      if (wasActive) renderActiveSession();
       renderSessionList();
+      updateResumeStreamButton();
       updateSendAvailability();
+      closeSessionDrawer();
+
+      try {
+        await disposal;
+      } catch (err) {
+        console.warn('dispose session resources failed', err);
+      }
     }
 
     async function clearAllSessions() {
@@ -133,47 +127,35 @@
       if (!state.sessions.length) return;
       const count = state.sessions.length;
       if (!await showConfirmDialog({ title: '清除所有会话', message: `确定删除全部 ${count} 个会话吗？聊天记录、会话图片缓存和未完成任务记录都会清除，此操作不可撤销。`, confirmText: '清除全部', cancelText: '取消' })) return;
+
       const sessions = [...state.sessions];
-      const imageKeys = collectAllSessionImageKeys(sessions);
-      sessions.forEach(session => {
-        try { state.activeRuns.get(session.id)?.abortController?.abort(); } catch {}
-        clearChatJob(session.id);
-        clearImageJob(session.id);
-        setSessionBusy(session.id, false);
-        localStorageRef.removeItem(sessionStorageKey(CHAT_KEY, session.id));
-        localStorageRef.removeItem(sessionStorageKey(UI_KEY, session.id));
-        localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY, session.id));
-        state.busySessions.delete(session.id);
-        state.activeOutputSessions.delete(session.id);
-        state.activeRuns.delete(session.id);
-        state.stoppedSessions.delete(session.id);
-        state.promptDrafts.delete(session.id);
-      });
-      state.sessions = [createSession()];
-      state.activeSessionId = state.sessions[0].id;
-      loadReasoningPreference();
-      state.messages = [];
+      const nextSession = createSession();
+      const disposal = disposeSessions(sessions, [nextSession]);
+      state.sessions = [nextSession];
+      state.activeSessionId = nextSession.id;
+      state.messages = nextSession.messages;
       state.lastGeneratedImage = null;
       state.attachments = [];
       state.editingIndex = null;
       state.editingNode = null;
       state.activeOutputNode = null;
-      state.followingChatJobs.clear();
-      state.followingImageJobs.clear();
-      state.resumingJobs.clear();
-      await deleteImageDbKeys([...imageKeys]);
-      await deleteOrphanImageBlobs(state.sessions);
+      loadReasoningPreference();
+
       localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
-      localStorageRef.setItem(sessionStorageKey(CHAT_KEY), '[]');
-      localStorageRef.setItem(sessionStorageKey(UI_KEY), '[]');
-      localStorageRef.removeItem(sessionStorageKey(LAST_IMAGE_KEY));
       saveSessionsMeta();
       clearAttachments();
       const messages = $('messages');
       if (messages) messages.innerHTML = '';
       renderActiveSession();
+      updateResumeStreamButton();
       updateSendAvailability();
       closeSessionDrawer();
+
+      try {
+        await disposal;
+      } catch (err) {
+        console.warn('dispose all session resources failed', err);
+      }
       toast('已清除所有会话');
     }
 

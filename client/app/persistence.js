@@ -3,21 +3,34 @@ function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^"'<>`\s]+;base64,[A-Za-z0-9+/=]{2048,}/g, '[attachment-data-omitted]');
 }
 
+const TRANSIENT_MEDIA_FIELD_RE = /^(?:url|src|image|image_url|dataUrl|data_url|previewSrc|preview_src|objectUrl|object_url)$/i;
+const TRANSIENT_MEDIA_ARRAY_RE = /^(?:images?|attachments?)$/i;
+
+function sanitizeStorageValue(value, parentKey = '') {
+  if (typeof value === 'string') {
+    if ((TRANSIENT_MEDIA_FIELD_RE.test(parentKey) || TRANSIENT_MEDIA_ARRAY_RE.test(parentKey)) && /^(?:data:|blob:)/i.test(value)) return '';
+    return stripLargeDataUrlsFromText(value);
+  }
+  if (Array.isArray(value)) return value.map(item => sanitizeStorageValue(item, parentKey)).filter(item => item !== '');
+  if (value && typeof value === 'object') {
+    const copy = { ...value };
+    Object.keys(copy).forEach(key => { copy[key] = sanitizeStorageValue(copy[key], key); });
+    return copy;
+  }
+  return value;
+}
+
 function sanitizeAttachmentContextForStorage(value) {
   if (!value) return '';
   try {
     const context = typeof value === 'string' ? JSON.parse(value) : value;
-    if (!context || typeof context !== 'object') return '';
-    const sanitized = {
-      ...context,
-      attachments: Array.isArray(context.attachments)
-        ? context.attachments.map(item => {
-          const copy = { ...item };
-          if (copy.src && String(copy.src).startsWith('data:')) copy.src = '';
-          return copy;
-        }).filter(item => item.name || item.src || item.text)
-        : [],
-    };
+    if (!context || typeof context !== 'object' || Array.isArray(context)) return '';
+    const sanitized = sanitizeStorageValue(context);
+    if (Array.isArray(sanitized.attachments)) {
+      sanitized.attachments = sanitized.attachments.filter(item => item && typeof item === 'object' && (
+        item.name || item.filename || item.src || item.url || item.text || item.id || item.attachmentId || item.attachment_id || item.imageId || item.image_id
+      ));
+    }
     return JSON.stringify(sanitized);
   } catch {
     return '';
@@ -25,13 +38,18 @@ function sanitizeAttachmentContextForStorage(value) {
 }
 
 function sanitizeStoredDisplayItem(item = {}) {
-  return {
+  const next = {
     ...item,
-    html: stripLargeDataUrlsFromText(item.html || ''),
+    html: stripLargeDataUrlsFromText(item.html || '').replace(/\s(?:src|href|data-persisted-src|data-original-src|data-object-url|data-preview-object-url)=(['"])(?:data:|blob:|[^'"]*\[(?:attachment|image)-data-omitted\])[^'"]*\1/gi, ''),
     rawText: stripLargeDataUrlsFromText(item.rawText || ''),
     imageContext: sanitizeAttachmentContextForStorage(item.imageContext) || item.imageContext || '',
     attachmentContext: sanitizeAttachmentContextForStorage(item.attachmentContext),
   };
+  if (next.presentation && typeof next.presentation === 'object' && !Array.isArray(next.presentation)) {
+    next.presentation = sanitizeStorageValue(next.presentation);
+    if (next.presentation.html) next.presentation.html = stripLargeDataUrlsFromText(next.presentation.html).replace(/\s(?:src|href|data-persisted-src|data-original-src|data-object-url|data-preview-object-url)=(['"])(?:data:|blob:|[^'"]*\[(?:attachment|image)-data-omitted\])[^'"]*\1/gi, '');
+  }
+  return next;
 }
 
 function sanitizeStoredMessage(message = {}) {
@@ -41,23 +59,21 @@ function sanitizeStoredMessage(message = {}) {
   if (next.html) next.html = stripLargeDataUrlsFromText(next.html);
   next.imageContext = sanitizeAttachmentContextForStorage(next.imageContext) || next.imageContext || '';
   next.attachmentContext = sanitizeAttachmentContextForStorage(next.attachmentContext);
+  if (next.presentation && typeof next.presentation === 'object' && !Array.isArray(next.presentation)) {
+    next.presentation = sanitizeStorageValue(next.presentation);
+    if (next.presentation.html) next.presentation.html = stripLargeDataUrlsFromText(next.presentation.html).replace(/\s(?:src|href|data-persisted-src|data-original-src|data-object-url|data-preview-object-url)=(['"])(?:data:|blob:|[^'"]*\[(?:attachment|image)-data-omitted\])[^'"]*\1/gi, '');
+  }
   return next;
 }
 
 function safeSetJsonStorage(storage, key, value, maxItems = 80) {
-  let items = Array.isArray(value) ? value : value ? [value] : [];
-  for (let limit = Math.min(Number(maxItems) || 80, items.length || 1); limit >= 0; limit = Math.floor(limit / 2)) {
-    const candidate = Array.isArray(value) ? items.slice(-limit) : value;
-    try {
-      storage.setItem(key, JSON.stringify(candidate));
-      return candidate;
-    } catch (err) {
-      if (!/quota|exceed/i.test(`${err?.name || ''} ${err?.message || ''} ${err || ''}`)) throw err;
-    }
-    if (limit <= 1) break;
+  try {
+    storage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    if (!/quota|exceed/i.test(`${err?.name || ''} ${err?.message || ''} ${err || ''}`)) throw err;
+    try { root?.console?.warn?.('localStorage backup quota exceeded; full session history retained in memory/IndexedDB', key); } catch {}
   }
-  try { storage.removeItem(key); } catch {}
-  return Array.isArray(value) ? [] : null;
+  return value;
 }
 
 function stripLargePayloadData(value) {

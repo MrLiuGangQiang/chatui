@@ -91,6 +91,12 @@ async function abortManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {})
   return response;
 }
 
+async function disposeManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {}) {
+  if (!jobId) return null;
+  const collection = kind === 'image' ? 'image-jobs' : 'chat-jobs';
+  return fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+}
+
 function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, fetchImpl = fetch, pollJob = null, pollIntervalMs = 2500 }) {
   let abort = null;
   let pollTimer = null;
@@ -204,6 +210,7 @@ const api = Object.freeze({
   registerChatStreamJob,
   getJob,
   abortManagedJob,
+  disposeManagedJob,
   waitJobEvent,
   startImageGenerationJob,
 });

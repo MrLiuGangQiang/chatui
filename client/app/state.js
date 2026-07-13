@@ -21,6 +21,8 @@
       reasoningProvider: 'auto',
       createdAt: now(),
       updatedAt: now(),
+      snapshotUpdatedAt: 0,
+      persistenceUpdatedAt: 0,
       busy: false,
     };
   }

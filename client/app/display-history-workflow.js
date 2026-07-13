@@ -1,8 +1,9 @@
 (function initChatUIAppDisplayHistoryWorkflow(root) {
-  // Intentionally not strict: display/history bodies are migrated from app.js and resolved through a deps scope.
+  // Intentionally not strict: workflow bodies use a dependency scope supplied by app.js.
 
   function createDisplayHistoryWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
+    const messageRecords = deps.messageRecords || root.ChatUIMessageRecords || {};
 
     function decodeQuoteAttr(value = '') {
       return String(value || '').replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
@@ -25,98 +26,82 @@
       return match ? decodeQuoteAttr(match[2]) : '';
     }
 
-    let lastDisplaySnapshotKey = '';
+    function cleanPendingContent(node) {
+      const lazy = node.dataset.lazyMarkdown === '1' || node.dataset.virtualized === '1';
+      const content = lazy ? null : node.querySelector('.content')?.cloneNode(true);
+      content?.querySelectorAll('.reasoning-panel,[data-image-action-clone]').forEach(child => child.remove());
+      content?.querySelectorAll('[data-preview-bound],[data-download-bound],[data-copy-bound],[data-mermaid-toggle-bound],[data-quote-jump-bound]').forEach(child => {
+        child.removeAttribute('data-preview-bound');
+        child.removeAttribute('data-download-bound');
+        child.removeAttribute('data-copy-bound');
+        child.removeAttribute('data-mermaid-toggle-bound');
+        child.removeAttribute('data-quote-jump-bound');
+      });
+      content?.querySelectorAll('img[data-persisted-src]').forEach(image => {
+        image.dataset.originalSrc = image.dataset.persistedSrc;
+        image.removeAttribute('src');
+        image.classList.remove('image-missing');
+        image.classList.add('image-restoring');
+        image.removeAttribute('data-object-url');
+      });
+      content?.querySelectorAll('a[data-persisted-href]').forEach(link => {
+        link.setAttribute('href', link.dataset.persistedHref);
+        link.removeAttribute('data-object-url');
+      });
+      content?.querySelectorAll('button[data-persisted-href]').forEach(button => button.removeAttribute('data-object-url'));
+      return { lazy, content };
+    }
 
-    function saveDisplayHistory(e = {}) {
+    function pendingItemFromNode(node) {
+      const { lazy, content } = cleanPendingContent(node);
+      const item = {
+        id: node.dataset.displayItemId || node.__displayItem?.id || deps.makeDisplayItemId(),
+        role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
+        rawText: node.dataset.rawText || node.__displayItem?.rawText || '',
+        html: lazy ? node.__displayItem?.html || '' : content?.innerHTML || node.__displayItem?.html || '',
+        reasoningText: deps.state.reasoningMode && node.dataset.keepReasoning === '1' ? node.dataset.reasoningText || '' : '',
+        keepReasoning: deps.state.reasoningMode && node.dataset.keepReasoning === '1',
+        messageIndex: node.dataset.messageIndex || node.__displayItem?.messageIndex || '',
+        responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
+        jobId: node.dataset.jobId || node.__displayItem?.jobId || '',
+        imageContext: node.dataset.imageContext || node.__displayItem?.imageContext || '',
+        attachmentContext: node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '',
+        quoteContext: node.dataset.quoteContext || content?.querySelector?.('.sent-quote-preview')?.dataset?.quoteContext || node.__displayItem?.quoteContext || '',
+        metaText: deps.readMessageMetaText(node),
+        pending: '1',
+      };
+      if (node.__displayItem) Object.assign(node.__displayItem, item);
+      return node.__displayItem || item;
+    }
+
+    let lastPendingSnapshotKey = '';
+
+    function saveDisplayHistory() {
       with (deps) {
-        const includeTransient = e.includeTransient === true;
         const session = getActiveSession();
-        const allNodes = [...$("messages").querySelectorAll(".message")].filter(node => includeTransient || "0" !== node.dataset.persist);
-        const nodes = allNodes.slice(-80);
-        const snapshotKey = !includeTransient && session ? `${session.id || state.activeSessionId || ""}|${allNodes.length}|${nodes.map(node => {
-          const content = node.querySelector?.(".content");
-          const meta = node.querySelector?.(".message-meta");
-          return [
-            node.dataset.displayItemId || "",
-            node.dataset.rawHash || "",
-            node.dataset.rawText?.length || 0,
-            node.dataset.renderedHash || "",
-            node.dataset.enhancedHash || "",
-            node.dataset.markdownFallback || "",
-            node.dataset.persist || "",
-            node.dataset.streaming || "",
-            node.dataset.lazyMarkdown || "",
-            node.dataset.virtualized || "",
-            node.dataset.keepReasoning || "",
-            node.dataset.reasoningText?.length || 0,
-            node.dataset.messageIndex || "",
-            node.dataset.responseIndex || "",
-            node.dataset.jobId || "",
-            node.dataset.imageContext?.length || 0,
-            node.dataset.attachmentContext?.length || 0,
-            node.dataset.quoteContext?.length || 0,
-            node.dataset.metaText || meta?.textContent || "",
-            content?.innerHTML?.length || 0,
-            content?.childElementCount || 0,
-            node.querySelectorAll?.("img[data-persisted-src],a[data-persisted-href],button[data-persisted-href]").length || 0,
-          ].join(":");
-        }).join("|")}` : "";
-        if (snapshotKey && snapshotKey === lastDisplaySnapshotKey) return;
-        const displayItems = nodes.map(node => {
-          const lazy = node.dataset.lazyMarkdown === "1" || node.dataset.virtualized === "1";
-          let content = lazy ? null : node.querySelector(".content")?.cloneNode(true);
-          content?.querySelectorAll(".reasoning-panel").forEach(node => node.remove());
-          content?.querySelectorAll("[data-image-action-clone]").forEach(node => node.remove());
-          content?.querySelectorAll("[data-preview-bound]").forEach(node => node.removeAttribute("data-preview-bound"));
-          content?.querySelectorAll("[data-download-bound]").forEach(node => node.removeAttribute("data-download-bound"));
-          content?.querySelectorAll("[data-copy-bound],[data-mermaid-toggle-bound],[data-quote-jump-bound]").forEach(node => {
-            node.removeAttribute("data-copy-bound");
-            node.removeAttribute("data-mermaid-toggle-bound");
-            node.removeAttribute("data-quote-jump-bound");
-          });
-          content?.querySelectorAll("img[data-persisted-src]").forEach(node => {
-            node.dataset.originalSrc = node.dataset.persistedSrc;
-            node.removeAttribute("src");
-            node.classList.remove("image-missing");
-            node.classList.add("image-restoring");
-            node.removeAttribute("data-object-url");
-          });
-          content?.querySelectorAll("a[data-persisted-href]").forEach(node => {
-            node.setAttribute("href", node.dataset.persistedHref);
-            node.removeAttribute("data-object-url");
-          });
-          content?.querySelectorAll("button[data-persisted-href]").forEach(node => {
-            node.removeAttribute("data-object-url");
-          });
-          const reasoningText = state.reasoningMode && "1" === node.dataset.keepReasoning && node.dataset.reasoningText || "";
-          const item = {
-            id: node.dataset.displayItemId || node.__displayItem?.id || makeDisplayItemId(),
-            role: node.classList.contains("user") ? "user" : node.classList.contains("error") ? "error" : "assistant",
-            rawText: node.dataset.rawText || "",
-            html: lazy ? node.__displayItem?.html || "" : content?.innerHTML || "",
-            reasoningText,
-            keepReasoning: state.reasoningMode && "1" === node.dataset.keepReasoning,
-            messageIndex: node.dataset.messageIndex || "",
-            responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || "",
-            jobId: node.dataset.jobId || node.__displayItem?.jobId || "",
-            imageContext: node.dataset.imageContext || node.__displayItem?.imageContext || "",
-            attachmentContext: node.dataset.attachmentContext || node.__displayItem?.attachmentContext || "",
-            quoteContext: node.dataset.quoteContext || content?.querySelector?.(".sent-quote-preview")?.dataset?.quoteContext || node.__displayItem?.quoteContext || "",
-            metaText: readMessageMetaText(node),
-            pending: "0" === node.dataset.persist || "1" === node.__displayItem?.pending ? "1" : "",
-          };
-          if ("0" === node.dataset.persist && node.__displayItem) return Object.assign(node.__displayItem, item);
-          return node.__displayItem && !item.pending ? (Object.assign(node.__displayItem, item), node.__displayItem) : item;
+        if (!session) return;
+        // Never serialize completed DOM back into history. The DOM may contain only
+        // the newest virtualized tail; treating it as the full session deletes older
+        // media. Only resumable/transient items live in session.display.
+        const currentPending = (session.display || []).filter(item => item?.pending === '1');
+        const pendingIds = new Set(currentPending.map(item => String(item.id || '')).filter(Boolean));
+        const pendingJobIds = new Set(currentPending.map(item => String(item.jobId || '')).filter(Boolean));
+        const nodes = [...$('messages').querySelectorAll('.message')].filter(node => {
+          if (node.__displayItem?.pending === '1') return true;
+          const displayId = String(node.dataset.displayItemId || '');
+          const jobId = String(node.dataset.jobId || '');
+          return displayId && pendingIds.has(displayId) || jobId && pendingJobIds.has(jobId);
         });
-        session.display = compactDisplayItems(displayItems.map(sanitizeStoredDisplayItem)).slice(-80);
+        const fromDom = nodes.map(pendingItemFromNode).map(sanitizeStoredDisplayItem);
+        const byId = new Map();
+        currentPending.forEach(item => byId.set(item.id || item.jobId || `legacy:${byId.size}`, item));
+        fromDom.forEach(item => byId.set(item.id || item.jobId || `dom:${byId.size}`, item));
+        session.display = compactDisplayItems([...byId.values()].filter(item => item?.pending === '1'));
+        const snapshotKey = `${session.id}|${JSON.stringify(session.display.map(item => ({ id: item.id || '', jobId: item.jobId || '', rawText: item.rawText || '', html: item.html || '', reasoningText: item.reasoningText || '', responseIndex: item.responseIndex || '', messageIndex: item.messageIndex || '', imageContext: item.imageContext || '', attachmentContext: item.attachmentContext || '' })))}`;
+        if (snapshotKey === lastPendingSnapshotKey) return;
         session.updatedAt = Date.now();
-        try {
-          session.display = safeSetJsonStorage(sessionStorageKey(UI_KEY), session.display, 80) || [];
-          saveSessionsMeta();
-          if (snapshotKey) lastDisplaySnapshotKey = snapshotKey;
-        } catch (err) {
-          console.warn("save display history failed", err);
-        }
+        persistSessionDisplay(session.id);
+        lastPendingSnapshotKey = snapshotKey;
       }
     }
 
@@ -149,8 +134,6 @@
           session.display = session.display.filter(item => !(item?.pending === '1' && !shouldKeepPending(item)));
           if (session.display.length !== before) persistSessionDisplay(session.id);
         }
-        if (!keptPending.length) return;
-        session.display ||= [];
         for (const item of keptPending) {
           item.id ||= makeDisplayItemId();
           const stored = session.display.find(candidate => candidate.id === item.id);
@@ -162,9 +145,7 @@
           if (item.id) node = nodes.find(candidate => candidate.dataset.displayItemId === item.id) || null;
           if (!node && item.jobId) node = nodes.find(candidate => candidate.dataset.jobId === item.jobId) || null;
           const responseIndex = Number(item.responseIndex);
-          if (!node && Number.isFinite(responseIndex) && responseIndex >= 0) {
-            node = nodes.find(candidate => candidate.classList.contains('assistant') && candidate.dataset.responseIndex === String(responseIndex)) || null;
-          }
+          if (!node && Number.isFinite(responseIndex) && responseIndex >= 0) node = nodes.find(candidate => candidate.classList.contains('assistant') && candidate.dataset.responseIndex === String(responseIndex)) || null;
           if (!node) {
             node = addDisplayItemNode(item);
             if (item.jobId) node.dataset.jobId = item.jobId;
@@ -179,14 +160,115 @@
             if (Number.isFinite(responseIndex) && responseIndex >= 0) node.dataset.responseIndex = String(responseIndex);
           }
         }
-        session.display = compactDisplayItems(session.display).slice(-80);
+        session.display = compactDisplayItems(session.display.filter(item => item?.pending === '1'));
         persistSessionDisplay(session.id);
       }
     }
 
-    function renderMessageFromCanonical(e, t, s) {
+    function escapeHtml(value = '') {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+
+    function durableMediaDescriptorRef(item = {}) {
+      const candidates = [item.src, item.url, item.dataUrl, item.data_url, item.previewSrc, item.preview_src];
+      for (const candidate of candidates) {
+        const ref = messageRecords.durableMediaRef
+          ? messageRecords.durableMediaRef(candidate)
+          : String(candidate || '').trim().replace(/^(?:data:|blob:).*/i, '');
+        if (ref) return ref;
+      }
+      return '';
+    }
+
+    function imagePresentationHtml(message, presentation) {
+      const images = (presentation?.images || messageRecords.presentationImages?.(message) || [])
+        .filter(item => durableMediaDescriptorRef(item));
+      if (!images.length) return '';
+      const transparent = root.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+      const items = images.map((item, index) => {
+        const width = Number(item.width) || 180;
+        const height = Number(item.height) || 120;
+        const scale = Math.min(180 / width, 120 / height, 1);
+        const thumbWidth = Math.max(1, Math.round(width * scale));
+        const thumbHeight = Math.max(1, Math.round(height * scale));
+        const src = durableMediaDescriptorRef(item);
+        const referenceId = item.referenceId || item.reference_id || 'imgref_latest';
+        const imageId = item.imageId || item.image_id || item.id || `img_latest_${index + 1}`;
+        return `<div class="generated-image-item" data-image-index="${index + 1}" aria-label="第 ${index + 1} 张图片"><img class="generated-thumb image-restoring" width="${thumbWidth}" height="${thumbHeight}" style="--thumb-w:${thumbWidth}px;--thumb-h:${thumbHeight}px;width:${thumbWidth}px;height:${thumbHeight}px;aspect-ratio:${thumbWidth}/${thumbHeight};object-fit:contain" src="${transparent}" data-persisted-src="${escapeHtml(src)}" data-original-src="${escapeHtml(src)}" data-filename="${escapeHtml(item.name || item.filename || `image-${index + 1}.png`)}" data-reference-id="${escapeHtml(referenceId)}" data-image-id="${escapeHtml(imageId)}" data-image-index="${index + 1}" data-thumb-width="${thumbWidth}" data-thumb-height="${thumbHeight}" data-original-width="${width}" data-original-height="${height}" alt="第 ${index + 1} 张生成图片" /></div>`;
+      }).join('');
+      const head = images.length > 1 ? `<div class="image-result-head"><span>（${images.length} 张）</span></div>` : '';
+      const actions = typeof deps.downloadAllImagesButtonHtml === 'function' ? deps.downloadAllImagesButtonHtml() : '';
+      return `${head}<div class="generated-image-grid" data-generated-images="1">${items}</div>${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
+    }
+
+    function attachmentPresentationHtml(message, presentation) {
+      if (typeof deps.renderUserMessageWithAttachments !== 'function') return '';
+      const attachments = (presentation?.attachments || messageRecords.presentationAttachments?.(message) || []).map(item => ({
+        ...item,
+        dataUrl: item.dataUrl || item.src || '',
+        attachmentId: item.attachmentId || item.attachment_id || item.id || '',
+      }));
+      if (!attachments.length) return '';
+      return deps.renderUserMessageWithAttachments(presentation.displayText || '', attachments);
+    }
+
+    function renderMessageFromCanonical(session, message, fallbackIndex) {
       with (deps) {
-        const canonicalIndex=t?.role==="user"&&t?.messageIndex!==undefined&&t.messageIndex!==""?Number(t.messageIndex):t?.role==="assistant"&&t?.responseIndex!==undefined&&t.responseIndex!==""?Number(t.responseIndex):s;let n=findUserAttachmentDisplayItemForMessage(e,canonicalIndex,t)||findImageDisplayItemForMessage(e,canonicalIndex,t)||findDisplayItemForMessage(e,canonicalIndex,t);n&&t?.metaText&&!n.metaText&&(n={...n,metaText:t.metaText});const q=t?.quoteContext||n?.quoteContext||extractQuoteContextFromHtml(t?.html)||extractQuoteContextFromHtml(n?.html)||"",a=t?.html&&displayItemHasRichMedia(t),o="user"===t.role?t.rawText||t.content:t.content;if(t?.html&&a){const e=addMessage("assistant"===t.role?"assistant":"error"===t.role?"error":"user",t.html,{html:!0,rawText:t.rawText||t.content,metaText:t.metaText||n?.metaText||"",quoteContext:q,messageIndex:"user"===t.role?void 0!==t.messageIndex?t.messageIndex:s:null,responseIndex:"assistant"===t.role?void 0!==t.responseIndex?t.responseIndex:s:null,deferSave:!0,noScroll:!0,deferEnhance:!0});return e.dataset.rawText=t.rawText||t.content,"user"===t.role&&(e.dataset.messageIndex=String(void 0!==t.messageIndex?t.messageIndex:s)),void 0!==t.responseIndex&&""!==t.responseIndex&&(e.dataset.responseIndex=String(t.responseIndex)),(t.displayItemId||n?.id)&&(e.dataset.displayItemId=String(t.displayItemId||n.id)),(t.imageJobId||n?.jobId)&&(e.dataset.imageJobId=String(t.imageJobId||n.jobId)),t.imageContext&&(e.dataset.imageContext=t.imageContext),t.attachmentContext&&(e.dataset.attachmentContext=t.attachmentContext),q&&(e.dataset.quoteContext=q),e}const i=n?addDisplayItemNode({...n,pending:"",quoteContext:q}):addMessage("assistant"===t.role?"assistant":"user",o,{rawText:o,metaText:t.metaText||"",quoteContext:q,messageIndex:"user"===t.role?void 0!==t.messageIndex?t.messageIndex:s:null,responseIndex:"assistant"===t.role?void 0!==t.responseIndex?t.responseIndex:s:null,deferSave:!0,noScroll:!0,lazy:!1,deferEnhance:!1});state.reasoningMode&&t?.reasoning_content&&"assistant"===t.role&&updateReasoning(i,t.reasoning_content,{done:!0,keepReasoning:!0});return i.dataset.rawText=o,"user"===t.role&&(i.dataset.messageIndex=String(void 0!==t.messageIndex?t.messageIndex:s)),"assistant"===t.role&&(i.dataset.responseIndex=String(void 0!==n?.responseIndex&&""!==n.responseIndex?n.responseIndex:void 0!==t.responseIndex?t.responseIndex:s)),q&&(i.dataset.quoteContext=q),i
+        const normalized = messageRecords.normalizeCanonicalMessage
+          ? messageRecords.normalizeCanonicalMessage(message, { sessionId: session?.id || state.activeSessionId || 'session', sequence: fallbackIndex })
+          : message;
+        const presentation = normalized?.presentation || {};
+        const canonicalIndex = normalized?.role === 'user' && normalized?.messageIndex !== undefined && normalized.messageIndex !== ''
+          ? Number(normalized.messageIndex)
+          : normalized?.role === 'assistant' && normalized?.responseIndex !== undefined && normalized.responseIndex !== ''
+            ? Number(normalized.responseIndex)
+            : fallbackIndex;
+        const persistedHtml = normalized?.html || presentation.html || '';
+        const quoteContext = normalized?.quoteContext || extractQuoteContextFromHtml(persistedHtml) || '';
+        // Canonical descriptors are durable semantic data. Persisted HTML is only a
+        // compatibility fallback and must never override richer image/file records.
+        const descriptorHtml = presentation.kind === 'attachment'
+          ? attachmentPresentationHtml(normalized, presentation)
+          : presentation.kind === 'image-result'
+            ? imagePresentationHtml(normalized, presentation)
+            : '';
+        const html = descriptorHtml || persistedHtml;
+        const displayText = presentation.displayText || (normalized.role === 'user' ? normalized.rawText || normalized.content : normalized.content);
+        const rich = !!html && (displayItemHasRichMedia({ html }) || presentation.kind === 'attachment' || presentation.kind === 'image-result');
+        const node = rich
+          ? addMessage(normalized.role === 'assistant' ? 'assistant' : normalized.role === 'error' ? 'error' : 'user', html, {
+              html: true,
+              rawText: displayText,
+              metaText: normalized.metaText || '',
+              quoteContext,
+              messageIndex: normalized.role === 'user' ? canonicalIndex : null,
+              responseIndex: normalized.role === 'assistant' ? canonicalIndex : null,
+              deferSave: true,
+              noScroll: true,
+              deferEnhance: false,
+            })
+          : addMessage(normalized.role === 'assistant' ? 'assistant' : 'user', displayText, {
+              rawText: displayText,
+              metaText: normalized.metaText || '',
+              quoteContext,
+              messageIndex: normalized.role === 'user' ? canonicalIndex : null,
+              responseIndex: normalized.role === 'assistant' ? canonicalIndex : null,
+              deferSave: true,
+              noScroll: true,
+              lazy: false,
+              deferEnhance: false,
+            });
+        if (state.reasoningMode && normalized?.reasoning_content && normalized.role === 'assistant') updateReasoning(node, normalized.reasoning_content, { done: true, keepReasoning: true });
+        node.dataset.rawText = String(displayText || '');
+        if (normalized.id) node.dataset.messageId = normalized.id;
+        if (normalized.role === 'user') node.dataset.messageIndex = String(canonicalIndex);
+        if (normalized.role === 'assistant') node.dataset.responseIndex = String(canonicalIndex);
+        if (normalized.displayItemId) node.dataset.displayItemId = String(normalized.displayItemId);
+        if (normalized.imageJobId) node.dataset.imageJobId = String(normalized.imageJobId);
+        if (normalized.imageContext) node.dataset.imageContext = normalized.imageContext;
+        if (normalized.attachmentContext) node.dataset.attachmentContext = normalized.attachmentContext;
+        if (quoteContext) node.dataset.quoteContext = quoteContext;
+        return node;
       }
     }
 

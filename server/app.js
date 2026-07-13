@@ -25,6 +25,7 @@ function createApp() {
   const {
     makeChatJob,
     abortJob,
+    disposeJob,
     publicJob,
     notifyJob,
     subscribeJob,
@@ -60,6 +61,7 @@ function createApp() {
     imageJobs,
     chatJobs,
     abortJob,
+    disposeJob,
     publicJob,
     subscribeJob,
     startImageJob,

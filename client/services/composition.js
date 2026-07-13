@@ -53,6 +53,7 @@
     registerChatStreamJob: options => jobService.registerChatStreamJob(withHttpDeps(options)),
     getJob: options => jobService.getJob(withHttpDeps(options)),
     abortManagedJob: options => jobService.abortManagedJob(withHttpDeps(options)),
+    disposeManagedJob: options => jobService.disposeManagedJob(withHttpDeps(options)),
     waitJobEvent: options => jobService.waitJobEvent(options),
     startImageGenerationJob: options => jobService.startImageGenerationJob(withHttpDeps(options)),
   });

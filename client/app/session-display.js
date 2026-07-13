@@ -6,24 +6,21 @@
     const getActiveSession = deps.getActiveSession;
     const createSession = deps.createSession;
     const deriveSessionTitle = deps.deriveSessionTitle;
-    const sessionStorageKey = deps.sessionStorageKey;
     const readJsonStorage = deps.readJsonStorage;
-    const safeSetJsonStorage = deps.safeSetJsonStorage;
-    const compactDisplayItems = deps.compactDisplayItems;
-    const compactAdjacentDuplicateMessages = deps.compactAdjacentDuplicateMessages;
-    const sanitizeStoredDisplayItem = deps.sanitizeStoredDisplayItem;
-    const sanitizeStoredMessage = deps.sanitizeStoredMessage;
+    const compactDisplayItems = deps.compactDisplayItems || (items => items);
+    const compactAdjacentDuplicateMessages = deps.compactAdjacentDuplicateMessages || (items => items);
+    const sanitizeStoredDisplayItem = deps.sanitizeStoredDisplayItem || (item => item);
+    const sanitizeStoredMessage = deps.sanitizeStoredMessage || (message => message);
     const renderSessionList = deps.renderSessionList || (() => {});
     const renderMarkdown = deps.renderMarkdown || (text => String(text || ''));
     const renderUserMessageContent = deps.renderUserMessageContent || (text => String(text || ''));
-    const makeDisplayItemId = deps.makeDisplayItemId;
-    const displayItemHasRichMedia = deps.displayItemHasRichMedia || (() => false);
+    const makeDisplayItemId = deps.makeDisplayItemId || (() => `display_${Date.now().toString(36)}`);
     const normalizeLastGeneratedImage = deps.normalizeLastGeneratedImage || (value => value);
     const localStorageRef = deps.localStorage || root.localStorage;
+    const messageRecords = deps.messageRecords || root.ChatUIMessageRecords || {};
+    const sessionStoreApi = deps.sessionStoreApi || root.ChatUISessionStore || {};
+    const snapshotStore = deps.snapshotStore || sessionStoreApi.createSessionSnapshotStore?.({ indexedDBImpl: deps.indexedDB || root.indexedDB });
     const constants = deps.constants || {};
-    const CHAT_KEY = constants.CHAT_KEY || 'chat-history';
-    const UI_KEY = constants.UI_KEY || 'chat-ui';
-    const LAST_IMAGE_KEY = constants.LAST_IMAGE_KEY || 'last-image';
     const SESSIONS_KEY = constants.SESSIONS_KEY || 'chat-sessions';
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'chat-active-session';
 
@@ -46,6 +43,54 @@
       };
     }
 
+    function buildSnapshot(session) {
+      if (sessionStoreApi.buildSessionSnapshot) return sessionStoreApi.buildSessionSnapshot(session);
+      return {
+        id: session.id,
+        snapshotVersion: 2,
+        updatedAt: session.updatedAt || Date.now(),
+        messages: session.messages || [],
+        pendingDisplay: (session.display || []).filter(item => item?.pending === '1'),
+        lastGeneratedImage: session.lastGeneratedImage || null,
+      };
+    }
+
+    function nextPersistenceRevision(session) {
+      const previous = Math.max(
+        Number(session?.persistenceUpdatedAt || 0),
+        Number(session?.snapshotUpdatedAt || 0)
+      );
+      const revision = Math.max(Date.now(), previous + 1);
+      session.persistenceUpdatedAt = revision;
+      return revision;
+    }
+
+    function commitSession(session) {
+      if (!session?.id || getState().disposedSessionIds?.has?.(session.id)) return Promise.resolve();
+      const revision = nextPersistenceRevision(session);
+      if (!snapshotStore?.schedulePut) return Promise.resolve();
+      const snapshot = buildSnapshot(session);
+      snapshot.updatedAt = revision;
+      let write;
+      try { write = snapshotStore.schedulePut(snapshot); } catch (err) { write = Promise.reject(err); }
+      return Promise.resolve(write).then(result => {
+        // snapshotUpdatedAt means a durable IndexedDB revision, not merely a
+        // requested write. Keeping these meanings separate lets a late write
+        // repair an immediate-refresh race without being rejected as stale.
+        if (snapshotStore.supported !== false) {
+          if (getState().disposedSessionIds?.has?.(session.id)) return result;
+          const current = getState().sessions?.find(item => item.id === session.id) || session;
+          if (revision < Number(current.persistenceUpdatedAt || 0)) return result;
+          current.snapshotUpdatedAt = Math.max(Number(current.snapshotUpdatedAt || 0), revision);
+          current.persistenceUpdatedAt = Math.max(Number(current.persistenceUpdatedAt || 0), revision);
+          saveSessionsMeta();
+        }
+        return result;
+      }).catch(err => {
+        console.warn('save session snapshot failed; in-memory history was retained', err);
+      });
+    }
+
     function saveSessionsMeta() {
       const state = getState();
       try {
@@ -57,7 +102,7 @@
           hasSystemPromptOverride: !!session.hasSystemPromptOverride,
           imageStylePrompt: session.imageStylePrompt || '',
           hasImageStylePromptOverride: !!session.hasImageStylePromptOverride,
-          chatModel: state.models.includes(session.chatModel) ? session.chatModel : '',
+          chatModel: state.models?.includes?.(session.chatModel) ? session.chatModel : '',
           headerValues: session.headerValues && typeof session.headerValues === 'object' ? session.headerValues : {},
           promptDraft: String(session.promptDraft || '').slice(0, 20000),
           reasoningMode: session.reasoningMode === undefined ? null : !!session.reasoningMode,
@@ -66,83 +111,94 @@
           pendingClarification: session.pendingClarification && typeof session.pendingClarification === 'object' ? session.pendingClarification : null,
           createdAt: session.createdAt || Date.now(),
           updatedAt: session.updatedAt || Date.now(),
+          snapshotUpdatedAt: Number(session.snapshotUpdatedAt || 0),
+          persistenceUpdatedAt: Number(session.persistenceUpdatedAt || 0),
         }));
         localStorageRef.setItem(SESSIONS_KEY, JSON.stringify(meta));
-        localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId || getActiveSession().id);
+        localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId || getActiveSession()?.id || '');
       } catch (err) { console.warn('save sessions meta failed', err); }
+    }
+
+    function pendingDisplayItems(items = []) {
+      return compactDisplayItems((items || []).filter(item => item?.pending === '1').map(sanitizeStoredDisplayItem));
     }
 
     function persistSessionDisplay(sessionId) {
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
-      if (!session) return;
+      if (!session) return Promise.resolve();
       session.updatedAt = Date.now();
-      session.display = compactDisplayItems((session.display || []).map(sanitizeStoredDisplayItem)).slice(-80);
-      session.display = safeSetJsonStorage(sessionStorageKey(UI_KEY, sessionId), session.display, 80) || [];
-      saveSessionsMeta();
+      session.display = pendingDisplayItems(session.display);
+      return commitSession(session);
     }
 
-    function normalizeMessageForStorage(message) {
+    function normalizeMessageForStorage(message, sequence = 0, sessionId = '') {
       const state = getState();
       if (!message || !message.role) return null;
       let content;
       if (typeof message.content === 'string') content = message.content;
-      else if (Array.isArray(message.content)) content = message.content.map(item => {
-        if (!item || typeof item !== 'object') return item;
-        return JSON.parse(JSON.stringify(item));
-      });
+      else if (Array.isArray(message.content)) content = message.content.map(item => item && typeof item === 'object' ? JSON.parse(JSON.stringify(item)) : item);
       else content = String(message.content || '');
-      const clean = { role: message.role, content };
-      ['rawText', 'imageContext', 'attachmentContext', 'quoteContext', 'messageIndex', 'responseIndex', 'kind', 'imageJobId', 'displayItemId', 'metaText'].forEach(key => {
-        if (message[key] !== undefined && message[key] !== null && message[key] !== '') clean[key] = String(message[key]);
-      });
-      if (!clean.quoteContext && message.html) {
-        const html = String(message.html || '');
-        const match = html.match(/class=["'][^"']*sent-quote-preview[^"']*["'][\s\S]*?data-quote-context=(["'])([\s\S]*?)\1/i)
-          || html.match(/data-quote-context=(["'])([\s\S]*?)\1[\s\S]*?class=["'][^"']*sent-quote-preview/i);
-        if (match?.[2]) clean.quoteContext = match[2].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-      }
-      if (state.reasoningMode && message.reasoning_content !== undefined && message.reasoning_content !== null && message.reasoning_content !== '') clean.reasoning_content = String(message.reasoning_content);
-      if (message.html !== undefined && message.html !== null && message.html !== '') {
-        const html = String(message.html);
-        if (displayItemHasRichMedia({ html })) clean.html = html;
-      }
-      return sanitizeStoredMessage(clean);
+      const clean = { ...message, role: message.role, content };
+      if (!state.reasoningMode) delete clean.reasoning_content;
+      const sanitized = sanitizeStoredMessage(clean);
+      return messageRecords.normalizeCanonicalMessage
+        ? messageRecords.normalizeCanonicalMessage(sanitized, { sessionId: sessionId || state.activeSessionId || 'session', sequence })
+        : sanitized;
+    }
+
+    function normalizeMessageList(messages, sessionId) {
+      const compacted = compactAdjacentDuplicateMessages(Array.isArray(messages) ? messages : []);
+      return compacted.map((message, index) => normalizeMessageForStorage(message, index, sessionId)).filter(Boolean);
     }
 
     function saveSessionMessages(sessionId, messages) {
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
-      if (!session) return;
-      const normalized = compactAdjacentDuplicateMessages(messages).map(sanitizeStoredMessage);
+      if (!session) return Promise.resolve();
+      const normalized = normalizeMessageList(messages, sessionId);
       session.messages = normalized;
+      // Active-session writes are committed through this single boundary so the
+      // working state can never drift from the canonical session record.
+      if (sessionId === state.activeSessionId) state.messages = session.messages;
       session.title = deriveSessionTitle(session);
       session.updatedAt = Date.now();
-      session.messages = safeSetJsonStorage(sessionStorageKey(CHAT_KEY, sessionId), normalized, 120) || [];
-      saveSessionsMeta();
+      return commitSession(session);
+    }
+
+    function ensurePendingItem(session, item) {
+      session.display ||= [];
+      const existingIndex = session.display.findIndex(candidate => candidate === item || candidate?.id && candidate.id === item.id);
+      if (item.pending === '1') {
+        if (existingIndex < 0) session.display.push(item);
+      } else if (existingIndex >= 0) {
+        session.display.splice(existingIndex, 1);
+      }
     }
 
     function appendSessionDisplayMessage(sessionId, role, content, options = {}) {
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
       if (!session) return null;
-      session.display ||= [];
       const item = makeDisplayItem(role, content, options);
-      session.display.push(item);
-      session.display = compactDisplayItems(session.display).slice(-80);
-      persistSessionDisplay(sessionId);
+      // Completed messages are canonical records. display contains only resumable/transient jobs.
+      if (item.pending === '1') {
+        ensurePendingItem(session, item);
+        persistSessionDisplay(sessionId);
+      }
       return item;
     }
 
     function updateSessionDisplayItem(sessionId, item, role, content, options = {}) {
       const state = getState();
-      if (!state.sessions.find(item => item.id === sessionId) || !item) return;
+      const session = state.sessions.find(candidate => candidate.id === sessionId);
+      if (!session || !item) return;
       item.role = role;
       item.rawText = options.rawText ?? content;
       if (options.deferPersist !== true) item.html = options.html ? String(content || '') : role === 'user' ? renderUserMessageContent(String(content || '')) : renderMarkdown(String(content || ''));
       if (!item.id) item.id = makeDisplayItemId();
       if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
-      if (options.id !== undefined && options.id) item.id = options.id;
+      if (options.id) item.id = options.id;
       if (options.messageIndex !== undefined && options.messageIndex !== null) item.messageIndex = String(options.messageIndex);
       if (options.responseIndex !== undefined && options.responseIndex !== null) item.responseIndex = String(options.responseIndex);
       if (options.jobId !== undefined) item.jobId = options.jobId || '';
@@ -153,57 +209,104 @@
       const allowReasoning = !!state.reasoningMode;
       if (options.reasoning !== undefined) { item.reasoningText = allowReasoning ? options.reasoning || '' : ''; item.keepReasoning = allowReasoning && !!options.keepReasoning; }
       if (options.pending === false) { item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
+      ensurePendingItem(session, item);
       if (options.deferPersist !== true) persistSessionDisplay(sessionId);
     }
 
     function persistDetachedResponse(sessionId, role, content, options = {}) {
-      if (sessionId !== getState().activeSessionId) appendSessionDisplayMessage(sessionId, role, content, options);
+      if (options.pending === true && sessionId !== getState().activeSessionId) return appendSessionDisplayMessage(sessionId, role, content, options);
+      return null;
     }
+
     function replaceLastSessionDisplayMessage(sessionId, role, content, options = {}) {
       const session = getState().sessions.find(item => item.id === sessionId);
-      if (!session) return;
+      if (!session) return null;
       session.display ||= [];
       for (let index = session.display.length - 1; index >= 0; index -= 1) {
-        if (session.display[index].role === role) { updateSessionDisplayItem(sessionId, session.display[index], role, content, options); return; }
+        if (session.display[index].role === role) {
+          updateSessionDisplayItem(sessionId, session.display[index], role, content, options);
+          return session.display[index];
+        }
       }
-      appendSessionDisplayMessage(sessionId, role, content, options);
+      return appendSessionDisplayMessage(sessionId, role, content, options);
     }
+
     function syncActiveSession({ skipSave = false } = {}) {
       const state = getState();
       const session = getActiveSession();
-      state.messages = [...(session.messages || [])];
-      state.lastGeneratedImage = normalizeLastGeneratedImage(session.lastGeneratedImage || null);
+      state.messages = session?.messages || [];
+      state.lastGeneratedImage = normalizeLastGeneratedImage(session?.lastGeneratedImage || null);
       if (session) session.lastGeneratedImage = state.lastGeneratedImage || null;
       if (!skipSave) saveSessionsMeta();
       renderSessionList();
     }
-    function loadSessions() {
+
+    function sessionFromMeta(item, payload) {
+      const state = getState();
+      return {
+        id: item.id,
+        title: item.title || '新对话',
+        customTitle: item.customTitle || '',
+        systemPrompt: item.systemPrompt || '',
+        hasSystemPromptOverride: !!item.hasSystemPromptOverride,
+        imageStylePrompt: item.imageStylePrompt || '',
+        hasImageStylePromptOverride: !!item.hasImageStylePromptOverride,
+        chatModel: state.models?.includes?.(item.chatModel) ? item.chatModel : '',
+        headerValues: item.headerValues && typeof item.headerValues === 'object' ? item.headerValues : {},
+        promptDraft: String(item.promptDraft || '').slice(0, 20000),
+        reasoningMode: item.reasoningMode === null || item.reasoningMode === undefined ? undefined : !!item.reasoningMode,
+        reasoningType: ['low', 'medium', 'high', 'xhigh'].includes(item.reasoningType) ? item.reasoningType : '',
+        reasoningProvider: String(item.reasoningProvider || '').trim(),
+        pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
+        createdAt: item.createdAt || Date.now(),
+        updatedAt: Number(item.updatedAt) || Date.now(),
+        snapshotUpdatedAt: Number(payload?.snapshotUpdatedAt || 0),
+        persistenceUpdatedAt: Math.max(
+          Number(item.persistenceUpdatedAt || 0),
+          Number(item.snapshotUpdatedAt || 0),
+          Number(payload?.persistenceUpdatedAt || 0)
+        ),
+        messages: payload?.messages || [],
+        display: payload?.pendingDisplay || [],
+        lastGeneratedImage: payload?.lastGeneratedImage || null,
+        busy: false,
+      };
+    }
+
+    async function loadSessionPayload(item) {
+      let snapshot = null;
+      try { snapshot = await snapshotStore?.getSnapshot?.(item.id); } catch (err) { console.warn('load session snapshot failed', err); }
+      if (snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages)) {
+        const snapshotRevision = Number(snapshot.updatedAt || 0);
+        return {
+          messages: normalizeMessageList(snapshot.messages, item.id),
+          pendingDisplay: pendingDisplayItems(snapshot.pendingDisplay || []),
+          lastGeneratedImage: snapshot.lastGeneratedImage || null,
+          updatedAt: item.updatedAt,
+          snapshotUpdatedAt: snapshotRevision,
+          persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0), snapshotRevision),
+        };
+      }
+      return {
+        messages: [],
+        pendingDisplay: [],
+        lastGeneratedImage: null,
+        updatedAt: item.updatedAt,
+        snapshotUpdatedAt: 0,
+        persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0)),
+      };
+    }
+
+    async function loadSessions() {
       const state = getState();
       let sessions = [];
       try {
         const stored = readJsonStorage(SESSIONS_KEY, []);
-        if (Array.isArray(stored)) sessions = stored.filter(item => item && item.id).map(item => ({
-          id: item.id,
-          title: item.title || '新对话',
-          customTitle: item.customTitle || '',
-          systemPrompt: item.systemPrompt || '',
-          hasSystemPromptOverride: !!item.hasSystemPromptOverride,
-          imageStylePrompt: item.imageStylePrompt || '',
-          hasImageStylePromptOverride: !!item.hasImageStylePromptOverride,
-          chatModel: state.models.includes(item.chatModel) ? item.chatModel : '',
-          headerValues: item.headerValues && typeof item.headerValues === 'object' ? item.headerValues : {},
-          promptDraft: String(item.promptDraft || '').slice(0, 20000),
-          reasoningMode: item.reasoningMode === null || item.reasoningMode === undefined ? undefined : !!item.reasoningMode,
-          reasoningType: ['low', 'medium', 'high', 'xhigh'].includes(item.reasoningType) ? item.reasoningType : '',
-          reasoningProvider: String(item.reasoningProvider || '').trim(),
-          pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
-          createdAt: item.createdAt || Date.now(),
-          updatedAt: item.updatedAt || Date.now(),
-          messages: (readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []) || []).map(sanitizeStoredMessage).filter(Boolean),
-          display: compactDisplayItems((readJsonStorage(sessionStorageKey(UI_KEY, item.id), []) || []).map(sanitizeStoredDisplayItem)).slice(-80),
-          lastGeneratedImage: readJsonStorage(sessionStorageKey(LAST_IMAGE_KEY, item.id), null),
-          busy: false,
-        }));
+        if (Array.isArray(stored)) {
+          const valid = stored.filter(item => item && item.id);
+          const payloads = await Promise.all(valid.map(loadSessionPayload));
+          sessions = valid.map((item, index) => sessionFromMeta(item, payloads[index]));
+        }
       } catch (err) { console.warn('load sessions failed', err); }
       if (!sessions.length) {
         const session = createSession();
@@ -214,21 +317,68 @@
       const storedActiveSessionId = localStorageRef.getItem(ACTIVE_SESSION_KEY);
       state.activeSessionId = sessions.some(session => session.id === storedActiveSessionId) ? storedActiveSessionId : sessions[0].id;
       syncActiveSession({ skipSave: true });
+      return sessions;
     }
+
+    async function reloadSessionSnapshot(sessionId) {
+      const state = getState();
+      const session = state.sessions.find(item => item.id === sessionId);
+      if (!session || !snapshotStore?.getSnapshot) return false;
+      const snapshot = await snapshotStore.getSnapshot(sessionId);
+      const snapshotUpdatedAt = Number(snapshot?.updatedAt || 0);
+      const previousSnapshotUpdatedAt = Number(session.snapshotUpdatedAt || 0);
+      if (!Array.isArray(snapshot?.messages) || snapshotUpdatedAt <= previousSnapshotUpdatedAt) return false;
+      let changed = false;
+      if (snapshotUpdatedAt > previousSnapshotUpdatedAt) {
+        session.messages = normalizeMessageList(snapshot.messages, sessionId);
+        if (sessionId === state.activeSessionId) state.messages = session.messages;
+        changed = true;
+        session.display = pendingDisplayItems(snapshot.pendingDisplay || []);
+      }
+      session.lastGeneratedImage = snapshot.lastGeneratedImage || session.lastGeneratedImage || null;
+      session.snapshotUpdatedAt = snapshotUpdatedAt;
+      session.persistenceUpdatedAt = Math.max(Number(session.persistenceUpdatedAt || 0), snapshotUpdatedAt);
+      saveSessionsMeta();
+      return changed;
+    }
+
+    function deleteSessionSnapshot(sessionId) { return snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve(); }
+    function clearSessionSnapshots() { return snapshotStore?.clear?.() || Promise.resolve(); }
+    function flushSessionSnapshots(sessionId = '') { return snapshotStore?.flush?.(sessionId) || Promise.resolve(); }
+
     function sessionTitleHtml(session) {
       return String(deriveSessionTitle(session)).replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]));
     }
+
     function getSessionReturnCount(session, { domCount = 0, isBusy = () => false } = {}) {
       const state = getState();
       if (!session) return 0;
       const messages = session.id !== state.activeSessionId || isBusy(session.id) ? session.messages || [] : state.messages;
       const assistantCount = Array.isArray(messages) ? messages.filter(item => item?.role === 'assistant').length : 0;
       if (assistantCount) return assistantCount;
-      const display = session.id !== state.activeSessionId || isBusy(session.id) ? (session.display || []).filter(item => item.role === 'assistant' || item.role === 'error') : domCount;
-      return Array.isArray(display) ? display.length : display;
+      return session.id === state.activeSessionId && !isBusy(session.id) ? Number(domCount) || 0 : 0;
     }
 
-    return Object.freeze({ makeDisplayItem, normalizeMessageForStorage, persistSessionDisplay, saveSessionMessages, appendSessionDisplayMessage, updateSessionDisplayItem, persistDetachedResponse, replaceLastSessionDisplayMessage, syncActiveSession, saveSessionsMeta, loadSessions, sessionTitleHtml, getSessionReturnCount });
+    return Object.freeze({
+      makeDisplayItem,
+      normalizeMessageForStorage,
+      persistSessionDisplay,
+      saveSessionMessages,
+      appendSessionDisplayMessage,
+      updateSessionDisplayItem,
+      persistDetachedResponse,
+      replaceLastSessionDisplayMessage,
+      syncActiveSession,
+      saveSessionsMeta,
+      loadSessions,
+      reloadSessionSnapshot,
+      deleteSessionSnapshot,
+      clearSessionSnapshots,
+      flushSessionSnapshots,
+      commitSession,
+      sessionTitleHtml,
+      getSessionReturnCount,
+    });
   }
 
   const api = Object.freeze({ createSessionDisplayWorkflow });

@@ -18,6 +18,7 @@ function createRouter(deps) {
     imageJobs,
     chatJobs,
     abortJob,
+    disposeJob,
     publicJob,
     subscribeJob,
     startImageJob,
@@ -46,6 +47,7 @@ function createRouter(deps) {
     imageJobs,
     chatJobs,
     abortJob,
+    disposeJob,
     publicJob,
     subscribeJob,
     startImageJob,
@@ -67,7 +69,7 @@ function createRouter(deps) {
     if (req.method === 'OPTIONS') {
       return send(res, 204, '', {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
       });
     }

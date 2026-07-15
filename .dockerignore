@@ -17,3 +17,10 @@ README.md
 LICENSE
 *.md
 vendor/chunks/
+AGENTS.md
+CONTRIBUTING.md
+docs/
+scripts/
+.editorconfig
+.gitattributes
+.nvmrc

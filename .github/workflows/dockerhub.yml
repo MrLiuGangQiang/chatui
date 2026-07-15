@@ -1,5 +1,5 @@
 name: Build and push Docker image
-run-name: Build ChatUI ${{ github.ref_name || inputs.version }}
+run-name: Build ChatUI ${{ inputs.version || github.ref_name }}
 
 on:
   push:
@@ -13,7 +13,7 @@ on:
         type: string
 
 concurrency:
-  group: docker-release-${{ github.ref_name || inputs.version }}
+  group: docker-release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="${{ github.ref_name || inputs.version }}"
+          VERSION="${{ inputs.version || github.ref_name }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must match vMAJOR.MINOR.PATCH, for example v1.0.0. Got: $VERSION" >&2
             exit 1
@@ -51,27 +51,20 @@ jobs:
         with:
           ref: ${{ steps.version.outputs.version }}
 
-      - name: Validate package version
-        shell: bash
-        run: |
-          set -euo pipefail
-          node - <<'NODE'
-          const fs = require('fs');
-          const expected = process.env.EXPECTED_SEMVER;
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          if (pkg.version !== expected) {
-            throw new Error(`package.json version mismatch: expected ${expected}, got ${pkg.version}`);
-          }
-          if (fs.existsSync('package-lock.json')) {
-            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-            const rootVersion = lock.packages?.['']?.version;
-            if (lock.version !== expected || rootVersion !== expected) {
-              throw new Error(`package-lock.json version mismatch: expected ${expected}, got version=${lock.version}, root=${rootVersion}`);
-            }
-          }
-          NODE
-        env:
-          EXPECTED_SEMVER: ${{ steps.version.outputs.semver }}
+      - name: Validate release metadata
+        run: node scripts/verify-release.js "${{ steps.version.outputs.version }}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run release checks
+        run: npm run check
 
   docker-publish:
     needs: validate
@@ -142,12 +135,17 @@ jobs:
   github-release:
     name: Publish GitHub Release
     needs: [validate, docker-publish]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || inputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.version }}
+
       - name: Create or update GitHub Release
         uses: actions/github-script@v9
         env:
@@ -156,12 +154,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const tag = process.env.RELEASE_TAG;
+            const notesPath = `docs/releases/${tag}.md`;
+            const body = require('fs').readFileSync(notesPath, 'utf8').trim();
+            if (!body) throw new Error(`Release notes are empty: ${notesPath}`);
             const release = {
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
               name: `ChatUI ${tag}`,
-              body: `## Docker release\n\nDocker images for \`${tag}\` were built and published successfully.`,
+              body,
               draft: false,
               prerelease: false,
             };

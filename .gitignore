@@ -1,7 +1,15 @@
 .DS_Store
 node_modules/
 *.log
+*.pid
 .env
 .env.*
 business/
 temp/
+coverage/
+.nyc_output/
+dist/
+playwright-report/
+test-results/
+.idea/
+.vscode/

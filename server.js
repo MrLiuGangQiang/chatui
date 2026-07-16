@@ -2,7 +2,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { HOST, PORT } = require('./server/config');
+const { HOST, PORT, runtimeConfig } = require('./server/config');
 const { createApp } = require('./server/app');
 
 const { server } = createApp();
@@ -11,7 +11,7 @@ const { server } = createApp();
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 server.requestTimeout = 120000;
-server.maxConnections = process.env.MAX_CONNECTIONS ? Number(process.env.MAX_CONNECTIONS) : Infinity;
+server.maxConnections = runtimeConfig.maxConnections || Infinity;
 function resolvePidDir() {
   if (process.env.CHATUI_DISABLE_PID_FILE === '1') return '';
   const candidates = [
@@ -68,7 +68,7 @@ server.on('clientError', (_err, socket) => {
 server.listen(PORT, HOST, () => {
   writePidFiles();
   console.log(`OpenAPI Chat Image is running locally: http://127.0.0.1:${PORT}`);
-  console.log(`LAN access: http://<this-machine-ip>:${PORT}`);
+  if (!['127.0.0.1', '::1', 'localhost'].includes(String(HOST).toLowerCase())) console.log(`LAN access: http://<this-machine-ip>:${PORT}`);
   console.log(`Listening on: ${HOST}:${PORT}`);
   console.log(`PID: ${process.pid}`);
 });

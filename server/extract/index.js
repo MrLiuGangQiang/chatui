@@ -1,3 +1,4 @@
+const { assertRuntimeConfig } = require('../config/runtime-config');
 const { readBody, parseJson } = require('../http/body');
 const { sendJson } = require('../http/response');
 const { extractLimiter, withLimiter } = require('../concurrency');
@@ -5,10 +6,11 @@ const { extractPdfText } = require('./pdf');
 const { extractExcelText, extractPowerPointText, extractWordText } = require('./office');
 const { isTextExtractable, extractPlainText } = require('./text');
 
+const runtimeConfig = assertRuntimeConfig();
 const DEFAULT_EXTRACT_LIMITS = Object.freeze({
-  text: Number(process.env.MAX_EXTRACT_TEXT_BYTES || 5 * 1024 * 1024),
-  pdf: Number(process.env.MAX_EXTRACT_PDF_BYTES || 25 * 1024 * 1024),
-  office: Number(process.env.MAX_EXTRACT_OFFICE_BYTES || 25 * 1024 * 1024),
+  text: runtimeConfig.maxExtractTextBytes,
+  pdf: runtimeConfig.maxExtractPdfBytes,
+  office: runtimeConfig.maxExtractOfficeBytes,
 });
 
 function estimateDataUrlBytes(dataUrl = '') {
@@ -28,8 +30,8 @@ function fileKind(filename = '', type = '') {
   return 'unsupported';
 }
 
-function assertExtractSizeAllowed(kind, bytes) {
-  const limit = DEFAULT_EXTRACT_LIMITS[kind];
+function assertExtractSizeAllowed(kind, bytes, limits = DEFAULT_EXTRACT_LIMITS) {
+  const limit = limits[kind];
   if (!limit || bytes <= limit) return;
   const err = new Error(`文件过大，${kind} 解析上限为 ${Math.round(limit / 1024 / 1024)}MB`);
   err.statusCode = 413;
@@ -48,21 +50,25 @@ async function extractByKind(kind, filename, dataUrl, type) {
   throw err;
 }
 
-async function extractFileText(req, res) {
-  try {
-    const body = parseJson(await readBody(req, { maxBytes: 50 * 1024 * 1024 }));
-    const filename = String(body.filename || 'attachment').trim();
-    const type = String(body.type || '').trim();
-    const dataUrl = String(body.dataUrl || '');
-    if (!dataUrl) return sendJson(res, 400, { error: { message: '缺少文件内容' } });
-    const kind = fileKind(filename, type);
-    if (kind === 'unsupported') return sendJson(res, 415, { error: { message: '暂不支持解析该文件类型' } });
-    assertExtractSizeAllowed(kind, estimateDataUrlBytes(dataUrl));
-    const result = await withLimiter(extractLimiter, () => extractByKind(kind, filename, dataUrl, type));
-    return sendJson(res, 200, result, { 'Access-Control-Allow-Origin': '*' });
-  } catch (err) {
-    sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err), code: err.code || 'EXTRACT_FAILED' } }, { 'Access-Control-Allow-Origin': '*' });
-  }
+function createExtractFileText({ extractLimiter: currentExtractLimiter = extractLimiter, limits = DEFAULT_EXTRACT_LIMITS } = {}) {
+  return async function extractFileText(req, res) {
+    try {
+      const body = parseJson(await readBody(req, { maxBytes: 50 * 1024 * 1024 }));
+      const filename = String(body.filename || 'attachment').trim();
+      const type = String(body.type || '').trim();
+      const dataUrl = String(body.dataUrl || '');
+      if (!dataUrl) return sendJson(res, 400, { error: { message: 'Missing file content.' } });
+      const kind = fileKind(filename, type);
+      if (kind === 'unsupported') return sendJson(res, 415, { error: { message: 'Unsupported file type.' } });
+      assertExtractSizeAllowed(kind, estimateDataUrlBytes(dataUrl), limits);
+      const result = await withLimiter(currentExtractLimiter, () => extractByKind(kind, filename, dataUrl, type));
+      return sendJson(res, 200, result, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err), code: err.code || 'EXTRACT_FAILED' } }, { 'Access-Control-Allow-Origin': '*' });
+    }
+  };
 }
 
-module.exports = { extractFileText, estimateDataUrlBytes, fileKind, assertExtractSizeAllowed };
+const extractFileText = createExtractFileText();
+
+module.exports = { createExtractFileText, extractFileText, estimateDataUrlBytes, fileKind, assertExtractSizeAllowed };

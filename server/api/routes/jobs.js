@@ -1,15 +1,20 @@
 const { getJobIdFromUrl, isAbortJobUrl, isJobEventsUrl } = require('../../jobs/job-url');
+const { canAccessJob, jobNotFoundPayload } = require('../../jobs/ownership');
 
 function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed, abortJob, disposeJob, publicJob, subscribeJob, startJob, getJob }) {
   function abortJobByUrl(req, res) {
     const id = getJobIdFromUrl(req);
+    const existingJob = store.get(id);
+    if (req.authRequired && (!existingJob || !canAccessJob(existingJob, req))) return sendJson(res, 404, jobNotFoundPayload({ includeCode: true }));
     const job = abortJob(store, id);
-    if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+    if (!job) return sendJson(res, 404, jobNotFoundPayload({ includeCode: req.authRequired === true }));
     return sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
   }
 
   function disposeJobByUrl(req, res) {
     const id = getJobIdFromUrl(req);
+    const existingJob = store.get(id);
+    if ((existingJob && !canAccessJob(existingJob, req)) || (!existingJob && req.authRequired)) return sendJson(res, 404, jobNotFoundPayload({ includeCode: req.authRequired === true }));
     const job = disposeJob(store, id);
     return sendJson(res, 200, { disposed: true, existed: !!job }, { 'Access-Control-Allow-Origin': '*' });
   }

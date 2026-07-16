@@ -66,14 +66,6 @@ function createRouter(deps) {
   });
 
   return async function route(req, res) {
-    if (req.method === 'OPTIONS') {
-      return send(res, 204, '', {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-      });
-    }
-
     const coreResult = routeCoreApi(req, res);
     if (coreResult !== false) return coreResult;
 

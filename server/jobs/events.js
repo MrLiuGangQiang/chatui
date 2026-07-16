@@ -1,6 +1,7 @@
-const { SECURITY_HEADERS } = require('../http/response');
+const { responseHeaders, sendJson } = require('../http/response');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { getJobIdFromUrl } = require('./job-url');
+const { canAccessJob, isManagedRequest, jobNotFoundPayload } = require('./ownership');
 function publicJob(job, options = {}) {
   const metrics = {
     firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
@@ -68,19 +69,19 @@ function createJobEvents({ jobSubscribers }) {
     const id = getJobIdFromUrl(req);
     const job = store.get(id);
     safeLog('[subscribeJob]', { id, found: !!job, path: redactUrl(req.url) });
-    if (!job) {
-      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
+    if (!job || !canAccessJob(job, req)) {
+      if (isManagedRequest(req)) return sendJson(res, 404, jobNotFoundPayload({ includeCode: true }));
+      res.writeHead(200, responseHeaders(res, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' }));
       res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: '任务不存在或服务已重启' } })}\n\n`);
       res.end();
       return;
     }
-    res.writeHead(200, {
-      ...SECURITY_HEADERS,
+    res.writeHead(200, responseHeaders(res, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
-    });
+    }));
     res.write(`event: update\ndata: ${JSON.stringify(compactResumeSnapshot(job, req))}\n\n`);
     res.flushHeaders?.();
     if (job.status === 'done' || job.status === 'error') return res.end();
@@ -103,6 +104,7 @@ function createJobEvents({ jobSubscribers }) {
     job.updatedAt = Date.now();
     try { job.controller?.abort(); } catch {}
     notifyJob(job);
+    try { job.releaseAdmission?.(); } catch {}
     return job;
   }
 

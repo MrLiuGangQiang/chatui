@@ -35,6 +35,19 @@ These files are part of the public static-file contract. Moving or renaming one 
 4. Server routes should delegate to a controller or service instead of embedding large use cases in route dispatch.
 5. New source belongs in an existing layer whenever possible; do not add new root-level application files without documenting the static-entry requirement.
 
+## Runtime composition and lifecycle
+
+`server/app.js` is the server composition root. Each `createApp()` call creates an isolated runtime context and injects it into job, proxy, and extraction handlers:
+
+- upstream and extraction concurrency limiters;
+- guarded upstream HTTP dispatcher/agent service;
+- chat and image job stores, subscriber state, and the job sweeper;
+- managed-principal job admission state.
+
+This keeps test instances and future multi-instance embeddings from sharing queue or quota state by accident. The old exports in `server/concurrency.js`, `server/jobs/common.js`, and `server/extract/index.js` remain compatibility adapters for direct callers; new server composition must use the app-scoped dependencies instead.
+
+`createApp()` returns an async `dispose()` method. It stops the sweeper, aborts/clears in-memory jobs, releases admission records, closes owned concurrency queues, shuts down owned Undici dispatchers, and ends the owned PostgreSQL pool. The HTTP server's `close` event invokes the same disposal path. Callers that inject an externally owned pool or runtime service retain responsibility for closing that injected resource.
+
 ## Testing layout
 
 - `test/unit/`: focused unit and contract tests.

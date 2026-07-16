@@ -1,3 +1,4 @@
+const { assertRuntimeConfig } = require('../config/runtime-config');
 const SENSITIVE_KEY_RE = /api[_-]?key|authorization|token|secret|password|cookie|set-cookie/i;
 const DATA_URL_RE = /data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g;
 const BARE_BASE64_RE = /(?:iVBOR|\/9j\/|UklGR|R0lGOD)[A-Za-z0-9+/=\r\n]{4096,}/g;
@@ -31,7 +32,7 @@ function redactValue(value, depth = 0, key = '') {
 }
 
 function shouldLogVerbose() {
-  return process.env.CHATUI_VERBOSE_LOGS === '1' || process.env.DEBUG_CHATUI === '1';
+  return assertRuntimeConfig().verboseLogs;
 }
 
 function safeLog(label, payload = {}, options = {}) {

@@ -5,12 +5,15 @@
   "description": "ChatUI 是一个轻量、无需前端构建、可直接部署的 OpenAI 兼容接口 Web 工具。它同时支持聊天、生图、图片编辑、附件上传、Markdown、数学公式、代码复制、思考内容展示和模型配置。",
   "main": "server.js",
   "scripts": {
+    "check:runtime": "node scripts/check-runtime.js",
     "check:project": "node scripts/check-project.js",
-    "check:syntax": "node --check server.js && node --check app.js",
-    "check": "npm run check:project && npm run check:syntax && npm test",
+    "check:syntax": "node scripts/check-syntax.js",
+    "check": "npm run check:runtime && npm run check:project && npm run check:syntax && npm test",
     "test": "node test/run-tests.js",
+    "audit:prod": "npm audit --omit=dev",
     "start": "node server.js",
-    "verify:release": "node scripts/verify-release.js"
+    "verify:release": "node scripts/verify-release.js",
+    "release:preflight": "node scripts/release-preflight.js"
   },
   "repository": {
     "type": "git",

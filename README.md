@@ -1250,5 +1250,6 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 ## Engineering documentation
 
 - [Architecture and module boundaries](docs/architecture.md)
+- [Environment configuration and deployment modes](docs/configuration.md)
 - [Development, checks, and release workflow](docs/development.md)
 - [Contribution guide](CONTRIBUTING.md)

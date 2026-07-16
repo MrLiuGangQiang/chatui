@@ -4,11 +4,15 @@ const { JobStore } = require('../../server/jobs/store');
 const jobEvents = require('../../server/jobs/events');
 const jobUrl = require('../../server/jobs/job-url');
 const { readBody } = require('../../server/http/body');
+const { BODY_LIMITS, getRequestBodyLimit, assertRequestBodyLimit } = require('../../server/http/request-body-limits');
+const { PrincipalJobAdmission } = require('../../server/jobs/admission');
 const staticHttp = require('../../server/http/static');
 const urlPolicy = require('../../server/security/url-policy');
 const { fetchWithValidatedRedirects, configuredUpstreamProxyUrl, readUpstreamErrorDetails, summarizeUpstreamRequest, normalizeUpstreamErrorMessage } = require('../../server/jobs/common');
 const extractApi = require('../../server/extract');
-const { ConcurrencyLimiter } = require('../../server/concurrency');
+const { ConcurrencyLimiter, createConcurrencyServices } = require('../../server/concurrency');
+const { createApp } = require('../../server/app');
+const { createRuntimeConfig } = require('../../server/config/runtime-config');
 const safeLog = require('../../server/logging/safe-log');
 const { sendError } = require('../../server/http/response');
 const { AppError, normalizeError, toErrorPayload } = require('../../server/errors/http-error');
@@ -83,7 +87,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   subscribeJob(missingReq, missingRes, new Map());
   assert.strictEqual(missingRes.status, 200);
   assert.strictEqual(missingRes.headers['Content-Type'], 'text/event-stream; charset=utf-8');
-  assert.strictEqual(missingRes.headers['Access-Control-Allow-Origin'], '*');
+  assert.strictEqual(missingRes.headers['Access-Control-Allow-Origin'], undefined);
   assert.strictEqual(missingRes.ended, true);
   assert.deepStrictEqual(parseSseJson(missingRes.body), { status: 'error', error: { message: '任务不存在或服务已重启' } });
 
@@ -196,6 +200,99 @@ async function testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests() {
   assert.strictEqual(resumed, true, 'known oversize bodies should be drained immediately');
 }
 
+
+function testRouteBodyAdmissionRejectsDeclaredOversizePayloadsEarly() {
+  assert.strictEqual(getRequestBodyLimit({ method: 'POST', url: '/api/usage/overview' }), BODY_LIMITS.usage);
+  assert.strictEqual(getRequestBodyLimit({ method: 'POST', url: '/api/chat-jobs?resume=1' }), BODY_LIMITS.visualChat);
+  assert.strictEqual(getRequestBodyLimit({ method: 'POST', url: '/api/images/edits' }), BODY_LIMITS.image);
+  assert.strictEqual(getRequestBodyLimit({ method: 'GET', url: '/api/image-jobs' }), 0);
+
+  let resumed = false;
+  const req = {
+    method: 'POST',
+    url: '/api/chat-jobs',
+    headers: { 'content-length': String(BODY_LIMITS.visualChat + 1) },
+    resume() { resumed = true; },
+  };
+  assert.throws(() => assertRequestBodyLimit(req), err => err.statusCode === 413 && err.code === 'PAYLOAD_TOO_LARGE');
+  assert.strictEqual(resumed, true);
+}
+
+function testManagedPrincipalJobAdmissionIsBoundedAndReleased() {
+  const admission = new PrincipalJobAdmission({ maxJobsPerPrincipal: 1 });
+  const alice = { authRequired: true, principal: { id: 'alice' } };
+  const bob = { authRequired: true, principal: { id: 'bob' } };
+  const first = { id: 'chatjob-alice-one' };
+  admission.reserve(first, alice);
+  assert.strictEqual(admission.activeFor('alice'), 1);
+  assert.throws(() => admission.reserve({ id: 'chatjob-alice-two' }, alice), err => err.statusCode === 429 && err.code === 'PRINCIPAL_JOB_LIMIT_EXCEEDED');
+  admission.reserve({ id: 'chatjob-bob-one' }, bob);
+  assert.strictEqual(admission.activeFor('bob'), 1);
+  admission.release(first);
+  assert.strictEqual(admission.activeFor('alice'), 0);
+  const second = { id: 'chatjob-alice-two' };
+  admission.reserve(second, alice);
+
+  const lifecycleJob = { id: 'chatjob-alice-lifecycle', status: 'running', createdAt: Date.now(), updatedAt: Date.now() };
+  admission.release(second);
+  admission.reserve(lifecycleJob, alice);
+  const store = new JobStore('admission', { ttlMs: 1000000, runningTtlMs: 1000000, maxJobs: 10 });
+  store.set(lifecycleJob.id, lifecycleJob);
+  lifecycleJob.status = 'error';
+  store.sweep();
+  assert.strictEqual(admission.activeFor('alice'), 0, 'terminal jobs must release the principal admission slot');
+
+  const localJob = { id: 'chatjob-local' };
+  admission.reserve(localJob, { authRequired: false });
+  assert.strictEqual(admission.activeFor(''), 0, 'local mode must not consume managed principal quotas');
+}
+
+async function testApplicationRuntimeServicesAreIsolatedAndDisposeDeterministically() {
+  const config = createRuntimeConfig({
+    MAX_UPSTREAM_CONCURRENCY: '1',
+    MAX_UPSTREAM_QUEUE: '1',
+    MAX_EXTRACT_CONCURRENCY: '1',
+    MAX_EXTRACT_QUEUE: '1',
+    JOB_SWEEP_INTERVAL_MS: '1000',
+  });
+  const first = createConcurrencyServices(config);
+  const second = createConcurrencyServices(config);
+  await first.upstreamLimiter.acquire();
+  await second.upstreamLimiter.acquire();
+  assert.strictEqual(first.upstreamLimiter.active, 1);
+  assert.strictEqual(second.upstreamLimiter.active, 1, 'independent runtime services must not share limiter state');
+  const queued = first.upstreamLimiter.acquire();
+  first.dispose();
+  await assert.rejects(queued, err => err.code === 'SERVICE_SHUTTING_DOWN');
+  first.upstreamLimiter.release();
+  second.dispose();
+
+  const app = createApp({
+    runtimeConfig: config,
+    postgresPool: null,
+    sweeper: {},
+    feedbackSender: { configured: false, send: async () => {} },
+    usageAccessValidator: { validate: async () => ({ ok: true }) },
+  });
+  const managedRequest = { authRequired: true, principal: { id: 'runtime-owner' } };
+  const job = { id: 'imgjob-runtime-ownership', status: 'running', createdAt: Date.now(), updatedAt: Date.now() };
+  app.runtime.jobAdmission.reserve(job, managedRequest);
+  app.stores.imageJobs.set(job.id, job);
+  await app.runtime.concurrency.upstreamLimiter.acquire();
+  const appQueued = app.runtime.concurrency.upstreamLimiter.acquire();
+
+  await app.dispose();
+
+  assert.strictEqual(app.stores.imageJobs.size, 0);
+  assert.strictEqual(app.runtime.jobAdmission.activeFor('runtime-owner'), 0);
+  await assert.rejects(appQueued, err => err.code === 'SERVICE_SHUTTING_DOWN');
+  app.runtime.concurrency.upstreamLimiter.release();
+  const stopped = app.runtime.upstreamRequests.createUpstreamFetch('https://example.com/v1/models', {
+    method: 'GET', headers: {}, upstreamTimeoutMs: 1000,
+  });
+  await assert.rejects(stopped.response, err => err.code === 'SERVICE_SHUTTING_DOWN');
+}
+
 async function testConnectionLookupRejectsMixedOrReboundPrivateAddresses() {
   const invokeLookup = (addresses, options = {}) => new Promise((resolve, reject) => {
     const lookup = urlPolicy.createPublicLookup({
@@ -291,6 +388,9 @@ module.exports = [
   testJobEventsSubscribeAndAbortContracts,
   testServerHardeningHelpers,
   testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests,
+  testRouteBodyAdmissionRejectsDeclaredOversizePayloadsEarly,
+  testManagedPrincipalJobAdmissionIsBoundedAndReleased,
+  testApplicationRuntimeServicesAreIsolatedAndDisposeDeterministically,
   testConnectionLookupRejectsMixedOrReboundPrivateAddresses,
   testUpstreamErrorDiagnosticsAreSafeAndActionable,
   testSendErrorKeepsLegacyContract,

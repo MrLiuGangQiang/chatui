@@ -3,7 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ASSET_MANIFEST_ID = 'chatuiAssetManifest';
-const BUNDLE_VERSION = '1.3.85-route-diagram-polish';
+const BUNDLE_VERSION = '1.3.86-managed-auth';
 const BUNDLE_PATHS = Object.freeze({
   '/assets/chatui.bundle.css': 'css',
   '/assets/chatui.bundle.js': 'js',

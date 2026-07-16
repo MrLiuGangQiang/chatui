@@ -31,6 +31,8 @@ function postJsonWithUploadProgress({ url, body, signal, onProgress, parseRespon
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    const managedAccessToken = root?.ChatUIRequestAuth?.getToken?.();
+    if (managedAccessToken) xhr.setRequestHeader('Authorization', `Bearer ${managedAccessToken}`);
     xhr.responseType = 'text';
     const abort = () => {
       try { xhr.abort(); } catch {}

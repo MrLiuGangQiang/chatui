@@ -3,49 +3,124 @@ const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { Agent, ProxyAgent } = require('undici');
+const crypto = require('crypto');
 const { safeLog, redactUrl } = require('../logging/safe-log');
-const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
+const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup } = require('../security/url-policy');
+const { assertRuntimeConfig } = require('../config/runtime-config');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
+const { canAccessJob, jobNotFoundPayload } = require('./ownership');
 
 const CHAT_BODY_BYTES = 2 * 1024 * 1024;
 const CHAT_VISUAL_BODY_BYTES = 12 * 1024 * 1024;
 const IMAGE_BODY_BYTES = 50 * 1024 * 1024;
-const PUBLIC_UPSTREAM_DISPATCHER = new Agent({ connect: { lookup: createPublicLookup({ allowPrivate: false }) } });
-let proxyDispatcher = null;
-let proxyDispatcherUrl = '';
+// Upstream connections are application resources, not process-wide state. The
+// lazy legacy adapter preserves direct helper imports for older callers while
+// createApp injects an isolated service into every request path.
+function createUpstreamRequestService({ runtimeConfig = assertRuntimeConfig(), fetchImpl = fetch, log = safeLog } = {}) {
+  const publicDispatcher = new Agent({ connect: { lookup: createPublicLookup({ allowPrivate: false }) } });
+  let proxyDispatcher = null;
+  let proxyDispatcherUrl = '';
+  let disposed = false;
 
-function configuredUpstreamProxyUrl() {
-  return String(
-    process.env.CHATUI_UPSTREAM_PROXY ||
-    process.env.HTTPS_PROXY || process.env.https_proxy ||
-    process.env.HTTP_PROXY || process.env.http_proxy || ''
-  ).trim();
+  function configuredUpstreamProxyUrl() {
+    return runtimeConfig.upstreamProxyUrl;
+  }
+
+  function upstreamDispatcher({ allowPrivate = false } = {}) {
+    const proxyUrl = allowPrivate ? '' : configuredUpstreamProxyUrl();
+    if (!proxyUrl) return publicDispatcher;
+    if (proxyDispatcher && proxyDispatcherUrl === proxyUrl) return proxyDispatcher;
+    try {
+      const parsed = new URL(proxyUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('only HTTP(S) proxy URLs are supported');
+      const nextDispatcher = new ProxyAgent({ uri: parsed.toString() });
+      const previousDispatcher = proxyDispatcher;
+      proxyDispatcher = nextDispatcher;
+      proxyDispatcherUrl = proxyUrl;
+      void previousDispatcher?.close?.().catch?.(() => {});
+      log('[upstream-proxy] enabled', { protocol: parsed.protocol, host: parsed.host }, { always: true });
+      return proxyDispatcher;
+    } catch (err) {
+      log('[upstream-proxy] ignored invalid configuration', { message: err?.message || String(err) }, { always: true });
+      return publicDispatcher;
+    }
+  }
+
+  async function fetchWithValidatedRedirects(url, options, { allowPrivate = runtimeConfig.allowPrivateUpstream, maxRedirects = 5, fetchImpl: customFetch = fetchImpl } = {}) {
+    let currentUrl = new URL(String(url));
+    for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
+      if (!await assertResolvedUpstreamUrl(currentUrl, { allowPrivate })) {
+        const err = new Error('upstream address is not publicly reachable');
+        err.statusCode = 400;
+        err.code = 'INVALID_UPSTREAM_ADDRESS';
+        throw err;
+      }
+      const requestOptions = { ...options, redirect: 'manual' };
+      if (!allowPrivate) requestOptions.dispatcher = upstreamDispatcher({ allowPrivate });
+      const response = await customFetch(currentUrl, requestOptions);
+      if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+      const location = response.headers.get('location');
+      if (!location) return response;
+      if (redirects === maxRedirects) throw new Error('too many upstream redirects');
+      currentUrl = new URL(location, currentUrl);
+    }
+    throw new Error('too many upstream redirects');
+  }
+
+  function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs }) {
+    if (disposed) {
+      const err = new Error('service is shutting down');
+      err.statusCode = 503;
+      err.code = 'SERVICE_SHUTTING_DOWN';
+      return { response: Promise.reject(err), controller: new AbortController(), timer: null };
+    }
+    const controller = new AbortController();
+    if (job) job.controller = controller;
+    const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+    const request = summarizeUpstreamRequest(url, { method, body, job });
+    const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
+      .catch(err => {
+        log('[upstream-request] failed', { ...request, ...readUpstreamErrorDetails(err) }, { always: true });
+        throw err;
+      });
+    return { response, controller, timer };
+  }
+
+  async function dispose() {
+    if (disposed) return;
+    disposed = true;
+    await Promise.allSettled([proxyDispatcher, publicDispatcher].filter(Boolean).map(dispatcher => dispatcher.close?.() || dispatcher.destroy?.()));
+  }
+
+  return Object.freeze({ configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, createUpstreamFetch, dispose });
 }
 
-function upstreamDispatcher({ allowPrivate = false } = {}) {
-  // Private upstreams are opt-in and continue to use the direct connection path.
-  // A configured proxy is only used for public endpoints that have already passed
-  // the URL policy check below.
-  const proxyUrl = allowPrivate ? '' : configuredUpstreamProxyUrl();
-  if (!proxyUrl) return PUBLIC_UPSTREAM_DISPATCHER;
-  if (proxyDispatcher && proxyDispatcherUrl === proxyUrl) return proxyDispatcher;
-  try {
-    const parsed = new URL(proxyUrl);
-    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('only HTTP(S) proxy URLs are supported');
-    proxyDispatcher = new ProxyAgent({ uri: parsed.toString() });
-    proxyDispatcherUrl = proxyUrl;
-    safeLog('[upstream-proxy] enabled', { protocol: parsed.protocol, host: parsed.host }, { always: true });
-    return proxyDispatcher;
-  } catch (err) {
-    safeLog('[upstream-proxy] ignored invalid configuration', { message: err?.message || String(err) }, { always: true });
-    return PUBLIC_UPSTREAM_DISPATCHER;
+let legacyUpstreamService = null;
+let legacyUpstreamConfigKey = '';
+function getLegacyUpstreamService() {
+  const runtimeConfig = assertRuntimeConfig();
+  const configKey = `${runtimeConfig.allowPrivateUpstream}:${runtimeConfig.upstreamProxyUrl}`;
+  if (!legacyUpstreamService || legacyUpstreamConfigKey !== configKey) {
+    void legacyUpstreamService?.dispose?.().catch?.(() => {});
+    legacyUpstreamService = createUpstreamRequestService({ runtimeConfig, fetchImpl: (...args) => global.fetch(...args) });
+    legacyUpstreamConfigKey = configKey;
   }
+  return legacyUpstreamService;
+}
+
+function configuredUpstreamProxyUrl() {
+  // Compatibility helper: callers historically observed the current process environment.
+  return assertRuntimeConfig().upstreamProxyUrl;
+}
+
+function upstreamDispatcher(options) {
+  return getLegacyUpstreamService().upstreamDispatcher(options);
 }
 
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
   if (/^(imgjob|chatjob)-[a-z0-9-]{8,80}$/i.test(supplied)) return supplied;
-  return `imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `imgjob-${crypto.randomUUID()}`;
 }
 
 function hasVisualChatAttachment(value, seen = new Set()) {
@@ -89,25 +164,8 @@ async function extractProxyRequest(req, res) {
   return { body, baseUrl, apiKey, extraHeaders };
 }
 
-async function fetchWithValidatedRedirects(url, options, { allowPrivate = privateUpstreamAllowed(), maxRedirects = 5, fetchImpl = fetch } = {}) {
-  let currentUrl = new URL(String(url));
-  for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
-    if (!await assertResolvedUpstreamUrl(currentUrl, { allowPrivate })) {
-      const err = new Error('上游地址解析到非公网网络或无法解析');
-      err.statusCode = 400;
-      err.code = 'INVALID_UPSTREAM_ADDRESS';
-      throw err;
-    }
-    const requestOptions = { ...options, redirect: 'manual' };
-    if (!allowPrivate) requestOptions.dispatcher = upstreamDispatcher({ allowPrivate });
-    const response = await fetchImpl(currentUrl, requestOptions);
-    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
-    const location = response.headers.get('location');
-    if (!location) return response;
-    if (redirects === maxRedirects) throw new Error('上游重定向次数过多');
-    currentUrl = new URL(location, currentUrl);
-  }
-  throw new Error('上游重定向次数过多');
+async function fetchWithValidatedRedirects(url, options, optionsOverride) {
+  return getLegacyUpstreamService().fetchWithValidatedRedirects(url, options, optionsOverride);
 }
 
 function readUpstreamErrorDetails(err) {
@@ -145,17 +203,8 @@ function summarizeUpstreamRequest(url, { method, body, job } = {}) {
   };
 }
 
-function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs }) {
-  const controller = new AbortController();
-  if (job) job.controller = controller;
-  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
-  const request = summarizeUpstreamRequest(url, { method, body, job });
-  const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
-    .catch(err => {
-      safeLog('[upstream-request] failed', { ...request, ...readUpstreamErrorDetails(err) }, { always: true });
-      throw err;
-    });
-  return { response, controller, timer };
+function createUpstreamFetch(url, options) {
+  return getLegacyUpstreamService().createUpstreamFetch(url, options);
 }
 
 function safeParseJson(text) {
@@ -198,10 +247,13 @@ function normalizeUpstreamErrorMessage(err, { aborted = false } = {}) {
   return `上游请求失败：${message || '未知错误'}`;
 }
 
-function findJobOr404(store, id, res) {
+function findJobOr404(store, id, res, req) {
   const job = store.get(id);
-  if (!job) sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+  if (!job || !canAccessJob(job, req)) {
+    sendJson(res, 404, jobNotFoundPayload({ includeCode: req?.authRequired === true }));
+    return null;
+  }
   return job;
 }
 
-module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };
+module.exports = { createUpstreamRequestService, CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };

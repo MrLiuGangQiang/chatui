@@ -16,7 +16,7 @@
     function updateReasoning(e,t,s={}) {
       with (deps) {
         if(!e)return;
-        if(!state.reasoningMode){forceRemoveReasoning(e); return;}
+        if(!state.reasoningMode&&!s.restoreHistory){forceRemoveReasoning(e); return;}
         const n=String(t||"");
         const done=!0===s.done;
         const unavailable=!0===s.unavailable;
@@ -233,7 +233,8 @@
           ? normalizeReasoningType(state.reasoningType)
           : state.reasoningMode ? "low" : "none";
         saveActiveReasoningPreference();
-        if (!state.reasoningMode) clearAllReasoningDisplays();
+        // This preference applies to subsequent requests only. Completed response
+        // reasoning remains visible and durable regardless of the next-request mode.
         updateReasoningControls();
       }
     }
@@ -244,7 +245,8 @@
         state.reasoningType = normalizeReasoningType(value);
         state.reasoningMode = REASONING_EFFORTS.includes(state.reasoningType);
         saveActiveReasoningPreference();
-        if (!state.reasoningMode) clearAllReasoningDisplays();
+        // This preference applies to subsequent requests only. Completed response
+        // reasoning remains visible and durable regardless of the next-request mode.
         updateReasoningControls();
       }
     }

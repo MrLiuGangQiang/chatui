@@ -64,16 +64,33 @@
     } : null;
   }
 
+  function sameResponseIndex(left, right) {
+    if (left === undefined || left === null || left === '' || right === undefined || right === null || right === '') return false;
+    return String(left) === String(right);
+  }
+
+  function chatJobMatchesDisplay(stored, display) {
+    if (!stored?.id || !display?.id) return false;
+    return stored.id === display.id
+      || !!(stored.displayItemId && display.displayItemId && String(stored.displayItemId) === String(display.displayItemId))
+      || sameResponseIndex(stored.responseIndex, display.responseIndex);
+  }
+
   function loadLatestChatJob(sessionId, deps = {}) {
     const stored = loadJob(sessionId, deps, 'chat');
     const display = loadDisplayChatJob(sessionId, deps);
     if (!stored?.id) return display;
     if (!display?.id) return stored;
-    return display.id === stored.id ? {
+    // The localStorage job contains the only resumable request payload. IndexedDB
+    // display snapshots can lag behind it while a tab is switched or reloaded, so
+    // never replace a durable job with a payload-less display fallback just because
+    // their ids differ. Only use display fields to rebind the matching UI item.
+    if (!chatJobMatchesDisplay(stored, display)) return stored;
+    return {
       ...stored,
-      displayItemId: stored.displayItemId || display.displayItemId,
-      responseIndex: stored.responseIndex ?? display.responseIndex,
-    } : display;
+      displayItemId: display.displayItemId || stored.displayItemId || '',
+      responseIndex: display.responseIndex ?? stored.responseIndex,
+    };
   }
 
   function appendResumeOffsets(url, aggregateEvent, options = {}) {

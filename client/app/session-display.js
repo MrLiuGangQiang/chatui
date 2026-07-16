@@ -139,7 +139,8 @@
       else if (Array.isArray(message.content)) content = message.content.map(item => item && typeof item === 'object' ? JSON.parse(JSON.stringify(item)) : item);
       else content = String(message.content || '');
       const clean = { ...message, role: message.role, content };
-      if (!state.reasoningMode) delete clean.reasoning_content;
+      // Reasoning is part of an already completed assistant response. The current
+      // send preference only controls future requests, so it must not erase history.
       const sanitized = sanitizeStoredMessage(clean);
       return messageRecords.normalizeCanonicalMessage
         ? messageRecords.normalizeCanonicalMessage(sanitized, { sessionId: sessionId || state.activeSessionId || 'session', sequence })

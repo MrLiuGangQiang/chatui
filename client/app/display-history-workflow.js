@@ -108,12 +108,18 @@
     function restorePendingDisplayItems(session, pendingItems = []) {
       with (deps) {
         if (!session || !pendingItems.length) return;
-        const activeJobIds = new Set([loadImageJob(session.id)?.id, loadLatestChatJob(session.id)?.id].filter(Boolean));
+        const activeImageJob = loadImageJob(session.id);
+        const activeChatJob = loadLatestChatJob(session.id);
+        const activeJobIds = new Set([activeImageJob?.id, activeChatJob?.id].filter(Boolean));
         const sessionActive = !!(isSessionBusy(session.id) || getActiveRun(session.id));
         const userCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'user').length : 0;
         const assistantCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'assistant' && !isChatStatusText(item.content || item.rawText || '')).length : 0;
         const hasCompletePair = userCount > 0 && assistantCount >= userCount;
-        if (hasCompletePair) clearChatJob(session.id);
+        // A persisted chat job is explicit recovery evidence. Message-count
+        // heuristics are not allowed to clear it: snapshots can contain a prior
+        // assistant response while a replacement or a newly-started response is
+        // still pending.
+        if (hasCompletePair && !activeChatJob?.id) clearChatJob(session.id);
         const hasCompletedImage = item => {
           if (!isImagePendingDisplayItem(item)) return false;
           const jobId = String(item.jobId || ''), displayId = String(item.id || ''), responseIndex = String(item.responseIndex || '');
@@ -124,10 +130,20 @@
           ));
         };
         const hasCompletedChat = item => !isImagePendingDisplayItem(item) && sessionHasCompletedAssistantForResponse(session, item.responseIndex);
+        const matchesActiveChatJob = item => !!activeChatJob?.id && !isImagePendingDisplayItem(item) && (
+          String(item.jobId || '') === String(activeChatJob.id)
+          || (item.id && activeChatJob.displayItemId && String(item.id) === String(activeChatJob.displayItemId))
+          || (item.responseIndex !== '' && item.responseIndex !== undefined && activeChatJob.responseIndex !== '' && activeChatJob.responseIndex !== undefined && String(item.responseIndex) === String(activeChatJob.responseIndex))
+        );
+        // Reconcile a lagging pending snapshot to the durable job before stale
+        // pending cleanup can discard the UI anchor needed after a switch/refresh.
+        (pendingItems || []).forEach(item => {
+          if (item?.pending === '1' && matchesActiveChatJob(item)) item.jobId = activeChatJob.id;
+        });
         const hasMeaningfulText = item => !!String(item.rawText || '').trim() && !isChatStatusText(item.rawText || '');
         const shouldKeepPending = item => isImagePendingDisplayItem(item)
           ? !hasCompletedImage(item) && item.jobId && activeJobIds.has(item.jobId)
-          : !hasCompletedChat(item) && ((item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
+          : !hasCompletedChat(item) && (matchesActiveChatJob(item) || (item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
         const keptPending = pendingItems.filter(item => item?.pending === '1' && shouldKeepPending(item));
         if (session.display?.length) {
           const before = session.display.length;
@@ -258,7 +274,10 @@
               lazy: false,
               deferEnhance: false,
             });
-        if (state.reasoningMode && normalized?.reasoning_content && normalized.role === 'assistant') updateReasoning(node, normalized.reasoning_content, { done: true, keepReasoning: true });
+        // A saved reasoning trace belongs to this response even when reasoning is
+        // currently disabled for new requests. Restore it independently of the
+        // composer preference so a refresh cannot hide completed history.
+        if (normalized?.reasoning_content && normalized.role === 'assistant') updateReasoning(node, normalized.reasoning_content, { done: true, keepReasoning: true, restoreHistory: true });
         node.dataset.rawText = String(displayText || '');
         if (normalized.id) node.dataset.messageId = normalized.id;
         if (normalized.role === 'user') node.dataset.messageIndex = String(canonicalIndex);

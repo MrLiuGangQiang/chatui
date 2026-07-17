@@ -15,6 +15,27 @@
     return appState.activeRuns?.get(sessionId) || null;
   }
 
+  function isLiveRun(run) {
+    return !!run && run.stopped !== true && run.abortController?.signal?.aborted !== true;
+  }
+
+  function pendingSubmitResumeKey(sessionId) {
+    return `submit:${sessionId || ''}`;
+  }
+
+  function beginPendingSubmitResume(appState, sessionId) {
+    if (!appState || !sessionId || isLiveRun(getActiveRun(appState, sessionId))) return '';
+    appState.resumingJobs ||= new Set();
+    const key = pendingSubmitResumeKey(sessionId);
+    if (appState.resumingJobs.has(key)) return '';
+    appState.resumingJobs.add(key);
+    return key;
+  }
+
+  function finishPendingSubmitResume(appState, sessionId) {
+    appState?.resumingJobs?.delete?.(pendingSubmitResumeKey(sessionId));
+  }
+
   function ensureActiveRun(appState, sessionId, make = makeRun) {
     let run = getActiveRun(appState, sessionId);
     if (!run) {
@@ -43,7 +64,7 @@
     return run;
   }
 
-  const api = Object.freeze({ makeRun, getActiveRun, ensureActiveRun, addActiveRunJob, isRunStopped, bindFollowingRun });
+  const api = Object.freeze({ makeRun, getActiveRun, isLiveRun, pendingSubmitResumeKey, beginPendingSubmitResume, finishPendingSubmitResume, ensureActiveRun, addActiveRunJob, isRunStopped, bindFollowingRun });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppRuns = api;

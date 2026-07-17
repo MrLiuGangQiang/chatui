@@ -305,9 +305,121 @@
       };
     }
 
-    async function persistMigratedSessionPayload(item, payload) {
+    function messageRecoverySignature(message = {}) {
+      let content = message.content;
+      if (typeof content !== 'string') {
+        try { content = JSON.stringify(content ?? ''); } catch { content = String(content ?? ''); }
+      }
+      return JSON.stringify([
+        message.role || '',
+        content || message.rawText || '',
+        message.imageContext || '',
+        message.attachmentContext || '',
+      ]);
+    }
+
+    function signatureList(messages = []) {
+      return (messages || []).map(messageRecoverySignature);
+    }
+
+    function isOrderedSubsequence(needles = [], haystack = []) {
+      if (!needles.length) return true;
+      let cursor = 0;
+      for (const value of haystack) {
+        if (value === needles[cursor]) cursor += 1;
+        if (cursor >= needles.length) return true;
+      }
+      return false;
+    }
+
+    function commonPrefixLength(left = [], right = []) {
+      let index = 0;
+      while (index < left.length && index < right.length && left[index] === right[index]) index += 1;
+      return index;
+    }
+
+    function suffixPrefixOverlap(left = [], right = []) {
+      const max = Math.min(left.length, right.length);
+      for (let size = max; size > 0; size -= 1) {
+        let matches = true;
+        for (let index = 0; index < size; index += 1) {
+          if (left[left.length - size + index] !== right[index]) { matches = false; break; }
+        }
+        if (matches) return size;
+      }
+      return 0;
+    }
+
+    function reindexRecoveredMessages(messages = [], sessionId = '') {
+      const ordered = messages.map((message, index) => {
+        const next = { ...message, sequence: index, id: `${sessionId || 'session'}:${message.role || 'message'}:${index}` };
+        if (message.role === 'user') {
+          next.messageIndex = String(index);
+          delete next.responseIndex;
+        } else if (message.role === 'assistant') {
+          next.responseIndex = String(index);
+          delete next.messageIndex;
+        }
+        return next;
+      });
+      return normalizeMessageList(ordered, sessionId);
+    }
+
+    function overlaySubsequence(base = [], overlay = []) {
+      const merged = base.map(message => ({ ...message }));
+      let cursor = 0;
+      overlay.forEach(message => {
+        const signature = messageRecoverySignature(message);
+        for (let index = cursor; index < merged.length; index += 1) {
+          if (messageRecoverySignature(merged[index]) !== signature) continue;
+          merged[index] = { ...merged[index], ...message };
+          cursor = index + 1;
+          return;
+        }
+      });
+      return merged;
+    }
+
+    function reconcileSnapshotWithLegacy(item, snapshotMessages = [], legacyPayload = {}) {
+      const current = normalizeMessageList(snapshotMessages, item.id);
+      const migratedLegacy = migrateSessionPayload(item, legacyPayload);
+      const legacy = migratedLegacy.messages || [];
+      if (!legacy.length) return { messages: current, repaired: false, legacy: migratedLegacy };
+
+      const currentSignatures = signatureList(current);
+      const legacySignatures = signatureList(legacy);
+      if (currentSignatures.length >= legacySignatures.length) {
+        return { messages: current, repaired: false, legacy: migratedLegacy };
+      }
+
+      let recovered;
+      if (isOrderedSubsequence(currentSignatures, legacySignatures)) {
+        recovered = overlaySubsequence(legacy, current);
+      } else {
+        const prefix = commonPrefixLength(currentSignatures, legacySignatures);
+        if (prefix > 0) {
+          // The IndexedDB snapshot replaced or added records at the start of the
+          // conversation but stopped before the older backup did. Keep current
+          // records authoritative at matching positions and recover the hidden tail.
+          recovered = [...current, ...legacy.slice(current.length)];
+        } else {
+          // During the IndexedDB transition an empty working session could start
+          // again at index zero while the complete older conversation remained in
+          // localStorage. Preserve both timelines instead of dropping either one.
+          const overlap = suffixPrefixOverlap(legacySignatures, currentSignatures);
+          recovered = [...legacy, ...current.slice(overlap)];
+        }
+      }
+      return {
+        messages: reindexRecoveredMessages(recovered, item.id),
+        repaired: true,
+        legacy: migratedLegacy,
+      };
+    }
+
+    async function persistMigratedSessionPayload(item, payload, minimumRevision = 0) {
       if (!snapshotStore?.schedulePut || snapshotStore.supported === false) return 0;
-      const revision = Math.max(Date.now(), Number(item.updatedAt || 0), Number(item.snapshotUpdatedAt || 0) + 1);
+      const revision = Math.max(Date.now(), Number(item.updatedAt || 0), Number(item.snapshotUpdatedAt || 0) + 1, Number(minimumRevision || 0) + 1);
       try {
         await snapshotStore.schedulePut({
           id: item.id,
@@ -329,13 +441,22 @@
       try { snapshot = await snapshotStore?.getSnapshot?.(item.id); } catch (err) { console.warn('load session snapshot failed', err); }
       if (snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages)) {
         const snapshotRevision = Number(snapshot.updatedAt || 0);
-        return {
-          messages: normalizeMessageList(snapshot.messages, item.id),
+        const legacyPayload = readLegacySessionPayload(item);
+        const reconciliation = reconcileSnapshotWithLegacy(item, snapshot.messages, legacyPayload);
+        const repairedPayload = {
+          messages: reconciliation.messages,
           pendingDisplay: pendingDisplayItems(snapshot.pendingDisplay || []),
-          lastGeneratedImage: snapshot.lastGeneratedImage || null,
+          lastGeneratedImage: snapshot.lastGeneratedImage || reconciliation.legacy.lastGeneratedImage || null,
+        };
+        const repairedRevision = reconciliation.repaired
+          ? await persistMigratedSessionPayload(item, repairedPayload, snapshotRevision)
+          : 0;
+        const durableRevision = Math.max(snapshotRevision, repairedRevision);
+        return {
+          ...repairedPayload,
           updatedAt: item.updatedAt,
-          snapshotUpdatedAt: snapshotRevision,
-          persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0), snapshotRevision),
+          snapshotUpdatedAt: durableRevision,
+          persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0), durableRevision),
         };
       }
 

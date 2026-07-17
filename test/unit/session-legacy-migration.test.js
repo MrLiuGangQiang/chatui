@@ -116,6 +116,139 @@ async function testCurrentSnapshotWinsOverStaleLegacyBackup() {
   assert.strictEqual(migrationWrites, 0, 'current snapshots should not be rewritten as legacy migrations');
 }
 
+
+async function testPartialCurrentSnapshotRecoversRicherLegacyHistory() {
+  const sessionId = 'partial-current-session';
+  const storage = createStorage({
+    sessions: [{ id: sessionId, title: '??????', updatedAt: 40 }],
+    active: sessionId,
+    [`chat:${sessionId}`]: [
+      { role: 'user', content: '????', messageIndex: '0' },
+      { role: 'assistant', content: '????', responseIndex: '1' },
+      { role: 'user', content: '????', messageIndex: '2' },
+      { role: 'assistant', content: '????', responseIndex: '3' },
+    ],
+  });
+  const state = { sessions: [], activeSessionId: '', messages: [], models: [], reasoningMode: false };
+  let repairedSnapshot = null;
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => ({
+        id: sessionId,
+        snapshotVersion: 2,
+        updatedAt: 50,
+        messages: [
+          { role: 'user', content: '????????', messageIndex: '0' },
+          { role: 'assistant', content: '????????', responseIndex: '1' },
+        ],
+        pendingDisplay: [],
+      }),
+      schedulePut: async snapshot => { repairedSnapshot = JSON.parse(JSON.stringify(snapshot)); },
+    },
+  });
+
+  await workflow.loadSessions();
+
+  assert.deepStrictEqual(state.messages.map(item => item.content), [
+    '????',
+    '????',
+    '????',
+    '????',
+    '????????',
+    '????????',
+  ], 'a partial v2 snapshot created during the storage transition must not hide the richer legacy history');
+  assert.deepStrictEqual(
+    state.messages.map(item => item.role === 'user' ? item.messageIndex : item.responseIndex),
+    ['0', '1', '2', '3', '4', '5'],
+    'recovered and current messages should receive one collision-free canonical order',
+  );
+  assert.ok(repairedSnapshot, 'the repaired combined history should be persisted back to snapshot v2');
+  assert.deepStrictEqual(repairedSnapshot.messages.map(item => item.content), state.messages.map(item => item.content));
+}
+
+
+async function testPartialSnapshotThatMatchesLegacyPrefixRestoresLegacyTail() {
+  const sessionId = 'partial-prefix-session';
+  const storage = createStorage({
+    sessions: [{ id: sessionId, title: '????', updatedAt: 40 }],
+    active: sessionId,
+    [`chat:${sessionId}`]: [
+      { role: 'user', content: '?????', messageIndex: '0' },
+      { role: 'assistant', content: '?????', responseIndex: '1' },
+      { role: 'user', content: '??????', messageIndex: '2' },
+      { role: 'assistant', content: '??????', responseIndex: '3' },
+    ],
+  });
+  const state = { sessions: [], activeSessionId: '', messages: [], models: [], reasoningMode: false };
+  let repairedSnapshot = null;
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => ({
+        id: sessionId,
+        snapshotVersion: 2,
+        updatedAt: 50,
+        messages: [
+          { role: 'user', content: '?????', messageIndex: '0' },
+          { role: 'assistant', content: '?????', responseIndex: '1', reasoning_content: '???????' },
+        ],
+        pendingDisplay: [],
+      }),
+      schedulePut: async snapshot => { repairedSnapshot = JSON.parse(JSON.stringify(snapshot)); },
+    },
+  });
+
+  await workflow.loadSessions();
+
+  assert.deepStrictEqual(state.messages.map(item => item.content), ['?????', '?????', '??????', '??????']);
+  assert.strictEqual(state.messages[1].reasoning_content, '???????', 'newer snapshot metadata should enrich matching recovered records');
+  assert.ok(repairedSnapshot, 'a prefix-only snapshot should be repaired with the legacy tail');
+}
+
+async function testRicherCurrentSnapshotStillWinsOverShortLegacyBackup() {
+  const sessionId = 'richer-current-session';
+  const storage = createStorage({
+    sessions: [{ id: sessionId, title: '????', updatedAt: 40 }],
+    active: sessionId,
+    [`chat:${sessionId}`]: [
+      { role: 'user', content: '????', messageIndex: '0' },
+      { role: 'assistant', content: '????', responseIndex: '1' },
+    ],
+  });
+  const state = { sessions: [], activeSessionId: '', messages: [], models: [], reasoningMode: false };
+  let migrationWrites = 0;
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => ({
+        id: sessionId,
+        snapshotVersion: 2,
+        updatedAt: 50,
+        messages: [
+          { role: 'user', content: '?????', messageIndex: '0' },
+          { role: 'assistant', content: '?????', responseIndex: '1' },
+          { role: 'user', content: '?????', messageIndex: '2' },
+          { role: 'assistant', content: '?????', responseIndex: '3' },
+        ],
+        pendingDisplay: [],
+      }),
+      schedulePut: async () => { migrationWrites += 1; },
+    },
+  });
+
+  await workflow.loadSessions();
+
+  assert.deepStrictEqual(state.messages.map(item => item.content), ['?????', '?????', '?????', '?????']);
+  assert.strictEqual(migrationWrites, 0, 'a richer current snapshot must not be rewritten from a shorter stale backup');
+}
+
 async function testVersionOneSnapshotUsesLegacyNormalizer() {
   const sessionId = 'snapshot-v1';
   const storage = createStorage({
@@ -149,5 +282,8 @@ async function testVersionOneSnapshotUsesLegacyNormalizer() {
 module.exports = [
   testLegacyLocalStorageSessionMigratesIntoSnapshotV2,
   testCurrentSnapshotWinsOverStaleLegacyBackup,
+  testPartialCurrentSnapshotRecoversRicherLegacyHistory,
+  testPartialSnapshotThatMatchesLegacyPrefixRestoresLegacyTail,
+  testRicherCurrentSnapshotStillWinsOverShortLegacyBackup,
   testVersionOneSnapshotUsesLegacyNormalizer,
 ];

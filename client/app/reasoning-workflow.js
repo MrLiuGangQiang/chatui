@@ -65,9 +65,9 @@
       }
     }
 
-    function finishReasoning(e,t) {
+    function finishReasoning(e,t,s={}) {
       with (deps) {
-        if(!state.reasoningMode)return void clearReasoning(e);const s=String(t||e?.dataset.reasoningText||"").trim();s?updateReasoning(e,s,{done:!0,persistSave:!0,keepReasoning:!0,renderMarkdown:!0,forceRenderMarkdown:!0}):showReasoningUnavailable(e)
+        if(!state.reasoningMode&&!s.preserve)return void clearReasoning(e);const n=String(t||e?.dataset.reasoningText||"").trim();n?updateReasoning(e,n,{done:!0,persistSave:!0,keepReasoning:!0,renderMarkdown:!0,forceRenderMarkdown:!0,restoreHistory:!!s.preserve}):showReasoningUnavailable(e)
       }
     }
 
@@ -107,7 +107,8 @@
 
     function reasoningPayloadOptions(options = {}) {
       with (deps) {
-        if (options.reasoning === false || !state.reasoningMode || !isGpt5ReasoningModel(options.model)) return {};
+        const reasoningEnabled = options.reasoning === undefined ? !!state.reasoningMode : !!options.reasoning;
+        if (!reasoningEnabled || !isGpt5ReasoningModel(options.model)) return {};
         const effort = normalizeReasoningType(options.reasoningEffort || state.reasoningType);
         return REASONING_EFFORTS.includes(effort) ? { reasoning_effort: effort } : {};
       }

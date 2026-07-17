@@ -33,6 +33,16 @@ function testGpt5ReasoningUsesOnlyOpenAiEffort() {
     'explicitly disabled reasoning should not emit an OpenAI reasoning payload'
   );
 
+
+  const disabledStateWorkflow = reasoning.createReasoningWorkflow({
+    state: { reasoningMode: false, reasoningType: 'none' },
+  });
+  assert.deepStrictEqual(
+    disabledStateWorkflow.reasoningPayloadOptions({ model: 'gpt-5', reasoning: true, reasoningEffort: 'high' }),
+    { reasoning_effort: 'high' },
+    'explicit request-scoped reasoning must override another active session disabling the global control'
+  );
+
   assert.deepStrictEqual(
     workflow.reasoningPayloadOptions({ model: 'gpt-5', reasoningEffort: 'xhigh' }),
     { reasoning_effort: 'xhigh' },

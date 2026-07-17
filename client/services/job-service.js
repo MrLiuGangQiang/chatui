@@ -55,25 +55,25 @@ function postJsonWithUploadProgress({ url, body, signal, onProgress, parseRespon
   });
 }
 
-async function startChatJob({ payload, config, jobId, headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
+async function startChatJob({ payload, config, jobId, api = 'chat', headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/chat-jobs',
     signal,
     parseResponseJson,
     normalizeError,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, headers },
   });
 }
 
-async function registerChatStreamJob({ payload, config, jobId, start = false, headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
+async function registerChatStreamJob({ payload, config, jobId, api = 'chat', start = false, headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/chat-stream-jobs',
     signal,
     parseResponseJson,
     normalizeError,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, start, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, start, headers },
   });
 }
 
@@ -97,6 +97,13 @@ async function disposeManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {
   return fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
 }
 
+function makeTerminalJobError(message = 'Managed job failed') {
+  const error = new Error(message || 'Managed job failed');
+  error.name = 'JobTerminalError';
+  error.terminalJob = true;
+  return error;
+}
+
 function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => false, fetchImpl = fetch, pollJob = null, pollIntervalMs = 2500 }) {
   let abort = null;
   let pollTimer = null;
@@ -118,7 +125,7 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
       if (job.status === 'done') {
         const data = job.data && typeof job.data === 'object' ? { ...job.data, metrics: job.metrics || job.data.metrics || {} } : job.data;
         finish(resolve, data);
-      } else if (job.status === 'error') finish(reject, new Error(job.error?.message || '任务失败'));
+      } else if (job.status === 'error') finish(reject, makeTerminalJobError(job.error?.message));
     };
     const processLine = (line, buffer) => {
       if (line.startsWith('event: ')) buffer.event = line.slice(7).trim();
@@ -211,6 +218,7 @@ const api = Object.freeze({
   getJob,
   abortManagedJob,
   disposeManagedJob,
+  makeTerminalJobError,
   waitJobEvent,
   startImageGenerationJob,
 });

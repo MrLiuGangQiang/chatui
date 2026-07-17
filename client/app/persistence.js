@@ -96,7 +96,7 @@ function compactJobForStorage(job, keepPayload = true) {
 }
 
 function safeSetJobStorage(storage, key, job) {
-  if (!job?.id) return;
+  if (!job?.id) return null;
   const fallbacks = [
     compactJobForStorage(job, true),
     compactJobForStorage(job, false),
@@ -107,6 +107,8 @@ function safeSetJobStorage(storage, key, job) {
       displayItemId: job.displayItemId || '',
       responseIndex: job.responseIndex ?? null,
       mode: job.mode || '',
+      api: job.api || 'chat',
+      submissionId: job.submissionId || '',
       imageContext: job.imageContext || null,
       liveItemRawText: job.liveItemRawText || '',
     },
@@ -114,12 +116,12 @@ function safeSetJobStorage(storage, key, job) {
   for (const candidate of fallbacks) {
     try {
       storage.setItem(key, JSON.stringify(candidate));
-      return;
+      return candidate;
     } catch (err) {
       if (!/quota|exceed/i.test(`${err?.name || ''} ${err?.message || ''} ${err || ''}`)) throw err;
     }
   }
-  try { storage.removeItem(key); } catch {}
+  return null;
 }
 
 const persistenceApi = Object.freeze({

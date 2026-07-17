@@ -83,6 +83,27 @@ function testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents() {
   assert.deepStrictEqual(job.streamDelta, { content: 'fallback content', reasoning: 'fallback reasoning' });
 }
 
+function testResponsesManagedStreamUsesResponsesParserAndEndpoint() {
+  const { handlers } = createHandlers();
+  const job = handlers.makeChatJob(
+    'chatjob-responses123',
+    'https://api.example.com/v1',
+    'sk-test',
+    { model: 'gpt-5-mini', input: [] },
+    { stream: true, api: 'responses' }
+  );
+  assert.strictEqual(job.api, 'responses');
+  assert.strictEqual(job.targetUrl, 'https://api.example.com/v1/responses');
+  const extractResponsesStreamDelta = require('../../server/proxy/responses-stream').extractResponsesStreamDelta;
+  const chunk = [
+    sse({ type: 'response.reasoning_summary_text.delta', delta: 'reasoning' }),
+    sse({ type: 'response.output_text.delta', delta: 'answer' }),
+  ].join('');
+  assert.strictEqual(handlers.updateChatJobFromStreamChunk(job, chunk, { notify: false, extractDelta: extractResponsesStreamDelta }), true);
+  assert.strictEqual(job.data.choices[0].message.reasoning_content, 'reasoning');
+  assert.strictEqual(job.data.choices[0].message.content, 'answer');
+}
+
 function testChatStreamChunkParserNotifiesPerEventWhenEnabled() {
   const { handlers, notifications } = createHandlers();
   const job = makeJob(handlers);
@@ -104,4 +125,5 @@ module.exports = [
   testChatStreamChunkParserHandlesMultipleEventsAndDone,
   testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents,
   testChatStreamChunkParserNotifiesPerEventWhenEnabled,
+  testResponsesManagedStreamUsesResponsesParserAndEndpoint,
 ];

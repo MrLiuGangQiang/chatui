@@ -29,7 +29,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.77-session-run-owner'),
+    index.includes('submit-workflow.js?v=1.2.79-task-lifecycle-state-machine'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
 }

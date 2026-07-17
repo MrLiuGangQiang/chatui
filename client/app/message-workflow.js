@@ -1,6 +1,18 @@
 (function initChatUIAppMessageWorkflow(root) {
   // Intentionally not strict: message rendering bodies are migrated from app.js and resolved through a deps scope.
 
+  function reconcileCompletedMessageUi(node, resetMessageActionStates = () => {}) {
+    if (!node?.dataset) return;
+    delete node.dataset.streaming;
+    delete node.dataset.streamKind;
+    delete node.dataset.streamRunToken;
+    delete node.dataset.pendingFeedback;
+    const actions = node.querySelector?.('.msg-actions');
+    actions?.removeAttribute?.('aria-hidden');
+    if (actions) actions.hidden = false;
+    resetMessageActionStates(node);
+  }
+
   function createMessageWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
@@ -344,16 +356,12 @@
         const rawValue = String(s.rawText ?? t ?? "");
         const rawHash = chatuiContentHash(rawValue);
         const streamingFinalShouldPin = e === state.activeOutputNode && !state.userScrollLocked;
-        const wasStreaming = e.dataset.streaming === '1';
         const clearStreamingState = () => {
           if (s.skipSave) return;
-          const clear = () => {
-            delete e.dataset.streaming;
-            delete e.dataset.streamKind;
-            delete e.dataset.streamRunToken;
-          };
-          if (!wasStreaming) return clear();
-          requestAnimationFrame?.(() => requestAnimationFrame?.(clear) || clear()) || setTimeout(clear, 32);
+          // Completion is a state transition, not a paint optimization. Hidden tabs
+          // may suspend requestAnimationFrame indefinitely, so clear every action-
+          // visibility guard synchronously before any optional layout settling.
+          reconcileCompletedMessageUi(e, resetMessageActionStates);
         };
         const canAutoFollowNow = () => !state.userScrollLocked && shouldFollowScroll();
         if (e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.html && !s.metaText) {
@@ -668,7 +676,7 @@
     return Object.freeze({ updateMessage, updateMessageContentLight, addMessage: addMessageProgressive, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
   }
 
-  const api = Object.freeze({ createMessageWorkflow });
+  const api = Object.freeze({ createMessageWorkflow, reconcileCompletedMessageUi });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) {
     root.ChatUIAppMessageWorkflow = api;

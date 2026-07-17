@@ -26,7 +26,7 @@ function testAcceptedStreamFailureDoesNotStartFallbackRequest() {
 function testChatWorkflowGuardsFallbackAfterAcceptance() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(source.includes('streamRequestAccepted=!0;if(!n.deferReplacementClear)return'), 'the accepted callback must record acceptance independently of replacement rendering');
-  assert.ok(source.includes('if(!shouldRetryStreamFailure({requestAccepted:streamRequestAccepted,answerStarted}))throw e;let t,'), 'the fallback request must be blocked after acceptance or visible output');
+  assert.ok(source.includes('if(!shouldRetryStreamFailure({requestAccepted:streamRequestAccepted,answerStarted}))throw e;let t;'), 'the fallback request must be blocked after acceptance or visible output');
 }
 
 module.exports = [

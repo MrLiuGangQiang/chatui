@@ -206,8 +206,7 @@
       if (options.attachmentContext !== undefined) item.attachmentContext = options.attachmentContext || '';
       if (options.quoteContext !== undefined) item.quoteContext = options.quoteContext || '';
       if (options.metaText !== undefined) item.metaText = options.metaText || '';
-      const allowReasoning = !!state.reasoningMode;
-      if (options.reasoning !== undefined) { item.reasoningText = allowReasoning ? options.reasoning || '' : ''; item.keepReasoning = allowReasoning && !!options.keepReasoning; }
+      if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning && !!item.reasoningText; }
       if (options.pending === false) { item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
       ensurePendingItem(session, item);
       if (options.deferPersist !== true) persistSessionDisplay(sessionId);

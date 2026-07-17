@@ -46,6 +46,28 @@ The model-facing router accepts exactly one protocol: `task_contract.v2`. The co
 
 This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt.
 
+## Durable task ownership and recovery
+
+Every submitted task moves through one durable ownership chain:
+
+1. **Pending submission** (`accepted` -> `captured` -> `routing` -> `handoff`) owns the task from the user's click until a restartable managed-job snapshot exists. The accepted record is written before attachment preparation or any other asynchronous work begins.
+2. **Managed job** owns chat, Responses API reasoning, image generation, and image editing after its local snapshot contains the complete replay payload and the same `submissionId`/client job id used by the server.
+3. **Canonical session snapshot** owns the completed result only after the final assistant message has committed to the session store.
+
+The transition rules are strict:
+
+- A task must always have a recoverable owner. The current owner is cleared only after the successor can independently recover the task.
+- Pending submission outranks payload-less display metadata or incomplete local-storage fallbacks. During `handoff`, it yields only to a complete job snapshot whose job id and submission id both match.
+- Upstream requests must not start when the browser cannot persist a complete replayable job payload.
+- Managed jobs are cleared only after the canonical completion commit succeeds. A failed commit retains the current owner for a later reload/retry.
+- Explicit stop and session deletion are terminal: they synchronously clear pending ownership, abort managed jobs, and prevent late asynchronous writes from recreating the deleted/cancelled task. Page leave and unexpected non-user aborts retain ownership.
+- Terminal upstream job errors release their job owner after the error is surfaced; transport and polling failures retain it so recovery can retry.
+- Active in-memory runs take precedence over storage recovery. This prevents a session switch from starting a duplicate request while the original tab is still executing it.
+
+Session display records are only transient UI projections. They may help rebind a pending bubble, but they are never authoritative without the corresponding pending submission or complete managed-job snapshot.
+
+Message completion follows the same state-machine rule in the DOM: streaming and pending flags are cleared synchronously, not through `requestAnimationFrame`, because hidden tabs may suspend animation frames and otherwise leave message actions permanently hidden.
+
 ## Testing layout
 
 - `test/unit/`: focused unit and contract tests.

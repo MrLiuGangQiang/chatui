@@ -59,8 +59,8 @@
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
         rawText: node.dataset.rawText || node.__displayItem?.rawText || '',
         html: lazy ? node.__displayItem?.html || '' : content?.innerHTML || node.__displayItem?.html || '',
-        reasoningText: deps.state.reasoningMode && node.dataset.keepReasoning === '1' ? node.dataset.reasoningText || '' : '',
-        keepReasoning: deps.state.reasoningMode && node.dataset.keepReasoning === '1',
+        reasoningText: node.dataset.keepReasoning === '1' ? node.dataset.reasoningText || '' : '',
+        keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || node.__displayItem?.messageIndex || '',
         responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
         jobId: node.dataset.jobId || node.__displayItem?.jobId || '',
@@ -111,7 +111,8 @@
         const activeImageJob = loadImageJob(session.id);
         const activeChatJob = loadLatestChatJob(session.id);
         const activeJobIds = new Set([activeImageJob?.id, activeChatJob?.id].filter(Boolean));
-        const sessionActive = !!(isSessionBusy(session.id) || getActiveRun(session.id));
+        const pendingSubmit = typeof loadPendingSubmit === 'function' ? loadPendingSubmit(session.id) : null;
+        const sessionActive = !!(isSessionBusy(session.id) || getActiveRun(session.id) || pendingSubmit);
         const userCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'user').length : 0;
         const assistantCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'assistant' && !isChatStatusText(item.content || item.rawText || '')).length : 0;
         const hasCompletePair = userCount > 0 && assistantCount >= userCount;

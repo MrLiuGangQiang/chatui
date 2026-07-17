@@ -294,17 +294,19 @@
     return copy;
   }
   function safeSetJobStorage(key, job, { storage = root.localStorage, stripLargeDataUrlsFromText = text => String(text || '') } = {}) {
-    if (!job?.id) return;
+    if (!job?.id) return null;
     const candidates = [
       compactJobForStorage(job, true, stripLargeDataUrlsFromText),
       compactJobForStorage(job, false, stripLargeDataUrlsFromText),
-      { id: job.id, prompt: job.prompt || '', startedAt: job.startedAt || Date.now(), displayItemId: job.displayItemId || '', responseIndex: job.responseIndex ?? null, mode: job.mode || '', imageContext: job.imageContext || null, liveItemRawText: job.liveItemRawText || '' },
+      { id: job.id, prompt: job.prompt || '', startedAt: job.startedAt || Date.now(), displayItemId: job.displayItemId || '', responseIndex: job.responseIndex ?? null, mode: job.mode || '', api: job.api || 'chat', submissionId: job.submissionId || '', imageContext: job.imageContext || null, liveItemRawText: job.liveItemRawText || '' },
     ];
-    for (const candidate of candidates) try { storage.setItem(key, JSON.stringify(candidate)); return; } catch (err) { if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err; }
+    for (const candidate of candidates) try { storage.setItem(key, JSON.stringify(candidate)); return candidate; } catch (err) { if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err; }
     // A failed best-effort update must not erase the last resumable job. Keeping
     // an older record is safer than converting an in-flight task into an
-    // unrecoverable one during a reload.
+    // unrecoverable one during a reload. Callers receive null and must keep the
+    // pending-submit owner instead of claiming that handoff succeeded.
     try { root?.console?.warn?.('localStorage job backup quota exceeded; retaining previous resumable job', key); } catch {}
+    return null;
   }
 
   const api = Object.freeze({ normalizeMessageOrderFields, messageSortIndex, roleSortWeight, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });

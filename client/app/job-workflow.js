@@ -5,8 +5,10 @@
     try { const raw = storage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { try { storage.removeItem(key); } catch {} return fallback; }
   }
 
+  const PENDING_SUBMIT_VERSION = 2;
+
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {
-    if (deps.isSessionDisposed?.(sessionId)) return;
+    if (deps.isSessionDisposed?.(sessionId)) return null;
     const keyFn = kind === 'image' ? deps.sessionImageJobKey : deps.sessionChatJobKey;
     if (!keyFn) throw new Error('session job key helper is required');
     return deps.safeSetJobStorage(keyFn(sessionId), job);
@@ -28,21 +30,102 @@
     return `openapi-chat-image-pending-submit-v1:${sessionId || 'default'}`;
   }
 
+  function makeSubmissionId(now = Date.now, random = Math.random) {
+    return `submit-${Number(now()).toString(36)}-${Number(random()).toString(36).slice(2, 10)}`;
+  }
+
+  function normalizePendingSubmit(pendingSubmit) {
+    if (!pendingSubmit || typeof pendingSubmit !== 'object' || Array.isArray(pendingSubmit)) return null;
+    const normalized = {
+      ...pendingSubmit,
+      version: Number(pendingSubmit.version || pendingSubmit.schemaVersion || 1) || 1,
+      submissionId: String(pendingSubmit.submissionId || ''),
+      stage: String(pendingSubmit.stage || 'routing'),
+      attachmentCount: Math.max(0, Number(pendingSubmit.attachmentCount || 0) || 0),
+    };
+    if (pendingSubmit.userCommitted !== undefined) normalized.userCommitted = !!pendingSubmit.userCommitted;
+    return normalized;
+  }
+
+  function pendingSubmitHasRecoverableInput(pendingSubmit) {
+    const pending = normalizePendingSubmit(pendingSubmit);
+    if (!pending) return false;
+    return !!String(pending.promptText || pending.rawPromptText || '').trim()
+      || !!pending.imageContext
+      || !!pending.attachmentContext
+      || pending.attachmentCount > 0;
+  }
+
+  function findPendingSubmissionMessage(messages = [], pendingSubmit = {}) {
+    const pending = normalizePendingSubmit(pendingSubmit);
+    if (!pending || !Array.isArray(messages)) return null;
+    if (pending.submissionId) {
+      const match = messages.find((message) => message?.role === 'user' && message.submissionId === pending.submissionId);
+      if (match) return match;
+    }
+    const index = Number(pending.messageIndex);
+    if (!Number.isFinite(index) || messages[index]?.role !== 'user') return null;
+    const message = messages[index];
+    const expectedText = String(pending.rawPromptText || pending.promptText || '').trim();
+    const actualText = String(message.rawText || (typeof message.content === 'string' ? message.content : '') || '').trim();
+    return !expectedText || expectedText === actualText ? message : null;
+  }
+
+  function isPendingSubmissionCommitted(messages = [], pendingSubmit = {}) {
+    if (findPendingSubmissionMessage(messages, pendingSubmit)) return true;
+    const pending = normalizePendingSubmit(pendingSubmit);
+    // Legacy pending-submit records were only written after the user message was
+    // appended. Preserve that contract while allowing v2 records to represent the
+    // earlier accepted/capturing phase explicitly.
+    return pending?.userCommitted !== false;
+  }
+
   function loadPendingSubmit(sessionId = '', deps = {}) {
-    return readJsonStorage(pendingSubmitKey(sessionId), deps.storage || root.localStorage, null);
+    return normalizePendingSubmit(readJsonStorage(pendingSubmitKey(sessionId), deps.storage || root.localStorage, null));
   }
 
   function savePendingSubmit(sessionId = '', pendingSubmit = {}, deps = {}) {
-    if (deps.isSessionDisposed?.(sessionId)) return;
-    return (deps.storage || root.localStorage).setItem(pendingSubmitKey(sessionId), JSON.stringify({ ...pendingSubmit, savedAt: Date.now() }));
+    if (deps.isSessionDisposed?.(sessionId)) return false;
+    const normalized = normalizePendingSubmit({
+      ...pendingSubmit,
+      version: PENDING_SUBMIT_VERSION,
+      savedAt: Date.now(),
+    });
+    (deps.storage || root.localStorage).setItem(pendingSubmitKey(sessionId), JSON.stringify(normalized));
+    return true;
+  }
+
+  function mergePendingSubmit(sessionId = '', patch = {}, deps = {}) {
+    const current = loadPendingSubmit(sessionId, deps) || {};
+    return savePendingSubmit(sessionId, { ...current, ...patch }, deps);
   }
 
   function clearPendingSubmit(sessionId = '', deps = {}) {
     return (deps.storage || root.localStorage).removeItem(pendingSubmitKey(sessionId));
   }
 
+  function isRecoverableJobSnapshot(savedJob, expectedJob = {}) {
+    if (!savedJob?.id || savedJob.id !== expectedJob?.id) return false;
+    if (expectedJob.submissionId && savedJob.submissionId !== expectedJob.submissionId) return false;
+    return !!savedJob.payload && typeof savedJob.payload === 'object' && !Array.isArray(savedJob.payload);
+  }
+
+  function findPendingSubmitHandoffJob(pendingSubmit, { chatJob = null, imageJob = null } = {}) {
+    const pending = normalizePendingSubmit(pendingSubmit);
+    if (!pending || pending.stage !== 'handoff' || !pending.jobId) return null;
+    const candidates = pending.jobKind === 'image'
+      ? [['image', imageJob]]
+      : pending.jobKind === 'chat'
+        ? [['chat', chatJob]]
+        : [['chat', chatJob], ['image', imageJob]];
+    for (const [kind, job] of candidates) {
+      if (isRecoverableJobSnapshot(job, { id: pending.jobId, submissionId: pending.submissionId })) return { kind, job };
+    }
+    return null;
+  }
+
   function shouldPreservePendingSubmitOnError(err, state = {}, run = {}) {
-    return !!state.pageUnloading || !!run.stopped || err?.name === 'AbortError';
+    return !!state.pageUnloading || err?.preservePendingSubmit === true || (err?.name === 'AbortError' && !run.stopped);
   }
 
   function loadDisplayChatJob(sessionId, deps = {}) {
@@ -91,6 +174,13 @@
       displayItemId: display.displayItemId || stored.displayItemId || '',
       responseIndex: display.responseIndex ?? stored.responseIndex,
     };
+  }
+
+  function makeTerminalJobError(message = 'Managed job failed') {
+    const error = new Error(message || 'Managed job failed');
+    error.name = 'JobTerminalError';
+    error.terminalJob = true;
+    return error;
   }
 
   function appendResumeOffsets(url, aggregateEvent, options = {}) {
@@ -164,7 +254,7 @@
         if (event.status === 'done') {
           const data = event.data && typeof event.data === 'object' ? { ...event.data, metrics: event.metrics || event.data.metrics || {} } : event.data;
           finish(resolve, data);
-        } else if (event.status === 'error') finish(reject, new Error(event.error?.message || '任务失败'));
+        } else if (event.status === 'error') finish(reject, makeTerminalJobError(event.error?.message));
       };
       const poll = async () => {
         if (done || !pollJob || isPageUnloading()) return;
@@ -208,7 +298,7 @@
     });
   }
 
-  const api = Object.freeze({ readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, loadPendingSubmit, savePendingSubmit, clearPendingSubmit, shouldPreservePendingSubmitOnError, waitJobEvent });
+  const api = Object.freeze({ PENDING_SUBMIT_VERSION, readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, makeSubmissionId, normalizePendingSubmit, pendingSubmitHasRecoverableInput, findPendingSubmissionMessage, isPendingSubmissionCommitted, loadPendingSubmit, savePendingSubmit, mergePendingSubmit, clearPendingSubmit, isRecoverableJobSnapshot, findPendingSubmitHandoffJob, shouldPreservePendingSubmitOnError, makeTerminalJobError, waitJobEvent });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobWorkflow = api;

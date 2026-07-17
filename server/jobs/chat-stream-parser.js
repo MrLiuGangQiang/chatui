@@ -24,7 +24,7 @@ function extractStreamDelta(data = {}) {
   };
 }
 
-function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStreamJob = () => {}, elapsedSince = () => 1 } = {}) {
+function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStreamJob = () => {}, elapsedSince = () => 1, extractDelta = extractStreamDelta } = {}) {
   job.buffer = (job.buffer || '') + text;
   const events = job.buffer.split(/\r?\n\r?\n/);
   job.buffer = events.pop() || '';
@@ -35,7 +35,7 @@ function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStre
     const dataText = dataTextFromSseEvent(eventText);
     if (!dataText || dataText === '[DONE]') continue;
     try {
-      const { content, reasoning } = extractStreamDelta(JSON.parse(dataText));
+      const { content, reasoning } = extractDelta(JSON.parse(dataText));
       if (content || reasoning) markFirstToken(job, elapsedSince);
       if (content) { message.content += content; chunkContent += content; }
       if (reasoning) { message.reasoning_content += reasoning; chunkReasoning += reasoning; }

@@ -4,22 +4,27 @@ const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const chatStreamParser = require('./chat-stream-parser');
-const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToChatPayload } = require('../../shared/config/context-budget');
+const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
+const { extractResponsesStreamDelta } = require('../proxy/responses-stream');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
   return Math.max(1, elapsed);
 }
 
-function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {} } = {}) {
+function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {}, api = 'chat' } = {}) {
+  const normalizedApi = api === 'responses' ? 'responses' : 'chat';
+  const targetPath = normalizedApi === 'responses' ? '/responses' : '/chat/completions';
   return {
     id: jobId,
     status: 'running',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    targetUrl: `${baseUrl}/chat/completions`,
+    api: normalizedApi,
+    targetPath,
+    targetUrl: `${baseUrl}${targetPath}`,
     apiKey,
     extraHeaders: normalizeExtraHeaders(extraHeaders),
     payload: stream ? { ...payload, stream: true } : { ...payload, stream: false },
@@ -133,15 +138,15 @@ try {
     const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
     const msg = data?.choices?.[0]?.message || {};
     const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.summary_text || item?.reasoning) : '';
-    const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || data?.reasoning_content || data?.reasoning || outputReasoning || '');
+    const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || data?.reasoning_summary || data?.summary || data?.reasoning_content || data?.reasoning || outputReasoning || '');
     if (content || reasoning) markFirstToken(job);
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
-      if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false })) notifyChatStreamJob(job);
+      if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
     if (job.buffer) {
-      if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false })) notifyChatStreamJob(job);
+      if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
   }
   job.status = 'done';
@@ -164,12 +169,14 @@ const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
-  safeLog('[chat-stream-job] upstream payload', summarizeChatPayload(payload));
+  const api = body.api === 'responses' ? 'responses' : 'chat';
+  const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
+  const payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath });
+  safeLog('[chat-stream-job] upstream payload', { ...summarizeChatPayload(payload), api });
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
   if (!job) {
-    job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders });
+    job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders, api });
     chatJobs.set(jobId, job);
   }
   if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(limiter, () => runChatStreamJob(job)).catch(err => {
@@ -188,8 +195,10 @@ const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
 try {
-  const payload = applyContextBudgetToChatPayload(body.payload || {}, { contextWindowTokens });
-  safeLog('[chat-job] upstream payload', summarizeChatPayload(payload));
+  const api = body.api === 'responses' ? 'responses' : 'chat';
+  const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
+  const payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath });
+  safeLog('[chat-job] upstream payload', { ...summarizeChatPayload(payload), api });
   const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
   const job = {
@@ -197,7 +206,9 @@ try {
     status: 'running',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    targetUrl: `${baseUrl}/chat/completions`,
+    api,
+    targetPath,
+    targetUrl: `${baseUrl}${targetPath}`,
     apiKey,
     extraHeaders,
     payload: { ...payload, stream: false },

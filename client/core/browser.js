@@ -6,7 +6,6 @@
   const sharedModels = global.ChatUICoreModels || {};
   const imageReferences = global.ChatUICoreImageReferences || {};
   const imageRouteContext = global.ChatUICoreImageRouteContext || {};
-  const routeDecision = global.ChatUICoreRouteDecision || {};
   const attachments = global.ChatUICoreAttachments || {};
   const contextBudget = global.ChatUICoreContextBudget || {};
   const storage = global.ChatUICoreStorage || {};
@@ -47,7 +46,6 @@
     models,
     imageReferences: Object.freeze(imageReferences),
     imageRouteContext: Object.freeze(imageRouteContext),
-    routeDecision: Object.freeze(routeDecision),
     attachments: Object.freeze(attachments),
     contextBudget: Object.freeze(contextBudget),
     storage: Object.freeze(storage),

@@ -30,7 +30,7 @@
 
   function composePromptFromPlan(plan = {}, { input = '', context = {}, includeContext = true, includeGuardrail = false } = {}) {
     const current = compact(plan.current_user_intent || input, 1200);
-    const preserved = includeContext ? compact(plan.context_to_preserve || latestImagePromptFromContext(context), 1600) : '';
+    const preserved = includeContext ? compact(plan.context_to_preserve, 1600) : '';
     const constraints = uniqueLines(plan.constraints || []);
     const finalInstruction = compact(plan.final_instruction || current, 2400);
     const doNotAdd = uniqueLines(plan.do_not_add || []);
@@ -52,12 +52,19 @@
 
   function composeImageGeneratePrompt(task = {}, context = {}, input = '') {
     const normalized = intentContract.normalizeTaskContract ? intentContract.normalizeTaskContract(task, { input }) : task;
-    return composePromptFromPlan(normalized.prompt_plan || {}, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
+    if (normalized.task_type === 'new_task') {
+      return compact(input || normalized.prompt_plan?.current_user_intent || normalized.prompt_plan?.final_instruction, 2400);
+    }
+    const promptPlan = { ...(normalized.prompt_plan || {}) };
+    if (!promptPlan.context_to_preserve) promptPlan.context_to_preserve = latestImagePromptFromContext(context);
+    return composePromptFromPlan(promptPlan, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
   }
 
   function composeImageEditPrompt(task = {}, context = {}, input = '') {
     const normalized = intentContract.normalizeTaskContract ? intentContract.normalizeTaskContract(task, { input }) : task;
-    return composePromptFromPlan(normalized.prompt_plan || {}, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
+    const promptPlan = { ...(normalized.prompt_plan || {}) };
+    if (!promptPlan.context_to_preserve) promptPlan.context_to_preserve = latestImagePromptFromContext(context);
+    return composePromptFromPlan(promptPlan, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
   }
 
   function composeForTask(task = {}, context = {}, input = '') {

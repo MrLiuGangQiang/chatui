@@ -29,7 +29,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.75-route-request-args'),
+    index.includes('submit-workflow.js?v=1.2.76-single-task-contract'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
 }

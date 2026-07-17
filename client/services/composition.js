@@ -68,14 +68,10 @@
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
     INTENT_REVIEW_SYSTEM_PROMPT: routeService.INTENT_REVIEW_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
-    taskContractForRoute: (route, options) => routeService.taskContractForRoute(route, options),
-    applyTaskContract: (route, options) => routeService.applyTaskContract(route, options),
     needsIntentReview: (routeInfo, context) => routeService.needsIntentReview(routeInfo, context),
-    apiRouteToExecutionRoute: (simple, options) => routeService.apiRouteToExecutionRoute(simple, options),
     parseRouteResult: (text, normalizeRoute, options) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
     buildIntentReviewPayload: options => routeService.buildIntentReviewPayload(options),
-    buildImageFollowupRoutePayload: options => routeService.buildImageFollowupRoutePayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
   });
 

@@ -491,7 +491,7 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
 function canonicalRouteAction(route = {}) {
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
   const operationType = String(route?.operation?.type || '').trim();
-  if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
+  if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'clarify', 'refuse'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
   if (operationType === 'image_edit') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
   if (operationType === 'image_reference_gen') return { mode: 'image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
@@ -544,7 +544,7 @@ function targetFromPlan(plan = {}, mode = 'chat') {
 
 function normalizeRouteOperation(route = {}, mode = 'chat') {
   const raw = route && typeof route.operation === 'object' ? route.operation : {};
-  const validTypes = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit']);
+  const validTypes = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'image_edit', 'clarify', 'refuse']);
   const validScopes = new Set(['current', 'quoted', 'history', 'none', 'context']);
   const fallbackType = mode === 'image' ? 'text_to_image' : mode === 'edit_image' ? 'image_edit' : 'plain_chat';
   return {
@@ -561,7 +561,7 @@ function normalizeRouteImageRefs(route = {}) {
     const imageId = String(item?.image_id || item?.imageId || '').trim();
     const referenceId = makeImageReferenceId(item?.reference_id || item?.referenceId || referenceIdFromImageId(imageId) || '');
     const index = Number(item?.index || item?.image_index || item?.imageIndex) || (imageId ? planSelectedIndexes([imageId], referenceId)[0] : 0) || idx + 1;
-    const role = ['target', 'reference', 'source'].includes(item?.role) ? item.role : 'target';
+    const role = ['target', 'reference', 'style_reference', 'mask', 'source', 'compare_a', 'compare_b'].includes(item?.role) ? item.role : 'target';
     const target = ['uploaded', 'previous'].includes(item?.target) ? item.target : (/^imgref_uploaded_/i.test(referenceId) ? 'uploaded' : 'previous');
     const source = ['current', 'quoted', 'history'].includes(item?.source) ? item.source : 'current';
     return { role, image_id: imageId, reference_id: referenceId, index, target, source };
@@ -608,6 +608,8 @@ function normalizeRoute(route, fallbackMode = 'chat') {
   const target = rawTarget || (mode === 'image' ? 'new' : 'none');
   const confidence = Number.isFinite(Number(route && route.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
   const evidence = String(route && route.evidence || '').trim();
+  const rawTaskType = String(route && (route.task_type || route.taskType) || 'new_task');
+  const taskType = ['new_task', 'followup', 'correction', 'continuation'].includes(rawTaskType) ? rawTaskType : 'new_task';
   const selectedImageIdsRaw = normalizeSelectedImageIds(route && (route.selected_image_ids || route.selectedImageIds));
   const selectedImageIds = selectedImageIdsRaw.length ? selectedImageIdsRaw : normalizeSelectedImageIds(imageRefs.map(ref => ref.image_id).filter(Boolean));
   const selectedReferenceId = makeImageReferenceId(route && (route.selected_reference_id || route.selectedReferenceId) || (imageRefs.find(ref => ref.reference_id)?.reference_id) || planReferenceId(plan) || '');
@@ -617,6 +619,7 @@ function normalizeRoute(route, fallbackMode = 'chat') {
   const operation = normalizeRouteOperation(route || {}, mode);
   return {
     mode: plan.needClarification ? 'chat' : mode,
+    taskType: plan.needClarification ? 'new_task' : taskType,
     target: plan.needClarification ? 'none' : target,
     evidence,
     usePreviousImage: plan.needClarification ? false : mode === 'edit_image' && target === 'previous' && (confidence >= 0.75 || !evidence.length),

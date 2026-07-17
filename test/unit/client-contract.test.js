@@ -1,36 +1,22 @@
 const assert = require('assert');
 
-const routeDecision = require('../../client/core/route-decision');
 const routeService = require('../../client/services/route-service');
 const chatService = require('../../client/services/chat-service');
 const jobService = require('../../client/services/job-service');
 
-function testClientContractRouteDecisionExportsStayStable() {
+function testClientContractUsesOneTaskContractRouteProtocol() {
   for (const key of [
-    'API_ROUTES',
-    'IMAGE_SOURCES',
-    'cleanQuotedContent',
-    'stripJsonFence',
-    'isPlainTextChatInput',
-    'isImagePromptExtractionInput',
-    'isPromptWritingInput',
-    'normalizeSelectedIndexes',
-    'currentImageCount',
-    'currentFileCount',
-    'contextImageCandidates',
-    'contextFileCandidates',
-    'inferSourceFromContext',
-    'defaultIndexesForSource',
-    'selectedCandidatesForSource',
-    'targetForEditSource',
-    'imageRefTargetForSource',
-    'referenceIdForSource',
+    'ROUTE_SYSTEM_PROMPT',
+    'INTENT_REVIEW_SYSTEM_PROMPT',
+    'isTaskContractResult',
+    'parseRouteResult',
+    'buildRoutePayload',
+    'buildIntentReviewPayload',
   ]) {
-    assert.ok(key in routeDecision, `missing routeDecision export: ${key}`);
+    assert.ok(key in routeService, `missing canonical route export: ${key}`);
   }
-  assert.ok(routeDecision.API_ROUTES.has('chat'));
-  assert.ok(routeDecision.API_ROUTES.has('image_edit'));
-  assert.deepStrictEqual(routeDecision.normalizeSelectedIndexes([2, '2', 1, 0, 'bad', 3]), [2, 1, 3]);
+  assert.ok(!('apiRouteToExecutionRoute' in routeService));
+  assert.ok(!('taskContractForRoute' in routeService));
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {
@@ -61,18 +47,25 @@ function testClientContractRoutePayloadKeepsCompactShape() {
 }
 
 function testClientContractRouteParsingPreservesClarificationShape() {
+  const question = 'Please specify which image to edit.';
   const parsed = routeService.parseRouteResult(JSON.stringify({
-    route: 'image_edit',
-    need_clarification: true,
-    reply_to_user: '请明确要处理第几张图片。',
+    schema_version: 'task_contract.v2',
+    intent: 'clarify',
+    task_type: 'followup',
+    execution: { api: 'clarify', operation: 'clarify' },
+    resources: [],
+    steps: [],
+    prompt_plan: { current_user_intent: 'edit this image', context_to_preserve: '', constraints: [], do_not_add: [], final_instruction: '' },
+    clarification: { needed: true, question, missing_resources: ['image target'] },
     confidence: 0.7,
+    needs_review: false,
     reason: 'multiple candidates',
-  }), null, { input: '改一下这张图', attachments: [], context: { image_candidates: [{ index: 1, source: 'history' }, { index: 2, source: 'history' }] } });
+  }), null, { input: 'edit this image', attachments: [], context: {} });
   assert.strictEqual(parsed.mode, 'chat');
   assert.strictEqual(parsed.needClarification, true);
-  assert.strictEqual(parsed.clarificationQuestion, '请明确要处理第几张图片。');
-  assert.strictEqual(parsed.intent, 'unknown');
-  assert.strictEqual(parsed.operation.type, 'plain_chat');
+  assert.strictEqual(parsed.clarificationQuestion, question);
+  assert.strictEqual(parsed.taskContract.intent, 'clarify');
+  assert.strictEqual(parsed.operation.type, 'clarify');
 }
 
 function testClientContractServiceExportsStayStable() {
@@ -99,7 +92,7 @@ function testClientContractChatAndSseParsingShape() {
 }
 
 module.exports = [
-  testClientContractRouteDecisionExportsStayStable,
+  testClientContractUsesOneTaskContractRouteProtocol,
   testClientContractRoutePayloadKeepsCompactShape,
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractServiceExportsStayStable,

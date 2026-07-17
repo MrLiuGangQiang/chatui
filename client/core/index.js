@@ -6,7 +6,6 @@ module.exports = {
   models: require('./models'),
   imageReferences: require('./image-references'),
   imageRouteContext: require('./image-route-context'),
-  routeDecision: require('./route-decision'),
   attachments: require('./attachments'),
   contextBudget: require('./context-budget'),
 };

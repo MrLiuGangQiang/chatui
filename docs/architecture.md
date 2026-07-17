@@ -35,6 +35,17 @@ These files are part of the public static-file contract. Moving or renaming one 
 4. Server routes should delegate to a controller or service instead of embedding large use cases in route dispatch.
 5. New source belongs in an existing layer whenever possible; do not add new root-level application files without documenting the static-entry requirement.
 
+## Intent routing contract
+
+The model-facing router accepts exactly one protocol: `task_contract.v2`. The contract contains the canonical intent, task relationship (`new_task`, `followup`, `correction`, or `continuation`), execution API/operation, resources, prompt plan, clarification state, and confidence. Legacy route objects such as `{ "route": "image_generate" }` are rejected rather than adapted.
+
+`client/core/intent-contract.js` validates and normalizes the canonical contract, then projects it into the internal execution route consumed by existing workflows. That projection is an application detail, not a second model protocol. The context boundary is mandatory:
+
+- `new_task` may use only the current user input and current-turn attachments; historical resources and `context_to_preserve` are discarded.
+- `followup`, `correction`, and `continuation` may preserve history only when it is explicit in `resources` or `prompt_plan`.
+
+This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt.
+
 ## Testing layout
 
 - `test/unit/`: focused unit and contract tests.

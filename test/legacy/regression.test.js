@@ -381,7 +381,7 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=2.1.8-job-recovery') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'browser cache versions should match the current static bundle');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.2.70-durable-image-result') && index.includes('app.js?v=2.1.14-copy-polish') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'browser cache versions should match the current static bundle');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match browser cache-busting');
 }
 
@@ -1396,7 +1396,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('flat-theme.css?v=2.1.71'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.91') && index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('flat-theme.css?v=2.1.77-welcome-mobile'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1504,24 +1504,28 @@ async function testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNet
   assert.deepStrictEqual(deletedSnapshots, ['delete-me'], 'IndexedDB session deletion must start before a slow managed-job network disposal completes');
 }
 
-function testLegacyWelcomeScreenIsRestored() {
+function testWelcomeScreenShowsProductDetails() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
   assert.ok(index.includes('<section id="messages" class="messages"></section>'), 'initial HTML should keep messages empty to avoid welcome flash on refresh');
   assert.ok(!index.includes('empty-welcome'), 'static HTML should not include welcome markup before session restore');
   assert.ok(app.includes('function renderEmptyWelcome'), 'empty session renderer should recreate the old welcome screen after session switches');
-  assert.ok(app.includes('ChatUI奥哲AI小助手'), 'old welcome title should be restored in dynamic renderer');
+  assert.ok(app.includes('ChatUI奥哲AI小助手'), 'welcome title should be rendered for empty sessions');
   assert.ok(!app.includes('AI Workspace'), 'welcome screen should not include the removed AI Workspace label');
-  assert.ok(app.includes('智能路由') && app.includes('文件理解') && app.includes('图像生成'), 'welcome screen should include the polished AI accents without English label or extra icon');
+  assert.ok(!app.includes('welcome-chips') && !app.includes('<span>智能路由</span>') && !app.includes('<span>文件理解</span>') && !app.includes('<span>图像生成</span>'), 'welcome screen should not include feature chips');
   assert.ok(!app.includes('welcome-orbit'), 'welcome screen should not include the removed orbit icon');
-  assert.ok(app.includes('专注对话 · 智能思考 · 灵感生图 · 高效创作'), 'old welcome subtitle should be restored');
-  assert.ok(app.includes('本项目使用openclaw开发 手工编码量为零'), 'old welcome note should use the requested wording');
+  assert.ok(app.includes('welcome-sub') && app.includes('连接 OpenAI 兼容接口的企业 AI 工作台'), 'welcome screen should state the tool positioning below the title');
+  assert.ok(app.includes('welcome-feature-grid') && app.includes('智能对话') && app.includes('深度思考') && app.includes('文件理解') && app.includes('图像创作'), 'welcome screen should present the main capabilities as structured feature cards');
+  assert.ok(app.includes('welcome-guidelines') && app.includes('内容安全') && app.includes('AI 内容仅供参考，重要信息请核实；请勿上传密码、密钥等敏感数据。'), 'welcome screen should include accuracy and sensitive-data precautions');
+  assert.ok(app.includes('本地存储') && app.includes('聊天记录仅保存在当前浏览器。请及时备份；版本升级可能无法兼容旧数据。'), 'welcome screen should explain local-only chat storage, timely backups, and possible upgrade incompatibility');
+  assert.ok(app.includes('合规使用') && app.includes('公司 AI 仅限工作使用。严禁用于违法违规、违背道德或规避内容审查的活动。由此产生的账号封禁和 Token 消耗由个人承担。'), 'welcome screen should prohibit noncompliant and non-work use while stating personal responsibility for bans and token usage');
+  assert.ok(!app.includes('welcome-note') && !app.includes('本项目使用openclaw开发 手工编码量为零'), 'welcome screen should not include the development note');
   assert.ok(app.includes('document.querySelector(".empty-welcome")?.remove()'), 'sending the first message should remove the welcome screen');
   assert.ok(app.includes('function shouldShowEmptyWelcome'), 'welcome renderer should gate on real empty session state');
   assert.ok(app.includes('!s&&!n&&!a'), 'welcome should render only when messages, pending display items, and non-welcome DOM are all empty');
-  assert.ok(index.includes('./app.js?v=2.1.8-job-recovery'), 'app.js cache version should change after stop-stream cleanup updates');
-  assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-note') && css.includes('.welcome-chips') && css.includes('font-weight:820') && css.includes('repeating-linear-gradient(90deg,transparent 0 26px') && css.includes('linear-gradient(100deg,#111827 0%,#1d2b5f 26%,#4d6bfe 52%,#18b9ee 72%,#111827 100%)') && !css.includes('conic-gradient(from 210deg') && !css.includes('content:"AI"'), 'welcome screen should be cooler and more premium while still matching the calm flat theme');
+  assert.ok(index.includes('./app.js?v=2.1.14-copy-polish'), 'app.js cache version should change for the polished welcome copy');
+  assert.ok(css.includes('.empty-welcome') && css.includes('.welcome-title') && css.includes('.welcome-feature-grid') && css.includes('.welcome-feature') && css.includes('.welcome-guidelines') && css.includes('.welcome-guideline.is-critical') && css.includes('grid-template-columns:repeat(4,minmax(0,1fr))') && css.includes('box-shadow:0 28px 80px') && css.includes('linear-gradient(145deg,rgba(255,255,255,.98),rgba(247,250,255,.94))') && !css.includes('.welcome-chips') && !css.includes('.welcome-note{'), 'welcome screen should use the redesigned premium card, feature grid, and structured guidance panel');
   assert.ok(!css.includes('.welcome-orbit'), 'removed orbit icon styles should not remain');
 }
 
@@ -2827,7 +2831,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0);'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('app.js?v=2.1.8-job-recovery') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'cache versions should be bumped for regenerate early-refresh recovery');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('app.js?v=2.1.14-copy-polish') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'cache versions should be bumped for regenerate early-refresh recovery');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2916,7 +2920,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch'), 'CSS bundle cache versions should be bumped for visual fixes');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile') && index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch'), 'CSS bundle cache versions should be bumped for visual fixes');
 }
 
 function testArchitectureBoundaryScaffolding() {
@@ -3028,7 +3032,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=2.0.2-gpt5-reasoning') && index.includes('styles/flat-theme.css?v=2.1.71') && index.includes('app.js?v=2.1.8-job-recovery') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.73-configurable-upstream') && index.includes('bootstrap-workflow.js?v=2.0.2-gpt5-reasoning') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile') && index.includes('app.js?v=2.1.14-copy-polish') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match config copy cache-busting');
 }
 
@@ -3103,7 +3107,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(app.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(app.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n})'), 'force-image action should send the current user message directly to image generation and replace the original response');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('app.js?v=2.1.8-job-recovery') && index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.71'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.34-web-preview-first-open') && index.includes('app.js?v=2.1.14-copy-polish') && index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match the force-image bundle cache-busting version');
 }
 
@@ -3121,7 +3125,7 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.71'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile'), 'image preview zoom should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
@@ -3145,7 +3149,7 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.71'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile'), 'message action visual polish should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match message action polish cache-busting');
 }
 
@@ -3164,7 +3168,7 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(!imageWorkflow.includes('<div class="pending-feedback"') && !jobResumeWorkflow.includes('<div class="pending-feedback"'), 'image and resume workflows should use the shared pending feedback renderer instead of handcrafted HTML');
   assert.ok(!imageWorkflow.includes('IMG RUNNING') && !imageWorkflow.includes('setPendingFeedback(d,'), 'image running/waiting prompts should not use a special pending feedback branch');
   assert.ok(imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 0 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 ${t} 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(t)'), 'image generation, editing, and upload waits should use the shared pending feedback renderer');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.71'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match pending feedback cache-busting');
 }
 
@@ -3175,7 +3179,7 @@ function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
   assert.ok(flatCss.includes('body:not(.session-sidebar-collapsed) .composer,') && flatCss.includes('width:var(--ds-chat-column)!important') && flatCss.includes('left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important'), 'expanded desktop composer should match the same ds chat column as messages');
   assert.ok(flatCss.includes('--ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important') && flatCss.includes('body.session-sidebar-collapsed .messages>.message,') && flatCss.includes('body.session-sidebar-collapsed .empty{') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important'), 'collapsed desktop messages should use a wider dedicated reading column after the sidebar frees space');
   assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important') && flatCss.includes('left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important'), 'collapsed desktop composer should be centered on the same wider collapsed reading column');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.71'), 'sidebar composer width fix should bump browser cache versions');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.106-image-session-switch') && index.includes('chatui.bundle.js?v=1.3.106-image-session-switch') && index.includes('styles/flat-theme.css?v=2.1.77-welcome-mobile'), 'sidebar composer width fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.106-image-session-switch'"), 'server bundle version should match sidebar composer cache-busting');
 }
 
@@ -3225,7 +3229,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('state.reasoningMode?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('chat-workflow.js?v=1.3.21-single-request-fallback') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.8-job-recovery') && index.includes('flat-theme.css?v=2.1.71'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.75-route-request-args') && index.includes('chat-workflow.js?v=1.3.21-single-request-fallback') && index.includes('route-decision-workflow.js?v=1.3.18') && index.includes('app.js?v=2.1.14-copy-polish') && index.includes('flat-theme.css?v=2.1.77-welcome-mobile'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3275,8 +3279,8 @@ function testImageSuccessResultReconciliation() {
   assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
-  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.8-job-recovery'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.71-live-run-rebind') && index.includes('app.js?v=2.1.8-job-recovery'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.14-copy-polish'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.17-render-completed-image') && index.includes('job-resume-workflow.js?v=1.2.71-live-run-rebind') && index.includes('app.js?v=2.1.14-copy-polish'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
@@ -3398,7 +3402,7 @@ const tests = [
   testSessionSwitchFocusesBottom,
   testDeleteSessionCleansRuntimeResources,
   testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNetwork,
-  testLegacyWelcomeScreenIsRestored,
+  testWelcomeScreenShowsProductDetails,
   testHistoryRenderLoadsNewestMessagesFirst,
   testStreamingAllowsManualScroll,
   testScrollMetricsHelpersArePureAndReusedByWorkflow,

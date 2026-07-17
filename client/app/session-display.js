@@ -21,6 +21,10 @@
     const sessionStoreApi = deps.sessionStoreApi || root.ChatUISessionStore || {};
     const snapshotStore = deps.snapshotStore || sessionStoreApi.createSessionSnapshotStore?.({ indexedDBImpl: deps.indexedDB || root.indexedDB });
     const constants = deps.constants || {};
+    const sessionStorageKey = deps.sessionStorageKey || ((baseKey, sessionId) => `${baseKey}:${sessionId || 'default'}`);
+    const CHAT_KEY = constants.CHAT_KEY || 'chat-history';
+    const UI_KEY = constants.UI_KEY || 'chat-ui';
+    const LAST_IMAGE_KEY = constants.LAST_IMAGE_KEY || 'last-image';
     const SESSIONS_KEY = constants.SESSIONS_KEY || 'chat-sessions';
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'chat-active-session';
 
@@ -272,6 +276,54 @@
       };
     }
 
+    function readLegacySessionPayload(item) {
+      const messages = readJsonStorage(sessionStorageKey(CHAT_KEY, item.id), []);
+      const display = readJsonStorage(sessionStorageKey(UI_KEY, item.id), []);
+      const lastGeneratedImage = readJsonStorage(sessionStorageKey(LAST_IMAGE_KEY, item.id), null);
+      return {
+        messages: Array.isArray(messages) ? messages : [],
+        display: Array.isArray(display) ? display : [],
+        lastGeneratedImage: lastGeneratedImage || null,
+      };
+    }
+
+    function migrateSessionPayload(item, source = {}) {
+      const migrated = messageRecords.migrateLegacySession
+        ? messageRecords.migrateLegacySession({
+          sessionId: item.id,
+          messages: source.messages || [],
+          display: source.display || source.pendingDisplay || [],
+        })
+        : {
+          messages: source.messages || [],
+          pendingDisplay: source.pendingDisplay || source.display || [],
+        };
+      return {
+        messages: normalizeMessageList(migrated.messages || [], item.id),
+        pendingDisplay: pendingDisplayItems(migrated.pendingDisplay || []),
+        lastGeneratedImage: source.lastGeneratedImage || null,
+      };
+    }
+
+    async function persistMigratedSessionPayload(item, payload) {
+      if (!snapshotStore?.schedulePut || snapshotStore.supported === false) return 0;
+      const revision = Math.max(Date.now(), Number(item.updatedAt || 0), Number(item.snapshotUpdatedAt || 0) + 1);
+      try {
+        await snapshotStore.schedulePut({
+          id: item.id,
+          snapshotVersion: 2,
+          updatedAt: revision,
+          messages: payload.messages,
+          pendingDisplay: payload.pendingDisplay,
+          lastGeneratedImage: payload.lastGeneratedImage,
+        });
+        return revision;
+      } catch (err) {
+        console.warn('migrate legacy session snapshot failed; legacy data remains available', err);
+        return 0;
+      }
+    }
+
     async function loadSessionPayload(item) {
       let snapshot = null;
       try { snapshot = await snapshotStore?.getSnapshot?.(item.id); } catch (err) { console.warn('load session snapshot failed', err); }
@@ -286,6 +338,22 @@
           persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0), snapshotRevision),
         };
       }
+
+      const legacy = snapshot && Array.isArray(snapshot.messages)
+        ? { ...snapshot, display: snapshot.display || snapshot.pendingDisplay || [] }
+        : readLegacySessionPayload(item);
+      const hasLegacyPayload = legacy.messages.length || legacy.display?.length || legacy.pendingDisplay?.length || legacy.lastGeneratedImage;
+      if (hasLegacyPayload) {
+        const migrated = migrateSessionPayload(item, legacy);
+        const snapshotRevision = await persistMigratedSessionPayload(item, migrated);
+        return {
+          ...migrated,
+          updatedAt: item.updatedAt,
+          snapshotUpdatedAt: snapshotRevision,
+          persistenceUpdatedAt: Math.max(Number(item.persistenceUpdatedAt || 0), Number(item.snapshotUpdatedAt || 0), snapshotRevision),
+        };
+      }
+
       return {
         messages: [],
         pendingDisplay: [],

@@ -8,4 +8,5 @@ module.exports = {
   imageRouteContext: require('./image-route-context'),
   attachments: require('./attachments'),
   contextBudget: require('./context-budget'),
+  taskState: require('./task-state'),
 };

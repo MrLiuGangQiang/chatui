@@ -7,6 +7,7 @@
     delete node.dataset.streamKind;
     delete node.dataset.streamRunToken;
     delete node.dataset.pendingFeedback;
+    delete node.dataset.jobId;
     const actions = node.querySelector?.('.msg-actions');
     actions?.removeAttribute?.('aria-hidden');
     if (actions) actions.hidden = false;

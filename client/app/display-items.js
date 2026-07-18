@@ -36,7 +36,62 @@ function displayItemHasRichMedia(item) {
   ));
 }
 
-const displayItemsApi = Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia });
+function canonicalMessageIndex(message, fallbackIndex = -1) {
+  const raw = message?.role === 'user' ? message?.messageIndex : message?.role === 'assistant' ? message?.responseIndex : fallbackIndex;
+  const index = Number(raw);
+  return Number.isFinite(index) ? index : Number(fallbackIndex);
+}
+
+function canonicalMessageNodeRole(message) {
+  if (message?.role === 'assistant') return 'assistant';
+  if (message?.role === 'error') return 'error';
+  return 'user';
+}
+
+function messageNodeRole(node) {
+  if (node?.classList?.contains?.('user')) return 'user';
+  if (node?.classList?.contains?.('assistant')) return 'assistant';
+  if (node?.classList?.contains?.('error')) return 'error';
+  return '';
+}
+
+function messageNodeIndex(node, role = messageNodeRole(node)) {
+  const raw = role === 'user' ? node?.dataset?.messageIndex : role === 'assistant' ? node?.dataset?.responseIndex : '';
+  const index = Number(raw);
+  return Number.isFinite(index) ? index : NaN;
+}
+
+function isPendingMessageNode(node) {
+  return node?.__displayItem?.pending === '1'
+    || node?.dataset?.pending === '1'
+    || node?.dataset?.pendingFeedback === '1'
+    || (!!node?.dataset?.jobId && node?.dataset?.streaming === '1')
+    || !!node?.querySelector?.('.pending-feedback');
+}
+
+function canonicalMessageNodeMatches(node, message, fallbackIndex = -1) {
+  if (!node || !message || messageNodeRole(node) !== canonicalMessageNodeRole(message) || isPendingMessageNode(node)) return false;
+  const expectedIndex = canonicalMessageIndex(message, fallbackIndex);
+  const actualIndex = messageNodeIndex(node, canonicalMessageNodeRole(message));
+  if (Number.isFinite(expectedIndex) && Number.isFinite(actualIndex) && actualIndex !== expectedIndex) return false;
+  const expectedText = String(message.rawText ?? message.content ?? '');
+  if (!expectedText) return true;
+  const actualText = String(node.dataset?.rawText || node.innerText || node.textContent || '');
+  return actualText === expectedText || actualText.includes(expectedText.slice(0, 80));
+}
+
+function findCanonicalMessageNode(nodes = [], message, fallbackIndex = -1) {
+  const list = Array.from(nodes || []);
+  const expectedIndex = canonicalMessageIndex(message, fallbackIndex);
+  if (Number.isFinite(expectedIndex)) {
+    const expectedRole = canonicalMessageNodeRole(message);
+    const indexed = list.find(node => messageNodeRole(node) === expectedRole && messageNodeIndex(node, expectedRole) === expectedIndex && !isPendingMessageNode(node));
+    if (indexed) return canonicalMessageNodeMatches(indexed, message, fallbackIndex) ? indexed : null;
+  }
+  return [...list].reverse().find(node => canonicalMessageNodeMatches(node, message, fallbackIndex)) || null;
+}
+
+const displayItemsApi = Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia, canonicalMessageIndex, canonicalMessageNodeRole, messageNodeRole, messageNodeIndex, isPendingMessageNode, canonicalMessageNodeMatches, findCanonicalMessageNode });
 if (typeof module !== 'undefined' && module.exports) module.exports = displayItemsApi;
 if (root) root.ChatUIAppDisplayItems = displayItemsApi;
 if (root?.window) root.window.ChatUIAppDisplayItems = displayItemsApi;

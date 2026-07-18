@@ -159,7 +159,7 @@ async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
 }
 
 function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
-  const dom = new JSDOM('<article class="message assistant" data-streaming="1" data-stream-kind="chat" data-stream-run-token="run" data-pending-feedback="1"><div class="msg-actions" aria-hidden="true" hidden></div></article>');
+  const dom = new JSDOM('<article class="message assistant" data-streaming="1" data-stream-kind="chat" data-stream-run-token="run" data-pending-feedback="1" data-job-id="chatjob-a"><div class="msg-actions" aria-hidden="true" hidden></div></article>');
   const node = dom.window.document.querySelector('.message');
   let resetCalls = 0;
   messageWorkflow.reconcileCompletedMessageUi(node, () => { resetCalls += 1; });
@@ -167,6 +167,7 @@ function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
   assert.strictEqual(node.dataset.streamKind, undefined);
   assert.strictEqual(node.dataset.streamRunToken, undefined);
   assert.strictEqual(node.dataset.pendingFeedback, undefined);
+  assert.strictEqual(node.dataset.jobId, undefined);
   assert.strictEqual(node.querySelector('.msg-actions').hidden, false);
   assert.strictEqual(node.querySelector('.msg-actions').hasAttribute('aria-hidden'), false);
   assert.strictEqual(resetCalls, 1);

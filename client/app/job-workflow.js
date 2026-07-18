@@ -34,6 +34,13 @@
     return `submit-${Number(now()).toString(36)}-${Number(random()).toString(36).slice(2, 10)}`;
   }
 
+  function pendingSubmitDisplayId(pendingSubmit = {}) {
+    const liveItemId = String(pendingSubmit?.liveItemId || '').trim();
+    if (liveItemId) return liveItemId;
+    const submissionId = String(pendingSubmit?.submissionId || '').trim();
+    return submissionId ? `pending-submit-${submissionId}` : '';
+  }
+
   function normalizePendingSubmit(pendingSubmit) {
     if (!pendingSubmit || typeof pendingSubmit !== 'object' || Array.isArray(pendingSubmit)) return null;
     const normalized = {
@@ -298,7 +305,7 @@
     });
   }
 
-  const api = Object.freeze({ PENDING_SUBMIT_VERSION, readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, makeSubmissionId, normalizePendingSubmit, pendingSubmitHasRecoverableInput, findPendingSubmissionMessage, isPendingSubmissionCommitted, loadPendingSubmit, savePendingSubmit, mergePendingSubmit, clearPendingSubmit, isRecoverableJobSnapshot, findPendingSubmitHandoffJob, shouldPreservePendingSubmitOnError, makeTerminalJobError, waitJobEvent });
+  const api = Object.freeze({ PENDING_SUBMIT_VERSION, readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, makeSubmissionId, pendingSubmitDisplayId, normalizePendingSubmit, pendingSubmitHasRecoverableInput, findPendingSubmissionMessage, isPendingSubmissionCommitted, loadPendingSubmit, savePendingSubmit, mergePendingSubmit, clearPendingSubmit, isRecoverableJobSnapshot, findPendingSubmitHandoffJob, shouldPreservePendingSubmitOnError, makeTerminalJobError, waitJobEvent });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobWorkflow = api;

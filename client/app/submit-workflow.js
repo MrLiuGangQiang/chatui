@@ -111,23 +111,34 @@
             const sessionForReply=isTargetActive()?getActiveSession():targetSession;
             responseIndex=Number.isFinite(Number(resumePendingSubmit?.responseIndex))?Number(resumePendingSubmit.responseIndex):(Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length);
             const prepareManagedChatJobForLiveItem=()=>{if("chat"!==submitMode||!liveItem)return;if(!preparedChatJobId){if(typeof shouldPrepareManagedChatJob==="function"&&!shouldPrepareManagedChatJob(sessionId))return;preparedChatJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():""}if(!preparedChatJobId)return;liveItem.jobId=preparedChatJobId;liveItem.responseIndex=String(responseIndex);assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=String(responseIndex));persistSessionDisplay(sessionId)};
+            const routingStatus="正在执行：路由预检";
             if(resumePendingSubmit){
-              const displayItems=sessionForReply?.display||[];
-              liveItem=(resumePendingSubmit.liveItemId&&displayItems.find(item=>item.id===resumePendingSubmit.liveItemId))||displayItems.find(item=>String(item.responseIndex||"")===String(responseIndex)&&item.pending)||null;
-              if(!liveItem&&sessionForReply)liveItem=appendSessionDisplayMessage(sessionId,"assistant",pendingFeedbackHtml("正在执行：路由预检"),{html:!0,rawText:"正在执行：路由预检",pending:!0,responseIndex});
+              const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.(resumePendingSubmit)||resumePendingSubmit.liveItemId||"";
+              liveItem=(pendingDisplayId&&displayItems.find(item=>item.id===pendingDisplayId))||displayItems.find(item=>String(item.responseIndex||"")===String(responseIndex)&&item.pending)||null;
+              if(!liveItem&&sessionForReply)liveItem=appendSessionDisplayMessage(sessionId,"assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,pending:!0,responseIndex,id:pendingDisplayId});
+              else if(liveItem)updateSessionDisplayItem(sessionId,liveItem,"assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,pending:!0,responseIndex});
               assistantNode=isTargetActive()&&liveItem&&typeof findMessageNodeByDisplayItem==="function"?findMessageNodeByDisplayItem(liveItem):null;
               if(!assistantNode&&isTargetActive()){
-                assistantNode=addMessage("assistant",pendingFeedbackHtml("正在执行：路由预检"),{html:!0,rawText:"正在执行：路由预检",skipSave:!0,responseIndex});
+                assistantNode=addMessage("assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,skipSave:!0,responseIndex});
                 const anchor=[...$("messages").querySelectorAll(".message")].find(node=>node!==assistantNode&&Number(node.classList.contains("user")?node.dataset.messageIndex:node.dataset.responseIndex)>Number(responseIndex));
                 anchor?.parentNode?.insertBefore(assistantNode,anchor);
               }
-              assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex));
+              assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex),updateMessage(assistantNode,pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,responseIndex,skipSave:!0,noScroll:!0}));
             }
-            else if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId,"正在执行：路由预检");assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem()}
+            else if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId,routingStatus);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem()}
             else {
-              assistantNode=isTargetActive()?addMessage("assistant",pendingFeedbackHtml("正在执行：路由预检"),{html:!0,rawText:"正在执行：路由预检",skipSave:!0}):null;
-              if(sessionForReply){liveItem=appendSessionDisplayMessage(sessionId,"assistant",pendingFeedbackHtml("正在执行：路由预检"),{html:!0,rawText:"正在执行：路由预检",pending:!0,responseIndex});assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex));prepareManagedChatJobForLiveItem()}
+              const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.({submissionId})||"";
+              liveItem=(pendingDisplayId&&displayItems.find(item=>item.id===pendingDisplayId&&item.pending))||null;
+              assistantNode=isTargetActive()&&liveItem&&typeof findMessageNodeByDisplayItem==="function"?findMessageNodeByDisplayItem(liveItem):null;
+              if(!assistantNode&&isTargetActive())assistantNode=addMessage("assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,skipSave:!0,responseIndex});
+              if(sessionForReply){
+                if(liveItem)updateSessionDisplayItem(sessionId,liveItem,"assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,pending:!0,responseIndex});
+                else liveItem=appendSessionDisplayMessage(sessionId,"assistant",pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,pending:!0,responseIndex,id:pendingDisplayId});
+                assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex),updateMessage(assistantNode,pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,responseIndex,skipSave:!0,noScroll:!0}));
+                prepareManagedChatJobForLiveItem()
+              }
             }
+            if(userNode&&userDisplayItem&&typeof insertMessageNodeAtDisplayPosition==="function")insertMessageNodeAtDisplayPosition(userNode,userDisplayItem);
             if(!savePendingSubmit(sessionId,{submissionId,stage:"routing",promptText,rawPromptText,submitMode,messageIndex,responseIndex,userCommitted:resumeUserCommitted,attachmentCount:initialAttachmentCount,jobId:preparedChatJobId,liveItemId:liveItem?.id||"",userDisplayItemId:userDisplayItem?.id||resumePendingSubmit?.userDisplayItemId||"",quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");
             const finishPreflightReply=async(text,meta={})=>{const msg={role:"assistant",content:text,rawText:text,responseIndex,submissionId};assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,text,{rawText:text,responseIndex,metaText:meta.metaText||""}));liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",text,{rawText:text,pending:!1,responseIndex,metaText:meta.metaText||""}):(liveItem.content=text,liveItem.rawText=text,liveItem.pending=!1,persistSessionDisplay(sessionId)));if(isTargetActive()){state.messages.push(msg);sessionForReply&&(sessionForReply.messages=cloneMessageList(state.messages))}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),msg]);setSessionBusy(sessionId,!1);await persistPendingTerminalMessages();clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return true};
             if(attachmentCaptureIncomplete)return finishPreflightReply("页面刷新发生在附件保存完成之前，附件内容无法安全恢复。请重新上传附件后再试。",{metaText:"未发送到模型"});

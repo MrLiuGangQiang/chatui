@@ -105,13 +105,108 @@
       }
     }
 
+    function pendingTaskProjectionOwner(pendingSubmit, activeImageJob, activeChatJob) {
+      if (pendingSubmit) {
+        const requestedKind = pendingSubmit.jobKind === 'image' ? 'image' : pendingSubmit.jobKind === 'chat' ? 'chat' : '';
+        const requestedJobId = String(pendingSubmit.jobId || '');
+        const matchingJob = requestedKind === 'image' && (!requestedJobId || String(activeImageJob?.id || '') === requestedJobId)
+          ? activeImageJob
+          : requestedKind === 'chat' && (!requestedJobId || String(activeChatJob?.id || '') === requestedJobId)
+            ? activeChatJob
+            : null;
+        const inferredKind = requestedKind || (matchingJob ? (matchingJob === activeImageJob ? 'image' : 'chat') : ['image', 'edit_image'].includes(pendingSubmit.submitMode) ? 'image' : 'chat');
+        return { kind: inferredKind, pendingSubmit, job: matchingJob };
+      }
+      if (activeImageJob?.id) return { kind: 'image', pendingSubmit: null, job: activeImageJob };
+      if (activeChatJob?.id) return { kind: 'chat', pendingSubmit: null, job: activeChatJob };
+      return null;
+    }
+
+    function pendingTaskProjectionStatus(owner) {
+      const pending = owner?.pendingSubmit;
+      const job = owner?.job;
+      const startedAt = Number(job?.startedAt || pending?.startedAt || 0);
+      const elapsed = startedAt > 0 ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
+      if (pending) {
+        if (pending.stage === 'accepted') return '\u6b63\u5728\u63a5\u6536\u4efb\u52a1\u2026';
+        if (pending.stage === 'captured') return '\u6b63\u5728\u51c6\u5907\u6d88\u606f\u2026';
+        if (pending.stage === 'routing') return '\u6b63\u5728\u8bc6\u522b\u4efb\u52a1\u2026';
+        if (pending.stage === 'handoff') return owner.kind === 'image' ? '\u6b63\u5728\u542f\u52a8\u56fe\u7247\u4efb\u52a1\u2026' : '\u6b63\u5728\u8fde\u63a5\u6a21\u578b\u2026';
+      }
+      if (owner?.kind === 'image') {
+        const editing = job?.mode === 'edit_image' || job?.imageContext?.mode === 'edit_image';
+        return `${editing ? '\u6b63\u5728\u4fee\u6539\u56fe\u7247' : '\u6b63\u5728\u751f\u6210\u56fe\u7247'}\u2026 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
+      }
+      return `\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
+    }
+
+    function ensurePendingTaskProjection(session, pendingItems, pendingSubmit, activeImageJob, activeChatJob) {
+      const owner = pendingTaskProjectionOwner(pendingSubmit, activeImageJob, activeChatJob);
+      if (!owner) return Array.isArray(pendingItems) ? pendingItems : [];
+      session.display ||= [];
+      const job = owner.job || {};
+      const pending = owner.pendingSubmit || {};
+      const displayId = root?.ChatUIAppJobWorkflow?.pendingSubmitDisplayId?.(pending)
+        || String(job.displayItemId || '')
+        || (job.id ? `pending-${owner.kind}-${job.id}` : '');
+      const jobId = String(job.id || pending.jobId || '');
+      const responseIndex = pending.responseIndex ?? job.responseIndex ?? '';
+      const allItems = [...session.display, ...(Array.isArray(pendingItems) ? pendingItems : [])];
+      let item = allItems.find(candidate => displayId && String(candidate?.id || '') === displayId)
+        || allItems.find(candidate => jobId && String(candidate?.jobId || '') === jobId)
+        || allItems.find(candidate => responseIndex !== '' && responseIndex !== null && responseIndex !== undefined && candidate?.pending === '1' && String(candidate?.responseIndex || '') === String(responseIndex))
+        || null;
+      let changed = false;
+      const statusText = pendingTaskProjectionStatus(owner);
+      if (!item) {
+        const html = typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(statusText) : '';
+        item = {
+          id: displayId || deps.makeDisplayItemId(),
+          role: 'assistant',
+          rawText: statusText,
+          html,
+          reasoningText: '',
+          keepReasoning: false,
+          messageIndex: '',
+          responseIndex: responseIndex !== '' && responseIndex !== null && responseIndex !== undefined ? String(responseIndex) : '',
+          jobId,
+          imageContext: '',
+          attachmentContext: '',
+          quoteContext: '',
+          metaText: '',
+          pending: '1',
+        };
+        session.display.push(item);
+        changed = true;
+      } else {
+        if (!item.id && displayId) { item.id = displayId; changed = true; }
+        if (!item.jobId && jobId) { item.jobId = jobId; changed = true; }
+        if ((item.responseIndex === '' || item.responseIndex === null || item.responseIndex === undefined) && responseIndex !== '' && responseIndex !== null && responseIndex !== undefined) { item.responseIndex = String(responseIndex); changed = true; }
+        if (item.pending !== '1') { item.pending = '1'; changed = true; }
+        const currentText = String(item.rawText || '').trim();
+        const currentIsStatus = !currentText || deps.isChatStatusText?.(currentText) || /^(?:\u6b63\u5728|\u5df2\u6536\u5230|\u4efb\u52a1\u6b63\u5728)/.test(currentText);
+        if (currentIsStatus && currentText !== statusText) {
+          item.rawText = statusText;
+          item.html = typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(statusText) : item.html || '';
+          changed = true;
+        }
+        if (!session.display.includes(item)) { session.display.push(item); changed = true; }
+      }
+      const projected = Array.isArray(pendingItems) ? [...pendingItems] : [];
+      if (!projected.includes(item)) projected.push(item);
+      if (changed) deps.persistSessionDisplay(session.id);
+      return projected;
+    }
+
     function restorePendingDisplayItems(session, pendingItems = []) {
       with (deps) {
-        if (!session || !pendingItems.length) return;
+        if (!session) return;
         const activeImageJob = loadImageJob(session.id);
         const activeChatJob = loadLatestChatJob(session.id);
-        const activeJobIds = new Set([activeImageJob?.id, activeChatJob?.id].filter(Boolean));
         const pendingSubmit = typeof loadPendingSubmit === 'function' ? loadPendingSubmit(session.id) : null;
+        pendingItems = ensurePendingTaskProjection(session, pendingItems, pendingSubmit, activeImageJob, activeChatJob);
+        if (!pendingItems.length) return;
+        const activeJobIds = new Set([activeImageJob?.id, activeChatJob?.id].filter(Boolean));
         const sessionActive = !!(isSessionBusy(session.id) || getActiveRun(session.id) || pendingSubmit);
         const userCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'user').length : 0;
         const assistantCount = Array.isArray(session.messages) ? session.messages.filter(item => item?.role === 'assistant' && !isChatStatusText(item.content || item.rawText || '')).length : 0;
@@ -175,6 +270,18 @@
             if (item.id) node.dataset.displayItemId = item.id;
             if (item.jobId) node.dataset.jobId = item.jobId;
             if (Number.isFinite(responseIndex) && responseIndex >= 0) node.dataset.responseIndex = String(responseIndex);
+            const rawText = String(item.rawText || '');
+            if (rawText && String(node.dataset.rawText || '') !== rawText) {
+              if (item.html && typeof updateMessage === 'function') updateMessage(node, item.html, { html: true, rawText, skipSave: true, noScroll: true, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
+              else if (typeof updateMessageContentLight === 'function') updateMessageContentLight(node, rawText, { rawText, pending: true, skipSave: true, noScroll: true, streamKind: 'chat', sessionId: session.id, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
+            }
+            if (item.reasoningText && typeof updateReasoning === 'function') updateReasoning(node, item.reasoningText, { done: false, keepReasoning: !!item.keepReasoning, keepEmpty: true, restoreHistory: true });
+          }
+          if (node) {
+            node.dataset.streaming = '1';
+            node.dataset.streamKind = isImagePendingDisplayItem(item) ? 'image' : 'chat';
+            node.dataset.sessionId = session.id;
+            if (String(item.html || '').includes('pending-feedback')) node.dataset.pendingFeedback = '1';
           }
         }
         session.display = compactDisplayItems(session.display.filter(item => item?.pending === '1'));

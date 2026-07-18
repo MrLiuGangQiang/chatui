@@ -5,6 +5,13 @@
     if (!deps.state) throw new Error('state is required');
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers || {};
     const jobLifecycle = root?.ChatUIAppJobWorkflow || {};
+    const finishSessionTask = deps.finishSessionTask || ((sessionId, options = {}) => {
+      options.stopSlowNotice?.();
+      deps.setSessionBusy?.(sessionId, false);
+      if (options.run) deps.clearActiveRun?.(sessionId, options.run);
+      deps.updateSendAvailability?.();
+      if (options.focusPrompt) deps.$?.('prompt')?.focus?.();
+    });
 
     function loadPendingSubmit(sessionId = deps.state?.activeSessionId || '') {
       return jobLifecycle.loadPendingSubmit?.(sessionId, { storage: root.localStorage }) || null;
@@ -43,6 +50,7 @@
         return true;
       } finally {
         runs.finishPendingSubmitResume?.(deps.state, sessionId);
+        finishSessionTask(sessionId, { resumeKey });
       }
     }
 
@@ -64,7 +72,7 @@
           let promptText=rawPromptText;
           const resumeHasInput=jobLifecycle.pendingSubmitHasRecoverableInput?.(resumePendingSubmit)||!!(resumePendingSubmit&&(resumePendingSubmit.promptText||resumePendingSubmit.rawPromptText||resumePendingSubmit.imageContext||resumePendingSubmit.attachmentContext||Number(resumePendingSubmit.attachmentCount)>0));
           if(!promptText&&!state.attachments.length&&!resumeHasInput)return;
-          unlockDoneSound(),saveConfig(!0);
+          unlockDoneSound({userGesture:!resumePendingSubmit&&(e?.isTrusted===!0||root.navigator?.userActivation?.isActive===!0)}),saveConfig(!0);
           const sessionId=resumePendingSubmit?.sessionId||state.activeSessionId,run=ensureActiveRun(sessionId),submissionId=resumePendingSubmit?.submissionId||jobLifecycle.makeSubmissionId?.()||`submit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`,startedAt=resumePendingSubmit?.startedAt||Date.now(),initialAttachmentCount=resumePendingSubmit?Math.max(0,Number(resumePendingSubmit.attachmentCount||0)||0):state.attachments.length;let attachments=resumePendingSubmit?[]:[...state.attachments],routeUi=null,assistantNode=null,liveItem=null;
           const submissionCancelled=()=>!!run.stopped||!!run.abortController?.signal?.aborted||!!state.disposedSessionIds?.has?.(sessionId)||!state.sessions?.some?.(item=>item.id===sessionId);
           try{
@@ -140,7 +148,7 @@
             }
             if(userNode&&userDisplayItem&&typeof insertMessageNodeAtDisplayPosition==="function")insertMessageNodeAtDisplayPosition(userNode,userDisplayItem);
             if(!savePendingSubmit(sessionId,{submissionId,stage:"routing",promptText,rawPromptText,submitMode,messageIndex,responseIndex,userCommitted:resumeUserCommitted,attachmentCount:initialAttachmentCount,jobId:preparedChatJobId,liveItemId:liveItem?.id||"",userDisplayItemId:userDisplayItem?.id||resumePendingSubmit?.userDisplayItemId||"",quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");
-            const finishPreflightReply=async(text,meta={})=>{const msg={role:"assistant",content:text,rawText:text,responseIndex,submissionId};assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,text,{rawText:text,responseIndex,metaText:meta.metaText||""}));liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",text,{rawText:text,pending:!1,responseIndex,metaText:meta.metaText||""}):(liveItem.content=text,liveItem.rawText=text,liveItem.pending=!1,persistSessionDisplay(sessionId)));if(isTargetActive()){state.messages.push(msg);sessionForReply&&(sessionForReply.messages=cloneMessageList(state.messages))}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),msg]);setSessionBusy(sessionId,!1);await persistPendingTerminalMessages();clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return true};
+            const finishPreflightReply=async(text,meta={})=>{const msg={role:"assistant",content:text,rawText:text,responseIndex,submissionId};assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,text,{rawText:text,responseIndex,metaText:meta.metaText||""}));liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",text,{rawText:text,pending:!1,responseIndex,metaText:meta.metaText||""}):(liveItem.content=text,liveItem.rawText=text,liveItem.pending=!1,persistSessionDisplay(sessionId)));if(isTargetActive()){state.messages.push(msg);sessionForReply&&(sessionForReply.messages=cloneMessageList(state.messages))}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),msg]);await persistPendingTerminalMessages();clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return true};
             if(attachmentCaptureIncomplete)return finishPreflightReply("页面刷新发生在附件保存完成之前，附件内容无法安全恢复。请重新上传附件后再试。",{metaText:"未发送到模型"});
             const preflightText=String(promptText||"").trim(),preflightGuard=root?.ChatUICorePreflightGuards||window.ChatUICorePreflightGuards||{};
             const preflightCounts=preflightGuard.attachmentCounts?.(attachments,typeof isImageFile==="function"?isImageFile:void 0)||{imageCount:attachments.filter(item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/")).length,fileCount:attachments.length};
@@ -223,7 +231,7 @@
             if(!preservePendingSubmit)clearPendingSubmit(sessionId);
             preservePendingSubmit||showRunError(sessionId,err,liveItem,assistantNode)
           }finally{
-            routeUi?.stopSlowNotice?.(),setSessionBusy(sessionId,!1),clearActiveRun(sessionId,run),$("prompt").focus()
+            finishSessionTask(sessionId,{run,stopSlowNotice:()=>routeUi?.stopSlowNotice?.(),focusPrompt:!0})
           }
 
       }

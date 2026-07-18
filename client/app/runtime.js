@@ -38,14 +38,16 @@
     }
   }
 
-  function createDoneSound({ AudioContextImpl = window.AudioContext || window.webkitAudioContext, logger = console } = {}) {
+  function createDoneSound({ AudioContextImpl = window.AudioContext || window.webkitAudioContext, userActivation = window.navigator?.userActivation, logger = console } = {}) {
     let audioCtx = null;
-    async function unlockDoneSound() {
+    async function unlockDoneSound({ userGesture = false } = {}) {
       try {
         if (!AudioContextImpl) return null;
+        if (audioCtx?.state === 'running') return audioCtx;
+        if (!userGesture || userActivation?.isActive === false) return null;
         if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AudioContextImpl();
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-        return audioCtx;
+        return audioCtx.state === 'running' ? audioCtx : null;
       } catch (err) {
         logger.warn?.('unlock done sound failed', err);
         return null;

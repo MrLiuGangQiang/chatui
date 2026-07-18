@@ -1,0 +1,18 @@
+{
+  "appJsMaxBytes": 217662,
+  "maxGlobalNamespaceExports": 184,
+  "legacyWithScopes": {
+    "client/app/bootstrap-workflow.js": 1,
+    "client/app/chat-workflow.js": 1,
+    "client/app/display-history-workflow.js": 3,
+    "client/app/image-workflow.js": 1,
+    "client/app/job-resume-workflow.js": 2,
+    "client/app/media-workflow.js": 1,
+    "client/app/message-workflow.js": 4,
+    "client/app/reasoning-workflow.js": 22,
+    "client/app/route-decision-workflow.js": 3,
+    "client/app/scroll-focus-workflow.js": 36,
+    "client/app/session-panel-workflow.js": 1,
+    "client/app/submit-workflow.js": 1
+  }
+}

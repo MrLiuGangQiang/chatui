@@ -26,7 +26,7 @@ function checkProject({ root = ROOT } = {}) {
   if (packageLock.version !== packageJson.version || packageLock.packages?.['']?.version !== packageJson.version) {
     fail(`package-lock.json must match package.json version ${packageJson.version}.`);
   }
-  for (const script of ['check:project', 'check:syntax', 'check', 'test', 'start', 'verify:release']) {
+  for (const script of ['check:project', 'check:architecture', 'check:syntax', 'check', 'test', 'start', 'verify:release']) {
     if (!packageJson.scripts?.[script]) fail(`package.json is missing the ${script} script.`);
   }
   for (const file of REQUIRED_STATIC_FILES) {

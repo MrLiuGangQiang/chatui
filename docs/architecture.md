@@ -72,6 +72,17 @@ Session DOM caching is reserved for sessions with a live or durable task owner. 
 
 Message completion follows the same state-machine rule in the DOM: streaming and pending flags are cleared synchronously, not through `requestAnimationFrame`, because hidden tabs may suspend animation frames and otherwise leave message actions permanently hidden.
 
+## Multi-maintainer guardrails
+
+The current browser composition is a migration baseline, not a pattern for new code. `scripts/check-architecture.js` enforces the following until explicit modules replace the legacy composition:
+
+- root `app.js` must not grow beyond the recorded budget;
+- new or expanded `with (...)` scopes are forbidden;
+- browser `ChatUI*` global exports must not increase;
+- architecture baseline changes require owner review and an ADR update.
+
+New business logic must be placed in the owning `client/`, `server/`, or `shared/` layer. See [ADR 0001](adr/0001-multi-maintainer-foundation.md) and the [multi-maintainer roadmap](multi-maintainer-roadmap.md).
+
 ## Testing layout
 
 - `test/unit/`: focused unit and contract tests.

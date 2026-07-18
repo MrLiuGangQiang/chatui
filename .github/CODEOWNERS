@@ -1,0 +1,11 @@
+# Default owner until additional maintainers are assigned.
+* @MrLiuGangQiang
+
+# Architecture and release-sensitive areas.
+/docs/architecture.md @MrLiuGangQiang
+/docs/adr/ @MrLiuGangQiang
+/.github/workflows/ @MrLiuGangQiang
+/Dockerfile @MrLiuGangQiang
+/server/ @MrLiuGangQiang
+/client/core/ @MrLiuGangQiang
+/client/app/ @MrLiuGangQiang

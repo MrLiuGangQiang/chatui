@@ -7,10 +7,11 @@
   "scripts": {
     "check:project": "node scripts/check-project.js",
     "check:syntax": "node --check server.js && node --check app.js",
-    "check": "npm run check:project && npm run check:syntax && npm test",
+    "check": "npm run check:project && npm run check:architecture && npm run check:syntax && npm test",
     "test": "node test/run-tests.js",
     "start": "node server.js",
-    "verify:release": "node scripts/verify-release.js"
+    "verify:release": "node scripts/verify-release.js",
+    "check:architecture": "node scripts/check-architecture.js"
   },
   "repository": {
     "type": "git",

@@ -23,6 +23,19 @@
     return target;
   }
 
+  const workflowModules = new Map();
+
+  function registerWorkflowModule(name, moduleApi) {
+    const key = String(name || '').trim();
+    if (!key || !moduleApi) throw new Error('registerWorkflowModule requires name and module API');
+    workflowModules.set(key, moduleApi);
+    return moduleApi;
+  }
+
+  function getWorkflowModule(name) {
+    return workflowModules.get(String(name || '').trim()) || null;
+  }
+
   function createWorkflowRegistry(factories = {}) {
     const cache = new Map();
     return Object.freeze({
@@ -37,7 +50,7 @@
     });
   }
 
-  const api = Object.freeze({ resolveRuntimeDependencies, defineLazyWorkflowGetter, createWorkflowRegistry });
+  const api = Object.freeze({ resolveRuntimeDependencies, defineLazyWorkflowGetter, createWorkflowRegistry, registerWorkflowModule, getWorkflowModule });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIApp = Object.freeze({ ...(root.ChatUIApp || {}), appContext: api });

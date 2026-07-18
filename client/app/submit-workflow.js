@@ -1,6 +1,12 @@
 (function initChatUIAppSubmitWorkflow(root) {
   // Intentionally not strict: submit body is migrated from app.js and resolved through a deps scope.
 
+  function parseOptionalMessageIndex(value) {
+    if (value === null || value === undefined || typeof value === 'string' && !value.trim()) return null;
+    const index = Number(value);
+    return Number.isFinite(index) && index >= 0 ? index : null;
+  }
+
   function createSubmitWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers || {};
@@ -77,10 +83,10 @@
           const resumeHasInput=jobLifecycle.pendingSubmitHasRecoverableInput?.(resumePendingSubmit)||!!(resumePendingSubmit&&(resumePendingSubmit.promptText||resumePendingSubmit.rawPromptText||resumePendingSubmit.imageContext||resumePendingSubmit.attachmentContext||Number(resumePendingSubmit.attachmentCount)>0));
           if(!promptText&&!state.attachments.length&&!resumeHasInput)return;
           unlockDoneSound({userGesture:!resumePendingSubmit&&(e?.isTrusted===!0||root.navigator?.userActivation?.isActive===!0)}),saveConfig(!0);
-          const sessionId=resumePendingSubmit?.sessionId||state.activeSessionId,run=ensureActiveRun(sessionId),submissionId=resumePendingSubmit?.submissionId||jobLifecycle.makeSubmissionId?.()||`submit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`,startedAt=resumePendingSubmit?.startedAt||Date.now(),initialAttachmentCount=resumePendingSubmit?Math.max(0,Number(resumePendingSubmit.attachmentCount||0)||0):state.attachments.length;let activeJobId="",activeJobKind="",handoffCommitted=!1,attachments=resumePendingSubmit?[]:[...state.attachments],routeUi=null,assistantNode=null,liveItem=null;
+          const sessionId=resumePendingSubmit?.sessionId||state.activeSessionId,run=ensureActiveRun(sessionId),submissionId=resumePendingSubmit?.submissionId||jobLifecycle.makeSubmissionId?.()||`submit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`,startedAt=resumePendingSubmit?.startedAt||Date.now(),initialAttachmentCount=resumePendingSubmit?Math.max(0,Number(resumePendingSubmit.attachmentCount||0)||0):state.attachments.length,initialEditMessageIndex=resumePendingSubmit?parseOptionalMessageIndex(resumePendingSubmit.editMessageIndex):parseOptionalMessageIndex(state.editingIndex);let activeJobId="",activeJobKind="",handoffCommitted=!1,attachments=resumePendingSubmit?[]:[...state.attachments],routeUi=null,assistantNode=null,liveItem=null;
           const submissionCancelled=()=>!!run.stopped||!!run.abortController?.signal?.aborted||!!state.disposedSessionIds?.has?.(sessionId)||!state.sessions?.some?.(item=>item.id===sessionId);
           try{
-            if(!resumePendingSubmit&&!savePendingSubmit(sessionId,{submissionId,stage:"accepted",promptText,rawPromptText,submitMode:state.mode,userCommitted:!1,attachmentCount:initialAttachmentCount,startedAt})){clearActiveRun(sessionId,run);toast("无法保存任务恢复状态，请清理浏览器存储空间后重试");return}
+            if(!resumePendingSubmit&&!savePendingSubmit(sessionId,{submissionId,stage:"accepted",promptText,rawPromptText,submitMode:state.mode,userCommitted:!1,editExisting:initialEditMessageIndex!==null,editMessageIndex:initialEditMessageIndex,attachmentCount:initialAttachmentCount,startedAt})){clearActiveRun(sessionId,run);toast("无法保存任务恢复状态，请清理浏览器存储空间后重试");return}
             emitTaskEvent(sessionId,taskEvents.TASK_ACCEPTED,{submissionId});
             emitTaskEvent(sessionId,taskEvents.ATTACHMENT_CAPTURE_STARTED,{submissionId});
             setSessionBusy(sessionId,!0);
@@ -94,21 +100,22 @@
             const isTargetActive=()=>sessionId===state.activeSessionId;
             const persistTargetMessages=async()=>isTargetActive()?await saveChatHistory():"function"==typeof saveSessionMessages?await saveSessionMessages(sessionId,targetSession.messages||[]):void 0;
             const persistPendingTerminalMessages=async()=>{try{return await persistTargetMessages()}catch(err){const failure=err instanceof Error?err:new Error(String(err));failure.preservePendingSubmit=!0;throw failure}};
-            let messageIndex=Number.isFinite(Number(resumePendingSubmit?.messageIndex))?Number(resumePendingSubmit.messageIndex):("chat"===submitMode?(Array.isArray(targetSession?.messages)&&targetSession.messages.length?targetSession.messages.length:state.messages.length):null),resumeUserCommitted=resumePendingSubmit?jobLifecycle.isPendingSubmissionCommitted?.(targetSession.messages||[],resumePendingSubmit)!==!1:!1;
+            const resumedMessageIndex=parseOptionalMessageIndex(resumePendingSubmit?.messageIndex);
+            let messageIndex=initialEditMessageIndex!==null?initialEditMessageIndex:resumedMessageIndex!==null?resumedMessageIndex:("chat"===submitMode?(Array.isArray(targetSession?.messages)&&targetSession.messages.length?targetSession.messages.length:state.messages.length):null),resumeUserCommitted=resumePendingSubmit?jobLifecycle.isPendingSubmissionCommitted?.(targetSession.messages||[],resumePendingSubmit)!==!1:!1;
             const committedPendingMessage=resumePendingSubmit?jobLifecycle.findPendingSubmissionMessage?.(targetSession.messages||[],resumePendingSubmit):null;
             if(committedPendingMessage){const committedIndex=(targetSession.messages||[]).indexOf(committedPendingMessage);Number.isFinite(committedIndex)&&committedIndex>=0&&(messageIndex=committedIndex,resumeUserCommitted=!0)}
             const attachmentCaptureIncomplete=!!resumePendingSubmit&&initialAttachmentCount>0&&!initialImageContext&&!initialAttachmentContext&&!attachments.length;
-            if(!savePendingSubmit(sessionId,{...resumePendingSubmit,submissionId,stage:"captured",promptText,rawPromptText,submitMode,messageIndex,userCommitted:resumeUserCommitted,attachmentCount:initialAttachmentCount,quoteContext:resumePendingSubmit?.quoteContext||"",imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt})){clearPendingSubmit(sessionId);toast("无法保存任务恢复状态，请清理浏览器存储空间后重试");return}
+            if(!savePendingSubmit(sessionId,{...resumePendingSubmit,submissionId,stage:"captured",promptText,rawPromptText,submitMode,messageIndex,userCommitted:resumeUserCommitted,editExisting:initialEditMessageIndex!==null,editMessageIndex:initialEditMessageIndex,attachmentCount:initialAttachmentCount,quoteContext:resumePendingSubmit?.quoteContext||"",imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt})){clearPendingSubmit(sessionId);toast("无法保存任务恢复状态，请清理浏览器存储空间后重试");return}
             emitTaskEvent(sessionId,taskEvents.ATTACHMENT_CAPTURED,{submissionId});
             const parseContextValue=submitHelpers.parseContextValue||(value=>{if(!value)return null;if(typeof value==="string")try{return JSON.parse(value)}catch{return null}return typeof value==="object"?value:null});
-            const quotedMessage=resumePendingSubmit?.quoteContext?parseContextValue(resumePendingSubmit.quoteContext):(!state.editingIndex?getQuotedMessage?.():null),quoteContext=resumePendingSubmit?.quoteContext||(quotedMessage?JSON.stringify(quotedMessage):"");
+            const quotedMessage=resumePendingSubmit?.quoteContext?parseContextValue(resumePendingSubmit.quoteContext):(state.editingIndex===null?getQuotedMessage?.():null),quoteContext=resumePendingSubmit?.quoteContext||(quotedMessage?JSON.stringify(quotedMessage):"");
             const withPendingQuotePreview=submitHelpers.withPendingQuotePreview||((html="",quoteContextValue="")=>String(html||""));
             const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context)=>routeUi.getEffectiveRouteWithSlowNotice(input,routeAttachments,headers,context);
             let quotedImageContext=parseContextValue(quotedMessage?.imageContext),quotedImageAttachments=[];
             let replacement=null,preparedChatJobId=resumePendingSubmit?.jobId||"",routeMode=submitMode,routeInfo=normalizeRoute({mode:submitMode,target:"image"===submitMode?"new":"none",confidence:1},submitMode),userNode=null,userDisplayItem=null,requestBaseMessages=null,imageContext="",attachmentContext="";
             routeUi=createRouteRecognitionUi({sessionId,assistantNode:()=>assistantNode,liveItem:()=>liveItem,responseIndex:()=>responseIndex,getPromptText:()=>promptText,getPreparedChatJobId:()=>preparedChatJobId});
 
-            if(null!==state.editingIndex&&state.editingNode&&"chat"===submitMode&&isTargetActive()&&!resumePendingSubmit)replacement=applyPendingEdit(promptText);
+            if(initialEditMessageIndex!==null&&isTargetActive())replacement=applyPendingEdit(promptText,{submissionId,messageIndex:initialEditMessageIndex,node:state.editingNode}),replacement&&(messageIndex=replacement.index,resumeUserCommitted=!0);
             if(!replacement&&(!resumePendingSubmit||!resumeUserCommitted)){
               const userHtml=renderUserMessageWithAttachments(promptText||"已发送附件",attachments),rawText=buildUserMessageContent(promptText,attachments),apiContent=buildUserApiContent(promptText,attachments),message={role:"user",content:apiContent,html:userHtml,rawText,messageIndex,submissionId};
               quoteContext&&(message.quoteContext=quoteContext);initialImageContext&&(message.imageContext=initialImageContext);if(initialAttachmentContext){message.attachmentContext=initialAttachmentContext;try{const parsed=JSON.parse(initialAttachmentContext);message.content=parsed.content||apiContent}catch{}}
@@ -124,7 +131,8 @@
             if(!resumePendingSubmit)$("prompt").value="",state.promptDrafts.set(sessionId,""),clearAttachments(),clearQuotedMessage?.(),scheduleAutoResize();
             setSessionBusy(sessionId,!0);
             const sessionForReply=isTargetActive()?getActiveSession():targetSession;
-            responseIndex=Number.isFinite(Number(resumePendingSubmit?.responseIndex))?Number(resumePendingSubmit.responseIndex):(Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length);
+            const resumedResponseIndex=parseOptionalMessageIndex(resumePendingSubmit?.responseIndex);
+            responseIndex=resumedResponseIndex!==null?resumedResponseIndex:(Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length);
             const prepareManagedChatJobForLiveItem=(jobMode=submitMode)=>{if("chat"!==jobMode)return"";if(!preparedChatJobId){const generatedJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():"";preparedChatJobId=String(generatedJobId||`chatjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`)}if(!liveItem)return preparedChatJobId;liveItem.jobId=preparedChatJobId;liveItem.responseIndex=String(responseIndex);assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=String(responseIndex));persistSessionDisplay(sessionId);return preparedChatJobId};
             const routingStatus="正在执行：路由预检";
             if(resumePendingSubmit){
@@ -140,7 +148,7 @@
               }
               assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex),updateMessage(assistantNode,pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,responseIndex,skipSave:!0,noScroll:!0}));
             }
-            else if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId,routingStatus);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem()}
+            else if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId,routingStatus);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem();await persistTargetMessages()}
             else {
               const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.({submissionId})||"";
               liveItem=(pendingDisplayId&&displayItems.find(item=>item.id===pendingDisplayId&&item.pending))||null;
@@ -154,7 +162,7 @@
               }
             }
             if(userNode&&userDisplayItem&&typeof insertMessageNodeAtDisplayPosition==="function")insertMessageNodeAtDisplayPosition(userNode,userDisplayItem);
-            if(!savePendingSubmit(sessionId,{submissionId,stage:"routing",promptText,rawPromptText,submitMode,messageIndex,responseIndex,userCommitted:resumeUserCommitted,attachmentCount:initialAttachmentCount,jobId:preparedChatJobId,liveItemId:liveItem?.id||"",userDisplayItemId:userDisplayItem?.id||resumePendingSubmit?.userDisplayItemId||"",quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");
+            if(!savePendingSubmit(sessionId,{submissionId,stage:"routing",promptText,rawPromptText,submitMode,messageIndex,responseIndex,userCommitted:resumeUserCommitted,editExisting:initialEditMessageIndex!==null,editMessageIndex:initialEditMessageIndex,attachmentCount:initialAttachmentCount,jobId:preparedChatJobId,liveItemId:liveItem?.id||"",userDisplayItemId:userDisplayItem?.id||resumePendingSubmit?.userDisplayItemId||"",quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");
             emitTaskEvent(sessionId,taskEvents.ROUTING_STARTED,{submissionId});
             const finishPreflightReply=async(text,meta={})=>{const msg={role:"assistant",content:text,rawText:text,responseIndex,submissionId};assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,text,{rawText:text,responseIndex,metaText:meta.metaText||""}));liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",text,{rawText:text,pending:!1,responseIndex,metaText:meta.metaText||""}):(liveItem.content=text,liveItem.rawText=text,liveItem.pending=!1,persistSessionDisplay(sessionId)));if(isTargetActive()){state.messages.push(msg);sessionForReply&&(sessionForReply.messages=cloneMessageList(state.messages))}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),msg]);await persistPendingTerminalMessages();emitTaskEvent(sessionId,taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return true};
             if(attachmentCaptureIncomplete)return finishPreflightReply("页面刷新发生在附件保存完成之前，附件内容无法安全恢复。请重新上传附件后再试。",{metaText:"未发送到模型"});
@@ -249,7 +257,7 @@
     return Object.freeze({ onSubmit, loadPendingSubmit, savePendingSubmit, clearPendingSubmit, resumePendingSubmit });
   }
 
-  const api = Object.freeze({ createSubmitWorkflow });
+  const api = Object.freeze({ createSubmitWorkflow, parseOptionalMessageIndex });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSubmitWorkflow = api;
   if (root?.window) root.window.ChatUIAppSubmitWorkflow = api;

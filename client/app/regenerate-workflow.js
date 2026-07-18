@@ -17,6 +17,7 @@
     const window = root;
     const taskEvents = deps.taskEvents || root?.ChatUICore?.taskState?.TASK_EVENTS || {};
     const jobLifecycle = deps.jobLifecycle || root?.ChatUIAppJobWorkflow || {};
+    const replacementApi = deps.messageReplacement || root?.ChatUIAppSessionPersistence || {};
     const emitTaskEvent = (sessionId, type, details = {}) => type
       ? dispatchTaskEvent?.(sessionId, { type, ...details })
       : null;
@@ -94,9 +95,9 @@
       if(isSessionBusy(state.activeSessionId))return;
       const t=(e?.dataset.rawText||"").trim();
       if(!t)return void toast("找不到这条消息内容，无法强制生图");
-      let s=Number(e.dataset.messageIndex);Number.isFinite(s)||(s=Math.max(0,state.messages.findIndex(m=>"user"===m?.role&&String(m.rawText||m.content||"").trim()===t)));
-      if(!Number.isFinite(s)||s<0)return void toast("找不到这条消息上下文，无法强制生图");
-      const n=s+1,a=state.activeSessionId,i=ensureActiveRun(a),o=e.nextElementSibling&&(e.nextElementSibling.classList?.contains("assistant")||e.nextElementSibling.classList?.contains("error"))?e.nextElementSibling:null,r=e.querySelector(".force-image-btn");
+      let turn=replacementApi.resolveUserMessageTurn?.(state.messages,e?.dataset?.messageIndex,{rawText:t})||null,s=turn?.userIndex;
+      if(!Number.isInteger(s)||s<0)return void toast("找不到这条消息上下文，无法强制生图");
+      turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;const n=turn.assistantIndex,a=state.activeSessionId,i=ensureActiveRun(a),o=e.nextElementSibling&&(e.nextElementSibling.classList?.contains("assistant")||e.nextElementSibling.classList?.contains("error"))?e.nextElementSibling:null,r=e.querySelector(".force-image-btn");
       resetMessageActionStates(o||e);r&&(r.classList.add("refreshing"),r.disabled=!0);
       const l=prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后"),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:a,run:i,readPending:()=>({promptText:t,rawPromptText:t,submitMode:"image",messageIndex:s,responseIndex:n,liveItemId:l.liveItem?.id||"",userDisplayItemId:e?.dataset?.displayItemId||e?.__displayItem?.id||"",imageContext:e?.dataset?.imageContext||e?.__displayItem?.imageContext||"",attachmentContext:e?.dataset?.attachmentContext||e?.__displayItem?.attachmentContext||"",requestBaseMessages:state.messages.slice(0,s),regenerate:!0,replaceAssistantIndex:n,startedAt})});
@@ -117,8 +118,8 @@
       if(isSessionBusy(state.activeSessionId))return;
       const t=findPreviousUserMessageNode(e),s=(t?.dataset.rawText||"").trim();
       if(!s)return void toast("找不到上一条提示词，无法重新生成");
-      let n=Number(t.dataset.messageIndex);Number.isFinite(n)||(n=Math.max(0,state.messages.length-2));
-      const a=n+1,l=state.activeSessionId,d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
+      let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("???????????????????");turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;
+      const a=turn.assistantIndex,l=state.activeSessionId,d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
       const c=prepareRegeneratedResponse(t,e,l,a,"正在执行：路由预检");e=c.node;let m=c.liveItem;
       const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t);

@@ -33,6 +33,91 @@
       return next;
     }
 
+    function taskEventDetails(task = {}) {
+      return {
+        taskId: task.taskId || '',
+        submissionId: task.submissionId || '',
+        jobId: task.jobId || '',
+        jobKind: task.jobKind || '',
+      };
+    }
+
+    function readStopJob(label, callback) {
+      if (typeof callback !== 'function') return null;
+      try {
+        return callback() || null;
+      } catch (error) {
+        logger.warn?.(`session task stop lookup failed: ${label}`, error);
+        return null;
+      }
+    }
+
+    function addStopJob(run, kind, job) {
+      const jobId = String(job?.id || '').trim();
+      if (!run || !jobId) return '';
+      run.jobIds ||= new Set();
+      run.jobIds.add(`${kind}:${jobId}`);
+      return jobId;
+    }
+
+    async function stopSessionTask(sessionId) {
+      if (!sessionId) return false;
+      const stop = deps.stop || {};
+      const task = getTaskState(sessionId);
+      const identity = taskEventDetails(task);
+      const stopRequestedEvent = taskStateApi?.TASK_EVENTS?.TASK_STOP_REQUESTED;
+      const stoppedEvent = taskStateApi?.TASK_EVENTS?.TASK_STOPPED;
+      const stoppedPhase = taskStateApi?.TASK_PHASES?.STOPPED;
+      const hasCanonicalTask = Boolean(
+        task
+        && stopRequestedEvent
+        && stoppedEvent
+        && stoppedPhase
+        && typeof taskStateApi?.reduceTaskState === 'function'
+      );
+      const run = stop.getActiveRun?.(sessionId) || stop.ensureActiveRun?.(sessionId) || null;
+
+      if (hasCanonicalTask) dispatchTaskEvent(sessionId, { type: stopRequestedEvent, ...identity });
+      if (run) {
+        run.stopped = true;
+        state.stoppedSessions ||= new Map();
+        state.stoppedSessions.set(sessionId, run.token);
+        runCleanup('run abort', () => run.abortController?.abort?.());
+      }
+
+      // Pending ownership must be cleared synchronously before the first await so
+      // a stopped capture/routing continuation cannot resurrect the submission.
+      runCleanup('pending submission', () => stop.clearPendingSubmit?.(sessionId));
+      const chatJob = readStopJob('chat job', () => stop.loadChatJob?.(sessionId));
+      const imageJob = readStopJob('image job', () => stop.loadImageJob?.(sessionId));
+      const chatJobId = addStopJob(run, 'chat', chatJob);
+      const imageJobId = addStopJob(run, 'image', imageJob);
+      runCleanup('stopping projection', () => stop.markStopping?.(sessionId));
+      if (!hasCanonicalTask) runCleanup('legacy busy state', () => deps.setSessionBusy?.(sessionId, false));
+
+      const aborts = [...(run?.jobIds || [])].map(value => {
+        const [kind, ...parts] = String(value).split(':');
+        return Promise.resolve().then(() => stop.abortManagedJob?.(kind, parts.join(':')));
+      });
+
+      try {
+        await Promise.allSettled(aborts);
+      } finally {
+        runCleanup('chat job', () => chatJobId && stop.clearChatJob?.(sessionId, chatJobId));
+        runCleanup('image job', () => imageJobId && stop.clearImageJob?.(sessionId, imageJobId));
+        const stoppedTask = hasCanonicalTask
+          ? dispatchTaskEvent(sessionId, { type: stoppedEvent, ...identity })
+          : null;
+        const ownsStoppedProjection = !hasCanonicalTask || (
+          stoppedTask?.phase === stoppedPhase
+          && stoppedTask?.submissionId === task.submissionId
+        );
+        if (ownsStoppedProjection) runCleanup('stopped projection', () => stop.finalizeStopped?.(sessionId));
+        finishSessionTask(sessionId, { run });
+      }
+      return true;
+    }
+
     function runCleanup(label, callback) {
       if (typeof callback !== 'function') return;
       try {
@@ -82,7 +167,7 @@
       return true;
     }
 
-    return Object.freeze({ getTaskState, getTaskControls, dispatchTaskEvent, finishSessionTask });
+    return Object.freeze({ getTaskState, getTaskControls, dispatchTaskEvent, stopSessionTask, finishSessionTask });
   }
 
   const api = Object.freeze({ createTaskLifecycle });

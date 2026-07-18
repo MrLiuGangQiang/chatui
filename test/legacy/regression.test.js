@@ -65,6 +65,7 @@ const sessionRouteSwitchContinuityTests = require('../unit/session-route-switch-
 const durableTaskLifecycleTests = require('../unit/durable-task-lifecycle.test');
 const taskLifecycleStateMachineTests = require('../unit/task-lifecycle-state-machine.test');
 const taskLifecycleTests = require('../unit/task-lifecycle.test');
+const taskStateTests = require('../unit/task-state.test');
 const doneSoundTests = require('../unit/done-sound.test');
 const serverSmokeTests = require('../smoke/server-smoke.test');
 
@@ -3315,6 +3316,7 @@ const tests = [
   ...durableTaskLifecycleTests,
   ...taskLifecycleStateMachineTests,
   ...taskLifecycleTests,
+  ...taskStateTests,
   ...doneSoundTests,
   ...serverSmokeTests,
   testSessionPromptDraftPersistsPerSession,

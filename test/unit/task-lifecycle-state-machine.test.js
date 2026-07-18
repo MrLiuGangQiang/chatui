@@ -251,10 +251,13 @@ function testExplicitCancellationIsNotRecoverablePageLeave() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.ok(submit.includes('isSessionBusy(state.activeSessionId)||pendingActiveSubmit'),
     'a retained pending owner must block a later submission even if a transient error cleared the in-memory busy flag');
-  const stopStart = app.indexOf('async function stopActiveRun');
-  const clearPending = app.indexOf('getJobWorkflow().clearPendingSubmit(e,{storage:localStorage})', stopStart);
-  const firstAwait = app.indexOf('await Promise.all', stopStart);
+  const lifecycle = fs.readFileSync(path.join(__dirname, '../../client/app/task-lifecycle.js'), 'utf8');
+  const stopStart = lifecycle.indexOf('async function stopSessionTask');
+  const clearPending = lifecycle.indexOf("runCleanup('pending submission'", stopStart);
+  const firstAwait = lifecycle.indexOf('await Promise.allSettled', stopStart);
   assert.ok(clearPending > stopStart && clearPending < firstAwait, 'explicit stop must synchronously clear pending-submit before any asynchronous managed-job abort');
+  assert.ok(app.includes('function stopActiveRun(e=state.activeSessionId){return getTaskLifecycleController().stopSessionTask(e)}'),
+    'the browser composition root must delegate explicit stop to the shared lifecycle controller');
 }
 
 function testImageHandoffUsesTheSameClientJobIdentity() {

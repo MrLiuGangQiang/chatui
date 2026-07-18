@@ -44,6 +44,130 @@ function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   assert.strictEqual(busyCalls.length, 3);
 }
 
+async function testStopSessionTaskOwnsTheEntireStopBoundary() {
+  const run = {
+    token: 'run-a',
+    stopped: false,
+    abortController: new AbortController(),
+    jobIds: new Set(),
+  };
+  const state = {
+    activeRuns: new Map([['session-a', run]]),
+    stoppedSessions: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  const calls = [];
+  let releaseAbort;
+  const abortGate = new Promise(resolve => { releaseAbort = resolve; });
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    clearActiveRun: (sessionId, ownedRun) => {
+      calls.push(['clear-run', sessionId]);
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy: (sessionId, value, options) => calls.push(['busy', sessionId, value, options?.canonical === true]),
+    updateSendAvailability: () => calls.push(['availability']),
+    stop: {
+      getActiveRun: sessionId => state.activeRuns.get(sessionId),
+      ensureActiveRun: () => run,
+      clearPendingSubmit: sessionId => calls.push(['clear-pending', sessionId]),
+      loadChatJob: () => ({ id: 'chatjob-a' }),
+      loadImageJob: () => ({ id: 'imgjob-a' }),
+      abortManagedJob: (kind, jobId) => {
+        calls.push(['abort-job', kind, jobId]);
+        return kind === 'chat' ? abortGate : Promise.resolve();
+      },
+      clearChatJob: (sessionId, jobId) => calls.push(['clear-chat', sessionId, jobId]),
+      clearImageJob: (sessionId, jobId) => calls.push(['clear-image', sessionId, jobId]),
+      markStopping: sessionId => calls.push(['mark-stopping', sessionId]),
+      finalizeStopped: sessionId => calls.push(['finalize-stopped', sessionId]),
+    },
+  });
+
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-a', { type: events.TASK_ACCEPTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.ROUTING_STARTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_PREPARED, submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_COMMITTED, submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' });
+  calls.length = 0;
+
+  const stopping = lifecycle.stopSessionTask('session-a');
+  await Promise.resolve();
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.STOPPING);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').sendAction, 'wait');
+  assert.strictEqual(run.stopped, true);
+  assert.strictEqual(run.abortController.signal.aborted, true);
+  assert.ok(calls.findIndex(call => call[0] === 'clear-pending') < calls.findIndex(call => call[0] === 'abort-job'),
+    'pending ownership must clear before asynchronous job abort starts');
+  assert.strictEqual(calls.some(call => call[0] === 'finalize-stopped'), false, 'final projection must wait for job abort settlement');
+
+  releaseAbort();
+  await stopping;
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.STOPPED);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').canSubmit, true);
+  assert.strictEqual(state.activeRuns.has('session-a'), false);
+  assert.ok(calls.some(call => call[0] === 'clear-chat' && call[2] === 'chatjob-a'));
+  assert.ok(calls.some(call => call[0] === 'clear-image' && call[2] === 'imgjob-a'));
+  assert.ok(calls.some(call => call[0] === 'finalize-stopped'));
+}
+
+async function testLateStopCompletionCannotFinalizeANewerTask() {
+  const oldRun = { token: 'run-old', stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const newRun = { token: 'run-new', stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const state = {
+    activeRuns: new Map([['session-a', oldRun]]),
+    stoppedSessions: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  let releaseAbort;
+  const abortGate = new Promise(resolve => { releaseAbort = resolve; });
+  let finalized = 0;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    clearActiveRun: (sessionId, run) => { if (state.activeRuns.get(sessionId) === run) state.activeRuns.delete(sessionId); },
+    setSessionBusy: () => {},
+    stop: {
+      getActiveRun: sessionId => state.activeRuns.get(sessionId),
+      ensureActiveRun: () => oldRun,
+      clearPendingSubmit: () => {},
+      loadChatJob: () => ({ id: 'chatjob-old' }),
+      abortManagedJob: () => abortGate,
+      clearChatJob: () => {},
+      finalizeStopped: () => { finalized += 1; },
+    },
+  });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-a', { type: events.TASK_ACCEPTED, submissionId: 'submit-old' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.ROUTING_STARTED, submissionId: 'submit-old' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_PREPARED, submissionId: 'submit-old', jobId: 'chatjob-old', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_COMMITTED, submissionId: 'submit-old', jobId: 'chatjob-old', jobKind: 'chat' });
+
+  const stopping = lifecycle.stopSessionTask('session-a');
+  await Promise.resolve();
+
+  let newer = taskState.createTaskState();
+  newer = taskState.reduceTaskState(newer, { type: events.TASK_ACCEPTED, sessionId: 'session-a', submissionId: 'submit-new' });
+  state.taskStates.set('session-a', newer);
+  state.activeRuns.set('session-a', newRun);
+  releaseAbort();
+  await stopping;
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').submissionId, 'submit-new');
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.ACCEPTED);
+  assert.strictEqual(state.activeRuns.get('session-a'), newRun);
+  assert.strictEqual(finalized, 0, 'late stop completion must not rewrite the newer task projection');
+}
+
 function testSubmitButtonUsesCanonicalTaskProjection() {
   const root = path.join(__dirname, '../..');
   const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
@@ -155,7 +279,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.1.0-canonical-task-state') < index.indexOf('submit-workflow.js?v=1.2.82-canonical-task-state'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.0-explicit-stop') < index.indexOf('submit-workflow.js?v=1.2.82-canonical-task-state'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
@@ -171,6 +295,8 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
 
 module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testStopSessionTaskOwnsTheEntireStopBoundary,
+  testLateStopCompletionCannotFinalizeANewerTask,
   testSubmitButtonUsesCanonicalTaskProjection,
   testFinishSessionTaskReleasesAllTransientOwners,
   testFinishSessionTaskPreservesNewerRunBusyState,

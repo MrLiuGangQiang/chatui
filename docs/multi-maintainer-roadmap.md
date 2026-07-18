@@ -26,7 +26,7 @@ Exit criteria: every change is automatically checked and legacy composition debt
 
 Exit criteria: workflows no longer update busy UI independently, and stale completion cannot clear a newer task.
 
-Progress as of July 18, 2026: the pure reducer, browser namespace registration, shared event dispatcher, and normal submit-path projection are complete. Regenerate, recovery, background-follow, and explicit stop workflows remain to be migrated in separate pull requests.
+Progress as of July 18, 2026: the pure reducer, browser namespace registration, shared event dispatcher, normal submit-path projection, and explicit stop workflow are complete. Regenerate, recovery, and background-follow workflows remain to be migrated in separate pull requests.
 
 ### M2: Shrink the browser composition root
 

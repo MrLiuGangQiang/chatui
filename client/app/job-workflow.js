@@ -70,8 +70,10 @@
       const match = messages.find((message) => message?.role === 'user' && message.submissionId === pending.submissionId);
       if (match) return match;
     }
-    const index = Number(pending.messageIndex);
-    if (!Number.isFinite(index) || messages[index]?.role !== 'user') return null;
+    const rawIndex = pending.messageIndex;
+    if (rawIndex === null || rawIndex === undefined || typeof rawIndex === 'string' && !rawIndex.trim()) return null;
+    const index = Number(rawIndex);
+    if (!Number.isFinite(index) || index < 0 || messages[index]?.role !== 'user') return null;
     const message = messages[index];
     const expectedText = String(pending.rawPromptText || pending.promptText || '').trim();
     const actualText = String(message.rawText || (typeof message.content === 'string' ? message.content : '') || '').trim();

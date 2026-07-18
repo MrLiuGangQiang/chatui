@@ -352,6 +352,12 @@
 
     function updateMessage(e, t, s = {}) {
       with (deps) {
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+        const displayApi = root?.ChatUIAppDisplayItems || {};
+        const canonicalRole = e.classList?.contains('user') ? 'user' : e.classList?.contains('assistant') || e.classList?.contains('error') ? 'assistant' : '';
+        const canonicalIndex = canonicalRole === 'user' ? e.dataset.messageIndex : e.dataset.responseIndex;
+        e = displayApi.reconcileCanonicalMessageNode?.($("messages"), e, { role: canonicalRole, index: canonicalIndex }) || e;
         const contentNode = e.querySelector(".content");
         const restore = s.noScroll ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
         const rawValue = String(s.rawText ?? t ?? "");
@@ -487,7 +493,13 @@
 
     function updateMessageContentLight(e, t, s = {}) {
       with (deps) {
-        if (shouldSuppressRunUi(s.sessionId || state.activeSessionId, s.runToken)) return;
+        if (shouldSuppressRunUi(s.sessionId || state.activeSessionId, s.runToken) || !e) return;
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+        const displayApi = root?.ChatUIAppDisplayItems || {};
+        const canonicalRole = e?.classList?.contains('user') ? 'user' : e?.classList?.contains('assistant') || e?.classList?.contains('error') ? 'assistant' : '';
+        const canonicalIndex = canonicalRole === 'user' ? e?.dataset?.messageIndex : e?.dataset?.responseIndex;
+        e = displayApi.reconcileCanonicalMessageNode?.($("messages"), e, { role: canonicalRole, index: canonicalIndex }) || e;
         const contentNode = e?.querySelector('.content');
         if (!contentNode) return;
         const rawValue = String(s.rawText ?? t ?? '');

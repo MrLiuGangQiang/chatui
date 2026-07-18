@@ -36,9 +36,15 @@ function displayItemHasRichMedia(item) {
   ));
 }
 
+function parseDisplayMessageIndex(value) {
+  if (value === null || value === undefined || typeof value === 'string' && !value.trim()) return NaN;
+  const index = Number(value);
+  return Number.isFinite(index) && index >= 0 ? index : NaN;
+}
+
 function canonicalMessageIndex(message, fallbackIndex = -1) {
-  const raw = message?.role === 'user' ? message?.messageIndex : message?.role === 'assistant' ? message?.responseIndex : fallbackIndex;
-  const index = Number(raw);
+  const raw = message?.role === 'user' ? message?.messageIndex : message?.role === 'assistant' ? message?.responseIndex : undefined;
+  const index = parseDisplayMessageIndex(raw);
   return Number.isFinite(index) ? index : Number(fallbackIndex);
 }
 
@@ -57,8 +63,30 @@ function messageNodeRole(node) {
 
 function messageNodeIndex(node, role = messageNodeRole(node)) {
   const raw = role === 'user' ? node?.dataset?.messageIndex : role === 'assistant' ? node?.dataset?.responseIndex : '';
-  const index = Number(raw);
-  return Number.isFinite(index) ? index : NaN;
+  return parseDisplayMessageIndex(raw);
+}
+
+function reconcileCanonicalMessageNode(container, node, { role = '', index = null } = {}) {
+  if (!container?.querySelectorAll || !node) return node || null;
+  const normalizeRole = value => value === 'error' ? 'assistant' : value;
+  const expectedRole = normalizeRole(role || messageNodeRole(node));
+  const expectedIndex = parseDisplayMessageIndex(index);
+  if (!expectedRole || !Number.isFinite(expectedIndex)) return node;
+  const nodes = [...container.querySelectorAll('.message')];
+  for (const candidate of nodes) {
+    const candidateRole = normalizeRole(messageNodeRole(candidate));
+    if (candidate === node || candidateRole !== expectedRole) continue;
+    if (messageNodeIndex(candidate, candidateRole) === expectedIndex) candidate.remove();
+  }
+  const anchor = [...container.querySelectorAll('.message')].find(candidate => {
+    if (candidate === node) return false;
+    const candidateRole = normalizeRole(messageNodeRole(candidate));
+    const candidateIndex = messageNodeIndex(candidate, candidateRole);
+    return Number.isFinite(candidateIndex) && candidateIndex > expectedIndex;
+  });
+  if (anchor?.parentNode === container) container.insertBefore(node, anchor);
+  else if (node.parentNode !== container || node !== container.lastElementChild) container.appendChild(node);
+  return node;
 }
 
 function isPendingMessageNode(node) {
@@ -91,7 +119,7 @@ function findCanonicalMessageNode(nodes = [], message, fallbackIndex = -1) {
   return [...list].reverse().find(node => canonicalMessageNodeMatches(node, message, fallbackIndex)) || null;
 }
 
-const displayItemsApi = Object.freeze({ compactDisplayItems, makeDisplayItemId, displayItemHasRichMedia, canonicalMessageIndex, canonicalMessageNodeRole, messageNodeRole, messageNodeIndex, isPendingMessageNode, canonicalMessageNodeMatches, findCanonicalMessageNode });
+const displayItemsApi = Object.freeze({ compactDisplayItems, parseDisplayMessageIndex, reconcileCanonicalMessageNode, makeDisplayItemId, displayItemHasRichMedia, canonicalMessageIndex, canonicalMessageNodeRole, messageNodeRole, messageNodeIndex, isPendingMessageNode, canonicalMessageNodeMatches, findCanonicalMessageNode });
 if (typeof module !== 'undefined' && module.exports) module.exports = displayItemsApi;
 if (root) root.ChatUIAppDisplayItems = displayItemsApi;
 if (root?.window) root.window.ChatUIAppDisplayItems = displayItemsApi;

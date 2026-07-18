@@ -1,13 +1,21 @@
 (function initChatUIAppSessionPersistence(root) {
   'use strict';
 
+  function parseMessageOrderIndex(value) {
+    if (value === null || value === undefined) return NaN;
+    if (typeof value === 'string' && !value.trim()) return NaN;
+    const index = Number(value);
+    return Number.isFinite(index) && index >= 0 ? index : NaN;
+  }
+
   function normalizeMessageOrderFields(messages = []) {
     let next = 0;
     return (Array.isArray(messages) ? messages : []).map(message => {
       if (!message || !message.role) return message;
       const copy = { ...message };
-      const raw = message.role === 'user' ? Number(message.messageIndex) : Number(message.responseIndex);
-      const index = Number.isFinite(raw) ? raw : next;
+      const raw = message.role === 'user' ? message.messageIndex : message.responseIndex;
+      const parsed = parseMessageOrderIndex(raw);
+      const index = Number.isFinite(parsed) ? parsed : next;
       if (message.role === 'user') copy.messageIndex = String(index);
       if (message.role === 'assistant') copy.responseIndex = String(index);
       next = Math.max(next, index + 1);
@@ -16,10 +24,61 @@
   }
 
   function messageSortIndex(message, fallback) {
-    const value = message?.role === 'user' ? Number(message.messageIndex) : message?.role === 'assistant' ? Number(message.responseIndex) : NaN;
-    return Number.isFinite(value) ? value : fallback;
+    const value = message?.role === 'user' ? message.messageIndex : message?.role === 'assistant' ? message.responseIndex : undefined;
+    const parsed = parseMessageOrderIndex(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
   function roleSortWeight(role) { return role === 'system' ? 0 : role === 'user' ? 1 : role === 'assistant' ? 2 : 3; }
+
+  function resolveUserMessageTurn(messages = [], requestedIndex, { rawText = '' } = {}) {
+    const list = Array.isArray(messages) ? messages : [];
+    const requested = parseMessageOrderIndex(requestedIndex);
+    let userIndex = Number.isFinite(requested)
+      ? list.findIndex(message => message?.role === 'user' && parseMessageOrderIndex(message.messageIndex) === requested)
+      : -1;
+    if (userIndex < 0 && Number.isInteger(requested) && list[requested]?.role === 'user') userIndex = requested;
+    const expectedText = String(rawText || '').trim();
+    if (userIndex < 0 && expectedText) {
+      userIndex = list.findIndex(message => message?.role === 'user' && String(message.rawText || (typeof message.content === 'string' ? message.content : '') || '').trim() === expectedText);
+    }
+    if (userIndex < 0) return null;
+
+    const expectedResponseIndexes = new Set([userIndex + 1]);
+    if (Number.isFinite(requested)) expectedResponseIndexes.add(requested + 1);
+    let assistantIndex = list.findIndex((message, index) => index > userIndex && message?.role === 'assistant' && expectedResponseIndexes.has(parseMessageOrderIndex(message.responseIndex)));
+    if (assistantIndex < 0) {
+      for (let index = userIndex + 1; index < list.length; index += 1) {
+        if (list[index]?.role === 'user') break;
+        if (list[index]?.role === 'assistant') { assistantIndex = index; break; }
+      }
+    }
+    return {
+      userIndex,
+      assistantIndex: assistantIndex >= 0 ? assistantIndex : userIndex + 1,
+      hasAssistant: assistantIndex >= 0,
+    };
+  }
+
+  function reindexCanonicalMessagePositions(messages = []) {
+    if (!Array.isArray(messages)) return messages;
+    messages.forEach((message, index) => {
+      if (message?.role === 'user') message.messageIndex = String(index);
+      if (message?.role === 'assistant') message.responseIndex = String(index);
+    });
+    return messages;
+  }
+
+  function ensureAssistantReplacementSlot(messages = [], turn = null, placeholder = {}) {
+    if (!Array.isArray(messages) || !turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0) return null;
+    if (turn.hasAssistant && messages[turn.assistantIndex]?.role === 'assistant') {
+      reindexCanonicalMessagePositions(messages);
+      return { ...turn, assistantIndex: turn.assistantIndex, hasAssistant: true };
+    }
+    const assistantIndex = Math.min(messages.length, Math.max(turn.userIndex + 1, Number(turn.assistantIndex) || 0));
+    messages.splice(assistantIndex, 0, { role: 'assistant', content: '', rawText: '', replacing: true, ...placeholder });
+    reindexCanonicalMessagePositions(messages);
+    return { ...turn, assistantIndex, hasAssistant: true, inserted: true };
+  }
   function sortCanonicalMessages(messages = []) {
     return normalizeMessageOrderFields(messages).map((msg, fallback) => ({ msg, fallback })).sort((a, b) => {
       const byIndex = messageSortIndex(a.msg, a.fallback) - messageSortIndex(b.msg, b.fallback);
@@ -309,7 +368,7 @@
     return null;
   }
 
-  const api = Object.freeze({ normalizeMessageOrderFields, messageSortIndex, roleSortWeight, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
+  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, resolveUserMessageTurn, reindexCanonicalMessagePositions, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionPersistence = api;
   if (root?.window) root.window.ChatUIAppSessionPersistence = api;

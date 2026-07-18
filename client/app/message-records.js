@@ -31,6 +31,7 @@
       : message?.role === 'assistant'
         ? message?.responseIndex
         : message?.sequence;
+    if (raw === null || raw === undefined || typeof raw === 'string' && !raw.trim()) return fallback;
     const value = Number(raw);
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }

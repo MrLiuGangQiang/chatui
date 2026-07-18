@@ -126,6 +126,7 @@
       state.busySessions?.delete?.(sessionId);
       state.activeOutputSessions?.delete?.(sessionId);
       state.activeRuns?.delete?.(sessionId);
+      state.taskStates?.delete?.(sessionId);
       state.liveRuns?.delete?.(sessionId);
       state.stoppedSessions?.delete?.(sessionId);
       state.promptDrafts?.delete?.(sessionId);

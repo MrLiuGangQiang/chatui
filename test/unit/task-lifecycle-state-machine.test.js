@@ -6,6 +6,7 @@ const path = require('path');
 const jobWorkflow = require('../../client/app/job-workflow');
 const sessionPersistence = require('../../client/app/session-persistence');
 const submitWorkflow = require('../../client/app/submit-workflow');
+const taskState = require('../../client/core/task-state');
 
 function makeStorage(initial = {}) {
   const data = new Map(Object.entries(initial));
@@ -36,10 +37,13 @@ async function testAcceptedOwnerMarksBusyBeforeAttachmentCaptureAndStopsCleanly(
   let busy = false;
   let stopCalls = 0;
   let clearRunCalls = 0;
+  const taskEvents = [];
 
   try {
     const workflow = submitWorkflow.createSubmitWorkflow({
       state,
+      taskEvents: taskState.TASK_EVENTS,
+      dispatchTaskEvent: (sessionId, event) => taskEvents.push({ sessionId, ...event }),
       $: id => id === 'prompt' ? prompt : null,
       isSessionBusy: () => busy,
       stopActiveRun: async () => {
@@ -67,6 +71,10 @@ async function testAcceptedOwnerMarksBusyBeforeAttachmentCaptureAndStopsCleanly(
     const pending = jobWorkflow.loadPendingSubmit(session.id, { storage });
     assert.strictEqual(pending.stage, 'accepted');
     assert.strictEqual(busy, true, 'accepted ownership must lock the session before the first asynchronous capture step');
+    assert.deepStrictEqual(taskEvents.map(event => event.type), [
+      taskState.TASK_EVENTS.TASK_ACCEPTED,
+      taskState.TASK_EVENTS.ATTACHMENT_CAPTURE_STARTED,
+    ]);
 
     await workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
     assert.strictEqual(stopCalls, 1, 'a second send click during capture must stop the owned run instead of starting a duplicate submission');
@@ -76,6 +84,7 @@ async function testAcceptedOwnerMarksBusyBeforeAttachmentCaptureAndStopsCleanly(
     assert.strictEqual(jobWorkflow.loadPendingSubmit(session.id, { storage }), null, 'explicit stop must be terminal and must not be resurrected by a late capture continuation');
     assert.strictEqual(busy, false);
     assert.strictEqual(clearRunCalls, 1);
+    assert.strictEqual(taskEvents.at(-1).type, taskState.TASK_EVENTS.TASK_STOPPED);
   } finally {
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
@@ -93,10 +102,13 @@ async function testAttachmentCaptureFailureUsesUnifiedLifecycleCleanup() {
   const errors = [];
   let busy = false;
   let clearRunCalls = 0;
+  const taskEvents = [];
 
   try {
     const workflow = submitWorkflow.createSubmitWorkflow({
       state,
+      taskEvents: taskState.TASK_EVENTS,
+      dispatchTaskEvent: (sessionId, event) => taskEvents.push({ sessionId, ...event }),
       $: id => id === 'prompt' ? prompt : null,
       isSessionBusy: () => busy,
       stopActiveRun: async () => {},
@@ -118,6 +130,11 @@ async function testAttachmentCaptureFailureUsesUnifiedLifecycleCleanup() {
     assert.strictEqual(jobWorkflow.loadPendingSubmit(session.id, { storage }), null);
     assert.strictEqual(busy, false);
     assert.strictEqual(clearRunCalls, 1, 'setup failures must release the active run through the same finally boundary as routed work');
+    assert.deepStrictEqual(taskEvents.map(event => event.type), [
+      taskState.TASK_EVENTS.TASK_ACCEPTED,
+      taskState.TASK_EVENTS.ATTACHMENT_CAPTURE_STARTED,
+      taskState.TASK_EVENTS.TASK_FAILED,
+    ]);
   } finally {
     if (previousStorage === undefined) delete global.localStorage;
     else global.localStorage = previousStorage;
@@ -250,8 +267,8 @@ function testImageHandoffUsesTheSameClientJobIdentity() {
 
 function testTerminalPreflightCommitsBeforeOwnerClear() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  assert.ok(submit.includes('await persistPendingTerminalMessages();clearPendingSubmit(sessionId)'),
-    'terminal preflight and clarification responses must commit canonically before pending ownership is cleared');
+  assert.ok(submit.includes('await persistPendingTerminalMessages();emitTaskEvent(sessionId,taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId)'),
+    'terminal preflight and clarification responses must emit canonical completion after commit and before pending ownership is cleared');
   assert.ok(submit.includes('failure.preservePendingSubmit=!0'), 'a failed terminal commit must retain pending ownership for reload recovery');
 }
 

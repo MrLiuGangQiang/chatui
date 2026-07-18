@@ -5,6 +5,33 @@
     if (!deps.state) throw new Error('state is required');
     const state = deps.state;
     const logger = deps.logger || console;
+    const taskStateApi = deps.taskState || root?.ChatUICore?.taskState || null;
+    state.taskStates ||= new Map();
+
+    function getTaskState(sessionId) {
+      return state.taskStates?.get?.(sessionId) || null;
+    }
+
+    function getTaskControls(sessionId) {
+      const task = getTaskState(sessionId);
+      return task && typeof taskStateApi?.deriveTaskControls === 'function'
+        ? taskStateApi.deriveTaskControls(task)
+        : null;
+    }
+
+    function dispatchTaskEvent(sessionId, event = {}) {
+      if (!sessionId || typeof taskStateApi?.reduceTaskState !== 'function') return null;
+      const current = getTaskState(sessionId) || taskStateApi.createTaskState?.({ sessionId });
+      if (!current) return null;
+      const next = taskStateApi.reduceTaskState(current, { ...event, sessionId });
+      if (next !== current) {
+        state.taskStates.set(sessionId, next);
+        const controls = getTaskControls(sessionId);
+        deps.setSessionBusy?.(sessionId, controls?.isBusy === true, { canonical: true });
+        deps.onTaskStateChange?.(sessionId, next, current, event);
+      }
+      return next;
+    }
 
     function runCleanup(label, callback) {
       if (typeof callback !== 'function') return;
@@ -55,7 +82,7 @@
       return true;
     }
 
-    return Object.freeze({ finishSessionTask });
+    return Object.freeze({ getTaskState, getTaskControls, dispatchTaskEvent, finishSessionTask });
   }
 
   const api = Object.freeze({ createTaskLifecycle });

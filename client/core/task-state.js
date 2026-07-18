@@ -1,4 +1,11 @@
-'use strict';
+(function initChatUICoreTaskState(root, factory) {
+  'use strict';
+
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root?.ChatUICore?.registerModule?.('taskState', api);
+})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this), function createChatUICoreTaskState() {
+  'use strict';
 
 const TASK_PHASES = Object.freeze({
   IDLE: 'idle',
@@ -24,7 +31,9 @@ const TASK_EVENTS = Object.freeze({
   JOB_STARTED: 'JOB_STARTED',
   JOB_RECOVERY_STARTED: 'JOB_RECOVERY_STARTED',
   JOB_COMPLETED_COMMITTED: 'JOB_COMPLETED_COMMITTED',
+  TASK_COMPLETED_COMMITTED: 'TASK_COMPLETED_COMMITTED',
   JOB_FAILED: 'JOB_FAILED',
+  TASK_FAILED: 'TASK_FAILED',
   TASK_STOP_REQUESTED: 'TASK_STOP_REQUESTED',
   TASK_STOPPED: 'TASK_STOPPED',
   SESSION_DISPOSED: 'SESSION_DISPOSED',
@@ -214,6 +223,14 @@ function reduceTaskState(currentState, event = {}) {
         error: null,
       });
 
+    case TASK_EVENTS.TASK_COMPLETED_COMMITTED:
+      if (![TASK_PHASES.ACCEPTED, TASK_PHASES.CAPTURING, TASK_PHASES.ROUTING].includes(state.phase)) return state;
+      return transition(state, {
+        phase: TASK_PHASES.COMPLETED,
+        owner: TASK_OWNERS.CANONICAL_SESSION,
+        error: null,
+      });
+
     // This event is emitted only after the assistant result has committed to
     // the canonical session snapshot; the managed job remains owner until then.
     case TASK_EVENTS.JOB_COMPLETED_COMMITTED:
@@ -225,6 +242,7 @@ function reduceTaskState(currentState, event = {}) {
       });
 
     case TASK_EVENTS.JOB_FAILED:
+    case TASK_EVENTS.TASK_FAILED:
       if (!isTaskActive(state) || state.phase === TASK_PHASES.STOPPING) return state;
       return transition(state, {
         phase: TASK_PHASES.FAILED,
@@ -249,7 +267,7 @@ function reduceTaskState(currentState, event = {}) {
   }
 }
 
-module.exports = Object.freeze({
+return Object.freeze({
   TASK_PHASES,
   TASK_EVENTS,
   TASK_OWNERS,
@@ -258,4 +276,5 @@ module.exports = Object.freeze({
   isTaskTerminal,
   deriveTaskControls,
   reduceTaskState,
+});
 });

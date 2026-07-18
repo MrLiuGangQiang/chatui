@@ -179,8 +179,8 @@ function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(!submit.includes('clearPendingSubmit(sessionId);const replacementResponseIndex='), 'pending submit must not be cleared before dispatch owns a durable job');
   assert.ok(submit.includes('stage:"accepted"') && submit.includes('stage:"captured"') && submit.includes('stage:"routing"') && submit.includes('stage:"handoff"'), 'submission ownership must be explicit across every pre-job phase');
-  assert.ok(submit.includes('completeDurableHandoff=()=>clearPendingSubmit(sessionId)'));
-  assert.ok(submit.includes('onDurableHandoff:completeDurableHandoff'));
+  assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
+  assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind)'));
   assert.ok(!submit.includes('saveChatJob(sessionId,{id:preparedChatJobId'), 'routing must not create an incomplete chat job that can outrank pending-submit recovery');
   assert.ok(image.includes('savedImageJob=saveImageJob(n,durableImageJob)') && image.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && image.includes('completeDurableHandoff();T=performance.now()'), 'image dispatch must verify a restartable local owner before clearing pending-submit');
   assert.ok(app.includes('setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id)'), 'active task evidence must mark the session busy before first render');

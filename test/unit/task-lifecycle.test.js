@@ -4,7 +4,63 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const taskLifecycle = require('../../client/app/task-lifecycle');
+const taskState = require('../../client/core/task-state');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
+
+function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
+  const state = { taskStates: new Map() };
+  const busyCalls = [];
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: (sessionId, value, options) => busyCalls.push([sessionId, value, options]),
+  });
+
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.TASK_ACCEPTED,
+    submissionId: 'submit-a',
+  });
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.ROUTING_STARTED,
+    submissionId: 'submit-a',
+  });
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.TASK_COMPLETED_COMMITTED,
+    submissionId: 'submit-a',
+  });
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, false);
+  assert.deepStrictEqual(busyCalls.map(call => call[1]), [true, true, false]);
+  assert.ok(busyCalls.every(call => call[2]?.canonical === true));
+
+  const completed = lifecycle.getTaskState('session-a');
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED,
+    submissionId: 'submit-old',
+    jobId: 'chatjob-old',
+  });
+  assert.strictEqual(lifecycle.getTaskState('session-a'), completed, 'stale events must not trigger another busy projection');
+  assert.strictEqual(busyCalls.length, 3);
+}
+
+function testSubmitButtonUsesCanonicalTaskProjection() {
+  const root = path.join(__dirname, '../..');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const submit = fs.readFileSync(path.join(root, 'client/app/submit-workflow.js'), 'utf8');
+
+  assert.ok(app.includes('function isSessionBusy(e=state.activeSessionId){const t=taskControls(e);return t?t.isBusy:'),
+    'canonical task controls must take precedence over legacy busy flags');
+  assert.ok(app.includes('const n=taskControls(e)?.isBusy??!!t'),
+    'late legacy cleanup must project the current canonical task instead of clearing it');
+  assert.ok(app.includes('const e=taskControls(state.activeSessionId)') && app.includes('e?.sendAction'),
+    'send/stop button rendering must derive from canonical task controls');
+  assert.ok(submit.includes('emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED')
+    && submit.indexOf('emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED') < submit.indexOf('finishSessionTask(sessionId,{run'),
+    'canonical completion must be emitted before shared legacy cleanup runs');
+  assert.ok(submit.includes('failureEvent===taskEvents.JOB_RECOVERY_STARTED&&root.setTimeout?.(()=>deps.resumeSessionJobs?.(sessionId),0)'),
+    'recoverable managed-job errors must schedule the existing recovery workflow');
+}
 
 function testFinishSessionTaskReleasesAllTransientOwners() {
   const run = { token: 'run-a' };
@@ -99,7 +155,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.0.0') < index.indexOf('submit-workflow.js?v=1.2.81-task-lifecycle'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.1.0-canonical-task-state') < index.indexOf('submit-workflow.js?v=1.2.82-canonical-task-state'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
@@ -114,6 +170,8 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
 }
 
 module.exports = [
+  testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testSubmitButtonUsesCanonicalTaskProjection,
   testFinishSessionTaskReleasesAllTransientOwners,
   testFinishSessionTaskPreservesNewerRunBusyState,
   testCompletedRecoverySnapshotEmitsFinishEvent,

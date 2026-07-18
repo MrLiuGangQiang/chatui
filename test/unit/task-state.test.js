@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const taskState = require('../../client/core/task-state');
 
 const {
@@ -72,6 +75,16 @@ function testTaskStateFollowsDurableOwnershipChain() {
   assert.strictEqual(deriveTaskControls(state).canSubmit, true);
 }
 
+function testTaskStateCompletesCommittedLocalReply() {
+  let state = createTaskState();
+  state = reduceTaskState(state, event(TASK_EVENTS.TASK_ACCEPTED));
+  state = reduceTaskState(state, event(TASK_EVENTS.ROUTING_STARTED));
+  state = reduceTaskState(state, event(TASK_EVENTS.TASK_COMPLETED_COMMITTED));
+  assert.strictEqual(state.phase, TASK_PHASES.COMPLETED);
+  assert.strictEqual(state.owner, TASK_OWNERS.CANONICAL_SESSION);
+  assert.strictEqual(deriveTaskControls(state).isBusy, false);
+}
+
 function testTaskStateSupportsNoAttachmentRoute() {
   let state = createTaskState();
   state = reduceTaskState(state, event(TASK_EVENTS.TASK_ACCEPTED));
@@ -93,6 +106,17 @@ function testTaskStateIgnoresStaleCompletionFromOlderTask() {
   assert.strictEqual(afterLateCompletion.phase, TASK_PHASES.RUNNING);
   assert.strictEqual(afterLateCompletion.submissionId, 'submit-b');
   assert.strictEqual(deriveTaskControls(afterLateCompletion).sendAction, 'stop');
+}
+
+function testTaskStateMovesRunningJobIntoRecovery() {
+  const running = buildRunningTask();
+  const recovering = reduceTaskState(running, event(TASK_EVENTS.JOB_RECOVERY_STARTED, {
+    jobId: 'chatjob-a',
+    jobKind: 'chat',
+  }));
+  assert.strictEqual(recovering.phase, TASK_PHASES.RECOVERING);
+  assert.strictEqual(recovering.owner, TASK_OWNERS.MANAGED_JOB);
+  assert.strictEqual(deriveTaskControls(recovering).isBusy, true);
 }
 
 function testTaskStateRejectsMismatchedJobEvents() {
@@ -166,6 +190,18 @@ function testTaskStateIgnoresUnknownAndOutOfOrderEvents() {
   assert.strictEqual(duplicateAccept, accepted, 'an active task cannot be replaced by a second acceptance event');
 }
 
+function testBrowserCoreRegistersTaskStateWithoutAnotherGlobal() {
+  const browser = {};
+  const context = vm.createContext({ window: browser, globalThis: browser, console });
+  const root = path.join(__dirname, '../..');
+  vm.runInContext(fs.readFileSync(path.join(root, 'client/core/browser.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(root, 'client/core/task-state.js'), 'utf8'), context);
+
+  assert.strictEqual(typeof browser.ChatUICore.taskState.reduceTaskState, 'function');
+  assert.deepStrictEqual(Object.keys(browser).filter(key => /^ChatUI/.test(key)), ['ChatUICore']);
+  assert.throws(() => browser.ChatUICore.registerModule('taskState', {}), /already registered/);
+}
+
 function testCoreIndexExportsTaskStateWithoutBrowserGlobal() {
   const core = require('../../client/core');
   assert.strictEqual(core.taskState, taskState);
@@ -175,12 +211,15 @@ function testCoreIndexExportsTaskStateWithoutBrowserGlobal() {
 module.exports = [
   testTaskStateStartsIdleWithSubmitControls,
   testTaskStateFollowsDurableOwnershipChain,
+  testTaskStateCompletesCommittedLocalReply,
   testTaskStateSupportsNoAttachmentRoute,
   testTaskStateIgnoresStaleCompletionFromOlderTask,
+  testTaskStateMovesRunningJobIntoRecovery,
   testTaskStateRejectsMismatchedJobEvents,
   testTaskStateStopUsesOneTerminalPath,
   testTaskStateCanBootstrapManagedJobRecovery,
   testTaskStateDoesNotReviveTerminalTaskFromStaleRecovery,
   testTaskStateIgnoresUnknownAndOutOfOrderEvents,
+  testBrowserCoreRegistersTaskStateWithoutAnotherGlobal,
   testCoreIndexExportsTaskStateWithoutBrowserGlobal,
 ];

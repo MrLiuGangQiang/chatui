@@ -9,6 +9,15 @@
   const attachments = global.ChatUICoreAttachments || {};
   const contextBudget = global.ChatUICoreContextBudget || {};
   const storage = global.ChatUICoreStorage || {};
+  const registeredModules = new Map();
+
+  function registerModule(name, moduleApi) {
+    const key = String(name || '').trim();
+    if (!key || !moduleApi || typeof moduleApi !== 'object') throw new Error('core module name and api are required');
+    if (registeredModules.has(key)) throw new Error(`core module already registered: ${key}`);
+    registeredModules.set(key, Object.freeze(moduleApi));
+    return registeredModules.get(key);
+  }
 
   function browserExtractModels(payload) {
     const list = typeof sharedModels.extractModels === 'function' ? sharedModels.extractModels(payload) : [];
@@ -40,7 +49,7 @@
     isModelAllowedFor: browserIsModelAllowedFor,
   });
 
-  const api = Object.freeze({
+  const api = {
     http: Object.freeze(http),
     reasoning: Object.freeze(reasoning),
     models,
@@ -49,7 +58,13 @@
     attachments: Object.freeze(attachments),
     contextBudget: Object.freeze(contextBudget),
     storage: Object.freeze(storage),
+    registerModule,
+  };
+  Object.defineProperty(api, 'taskState', {
+    enumerable: true,
+    get: () => registeredModules.get('taskState') || null,
   });
+  Object.freeze(api);
   if (typeof window !== 'undefined') window.ChatUICore = api;
   else global.ChatUICore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

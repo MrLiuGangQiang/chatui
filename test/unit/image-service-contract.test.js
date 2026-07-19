@@ -19,7 +19,7 @@ function testImageResultParsesContainerArrays() {
 function testImageResultParsesItemAliases() {
   const extracted = assertImageSources({
     data: [
-      { src: 'https://img.example/src.png' },
+      { src: 'https://img.example/src.png', revised_prompt: 'a semantic cat portrait' },
       { image_url: 'https://img.example/image-url.png' },
       { image: 'https://img.example/image.png' },
       { image_base64: 'BASE64A' },
@@ -35,6 +35,7 @@ function testImageResultParsesItemAliases() {
     'data:image/png;base64,BASE64C',
   ]);
 
+  assert.strictEqual(extracted.images[0].revisedPrompt, 'a semantic cat portrait');
   assert.strictEqual(extracted.images[3].raw, '[base64 image]');
   assert.ok(extracted.raw.includes('https://img.example/src.png'));
   assert.ok(extracted.raw.includes('[base64 image]'));

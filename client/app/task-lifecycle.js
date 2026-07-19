@@ -99,22 +99,33 @@
         const [kind, ...parts] = String(value).split(':');
         return Promise.resolve().then(() => stop.abortManagedJob?.(kind, parts.join(':')));
       });
-
-      try {
-        await Promise.allSettled(aborts);
-      } finally {
-        runCleanup('chat job', () => chatJobId && stop.clearChatJob?.(sessionId, chatJobId));
-        runCleanup('image job', () => imageJobId && stop.clearImageJob?.(sessionId, imageJobId));
-        const stoppedTask = hasCanonicalTask
-          ? dispatchTaskEvent(sessionId, { type: stoppedEvent, ...identity })
-          : null;
-        const ownsStoppedProjection = !hasCanonicalTask || (
-          stoppedTask?.phase === stoppedPhase
-          && stoppedTask?.submissionId === task.submissionId
-        );
-        if (ownsStoppedProjection) runCleanup('stopped projection', () => stop.finalizeStopped?.(sessionId));
-        finishSessionTask(sessionId, { run });
+      const abortWaitMs = Math.max(0, Number(deps.stopAbortWaitMs ?? 1200) || 0);
+      if (aborts.length) {
+        const settled = Promise.allSettled(aborts);
+        if (abortWaitMs > 0) {
+          let abortTimer = null;
+          try {
+            await Promise.race([
+              settled,
+              new Promise(resolve => { abortTimer = (deps.setTimeout || setTimeout)(resolve, abortWaitMs); }),
+            ]);
+          } finally {
+            if (abortTimer !== null) (deps.clearTimeout || clearTimeout)(abortTimer);
+          }
+        }
       }
+
+      runCleanup('chat job', () => chatJobId && stop.clearChatJob?.(sessionId, chatJobId));
+      runCleanup('image job', () => imageJobId && stop.clearImageJob?.(sessionId, imageJobId));
+      const stoppedTask = hasCanonicalTask
+        ? dispatchTaskEvent(sessionId, { type: stoppedEvent, ...identity })
+        : null;
+      const ownsStoppedProjection = !hasCanonicalTask || (
+        stoppedTask?.phase === stoppedPhase
+        && stoppedTask?.submissionId === task.submissionId
+      );
+      if (ownsStoppedProjection) runCleanup('stopped projection', () => stop.finalizeStopped?.(sessionId));
+      finishSessionTask(sessionId, { run });
       return true;
     }
 
@@ -144,12 +155,36 @@
         jobKind = '',
       } = options;
       const task = getTaskState(sessionId);
-      const identity = {
-        ...taskEventDetails(task),
-        ...(submissionId ? { submissionId } : {}),
-        ...(jobId ? { jobId } : {}),
-        ...(jobKind ? { jobKind } : {}),
-      };
+      const taskIdentity = taskEventDetails(task);
+      const suppliedIdentity = { submissionId, jobId, jobKind };
+      const explicitSameSubmission = Boolean(
+        submissionId
+        && taskIdentity.submissionId
+        && submissionId === taskIdentity.submissionId
+      );
+      const submissionMismatch = Boolean(
+        submissionId
+        && taskIdentity.submissionId
+        && submissionId !== taskIdentity.submissionId
+      );
+      const unmatchedJobMismatch = Boolean(
+        !explicitSameSubmission
+        && jobId
+        && taskIdentity.jobId
+        && jobId !== taskIdentity.jobId
+      );
+      const sameSubmission = !submissionMismatch && !unmatchedJobMismatch;
+      const identity = sameSubmission
+        ? {
+            ...taskIdentity,
+            ...(!taskIdentity.submissionId && submissionId ? { submissionId } : {}),
+            ...(!taskIdentity.jobId && jobId ? { jobId } : {}),
+            ...(!taskIdentity.jobKind && jobKind ? { jobKind } : {}),
+          }
+        : {
+            ...taskIdentity,
+            ...suppliedIdentity,
+          };
       let eventType = '';
       if (outcome === 'completed') {
         eventType = String(identity.jobId || task?.jobId || '')
@@ -163,8 +198,8 @@
         eventType = taskStateApi?.TASK_EVENTS?.TASK_STOPPED;
       }
       if (eventType) dispatchTaskEvent(sessionId, { type: eventType, ...identity, error });
-      const settledJobId = String(identity.jobId || task?.jobId || '');
-      const settledJobKind = String(identity.jobKind || task?.jobKind || '');
+      const settledJobId = String(jobId || identity.jobId || task?.jobId || '');
+      const settledJobKind = String(jobKind || identity.jobKind || task?.jobKind || '');
       const cleanupOptions = {
         ...options,
         ...(!options.resumeKey && settledJobKind ? { resumeKey: `${settledJobKind}:${sessionId}` } : {}),

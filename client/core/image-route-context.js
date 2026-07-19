@@ -119,13 +119,18 @@ function collectRecentUploadedImageReferences({ messages = [], limit = 6 } = {})
       assistant_response: messageText(assistant).slice(0, 800),
       updated_at: imageContext?.updatedAt || imageContext?.updated_at || message.updatedAt || null,
       count: attachments.length,
-      candidates: attachments.map((item, attachmentIndex) => ({
-        index: attachmentIndex + 1,
-        image_id: makeImageItemId(referenceId, attachmentIndex + 1),
-        filename: item.name || item.filename || '',
-        prompt,
-        labels: [],
-      })),
+      candidates: attachments.map((item, attachmentIndex) => {
+        const description = String(item.semantic_description || item.semanticDescription || item.description || item.subject || item.label || item.prompt || '').trim();
+        return {
+          index: attachmentIndex + 1,
+          image_id: makeImageItemId(referenceId, attachmentIndex + 1),
+          filename: item.name || item.filename || '',
+          prompt,
+          description: description.slice(0, 240),
+          semantic_text: compactCandidateSemanticText([description, item.name || item.filename || '', prompt, assistant ? messageText(assistant) : '']),
+          labels: Array.isArray(item.labels) ? item.labels.slice(0, 12) : [],
+        };
+      }),
     });
   }
   return references;
@@ -171,6 +176,18 @@ function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_M
     next.recent_uploaded_image_references = next.recent_uploaded_image_references.map(shrinkPrompt);
   }
   return next;
+}
+
+function compactCandidateSemanticText(values = [], max = 720) {
+  const seen = new Set();
+  const parts = [];
+  for (const value of Array.isArray(values) ? values : [values]) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  return parts.join(' | ').slice(0, max);
 }
 
 function compactImageReferenceSummary(reference = {}) {
@@ -232,8 +249,19 @@ function buildImageCandidates(references = []) {
         target,
         source,
         filename: candidate?.filename || '',
-        labels: Array.isArray(candidate?.labels) ? candidate.labels.slice(0, 6) : [],
-        prompt: String(candidate?.prompt || reference.prompt || reference.user_prompt || '').slice(0, 120),
+        labels: Array.isArray(candidate?.labels) ? candidate.labels.slice(0, 12) : [],
+        description: String(candidate?.description || candidate?.semantic_description || candidate?.semanticDescription || candidate?.subject || candidate?.label || '').slice(0, 240),
+        prompt: String(candidate?.prompt || reference.prompt || reference.user_prompt || '').slice(0, 240),
+        semantic_text: compactCandidateSemanticText([
+          candidate?.semantic_text,
+          candidate?.description || candidate?.semantic_description || candidate?.semanticDescription,
+          candidate?.subject || candidate?.label,
+          ...(Array.isArray(candidate?.labels) ? candidate.labels : []),
+          candidate?.prompt,
+          candidate?.filename,
+          reference.prompt || reference.user_prompt,
+          reference.assistant_response,
+        ]),
       });
     }
   }
@@ -316,10 +344,15 @@ function splitPromptSubjects(text = '', count = 1) {
 
 function normalizeLastGeneratedImage(value) {
   if (!value) return null;
-  const normalizeItem = item => ({
-    ...item,
-    labels: Array.isArray(item.labels) ? item.labels : imageCandidateLabels(`${item.prompt || ''} ${item.filename || ''} ${item.raw || ''} ${item.label || ''} ${item.subject || ''}`),
-  });
+  const normalizeItem = item => {
+    const description = String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || '').trim();
+    return {
+      ...item,
+      description,
+      semantic_text: compactCandidateSemanticText([item.semantic_text, description, item.prompt, item.filename, item.raw, ...(Array.isArray(item.labels) ? item.labels : [])]),
+      labels: Array.isArray(item.labels) ? item.labels : imageCandidateLabels(`${item.prompt || ''} ${item.filename || ''} ${item.raw || ''} ${item.label || ''} ${item.subject || ''}`),
+    };
+  };
   if (!Array.isArray(value.images)) {
     return {
       ...value,
@@ -365,72 +398,129 @@ function latestImageReferenceMeta({ lastGeneratedImage = null, latestUploadedIma
   return { target: 'none', usePreviousImage: false, count: 0, selection: 'none', reason: 'no-image-reference' };
 }
 
-function collectRecentImageReferences({ display = [], lastGeneratedImage = null, limit = 6 } = {}) {
+function completedImagePrompt(message = {}, imageContext = null) {
+  return String(
+    imageContext?.prompt
+    || imageContext?.routePrompt
+    || message.content
+    || message.rawText
+    || ''
+  ).replace(/^\[\u56fe\u7247(?:\u751f\u6210|\u7f16\u8f91|\u4fee\u6539)\u5b8c\u6210\]\s*/, '').trim();
+}
+
+function canonicalImageReferenceId(message = {}, messageIndex = 0) {
+  const stableId = message.displayItemId
+    || message.imageJobId
+    || message.id
+    || `message_${Number(message.responseIndex) || messageIndex + 1}`;
+  return makeImageReferenceId(stableId);
+}
+
+function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []) {
+  if (message?.role !== 'assistant') return null;
+  const imageContext = parseJsonObject(message.imageContext);
+  const contextAttachments = Array.isArray(imageContext?.attachments)
+    ? imageContext.attachments.filter(item => item?.src)
+    : [];
+  const htmlAttachments = extractPersistedImageRefs(message.html || '');
+  const attachments = htmlAttachments.length
+    ? htmlAttachments.map((item, index) => ({ ...(contextAttachments[index] || {}), ...item }))
+    : contextAttachments;
+  if (!attachments.length) return null;
+
+  const referenceId = canonicalImageReferenceId(message, messageIndex);
+  const prompt = completedImagePrompt(message, imageContext);
+  const previousUser = Array.isArray(messages) && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user'
+    ? messageText(messages[messageIndex - 1])
+    : '';
+  const routePrompt = String(imageContext?.routePrompt || previousUser || '').trim();
+  const subjects = splitPromptSubjects(routePrompt || prompt, attachments.length);
+  const candidates = attachments.map((item, index) => {
+    const description = String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || routePrompt || prompt).trim();
+    const labels = Array.isArray(item.labels) && item.labels.length
+      ? item.labels.slice(0, 12)
+      : subjects[index] || imageCandidateLabels(`${prompt} ${item.name || item.filename || ''}`);
+    return {
+      index: index + 1,
+      image_id: makeImageItemId(referenceId, index + 1),
+      filename: item.name || item.filename || '',
+      prompt: String(item.prompt || prompt).slice(0, 240),
+      description: description.slice(0, 240),
+      semantic_text: compactCandidateSemanticText([item.semantic_text, description, item.prompt, routePrompt, prompt, item.name || item.filename || '', ...labels]),
+      labels,
+    };
+  });
+
+  return {
+    reference_id: referenceId,
+    target: 'previous',
+    source: 'history',
+    message_index: messageIndex + 1,
+    prompt: prompt.slice(0, 300),
+    user_prompt: routePrompt.slice(0, 300),
+    updated_at: imageContext?.updatedAt || message.updatedAt || null,
+    count: candidates.length,
+    candidates,
+    images: attachments.map((item, index) => ({
+      src: item.src,
+      filename: item.name || item.filename || `previous-image-${index + 1}.png`,
+      prompt: item.prompt || prompt,
+      description: candidates[index].description,
+      semantic_text: candidates[index].semantic_text,
+      labels: candidates[index].labels,
+      imageId: candidates[index].image_id,
+      referenceId,
+    })),
+  };
+}
+
+function collectRecentImageReferences({ messages = [], lastGeneratedImage = null, limit = 6 } = {}) {
+  const allMessages = Array.isArray(messages) ? messages : [];
   const references = [];
+  for (let index = allMessages.length - 1; index >= 0 && references.length < limit; index -= 1) {
+    const reference = imageReferenceFromMessage(allMessages[index], index, allMessages);
+    if (reference) references.push(reference);
+  }
+  if (references.length) return references;
+
   const generated = normalizeLastGeneratedImage(lastGeneratedImage);
-  if (generated && generated.images && generated.images.length) {
-    const referenceId = makeImageReferenceId('latest');
-    references.push({
-      reference_id: referenceId,
-      target: 'previous',
-      prompt: String(generated.prompt || '').slice(0, 300),
-      updated_at: generated.updatedAt || null,
-      count: generated.images.length,
-      candidates: generated.images.map((item, index) => ({
-        index: index + 1,
-        image_id: makeImageItemId(referenceId, index + 1),
-        filename: item.filename || '',
-        prompt: String(item.prompt || generated.prompt || '').slice(0, 160),
-        labels: item.labels || [],
-      })),
-    });
-  }
-  for (const item of [...display].reverse()) {
-    if (references.length >= limit) break;
-    if (item && item.role !== 'assistant') continue;
-    const refs = extractPersistedImageRefs(item && item.html || '');
-    if (!refs.length) continue;
-    const rawId = item.id || `display-${references.length + 1}`;
-    const referenceId = makeImageReferenceId(rawId);
-    const prompt = String(item.rawText || '').replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').slice(0, 300);
-    const subjects = splitPromptSubjects(prompt, refs.length);
-    if (references.some(ref => ref.reference_id === referenceId)) continue;
-    references.push({
-      reference_id: referenceId,
-      target: 'previous',
-      prompt,
-      updated_at: item.updatedAt || null,
-      count: refs.length,
-      candidates: refs.map((ref, index) => ({
-        index: index + 1,
-        image_id: makeImageItemId(referenceId, index + 1),
-        filename: ref.filename || '',
-        prompt,
-        labels: subjects[index] || imageCandidateLabels(`${prompt} ${ref.filename || ''}`),
-      })),
-    });
-  }
+  if (!generated?.images?.length) return references;
+  const referenceId = makeImageReferenceId('latest');
+  references.push({
+    reference_id: referenceId,
+    target: 'previous',
+    source: 'history',
+    prompt: String(generated.prompt || '').slice(0, 300),
+    updated_at: generated.updatedAt || null,
+    count: generated.images.length,
+    candidates: generated.images.map((item, index) => ({
+      index: index + 1,
+      image_id: makeImageItemId(referenceId, index + 1),
+      filename: item.filename || '',
+      prompt: String(item.prompt || generated.prompt || '').slice(0, 240),
+      description: String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || generated.prompt || '').slice(0, 240),
+      semantic_text: compactCandidateSemanticText([item.semantic_text, item.description || item.semantic_description || item.semanticDescription, item.subject || item.label, item.prompt, generated.prompt, item.filename, ...(Array.isArray(item.labels) ? item.labels : [])]),
+      labels: item.labels || [],
+    })),
+  });
   return references;
 }
 
-function findImageReferenceById({ display = [], referenceId = '' } = {}) {
-  const rawId = parseImageReferenceId(referenceId);
-  if (!rawId || rawId === 'latest') return null;
-  const item = (display || []).find(entry => entry && entry.id === rawId);
-  if (!item) return null;
-  const refs = extractPersistedImageRefs(item.html || '');
-  if (!refs.length) return null;
-  const resolvedReferenceId = makeImageReferenceId(rawId);
-  return {
-    images: refs.map((ref, index) => ({
-      ...ref,
-      prompt: item.rawText || '',
-      imageId: makeImageItemId(resolvedReferenceId, index + 1),
-      labels: splitPromptSubjects(item.rawText || '', refs.length)[index] || [],
-    })),
-    prompt: item.rawText || '',
-    updatedAt: item.updatedAt || null,
-  };
+function findImageReferenceById({ messages = [], referenceId = '' } = {}) {
+  const expectedId = makeImageReferenceId(referenceId);
+  if (!expectedId || parseImageReferenceId(expectedId) === 'latest') return null;
+  const allMessages = Array.isArray(messages) ? messages : [];
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const reference = imageReferenceFromMessage(allMessages[index], index, allMessages);
+    if (reference?.reference_id !== expectedId) continue;
+    return {
+      images: reference.images,
+      prompt: reference.prompt,
+      updatedAt: reference.updated_at,
+      referenceId: reference.reference_id,
+    };
+  }
+  return null;
 }
 
 const IMAGE_PLAN_INTENTS = new Set(['text_to_image', 'image_edit', 'image_edit_single', 'image_edit_batch', 'image_compose', 'image_reference_gen', 'unknown']);
@@ -643,6 +733,7 @@ const api = Object.freeze({
   trimRouteContextToTokenWindow,
   trimRouteContextToSize,
   buildRouteContext,
+  compactCandidateSemanticText,
   imageCandidateLabels,
   splitPromptSubjects,
   normalizeLastGeneratedImage,

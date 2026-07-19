@@ -137,7 +137,7 @@
         const quotedImageContext=quotedMessage?.imageContext?parseImageContext(quotedMessage.imageContext):null;
         let quotedImageAttachments=[];
         if(quotedImageContext?.attachments?.length)try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err),quotedImageAttachments=[]}
-        const hasQuotedImage=quotedImageAttachments.length>0,quotedImageSource=(quotedImageContext?.target==="uploaded"||quotedImageContext?.mode==="edit_image")?"uploaded":"previous",quotedReferenceId=quotedImageContext?.referenceId||quotedImageContext?.reference_id||quotedImageContext?.selectedReferenceId||quotedImageContext?.selected_reference_id||"";
+        const hasQuotedImage=quotedImageAttachments.length>0,quotedImageSource=(quotedImageContext?.target==="uploaded"||quotedImageContext?.mode==="edit_image")?"uploaded":"previous",quotedReferenceId=quotedImageContext?.referenceId||quotedImageContext?.reference_id||quotedImageContext?.selectedReferenceId||"";
         const quotedFileCandidates=quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||""),quotedCleanText=cleanQuotedContent(quotedMessage?.content||quotedImageContext?.prompt||quotedImageContext?.userPrompt||quotedImageContext?.originalPrompt||""),quotedRouteContent=buildQuotedRouteContent({text:quotedCleanText||quotedMessage?.content||"",images:quotedImageAttachments});
         const quotedReferenceSummary=()=>({reference_id:quotedReferenceId||"imgref_quote",source:"quoted",target:quotedImageSource,count:quotedImageAttachments.length});
         const quotedImageCandidates=()=>quotedImageAttachments.map((item,index)=>({index:index+1,image_id:item.imageId||item.image_id||"",reference_id:quotedReferenceId||"imgref_quote",target:quotedImageSource,source:"quoted",filename:item.name||"",prompt:quotedCleanText||""}));
@@ -145,13 +145,13 @@
         task.captured();task.routing();
         let p,g;
         try{if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(s,[],buildRequestHeaders("message",l),buildQuotedRouteContext()),g=p.mode}
-        else{p=h.length&&!hasImageAttachments(h)?normalizeRoute({mode:"chat",target:"none",use_previous_image:!1,confidence:1,evidence:"附件不包含图片，直接走聊天模型"},"chat"):await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
+        else{p=h.length&&!hasImageAttachments(h)?normalizeRoute({mode:"chat",target:"none",usePreviousImage:!1,confidence:1,evidence:"附件不包含图片，直接走聊天模型"},"chat"):await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
         if(updateModeUi(g,state.autoMode),warnMissingModel(g,!0)){task.fail(new Error(`missing ${g} model`));return void e.remove()}
         if(d.stopped||d.abortController?.signal?.aborted)return;
         const isImageUnderstandingChat=()=>/(图里|图片里|画面|这张图|这张图片|这些图|这些图片|哪张|看图|识别|描述|分析|评价|适合|像什么|是什么|有什么|对比|比较|提取文字|提取.*文字|识别文字|文字识别|读文字|读取文字|ocr|OCR|image|picture|photo|describe|analy[sz]e|what.*(in|on).*image)/i.test(String(s||""));
         const isFileUnderstandingChat=()=>/(附件|文件|文档|PDF|pdf|表格|Excel|excel|Word|word|TXT|txt|CSV|csv|内容|里面|其中|多少|几个|几条|统计|数量|列举|列出来|邮箱|邮件|地址|包含|有没有|总结|摘要|提取|分析|翻译|解释|改写|整理|读取|读一下|看一下|这个文件|这个文档|这个附件|这是什么|这个是什么|看看这个|看下这个|说说这个|attachment|file|document|summari[sz]e|extract|analy[sz]e|translate)/i.test(String(s||""));
-        const routeImageRefs=()=>Array.isArray(p.imageRefs)?p.imageRefs:Array.isArray(p.image_refs)?p.image_refs:[];
-        const routeFileRefs=()=>Array.isArray(p.fileRefs)?p.fileRefs:Array.isArray(p.file_refs)?p.file_refs:[];
+        const routeImageRefs=()=>Array.isArray(p.imageRefs)?p.imageRefs:[];
+        const routeFileRefs=()=>Array.isArray(p.fileRefs)?p.fileRefs:[];
         const routeSelectedImageIds=()=>new Set([...(p.selectedImageIds||[]),...routeImageRefs().map(ref=>ref.image_id||ref.imageId).filter(Boolean)]);
         const routeSelectedIndexes=()=>new Set([...(p.selectedIndexes||[]),...routeImageRefs().map(ref=>Number(ref.index)).filter(index=>Number.isInteger(index)&&index>=1)]);
         const routeSelectedFileIndexes=()=>new Set(routeFileRefs().map(ref=>Number(ref.index)).filter(index=>Number.isInteger(index)&&index>=1));

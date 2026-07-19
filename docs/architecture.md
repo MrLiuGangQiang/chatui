@@ -37,14 +37,14 @@ These files are part of the public static-file contract. Moving or renaming one 
 
 ## Intent routing contract
 
-The model-facing router accepts exactly one protocol: `task_contract.v2`. The contract contains the canonical intent, task relationship (`new_task`, `followup`, `correction`, or `continuation`), execution API/operation, resources, prompt plan, clarification state, and confidence. Legacy route objects such as `{ "route": "image_generate" }` are rejected rather than adapted.
+The model-facing router accepts exactly one protocol: `task_contract.v3`. It has one dispatch field, `operation`; the application derives the API and runtime mode from that field. The model does not emit redundant `intent`, `execution.api`, or review booleans that could contradict one another. Keyed resources, task relation (`new`, `followup`, `correction`, or `continuation`), a structured directive, clarification data, review reasons, confidence, and rationale complete the contract.
 
-`client/core/intent-contract.js` validates and normalizes the canonical contract, then projects it into the internal execution route consumed by existing workflows. That projection is an application detail, not a second model protocol. The context boundary is mandatory:
+`client/core/intent-contract.js` strictly validates the complete v3 shape and derives one canonical execution plan directly. Invalid, unknown, redundant, earlier-version, and legacy route objects are rejected; there is no normalizer, legacy adapter, or second model-route representation. The directive has two modes:
 
-- `new_task` may use only the current user input and current-turn attachments; historical resources and `context_to_preserve` are discarded.
-- `followup`, `correction`, and `continuation` may preserve history only when it is explicit in `resources` or `prompt_plan`.
+- `standalone` executes the current user input verbatim. It has no base resources or patch operations and cannot inherit historical prompts.
+- `patch` names its base resources and expresses only explicit `preserve`, `add`, `replace`, and `remove` operations. `unmentioned_policy` determines whether unspecified properties must remain unchanged.
 
-This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt.
+The context boundary is mandatory: relation `new` may reference only current-turn resources; follow-ups, corrections, continuations, image edits, and reference-image generation must identify their bases explicitly. Prompt composition is deterministic and does not accept a router-authored replacement prompt. This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt and keeps local image edits from acquiring unrelated historical style text.
 
 ## Durable task ownership and recovery
 

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -384,7 +384,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.2-null-task-settle') < index.indexOf('submit-workflow.js?v=1.2.86-message-projection'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.2-null-task-settle') < index.indexOf('submit-workflow.js?v=1.2.87-message-size-guard'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');

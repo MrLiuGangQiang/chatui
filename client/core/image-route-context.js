@@ -550,13 +550,13 @@ function normalizeRouteOperation(route = {}, mode = 'chat') {
   return {
     type: validTypes.has(raw.type) ? raw.type : fallbackType,
     scope: validScopes.has(raw.scope) ? raw.scope : 'current',
-    prompt: String(raw.prompt || route.contextual_image_prompt || route.contextualImagePrompt || '').trim(),
-    edit_instruction: String(raw.edit_instruction || raw.editInstruction || route.edit_instruction || route.editInstruction || '').trim(),
+    prompt: String(raw.prompt || route.contextualImagePrompt || '').trim(),
+    edit_instruction: String(raw.editInstruction || route.editInstruction || '').trim(),
   };
 }
 
 function normalizeRouteImageRefs(route = {}) {
-  const list = Array.isArray(route.image_refs || route.imageRefs) ? (route.image_refs || route.imageRefs) : [];
+  const list = Array.isArray(route.imageRefs) ? route.imageRefs : [];
   return list.map((item, idx) => {
     const imageId = String(item?.image_id || item?.imageId || '').trim();
     const referenceId = makeImageReferenceId(item?.reference_id || item?.referenceId || referenceIdFromImageId(imageId) || '');
@@ -569,7 +569,7 @@ function normalizeRouteImageRefs(route = {}) {
 }
 
 function normalizeRouteFileRefs(route = {}) {
-  const list = Array.isArray(route.file_refs || route.fileRefs) ? (route.file_refs || route.fileRefs) : [];
+  const list = Array.isArray(route.fileRefs) ? route.fileRefs : [];
   return list.map((item, idx) => ({
     role: item?.role || 'source',
     file_id: String(item?.file_id || item?.fileId || item?.id || '').trim(),
@@ -584,7 +584,7 @@ function imageRefsToTasks(imageRefs = [], mode = 'chat', route = {}) {
   return [{
     task_type: mode === 'edit_image' ? 'edit' : 'generate',
     input_images: imageRefs.map(ref => ({ image_id: ref.image_id, reference_id: ref.reference_id, role: ref.role || 'target' })).filter(item => item.image_id || item.reference_id),
-    prompt: String(route.contextual_image_prompt || route.contextualImagePrompt || route.edit_instruction || route.editInstruction || '').trim(),
+    prompt: String(route.contextualImagePrompt || route.editInstruction || '').trim(),
     size: 'auto',
     quality: 'auto',
     background: 'auto',
@@ -608,18 +608,15 @@ function normalizeRoute(route, fallbackMode = 'chat') {
   const target = rawTarget || (mode === 'image' ? 'new' : 'none');
   const confidence = Number.isFinite(Number(route && route.confidence)) ? Math.max(0, Math.min(1, Number(route.confidence))) : 0;
   const evidence = String(route && route.evidence || '').trim();
-  const rawTaskType = String(route && (route.task_type || route.taskType) || 'new_task');
-  const taskType = ['new_task', 'followup', 'correction', 'continuation'].includes(rawTaskType) ? rawTaskType : 'new_task';
-  const selectedImageIdsRaw = normalizeSelectedImageIds(route && (route.selected_image_ids || route.selectedImageIds));
+  const selectedImageIdsRaw = normalizeSelectedImageIds(route?.selectedImageIds);
   const selectedImageIds = selectedImageIdsRaw.length ? selectedImageIdsRaw : normalizeSelectedImageIds(imageRefs.map(ref => ref.image_id).filter(Boolean));
-  const selectedReferenceId = makeImageReferenceId(route && (route.selected_reference_id || route.selectedReferenceId) || (imageRefs.find(ref => ref.reference_id)?.reference_id) || planReferenceId(plan) || '');
-  const selectedIndexesRaw = normalizeImageSelection(route && (route.selected_indexes || route.selectedIndexes || route.image_indexes || route.imageIndexes)) || [];
+  const selectedReferenceId = makeImageReferenceId(route?.selectedReferenceId || imageRefs.find(ref => ref.reference_id)?.reference_id || planReferenceId(plan) || '');
+  const selectedIndexesRaw = normalizeImageSelection(route?.selectedIndexes) || [];
   const indexesFromRefs = imageRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1);
   const selectedIndexes = selectedIndexesRaw.length ? selectedIndexesRaw : indexesFromRefs.length ? indexesFromRefs : planSelectedIndexes(selectedImageIds.length ? selectedImageIds : planIds, selectedReferenceId) || [];
   const operation = normalizeRouteOperation(route || {}, mode);
   return {
     mode: plan.needClarification ? 'chat' : mode,
-    taskType: plan.needClarification ? 'new_task' : taskType,
     target: plan.needClarification ? 'none' : target,
     evidence,
     usePreviousImage: plan.needClarification ? false : mode === 'edit_image' && target === 'previous' && (confidence >= 0.75 || !evidence.length),
@@ -628,8 +625,8 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     selectedImageIds: plan.needClarification ? [] : (selectedImageIds.length ? selectedImageIds : planIds),
     needClarification: plan.needClarification,
     clarificationQuestion: plan.clarificationQuestion,
-    contextualImagePrompt: String(route && (route.contextual_image_prompt || route.contextualImagePrompt) || '').trim(),
-    editInstruction: String(route && (route.edit_instruction || route.editInstruction) || '').trim(),
+    contextualImagePrompt: String(route?.contextualImagePrompt || '').trim(),
+    editInstruction: String(route?.editInstruction || '').trim(),
     intent: action?.intent || plan.intent,
     tasks: plan.tasks,
     operation,

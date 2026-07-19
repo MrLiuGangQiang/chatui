@@ -44,6 +44,43 @@ function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   assert.strictEqual(busyCalls.length, 3);
 }
 
+function testRecoveredCompletionSettlesCanonicalBusyProjection() {
+  const state = {
+    activeRuns: new Map(),
+    resumingJobs: new Set(['image:session-a']),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(['imgjob-a']),
+    taskStates: new Map(),
+  };
+  const busyCalls = [];
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: (sessionId, value, options) => busyCalls.push([sessionId, value, options?.canonical === true]),
+  });
+
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_RECOVERY_STARTED,
+    submissionId: 'submit-a',
+    jobId: 'imgjob-a',
+    jobKind: 'image',
+  });
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, true);
+
+  lifecycle.settleSessionTask('session-a', {
+    outcome: 'completed',
+    submissionId: 'submit-a',
+    jobId: 'imgjob-a',
+    jobKind: 'image',
+  });
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, false);
+  assert.strictEqual(state.resumingJobs.has('image:session-a'), false);
+  assert.strictEqual(state.followingImageJobs.has('imgjob-a'), false);
+  assert.strictEqual(busyCalls.at(-1)[1], false, 'a committed background result must release the input and sidebar busy projection');
+}
+
 async function testStopSessionTaskOwnsTheEntireStopBoundary() {
   const run = {
     token: 'run-a',
@@ -248,6 +285,48 @@ function testFinishSessionTaskPreservesNewerRunBusyState() {
 
 
 
+async function testCompletedImageRecoverySnapshotClearsCanonicalBusyState() {
+  const session = { id: 'session-image', messages: [], display: [] };
+  const state = {
+    sessions: [session],
+    activeSessionId: session.id,
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(['image-job-a']),
+    taskStates: new Map(),
+  };
+  let busy = false;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: (_sessionId, value) => { busy = value; },
+  });
+  lifecycle.dispatchTaskEvent(session.id, {
+    type: taskState.TASK_EVENTS.JOB_RECOVERY_STARTED,
+    submissionId: 'submit-image-a',
+    jobId: 'image-job-a',
+    jobKind: 'image',
+  });
+
+  const workflow = jobResumeWorkflow.createJobResumeWorkflow({
+    state,
+    loadImageJob: () => ({ id: 'image-job-a', submissionId: 'submit-image-a', responseIndex: 1 }),
+    hasSuccessfulImageResult: () => true,
+    clearImageJob: () => {},
+    settleSessionTask: lifecycle.settleSessionTask,
+    finishSessionTask: () => { throw new Error('completed image recovery must use canonical settlement'); },
+  });
+
+  await workflow.resumeImageJob(session.id);
+
+  assert.strictEqual(lifecycle.getTaskState(session.id).phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(lifecycle.getTaskControls(session.id).isBusy, false);
+  assert.strictEqual(state.resumingJobs.has(`image:${session.id}`), false);
+  assert.strictEqual(state.followingImageJobs.has('image-job-a'), false);
+  assert.strictEqual(busy, false, 'switching back after background image completion must show a sendable composer');
+}
+
 async function testCompletedRecoverySnapshotEmitsFinishEvent() {
   const session = { id: 'session-a', messages: [], display: [] };
   const state = { sessions: [session], activeSessionId: session.id, activeRuns: new Map(), resumingJobs: new Set(), followingChatJobs: new Set() };
@@ -257,8 +336,9 @@ async function testCompletedRecoverySnapshotEmitsFinishEvent() {
     loadLatestChatJob: () => ({ id: 'chat-job-a', responseIndex: 1 }),
     clearChatJob: sessionId => calls.push(['clear', sessionId]),
     sessionHasCompletedAssistantForResponse: () => true,
-    finishSessionTask: (sessionId, options) => {
-      calls.push(['finish', sessionId, options.resumeKey]);
+    finishSessionTask: () => { throw new Error('a completed recovery snapshot must settle canonical task state, not only legacy busy flags'); },
+    settleSessionTask: (sessionId, options) => {
+      calls.push(['settle', sessionId, options.resumeKey, options.outcome, options.jobId, options.jobKind]);
       state.resumingJobs.delete(options.resumeKey);
     },
   });
@@ -267,7 +347,7 @@ async function testCompletedRecoverySnapshotEmitsFinishEvent() {
 
   assert.deepStrictEqual(calls, [
     ['clear', session.id],
-    ['finish', session.id, `chat:${session.id}`],
+    ['settle', session.id, `chat:${session.id}`, 'completed', 'chat-job-a', 'chat'],
   ]);
   assert.deepStrictEqual([...state.resumingJobs], []);
 }
@@ -279,27 +359,29 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.0-explicit-stop') < index.indexOf('submit-workflow.js?v=1.2.86-message-projection'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.1-background-settle') < index.indexOf('submit-workflow.js?v=1.2.86-message-projection'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
-  assert.ok(resume.includes('finishSessionTask(e,{resumeKey:t,followingKind:"image"')
-    && resume.includes('finishSessionTask(e,{resumeKey:t,followingKind:"chat"'),
-    'resumed image and chat completion must use the same finalizer');
-  assert.ok(app.includes('return clearImageJob(e),void finishSessionTask(e)')
-    && app.includes('return clearChatJob(e),void finishSessionTask(e)'),
-    'already-completed recovery snapshots must release stale busy state before returning');
-  assert.ok(app.includes('if(a>0&&i>=a)clearChatJob(e);finishSessionTask(e)'),
-    'recovery with no remaining owner must still settle the session lifecycle');
+  assert.ok(resume.includes('taskOutcome?settleSessionTask(e,{...options')
+    && resume.includes('jobKind:"image"') && resume.includes('jobKind:"chat"'),
+    'resumed image and chat terminal outcomes must settle canonical task state through one method');
+  assert.ok(app.includes('return clearImageJob(e),void settleSessionTask(e,{outcome:"completed"')
+    && app.includes('return clearChatJob(e),void settleSessionTask(e,{outcome:"completed"'),
+    'already-completed recovery snapshots must settle canonical busy state before returning');
+  assert.ok(app.includes('if(a>0&&i>=a)return clearChatJob(e),void settleSessionTask(e,{outcome:"completed"})'),
+    'recovery with no remaining owner and a committed answer must settle the canonical lifecycle');
 }
 
 module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testRecoveredCompletionSettlesCanonicalBusyProjection,
   testStopSessionTaskOwnsTheEntireStopBoundary,
   testLateStopCompletionCannotFinalizeANewerTask,
   testSubmitButtonUsesCanonicalTaskProjection,
   testFinishSessionTaskReleasesAllTransientOwners,
   testFinishSessionTaskPreservesNewerRunBusyState,
+  testCompletedImageRecoverySnapshotClearsCanonicalBusyState,
   testCompletedRecoverySnapshotEmitsFinishEvent,
   testAllTaskCompletionPathsUseSharedLifecycleFinalizer,
 ];

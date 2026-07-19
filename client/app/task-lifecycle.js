@@ -134,6 +134,46 @@
         .some(key => state.resumingJobs?.has?.(key));
     }
 
+    function settleSessionTask(sessionId, options = {}) {
+      if (!sessionId) return false;
+      const {
+        outcome = 'completed',
+        error = null,
+        submissionId = '',
+        jobId = '',
+        jobKind = '',
+      } = options;
+      const task = getTaskState(sessionId);
+      const identity = {
+        ...taskEventDetails(task),
+        ...(submissionId ? { submissionId } : {}),
+        ...(jobId ? { jobId } : {}),
+        ...(jobKind ? { jobKind } : {}),
+      };
+      let eventType = '';
+      if (outcome === 'completed') {
+        eventType = String(identity.jobId || task?.jobId || '')
+          ? taskStateApi?.TASK_EVENTS?.JOB_COMPLETED_COMMITTED
+          : taskStateApi?.TASK_EVENTS?.TASK_COMPLETED_COMMITTED;
+      } else if (outcome === 'failed') {
+        eventType = String(identity.jobId || task?.jobId || '')
+          ? taskStateApi?.TASK_EVENTS?.JOB_FAILED
+          : taskStateApi?.TASK_EVENTS?.TASK_FAILED;
+      } else if (outcome === 'stopped') {
+        eventType = taskStateApi?.TASK_EVENTS?.TASK_STOPPED;
+      }
+      if (eventType) dispatchTaskEvent(sessionId, { type: eventType, ...identity, error });
+      const settledJobId = String(identity.jobId || task?.jobId || '');
+      const settledJobKind = String(identity.jobKind || task?.jobKind || '');
+      const cleanupOptions = {
+        ...options,
+        ...(!options.resumeKey && settledJobKind ? { resumeKey: `${settledJobKind}:${sessionId}` } : {}),
+        ...(!options.followingKind && settledJobKind ? { followingKind: settledJobKind } : {}),
+        ...(!options.jobId && settledJobId ? { jobId: settledJobId } : {}),
+      };
+      return finishSessionTask(sessionId, cleanupOptions);
+    }
+
     function finishSessionTask(sessionId, options = {}) {
       if (!sessionId) return false;
       const {
@@ -167,7 +207,7 @@
       return true;
     }
 
-    return Object.freeze({ getTaskState, getTaskControls, dispatchTaskEvent, stopSessionTask, finishSessionTask });
+    return Object.freeze({ getTaskState, getTaskControls, dispatchTaskEvent, stopSessionTask, settleSessionTask, finishSessionTask });
   }
 
   const api = Object.freeze({ createTaskLifecycle });

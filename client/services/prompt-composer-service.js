@@ -28,6 +28,25 @@
     return compact(context?.last_generated_image?.prompt || context?.latest_assistant_image_result?.content || context?.suggested_contextual_image_prompt || context?.latest_user_image_request?.content || '', 1600);
   }
 
+  function explicitQuotedImagePrompt(context = {}, input = '') {
+    const suggested = compact(context?.suggested_contextual_image_prompt || '', 4800);
+    const current = compact(input, 2400);
+    if (!suggested || suggested === current) return '';
+    const currentSuffix = current ? `\n\n${current}` : '';
+    return currentSuffix && suggested.endsWith(currentSuffix)
+      ? suggested.slice(0, -currentSuffix.length).trim()
+      : suggested;
+  }
+
+  function mergeExplicitQuotedImagePrompt(prompt = '', context = {}, input = '') {
+    const quoted = explicitQuotedImagePrompt(context, input);
+    const current = compact(prompt || input, 4800);
+    if (!quoted) return current;
+    if (!current || quoted.includes(current)) return quoted;
+    if (current.includes(quoted)) return current;
+    return compact(`${quoted}\n\n${current}`, 6400);
+  }
+
   function composePromptFromPlan(plan = {}, { input = '', context = {}, includeContext = true, includeGuardrail = false } = {}) {
     const current = compact(plan.current_user_intent || input, 1200);
     const preserved = includeContext ? compact(plan.context_to_preserve, 1600) : '';
@@ -52,12 +71,15 @@
 
   function composeImageGeneratePrompt(task = {}, context = {}, input = '') {
     const normalized = intentContract.normalizeTaskContract ? intentContract.normalizeTaskContract(task, { input }) : task;
+    let prompt = '';
     if (normalized.task_type === 'new_task') {
-      return compact(input || normalized.prompt_plan?.current_user_intent || normalized.prompt_plan?.final_instruction, 2400);
+      prompt = compact(input || normalized.prompt_plan?.current_user_intent || normalized.prompt_plan?.final_instruction, 2400);
+    } else {
+      const promptPlan = { ...(normalized.prompt_plan || {}) };
+      if (!promptPlan.context_to_preserve) promptPlan.context_to_preserve = latestImagePromptFromContext(context);
+      prompt = composePromptFromPlan(promptPlan, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
     }
-    const promptPlan = { ...(normalized.prompt_plan || {}) };
-    if (!promptPlan.context_to_preserve) promptPlan.context_to_preserve = latestImagePromptFromContext(context);
-    return composePromptFromPlan(promptPlan, { input, context, includeContext: true, includeGuardrail: true }) || compact(input, 2400);
+    return mergeExplicitQuotedImagePrompt(prompt, context, input);
   }
 
   function composeImageEditPrompt(task = {}, context = {}, input = '') {
@@ -76,6 +98,8 @@
 
   const api = Object.freeze({
     latestImagePromptFromContext,
+    explicitQuotedImagePrompt,
+    mergeExplicitQuotedImagePrompt,
     composeChatPrompt,
     composeImageGeneratePrompt,
     composeImageEditPrompt,

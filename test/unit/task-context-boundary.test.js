@@ -55,6 +55,21 @@ function testNewTaskContractIgnoresContaminatedPromptPlanAndHistoryResources() {
   assert.strictEqual(parsed.contextualImagePrompt, FISH);
 }
 
+function testQuotedImageGenerationPreservesTheExplicitSourceDescription() {
+  const quotedDescription = '\u4e00\u5e45\u8be6\u7ec6\u7684\u590f\u65e5\u6d77\u8fb9\u63d2\u753b\uff0c\u91d1\u8272\u5915\u9633\uff0c\u900f\u660e\u6d6a\u82b1\uff0c\u8fdc\u5904\u706f\u5854\uff0c\u67d4\u548c\u7535\u5f71\u5149\u5f71';
+  const shortRequest = '\u57fa\u4e8e\u5f15\u7528\u6d88\u606f\u751f\u6210\u56fe\u7247';
+  const context = { suggested_contextual_image_prompt: `${quotedDescription}\n\n${shortRequest}` };
+  const raw = imageContract({ currentIntent: shortRequest, finalInstruction: shortRequest });
+
+  const composed = promptComposer.composeImageGeneratePrompt(raw, context, shortRequest);
+  assert.ok(composed.includes(quotedDescription), 'an explicit quoted description must survive even when the router labels the request as a new task');
+  assert.ok(composed.includes(shortRequest));
+  assert.notStrictEqual(composed, shortRequest, 'the image prompt must not collapse to the short follow-up instruction');
+
+  const parsed = routeService.parseRouteResult(JSON.stringify(raw), routeContext.normalizeRoute, { input: shortRequest, attachments: [], context });
+  assert.ok(parsed.contextualImagePrompt.includes(quotedDescription), 'the routed image prompt must carry the quoted source description into execution');
+}
+
 function testCorrectionTaskMayExplicitlyReusePreviousImageGoal() {
   const input = '\u8fd9\u5f20\u56fe\u4e0d\u5bf9\uff0c\u91cd\u65b0\u751f\u6210';
   const parsed = routeService.parseRouteResult(JSON.stringify(imageContract({ taskType: 'correction', currentIntent: input, contextToPreserve: CAT, finalInstruction: input, confidence: 0.93 })), routeContext.normalizeRoute, { input, attachments: [], context: historyContext() });
@@ -88,6 +103,7 @@ module.exports = [
   testNewImageTaskUsesOnlyCurrentUserInput,
   testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt,
   testNewTaskContractIgnoresContaminatedPromptPlanAndHistoryResources,
+  testQuotedImageGenerationPreservesTheExplicitSourceDescription,
   testCorrectionTaskMayExplicitlyReusePreviousImageGoal,
   testTaskTypeSurvivesContractExecutionProjection,
   testRoutePromptsDeclareTaskContextBoundary,

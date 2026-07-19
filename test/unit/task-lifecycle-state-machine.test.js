@@ -285,8 +285,10 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   assert.ok(chat.includes('if(e?.terminalJob){f&&clearChatJob(i);throw e}'), 'terminal chat failures must not leave an auto-resuming failed job');
   assert.ok(image.includes('catch(e){if(e?.terminalJob)clearImageJob(n);throw e}'), 'terminal image failures must not leave an auto-resuming failed job');
-  assert.ok(resume.includes('(isMissingJobError(t)||t?.terminalJob)&&clearImageJob(e)'));
-  assert.ok(resume.includes('(isMissingJobError(t)||t?.terminalJob)&&clearChatJob(e)'));
+  assert.ok(resume.includes('terminal&&(clearImageJob(e),taskOutcome="failed",taskError=t)'));
+  assert.ok(resume.includes('terminal&&(clearChatJob(e),taskOutcome="failed",taskError=t)'));
+  assert.ok(resume.includes('taskOutcome?settleSessionTask(e,{...options'),
+    'terminal recovery failures must settle the canonical task before releasing transient owners');
   assert.ok(resume.includes('n=completedJobData(t)') && resume.includes('n=completedJobData(e)'),
     'polling an already failed image job must classify it as terminal instead of trying to restart the same failed id forever');
 }

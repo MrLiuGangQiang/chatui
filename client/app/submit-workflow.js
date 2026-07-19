@@ -101,7 +101,7 @@
             const persistTargetMessages=async()=>isTargetActive()?await saveChatHistory():"function"==typeof saveSessionMessages?await saveSessionMessages(sessionId,targetSession.messages||[]):void 0;
             const persistPendingTerminalMessages=async()=>{try{return await persistTargetMessages()}catch(err){const failure=err instanceof Error?err:new Error(String(err));failure.preservePendingSubmit=!0;throw failure}};
             const resumedMessageIndex=parseOptionalMessageIndex(resumePendingSubmit?.messageIndex);
-            let messageIndex=initialEditMessageIndex!==null?initialEditMessageIndex:resumedMessageIndex!==null?resumedMessageIndex:("chat"===submitMode?(Array.isArray(targetSession?.messages)&&targetSession.messages.length?targetSession.messages.length:state.messages.length):null),resumeUserCommitted=resumePendingSubmit?jobLifecycle.isPendingSubmissionCommitted?.(targetSession.messages||[],resumePendingSubmit)!==!1:!1;
+            let messageIndex=initialEditMessageIndex!==null?initialEditMessageIndex:resumedMessageIndex!==null?resumedMessageIndex:(Array.isArray(targetSession?.messages)&&targetSession.messages.length?targetSession.messages.length:state.messages.length),resumeUserCommitted=resumePendingSubmit?jobLifecycle.isPendingSubmissionCommitted?.(targetSession.messages||[],resumePendingSubmit)!==!1:!1;
             const committedPendingMessage=resumePendingSubmit?jobLifecycle.findPendingSubmissionMessage?.(targetSession.messages||[],resumePendingSubmit):null;
             if(committedPendingMessage){const committedIndex=(targetSession.messages||[]).indexOf(committedPendingMessage);Number.isFinite(committedIndex)&&committedIndex>=0&&(messageIndex=committedIndex,resumeUserCommitted=!0)}
             const attachmentCaptureIncomplete=!!resumePendingSubmit&&initialAttachmentCount>0&&!initialImageContext&&!initialAttachmentContext&&!attachments.length;
@@ -119,12 +119,12 @@
             if(!replacement&&(!resumePendingSubmit||!resumeUserCommitted)){
               const userHtml=renderUserMessageWithAttachments(promptText||"已发送附件",attachments),rawText=buildUserMessageContent(promptText,attachments),apiContent=buildUserApiContent(promptText,attachments),message={role:"user",content:apiContent,html:userHtml,rawText,messageIndex,submissionId};
               quoteContext&&(message.quoteContext=quoteContext);initialImageContext&&(message.imageContext=initialImageContext);if(initialAttachmentContext){message.attachmentContext=initialAttachmentContext;try{const parsed=JSON.parse(initialAttachmentContext);message.content=parsed.content||apiContent}catch{}}
+              if(isTargetActive()){state.messages.push(message);getActiveSession().messages=cloneMessageList(state.messages)}
+              else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),message]);
               userNode=isTargetActive()?addMessage("user",userHtml,{html:!0,rawText,messageIndex,quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext}):null;
               userDisplayItem=appendSessionDisplayMessage(sessionId,"user",userHtml,{html:!0,rawText,messageIndex,quoteContext,imageContext:initialImageContext,attachmentContext:initialAttachmentContext});
               persistSessionDisplay(sessionId);
               if(userNode){userNode.__displayItem=userDisplayItem;userDisplayItem?.id&&(userNode.dataset.displayItemId=userDisplayItem.id);initialImageContext&&(userNode.dataset.imageContext=initialImageContext);initialAttachmentContext&&(userNode.dataset.attachmentContext=initialAttachmentContext)}
-              if(isTargetActive()){state.messages.push(message);getActiveSession().messages=cloneMessageList(state.messages)}
-              else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),message]);
               await persistTargetMessages();resumeUserCommitted=!0
             }
             if(submissionCancelled()){clearPendingSubmit(sessionId);return}

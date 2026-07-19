@@ -124,6 +124,31 @@ function testCanonicalDomReconciliationRemovesLateRecoveryDuplicate() {
   assert.strictEqual(dom.window.document.getElementById('old'), null);
 }
 
+function testBlankDisplayIndexLeavesFreshMessageAtVisibleTail() {
+  const dom = new JSDOM('<main id="messages"><article class="message user" data-message-index="0"></article><article class="message assistant" data-response-index="1"></article><article id="fresh" class="message user"></article></main>');
+  const container = dom.window.document.getElementById('messages');
+  const fresh = dom.window.document.getElementById('fresh');
+
+  displayItems.insertMessageNodeAtDisplayPosition(container, fresh, { role: 'user', messageIndex: '' });
+
+  assert.strictEqual(container.lastElementChild, fresh, 'a missing order index must not coerce to zero and move a newly sent message to the top/out of view');
+}
+
+function testEverySubmitModePublishesCanonicalMessageBeforeDomProjection() {
+  const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const universalIndex = 'messageIndex=initialEditMessageIndex!==null?initialEditMessageIndex:resumedMessageIndex!==null?resumedMessageIndex:(Array.isArray(targetSession?.messages)&&targetSession.messages.length?targetSession.messages.length:state.messages.length)';
+  const canonicalWrite = 'if(isTargetActive()){state.messages.push(message);getActiveSession().messages=cloneMessageList(state.messages)}';
+  const domProjection = 'userNode=isTargetActive()?addMessage("user",userHtml';
+
+  for (const source of [submit, app]) {
+    assert.ok(source.includes(universalIndex), 'chat, image generation, and image editing submissions must all receive a canonical message index');
+    assert.ok(source.indexOf(canonicalWrite) < source.indexOf(domProjection), 'canonical state must contain the submitted message before DOM rendering/virtualization observes it');
+  }
+  assert.ok(!submit.includes('"chat"===submitMode?(Array.isArray(targetSession?.messages)'), 'image-mode submissions must not create blank message indexes');
+  assert.ok(app.includes('ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition'), 'the root runtime must use the shared guarded display-order method');
+}
+
 function testEditSubmitAlwaysUsesReplacementPathAndCommitsBeforeRouting() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
@@ -154,4 +179,6 @@ module.exports = [
   testReplacementSlotNeverOverwritesTheNextQuestion,
   testEditSubmitAlwaysUsesReplacementPathAndCommitsBeforeRouting,
   testCanonicalDomReconciliationRemovesLateRecoveryDuplicate,
+  testBlankDisplayIndexLeavesFreshMessageAtVisibleTail,
+  testEverySubmitModePublishesCanonicalMessageBeforeDomProjection,
 ];

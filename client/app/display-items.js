@@ -89,6 +89,12 @@ function reconcileCanonicalMessageNode(container, node, { role = '', index = nul
   return node;
 }
 
+function insertMessageNodeAtDisplayPosition(container, node, item = {}) {
+  const role = item?.role || messageNodeRole(node);
+  const index = role === 'user' ? item?.messageIndex : item?.responseIndex;
+  return reconcileCanonicalMessageNode(container, node, { role, index });
+}
+
 function isPendingMessageNode(node) {
   return node?.__displayItem?.pending === '1'
     || node?.dataset?.pending === '1'
@@ -119,7 +125,7 @@ function findCanonicalMessageNode(nodes = [], message, fallbackIndex = -1) {
   return [...list].reverse().find(node => canonicalMessageNodeMatches(node, message, fallbackIndex)) || null;
 }
 
-const displayItemsApi = Object.freeze({ compactDisplayItems, parseDisplayMessageIndex, reconcileCanonicalMessageNode, makeDisplayItemId, displayItemHasRichMedia, canonicalMessageIndex, canonicalMessageNodeRole, messageNodeRole, messageNodeIndex, isPendingMessageNode, canonicalMessageNodeMatches, findCanonicalMessageNode });
+const displayItemsApi = Object.freeze({ compactDisplayItems, parseDisplayMessageIndex, reconcileCanonicalMessageNode, insertMessageNodeAtDisplayPosition, makeDisplayItemId, displayItemHasRichMedia, canonicalMessageIndex, canonicalMessageNodeRole, messageNodeRole, messageNodeIndex, isPendingMessageNode, canonicalMessageNodeMatches, findCanonicalMessageNode });
 if (typeof module !== 'undefined' && module.exports) module.exports = displayItemsApi;
 if (root) root.ChatUIAppDisplayItems = displayItemsApi;
 if (root?.window) root.window.ChatUIAppDisplayItems = displayItemsApi;

@@ -1,41 +1,52 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 意图路由器，只返回 JSON，不回答用户。
-目标：精准识别 current_input，并输出结构化 task contract；steps 仅描述当前单次执行，不得输出未实现的多阶段执行协议。
+const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。你不回答用户，只把本轮请求转换成一个严格的 task_contract.v3 JSON 对象。不要输出 Markdown、解释、代码围栏或额外字段。
 
-核心原则：current_input 是最新用户输入，优先级最高；attachments 是本轮资源，图片/文件都是当前输入的一部分；context 只用于解析明确引用（上一张、刚才、引用消息、继续、那个文件等）和上一轮修正，历史不能覆盖新任务。image_candidates/file_candidates 是候选元数据；不要猜图片或文件内容，只判断任务、资源、角色和执行参数。
+唯一合法结构：
+{"schema_version":"task_contract.v3","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify","relation":"new|followup|correction|continuation","resources":[{"key":"r1","type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","missing":false}],"directive":{"mode":"standalone|patch","base_resource_keys":[],"unmentioned_policy":"preserve|allow_change","operations":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[]},"clarification":{"question":"","missing_resource_keys":[]},"confidence":0,"review_reasons":[],"rationale":""}
 
-必须返回 task contract JSON：
-{"schema_version":"task_contract.v2","intent":"chat|vision_qa|image.generate|image.edit|file.qa|clarify|refuse","task_type":"new_task|followup|correction|continuation","execution":{"api":"chat|vision|image_generation|image_edit|clarify|refuse","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify|refuse"},"resources":[{"type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","name":"","required":true,"missing":false}],"steps":[{"id":"step_1","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image","input_roles":[],"output_role":"output","prompt":"","depends_on":[]}],"prompt_plan":{"current_user_intent":"","context_to_preserve":"","constraints":[],"do_not_add":[],"final_instruction":""},"clarification":{"needed":false,"question":"","missing_resources":[]},"confidence":0,"needs_review":false,"reason":""}
+判定顺序：
+1. 只理解 current_input。attachments 是本轮资源；context 仅用于解析用户明确引用的历史对象，绝不能让历史覆盖一个完整的新请求。
+2. 先确定 relation：独立完整请求=new；依赖引用或历史回答=followup；纠正上一结果=correction；仅要求继续原任务=continuation。relation=new 时 resources 只能使用 source=current。
+3. 再选唯一 operation。执行 API 和高层意图由程序从 operation 唯一推导，你不要重复输出，以避免字段互相矛盾。
+4. 最后确定 resources 和 directive。不要猜图片或文件内容，只使用候选元数据。
 
-task_type：不依赖历史的完整请求=new_task，即使 context 有旧图；明确追问历史/引用=followup；指出上一结果错误=correction；仅“继续”=continuation。new_task 只允许 current 资源，context_to_preserve 必须为空。例：先画猫，再说“画一条鱼”必须是 new_task，不得带猫。
+operation：
+- 普通对话=plain_chat；文件问答=file_qa；文件与图片联合问答=multimodal_qa。
+- 看图=image_qa；多图比较=image_compare；OCR=ocr。
+- 纯文本生图=text_to_image；基于图片生成=image_reference_gen；修改已有图片=edit_image。
+- 只有必需资源缺失、多个候选无法消歧、或操作目标无法确定时才使用 clarify。
 
-needs_review：意图两可、多个候选资源无法确定，或上下文冲突时为 true；否则 false。
+资源规则：
+- 每个资源必须有唯一 key：r1、r2……；index 使用输入或候选列表中的 1 基编号。
+- 编辑对象=target；普通看图=source；生成参考图=reference；风格参考=style_reference；比较图=compare_a/compare_b；文件=attachment。
+- 本轮附图在看图、编辑、参考生成任务中默认参与；用户明确排除时才不选。
+- 用户说“这张/上一张/那个文件”时必须匹配唯一候选；无法唯一匹配时创建 missing=true 的资源并使用 clarify。
 
-意图：文字任务=chat；看图=vision_qa/image_qa；识字=vision_qa/ocr；多图比较=vision_qa/image_compare；文件问答=file.qa/file_qa；文件+图片=file.qa/multimodal_qa；纯文本生图=image.generate/text_to_image；参考图生图=image.generate/image_reference_gen；修图=image.edit/edit_image。“先分析再生成/编辑”按最终图片操作路由，分析要求写入 prompt_plan。
+补丁规则：
+- standalone 表示当前输入可独立执行：base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change。执行端直接使用 current_input，不接受你重写完整提示词。
+- patch 表示任务依赖基线，base_resource_keys 必须引用非 missing 的 resources。
+- relation 为 followup/correction/continuation 时必须使用 patch；edit_image 和 image_reference_gen 也必须使用 patch。
+- operations 只记录用户明确表达的变化：preserve=保持，add=新增，replace=替换，remove=删除。preserve/remove 的 value 必须为空；add/replace 的 value 必须非空。
+- 不得把推测、审美增强词或历史中未被明确引用的内容写入 operations/constraints。
+- 精确编辑、纠错、局部修改通常 unmentioned_policy=preserve；“重新设计、自由发挥、做个不同版本”可为 allow_change。
+- constraints 只放用户明确的硬约束，不要重复 current_input，也不要重写完整执行提示词。
 
-资源角色：编辑目标=target，参考图=reference，风格=style_reference，对比=compare_a/compare_b，看图=source，文件=attachment。source 取 current/quoted/history/context。
+澄清与复审：
+- operation=clarify 时 clarification.question 必须非空；缺失资源的 key 写入 missing_resource_keys。其他 operation 的 clarification 必须为空，且不能存在 missing 资源。
+- 意图、关系、资源角色或补丁边界存在歧义时，把简短原因写入 review_reasons；否则返回空数组。
+- confidence 是整体判断置信度 0..1。rationale 只写一行可审计依据。
 
-本轮有图默认参与；若同时指“上一张”并要求比较，输出 current+history，operation=image_compare；明确排除当前图时只用 history。
-
-澄清：只有资源缺失、多个候选但用户必须指定、或操作目标不清时 intent=clarify；不要把可直接执行的任务澄清掉。
-
-只返回 JSON，不要 Markdown。
-
-Context boundary: new_task uses only current_input and current attachments; never inherit historical prompts. Only followup/correction/continuation may preserve context explicitly.`;
+边界示例：
+- 历史画过猫，current_input=“画一条鱼”：relation=new，operation=text_to_image，standalone，不引用猫。
+- current_input=“人物不变，把红衣服改蓝，去掉右下角文字”：operation=edit_image，patch，target 在 base_resource_keys；operations 为 preserve 人物、replace 衣服颜色、remove 右下角文字；unmentioned_policy=preserve。
+- current_input=“参考这张图的构图，生成水彩版本”：operation=image_reference_gen，参考图为 reference 和基线；replace 风格为水彩，preserve 构图。
+- current_input=“这张和上一张有什么不同”：operation=image_compare，current 与 history 分别为 compare_a/compare_b，directive=patch。`;
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT}
 
-Review the first task_contract.v2 using first_task_contract, current_input, attachments, and context. Return one complete task_contract.v2 only. Never return legacy route, image_source, use_previous_image, or instruction fields.`;
-
-
-const imageRouteContext = root?.ChatUICoreImageRouteContext
-  || root?.ChatUICore?.imageRouteContext
-  || root?.window?.ChatUICoreImageRouteContext
-  || root?.window?.ChatUICore?.imageRouteContext
-  || (typeof require === 'function' ? require('../core/image-route-context') : {});
-
+你现在是独立审计器。输入包含 first_task_contract。逐项检查：是否错误继承历史、relation/operation 是否正确、资源是否唯一且角色正确、patch 基线是否完整、operations 是否只含用户明确变化、未提及内容策略是否正确、是否过度澄清。返回审计后的一个完整 task_contract.v3；即使 confidence 降低也应如实修正。`;
 const intentContract = root?.ChatUICoreIntentContract
   || root?.ChatUICore?.intentContract
   || root?.window?.ChatUICoreIntentContract
@@ -78,16 +89,16 @@ function attachComposedPrompt(route = {}, taskContract = {}, options = {}) {
   const input = String(options.input || '').trim();
   const context = options.context || {};
   let next = { ...route, taskContract };
-  if (taskContract.intent === 'image.generate') {
+  if (taskContract.operation === 'text_to_image' || taskContract.operation === 'image_reference_gen') {
     const prompt = promptComposer?.composeImageGeneratePrompt
       ? promptComposer.composeImageGeneratePrompt(taskContract, context, input)
       : input;
-    next = { ...next, contextualImagePrompt: prompt, operation: { ...(next.operation || {}), prompt } };
-  } else if (taskContract.intent === 'image.edit') {
+    next = { ...next, contextualImagePrompt: prompt };
+  } else if (taskContract.operation === 'edit_image') {
     const editInstruction = promptComposer?.composeImageEditPrompt
       ? promptComposer.composeImageEditPrompt(taskContract, context, input)
       : input;
-    next = { ...next, editInstruction, operation: { ...(next.operation || {}), edit_instruction: editInstruction } };
+    next = { ...next, editInstruction };
   }
   return next;
 }
@@ -97,18 +108,14 @@ function isTaskContractResult(value = {}) {
     && intentContract.hasExactContractShape(value);
 }
 
-function parseRouteResult(text = '', normalizeRoute, options = {}) {
+function parseRouteResult(text = '', options = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
-  const normalize = normalizeRoute || imageRouteContext.normalizeRoute;
-  if (typeof normalize !== 'function') throw new TypeError('normalizeRoute is required');
   try {
-    const raw = JSON.parse(stripJsonFence(value));
-    if (!isTaskContractResult(raw)) return null;
-    const taskContract = intentContract.normalizeTaskContract(raw, options);
-    const routeInput = intentContract.taskContractToExecutionRoute(taskContract, options);
-    const parsedBase = normalize(routeInput);
-    return attachComposedPrompt(parsedBase, taskContract, options);
+    const taskContract = JSON.parse(stripJsonFence(value));
+    if (!isTaskContractResult(taskContract)) return null;
+    const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, options);
+    return attachComposedPrompt(executionPlan, taskContract, options);
   } catch {
     return null;
   }

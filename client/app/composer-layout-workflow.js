@@ -1,21 +1,70 @@
 (function initChatUIAppComposerLayoutWorkflow(root) {
   'use strict';
 
+  const LARGE_PROMPT_LAYOUT_THRESHOLD = 20000;
+
   function createComposerLayoutWorkflow(deps = {}) {
     const { getElement, window, document, requestAnimationFrame } = deps;
     let resizeFrame = 0;
     let resizeSecondFrame = 0;
 
-    function updateComposerSafeArea(){const e=getElement("composer"),t=getElement("messages");if(!e||!t)return;const s=e.getBoundingClientRect(),n=window.visualViewport?.height||window.innerHeight||document.documentElement.clientHeight||0,a=Math.ceil(Math.max(120,n-s.top+28));document.documentElement.style.setProperty("--composer-safe-bottom",`${a}px`),t.style.scrollPaddingBottom=`${a}px`}
+    function updateComposerSafeArea() {
+      const composer = getElement('composer');
+      const messages = getElement('messages');
+      if (!composer || !messages) return;
+      const rect = composer.getBoundingClientRect();
+      const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0;
+      const safeBottom = Math.ceil(Math.max(120, viewportHeight - rect.top + 28));
+      document.documentElement.style.setProperty('--composer-safe-bottom', `${safeBottom}px`);
+      messages.style.scrollPaddingBottom = `${safeBottom}px`;
+    }
 
-    function autoResize(){const e=getElement("prompt");if(!e)return!1;const t=window.matchMedia("(max-width: 640px)").matches,s=Math.round(window.innerHeight*(t?0.36:0.42)),n=t?42:52,i=e.style.getPropertyValue("--prompt-height");e.style.setProperty("--prompt-height",`${n}px`),e.style.setProperty("height",`${n}px`,"important");const o=e.scrollHeight,a=Math.max(n,Math.min(o,s)),r=e.style.overflowY,l=o>s?"auto":"hidden";e.style.setProperty("--prompt-height",`${a}px`),e.style.setProperty("height",`${a}px`,"important"),e.style.overflowY=l,updateComposerSafeArea();return i!==`${a}px`||r!==l}
+    function autoResize() {
+      const prompt = getElement('prompt');
+      if (!prompt) return false;
+      const mobile = window.matchMedia('(max-width: 640px)').matches;
+      const maxHeight = Math.round(window.innerHeight * (mobile ? 0.36 : 0.42));
+      const minHeight = mobile ? 42 : 52;
+      const previousHeight = prompt.style.getPropertyValue('--prompt-height');
+      const previousOverflow = prompt.style.overflowY;
 
-    function scheduleAutoResize(){if(resizeFrame)return;resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;autoResize()&&(resizeSecondFrame&&window.cancelAnimationFrame?.(resizeSecondFrame),resizeSecondFrame=requestAnimationFrame(()=>{resizeSecondFrame=0,autoResize()}))})}
+      if (String(prompt.value || '').length > LARGE_PROMPT_LAYOUT_THRESHOLD) {
+        prompt.style.setProperty('--prompt-height', `${maxHeight}px`);
+        prompt.style.setProperty('height', `${maxHeight}px`, 'important');
+        prompt.style.overflowY = 'auto';
+        updateComposerSafeArea();
+        return previousHeight !== `${maxHeight}px` || previousOverflow !== 'auto';
+      }
+
+      prompt.style.setProperty('--prompt-height', `${minHeight}px`);
+      prompt.style.setProperty('height', `${minHeight}px`, 'important');
+      const contentHeight = prompt.scrollHeight;
+      const height = Math.max(minHeight, Math.min(contentHeight, maxHeight));
+      const overflow = contentHeight > maxHeight ? 'auto' : 'hidden';
+      prompt.style.setProperty('--prompt-height', `${height}px`);
+      prompt.style.setProperty('height', `${height}px`, 'important');
+      prompt.style.overflowY = overflow;
+      updateComposerSafeArea();
+      return previousHeight !== `${height}px` || previousOverflow !== overflow;
+    }
+
+    function scheduleAutoResize() {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        if (!autoResize()) return;
+        if (resizeSecondFrame) window.cancelAnimationFrame?.(resizeSecondFrame);
+        resizeSecondFrame = requestAnimationFrame(() => {
+          resizeSecondFrame = 0;
+          autoResize();
+        });
+      });
+    }
 
     return Object.freeze({ updateComposerSafeArea, autoResize, scheduleAutoResize });
   }
 
-  const api = Object.freeze({ createComposerLayoutWorkflow });
+  const api = Object.freeze({ LARGE_PROMPT_LAYOUT_THRESHOLD, createComposerLayoutWorkflow });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppComposerLayoutWorkflow = api;
   if (root?.window) root.window.ChatUIAppComposerLayoutWorkflow = api;

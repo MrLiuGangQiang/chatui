@@ -6,7 +6,6 @@
   const core = browser.ChatUICore || root.ChatUICore || {};
   const http = core.http || {};
   const reasoning = core.reasoning || {};
-  const imageRouteContext = core.imageRouteContext || browser.ChatUICoreImageRouteContext || root.ChatUICoreImageRouteContext || {};
   const imageReferences = core.imageReferences || browser.ChatUICoreImageReferences || root.ChatUICoreImageReferences || {};
   const attachments = core.attachments || browser.ChatUICoreAttachments || root.ChatUICoreAttachments || {};
 
@@ -69,18 +68,17 @@
     INTENT_REVIEW_SYSTEM_PROMPT: routeService.INTENT_REVIEW_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
     needsIntentReview: (routeInfo, context) => routeService.needsIntentReview(routeInfo, context),
-    parseRouteResult: (text, normalizeRoute, options) => routeService.parseRouteResult(text, normalizeRoute || imageRouteContext.normalizeRoute, options),
+    parseRouteResult: (text, options) => routeService.parseRouteResult(text, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
     buildIntentReviewPayload: options => routeService.buildIntentReviewPayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
   });
 
   const promptComposer = Object.freeze({
-    latestImagePromptFromContext: context => promptComposerService.latestImagePromptFromContext(context),
-    composeChatPrompt: (task, context, input) => promptComposerService.composeChatPrompt(task, context, input),
+    candidateForResource: (resource, context) => promptComposerService.candidateForResource(resource, context),
+    resolveBaseText: (resource, context) => promptComposerService.resolveBaseText(resource, context),
     composeImageGeneratePrompt: (task, context, input) => promptComposerService.composeImageGeneratePrompt(task, context, input),
     composeImageEditPrompt: (task, context, input) => promptComposerService.composeImageEditPrompt(task, context, input),
-    composeForTask: (task, context, input) => promptComposerService.composeForTask(task, context, input),
   });
 
   const images = Object.freeze({

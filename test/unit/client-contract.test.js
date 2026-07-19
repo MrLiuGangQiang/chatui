@@ -49,23 +49,38 @@ function testClientContractRoutePayloadKeepsCompactShape() {
 function testClientContractRouteParsingPreservesClarificationShape() {
   const question = 'Please specify which image to edit.';
   const parsed = routeService.parseRouteResult(JSON.stringify({
-    schema_version: 'task_contract.v2',
-    intent: 'clarify',
-    task_type: 'followup',
-    execution: { api: 'clarify', operation: 'clarify' },
-    resources: [],
-    steps: [],
-    prompt_plan: { current_user_intent: 'edit this image', context_to_preserve: '', constraints: [], do_not_add: [], final_instruction: '' },
-    clarification: { needed: true, question, missing_resources: ['image target'] },
+    schema_version: 'task_contract.v3',
+    operation: 'clarify',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'context', role: 'target', index: 1, id: '', reference_id: '', missing: true }],
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question, missing_resource_keys: ['r1'] },
     confidence: 0.7,
-    needs_review: false,
-    reason: 'multiple candidates',
-  }), null, { input: 'edit this image', attachments: [], context: {} });
+    review_reasons: [],
+    rationale: 'multiple candidates',
+  }), { input: 'edit this image', attachments: [], context: {} });
   assert.strictEqual(parsed.mode, 'chat');
   assert.strictEqual(parsed.needClarification, true);
   assert.strictEqual(parsed.clarificationQuestion, question);
-  assert.strictEqual(parsed.taskContract.intent, 'clarify');
-  assert.strictEqual(parsed.operation.type, 'clarify');
+  assert.strictEqual(parsed.taskContract.operation, 'clarify');
+  assert.strictEqual(parsed.operationType, 'clarify');
+}
+
+function testClientContractRejectsRedundantOrUnknownFields() {
+  const invalid = {
+    schema_version: 'task_contract.v3',
+    operation: 'plain_chat',
+    relation: 'new',
+    resources: [],
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question: '', missing_resource_keys: [] },
+    confidence: 0.9,
+    review_reasons: [],
+    rationale: 'chat',
+    intent: 'chat',
+  };
+  assert.strictEqual(routeService.isTaskContractResult(invalid), false);
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(invalid), { input: 'hello' }), null);
 }
 
 function testClientContractServiceExportsStayStable() {
@@ -95,6 +110,7 @@ module.exports = [
   testClientContractUsesOneTaskContractRouteProtocol,
   testClientContractRoutePayloadKeepsCompactShape,
   testClientContractRouteParsingPreservesClarificationShape,
+  testClientContractRejectsRedundantOrUnknownFields,
   testClientContractServiceExportsStayStable,
   testClientContractChatAndSseParsingShape,
 ];

@@ -254,7 +254,7 @@ function testExplicitCancellationIsNotRecoverablePageLeave() {
   const lifecycle = fs.readFileSync(path.join(__dirname, '../../client/app/task-lifecycle.js'), 'utf8');
   const stopStart = lifecycle.indexOf('async function stopSessionTask');
   const clearPending = lifecycle.indexOf("runCleanup('pending submission'", stopStart);
-  const firstAwait = lifecycle.indexOf('await Promise.allSettled', stopStart);
+  const firstAwait = lifecycle.indexOf('await Promise.race', stopStart);
   assert.ok(clearPending > stopStart && clearPending < firstAwait, 'explicit stop must synchronously clear pending-submit before any asynchronous managed-job abort');
   assert.ok(app.includes('function stopActiveRun(e=state.activeSessionId){return getTaskLifecycleController().stopSessionTask(e)}'),
     'the browser composition root must delegate explicit stop to the shared lifecycle controller');

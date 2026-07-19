@@ -221,9 +221,6 @@
       const role = messageRoleFromNode(node);
       const displayItem = displayItemForNode(node);
       const canonical = canonicalMessageForNode(node, role);
-      const content = normalizeQuoteText(
-        quoteContentTextFromNode(node, displayItem, canonical)
-      );
       let imageContext = node.dataset.imageContext || displayItem?.imageContext || canonical?.imageContext || '';
       if (imageContext && !hasUsableImageContext(imageContext)) imageContext = '';
       if (!imageContext && typeof deps.getAssistantImageContext === 'function') {
@@ -233,7 +230,10 @@
         } catch {}
       }
       let attachmentContext = node.dataset.attachmentContext || displayItem?.attachmentContext || canonical?.attachmentContext || '';
-      const quoteContent = content || (imageContext ? '[图片消息]' : attachmentContext ? '[附件消息]' : '');
+      const content = role === 'assistant' && imageContext
+        ? '[\u56fe\u7247\u6d88\u606f]'
+        : normalizeQuoteText(quoteContentTextFromNode(node, displayItem, canonical));
+      const quoteContent = content || (imageContext ? '[\u56fe\u7247\u6d88\u606f]' : attachmentContext ? '[\u9644\u4ef6\u6d88\u606f]' : '');
       if (!quoteContent && !imageContext && !attachmentContext) return null;
       if (imageContext && !node.dataset.imageContext) node.dataset.imageContext = imageContext;
       if (attachmentContext && !node.dataset.attachmentContext) node.dataset.attachmentContext = attachmentContext;

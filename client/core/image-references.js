@@ -23,6 +23,18 @@ function makeImageItemId(reference = 'latest', index = 1) {
   return `${IMAGE_ITEM_PREFIX}${makeImageReferenceId(reference)}_${Number(index) || 1}`;
 }
 
+function parseImageItemId(value = '') {
+  const match = String(value || '').match(/^img_(imgref_.+)_(\d+)$/);
+  if (!match) return null;
+  const index = Number(match[2]);
+  if (!Number.isInteger(index) || index < 1) return null;
+  return {
+    referenceId: match[1],
+    reference: parseImageReferenceId(match[1]),
+    index,
+  };
+}
+
 function normalizeSelectedImageIds(value = []) {
   const ids = Array.isArray(value)
     ? value
@@ -65,6 +77,7 @@ const api = Object.freeze({
   makeImageReferenceId,
   parseImageReferenceId,
   makeImageItemId,
+  parseImageItemId,
   normalizeSelectedImageIds,
   resolveImageSelectionFromIds,
   normalizeImageSelection,

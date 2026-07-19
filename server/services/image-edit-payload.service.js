@@ -241,8 +241,10 @@ function buildImageEditMultipartBody(payload = {}, files = [], options = {}) {
   imageEditTextEntries(payload).forEach(([key, fieldValue]) => {
     parts.push(buildMultipartTextPart(boundary, key, fieldValue));
   });
-  imageFilesOnly(files).forEach((file, index) => {
-    parts.push(buildMultipartFilePart(boundary, 'image', file || {}, index));
+  const imageFiles = imageFilesOnly(files);
+  const imageFieldName = imageFiles.length > 1 ? 'image[]' : 'image';
+  imageFiles.forEach((file, index) => {
+    parts.push(buildMultipartFilePart(boundary, imageFieldName, file || {}, index));
   });
   const mask = dataFiles(options.masks)[0];
   if (mask?.data) parts.push(buildMultipartFilePart(boundary, 'mask', mask, 0));

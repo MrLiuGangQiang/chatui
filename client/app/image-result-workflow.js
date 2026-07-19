@@ -33,11 +33,14 @@
       const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];
       const labels = [...new Set([...subjectLabels, ...deps.imageCandidateLabels(`${item.raw || ''} ${filename}`)])];
+      const description = String(item.revisedPrompt || item.prompt || options.routePrompt || options.prompt || '').trim();
       storedImages.push({
         src: persistedSrc,
         displaySrc,
         filename,
-        prompt: '',
+        prompt: description,
+        description,
+        semantic_text: [description, ...labels].filter(Boolean).join(' | '),
         updatedAt: Date.now(),
         width: size?.width || 0,
         height: size?.height || 0,
@@ -57,7 +60,7 @@
       updatedAt: Date.now(),
       width: first.width || 0,
       height: first.height || 0,
-      images: storedImages.map(item => ({ src: item.src, filename: item.filename, prompt: options.prompt || '', updatedAt: item.updatedAt, width: item.width || 0, height: item.height || 0, labels: item.labels || [] })),
+      images: storedImages.map(item => ({ src: item.src, filename: item.filename, prompt: item.prompt || options.prompt || '', description: item.description || '', semantic_text: item.semantic_text || '', updatedAt: item.updatedAt, width: item.width || 0, height: item.height || 0, labels: item.labels || [] })),
     };
     deps.saveLatestGeneratedImage(options.sessionId, latestImage);
 
@@ -88,6 +91,9 @@
           referenceId,
           width: item.width || 0,
           height: item.height || 0,
+          prompt: item.prompt || '',
+          description: item.description || '',
+          semantic_text: item.semantic_text || '',
           labels: item.labels || [],
         })),
       },

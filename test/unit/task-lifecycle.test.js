@@ -106,6 +106,116 @@ function testRecoveredCompletionSettlesCanonicalBusyProjection() {
   assert.strictEqual(busyCalls.at(-1)[1], false, 'a committed background result must release the input and sidebar busy projection');
 }
 
+function testRecoveredCompletionUsesCanonicalIdentityButCleansActualFollowerJob() {
+  const state = {
+    activeRuns: new Map(),
+    resumingJobs: new Set(['image:session-a']),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(['imgjob-resumed']),
+    taskStates: new Map(),
+  };
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: () => {},
+  });
+
+  lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_RECOVERY_STARTED,
+    submissionId: 'submit-a',
+    jobId: 'imgjob-canonical',
+    jobKind: 'image',
+  });
+  lifecycle.settleSessionTask('session-a', {
+    outcome: 'completed',
+    submissionId: 'submit-a',
+    jobId: 'imgjob-resumed',
+    jobKind: 'image',
+  });
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(lifecycle.getTaskState('session-a').jobId, 'imgjob-canonical');
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, false);
+  assert.strictEqual(state.resumingJobs.has('image:session-a'), false);
+  assert.strictEqual(state.followingImageJobs.has('imgjob-resumed'), false);
+}
+
+async function testStopSessionTaskReleasesLocallyWhenRemoteAbortNeverSettles() {
+  const run = {
+    token: 'run-a',
+    stopped: false,
+    abortController: new AbortController(),
+    jobIds: new Set(),
+  };
+  const state = {
+    activeRuns: new Map([['session-a', run]]),
+    stoppedSessions: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  let finalized = 0;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    stopAbortWaitMs: 5,
+    clearActiveRun: (sessionId, ownedRun) => {
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy: () => {},
+    stop: {
+      getActiveRun: sessionId => state.activeRuns.get(sessionId),
+      ensureActiveRun: () => run,
+      clearPendingSubmit: () => {},
+      loadImageJob: () => ({ id: 'imgjob-hung' }),
+      abortManagedJob: () => new Promise(() => {}),
+      clearImageJob: () => {},
+      markStopping: () => {},
+      finalizeStopped: () => { finalized += 1; },
+    },
+  });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-a', { type: events.TASK_ACCEPTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.ROUTING_STARTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_PREPARED, submissionId: 'submit-a', jobId: 'imgjob-hung', jobKind: 'image' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_COMMITTED, submissionId: 'submit-a', jobId: 'imgjob-hung', jobKind: 'image' });
+
+  await lifecycle.stopSessionTask('session-a');
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.STOPPED);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').canSubmit, true);
+  assert.strictEqual(state.activeRuns.has('session-a'), false);
+  assert.strictEqual(finalized, 1);
+}
+
+function testCompletionWithoutSubmissionCannotSettleAMismatchedCurrentJob() {
+  const state = {
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(['chatjob-old']),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  const lifecycle = taskLifecycle.createTaskLifecycle({ state, taskState, setSessionBusy: () => {} });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-a', { type: events.TASK_ACCEPTED, submissionId: 'submit-current' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.ROUTING_STARTED, submissionId: 'submit-current' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_PREPARED, submissionId: 'submit-current', jobId: 'chatjob-current', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_COMMITTED, submissionId: 'submit-current', jobId: 'chatjob-current', jobKind: 'chat' });
+
+  lifecycle.settleSessionTask('session-a', {
+    outcome: 'completed',
+    jobId: 'chatjob-old',
+    jobKind: 'chat',
+  });
+
+  assert.strictEqual(lifecycle.getTaskState('session-a').phase, taskState.TASK_PHASES.RUNNING);
+  assert.strictEqual(lifecycle.getTaskState('session-a').jobId, 'chatjob-current');
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, true);
+  assert.strictEqual(state.followingChatJobs.has('chatjob-old'), false);
+}
+
 async function testStopSessionTaskOwnsTheEntireStopBoundary() {
   const run = {
     token: 'run-a',
@@ -384,7 +494,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.2-null-task-settle') < index.indexOf('submit-workflow.js?v=1.2.87-message-size-guard'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.3-bounded-stop-settle') < index.indexOf('submit-workflow.js?v=1.2.87-message-size-guard'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
@@ -402,6 +512,9 @@ module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
   testCompletedSessionWithoutTaskStateSettlesCleanly,
   testRecoveredCompletionSettlesCanonicalBusyProjection,
+  testRecoveredCompletionUsesCanonicalIdentityButCleansActualFollowerJob,
+  testStopSessionTaskReleasesLocallyWhenRemoteAbortNeverSettles,
+  testCompletionWithoutSubmissionCannotSettleAMismatchedCurrentJob,
   testStopSessionTaskOwnsTheEntireStopBoundary,
   testLateStopCompletionCannotFinalizeANewerTask,
   testSubmitButtonUsesCanonicalTaskProjection,

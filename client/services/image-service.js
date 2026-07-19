@@ -6,7 +6,8 @@ function imageItemToResult(item) {
   const url = rawItem.url || rawItem.src || rawItem.image_url || rawItem.image || '';
   const b64 = rawItem.b64_json || rawItem.image_base64 || rawItem.base64 || '';
   const src = url || (b64 ? `data:image/png;base64,${b64}` : '');
-  return src ? { src, url, b64, raw: url || '[base64 image]' } : null;
+  const revisedPrompt = String(rawItem.revised_prompt || rawItem.revisedPrompt || rawItem.prompt || '').trim();
+  return src ? { src, url, b64, raw: url || '[base64 image]', revisedPrompt } : null;
 }
 
 function extractImageResult(result) {

@@ -104,6 +104,19 @@ function testMultipartBodyUsesSharedTextEntries() {
   assert.ok(!body.includes('skip-me'));
 }
 
+function testMultipartBodyUsesArrayFieldForMultipleImages() {
+  const multipart = imageEditPayload.buildImageEditMultipartBody({
+    model: 'gpt-image-1',
+    prompt: 'combine two images',
+  }, [imageFile({ name: 'one.png' }), imageFile({ name: 'two.png' })]);
+
+  const body = multipart.body.toString('latin1');
+  assert.strictEqual((body.match(/name="image\[\]"/g) || []).length, 2);
+  assert.ok(body.includes('name="image[]"; filename="one.png"'));
+  assert.ok(body.includes('name="image[]"; filename="two.png"'));
+  assert.ok(!body.includes('name="image"; filename='));
+}
+
 function testImageEditFileExtractionContract() {
   const imageA = imageFile({ name: 'a.png' });
   const imageB = imageFile({ name: 'b.png' });
@@ -269,6 +282,7 @@ module.exports = [
   testImageEditForwardFieldBoundaryContract,
   testOpenAiImageEditPayloadUsesSharedTextEntries,
   testMultipartBodyUsesSharedTextEntries,
+  testMultipartBodyUsesArrayFieldForMultipleImages,
   testImageEditFileExtractionContract,
   testImageEditFileFilterHelpersContract,
   testImageEditCandidateHelpersContract,

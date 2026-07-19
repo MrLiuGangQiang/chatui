@@ -14,9 +14,9 @@
     const makeImageReferenceId = deps.makeImageReferenceId;
     const parseImageReferenceId = deps.parseImageReferenceId;
     const makeImageItemId = deps.makeImageItemId;
+    const parseImageItemId = deps.parseImageItemId;
     const normalizeImageSelection = deps.normalizeImageSelection;
     const normalizeSelectedImageIds = deps.normalizeSelectedImageIds;
-    const resolveImageSelectionFromIds = deps.resolveImageSelectionFromIds;
     const parseImageContext = deps.parseImageContext;
 
     function serializeAttachmentEntry(item, index = 0) {
@@ -280,25 +280,84 @@
       if (node.__displayItem) node.__displayItem.imageContext = text;
     }
 
-    async function getPreviousImageAttachments(sessionId = getState().activeSessionId, selectedIndexes = null, referenceId = '', selectedImageIds = []) {
+    function generatedImageForReference(sessionId, referenceId = '') {
       const state = getState();
+      const session = (state.sessions || []).find(item => item.id === sessionId);
       const reference = parseImageReferenceId(referenceId);
-      const session = state.sessions.find(item => item.id === sessionId);
-      const image = normalizeLastGeneratedImage(findImageReferenceById(sessionId, reference) || (sessionId === state.activeSessionId ? state.lastGeneratedImage : session?.lastGeneratedImage));
-      const images = Array.isArray(image?.images) && image.images.length ? image.images : image?.src ? [{ src: image.src, filename: image.filename || 'previous-image.png' }] : [];
-      const normalizedReferenceId = makeImageReferenceId(reference || 'latest');
-      const explicitIndexes = normalizeImageSelection(selectedIndexes, images.length);
+      const historical = reference && reference !== 'latest'
+        ? findImageReferenceById(sessionId, reference)
+        : null;
+      return normalizeLastGeneratedImage(
+        historical
+        || (reference === 'latest'
+          ? (sessionId === state.activeSessionId ? state.lastGeneratedImage : session?.lastGeneratedImage)
+          : null)
+      );
+    }
+
+    async function previousAttachmentFromImage(image, sourceIndex, referenceId, imageId = '') {
+      const images = Array.isArray(image?.images) && image.images.length
+        ? image.images
+        : image?.src
+          ? [{ src: image.src, filename: image.filename || 'previous-image.png' }]
+          : [];
+      const item = images[sourceIndex - 1];
+      if (!item?.src) return null;
+      const file = await imageRefToFile(item.src, item.filename || `previous-image-${sourceIndex}.png`);
+      return {
+        file,
+        name: file.name,
+        type: file.type || 'image/png',
+        size: file.size,
+        dataUrl: item.src,
+        text: '',
+        fromPrevious: true,
+        sourceIndex,
+        imageId: imageId || makeImageItemId(referenceId, sourceIndex),
+        referenceId,
+        label: item.label || item.subject || '',
+      };
+    }
+
+    async function getPreviousImageAttachments(sessionId = getState().activeSessionId, selectedIndexes = null, referenceId = '', selectedImageIds = []) {
       const ids = normalizeSelectedImageIds(selectedImageIds);
-      const indexesFromIds = ids.length ? resolveImageSelectionFromIds(ids, normalizedReferenceId, images.length) : null;
-      const selection = explicitIndexes && explicitIndexes.length ? explicitIndexes : indexesFromIds;
+      if (ids.length) {
+        const result = [];
+        const references = new Map();
+        for (const imageId of ids) {
+          const parsed = parseImageItemId?.(imageId);
+          if (!parsed) continue;
+          if (!references.has(parsed.referenceId)) {
+            references.set(parsed.referenceId, generatedImageForReference(sessionId, parsed.referenceId));
+          }
+          const attachment = await previousAttachmentFromImage(
+            references.get(parsed.referenceId),
+            parsed.index,
+            parsed.referenceId,
+            imageId
+          );
+          if (attachment) result.push(attachment);
+        }
+        if (result.length !== ids.length) {
+          throw new Error('\u9009\u62e9\u7684\u5386\u53f2\u56fe\u7247\u5df2\u4e22\u5931\uff0c\u8bf7\u91cd\u65b0\u9009\u62e9\u8981\u5408\u5e76\u7684\u56fe\u7247');
+        }
+        return result;
+      }
+
+      const reference = parseImageReferenceId(referenceId);
+      const normalizedReferenceId = makeImageReferenceId(reference || 'latest');
+      const image = generatedImageForReference(sessionId, normalizedReferenceId);
+      const images = Array.isArray(image?.images) && image.images.length
+        ? image.images
+        : image?.src
+          ? [{ src: image.src, filename: image.filename || 'previous-image.png' }]
+          : [];
+      const selection = normalizeImageSelection(selectedIndexes, images.length);
       const result = [];
       for (let index = 0; index < images.length; index += 1) {
-        if (selection && selection.length && !selection.includes(index + 1)) continue;
-        const item = images[index];
-        if (!item?.src) continue;
-        const file = await imageRefToFile(item.src, item.filename || `previous-image-${index + 1}.png`);
-        const imageId = makeImageItemId(normalizedReferenceId, index + 1);
-        result.push({ file, name: file.name, type: file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: true, sourceIndex: index + 1, imageId, label: item.label || item.subject || '' });
+        if (selection?.length && !selection.includes(index + 1)) continue;
+        const attachment = await previousAttachmentFromImage(image, index + 1, normalizedReferenceId);
+        if (attachment) result.push(attachment);
       }
       return result;
     }

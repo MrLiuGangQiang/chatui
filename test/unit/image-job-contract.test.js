@@ -395,7 +395,7 @@ function testImageUpstreamRequestEditMultipartContract() {
   assert.ok(!multipart.includes('name="n"'));
   assert.ok(!multipart.includes('name="unknown"'));
   assert.ok(!multipart.includes('skip-me'));
-  assert.strictEqual(countOccurrences(multipart, 'name="image"; filename='), 2);
+  assert.strictEqual(countOccurrences(multipart, 'name="image[]"; filename='), 2);
   assert.strictEqual(countOccurrences(multipart, 'name="mask"; filename='), 1);
 }
 

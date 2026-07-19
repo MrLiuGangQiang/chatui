@@ -3976,3 +3976,47 @@ body{
   .route-diagram-head p{font-size:12px!important}
   .route-diagram-frame-wrap iframe{height:68vh!important;min-height:320px!important}
 }
+
+/* Fixed overlays are centered within the chat content region, not the full viewport. */
+:root{
+  --dialog-content-start:var(--session-sidebar-width);
+}
+html.session-sidebar-collapsed-boot,
+body.session-sidebar-collapsed{
+  --dialog-content-start:var(--session-rail-width);
+}
+@media (min-width:841px){
+  #configModal.modal.show{
+    padding-left:calc(var(--dialog-content-start) + 24px)!important;
+    padding-right:24px!important;
+  }
+  #configModal .config-dialog{
+    width:min(980px,calc(100vw - var(--dialog-content-start) - 48px))!important;
+  }
+  .confirm-dialog{
+    padding-left:calc(var(--dialog-content-start) + 22px)!important;
+    padding-right:22px!important;
+  }
+  .web-preview-dialog{
+    padding-left:calc(var(--dialog-content-start) + 24px)!important;
+    padding-right:24px!important;
+  }
+  .image-preview{
+    padding-left:calc(var(--dialog-content-start) + 28px)!important;
+    padding-right:28px!important;
+  }
+  .image-preview img{
+    max-width:calc(100vw - var(--dialog-content-start) - 56px)!important;
+  }
+  .route-diagram-modal{
+    padding-left:calc(var(--dialog-content-start) + clamp(16px,3vw,40px))!important;
+    padding-right:clamp(16px,3vw,40px)!important;
+  }
+}
+@media (max-width:840px){
+  :root,
+  html.session-sidebar-collapsed-boot,
+  body.session-sidebar-collapsed{
+    --dialog-content-start:0px;
+  }
+}

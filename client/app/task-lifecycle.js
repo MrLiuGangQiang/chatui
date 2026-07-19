@@ -33,12 +33,12 @@
       return next;
     }
 
-    function taskEventDetails(task = {}) {
+    function taskEventDetails(task) {
       return {
-        taskId: task.taskId || '',
-        submissionId: task.submissionId || '',
-        jobId: task.jobId || '',
-        jobKind: task.jobKind || '',
+        taskId: task?.taskId || '',
+        submissionId: task?.submissionId || '',
+        jobId: task?.jobId || '',
+        jobKind: task?.jobKind || '',
       };
     }
 

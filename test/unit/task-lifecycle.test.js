@@ -44,6 +44,31 @@ function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   assert.strictEqual(busyCalls.length, 3);
 }
 
+function testCompletedSessionWithoutTaskStateSettlesCleanly() {
+  const state = {
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  const busyCalls = [];
+  let availabilityUpdates = 0;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: (sessionId, value) => busyCalls.push([sessionId, value]),
+    updateSendAvailability: () => { availabilityUpdates += 1; },
+  });
+
+  assert.doesNotThrow(() => {
+    lifecycle.settleSessionTask('session-a', { outcome: 'completed' });
+  }, 'restoring an already-completed message history must not dereference a missing task state');
+  assert.strictEqual(lifecycle.getTaskState('session-a'), null, 'plain persisted history should not synthesize a canonical task');
+  assert.deepStrictEqual(busyCalls, [['session-a', false]]);
+  assert.strictEqual(availabilityUpdates, 1);
+}
+
 function testRecoveredCompletionSettlesCanonicalBusyProjection() {
   const state = {
     activeRuns: new Map(),
@@ -359,7 +384,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.1-background-settle') < index.indexOf('submit-workflow.js?v=1.2.86-message-projection'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.2-null-task-settle') < index.indexOf('submit-workflow.js?v=1.2.86-message-projection'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
@@ -375,6 +400,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
 
 module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testCompletedSessionWithoutTaskStateSettlesCleanly,
   testRecoveredCompletionSettlesCanonicalBusyProjection,
   testStopSessionTaskOwnsTheEntireStopBoundary,
   testLateStopCompletionCannotFinalizeANewerTask,

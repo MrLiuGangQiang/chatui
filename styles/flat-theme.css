@@ -3985,6 +3985,9 @@ html.session-sidebar-collapsed-boot,
 body.session-sidebar-collapsed{
   --dialog-content-start:var(--session-rail-width);
 }
+.toast-popup{
+  left:calc(var(--dialog-content-start) + (100vw - var(--dialog-content-start))/2)!important;
+}
 @media (min-width:841px){
   #configModal.modal.show{
     padding-left:calc(var(--dialog-content-start) + 24px)!important;

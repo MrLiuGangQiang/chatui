@@ -80,6 +80,49 @@ function testFollowSelectionClearsPersistedExplicitRouteModel() {
   assert.strictEqual(JSON.parse(storage.values.get('config')).routeModel, '', 'saving follow mode must remove the stale explicit route model');
 }
 
+function testEmptyVisibleModelSelectionsOverrideStaleStoredModels() {
+  const storage = makeStorage({ config: JSON.stringify({
+    baseUrl: 'https://example.test/v1',
+    chatModel: 'stale-chat-model',
+    imageModel: 'gpt-image-2',
+    models: ['stale-chat-model', 'gpt-image-2'],
+  }) });
+  const elements = new Map([
+    ['baseUrl', { value: 'https://example.test/v1' }],
+    ['apiKey', { value: '' }],
+    ['chatModel', { value: '' }],
+    ['routeModel', { value: '' }],
+    ['imageModel', { value: '' }],
+    ['imageSize', { value: 'auto' }],
+    ['systemPrompt', { value: '' }],
+    ['imageStylePrompt', { value: '' }],
+  ]);
+  const workflow = configWorkflow.createConfigWorkflow({
+    state: { models: ['stale-chat-model', 'gpt-image-2'], modelMeta: {}, sessions: [], activeSessionId: '' },
+    getElement: id => elements.get(id),
+    localStorage: storage,
+    sessionStorage: storage,
+    document: { body: { classList: { add() {}, remove() {} } } },
+    window: { sessionStorage: storage, setTimeout },
+    crypto: { getRandomValues() {} },
+    CONFIG_KEY: 'config',
+    renderModelOptions() {},
+    updateCustomSelect() {},
+    enhanceConfigSelects() {},
+    closeAllCustomSelects() {},
+    getActiveSession: () => ({ headerValues: {} }),
+    saveSessionsMeta() {},
+    toast() {},
+  });
+
+  assert.strictEqual(workflow.getConfig().chatModel, '', 'an empty visible chat selection must not revive a stale stored model');
+  assert.strictEqual(workflow.getConfig().imageModel, '', 'an empty visible image selection must not revive stale gpt-image-2');
+  workflow.saveConfig(true);
+  const saved = JSON.parse(storage.values.get('config'));
+  assert.strictEqual(saved.chatModel, '');
+  assert.strictEqual(saved.imageModel, '');
+}
+
 function testSessionRouteModelResolutionUsesOneCanonicalRule() {
   const models = ['deepseek-v4-flash', 'gpt-session'];
   const session = { chatModel: 'gpt-session' };
@@ -175,15 +218,16 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(app.includes('getSessionChatModel,getSessionRouteModel,buildRequestHeaders'), 'route workflow dependencies must receive both canonical session model resolvers');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
-  assert.ok(index.includes('config-workflow.js?v=1.2.74-route-follow-session'));
+  assert.ok(index.includes('config-workflow.js?v=1.2.75-visible-model-selection'));
   assert.ok(index.includes('submit-workflow.js?v=1.2.88-session-route-model'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.1-session-route-model'));
   assert.ok(index.includes('app.js?v=2.1.39-session-route-model'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.126-session-route-model'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.129-ime-enter-guard'));
 }
 
 module.exports = [
   testFollowSelectionClearsPersistedExplicitRouteModel,
+  testEmptyVisibleModelSelectionsOverrideStaleStoredModels,
   testSessionRouteModelResolutionUsesOneCanonicalRule,
   testFollowRouteUsesRequestedSessionsChatModelInActualPayload,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,

@@ -30,6 +30,7 @@
         operationType: String(route.operationType || ''),
         confidence: Number.isFinite(Number(route.confidence)) ? Number(route.confidence) : null,
         api: String(trace.finalApi || route.api || ''),
+        model: String(trace.model || ''),
         reviewed: !!trace.reviewed,
         fallbackAi: !!trace.fallbackAi,
         reviewErrorCode: trace.reviewError ? String(trace.reviewError).slice(0, 120) : '',
@@ -59,10 +60,145 @@
       }
     }
 
-    async function getEffectiveRoute(e,t=state.attachments,s=state.activeSessionId,h=null,routeContextOverride=null,routeOptions=null) {
+    function resolveRouteModels(sessionId, config = {}) {
+      const sessionChatModel = typeof deps.getSessionChatModel === 'function'
+        ? String(deps.getSessionChatModel(sessionId, config) || '').trim()
+        : String(config.chatModel || '').trim();
+      const primaryModel = typeof deps.getSessionRouteModel === 'function'
+        ? String(deps.getSessionRouteModel(sessionId, config) || '').trim()
+        : String(config.routeModel || '').trim() || sessionChatModel;
+      return { primaryModel, sessionChatModel };
+    }
+
+    async function getEffectiveRoute(input, attachments = state.attachments, sessionId = state.activeSessionId, headers = null, routeContextOverride = null, routeOptions = null) {
       with (deps) {
         await loadPublicContext?.();
-        const n=getConfig(),r=h||buildRequestHeaders("message",s),a=n.routeModel||n.chatModel,routeSvc=window.ChatUIServices?.route||window.ChatUIRouteService,attachmentMeta=buildRouteAttachmentMetadata(t),context=routeContextOverride||buildRouteContext(s);if(n.baseUrl&&a)try{const firstPayload=routeSvc?.buildRoutePayload?routeSvc.buildRoutePayload({model:a,input:e,attachments:attachmentMeta,context,currentMode:state.mode,autoMode:state.autoMode}):{model:a,temperature:0,messages:[]},controller=typeof AbortController!=="undefined"?new AbortController:null;let timedOut=!1,slowNotified=!1;const trace={input:e,context:compactTraceValue(context),attachments:attachmentMeta,firstPayload:compactTraceValue(firstPayload)};const slowTimer=setTimeout(()=>{slowNotified=!0;try{routeOptions?.onSlow?.("正在执行：路由模型意图识别")}catch(e){console.warn("route slow callback failed:",e)}},10000),timeout=setTimeout(()=>{timedOut=!0;controller?.abort?.()},60000);let firstResponse;try{firstResponse=await requestRouteDecision(firstPayload,n,r,controller?.signal)}catch(err){if(timedOut||"AbortError"===err?.name){const timeoutError=new Error("ROUTE_INTENT_TIMEOUT");timeoutError.code="ROUTE_INTENT_TIMEOUT";timeoutError.routeTimedOut=!0;timeoutError.timeoutMs=60000;timeoutError.slowNotified=slowNotified;throw timeoutError}throw err}finally{clearTimeout(slowTimer),clearTimeout(timeout)}trace.firstRaw=extractRouteText(routeSvc,firstResponse);let route=parseRouteResult(trace.firstRaw,{input:e,attachments:attachmentMeta,context});trace.firstRoute=route;let reviewed=false;if(route&&shouldReviewRoute(routeSvc,route,context,attachmentMeta)&&routeSvc?.buildIntentReviewPayload){try{try{routeOptions?.onStage?.("正在执行：AI 复审路由判断")}catch(e){console.warn("route stage callback failed:",e)}const reviewPayload=routeSvc.buildIntentReviewPayload({model:a,input:e,attachments:attachmentMeta,context,firstRoute:route});trace.reviewPayload=compactTraceValue(reviewPayload);const reviewController=typeof AbortController!=="undefined"?new AbortController:null;let reviewTimedOut=!1;const reviewTimeout=setTimeout(()=>{reviewTimedOut=!0;reviewController?.abort?.()},60000);let reviewResponse;try{reviewResponse=await requestRouteDecision(reviewPayload,n,r,reviewController?.signal)}catch(err){if(reviewTimedOut||"AbortError"===err?.name){const timeoutError=new Error("ROUTE_REVIEW_TIMEOUT");timeoutError.code="ROUTE_REVIEW_TIMEOUT";throw timeoutError}throw err}finally{clearTimeout(reviewTimeout)}trace.reviewRaw=extractRouteText(routeSvc,reviewResponse);const reviewRoute=parseRouteResult(trace.reviewRaw,{input:e,attachments:attachmentMeta,context});trace.reviewRoute=reviewRoute;if(reviewRoute){route=reviewRoute;reviewed=true}}catch(err){trace.reviewError=String(err?.message||err);console.warn("intent review failed, keep primary route:",err)}}if(route){const finalRoute=route;trace.reviewed=reviewed;trace.finalRoute=finalRoute;trace.finalTaskContract=finalRoute.taskContract||null;trace.finalApi=finalRoute.api;trace.finalPrompt=finalRoute.contextualImagePrompt||finalRoute.editInstruction||e;setIntentTrace(trace);return finalRoute}}catch(e){console.warn(e?.routeTimedOut?"route model timed out, trying chat model fallback":"route model failed, trying chat model fallback",e);try{routeOptions?.onStage?.("正在执行：chat 模型备用路由判断")}catch(stageErr){console.warn("route stage callback failed:",stageErr)}const fallbackChatModel=n.chatModel;if(n.baseUrl&&fallbackChatModel&&fallbackChatModel!==a){try{const fallbackPayload=routeSvc.buildRoutePayload({model:fallbackChatModel,input:e,attachments:attachmentMeta,context,currentMode:state.mode,autoMode:state.autoMode});const fallbackController=typeof AbortController!=="undefined"?new AbortController:null;const fallbackTimeout=setTimeout(()=>{fallbackController?.abort?.()},30000);let fallbackResponse;try{fallbackResponse=await requestRouteDecision(fallbackPayload,n,r,fallbackController?.signal)}finally{clearTimeout(fallbackTimeout)}const fallbackRaw=extractRouteText(routeSvc,fallbackResponse),fallbackRoute=parseRouteResult(fallbackRaw,{input:e,attachments:attachmentMeta,context});if(fallbackRoute){setIntentTrace({input:e,context:compactTraceValue(context),attachments:attachmentMeta,finalRoute:fallbackRoute,finalApi:fallbackRoute.api,fallbackAi:!0});return fallbackRoute}}catch(fallbackErr){console.warn("chat model fallback route also failed:",fallbackErr)}}const routeError=new Error("意图识别失败：路由模型和备用模型均不可用，请检查模型配置或稍后重试");routeError.code="ROUTE_COMPLETE_FAILURE";throw routeError}
+        const config = getConfig();
+        const requestHeaders = headers || buildRequestHeaders('message', sessionId);
+        const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
+        const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
+        const attachmentMeta = buildRouteAttachmentMetadata(attachments);
+        const context = routeContextOverride || buildRouteContext(sessionId);
+
+        if (config.baseUrl && primaryModel) {
+          try {
+            const firstPayload = routeSvc?.buildRoutePayload
+              ? routeSvc.buildRoutePayload({ model: primaryModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode })
+              : { model: primaryModel, temperature: 0, messages: [] };
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            let timedOut = false;
+            let slowNotified = false;
+            const trace = {
+              input,
+              model: primaryModel,
+              context: compactTraceValue(context),
+              attachments: attachmentMeta,
+              firstPayload: compactTraceValue(firstPayload),
+            };
+            const slowTimer = setTimeout(() => {
+              slowNotified = true;
+              try { routeOptions?.onSlow?.('\u6b63\u5728\u6267\u884c\uff1a\u8def\u7531\u6a21\u578b\u610f\u56fe\u8bc6\u522b'); } catch (err) { console.warn('route slow callback failed:', err); }
+            }, 10000);
+            const timeout = setTimeout(() => {
+              timedOut = true;
+              controller?.abort?.();
+            }, 60000);
+            let firstResponse;
+            try {
+              firstResponse = await requestRouteDecision(firstPayload, config, requestHeaders, controller?.signal);
+            } catch (err) {
+              if (timedOut || err?.name === 'AbortError') {
+                const timeoutError = new Error('ROUTE_INTENT_TIMEOUT');
+                timeoutError.code = 'ROUTE_INTENT_TIMEOUT';
+                timeoutError.routeTimedOut = true;
+                timeoutError.timeoutMs = 60000;
+                timeoutError.slowNotified = slowNotified;
+                throw timeoutError;
+              }
+              throw err;
+            } finally {
+              clearTimeout(slowTimer);
+              clearTimeout(timeout);
+            }
+
+            trace.firstRaw = extractRouteText(routeSvc, firstResponse);
+            let route = parseRouteResult(trace.firstRaw, { input, attachments: attachmentMeta, context });
+            trace.firstRoute = route;
+            let reviewed = false;
+            if (route && shouldReviewRoute(routeSvc, route, context, attachmentMeta) && routeSvc?.buildIntentReviewPayload) {
+              try {
+                try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1aAI \u590d\u5ba1\u8def\u7531\u5224\u65ad'); } catch (err) { console.warn('route stage callback failed:', err); }
+                const reviewPayload = routeSvc.buildIntentReviewPayload({ model: primaryModel, input, attachments: attachmentMeta, context, firstRoute: route });
+                trace.reviewPayload = compactTraceValue(reviewPayload);
+                const reviewController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                let reviewTimedOut = false;
+                const reviewTimeout = setTimeout(() => {
+                  reviewTimedOut = true;
+                  reviewController?.abort?.();
+                }, 60000);
+                let reviewResponse;
+                try {
+                  reviewResponse = await requestRouteDecision(reviewPayload, config, requestHeaders, reviewController?.signal);
+                } catch (err) {
+                  if (reviewTimedOut || err?.name === 'AbortError') {
+                    const timeoutError = new Error('ROUTE_REVIEW_TIMEOUT');
+                    timeoutError.code = 'ROUTE_REVIEW_TIMEOUT';
+                    throw timeoutError;
+                  }
+                  throw err;
+                } finally {
+                  clearTimeout(reviewTimeout);
+                }
+                trace.reviewRaw = extractRouteText(routeSvc, reviewResponse);
+                const reviewRoute = parseRouteResult(trace.reviewRaw, { input, attachments: attachmentMeta, context });
+                trace.reviewRoute = reviewRoute;
+                if (reviewRoute) {
+                  route = reviewRoute;
+                  reviewed = true;
+                }
+              } catch (err) {
+                trace.reviewError = String(err?.message || err);
+                console.warn('intent review failed, keep primary route:', err);
+              }
+            }
+            if (route) {
+              trace.reviewed = reviewed;
+              trace.finalRoute = route;
+              trace.finalTaskContract = route.taskContract || null;
+              trace.finalApi = route.api;
+              trace.finalPrompt = route.contextualImagePrompt || route.editInstruction || input;
+              setIntentTrace(trace);
+              return route;
+            }
+          } catch (err) {
+            console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
+            try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad'); } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
+            if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
+              try {
+                const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
+                const fallbackController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                const fallbackTimeout = setTimeout(() => fallbackController?.abort?.(), 30000);
+                let fallbackResponse;
+                try {
+                  fallbackResponse = await requestRouteDecision(fallbackPayload, config, requestHeaders, fallbackController?.signal);
+                } finally {
+                  clearTimeout(fallbackTimeout);
+                }
+                const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
+                const fallbackRoute = parseRouteResult(fallbackRaw, { input, attachments: attachmentMeta, context });
+                if (fallbackRoute) {
+                  setIntentTrace({ input, model: sessionChatModel, context: compactTraceValue(context), attachments: attachmentMeta, finalRoute: fallbackRoute, finalApi: fallbackRoute.api, fallbackAi: true });
+                  return fallbackRoute;
+                }
+              } catch (fallbackErr) {
+                console.warn('chat model fallback route also failed:', fallbackErr);
+              }
+            }
+          }
+        }
+        const routeError = new Error('\u610f\u56fe\u8bc6\u522b\u5931\u8d25\uff1a\u8def\u7531\u6a21\u578b\u548c\u5907\u7528\u6a21\u578b\u5747\u4e0d\u53ef\u7528\uff0c\u8bf7\u68c0\u67e5\u6a21\u578b\u914d\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5');
+        routeError.code = 'ROUTE_COMPLETE_FAILURE';
+        throw routeError;
       }
     }
 

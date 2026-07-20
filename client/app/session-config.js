@@ -10,6 +10,11 @@
     return selected && models.includes(selected) ? selected : config.chatModel;
   }
 
+  function getSessionRouteModel({ session = null, config = {}, models = [] } = {}) {
+    const configuredRouteModel = String(config.routeModel || '').trim();
+    return configuredRouteModel || getSessionChatModel({ session, config, models });
+  }
+
   function sessionChatModelValue(session = null, models = []) {
     const selected = String(session?.chatModel || '').trim();
     return selected && models.includes(selected) ? selected : '';
@@ -28,6 +33,7 @@
   const api = Object.freeze({
     getEffectiveImageStylePrompt,
     getSessionChatModel,
+    getSessionRouteModel,
     sessionChatModelValue,
     sessionModelOptions,
     normalizeSessionChatModel,

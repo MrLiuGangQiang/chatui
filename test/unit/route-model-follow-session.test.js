@@ -221,8 +221,8 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('config-workflow.js?v=1.2.75-visible-model-selection'));
   assert.ok(index.includes('submit-workflow.js?v=1.2.88-session-route-model'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.1-session-route-model'));
-  assert.ok(index.includes('app.js?v=2.1.43-welcome-height-adaptive'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.136-welcome-encoding-refresh'));
+  assert.ok(index.includes('app.js?v=2.1.45-welcome-globe-only'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.138-welcome-globe-only'));
 }
 
 module.exports = [

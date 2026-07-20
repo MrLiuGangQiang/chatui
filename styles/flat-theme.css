@@ -1991,24 +1991,72 @@ body{
   flex-direction:column!important;
   align-items:center!important;
   justify-content:center!important;
-  border:1px solid rgba(126,143,196,.22)!important;
-  border-radius:27px!important;
+  border:0!important;
+  border-radius:50%!important;
   color:#4560c8!important;
-  background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(235,240,255,.93))!important;
-  box-shadow:0 22px 44px rgba(64,79,141,.17),inset 0 1px 0 #fff!important;
+  background:transparent!important;
+  box-shadow:none!important;
 }
-.welcome-orbit-core svg{
-  width:26px!important;
-  height:26px!important;
-  margin-bottom:3px!important;
+.welcome-globe{
+  position:relative!important;
+  width:60px!important;
+  height:60px!important;
+  flex:0 0 auto!important;
+  margin-bottom:2px!important;
+  border-radius:50%!important;
+  perspective:140px!important;
+  isolation:isolate!important;
+  filter:drop-shadow(0 8px 12px rgba(31,67,151,.28))!important;
+  animation:welcome-globe-float 4.8s ease-in-out infinite!important;
+}
+.welcome-globe::before{
+  content:""!important;
+  position:absolute!important;
+  z-index:-1!important;
+  inset:-5px!important;
+  border-radius:50%!important;
+  background:conic-gradient(from 20deg,rgba(70,119,255,.08),rgba(67,219,224,.54),rgba(112,91,238,.14),rgba(70,119,255,.08))!important;
+  filter:blur(5px)!important;
+  opacity:.66!important;
+  animation:welcome-globe-aura 7s linear infinite!important;
+}
+.welcome-globe svg{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  margin:0!important;
+  overflow:visible!important;
+  transform-origin:50% 50%!important;
+  animation:welcome-globe-tilt 7.5s ease-in-out infinite!important;
+}
+.welcome-globe-atmosphere{
+  fill:rgba(84,195,244,.1)!important;
+  stroke:rgba(137,232,255,.78)!important;
+  stroke-width:1.4!important;
+  animation:welcome-globe-pulse 3.6s ease-in-out infinite!important;
+}
+.welcome-globe-ocean{
+  stroke:rgba(255,255,255,.56)!important;
+  stroke-width:1!important;
+}
+.welcome-globe-grid{
   fill:none!important;
-  stroke:currentColor!important;
-  stroke-width:1.7!important;
-  stroke-linecap:round!important;
-  stroke-linejoin:round!important;
+  stroke:rgba(218,248,255,.38)!important;
+  stroke-width:.75!important;
 }
-.welcome-orbit-core strong{font-size:16px!important;line-height:1!important;letter-spacing:.14em!important;}
-.welcome-orbit-core small{margin-top:6px!important;color:#8b96af!important;font-size:8px!important;font-weight:760!important;letter-spacing:.18em!important;}
+.welcome-globe-land{
+  stroke:rgba(226,255,237,.52)!important;
+  stroke-width:.6!important;
+  transform-box:fill-box!important;
+  transform-origin:center!important;
+  animation:welcome-globe-land-drift 6.8s ease-in-out infinite alternate!important;
+}
+.welcome-globe-glint{
+  fill:rgba(255,255,255,.38)!important;
+  filter:blur(1.2px)!important;
+  transform:rotate(-24deg)!important;
+  transform-origin:24px 20px!important;
+}
 .welcome-orbit-node{
   position:absolute!important;
   z-index:2!important;
@@ -2230,9 +2278,26 @@ body{
   to{opacity:1;transform:translateY(0);}
 }
 @keyframes welcome-orbit-spin{to{transform:rotate(360deg);}}
+@keyframes welcome-globe-float{
+  0%,100%{transform:translateY(1px) scale(.98);}
+  50%{transform:translateY(-2px) scale(1.02);}
+}
+@keyframes welcome-globe-aura{to{transform:rotate(360deg);}}
+@keyframes welcome-globe-tilt{
+  0%,100%{transform:rotateY(-10deg) rotateZ(-2deg);}
+  50%{transform:rotateY(12deg) rotateZ(2deg);}
+}
+@keyframes welcome-globe-land-drift{
+  0%{transform:translateX(-1.5px) scale(1);}
+  100%{transform:translateX(2px) scale(1.025);}
+}
+@keyframes welcome-globe-pulse{
+  0%,100%{opacity:.68;transform:scale(.96);transform-origin:center;}
+  50%{opacity:1;transform:scale(1.04);transform-origin:center;}
+}
 @media (prefers-reduced-motion:reduce){
   .empty-welcome{animation:none!important;}
-  .welcome-orbit-ring{animation:none!important;}
+  .welcome-orbit-ring,.welcome-globe,.welcome-globe::before,.welcome-globe svg,.welcome-globe-land,.welcome-globe-atmosphere{animation:none!important;}
   .welcome-feature-card{transition:none!important;}
 }
 
@@ -3922,9 +3987,7 @@ body{
   .welcome-badges>span{min-height:22px!important;padding:0 8px!important;font-size:9.5px!important;}
   .welcome-orbit{width:164px!important;}
   .welcome-orbit-core{width:66px!important;height:66px!important;border-radius:21px!important;}
-  .welcome-orbit-core svg{width:20px!important;height:20px!important;}
-  .welcome-orbit-core strong{font-size:12px!important;}
-  .welcome-orbit-core small{margin-top:3px!important;font-size:6.5px!important;}
+  .welcome-globe{width:48px!important;height:48px!important;margin-bottom:0!important;}
   .welcome-orbit-node{min-width:34px!important;height:20px!important;padding:0 6px!important;font-size:8.5px!important;}
   .welcome-capabilities{padding-top:3px!important;}
   .welcome-section-head{gap:14px!important;padding:0 3px 6px!important;}

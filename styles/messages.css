@@ -118,12 +118,10 @@
 .message.user.has-quote .content{
   width:100%!important;
 }
-.message.user.has-quote .content > :not(.sent-quote-preview){
-  margin-left:auto!important;
-  text-align:right!important;
-}
-.message.user.has-quote .plain-text{
-  text-align:right!important;
+/* Quote/follow-up metadata must never change the alignment of the user's message body. */
+.message.user .content,
+.message.user .plain-text{
+  text-align:start!important;
 }
 .sent-quote-preview:hover{background:rgba(20,184,166,.16)!important;}
 .sent-quote-label{

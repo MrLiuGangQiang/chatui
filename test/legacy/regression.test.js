@@ -73,6 +73,7 @@ const taskStateTests = require('../unit/task-state.test');
 const doneSoundTests = require('../unit/done-sound.test');
 const messageOrderPersistenceTests = require('../unit/message-order-persistence.test');
 const messageSizeGuardTests = require('../unit/message-size-guard.test');
+const messageQuoteLayoutTests = require('../unit/message-quote-layout.test');
 const serverSmokeTests = require('../smoke/server-smoke.test');
 const multiImageComposeFlowSmokeTests = require('../smoke/multi-image-compose-flow.test');
 
@@ -1538,7 +1539,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.17-web-preview-iframe-borderless') && index.includes('chatui.bundle.js?v=1.3.126-session-route-model'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.18-followup-alignment') && index.includes('chatui.bundle.js?v=1.3.126-session-route-model'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -3351,6 +3352,7 @@ const tests = [
   ...doneSoundTests,
   ...messageOrderPersistenceTests,
   ...messageSizeGuardTests,
+  ...messageQuoteLayoutTests,
   ...serverSmokeTests,
   ...multiImageComposeFlowSmokeTests,
   testSessionPromptDraftPersistsPerSession,

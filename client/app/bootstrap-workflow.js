@@ -3,12 +3,18 @@
 
   const PROMPT_COMPOSITION_END_GRACE_MS = 120;
 
+  function isAppleCompositionPlatform(navigatorRef = root?.navigator) {
+    const platform = String(navigatorRef?.userAgentData?.platform || navigatorRef?.platform || navigatorRef?.userAgent || '');
+    return /Mac|iPhone|iPad|iPod/i.test(platform);
+  }
+
   function createPromptEnterSubmitController(options = {}) {
     const now = typeof options.now === 'function' ? options.now : Date.now;
     const graceMs = Number.isFinite(options.compositionEndGraceMs)
       ? Math.max(0, options.compositionEndGraceMs)
       : PROMPT_COMPOSITION_END_GRACE_MS;
     const submit = typeof options.submit === 'function' ? options.submit : () => {};
+    const guardAfterCompositionEnd = options.guardAfterCompositionEnd === true;
     let composing = false;
     let compositionEndedAt = null;
 
@@ -33,9 +39,16 @@
       const elapsedSinceCompositionEnd = compositionEndedAt === null
         ? Number.POSITIVE_INFINITY
         : now() - compositionEndedAt;
-      const justFinishedComposition = elapsedSinceCompositionEnd >= 0
+      const justFinishedComposition = guardAfterCompositionEnd
+        && elapsedSinceCompositionEnd >= 0
         && elapsedSinceCompositionEnd <= graceMs;
-      if (event.isComposing || composing || legacyImeKey || justFinishedComposition) return false;
+      if (event.isComposing || composing || legacyImeKey) return false;
+      if (justFinishedComposition) {
+        compositionEndedAt = null;
+        event.preventDefault?.();
+        return false;
+      }
+      compositionEndedAt = null;
       event.preventDefault?.();
       submit();
       return true;
@@ -49,6 +62,9 @@
     if (prompt.dataset) prompt.dataset.promptEnterGuardBound = '1';
     const controller = createPromptEnterSubmitController({
       ...options,
+      guardAfterCompositionEnd: typeof options.guardAfterCompositionEnd === 'boolean'
+        ? options.guardAfterCompositionEnd
+        : isAppleCompositionPlatform(options.navigator || root?.navigator),
       submit: () => composer.requestSubmit?.(),
     });
     prompt.addEventListener('compositionstart', controller.onCompositionStart);
@@ -118,7 +134,7 @@
     return Object.freeze({ start });
   }
 
-  const api = Object.freeze({ createBootstrapWorkflow, createPromptEnterSubmitController, bindPromptEnterSubmitGuard });
+  const api = Object.freeze({ createBootstrapWorkflow, createPromptEnterSubmitController, bindPromptEnterSubmitGuard, isAppleCompositionPlatform });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppBootstrapWorkflow = api;
   if (root?.window) root.window.ChatUIAppBootstrapWorkflow = api;

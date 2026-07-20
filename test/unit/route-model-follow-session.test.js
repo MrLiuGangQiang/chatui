@@ -8,6 +8,7 @@ const configWorkflow = require('../../client/app/config-workflow');
 const sessionConfig = require('../../client/app/session-config');
 const routeService = require('../../client/services/route-service');
 const routeDecisionWorkflow = require('../../client/app/route-decision-workflow');
+const sessionUiWorkflow = require('../../client/app/session-ui-workflow');
 
 function plainChatContract() {
   return {
@@ -180,6 +181,56 @@ async function testFollowRouteUsesRequestedSessionsChatModelInActualPayload() {
   }
 }
 
+async function testRouteResolutionReadsLatestSessionModelAfterSwitch() {
+  const models = ['gpt-before-switch', 'gpt-after-switch'];
+  const sessions = [{ id: 'session-a', chatModel: 'gpt-before-switch', messages: [] }];
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'gpt-before-switch', routeModel: '', models },
+    sessions,
+    requestJson: async (_url, payload) => { requestedModels.push(payload.model); return responseFor(); },
+  });
+  try {
+    await harness.workflow.getEffectiveRoute('before switch', [], 'session-a', {}, {});
+    sessions[0].chatModel = 'gpt-after-switch';
+    await harness.workflow.getEffectiveRoute('after switch', [], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['gpt-before-switch', 'gpt-after-switch'], 'route resolution must read the current session model for every submission instead of caching the previous selection');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testExplicitRouteModelSwitchUsesLatestSelection() {
+  const models = ['chat-model', 'router-before', 'router-after'];
+  const sessions = [{ id: 'session-a', chatModel: 'chat-model', messages: [] }];
+  const config = { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'router-before', models };
+  const requestedModels = [];
+  const previousWindow = global.window;
+  global.window = { ChatUIServices: { route: routeService }, ChatUIRouteService: routeService };
+  const state = { activeSessionId: 'session-a', sessions, messages: [], attachments: [], mode: 'chat', autoMode: true };
+  const workflow = routeDecisionWorkflow.createRouteDecisionWorkflow({
+    state,
+    loadPublicContext: async () => {},
+    getConfig: () => ({ ...config }),
+    getSessionChatModel: () => 'chat-model',
+    getSessionRouteModel: (_sessionId, currentConfig) => currentConfig.routeModel || currentConfig.chatModel,
+    buildRequestHeaders: () => ({}),
+    buildRouteAttachmentMetadata: () => [],
+    requestJson: async (_url, payload) => { requestedModels.push(payload.model); return responseFor(); },
+    parseRouteResult: routeService.parseRouteResult,
+  });
+  try {
+    await workflow.getEffectiveRoute('before route switch', [], 'session-a', {}, {});
+    config.routeModel = 'router-after';
+    await workflow.getEffectiveRoute('after route switch', [], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['router-before', 'router-after'], 'each submission must read the latest explicit intent-recognition model');
+  } finally {
+    global.window = previousWindow;
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel() {
   const models = ['deepseek-v4-flash', 'gpt-session'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
@@ -208,7 +259,7 @@ async function testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel(
   }
 }
 
-async function testFollowRouteRetriesSameSessionModelAfterFirstFailure() {
+async function testFollowRouteDoesNotRetrySameSessionModelAfterFailure() {
   const models = ['deepseek-v4-flash', 'gpt-session'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
   const requestedModels = [];
@@ -217,18 +268,17 @@ async function testFollowRouteRetriesSameSessionModelAfterFirstFailure() {
     sessions,
     requestJson: async (_url, payload) => {
       requestedModels.push(payload.model);
-      if (requestedModels.length === 1) throw new Error('newly selected model is still warming up');
-      return responseFor();
+      throw new Error('selected model unavailable');
     },
   });
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    const route = await harness.workflow.getEffectiveRoute('first question after model switch', [], 'session-a', {}, {});
-    assert.strictEqual(route.operationType, 'plain_chat');
-    assert.deepStrictEqual(requestedModels, ['gpt-session', 'gpt-session'], 'follow mode must retry the selected session model instead of skipping fallback because both model names match');
-    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.model, 'gpt-session');
-    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, true);
+    await assert.rejects(
+      () => harness.workflow.getEffectiveRoute('question after model switch', [], 'session-a', {}, {}),
+      err => err?.code === 'ROUTE_COMPLETE_FAILURE',
+    );
+    assert.deepStrictEqual(requestedModels, ['gpt-session'], 'follow mode must not send the identical route request twice');
   } finally {
     console.warn = originalWarn;
     harness.restore();
@@ -236,31 +286,93 @@ async function testFollowRouteRetriesSameSessionModelAfterFirstFailure() {
   }
 }
 
-async function testInvalidPrimaryRouteAlsoUsesFallbackAttempt() {
-  const models = ['deepseek-v4-flash', 'gpt-session'];
+async function testInvalidPrimaryRouteFailsWithoutChangingModels() {
+  const models = ['deepseek-v4-flash', 'gpt-session', 'router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
-  let attempts = 0;
+  const requestedModels = [];
   const harness = createRouteHarness({
-    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'deepseek-v4-flash', routeModel: '', models },
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'deepseek-v4-flash', routeModel: 'router-special', models },
     sessions,
-    requestJson: async () => {
-      attempts += 1;
-      return attempts === 1
-        ? { choices: [{ message: { content: 'not a valid task contract' } }] }
-        : responseFor();
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return { choices: [{ message: { content: 'not a valid task contract' } }] };
     },
   });
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    const route = await harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {});
-    assert.strictEqual(route.operationType, 'plain_chat');
-    assert.strictEqual(attempts, 2, 'an unparseable primary route must enter the same fallback path as a request failure');
+    await assert.rejects(
+      () => harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {}),
+      err => err?.code === 'ROUTE_COMPLETE_FAILURE',
+    );
+    assert.deepStrictEqual(requestedModels, ['router-special'], 'an invalid contract must fail deterministically instead of silently changing route models');
   } finally {
     console.warn = originalWarn;
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
   }
+}
+
+function testBusyTaskCannotSwitchGlobalRouteModel() {
+  const storedConfig = { baseUrl: 'https://example.test/v1', chatModel: 'chat-model', routeModel: 'router-before', imageModel: 'image-model', imageSize: 'auto', models: ['chat-model', 'router-before', 'router-after', 'image-model'] };
+  const storage = makeStorage({ config: JSON.stringify(storedConfig) });
+  const elements = new Map([
+    ['baseUrl', { value: storedConfig.baseUrl }],
+    ['apiKey', { value: '' }],
+    ['chatModel', { value: 'chat-model' }],
+    ['routeModel', { value: 'router-after' }],
+    ['imageModel', { value: 'image-model' }],
+    ['imageSize', { value: 'auto' }],
+    ['systemPrompt', { value: '' }],
+    ['imageStylePrompt', { value: '' }],
+  ]);
+  const notices = [];
+  const workflow = configWorkflow.createConfigWorkflow({
+    state: { models: storedConfig.models, modelMeta: {}, sessions: [{ id: 'session-a' }], activeSessionId: 'session-a' },
+    getElement: id => elements.get(id),
+    localStorage: storage,
+    sessionStorage: storage,
+    document: { body: { classList: { add() {}, remove() {} } } },
+    window: { sessionStorage: storage, setTimeout },
+    crypto: { getRandomValues() {} },
+    CONFIG_KEY: 'config',
+    renderModelOptions() {},
+    updateCustomSelect() {},
+    enhanceConfigSelects() {},
+    closeAllCustomSelects() {},
+    getActiveSession: () => ({ headerValues: {} }),
+    saveSessionsMeta() {},
+    isSessionBusy: () => true,
+    toast: message => notices.push(message),
+  });
+
+  assert.strictEqual(workflow.saveConfig(true), false);
+  assert.strictEqual(JSON.parse(storage.values.get('config')).routeModel, 'router-before', 'busy tasks must keep the persisted intent-recognition model');
+  assert.strictEqual(elements.get('routeModel').value, 'router-before', 'a blocked route-model switch must restore the visible selection');
+  assert.deepStrictEqual(notices, ['\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b']);
+}
+
+function testBusySessionCannotSwitchModelMidSubmission() {
+  const session = { id: 'session-a', chatModel: 'model-before' };
+  const state = { sessions: [session], activeSessionId: 'session-a', models: ['model-before', 'model-after'] };
+  let saves = 0;
+  const notices = [];
+  const workflow = sessionUiWorkflow.createSessionUiWorkflow({
+    getState: () => state,
+    getElement: () => null,
+    getActiveSession: () => session,
+    getConfig: () => ({ chatModel: 'model-before' }),
+    isSessionBusy: () => true,
+    saveSessionsMeta: () => { saves += 1; },
+    toast: message => notices.push(message),
+    sessionConfig,
+  });
+
+  workflow.setSessionChatModel('model-after');
+
+  assert.strictEqual(session.chatModel, 'model-before', 'a running submission must keep the model it started with');
+  assert.strictEqual(saves, 0, 'blocked model switches must not be persisted');
+  assert.deepStrictEqual(notices, ['\u5f53\u524d\u4f1a\u8bdd\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u5b8c\u6210\u540e\u518d\u5207\u6362\u6a21\u578b']);
 }
 
 function testSubmitPreflightUsesEffectiveSessionRouteModel() {
@@ -271,13 +383,19 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(submit.includes(resolution), 'submit preflight must resolve follow mode against the target session before checking route availability');
   assert.ok(app.includes(resolution), 'root fallback submit workflow must preserve session-aware route preflight');
   assert.ok(app.includes('getSessionChatModel,getSessionRouteModel,buildRequestHeaders'), 'route workflow dependencies must receive both canonical session model resolvers');
+  const continuationResolution = 'const cfg=getConfig(),model=typeof getSessionRouteModel==="function"?getSessionRouteModel(sessionId,cfg):cfg.routeModel||cfg.chatModel';
+  assert.ok(submit.includes(continuationResolution), 'pending clarification classification must use the target session route model');
+  assert.ok(app.includes(continuationResolution), 'root submit fallback must preserve session-aware pending clarification classification');
+  assert.ok(!submit.includes('const cfg=getConfig(),model=cfg.routeModel||cfg.chatModel'), 'pending clarification classification must not fall back to the stale global model rule');
+  const chatWorkflowSource = fs.readFileSync(path.join(root, 'client/app/chat-workflow.js'), 'utf8');
+  assert.ok(chatWorkflowSource.includes('const sessionChatModel=getSessionChatModel(n.sessionId||state.activeSessionId,a)') && chatWorkflowSource.includes('buildChatPayload(sessionChatModel') && chatWorkflowSource.includes('buildResponsesPayload(sessionChatModel'), 'final chat dispatch must use the target session model for both Chat Completions and Responses APIs');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
-  assert.ok(index.includes('config-workflow.js?v=1.2.75-visible-model-selection'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.88-session-route-model'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.2-model-switch-retry'));
-  assert.ok(index.includes('app.js?v=2.1.46-authine-workspace'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.140-model-switch-route-retry'));
+  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
+  assert.ok(index.includes('submit-workflow.js?v=1.2.89-session-model-routing'));
+  assert.ok(index.includes('route-decision-workflow.js?v=2.0.3-route-fallback-guard'));
+  assert.ok(index.includes('app.js?v=2.1.48-route-model-switch-guard'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.143-route-model-switch-guard'));
 }
 
 module.exports = [
@@ -285,8 +403,12 @@ module.exports = [
   testEmptyVisibleModelSelectionsOverrideStaleStoredModels,
   testSessionRouteModelResolutionUsesOneCanonicalRule,
   testFollowRouteUsesRequestedSessionsChatModelInActualPayload,
+  testRouteResolutionReadsLatestSessionModelAfterSwitch,
+  testExplicitRouteModelSwitchUsesLatestSelection,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
-  testFollowRouteRetriesSameSessionModelAfterFirstFailure,
-  testInvalidPrimaryRouteAlsoUsesFallbackAttempt,
+  testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
+  testInvalidPrimaryRouteFailsWithoutChangingModels,
+  testBusyTaskCannotSwitchGlobalRouteModel,
+  testBusySessionCannotSwitchModelMidSubmission,
   testSubmitPreflightUsesEffectiveSessionRouteModel,
 ];

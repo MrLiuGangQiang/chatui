@@ -170,13 +170,10 @@
               setIntentTrace(trace);
               return route;
             }
-            const invalidRouteError = new Error('ROUTE_INVALID_RESULT');
-            invalidRouteError.code = 'ROUTE_INVALID_RESULT';
-            throw invalidRouteError;
           } catch (err) {
             console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
             try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad'); } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
-            if (config.baseUrl && sessionChatModel) {
+            if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
                 const fallbackController = typeof AbortController !== 'undefined' ? new AbortController() : null;

@@ -93,6 +93,8 @@ function testPluralCompositionOverridesPlainChatAndSelectsBothHistoryImages() {
   assert.strictEqual(parsed.selectedImageIds.length, 2);
   assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(context.image_candidates.map(item => item.image_id)));
   assert.strictEqual(parsed.taskContract.directive.base_resource_keys.length, 2);
+  assert.strictEqual(parsed.taskContract.directive.unmentioned_policy, 'allow_change');
+  assert.strictEqual(parsed.contextualImagePrompt, COMPOSE_TWO_ANIMALS);
 }
 
 function testSemanticCompositionSelectsNamedImagesAmongManyCandidates() {

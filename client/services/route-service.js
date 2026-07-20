@@ -246,7 +246,7 @@ function imageReferenceCompositionContract(candidates = [], input = '', prior = 
     directive: {
       mode: 'patch',
       base_resource_keys: resources.map(resource => resource.key),
-      unmentioned_policy: 'preserve',
+      unmentioned_policy: 'allow_change',
       operations: [{ op: 'add', target: 'composition', value: String(input || '').trim() }],
       constraints: [],
     },

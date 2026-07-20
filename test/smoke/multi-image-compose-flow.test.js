@@ -95,7 +95,7 @@ async function testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages() {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
-      captured = { url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString('latin1') };
+      captured = { url: req.url, headers: req.headers, body: Buffer.concat(chunks) };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end('{"data":[{"url":"https://img.example/merged.png"}]}');
     });
@@ -106,18 +106,23 @@ async function testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages() {
   try {
     const job = imageJobs.createImageJobFromRequestBody('imgjob-semantic-smoke', {
       mode: 'edit_image',
-      payload: { model: 'gpt-image-1', prompt: input },
+      payload: { model: 'gpt-image-1', prompt: route.contextualImagePrompt },
       files,
     }, { baseUrl, apiKey: 'test-key', extraHeaders: {} });
     await imageJobs.runImageJob(job, { upstreamTimeoutMs: 5000 });
     assert.strictEqual(job.status, 'done');
     assert.strictEqual(captured.url, '/v1/images/edits');
     assert.match(captured.headers['content-type'], /^multipart\/form-data; boundary=/);
-    assert.strictEqual((captured.body.match(/name="image\[\]"; filename=/g) || []).length, 2);
-    assert.ok(captured.body.includes('filename="cat-result.png"'));
-    assert.ok(captured.body.includes('filename="dog-result.png"'));
-    assert.ok(!captured.body.includes('filename="cow-result.png"'));
-    assert.ok(!captured.body.includes('filename="car-result.png"'));
+    const multipart = captured.body.toString('latin1');
+    const multipartUtf8 = captured.body.toString('utf8');
+    assert.strictEqual((multipart.match(/name="image\[\]"; filename=/g) || []).length, 2);
+    assert.ok(multipart.includes('filename="cat-result.png"'));
+    assert.ok(multipart.includes('filename="dog-result.png"'));
+    assert.ok(!multipart.includes('filename="cow-result.png"'));
+    assert.ok(!multipart.includes('filename="car-result.png"'));
+    const promptPart = multipartUtf8.match(/name="prompt"\r\n\r\n([\s\S]*?)\r\n--/);
+    assert.ok(promptPart, 'multipart request should contain a prompt field');
+    assert.strictEqual(promptPart[1], input, 'multi-image composition must send the user prompt unchanged');
   } finally {
     if (previousPrivateUpstream === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
     else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousPrivateUpstream;

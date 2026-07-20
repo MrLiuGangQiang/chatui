@@ -79,7 +79,16 @@
     return parts.filter(Boolean).join('\n\n').trim();
   }
 
+  function isImageCompositionTask(task = {}) {
+    if (task.operation !== 'image_reference_gen') return false;
+    const resources = Array.isArray(task.resources) ? task.resources.filter(resource => resource?.type === 'image' && !resource.missing) : [];
+    const operations = Array.isArray(task.directive?.operations) ? task.directive.operations : [];
+    return resources.length >= 2 && operations.some(operation => operation?.target === 'composition');
+  }
+
+
   function composeImageGeneratePrompt(task = {}, context = {}, input = '') {
+    if (isImageCompositionTask(task)) return compact(input, 3200);
     if (task.directive?.mode !== 'patch') return compact(input, 3200);
     return composePatchPrompt(task, context, input, { includeBaseText: true }) || compact(input, 3200);
   }
@@ -93,6 +102,7 @@
   const api = Object.freeze({
     candidateForResource,
     resolveBaseText,
+    isImageCompositionTask,
     composeImageGeneratePrompt,
     composeImageEditPrompt,
   });

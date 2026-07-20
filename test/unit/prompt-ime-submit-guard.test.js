@@ -88,7 +88,7 @@ function testBootstrapUsesImeAwarePromptEnterGuard() {
   assert.ok(bootstrap.includes('bindPromptInputGuards(),bindPromptEnterSubmitGuard($("prompt"),$("composer"))'));
   assert.ok(!bootstrap.includes('$("prompt").addEventListener("keydown",e=>{"Enter"!==e.key'));
   assert.ok(index.includes('bootstrap-workflow.js?v=2.1.1-ime-enter-guard'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.129-ime-enter-guard'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.133-welcome-position'));
 }
 
 function testPromptEnterGuardBindsOnceAndUsesComposerSubmit() {

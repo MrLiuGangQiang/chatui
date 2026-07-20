@@ -9,6 +9,7 @@
     const CONFIG_KEY = deps.CONFIG_KEY;
     const API_KEY_STORAGE_KEY = `${CONFIG_KEY}:api-key`;
     const sessionStorage = deps.sessionStorage || window?.sessionStorage;
+    const isSessionBusy = deps.isSessionBusy || (() => false);
 
     function readJsonStorage(e,t){try{const s=localStorage.getItem(e);return s?JSON.parse(s):t}catch{try{localStorage.removeItem(e)}catch{}return t}}
 
@@ -42,7 +43,11 @@
 
     function cleanupLegacyConfigCache(){localStorage.removeItem("openapi-chat-image-config"),localStorage.removeItem("openapi-chat-image-config-v1")}
 
-    function saveConfig(e=!1){cleanupLegacyConfigCache();const t=getConfig();writePersistedApiKey(t.apiKey),localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,headerParams:normalizeHeaderParamConfig(t.headerParams),chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,directMode:!!t.directMode,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal()}
+    function hasBusySession(){return(state.sessions||[]).some(session=>isSessionBusy(session.id))}
+
+    function restoreSavedRoutingModels(saved={}){for(const id of ["chatModel","routeModel"]){const element=getElement(id);if(!element)continue;element.value=String(saved[id]||"");updateCustomSelect(element)}}
+
+    function saveConfig(e=!1){cleanupLegacyConfigCache();const previous=readJsonStorage(CONFIG_KEY,{}),t=getConfig(),routingModelChanged=String(previous.chatModel||"").trim()!==t.chatModel||String(previous.routeModel||"").trim()!==t.routeModel;if(routingModelChanged&&hasBusySession())return restoreSavedRoutingModels(previous),toast?.("\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b"),!1;writePersistedApiKey(t.apiKey),localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,headerParams:normalizeHeaderParamConfig(t.headerParams),chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,directMode:!!t.directMode,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal();return!0}
 
     function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)}
 

@@ -208,6 +208,11 @@
       const state = getState();
       const session = getActiveSession();
       if (!session) return;
+      if (typeof isSessionBusy === 'function' && isSessionBusy(session.id)) {
+        toast('\u5f53\u524d\u4f1a\u8bdd\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u5b8c\u6210\u540e\u518d\u5207\u6362\u6a21\u578b');
+        closeSessionModelPanel();
+        return;
+      }
       session.chatModel = sessionConfig.normalizeSessionChatModel ? sessionConfig.normalizeSessionChatModel(model, state.models) : state.models.includes(model) ? model : '';
       session.updatedAt = Date.now();
       saveSessionsMeta();

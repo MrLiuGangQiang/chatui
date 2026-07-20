@@ -208,6 +208,61 @@ async function testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel(
   }
 }
 
+async function testFollowRouteRetriesSameSessionModelAfterFirstFailure() {
+  const models = ['deepseek-v4-flash', 'gpt-session'];
+  const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'deepseek-v4-flash', routeModel: '', models },
+    sessions,
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length === 1) throw new Error('newly selected model is still warming up');
+      return responseFor();
+    },
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const route = await harness.workflow.getEffectiveRoute('first question after model switch', [], 'session-a', {}, {});
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.deepStrictEqual(requestedModels, ['gpt-session', 'gpt-session'], 'follow mode must retry the selected session model instead of skipping fallback because both model names match');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.model, 'gpt-session');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, true);
+  } finally {
+    console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testInvalidPrimaryRouteAlsoUsesFallbackAttempt() {
+  const models = ['deepseek-v4-flash', 'gpt-session'];
+  const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
+  let attempts = 0;
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'deepseek-v4-flash', routeModel: '', models },
+    sessions,
+    requestJson: async () => {
+      attempts += 1;
+      return attempts === 1
+        ? { choices: [{ message: { content: 'not a valid task contract' } }] }
+        : responseFor();
+    },
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const route = await harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {});
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.strictEqual(attempts, 2, 'an unparseable primary route must enter the same fallback path as a request failure');
+  } finally {
+    console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const root = path.join(__dirname, '../..');
   const submit = fs.readFileSync(path.join(root, 'client/app/submit-workflow.js'), 'utf8');
@@ -220,9 +275,9 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.75-visible-model-selection'));
   assert.ok(index.includes('submit-workflow.js?v=1.2.88-session-route-model'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.1-session-route-model'));
-  assert.ok(index.includes('app.js?v=2.1.45-welcome-globe-only'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.138-welcome-globe-only'));
+  assert.ok(index.includes('route-decision-workflow.js?v=2.0.2-model-switch-retry'));
+  assert.ok(index.includes('app.js?v=2.1.46-authine-workspace'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.140-model-switch-route-retry'));
 }
 
 module.exports = [
@@ -231,5 +286,7 @@ module.exports = [
   testSessionRouteModelResolutionUsesOneCanonicalRule,
   testFollowRouteUsesRequestedSessionsChatModelInActualPayload,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
+  testFollowRouteRetriesSameSessionModelAfterFirstFailure,
+  testInvalidPrimaryRouteAlsoUsesFallbackAttempt,
   testSubmitPreflightUsesEffectiveSessionRouteModel,
 ];

@@ -151,6 +151,9 @@ function acceptTask(state, event) {
 }
 
 function beginRecovery(state, event) {
+  // A committed interface result is terminal. Recovery is only valid before
+  // terminal commit; a late observer/error must never resurrect the composer.
+  if (isTaskTerminal(state)) return state;
   if (state.phase !== TASK_PHASES.IDLE && !hasMatchingIdentity(state, event)) return state;
   const identity = eventIdentity(event);
   const jobId = stringValue(event.jobId);

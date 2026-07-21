@@ -172,6 +172,16 @@ function testTaskStateDoesNotReviveTerminalTaskFromStaleRecovery() {
   });
   assert.strictEqual(staleRecovery, state);
   assert.strictEqual(staleRecovery.phase, TASK_PHASES.COMPLETED);
+
+  const sameTaskRecovery = reduceTaskState(state, {
+    type: TASK_EVENTS.JOB_RECOVERY_STARTED,
+    sessionId: 'session-a',
+    submissionId: 'submit-a',
+    jobId: 'chatjob-a',
+    jobKind: 'chat',
+  });
+  assert.strictEqual(sameTaskRecovery, state, 'terminal completion must not be resurrected by a late post-completion error');
+  assert.strictEqual(sameTaskRecovery.phase, TASK_PHASES.COMPLETED);
 }
 
 function testTaskStateIgnoresUnknownAndOutOfOrderEvents() {

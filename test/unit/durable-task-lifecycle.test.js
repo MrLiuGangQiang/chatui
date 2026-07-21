@@ -24,6 +24,7 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   let persistedJob = null;
   let managedOptions = null;
   let cleared = false;
+  let interfaceCompletion = null;
 
   const workflow = chatWorkflow.createChatWorkflow({
     state,
@@ -73,7 +74,7 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     compactAdjacentDuplicateMessages: items => items,
     cloneMessageList: items => items.map(item => ({ ...item })),
     clearPendingFeedback: () => {},
-    playDoneSound: () => {},
+    playDoneSound: () => events.push('done-sound'),
     clearChatJob: () => { cleared = true; events.push('job-cleared'); },
     isRunStopped: () => false,
     isAbortLikeError: () => false,
@@ -82,7 +83,12 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
 
   const sendPromise = workflow.sendChat('Question', [], null, {
     sessionId: session.id,
+    submissionId: 'submit-a',
     onDurableHandoff: () => events.push('pending-submit-cleared'),
+    onInterfaceCompleted: details => {
+      interfaceCompletion = details;
+      events.push('interface-completed');
+    },
   });
 
   for (let index = 0; index < 8 && !events.includes('assistant-commit-started'); index += 1) await Promise.resolve();
@@ -98,7 +104,17 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   completionCommit.resolve();
   await sendPromise;
   assert.strictEqual(cleared, true);
+  assert.deepStrictEqual(interfaceCompletion, {
+    sessionId: 'session-a',
+    submissionId: 'submit-a',
+    jobId: 'chatjob-durable123',
+    jobKind: 'chat',
+  });
+  assert.strictEqual(events.filter(event => event === 'interface-completed').length, 1,
+    'normal interface completion must be emitted exactly once');
   assert.ok(events.indexOf('assistant-committed') < events.indexOf('job-cleared'));
+  assert.ok(events.indexOf('job-cleared') < events.indexOf('interface-completed'));
+  assert.ok(events.indexOf('interface-completed') < events.indexOf('done-sound'));
   assert.strictEqual(session.messages.at(-1).content, 'durable answer');
   assert.strictEqual(session.messages.at(-1).reasoning_content, 'durable reasoning');
 }
@@ -176,10 +192,15 @@ function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
 function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(!submit.includes('clearPendingSubmit(sessionId);const replacementResponseIndex='), 'pending submit must not be cleared before dispatch owns a durable job');
   assert.ok(submit.includes('stage:"accepted"') && submit.includes('stage:"captured"') && submit.includes('stage:"routing"') && submit.includes('stage:"handoff"'), 'submission ownership must be explicit across every pre-job phase');
   assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
+  assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask'), 'submit must wire interface completion to the canonical task event');
+  assert.ok(submit.includes('completeInterfaceTask=(completion={})=>'), 'submit must identity-check interface completion callbacks');
+  assert.ok(image.includes('notifyInterfaceCompleted()') && image.includes('jobKind:"image"'), 'image success must publish its interface completion identity after canonical persistence');
+  assert.ok(chat.includes('notifyInterfaceCompleted()') && chat.includes('jobKind:"chat"'), 'chat success must publish its interface completion identity after canonical persistence');
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind)'));
   assert.ok(!submit.includes('saveChatJob(sessionId,{id:preparedChatJobId'), 'routing must not create an incomplete chat job that can outrank pending-submit recovery');
   assert.ok(image.includes('savedImageJob=saveImageJob(n,durableImageJob)') && image.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && image.includes('completeDurableHandoff();T=performance.now()'), 'image dispatch must verify a restartable local owner before clearing pending-submit');

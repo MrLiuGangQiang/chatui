@@ -10,10 +10,12 @@ const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
 function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   const state = { taskStates: new Map() };
   const busyCalls = [];
+  let availabilityUpdates = 0;
   const lifecycle = taskLifecycle.createTaskLifecycle({
     state,
     taskState,
     setSessionBusy: (sessionId, value, options) => busyCalls.push([sessionId, value, options]),
+    updateSendAvailability: () => { availabilityUpdates += 1; },
   });
 
   lifecycle.dispatchTaskEvent('session-a', {
@@ -33,6 +35,7 @@ function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, false);
   assert.deepStrictEqual(busyCalls.map(call => call[1]), [true, true, false]);
   assert.ok(busyCalls.every(call => call[2]?.canonical === true));
+  assert.strictEqual(availabilityUpdates, 3, 'every canonical transition must refresh the composer controls immediately');
 
   const completed = lifecycle.getTaskState('session-a');
   lifecycle.dispatchTaskEvent('session-a', {
@@ -42,6 +45,49 @@ function testTaskLifecycleDispatchesCanonicalStateAndBusyProjection() {
   });
   assert.strictEqual(lifecycle.getTaskState('session-a'), completed, 'stale events must not trigger another busy projection');
   assert.strictEqual(busyCalls.length, 3);
+}
+
+function testInterfaceCompletionReleasesComposerByMatchingTaskIdentity() {
+  const state = { taskStates: new Map() };
+  const busyCalls = [];
+  let availabilityUpdates = 0;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    setSessionBusy: (sessionId, value, options) => busyCalls.push([sessionId, value, options]),
+    updateSendAvailability: () => { availabilityUpdates += 1; },
+  });
+
+  const details = { sessionId: 'session-a', submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' };
+  lifecycle.dispatchTaskEvent('session-a', { type: taskState.TASK_EVENTS.TASK_ACCEPTED, submissionId: details.submissionId });
+  lifecycle.dispatchTaskEvent('session-a', { type: taskState.TASK_EVENTS.ROUTING_STARTED, submissionId: details.submissionId });
+  lifecycle.dispatchTaskEvent('session-a', { type: taskState.TASK_EVENTS.HANDOFF_PREPARED, ...details });
+  lifecycle.dispatchTaskEvent('session-a', { type: taskState.TASK_EVENTS.HANDOFF_COMMITTED, ...details });
+  const completed = lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED,
+    ...details,
+  });
+
+  assert.strictEqual(completed.phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(lifecycle.getTaskControls('session-a').sendAction, 'submit');
+  assert.strictEqual(lifecycle.getTaskControls('session-a').isBusy, false);
+  assert.strictEqual(busyCalls.at(-1)[1], false);
+  const updatesAfterCompletion = availabilityUpdates;
+
+  assert.strictEqual(lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED,
+    ...details,
+  }), completed, 'duplicate interface completion must be idempotent');
+  assert.strictEqual(availabilityUpdates, updatesAfterCompletion);
+
+  assert.strictEqual(lifecycle.dispatchTaskEvent('session-a', {
+    type: taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED,
+    sessionId: 'session-a',
+    submissionId: 'submit-old',
+    jobId: 'chatjob-old',
+    jobKind: 'chat',
+  }), completed, 'a late completion from an older interface must not release a newer task');
+  assert.strictEqual(lifecycle.getTaskControls('session-a').sendAction, 'submit');
 }
 
 function testCompletedSessionWithoutTaskStateSettlesCleanly() {
@@ -420,6 +466,162 @@ function testFinishSessionTaskPreservesNewerRunBusyState() {
 
 
 
+
+function testTerminalTaskPrunesStaleResumeOwnerAndKeepsComposerSendable() {
+  const run = { token: 'run-a', stopped: false, abortController: new AbortController(), jobIds: new Set(['chat:chatjob-a']) };
+  const session = { id: 'session-a', busy: false };
+  const state = {
+    sessions: [session],
+    activeSessionId: session.id,
+    activeRuns: new Map([[session.id, run]]),
+    resumingJobs: new Set([`chat:${session.id}`]),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    busySessions: new Set(),
+    taskStates: new Map(),
+  };
+  const warnings = [];
+  let busy = false;
+  let sendAction = 'submit';
+  let lifecycle = null;
+  const setSessionBusy = (sessionId, value, options = {}) => {
+    if (value && !options.canonical) {
+      const controls = lifecycle.getTaskControls(sessionId);
+      if (controls && !controls.isBusy) state.taskStates.delete(sessionId);
+    }
+    const canonicalBusy = lifecycle.getTaskControls(sessionId)?.isBusy ?? !!value;
+    session.busy = canonicalBusy;
+    if (canonicalBusy) state.busySessions.add(sessionId);
+    else state.busySessions.delete(sessionId);
+    busy = canonicalBusy;
+    sendAction = lifecycle.getTaskControls(sessionId)?.sendAction || (canonicalBusy ? 'stop' : 'submit');
+  };
+  lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    clearActiveRun: (sessionId, ownedRun) => {
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy,
+    logger: { warn: (...args) => warnings.push(args) },
+  });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent(session.id, { type: events.TASK_ACCEPTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.ROUTING_STARTED, submissionId: 'submit-a' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.HANDOFF_PREPARED, submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.HANDOFF_COMMITTED, submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.JOB_COMPLETED_COMMITTED, submissionId: 'submit-a', jobId: 'chatjob-a', jobKind: 'chat' });
+
+  lifecycle.finishSessionTask(session.id, { run });
+
+  assert.strictEqual(lifecycle.getTaskState(session.id).phase, taskState.TASK_PHASES.COMPLETED,
+    'a stale recovery marker must never delete the committed terminal task state');
+  assert.strictEqual(state.resumingJobs.has(`chat:${session.id}`), false, 'the stale resume lock must be pruned');
+  assert.strictEqual(state.activeRuns.has(session.id), false);
+  assert.strictEqual(busy, false);
+  assert.strictEqual(sendAction, 'submit', 'the composer must return to send mode after the committed answer');
+  assert.strictEqual(warnings.length, 1, 'the invariant repair should remain observable in production diagnostics');
+}
+
+function testTerminalCleanupPreservesANewerLiveRunOwner() {
+  const oldRun = { token: 'run-old', stopped: false, abortController: new AbortController(), jobIds: new Set(['chat:chatjob-old']) };
+  const newRun = { token: 'run-new', stopped: false, abortController: new AbortController(), jobIds: new Set(['chat:chatjob-new']) };
+  const state = {
+    activeRuns: new Map([['session-a', oldRun]]),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  let busy = false;
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    clearActiveRun: (sessionId, ownedRun) => {
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy: (_sessionId, value) => { busy = !!value; },
+    logger: { warn() {} },
+  });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-a', { type: events.TASK_ACCEPTED, submissionId: 'submit-old' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.ROUTING_STARTED, submissionId: 'submit-old' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_PREPARED, submissionId: 'submit-old', jobId: 'chatjob-old', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.HANDOFF_COMMITTED, submissionId: 'submit-old', jobId: 'chatjob-old', jobKind: 'chat' });
+  lifecycle.dispatchTaskEvent('session-a', { type: events.JOB_COMPLETED_COMMITTED, submissionId: 'submit-old', jobId: 'chatjob-old', jobKind: 'chat' });
+  state.activeRuns.set('session-a', newRun);
+  state.resumingJobs.add('chat:session-a');
+
+  lifecycle.finishSessionTask('session-a', { run: oldRun });
+
+  assert.strictEqual(state.activeRuns.get('session-a'), newRun, 'late cleanup must not delete a newer run');
+  assert.strictEqual(state.resumingJobs.has('chat:session-a'), true, 'the newer run recovery marker must remain owned');
+  assert.strictEqual(busy, true, 'the newer live run must keep the composer in stop mode');
+}
+
+async function testChatResumePreflightFailureAlwaysReleasesResumeOwner() {
+  const session = { id: 'session-a', messages: [], display: [] };
+  const state = {
+    sessions: [session],
+    activeSessionId: session.id,
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+  };
+  const finishes = [];
+  const finishSessionTask = (sessionId, options = {}) => {
+    finishes.push([sessionId, options]);
+    if (options.resumeKey) state.resumingJobs.delete(options.resumeKey);
+    if (options.jobId && options.followingKind === 'chat') state.followingChatJobs.delete(options.jobId);
+  };
+  const workflow = jobResumeWorkflow.createJobResumeWorkflow({
+    state,
+    loadLatestChatJob: () => ({ id: 'chatjob-a', responseIndex: 1, submissionId: 'submit-a' }),
+    clearChatJob: () => {},
+    sessionHasCompletedAssistantForResponse: () => false,
+    takeChatJobLiveItem: () => { throw new Error('chat projection failed before polling'); },
+    finishSessionTask,
+  });
+
+  await assert.rejects(workflow.resumeChatJob(session.id), /chat projection failed before polling/);
+
+  assert.strictEqual(state.resumingJobs.has(`chat:${session.id}`), false,
+    'a pre-poll rendering failure must not leave the session recovery-locked');
+  assert.ok(finishes.some(([, options]) => options.resumeKey === `chat:${session.id}` && options.jobId === 'chatjob-a'));
+}
+
+async function testImageResumePreflightFailureAlwaysReleasesEveryOwnedMarker() {
+  const session = { id: 'session-a', messages: [], display: [] };
+  const state = {
+    sessions: [session],
+    activeSessionId: session.id,
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+  };
+  const finishSessionTask = (_sessionId, options = {}) => {
+    if (options.resumeKey) state.resumingJobs.delete(options.resumeKey);
+    if (options.jobId && options.followingKind === 'image') state.followingImageJobs.delete(options.jobId);
+  };
+  const workflow = jobResumeWorkflow.createJobResumeWorkflow({
+    state,
+    loadImageJob: () => ({ id: 'imgjob-a', submissionId: 'submit-a', mode: 'image' }),
+    clearImageJob: () => {},
+    hasSuccessfulImageResult: () => false,
+    isFollowingImageJob: () => false,
+    takePendingLiveItem: () => { throw new Error('image projection failed before polling'); },
+    finishSessionTask,
+  });
+
+  await assert.rejects(workflow.resumeImageJob(session.id), /image projection failed before polling/);
+
+  assert.strictEqual(state.resumingJobs.has(`image:${session.id}`), false);
+  assert.strictEqual(state.followingImageJobs.has('imgjob-a'), false,
+    'the follower id claimed before rendering must be released by the outer lifecycle boundary');
+}
+
 async function testCompletedImageRecoverySnapshotClearsCanonicalBusyState() {
   const session = { id: 'session-image', messages: [], display: [] };
   const state = {
@@ -494,7 +696,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.3-bounded-stop-settle') < index.indexOf('submit-workflow.js?v=1.2.89-session-model-routing'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.5-interface-completion-projection') < index.indexOf('submit-workflow.js?v=1.2.90-interface-completion'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
@@ -510,6 +712,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
 
 module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testInterfaceCompletionReleasesComposerByMatchingTaskIdentity,
   testCompletedSessionWithoutTaskStateSettlesCleanly,
   testRecoveredCompletionSettlesCanonicalBusyProjection,
   testRecoveredCompletionUsesCanonicalIdentityButCleansActualFollowerJob,
@@ -520,6 +723,10 @@ module.exports = [
   testSubmitButtonUsesCanonicalTaskProjection,
   testFinishSessionTaskReleasesAllTransientOwners,
   testFinishSessionTaskPreservesNewerRunBusyState,
+  testTerminalTaskPrunesStaleResumeOwnerAndKeepsComposerSendable,
+  testTerminalCleanupPreservesANewerLiveRunOwner,
+  testChatResumePreflightFailureAlwaysReleasesResumeOwner,
+  testImageResumePreflightFailureAlwaysReleasesEveryOwnedMarker,
   testCompletedImageRecoverySnapshotClearsCanonicalBusyState,
   testCompletedRecoverySnapshotEmitsFinishEvent,
   testAllTaskCompletionPathsUseSharedLifecycleFinalizer,

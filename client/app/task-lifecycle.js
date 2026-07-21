@@ -28,6 +28,7 @@
         state.taskStates.set(sessionId, next);
         const controls = getTaskControls(sessionId);
         deps.setSessionBusy?.(sessionId, controls?.isBusy === true, { canonical: true });
+        deps.updateSendAvailability?.();
         deps.onTaskStateChange?.(sessionId, next, current, event);
       }
       return next;
@@ -138,11 +139,39 @@
       }
     }
 
+    function isLiveRun(run) {
+      return !!run && run.stopped !== true && run.abortController?.signal?.aborted !== true;
+    }
+
+    function resumeKeysForSession(sessionId) {
+      return [`submit:${sessionId}`, `chat:${sessionId}`, `image:${sessionId}`];
+    }
+
     function hasActiveTaskOwner(sessionId) {
-      const run = state.activeRuns?.get?.(sessionId);
-      if (run && run.stopped !== true && run.abortController?.signal?.aborted !== true) return true;
-      return [`submit:${sessionId}`, `chat:${sessionId}`, `image:${sessionId}`]
-        .some(key => state.resumingJobs?.has?.(key));
+      if (isLiveRun(state.activeRuns?.get?.(sessionId))) return true;
+      return resumeKeysForSession(sessionId).some(key => state.resumingJobs?.has?.(key));
+    }
+
+    function pruneStaleTerminalResumeOwners(sessionId) {
+      const task = getTaskState(sessionId);
+      if (!task || typeof taskStateApi?.isTaskTerminal !== 'function' || !taskStateApi.isTaskTerminal(task)) return [];
+      if (isLiveRun(state.activeRuns?.get?.(sessionId))) return [];
+      const removed = resumeKeysForSession(sessionId).filter(key => {
+        if (!state.resumingJobs?.has?.(key)) return false;
+        state.resumingJobs.delete(key);
+        state.resumingJobOwners?.delete?.(key);
+        return true;
+      });
+      if (removed.length) {
+        logger.warn?.('released stale resume owners after terminal task commit', {
+          sessionId,
+          phase: task.phase,
+          submissionId: task.submissionId || '',
+          jobId: task.jobId || '',
+          owners: removed,
+        });
+      }
+      return removed;
     }
 
     function settleSessionTask(sessionId, options = {}) {
@@ -235,8 +264,16 @@
         });
       }
 
-      const remainsBusy = hasActiveTaskOwner(sessionId);
-      runCleanup('busy state', () => deps.setSessionBusy?.(sessionId, remainsBusy));
+      pruneStaleTerminalResumeOwners(sessionId);
+      const controls = getTaskControls(sessionId);
+      const transientOwnerBusy = hasActiveTaskOwner(sessionId);
+      const remainsBusy = controls?.isBusy === true || transientOwnerBusy;
+      const canonicalProjection = Boolean(controls && !(transientOwnerBusy && controls.isBusy !== true));
+      runCleanup('busy state', () => deps.setSessionBusy?.(
+        sessionId,
+        remainsBusy,
+        canonicalProjection ? { canonical: true } : undefined
+      ));
       runCleanup('send availability', () => deps.updateSendAvailability?.());
       if (focusPrompt) runCleanup('prompt focus', () => deps.getPrompt?.()?.focus?.());
       return true;

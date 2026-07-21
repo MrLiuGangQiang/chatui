@@ -29,7 +29,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.89-session-model-routing'),
+    index.includes('submit-workflow.js?v=1.2.90-interface-completion'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
 }
@@ -47,7 +47,7 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
     'the image job response must not create a temporal-dead-zone for t.submissionId'
   );
   assert.ok(
-    index.includes('image-workflow.js?v=1.3.20-edit-resend-tdz'),
+    index.includes('image-workflow.js?v=1.3.21-interface-completion'),
     'the browser must fetch the image workflow with the TDZ fix'
   );
 }

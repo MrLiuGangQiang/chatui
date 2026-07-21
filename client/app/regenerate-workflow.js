@@ -43,6 +43,28 @@
         clearPending();
       };
 
+      const complete = (completion = {}) => {
+        const completionSessionId = String(completion.sessionId || sessionId);
+        const completionSubmissionId = String(completion.submissionId || submissionId);
+        const completionJobId = String(completion.jobId || jobId);
+        const completionJobKind = String(completion.jobKind || jobKind);
+        if (
+          completionSessionId !== String(sessionId)
+          || completionSubmissionId !== String(submissionId)
+          || completionJobId !== String(jobId)
+          || completionJobKind !== String(jobKind)
+        ) return false;
+        commitHandoff();
+        emitTaskEvent(sessionId, taskEvents.JOB_COMPLETED_COMMITTED, details());
+        finishSessionTask?.(sessionId, { run });
+        return true;
+      };
+
+      const interfaceCompleted = (completion = {}) => {
+        if (!completion?.sessionId || !completion?.submissionId || !completion?.jobId || !completion?.jobKind) return false;
+        return complete(completion);
+      };
+
       return Object.freeze({
         submissionId,
         accept({ capture = false } = {}) {
@@ -66,10 +88,8 @@
           return jobId;
         },
         commitHandoff,
-        complete() {
-          commitHandoff();
-          emitTaskEvent(sessionId, taskEvents.JOB_COMPLETED_COMMITTED, details());
-        },
+        complete,
+        interfaceCompleted,
         fail(error) {
           const preserve = jobLifecycle.shouldPreservePendingSubmitOnError?.(error, state, run) || false;
           let failureEvent = null;
@@ -109,7 +129,7 @@
         task.captured();task.routing();
         updateModeUi("image",state.autoMode);
         const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
-        await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()});
+        await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }
@@ -163,7 +183,7 @@
         const canResolveExistingEditImage="edit_image"===g&&(!!p.usePreviousImage||p.target==="previous"||p.target==="latest"||p.target==="last_generated"||(p.target==="uploaded"&&!!getUploadedImageContext(l,p.selectedReferenceId)));
         if("edit_image"===g&&!editH.length&&!canResolveExistingEditImage)throw new Error((h||[]).filter(item=>isImageFile(item)).length>1?"请明确要修改哪一张或哪几张图片。":"没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改。");
         const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
-        "chat"===g?await sendChat(s,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:quotedMessage?[quotedMessage]:baseRequestMessages,quotedMessage:!!quotedMessage,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,editMode:"edit_image"===g,editTarget:p.target,usePreviousImage:p.usePreviousImage,selectedIndexes:p.selectedIndexes,selectedReferenceId:p.selectedReferenceId,selectedImageIds:p.selectedImageIds,routePrompt:q,originalPrompt:s,attachments:editH,imageContext:quotedImageContext||("uploaded"===p.target?getUploadedImageContext(l,p.selectedReferenceId):null),sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()});
+        "chat"===g?await sendChat(s,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:quotedMessage?[quotedMessage]:baseRequestMessages,quotedMessage:!!quotedMessage,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,editMode:"edit_image"===g,editTarget:p.target,usePreviousImage:p.usePreviousImage,selectedIndexes:p.selectedIndexes,selectedReferenceId:p.selectedReferenceId,selectedImageIds:p.selectedImageIds,routePrompt:q,originalPrompt:s,attachments:editH,imageContext:quotedImageContext||("uploaded"===p.target?getUploadedImageContext(l,p.selectedReferenceId):null),sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }

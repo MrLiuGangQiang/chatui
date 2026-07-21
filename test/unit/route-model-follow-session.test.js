@@ -395,7 +395,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('submit-workflow.js?v=1.2.89-session-model-routing'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.3-route-fallback-guard'));
   assert.ok(index.includes('app.js?v=2.1.48-route-model-switch-guard'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.143-route-model-switch-guard'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.145-resilient-snapshot-store'));
 }
 
 module.exports = [

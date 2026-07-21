@@ -23,6 +23,13 @@
     const constants = deps.constants || {};
     const SESSIONS_KEY = constants.SESSIONS_KEY || 'chat-sessions';
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'chat-active-session';
+    const SNAPSHOT_FALLBACK_PREFIX = `${SESSIONS_KEY}:snapshot-fallback:`;
+    const SNAPSHOT_FALLBACK_VERSION = 1;
+    const snapshotFallbackTailCount = Math.max(2, Number(deps.snapshotFallbackTailCount ?? 12) || 12);
+    const logger = deps.logger || root.console || console;
+    const snapshotCommitWaitMs = Math.max(0, Number(deps.snapshotCommitWaitMs ?? 2000) || 0);
+    const setTimeoutRef = deps.setTimeout || root.setTimeout || globalThis.setTimeout;
+    const clearTimeoutRef = deps.clearTimeout || root.clearTimeout || globalThis.clearTimeout;
 
     function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
       return {
@@ -65,29 +72,250 @@
       return revision;
     }
 
+    function snapshotFallbackKey(sessionId) {
+      return `${SNAPSHOT_FALLBACK_PREFIX}${sessionId || ''}`;
+    }
+
+    function isCurrentSnapshot(snapshot) {
+      return snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages);
+    }
+
+    function isQuotaError(error) {
+      return /quota|exceed/i.test(String(error?.name || error?.message || error || ''));
+    }
+
+    function compactFallbackMessage(message, minimal = false) {
+      const clean = sanitizeStoredMessage(message || {});
+      const compact = { ...clean };
+      delete compact.html;
+      if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
+        compact.presentation = { ...compact.presentation };
+        delete compact.presentation.html;
+      }
+      if (!minimal) return compact;
+      const essential = {};
+      [
+        'role', 'content', 'messageIndex', 'responseIndex', 'id', 'displayItemId',
+        'jobId', 'imageJobId', 'reasoning_content', 'name', 'tool_call_id', 'tool_calls',
+      ].forEach(key => {
+        if (compact[key] !== undefined && compact[key] !== null && compact[key] !== '') essential[key] = compact[key];
+      });
+      if ((!Object.prototype.hasOwnProperty.call(essential, 'content') || typeof compact.content !== 'string') && compact.rawText) {
+        essential.rawText = compact.rawText;
+      }
+      return essential;
+    }
+
+    function compactFallbackDisplayItem(item, minimal = false) {
+      const clean = sanitizeStoredDisplayItem(item || {});
+      const compact = { ...clean };
+      delete compact.html;
+      if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
+        compact.presentation = { ...compact.presentation };
+        delete compact.presentation.html;
+      }
+      if (!minimal) return compact;
+      const essential = {};
+      ['id', 'role', 'rawText', 'messageIndex', 'responseIndex', 'jobId', 'pending', 'metaText'].forEach(key => {
+        if (compact[key] !== undefined && compact[key] !== null && compact[key] !== '') essential[key] = compact[key];
+      });
+      return essential;
+    }
+
+    function buildFallbackCandidate(snapshot, { partial = false, tailCount = snapshotFallbackTailCount, minimal = false, baseUpdatedAt = 0 } = {}) {
+      const messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
+      const selectedMessages = partial ? messages.slice(-Math.max(1, tailCount)) : messages;
+      return {
+        id: snapshot.id,
+        snapshotVersion: 2,
+        fallbackVersion: SNAPSHOT_FALLBACK_VERSION,
+        partial: !!partial,
+        baseUpdatedAt: Number(baseUpdatedAt || 0),
+        updatedAt: Number(snapshot.updatedAt || 0),
+        messages: selectedMessages.map(message => compactFallbackMessage(message, minimal)),
+        pendingDisplay: (snapshot.pendingDisplay || []).map(item => compactFallbackDisplayItem(item, minimal)),
+        lastGeneratedImage: snapshot.lastGeneratedImage || null,
+      };
+    }
+
+    function readSnapshotFallback(sessionId) {
+      if (!sessionId) return null;
+      const key = snapshotFallbackKey(sessionId);
+      try {
+        const raw = localStorageRef.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!raw || isCurrentSnapshot(parsed) && (!parsed.id || parsed.id === sessionId)) return parsed;
+        try { localStorageRef.removeItem(key); } catch {}
+        return null;
+      } catch {
+        try { localStorageRef.removeItem(key); } catch {}
+        return null;
+      }
+    }
+
+    function writeSnapshotFallback(snapshot, baseUpdatedAt = 0) {
+      if (!isCurrentSnapshot(snapshot) || !snapshot.id) return false;
+      const previous = readSnapshotFallback(snapshot.id);
+      if (Number(previous?.updatedAt || 0) > Number(snapshot.updatedAt || 0)) return true;
+
+      const partialTailCount = Math.min(snapshotFallbackTailCount, Math.max(1, snapshot.messages.length));
+      const candidateFactories = [
+        () => buildFallbackCandidate(snapshot, { baseUpdatedAt }),
+        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: partialTailCount, baseUpdatedAt }),
+        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(6, partialTailCount), minimal: true, baseUpdatedAt }),
+        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(2, partialTailCount), minimal: true, baseUpdatedAt }),
+      ];
+
+      let quotaError = null;
+      for (const createCandidate of candidateFactories) {
+        try {
+          const candidate = createCandidate();
+          localStorageRef.setItem(snapshotFallbackKey(snapshot.id), JSON.stringify(candidate));
+          return true;
+        } catch (error) {
+          if (!isQuotaError(error)) {
+            logger?.warn?.('save session snapshot fallback failed', error);
+            return false;
+          }
+          quotaError = error;
+        }
+      }
+      logger?.warn?.('save session snapshot fallback quota exceeded; retaining the previous recoverable revision', quotaError);
+      return false;
+    }
+
+    function clearSnapshotFallback(sessionId, throughRevision = Infinity) {
+      if (!sessionId) return;
+      try {
+        const fallback = readSnapshotFallback(sessionId);
+        if (!fallback || Number(fallback.updatedAt || 0) <= Number(throughRevision)) {
+          localStorageRef.removeItem(snapshotFallbackKey(sessionId));
+        }
+      } catch {}
+    }
+
+    function messageIdentity(message) {
+      if (!message || !['user', 'assistant'].includes(message.role)) return '';
+      const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
+      return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
+    }
+
+    function mergePartialFallbackMessages(durableMessages = [], fallbackMessages = []) {
+      const replacementIds = new Set(fallbackMessages.map(messageIdentity).filter(Boolean));
+      const retainedDurable = durableMessages.filter(message => {
+        const identity = messageIdentity(message);
+        return !identity || !replacementIds.has(identity);
+      });
+      return compactAdjacentDuplicateMessages([...retainedDurable, ...fallbackMessages]);
+    }
+
+    function withSnapshotSource(snapshot, durableUpdatedAt = 0) {
+      return snapshot ? { ...snapshot, durableUpdatedAt: Number(durableUpdatedAt || 0) } : null;
+    }
+
+    function mergeSnapshotFallback(durable, fallback) {
+      const durableRevision = isCurrentSnapshot(durable) ? Number(durable.updatedAt || 0) : 0;
+      if (!isCurrentSnapshot(fallback)) return withSnapshotSource(durable, durableRevision);
+      if (!fallback.partial) return withSnapshotSource(fallback, durableRevision);
+      if (!isCurrentSnapshot(durable)) return withSnapshotSource(fallback, 0);
+      return withSnapshotSource({
+        ...durable,
+        ...fallback,
+        messages: mergePartialFallbackMessages(durable.messages || [], fallback.messages || []),
+        pendingDisplay: Object.prototype.hasOwnProperty.call(fallback, 'pendingDisplay')
+          ? fallback.pendingDisplay || []
+          : durable.pendingDisplay || [],
+        lastGeneratedImage: fallback.lastGeneratedImage || durable.lastGeneratedImage || null,
+      }, durableRevision);
+    }
+
+    async function readLatestSnapshot(sessionId) {
+      const durableRead = Promise.resolve().then(() => snapshotStore?.getSnapshot?.(sessionId) || null).catch(error => {
+        logger?.warn?.('load session snapshot failed', error);
+        return null;
+      });
+      let durable = null;
+      if (!snapshotCommitWaitMs || typeof setTimeoutRef !== 'function') {
+        durable = await durableRead;
+      } else {
+        let timeoutId = null;
+        const boundedRead = new Promise(resolve => {
+          timeoutId = setTimeoutRef(() => {
+            logger?.warn?.(`load session snapshot is still pending after ${snapshotCommitWaitMs}ms; using recoverable fallback`);
+            resolve(null);
+          }, snapshotCommitWaitMs);
+        });
+        durable = await Promise.race([durableRead, boundedRead]);
+        if (timeoutId !== null && typeof clearTimeoutRef === 'function') clearTimeoutRef(timeoutId);
+      }
+
+      const fallback = readSnapshotFallback(sessionId);
+      const durableRevision = isCurrentSnapshot(durable) ? Number(durable.updatedAt || 0) : -1;
+      const fallbackRevision = isCurrentSnapshot(fallback) ? Number(fallback.updatedAt || 0) : -1;
+      if (durableRevision >= fallbackRevision) {
+        if (durableRevision >= 0) clearSnapshotFallback(sessionId, durableRevision);
+        return withSnapshotSource(durable, Math.max(0, durableRevision));
+      }
+
+      if (!isCurrentSnapshot(durable)) {
+        durableRead.then(lateSnapshot => {
+          const lateRevision = isCurrentSnapshot(lateSnapshot) ? Number(lateSnapshot.updatedAt || 0) : -1;
+          const currentFallback = readSnapshotFallback(sessionId);
+          if (lateRevision >= Number(currentFallback?.updatedAt || Infinity)) clearSnapshotFallback(sessionId, lateRevision);
+        }).catch(() => {});
+      }
+      return mergeSnapshotFallback(durable, fallback);
+    }
+
     function commitSession(session) {
       if (!session?.id || getState().disposedSessionIds?.has?.(session.id)) return Promise.resolve();
       const revision = nextPersistenceRevision(session);
-      if (!snapshotStore?.schedulePut) return Promise.resolve();
+      const baseUpdatedAt = Number(session.snapshotUpdatedAt || 0);
       const snapshot = buildSnapshot(session);
       snapshot.updatedAt = revision;
+      if (!snapshotStore?.schedulePut || snapshotStore.supported === false) {
+        writeSnapshotFallback(snapshot, baseUpdatedAt);
+        saveSessionsMeta();
+        return Promise.resolve({ fallback: true, revision });
+      }
       let write;
       try { write = snapshotStore.schedulePut(snapshot); } catch (err) { write = Promise.reject(err); }
-      return Promise.resolve(write).then(result => {
+      const durableWrite = Promise.resolve(write).then(result => {
+        if (result === null) return result;
         // snapshotUpdatedAt means a durable IndexedDB revision, not merely a
         // requested write. Keeping these meanings separate lets a late write
         // repair an immediate-refresh race without being rejected as stale.
         if (snapshotStore.supported !== false) {
           if (getState().disposedSessionIds?.has?.(session.id)) return result;
           const current = getState().sessions?.find(item => item.id === session.id) || session;
-          if (revision < Number(current.persistenceUpdatedAt || 0)) return result;
-          current.snapshotUpdatedAt = Math.max(Number(current.snapshotUpdatedAt || 0), revision);
-          current.persistenceUpdatedAt = Math.max(Number(current.persistenceUpdatedAt || 0), revision);
-          saveSessionsMeta();
+          if (revision >= Number(current.persistenceUpdatedAt || 0)) {
+            current.snapshotUpdatedAt = Math.max(Number(current.snapshotUpdatedAt || 0), revision);
+            current.persistenceUpdatedAt = Math.max(Number(current.persistenceUpdatedAt || 0), revision);
+            saveSessionsMeta();
+          }
+          clearSnapshotFallback(session.id, revision);
         }
         return result;
       }).catch(err => {
-        console.warn('save session snapshot failed; in-memory history was retained', err);
+        if (getState().disposedSessionIds?.has?.(session.id)) return;
+        writeSnapshotFallback(snapshot, baseUpdatedAt);
+        saveSessionsMeta();
+        logger?.warn?.('save session snapshot failed; recoverable fallback retained', err);
+      });
+      if (!snapshotCommitWaitMs || typeof setTimeoutRef !== 'function') return durableWrite;
+      let timeoutId = null;
+      const boundedWait = new Promise(resolve => {
+        timeoutId = setTimeoutRef(() => {
+          if (!getState().disposedSessionIds?.has?.(session.id)) {
+            writeSnapshotFallback(snapshot, baseUpdatedAt);
+            saveSessionsMeta();
+            logger?.warn?.(`save session snapshot is still pending after ${snapshotCommitWaitMs}ms; continuing with recoverable fallback`);
+          }
+          resolve({ timedOut: true, revision });
+        }, snapshotCommitWaitMs);
+      });
+      return Promise.race([durableWrite, boundedWait]).finally(() => {
+        if (timeoutId !== null && typeof clearTimeoutRef === 'function') clearTimeoutRef(timeoutId);
       });
     }
 
@@ -115,7 +343,7 @@
         }));
         localStorageRef.setItem(SESSIONS_KEY, JSON.stringify(meta));
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId || getActiveSession()?.id || '');
-      } catch (err) { console.warn('save sessions meta failed', err); }
+      } catch (err) { logger?.warn?.('save sessions meta failed', err); }
     }
 
     function pendingDisplayItems(items = []) {
@@ -257,7 +485,7 @@
         reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(item.reasoningType) ? item.reasoningType : '',
         pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
         createdAt: item.createdAt || Date.now(),
-        updatedAt: Number(item.updatedAt) || Date.now(),
+        updatedAt: Math.max(Number(item.updatedAt) || 0, Number(payload?.updatedAt) || 0) || Date.now(),
         snapshotUpdatedAt: Number(payload?.snapshotUpdatedAt || 0),
         persistenceUpdatedAt: Math.max(
           Number(item.persistenceUpdatedAt || 0),
@@ -272,25 +500,22 @@
     }
 
     async function loadSessionPayload(item) {
-      let snapshot = null;
-      try {
-        snapshot = await snapshotStore?.getSnapshot?.(item.id);
-      } catch (err) {
-        console.warn('load session snapshot failed', err);
-      }
+      const snapshot = await readLatestSnapshot(item.id);
 
-      if (snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages)) {
+      if (isCurrentSnapshot(snapshot)) {
         const snapshotRevision = Number(snapshot.updatedAt || 0);
+        const durableRevision = Math.max(0, Number(snapshot.durableUpdatedAt || 0));
         return {
           messages: normalizeMessageList(snapshot.messages, item.id),
           pendingDisplay: pendingDisplayItems(snapshot.pendingDisplay || []),
           lastGeneratedImage: snapshot.lastGeneratedImage || null,
-          updatedAt: item.updatedAt,
-          snapshotUpdatedAt: snapshotRevision,
+          updatedAt: Math.max(Number(item.updatedAt || 0), snapshotRevision),
+          snapshotUpdatedAt: durableRevision,
           persistenceUpdatedAt: Math.max(
             Number(item.persistenceUpdatedAt || 0),
             Number(item.snapshotUpdatedAt || 0),
-            snapshotRevision
+            snapshotRevision,
+            durableRevision
           ),
         };
       }
@@ -318,7 +543,7 @@
           const payloads = await Promise.all(valid.map(loadSessionPayload));
           sessions = valid.map((item, index) => sessionFromMeta(item, payloads[index]));
         }
-      } catch (err) { console.warn('load sessions failed', err); }
+      } catch (err) { logger?.warn?.('load sessions failed', err); }
       if (!sessions.length) {
         const session = createSession();
         session.title = deriveSessionTitle(session);
@@ -335,26 +560,48 @@
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
       if (!session || !snapshotStore?.getSnapshot) return false;
-      const snapshot = await snapshotStore.getSnapshot(sessionId);
-      const snapshotUpdatedAt = Number(snapshot?.updatedAt || 0);
+      const snapshot = await readLatestSnapshot(sessionId);
+      if (!isCurrentSnapshot(snapshot)) return false;
+      const snapshotRevision = Number(snapshot.updatedAt || 0);
+      const durableRevision = Math.max(0, Number(snapshot.durableUpdatedAt || 0));
+      const previousPersistenceRevision = Math.max(
+        Number(session.persistenceUpdatedAt || 0),
+        Number(session.snapshotUpdatedAt || 0)
+      );
       const previousSnapshotUpdatedAt = Number(session.snapshotUpdatedAt || 0);
-      if (snapshot?.snapshotVersion < 2 || !Array.isArray(snapshot?.messages) || snapshotUpdatedAt <= previousSnapshotUpdatedAt) return false;
       let changed = false;
-      if (snapshotUpdatedAt > previousSnapshotUpdatedAt) {
+      if (snapshotRevision > previousPersistenceRevision || durableRevision > previousSnapshotUpdatedAt) {
         session.messages = normalizeMessageList(snapshot.messages, sessionId);
         if (sessionId === state.activeSessionId) state.messages = session.messages;
-        changed = true;
         session.display = pendingDisplayItems(snapshot.pendingDisplay || []);
+        session.lastGeneratedImage = snapshot.lastGeneratedImage || session.lastGeneratedImage || null;
+        session.updatedAt = Math.max(Number(session.updatedAt || 0), snapshotRevision);
+        changed = true;
       }
-      session.lastGeneratedImage = snapshot.lastGeneratedImage || session.lastGeneratedImage || null;
-      session.snapshotUpdatedAt = snapshotUpdatedAt;
-      session.persistenceUpdatedAt = Math.max(Number(session.persistenceUpdatedAt || 0), snapshotUpdatedAt);
-      saveSessionsMeta();
+      const metadataChanged = durableRevision > previousSnapshotUpdatedAt
+        || snapshotRevision > Number(session.persistenceUpdatedAt || 0);
+      session.snapshotUpdatedAt = Math.max(Number(session.snapshotUpdatedAt || 0), durableRevision);
+      session.persistenceUpdatedAt = Math.max(Number(session.persistenceUpdatedAt || 0), snapshotRevision, durableRevision);
+      if (metadataChanged) saveSessionsMeta();
       return changed;
     }
 
-    function deleteSessionSnapshot(sessionId) { return snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve(); }
-    function clearSessionSnapshots() { return snapshotStore?.clear?.() || Promise.resolve(); }
+    function deleteSessionSnapshot(sessionId) {
+      clearSnapshotFallback(sessionId);
+      return snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve();
+    }
+    function clearSessionSnapshots() {
+      (getState().sessions || []).forEach(session => clearSnapshotFallback(session?.id));
+      try {
+        const staleKeys = [];
+        for (let index = 0; index < Number(localStorageRef?.length || 0); index += 1) {
+          const key = localStorageRef.key(index);
+          if (String(key || '').startsWith(SNAPSHOT_FALLBACK_PREFIX)) staleKeys.push(key);
+        }
+        staleKeys.forEach(key => localStorageRef.removeItem(key));
+      } catch {}
+      return snapshotStore?.clear?.() || Promise.resolve();
+    }
     function flushSessionSnapshots(sessionId = '') { return snapshotStore?.flush?.(sessionId) || Promise.resolve(); }
 
     function sessionTitleHtml(session) {

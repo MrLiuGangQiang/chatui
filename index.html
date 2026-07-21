@@ -6,7 +6,7 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.143-route-model-switch-guard" />
+  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.145-resilient-snapshot-store" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -433,7 +433,7 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.143-route-model-switch-guard"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.145-resilient-snapshot-store"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
@@ -503,8 +503,8 @@
   <script src="./client/app/image-context-workflow.js?v=1.7.1-multi-reference"></script>
   <script src="./client/app/session-persistence.js?v=1.4.3-message-order"></script>
   <script src="./client/app/message-records.js?v=2.0.1-message-order"></script>
-  <script src="./client/app/session-store.js?v=2.0.1-delete-tombstone"></script>
-  <script src="./client/app/session-display.js?v=2.1.8-task-lifecycle-state-machine"></script>
+  <script src="./client/app/session-store.js?v=2.0.2-resilient-transactions"></script>
+  <script src="./client/app/session-display.js?v=2.1.10-resilient-snapshot-fallback"></script>
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>

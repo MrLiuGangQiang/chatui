@@ -15,7 +15,7 @@ function createStorage(initial = {}) {
   };
 }
 
-function createWorkflow({ storage, state, snapshotStore }) {
+function createWorkflow({ storage, state, snapshotStore, snapshotCommitWaitMs, snapshotFallbackTailCount, logger }) {
   return sessionDisplay.createSessionDisplayWorkflow({
     getState: () => state,
     getActiveSession: () => state.sessions.find(item => item.id === state.activeSessionId),
@@ -37,6 +37,9 @@ function createWorkflow({ storage, state, snapshotStore }) {
     localStorage: storage,
     messageRecords,
     snapshotStore,
+    snapshotCommitWaitMs,
+    snapshotFallbackTailCount,
+    logger: logger || { warn() {} },
     constants: {
       SESSIONS_KEY: 'sessions',
       ACTIVE_SESSION_KEY: 'active',
@@ -147,8 +150,239 @@ async function testVersionOneSnapshotIsIgnored() {
   assert.strictEqual(writes, 0, 'snapshotVersion 1 history must not be migrated');
 }
 
+
+async function testStalledSnapshotWriteReleasesCompletionAndKeepsRecoverableFallback() {
+  const sessionId = 'stalled-snapshot';
+  const storage = createStorage({
+    sessions: [{ id: sessionId, title: 'Stalled snapshot', updatedAt: 20 }],
+    active: sessionId,
+  });
+  const session = {
+    id: sessionId,
+    title: 'Stalled snapshot',
+    messages: [],
+    display: [],
+    updatedAt: 20,
+    snapshotUpdatedAt: 0,
+    persistenceUpdatedAt: 0,
+  };
+  const state = { ...createState(), sessions: [session], activeSessionId: sessionId, messages: [] };
+  let resolveDurableWrite;
+  let writtenSnapshot = null;
+  const stalledWrite = new Promise(resolve => { resolveDurableWrite = resolve; });
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotCommitWaitMs: 5,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => ({
+        id: sessionId,
+        snapshotVersion: 2,
+        updatedAt: 10,
+        messages: [{ role: 'user', content: 'older question', messageIndex: '0' }],
+        pendingDisplay: [],
+        lastGeneratedImage: null,
+      }),
+      schedulePut: snapshot => {
+        writtenSnapshot = snapshot;
+        return stalledWrite;
+      },
+    },
+  });
+
+  const completion = workflow.saveSessionMessages(sessionId, [
+    { role: 'user', content: 'question', messageIndex: '0' },
+    { role: 'assistant', content: 'answer already returned', responseIndex: '1' },
+  ]);
+  const released = await Promise.race([
+    completion.then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 200)),
+  ]);
+
+  assert.strictEqual(released, true, 'a stalled IndexedDB write must not leave the completed task waiting forever');
+  const fallbackKey = `sessions:snapshot-fallback:${sessionId}`;
+  const fallback = JSON.parse(storage.getItem(fallbackKey));
+  assert.deepStrictEqual(fallback.messages.map(message => message.content), ['question', 'answer already returned']);
+  assert.strictEqual(session.snapshotUpdatedAt, 0, 'a timed-out write must not be reported as an IndexedDB commit');
+
+  const reloadedState = createState();
+  const reloadedWorkflow = createWorkflow({
+    storage,
+    state: reloadedState,
+    snapshotCommitWaitMs: 5,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: () => new Promise(() => {}),
+      schedulePut: async () => {},
+    },
+  });
+  await reloadedWorkflow.loadSessions();
+  assert.deepStrictEqual(reloadedState.messages.map(message => message.content), ['question', 'answer already returned'],
+    'reload must use the recoverable fallback even when the IndexedDB read itself is stalled');
+
+  resolveDurableWrite(writtenSnapshot);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.strictEqual(storage.getItem(fallbackKey), null, 'the fallback should clear after the original durable write eventually commits');
+}
+
+
+async function testQuotaFallbackCompactsToIncrementalTailAndMergesDurableHistory() {
+  const sessionId = 'quota-fallback';
+  const fallbackKey = `sessions:snapshot-fallback:${sessionId}`;
+  const baseStorage = createStorage({
+    sessions: [{
+      id: sessionId,
+      title: 'Quota fallback',
+      updatedAt: 20,
+      snapshotUpdatedAt: 10,
+      persistenceUpdatedAt: 10,
+    }],
+    active: sessionId,
+  });
+  const fallbackAttempts = [];
+  const storage = {
+    getItem: key => baseStorage.getItem(key),
+    removeItem: key => baseStorage.removeItem(key),
+    setItem(key, value) {
+      if (key === fallbackKey) {
+        const candidate = JSON.parse(String(value));
+        fallbackAttempts.push(candidate);
+        if (!candidate.partial || candidate.messages.length > 6) {
+          const error = new Error('localStorage quota exceeded');
+          error.name = 'QuotaExceededError';
+          throw error;
+        }
+      }
+      baseStorage.setItem(key, value);
+    },
+  };
+  const messages = Array.from({ length: 20 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `latest message ${index}`,
+    rawText: `latest message ${index}`,
+    html: `<p>${'rendered '.repeat(40)}${index}</p>`,
+    presentation: { html: `<div>${'cached '.repeat(40)}</div>`, mode: 'markdown' },
+    ...(index % 2 ? { responseIndex: String(index) } : { messageIndex: String(index) }),
+  }));
+  const session = {
+    id: sessionId,
+    title: 'Quota fallback',
+    messages: [],
+    display: [],
+    updatedAt: 20,
+    snapshotUpdatedAt: 10,
+    persistenceUpdatedAt: 10,
+  };
+  const state = { ...createState(), sessions: [session], activeSessionId: sessionId, messages: [] };
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotCommitWaitMs: 5,
+    snapshotFallbackTailCount: 12,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => null,
+      schedulePut: () => new Promise(() => {}),
+    },
+  });
+
+  await workflow.saveSessionMessages(sessionId, messages);
+
+  const fallback = JSON.parse(storage.getItem(fallbackKey));
+  assert.strictEqual(fallback.partial, true, 'quota pressure should switch the fallback to incremental mode');
+  assert.strictEqual(fallback.messages.length, 6, 'the fallback should progressively shrink until it fits');
+  assert.ok(fallback.messages.every(message => !Object.prototype.hasOwnProperty.call(message, 'html')),
+    'regenerable rendered HTML must not consume emergency fallback capacity');
+  assert.ok(fallbackAttempts.length >= 3 && fallbackAttempts[0].partial === false && fallbackAttempts[1].messages.length === 12,
+    'the writer should try compact full history before progressively smaller incremental candidates');
+
+  const durableMessages = messages.slice(0, 16).map((message, index) => ({
+    ...message,
+    content: index >= 14 ? `stale message ${index}` : message.content,
+    rawText: index >= 14 ? `stale message ${index}` : message.rawText,
+  }));
+  const reloadedState = createState();
+  const reloadedWorkflow = createWorkflow({
+    storage,
+    state: reloadedState,
+    snapshotCommitWaitMs: 20,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => ({
+        id: sessionId,
+        snapshotVersion: 2,
+        updatedAt: 10,
+        messages: durableMessages,
+        pendingDisplay: [],
+        lastGeneratedImage: null,
+      }),
+      schedulePut: async () => {},
+    },
+  });
+
+  await reloadedWorkflow.loadSessions();
+
+  assert.strictEqual(reloadedState.messages.length, 20, 'incremental fallback should extend the last durable snapshot without losing earlier turns');
+  assert.strictEqual(reloadedState.messages[14].content, 'latest message 14', 'newer fallback records must replace stale durable records with the same identity');
+  assert.strictEqual(reloadedState.messages[15].content, 'latest message 15');
+  assert.strictEqual(new Set(reloadedState.messages.map(message => `${message.role}:${message.messageIndex || message.responseIndex}`)).size, 20,
+    'durable and fallback history must merge without duplicate user/assistant identities');
+  assert.strictEqual(reloadedState.sessions[0].snapshotUpdatedAt, 10,
+    'loading a localStorage fallback must not misreport it as a durable IndexedDB commit');
+  assert.strictEqual(reloadedState.sessions[0].persistenceUpdatedAt, fallback.updatedAt,
+    'the fallback revision must still participate in monotonic persistence ordering');
+}
+
+
+async function testUnsupportedIndexedDbUsesImmediateRecoverableFallback() {
+  const sessionId = 'unsupported-indexeddb';
+  const storage = createStorage({
+    sessions: [{ id: sessionId, title: 'No IndexedDB', updatedAt: 20 }],
+    active: sessionId,
+  });
+  const session = {
+    id: sessionId,
+    title: 'No IndexedDB',
+    messages: [],
+    display: [],
+    updatedAt: 20,
+    snapshotUpdatedAt: 0,
+    persistenceUpdatedAt: 0,
+  };
+  const state = { ...createState(), sessions: [session], activeSessionId: sessionId, messages: [] };
+  let writes = 0;
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotCommitWaitMs: 1000,
+    snapshotStore: {
+      supported: false,
+      getSnapshot: async () => null,
+      schedulePut: async () => { writes += 1; },
+    },
+  });
+
+  const committed = await Promise.race([
+    workflow.saveSessionMessages(sessionId, [
+      { role: 'user', content: 'question without IndexedDB', messageIndex: '0' },
+      { role: 'assistant', content: 'answer remains recoverable', responseIndex: '1' },
+    ]).then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 100)),
+  ]);
+
+  assert.strictEqual(committed, true, 'unsupported IndexedDB should not impose the normal commit wait');
+  assert.strictEqual(writes, 0, 'the workflow should not call an unsupported snapshot writer');
+  assert.strictEqual(session.snapshotUpdatedAt, 0, 'local fallback must remain distinct from a durable revision');
+  const fallback = JSON.parse(storage.getItem(`sessions:snapshot-fallback:${sessionId}`));
+  assert.deepStrictEqual(fallback.messages.map(message => message.content), ['question without IndexedDB', 'answer remains recoverable']);
+}
+
 module.exports = [
   testCurrentSnapshotFormatLoadsNormally,
   testLegacyLocalStoragePayloadIsIgnored,
   testVersionOneSnapshotIsIgnored,
+  testStalledSnapshotWriteReleasesCompletionAndKeepsRecoverableFallback,
+  testQuotaFallbackCompactsToIncrementalTailAndMergesDurableHistory,
+  testUnsupportedIndexedDbUsesImmediateRecoverableFallback,
 ];

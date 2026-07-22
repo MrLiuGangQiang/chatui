@@ -1266,7 +1266,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.93-live-code-highlight') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.94-finalized-code-radius') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1592,7 +1592,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(browserStreaming.includes('tailTextNode.appendData') && browserStreaming.includes('STREAMING_TAIL_SCAN_LIMIT'), 'streaming Markdown should append cumulative tail deltas and bound expensive tail scans for huge unstable blocks');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.93-live-code-highlight') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.39-image-quote'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.94-finalized-code-radius') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.39-image-quote'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {

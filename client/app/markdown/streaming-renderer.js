@@ -26,6 +26,17 @@ function fragmentRootFor(nodes = []) {
   return { querySelectorAll: root.querySelectorAll.bind(root) };
 }
 
+function wrapCompletedStreamingCodeBlocks(root) {
+  root?.querySelectorAll?.('pre').forEach((pre) => {
+    if (pre.closest?.('.code-block')) return;
+    const wrap = (pre.ownerDocument || document).createElement('div');
+    wrap.className = 'code-block';
+    pre.replaceWith(wrap);
+    wrap.appendChild(pre);
+  });
+  return root;
+}
+
 function normalizedHtml(value = '') {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -67,6 +78,7 @@ function createStreamingRenderer({ renderMarkdown, enhance } = {}) {
       if (index < consumed) {
         if (container) {
           container.innerHTML = renderMarkdown(raw);
+          wrapCompletedStreamingCodeBlocks(container);
           enhanceRoot(container, { reset: true });
         }
         consumed = raw.length;
@@ -78,6 +90,7 @@ function createStreamingRenderer({ renderMarkdown, enhance } = {}) {
         if (delta) {
           const inserted = insertHtmlBefore(container, renderMarkdown(delta), null);
           consumed = stable.length;
+          wrapCompletedStreamingCodeBlocks(fragmentRootFor(inserted));
           enhanceRoot(fragmentRootFor(inserted), { streaming: true });
         }
         tailText = tail;

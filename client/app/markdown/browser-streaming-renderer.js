@@ -192,6 +192,16 @@
     const htmlToFrag = (html, options = {}) => { const tpl = document.createElement('template'); tpl.innerHTML = String(html || ''); if (options.deferResources) deferStreamingResources(tpl.content); return tpl.content; };
     const insertRendered = (target, html, before, options = {}) => { const frag = htmlToFrag(html, options); const nodes = [...frag.childNodes]; target.insertBefore(frag, before); return nodes; };
     const fragmentRootFor = nodes => ({ querySelectorAll: selector => nodes.flatMap(node => node.nodeType === 1 ? [node, ...node.querySelectorAll(selector)] : []).filter(node => node.matches?.(selector)) });
+    const wrapCompletedStreamingCodeBlocks = root => {
+      root?.querySelectorAll?.('pre').forEach(pre => {
+        if (pre.closest?.('.code-block')) return;
+        const wrap = (pre.ownerDocument || document).createElement('div');
+        wrap.className = 'code-block';
+        pre.replaceWith(wrap);
+        wrap.appendChild(pre);
+      });
+      return root;
+    };
     const removeTailNode = () => {
       try { tailNode?.remove?.(); } catch {}
       tailNode = null;
@@ -394,13 +404,13 @@
         raw += String(delta || '');
         const { stable, tail, index } = splitStableTailIncremental();
         if (index < consumed) {
-          if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); enhanceSafe(container, { reset: true }); }
+          if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); wrapCompletedStreamingCodeBlocks(container); enhanceSafe(container, { reset: true }); }
           consumed = raw.length; tailText = '';
           return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' };
         }
         const part = stable.slice(consumed);
         if (container) {
-          if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
+          if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; wrapCompletedStreamingCodeBlocks(fragmentRootFor(inserted)); enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
           syncTailNode(container, tail);
           tailText = tail;
         } else { if (part) consumed = stable.length; tailText = tail; }

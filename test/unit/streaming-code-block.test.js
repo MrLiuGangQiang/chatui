@@ -68,6 +68,7 @@ function testClosingFenceFinalizesThroughMarkdownRenderer() {
 
     renderer.append('\n```\n', container);
     assert.ok(!container.querySelector('[data-markdown-streaming-code]'), 'the temporary live block should be removed when the fence closes');
+    assert.ok(container.querySelector('.code-block > pre'), 'a closed fence should keep the code-block shell while the response continues streaming');
     assert.strictEqual(container.querySelector('pre code').textContent, 'const html = "<img onerror=alert(1)>";\n');
 
     const result = renderer.final(container);

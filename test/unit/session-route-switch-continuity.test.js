@@ -96,7 +96,7 @@ function testSessionSwitchRecoveryRebindsWithoutDuplicateExecution() {
   assert.ok(submit.includes('beginPendingSubmitResume?.(deps.state, sessionId)') && submit.includes('finishPendingSubmitResume?.(deps.state, sessionId)'), 'pending-submit recovery must hold a per-session single-flight owner');
   assert.ok(submit.includes('(!assistantNode||!assistantNode.isConnected)') && submit.includes('findMessageNodeByDisplayItem(liveItem)||assistantNode'), 'dispatch must rebind the assistant node rendered after switching back');
   assert.ok(app.includes('updateLiveDisplay(e,n,"assistant",l'), 'intent-recognition stage updates must target the currently rendered display item, not a detached pre-switch node');
-  assert.ok(index.includes('runs.js?v=1.2.66-session-run-owner') && index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.147-interface-completion'), 'browser cache versions must deliver the session-run ownership fix');
+  assert.ok(index.includes('runs.js?v=1.2.66-session-run-owner') && index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'browser cache versions must deliver the session-run ownership fix');
 }
 
 module.exports = [

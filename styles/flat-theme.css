@@ -4525,3 +4525,123 @@ body.session-sidebar-collapsed{
     --dialog-content-start:0px;
   }
 }
+
+/* Balanced code surfaces: distinct from the page without switching to a dark theme. */
+:root{
+  --ds-code:#e8ebf0!important;
+  --ds-code-border:#d4dae4!important;
+  --ds-code-text:#28303d!important;
+  --ds-code-muted:#667085!important;
+}
+.message.assistant .content.markdown-body .code-block,
+.message.error .content.markdown-body .code-block,
+.markdown-body .code-block,
+.markdown-body>pre{
+  background:#e8ebf0!important;
+  background-color:#e8ebf0!important;
+  background-image:none!important;
+  border:1px solid var(--ds-code-border)!important;
+  box-shadow:none!important;
+  filter:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  opacity:1!important;
+  mix-blend-mode:normal!important;
+}
+.markdown-body .code-block::before,
+.markdown-body .code-block::after{
+  content:none!important;
+  display:none!important;
+  background:none!important;
+  background-image:none!important;
+  filter:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.markdown-body .code-block>pre,
+.markdown-body .code-block pre{
+  background:transparent!important;
+  background-color:transparent!important;
+  background-image:none!important;
+  filter:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.markdown-body pre code,
+.markdown-body pre code.hljs,
+.markdown-body .code-block .hljs{
+  color:var(--ds-code-text)!important;
+  background:transparent!important;
+}
+.markdown-body .code-lang,
+.markdown-body .streaming-code-lang{
+  color:var(--ds-code-muted)!important;
+  background:transparent!important;
+  background-image:none!important;
+  border:0!important;
+  box-shadow:none!important;
+  filter:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.markdown-body pre{
+  scrollbar-color:#a8b1c0 transparent;
+}
+.markdown-body pre::-webkit-scrollbar{width:10px;height:10px}
+.markdown-body pre::-webkit-scrollbar-thumb{background:#a8b1c0;border:2px solid var(--ds-code);border-radius:999px}
+.markdown-body pre::-webkit-scrollbar-track{background:transparent}
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-meta .hljs-keyword,
+.markdown-body .hljs-template-tag,
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-type,
+.markdown-body .hljs-variable.language_{color:#7c3aed!important}
+.markdown-body .hljs-title,
+.markdown-body .hljs-title.class_,
+.markdown-body .hljs-title.function_{color:#0369a1!important}
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-meta,
+.markdown-body .hljs-number,
+.markdown-body .hljs-operator,
+.markdown-body .hljs-selector-attr,
+.markdown-body .hljs-selector-class,
+.markdown-body .hljs-selector-id,
+.markdown-body .hljs-variable{color:#b45309!important}
+.markdown-body .hljs-meta .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-string{color:#15803d!important}
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-symbol{color:#0e7490!important}
+.markdown-body .hljs-code,
+.markdown-body .hljs-comment,
+.markdown-body .hljs-formula{color:#64748b!important}
+.markdown-body .hljs-name,
+.markdown-body .hljs-quote,
+.markdown-body .hljs-selector-pseudo,
+.markdown-body .hljs-selector-tag{color:#be123c!important}
+.markdown-body .hljs-subst,
+.markdown-body .hljs-emphasis,
+.markdown-body .hljs-strong{color:var(--ds-code-text)!important}
+.markdown-body .hljs-section,
+.markdown-body .hljs-bullet{color:#2563eb!important}
+.markdown-body .hljs-addition{color:#15803d!important;background:rgba(22,163,74,.1)!important}
+.markdown-body .hljs-deletion{color:#be123c!important;background:rgba(225,29,72,.09)!important}
+.markdown-body .code-block>.code-copy-icon:not(.copied):not(.copy-failed),
+.markdown-body .code-block>.mermaid-toggle-btn:not(.is-error),
+.markdown-body .code-block>.mermaid-render-toggle:not(.is-error){
+  color:#667085!important;
+  background:rgba(255,255,255,.72)!important;
+  border-color:#cbd2dc!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.markdown-body .code-block>.code-copy-icon:not(.copied):not(.copy-failed):hover,
+.markdown-body .code-block>.mermaid-toggle-btn:not(.is-error):hover,
+.markdown-body .code-block>.mermaid-render-toggle:not(.is-error):hover{
+  color:#344054!important;
+  background:#fff!important;
+  border-color:#b8c0cc!important;
+}

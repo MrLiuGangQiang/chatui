@@ -11,5 +11,6 @@ coverage/
 dist/
 playwright-report/
 test-results/
+reports/intent-routing/
 .idea/
 .vscode/

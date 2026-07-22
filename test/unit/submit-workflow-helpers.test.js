@@ -40,8 +40,36 @@ function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
   assert.strictEqual(helpers.imageAttachmentIndexGuide([{ imageId: 'img_a_1', type: 'image/png' }]), '');
 }
 
+function testRouteAttachmentSelectorsPreserveTypedBindings() {
+  const selectors = helpers.createRouteAttachmentSelectors({
+    imageRefs: [{ image_id: 'img-b', index: 2 }],
+    fileRefs: [{ file_id: 'file-b', index: 2 }],
+  }, {
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    decorateImage: (item, index) => ({ ...item, sourceIndex: index + 1 }),
+  });
+  const source = [
+    { id: 'img-a', type: 'image/png' },
+    { id: 'file-a', type: 'application/pdf' },
+    { id: 'img-b', type: 'image/png' },
+    { id: 'file-b', type: 'application/pdf' },
+  ];
+  assert.deepStrictEqual(selectors.selectChatAttachments(source), [
+    { id: 'file-b', type: 'application/pdf' },
+    { id: 'img-b', type: 'image/png', sourceIndex: 2 },
+  ]);
+
+  const fallback = { id: 'img-current', type: 'image/png' };
+  const editSelectors = helpers.createRouteAttachmentSelectors({}, {
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    editFallbackImages: [fallback],
+  });
+  assert.deepStrictEqual(editSelectors.selectEditAttachments(source), [fallback]);
+}
+
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
   testSubmitHelpersUnderstandingClassifiers,
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
+  testRouteAttachmentSelectorsPreserveTypedBindings,
 ];

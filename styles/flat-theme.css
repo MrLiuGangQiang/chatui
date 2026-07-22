@@ -4454,18 +4454,18 @@ body{
 .route-diagram-fab:focus-visible{outline:3px solid rgba(56,189,248,.62)!important;outline-offset:3px!important}
 .route-diagram-modal{position:fixed!important;inset:0!important;z-index:300!important;display:none!important;place-items:center!important;padding:clamp(16px,3vw,40px)!important}
 .route-diagram-modal.show{display:grid!important}
-.route-diagram-mask{position:absolute!important;inset:0!important;background:rgba(15,23,42,.54)!important;backdrop-filter:blur(5px)!important}
-.route-diagram-dialog{position:relative!important;z-index:1!important;display:flex!important;flex-direction:column!important;width:min(1120px,100%)!important;max-height:100%!important;overflow:hidden!important;border:1px solid rgba(148,163,184,.5)!important;border-radius:20px!important;background:#fff!important;box-shadow:0 28px 80px rgba(15,23,42,.32)!important}
-.route-diagram-head{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:18px!important;padding:20px 22px 16px!important;border-bottom:1px solid #e2e8f0!important;background:linear-gradient(135deg,#f8fdff,#f8faff)!important}
-.route-diagram-kicker{display:block!important;margin-bottom:4px!important;color:#0891b2!important;font-size:12px!important;font-weight:800!important;letter-spacing:.1em!important;text-transform:uppercase!important}
-.route-diagram-head h2{margin:0!important;color:#0f172a!important;font-size:20px!important;line-height:1.3!important}
-.route-diagram-head p{margin:5px 0 0!important;color:#64748b!important;font-size:13px!important;line-height:1.5!important}
-.route-diagram-close{display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 auto!important;width:36px!important;height:36px!important;padding:0!important;border:1px solid #dbe3ee!important;border-radius:10px!important;background:#fff!important;color:#475569!important}
-.route-diagram-close:hover{background:#f1f5f9!important;color:#0f172a!important}
+.route-diagram-mask{position:absolute!important;inset:0!important;background:rgba(1,5,16,.74)!important;backdrop-filter:blur(10px) saturate(1.15)!important}
+.route-diagram-dialog{position:relative!important;z-index:1!important;display:flex!important;flex-direction:column!important;width:min(1280px,100%)!important;max-height:100%!important;overflow:hidden!important;border:1px solid rgba(88,166,255,.38)!important;border-radius:20px!important;background:#060d21!important;box-shadow:0 32px 96px rgba(0,0,0,.55),0 0 0 1px rgba(81,154,255,.08) inset!important}
+.route-diagram-head{display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:18px!important;padding:20px 22px 16px!important;border-bottom:1px solid rgba(104,168,255,.22)!important;background:linear-gradient(135deg,#0c1d3c,#070d20 70%,#151139)!important}
+.route-diagram-kicker{display:block!important;margin-bottom:4px!important;color:#68d7ff!important;font-size:12px!important;font-weight:800!important;letter-spacing:.1em!important;text-transform:uppercase!important}
+.route-diagram-head h2{margin:0!important;color:#f5f9ff!important;font-size:20px!important;line-height:1.3!important}
+.route-diagram-head p{margin:5px 0 0!important;color:#aabedc!important;font-size:13px!important;line-height:1.5!important}
+.route-diagram-close{display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 auto!important;width:36px!important;height:36px!important;padding:0!important;border:1px solid rgba(101,166,255,.35)!important;border-radius:10px!important;background:#0a1934!important;color:#c5dcff!important}
+.route-diagram-close:hover{background:#152c52!important;color:#fff!important}
 .route-diagram-close:focus-visible{outline:3px solid rgba(56,189,248,.62)!important;outline-offset:2px!important}
 .route-diagram-close svg{width:20px!important;height:20px!important;fill:none!important;stroke:currentColor!important;stroke-width:2!important;stroke-linecap:round!important}
-.route-diagram-frame-wrap{min-height:0!important;flex:1 1 auto!important;background:#f8fafc!important}
-.route-diagram-frame-wrap iframe{display:block!important;width:100%!important;height:min(72vh,720px)!important;min-height:420px!important;border:0!important;background:#f8fafc!important}
+.route-diagram-frame-wrap{min-height:0!important;flex:1 1 auto!important;background:#020611!important}
+.route-diagram-frame-wrap iframe{display:block!important;width:100%!important;height:min(72vh,720px)!important;min-height:420px!important;border:0!important;background:#020611!important}
 @media (max-width:840px){
   .route-diagram-fab{right:72px!important;bottom:18px!important}
 }

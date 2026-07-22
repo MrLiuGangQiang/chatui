@@ -244,6 +244,7 @@ function buildImageCandidates(references = []) {
       result.push({
         index,
         source_index: sourceIndex || index,
+        message_index: Number(reference.message_index) || 0,
         image_id: imageId,
         reference_id: referenceId,
         target,

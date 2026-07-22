@@ -75,10 +75,7 @@
   });
 
   const promptComposer = Object.freeze({
-    candidateForResource: (resource, context) => promptComposerService.candidateForResource(resource, context),
-    resolveBaseText: (resource, context) => promptComposerService.resolveBaseText(resource, context),
-    composeImageGeneratePrompt: (task, context, input) => promptComposerService.composeImageGeneratePrompt(task, context, input),
-    composeImageEditPrompt: (task, context, input) => promptComposerService.composeImageEditPrompt(task, context, input),
+    composeExecutionPrompt: input => promptComposerService.composeExecutionPrompt(input),
   });
 
   const images = Object.freeze({

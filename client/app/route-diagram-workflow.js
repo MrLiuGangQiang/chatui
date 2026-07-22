@@ -3,7 +3,7 @@
 
   function createRouteDiagramWorkflow(deps = {}) {
     const documentRef = deps.document || root?.document;
-    const routeUrl = deps.routeUrl || './route.html?v=1.1.3-title-map';
+    const routeUrl = deps.routeUrl || './route.html?v=1.3.2-stage3-centered';
     let initialized = false;
     let lastFocused = null;
 

@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ChatUI · 奥哲AI助手：12步执行地图</title>
+<title>ChatUI · 奥哲AI助手：12节点执行地图</title>
 <style>
-  :root { color-scheme: light; }
+  :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; background: #f7fbff; }
+  html, body { margin: 0; min-height: 100%; background: #020611; }
   body {
     display: grid;
     place-items: center;
     overflow: auto;
+    background:
+      radial-gradient(circle at 52% -14%, rgba(39, 112, 255, .22), transparent 43%),
+      radial-gradient(circle at 91% 96%, rgba(145, 72, 255, .16), transparent 36%),
+      #020611;
     font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
   }
   .poster {
@@ -19,77 +23,118 @@
     width: min(100vw, calc(100vh * 1.776833));
     height: auto;
     aspect-ratio: 1672 / 941;
-    background: white;
+    background: #050b1c;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .45);
   }
   svg text { text-rendering: geometricPrecision; }
-  .title-main { font-size: 62px; font-weight: 900; letter-spacing: -1.8px; }
-  .subtitle { font-size: 27px; font-weight: 600; letter-spacing: 4px; fill: #17335f; }
-  .phase-label { font-size: 21px; font-weight: 650; }
-  .phase-title { font-size: 27px; font-weight: 850; }
-  .card-num { font-family: Georgia, "Times New Roman", serif; font-size: 45px; font-weight: 700; }
-  .card-title { font-size: 25px; font-weight: 700; fill: #101629; }
+  .title-main { font-size: 62px; font-weight: 900; letter-spacing: -1.8px; filter: drop-shadow(0 4px 16px rgba(67, 145, 255, .15)); }
+  .subtitle { font-size: 22px; font-weight: 650; letter-spacing: 4.8px; fill: #afc8ef; }
+  .phase-label { font-size: 16px; font-weight: 800; letter-spacing: 3px; }
+  .phase-title { font-size: 27px; font-weight: 850; letter-spacing: .5px; }
+  .card-num { font-family: "Arial Narrow", "DIN Condensed", Georgia, serif; font-size: 42px; font-weight: 800; letter-spacing: 1px; }
+  .card-title { font-size: 25px; font-weight: 750; fill: #f4f8ff !important; }
   .card-title.sm { font-size: 23px; }
-  .card-label { font-size: 18px; font-weight: 800; fill: #0a2248; }
-  .card-value { font-size: 18px; font-weight: 450; fill: #162a4c; }
-  .card-value.small { font-size: 17px; }
-  .bottom-copy { font-size: 26px; font-weight: 600; letter-spacing: 3px; fill: #122448; }
+  .card-label { font-size: 15px; font-weight: 800; letter-spacing: .8px; fill: #86a8d1 !important; }
+  .card-value { font-size: 16px; font-weight: 500; fill: #d6e5fb !important; }
+  .card-value.small { font-size: 15.5px; }
+  .bottom-copy { font-size: 22px; font-weight: 650; letter-spacing: 3px; fill: #e4edff !important; }
+  .hud-chip text { font-size: 13px; font-weight: 800; letter-spacing: 2.3px; fill: #b9d8ff; }
+  .hud-chip rect { fill: #0b1a36; fill-opacity: .82; stroke: #2b6fc4; stroke-opacity: .75; }
+  .phase-orbit { fill: none; stroke-dasharray: 3 10; transform-box: fill-box; transform-origin: center; animation: orbit-spin 16s linear infinite; }
+  .phase-orbit.reverse { animation-direction: reverse; animation-duration: 20s; }
+  .data-pulse { transform-box: fill-box; transform-origin: center; animation: data-pulse 1.9s ease-in-out infinite; }
+  .flow-comet { pointer-events: none; }
+  .completion-station rect { fill: url(#completionPanel); stroke: #8f74f7; stroke-opacity: .58; }
+  svg rect[fill="#fff"][fill-opacity=".98"] { fill: url(#cardGlass) !important; stroke: #315378 !important; }
+  g[filter="url(#shadowBlue)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #327dc7 !important; }
+  g[filter="url(#shadowGreen)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #267b70 !important; }
+  g[filter="url(#shadowPurple)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #725fc1 !important; }
+  svg rect[fill="none"][rx="14"],
+  svg rect[fill="none"][rx="13"] { stroke: #5d7ea4 !important; stroke-opacity: .32; }
+  .fallback-pill rect { fill: #221f48; stroke: #8068dc; stroke-opacity: .74; }
+  .fallback-pill text { fill: #d8ceff; }
+  @keyframes orbit-spin { to { transform: rotate(360deg); } }
+  @keyframes data-pulse { 0%, 100% { opacity: .45; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.2); } }
+  @media (prefers-reduced-motion: reduce) {
+    .phase-orbit, .data-pulse { animation: none; }
+  }
 </style>
 </head>
 <body>
 <svg class="poster" viewBox="0 0 1672 941" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="posterTitle posterDesc">
-  <title id="posterTitle">ChatUI · 奥哲AI助手：12步执行地图</title>
-  <desc id="posterDesc">三阶段、十二步的智能任务路由执行流程图。</desc>
+  <title id="posterTitle">ChatUI · 奥哲AI助手：12节点执行地图</title>
+  <desc id="posterDesc">三阶段、十二个节点的任务路由执行流程图；资源恢复、澄清续办、复审和澄清均按条件进入。</desc>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.72" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#f8fbff"/>
+      <stop offset="0" stop-color="#07122c"/>
+      <stop offset=".48" stop-color="#060d22"/>
+      <stop offset="1" stop-color="#080d24"/>
     </linearGradient>
     <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0d77f5"/>
-      <stop offset="0.55" stop-color="#0b8df0"/>
-      <stop offset="1" stop-color="#4957ee"/>
+      <stop offset="0" stop-color="#25d7ff"/>
+      <stop offset="0.52" stop-color="#1786ff"/>
+      <stop offset="1" stop-color="#714cff"/>
     </linearGradient>
     <linearGradient id="blueSoft" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#b8def8"/>
-      <stop offset="0.52" stop-color="#53b7ee"/>
-      <stop offset="1" stop-color="#178de2"/>
+      <stop offset="0" stop-color="#164474"/>
+      <stop offset="0.48" stop-color="#24baf6"/>
+      <stop offset="1" stop-color="#5a65ff"/>
     </linearGradient>
     <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#06865f"/>
-      <stop offset="0.55" stop-color="#13b780"/>
-      <stop offset="1" stop-color="#29d0a1"/>
+      <stop offset="0" stop-color="#23d9b0"/>
+      <stop offset=".56" stop-color="#16b990"/>
+      <stop offset="1" stop-color="#48dca3"/>
     </linearGradient>
     <linearGradient id="greenSoft" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#c9f1df"/>
-      <stop offset="0.55" stop-color="#7edebd"/>
-      <stop offset="1" stop-color="#39c99a"/>
+      <stop offset="0" stop-color="#164d4d"/>
+      <stop offset="0.5" stop-color="#21c79b"/>
+      <stop offset="1" stop-color="#6be4bc"/>
     </linearGradient>
     <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#4e34d8"/>
-      <stop offset="0.55" stop-color="#6b50e7"/>
-      <stop offset="1" stop-color="#9a45ef"/>
+      <stop offset="0" stop-color="#8f75ff"/>
+      <stop offset=".54" stop-color="#8257f5"/>
+      <stop offset="1" stop-color="#e074ff"/>
+    </linearGradient>
+    <linearGradient id="snakeSoft" x1="0" y1="391" x2="0" y2="848" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2ccfff"/>
+      <stop offset=".36" stop-color="#3c91ff"/>
+      <stop offset=".55" stop-color="#2ad7a8"/>
+      <stop offset=".76" stop-color="#28c59c"/>
+      <stop offset="1" stop-color="#b17dff"/>
     </linearGradient>
     <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#0b86ec"/>
-      <stop offset="0.55" stop-color="#2767ed"/>
-      <stop offset="1" stop-color="#7440e6"/>
+      <stop offset="0" stop-color="#39d5ff"/>
+      <stop offset=".52" stop-color="#4b88ff"/>
+      <stop offset="1" stop-color="#b277ff"/>
     </linearGradient>
     <linearGradient id="phaseBlue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f8fcff"/>
-      <stop offset="1" stop-color="#e9f5ff"/>
+      <stop offset="0" stop-color="#102a54"/>
+      <stop offset="1" stop-color="#0c1939"/>
     </linearGradient>
     <linearGradient id="phaseGreen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f8fffc"/>
-      <stop offset="1" stop-color="#e7f9f2"/>
+      <stop offset="0" stop-color="#0b3d43"/>
+      <stop offset="1" stop-color="#0b1e35"/>
     </linearGradient>
     <linearGradient id="phasePurple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fbfaff"/>
-      <stop offset="1" stop-color="#f0edff"/>
+      <stop offset="0" stop-color="#292254"/>
+      <stop offset="1" stop-color="#141332"/>
     </linearGradient>
+    <linearGradient id="cardGlass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152747" stop-opacity=".98"/>
+      <stop offset=".52" stop-color="#0d1a34" stop-opacity=".97"/>
+      <stop offset="1" stop-color="#0a132a" stop-opacity=".98"/>
+    </linearGradient>
+    <linearGradient id="completionPanel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#302360" stop-opacity=".94"/>
+      <stop offset="1" stop-color="#161638" stop-opacity=".96"/>
+    </linearGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#5da7ff" stroke-opacity=".075" stroke-width="1"/>
+      <circle cx=".5" cy=".5" r=".8" fill="#90c9ff" fill-opacity=".17"/>
+    </pattern>
     <radialGradient id="completionGlow" cx="50%" cy="45%" r="55%">
-      <stop offset="0" stop-color="#8c71ff" stop-opacity=".35"/>
+      <stop offset="0" stop-color="#9f7cff" stop-opacity=".55"/>
       <stop offset="1" stop-color="#8c71ff" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="discBlue" cx="42%" cy="35%" r="75%">
@@ -104,23 +149,30 @@
     </radialGradient>
 
     <filter id="shadowBlue" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#4d9ce8" flood-opacity=".18"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0b8fff" flood-opacity=".28"/>
     </filter>
     <filter id="shadowGreen" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#37b88d" flood-opacity=".17"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#12d4a2" flood-opacity=".24"/>
     </filter>
     <filter id="shadowPurple" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#7056df" flood-opacity=".18"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#9666ff" flood-opacity=".26"/>
     </filter>
     <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
       <feGaussianBlur stdDeviation="14"/>
     </filter>
     <filter id="smallShadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#285aa8" flood-opacity=".22"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#1f91ff" flood-opacity=".35"/>
     </filter>
     <filter id="logoShadow" x="-45%" y="-45%" width="190%" height="220%">
-      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#1464c8" flood-opacity=".19"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#168cff" flood-opacity=".35"/>
     </filter>
+    <filter id="neonGlow" x="-80%" y="-160%" width="260%" height="420%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="completionClip">
+      <rect x="1315" y="659" width="269" height="166" rx="25"/>
+    </clipPath>
 
     <marker id="greenArrowHead" markerWidth="18" markerHeight="18" refX="15" refY="9" orient="auto" markerUnits="userSpaceOnUse">
       <path d="M2.5,2.5 L15,9 L2.5,15.5" fill="none" stroke="#0daf79" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -216,23 +268,18 @@
 
   <!-- background -->
   <rect width="1672" height="941" fill="url(#bg)"/>
-  <ellipse cx="1510" cy="130" rx="170" ry="105" fill="#eaf5ff" opacity=".42" filter="url(#softGlow)"/>
-  <ellipse cx="112" cy="281" rx="105" ry="105" fill="#a5dcff" opacity=".09" filter="url(#softGlow)"/>
-  <ellipse cx="112" cy="516" rx="105" ry="105" fill="#8de7c4" opacity=".09" filter="url(#softGlow)"/>
-  <ellipse cx="112" cy="727" rx="105" ry="105" fill="#ad9eff" opacity=".10" filter="url(#softGlow)"/>
+  <rect width="1672" height="941" fill="url(#grid)"/>
+  <ellipse cx="1456" cy="102" rx="270" ry="164" fill="#216cff" opacity=".14" filter="url(#softGlow)"/>
+  <ellipse cx="98" cy="287" rx="150" ry="150" fill="#2aa9ff" opacity=".16" filter="url(#softGlow)"/>
+  <ellipse cx="95" cy="520" rx="150" ry="150" fill="#11d9a0" opacity=".13" filter="url(#softGlow)"/>
+  <ellipse cx="91" cy="733" rx="155" ry="155" fill="#9b70ff" opacity=".14" filter="url(#softGlow)"/>
+  <path d="M0 169 H1672" fill="none" stroke="#4b8cff" stroke-opacity=".2" stroke-width="1"/>
+  <path d="M28 181 H1644" fill="none" stroke="#7db7ff" stroke-opacity=".1" stroke-width="1" stroke-dasharray="2 11"/>
 
   <!-- bottom waves -->
-  <path d="M0 846 C160 910 330 863 520 891 C708 920 900 909 1090 887 C1270 866 1460 829 1672 874 L1672 941 L0 941Z" fill="#eef6ff"/>
-  <path d="M0 860 C184 916 342 887 520 908 C711 932 910 925 1098 900 C1298 874 1486 849 1672 894" fill="none" stroke="#d8ebff" stroke-width="9" opacity=".9"/>
-  <path d="M0 878 C198 922 366 905 553 920 C760 936 928 938 1124 918 C1310 899 1480 869 1672 911" fill="none" stroke="#cfe5ff" stroke-width="4" opacity=".75"/>
-
-  <!-- broad route tracks, behind cards -->
-  <path d="M145 391 H1535 C1580 391 1606 367 1606 327 V303 C1606 269 1581 253 1538 253 H1515" fill="none" stroke="#4ba8e8" stroke-opacity=".14" stroke-width="36" stroke-linecap="round"/>
-  <path d="M145 391 H1535 C1580 391 1606 367 1606 327 V303 C1606 269 1581 253 1538 253 H1515" fill="none" stroke="url(#blueSoft)" stroke-width="18" stroke-linecap="round"/>
-  <path d="M145 630 H1538 C1583 630 1610 605 1610 567 V546 C1610 514 1582 499 1542 499 H1528" fill="none" stroke="#29ba8c" stroke-opacity=".12" stroke-width="36" stroke-linecap="round"/>
-  <path d="M145 630 H1538 C1583 630 1610 605 1610 567 V546 C1610 514 1582 499 1542 499 H1528" fill="none" stroke="url(#greenSoft)" stroke-width="18" stroke-linecap="round"/>
-  <path d="M145 391 H1535 C1580 391 1606 367 1606 327 V303 C1606 269 1581 253 1538 253 H1515" fill="none" stroke="#fff" stroke-opacity=".72" stroke-width="2.6" stroke-dasharray="5 11" stroke-linecap="round"/>
-  <path d="M145 630 H1538 C1583 630 1610 605 1610 567 V546 C1610 514 1582 499 1542 499 H1528" fill="none" stroke="#fff" stroke-opacity=".72" stroke-width="2.6" stroke-dasharray="5 11" stroke-linecap="round"/>
+  <path d="M0 846 C160 910 330 863 520 891 C708 920 900 909 1090 887 C1270 866 1460 829 1672 874 L1672 941 L0 941Z" fill="#07152d"/>
+  <path d="M0 860 C184 916 342 887 520 908 C711 932 910 925 1098 900 C1298 874 1486 849 1672 894" fill="none" stroke="#255c9f" stroke-width="9" opacity=".5"/>
+  <path d="M0 878 C198 922 366 905 553 920 C760 936 928 938 1124 918 C1310 899 1480 869 1672 911" fill="none" stroke="#6b77d5" stroke-width="3" opacity=".55"/>
 
   <!-- header logo -->
   <g transform="translate(51 35)" filter="url(#logoShadow)">
@@ -244,10 +291,15 @@
   </g>
 
   <!-- header title -->
-  <text x="204" y="101" class="title-main" fill="#07183f" textLength="241" lengthAdjust="spacingAndGlyphs">ChatUI</text>
+  <g class="hud-chip" transform="translate(204 26)">
+    <rect width="292" height="25" rx="12.5"/>
+    <circle class="data-pulse" cx="17" cy="12.5" r="4" fill="#48e5c3"/>
+    <text x="32" y="17">INTENT ROUTING · LIVE MAP</text>
+  </g>
+  <text x="204" y="101" class="title-main" fill="#f4f8ff" textLength="241" lengthAdjust="spacingAndGlyphs">ChatUI</text>
   <text x="467" y="101" class="title-main" fill="url(#titleGrad)">·</text>
-  <text x="510" y="101" class="title-main" fill="#07183f" textLength="385" lengthAdjust="spacingAndGlyphs">奥哲AI助手：</text>
-  <text x="930" y="101" class="title-main" fill="url(#titleGrad)" textLength="406" lengthAdjust="spacingAndGlyphs">12步执行地图</text>
+  <text x="510" y="101" class="title-main" fill="#f4f8ff" textLength="385" lengthAdjust="spacingAndGlyphs">奥哲AI助手：</text>
+  <text x="930" y="101" class="title-main" fill="url(#titleGrad)" textLength="406" lengthAdjust="spacingAndGlyphs">12节点执行地图</text>
 
   <!-- subtitle ornament -->
   <line x1="354" y1="145" x2="398" y2="145" stroke="#b8d7f3" stroke-width="1.5"/>
@@ -255,7 +307,7 @@
   <circle cx="437" cy="145" r="5" fill="#5fa8ec"/>
   <circle cx="462" cy="145" r="5.5" fill="#2d91ed"/>
   <circle cx="488" cy="145" r="6" fill="#127ced"/>
-  <text x="539" y="156" class="subtitle" textLength="595" lengthAdjust="spacingAndGlyphs">每一步都清楚说明：输入 → 处理 → 输出</text>
+  <text x="539" y="156" class="subtitle" textLength="595" lengthAdjust="spacingAndGlyphs">12个节点：必经链路 + 条件分支</text>
   <circle cx="1178" cy="145" r="5.5" fill="#7e54e7"/>
   <circle cx="1201" cy="145" r="5" fill="#9a72ec"/>
   <circle cx="1224" cy="145" r="4.8" fill="#b6a0f2"/>
@@ -291,18 +343,18 @@
 
   <!-- phase 1 -->
   <g filter="url(#shadowBlue)">
-    <circle cx="121" cy="279" r="91" fill="#d9efff" opacity=".36"/>
-    <circle cx="121" cy="279" r="83" fill="url(#phaseBlue)" stroke="#d8edfb" stroke-width="1.5"/>
+    <circle cx="121" cy="279" r="91" fill="#167cf0" opacity=".16"/>
+    <circle cx="121" cy="279" r="83" fill="url(#phaseBlue)" stroke="#4db8ff" stroke-opacity=".7" stroke-width="1.5"/>
   </g>
-  <text x="121" y="244" text-anchor="middle" class="phase-label" fill="#1e79cf">阶段一</text>
-  <text x="121" y="281" text-anchor="middle" class="phase-title" fill="#0a65c7">接收与准备</text>
-  <g color="#1887e8" transform="translate(96 298)" filter="url(#smallShadow)">
+  <circle class="phase-orbit" cx="121" cy="279" r="96" stroke="#48bdff" stroke-opacity=".9"/>
+  <text x="121" y="244" text-anchor="middle" class="phase-label" fill="#61c8ff">阶段一</text>
+  <text x="121" y="281" text-anchor="middle" class="phase-title" fill="#ecf8ff">接收与准备</text>
+  <g color="#49beff" transform="translate(96 298)" filter="url(#smallShadow)">
     <use href="#icon-inbox" width="50" height="50"/>
   </g>
 
-  <!-- arrows row 1: compact, reference-style block arrows -->
+  <!-- process arrows only: the phase badge is intentionally independent -->
   <g fill="url(#blue)" opacity=".96">
-    <path d="M216 273h29v-8l18 14-18 14v-8h-29Z"/>
     <path d="M558 273h21v-8l18 14-18 14v-8h-21Z"/>
     <path d="M875 273h11v-8l18 14-18 14v-8h-11Z"/>
     <path d="M1197 273h19v-8l18 14-18 14v-8h-19Z"/>
@@ -317,8 +369,8 @@
   <text x="284" y="236" class="card-num" fill="url(#blue)">01</text>
   <text x="357" y="233" class="card-title">发送门禁</text>
   <g color="#207eea" transform="translate(464 206)"><use href="#icon-shield-lock" width="35" height="35"/></g>
-  <text x="288" y="279" class="card-label">输入：</text><text x="351" y="279" class="card-value">点击/运行状态</text>
-  <text x="288" y="309" class="card-label">处理：</text><text x="351" y="309" class="card-value">忙则停止、上传则等待</text>
+  <text x="288" y="279" class="card-label">输入：</text><text x="351" y="279" class="card-value">点击/运行/输入</text>
+  <text x="288" y="309" class="card-label">处理：</text><text x="351" y="309" class="card-value">忙则停止、上传/长度校验</text>
   <text x="288" y="339" class="card-label">输出：</text><text x="351" y="339" class="card-value">继续或提示</text>
 
   <!-- card 02 -->
@@ -328,11 +380,11 @@
   </g>
   <line x1="618" y1="251" x2="854" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
   <text x="618" y="236" class="card-num" fill="url(#blue)">02</text>
-  <text x="690" y="233" class="card-title">读取输入</text>
-  <g color="#1f7fe5" transform="translate(794 208)"><use href="#icon-doc" width="32" height="32"/></g>
-  <text x="622" y="279" class="card-label">输入：</text><text x="685" y="279" class="card-value">文本/附件/引用</text>
-  <text x="622" y="309" class="card-label">处理：</text><text x="685" y="309" class="card-value">准备预览</text>
-  <text x="622" y="339" class="card-label">输出：</text><text x="685" y="339" class="card-value">prompt与附件</text>
+  <text x="690" y="233" class="card-title sm">接受并持久化</text>
+  <g color="#1f7fe5" transform="translate(832 208)"><use href="#icon-doc" width="32" height="32"/></g>
+  <text x="622" y="279" class="card-label">输入：</text><text x="685" y="279" class="card-value">原始文本/附件</text>
+  <text x="622" y="309" class="card-label">处理：</text><text x="685" y="309" class="card-value">写入 accepted 记录</text>
+  <text x="622" y="339" class="card-label">输出：</text><text x="685" y="339" class="card-value">可恢复 pending</text>
 
   <!-- card 03 -->
   <g filter="url(#shadowBlue)">
@@ -341,11 +393,11 @@
   </g>
   <line x1="924" y1="251" x2="1176" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
   <text x="924" y="236" class="card-num" fill="url(#blue)">03</text>
-  <text x="997" y="233" class="card-title">写入会话</text>
-  <g color="#1685ec" transform="translate(1108 205)"><use href="#icon-chat" width="34" height="34"/></g>
-  <text x="928" y="279" class="card-label">输入：</text><text x="991" y="279" class="card-value">本轮消息</text>
-  <text x="928" y="309" class="card-label">处理：</text><text x="991" y="309" class="card-value">保存用户消息与占位</text>
-  <text x="928" y="339" class="card-label">输出：</text><text x="991" y="339" class="card-value">pending submit</text>
+  <text x="997" y="233" class="card-title sm">捕获并写会话</text>
+  <g color="#1685ec" transform="translate(1140 205)"><use href="#icon-chat" width="34" height="34"/></g>
+  <text x="928" y="279" class="card-label">输入：</text><text x="991" y="279" class="card-value">accepted 请求</text>
+  <text x="928" y="309" class="card-label">处理：</text><text x="991" y="309" class="card-value">预览附件、写用户消息</text>
+  <text x="928" y="339" class="card-label">输出：</text><text x="991" y="339" class="card-value">captured + 会话占位</text>
 
   <!-- card 04 -->
   <g filter="url(#shadowBlue)">
@@ -357,23 +409,23 @@
   <text x="1328" y="233" class="card-title">本地预检</text>
   <g color="#126ed7" transform="translate(1436 205)"><use href="#icon-search" width="36" height="36"/></g>
   <text x="1259" y="279" class="card-label">输入：</text><text x="1322" y="279" class="card-value">文本/配置</text>
-  <text x="1259" y="309" class="card-label">处理：</text><text x="1322" y="309" class="card-value">查空输入、URL、模型</text>
+  <text x="1259" y="309" class="card-label">处理：</text><text x="1322" y="309" class="card-value">附件/输入/URL/模型</text>
   <text x="1259" y="339" class="card-label">输出：</text><text x="1322" y="339" class="card-value">报错或继续</text>
 
   <!-- phase 2 -->
   <g filter="url(#shadowGreen)">
-    <circle cx="119" cy="516" r="92" fill="#cef2e5" opacity=".34"/>
-    <circle cx="119" cy="516" r="84" fill="url(#phaseGreen)" stroke="#d8f2e8" stroke-width="1.5"/>
+    <circle cx="119" cy="516" r="92" fill="#16d1a0" opacity=".14"/>
+    <circle cx="119" cy="516" r="84" fill="url(#phaseGreen)" stroke="#54e5be" stroke-opacity=".7" stroke-width="1.5"/>
   </g>
-  <text x="119" y="476" text-anchor="middle" class="phase-label" fill="#158b66">阶段二</text>
-  <text x="119" y="515" text-anchor="middle" class="phase-title" fill="#05875f">理解与路由</text>
-  <g color="#08a875" transform="translate(95 536)" filter="url(#smallShadow)">
+  <circle class="phase-orbit reverse" cx="119" cy="516" r="97" stroke="#60ecc3" stroke-opacity=".88"/>
+  <text x="119" y="476" text-anchor="middle" class="phase-label" fill="#6beec8">阶段二</text>
+  <text x="119" y="515" text-anchor="middle" class="phase-title" fill="#ecfff8">理解与路由</text>
+  <g color="#45e5b4" transform="translate(95 536)" filter="url(#smallShadow)">
     <use href="#icon-compass" width="48" height="48"/>
   </g>
 
-  <!-- arrows row 2: compact, reference-style block arrows -->
+  <!-- process arrows only: the phase badge is intentionally independent -->
   <g fill="url(#green)" opacity=".96">
-    <path d="M214 510h5v-6l11 12-11 12v-6h-5Z"/>
     <path d="M468 510h6v-8l18 14-18 14v-8h-6Z"/>
     <path d="M726 510h6v-8l18 14-18 14v-8h-6Z"/>
     <path d="M998 510h6v-8l18 14-18 14v-8h-6Z"/>
@@ -387,10 +439,10 @@
   </g>
   <line x1="251" y1="493" x2="447" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
   <text x="251" y="478" class="card-num" fill="url(#green)">05</text>
-  <text x="315" y="476" class="card-title sm">恢复资源</text>
+  <text x="315" y="476" class="card-title sm">资源恢复</text>
   <g color="#10ae79" transform="translate(419 449)"><use href="#icon-folder" width="31" height="31"/></g>
-  <text x="253" y="521" class="card-label">输入：</text><text x="315" y="521" class="card-value">引用/历史文件</text>
-  <text x="253" y="551" class="card-label">处理：</text><text x="315" y="551" class="card-value">找回图片文件</text>
+  <text x="253" y="521" class="card-label">输入：</text><text x="315" y="521" class="card-value">引用/历史资源</text>
+  <text x="253" y="551" class="card-label">处理：</text><text x="315" y="551" class="card-value">按需找回图/文件</text>
   <text x="253" y="581" class="card-label">输出：</text><text x="315" y="581" class="card-value">可用候选</text>
 
   <!-- card 06 -->
@@ -400,11 +452,11 @@
   </g>
   <line x1="511" y1="493" x2="705" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
   <text x="511" y="478" class="card-num" fill="url(#green)">06</text>
-  <text x="575" y="476" class="card-title sm">任务延续</text>
+  <text x="575" y="476" class="card-title sm">澄清续办</text>
   <g color="#0aa774" transform="translate(678 451)"><use href="#icon-link" width="32" height="32"/></g>
-  <text x="513" y="521" class="card-label">输入：</text><text x="575" y="521" class="card-value">待澄清与新回复</text>
-  <text x="513" y="551" class="card-label">处理：</text><text x="575" y="551" class="card-value">分类并合并</text>
-  <text x="513" y="581" class="card-label">输出：</text><text x="575" y="581" class="card-value">有效 prompt</text>
+  <text x="513" y="521" class="card-label">输入：</text><text x="575" y="521" class="card-value">待澄清/补充</text>
+  <text x="513" y="551" class="card-label">处理：</text><text x="575" y="551" class="card-value">分类并决定合并</text>
+  <text x="513" y="581" class="card-label">输出：</text><text x="575" y="581" class="card-value">合并或新任务</text>
 
   <!-- card 07 -->
   <g filter="url(#shadowGreen)">
@@ -413,9 +465,9 @@
   </g>
   <line x1="768" y1="493" x2="977" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
   <text x="768" y="478" class="card-num" fill="url(#green)">07</text>
-  <text x="832" y="476" class="card-title sm">构造上下文</text>
+  <text x="832" y="476" class="card-title sm">路由上下文</text>
   <g color="#0baa76" transform="translate(958 453)"><use href="#icon-cubes" width="29" height="29"/></g>
-  <text x="770" y="521" class="card-label">输入：</text><text x="832" y="521" class="card-value small">prompt/历史/资源</text>
+  <text x="770" y="521" class="card-label">输入：</text><text x="832" y="521" class="card-value small">prompt/历史/候选</text>
   <text x="770" y="551" class="card-label">处理：</text><text x="832" y="551" class="card-value">组装路由上下文</text>
   <text x="770" y="581" class="card-label">输出：</text><text x="832" y="581" class="card-value">context JSON</text>
 
@@ -430,13 +482,13 @@
   <g color="#0aa774" transform="translate(1208 451)"><use href="#icon-route" width="33" height="33"/></g>
   <text x="1043" y="517" class="card-label">输入：</text><text x="1105" y="517" class="card-value small">context/routeModel</text>
   <text x="1043" y="542" class="card-label">处理：</text><text x="1105" y="542" class="card-value small">/chat/completions</text>
-  <text x="1043" y="566" class="card-label">输出：</text><text x="1105" y="566" class="card-value">Task Contract</text>
+  <text x="1043" y="566" class="card-label">输出：</text><text x="1105" y="566" class="card-value small">task_contract.v3</text>
 
   <!-- fallback stays inside the route card so it never covers another stage -->
-  <g>
+  <g class="fallback-pill">
     <rect x="1041" y="572" width="208" height="18" rx="5" fill="#f6f1ff" stroke="#e4d9fb"/>
     <path d="M1052 577v5h5" fill="none" stroke="#7a52d4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="1063" y="586" font-size="12.5" font-weight="600" fill="#6842bb">失败 → chatModel 备用路由</text>
+    <text x="1063" y="586" font-size="12.5" font-weight="600" fill="#6842bb">主路由失败 → chatModel 备用</text>
   </g>
 
   <!-- card 09 -->
@@ -446,105 +498,129 @@
   </g>
   <line x1="1320" y1="493" x2="1531" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
   <text x="1320" y="478" class="card-num" fill="url(#green)">09</text>
-  <text x="1384" y="476" class="card-title sm">本地归一化</text>
+  <text x="1384" y="476" class="card-title sm">合同校验</text>
   <g color="#0aad78" transform="translate(1506 453)"><use href="#icon-db" width="29" height="29"/></g>
-  <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value">路由与资源</text>
-  <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">选图选文件、识别任务</text>
-  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value">routeInfo</text>
+  <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value small">task_contract.v3</text>
+  <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">校验 → 派生计划</text>
+  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">api / mode / 资源</text>
 
   <!-- phase 3 -->
   <g filter="url(#shadowPurple)">
-    <circle cx="116" cy="729" r="91" fill="#ded8ff" opacity=".34"/>
-    <circle cx="116" cy="729" r="83" fill="url(#phasePurple)" stroke="#e5dffb" stroke-width="1.5"/>
+    <circle cx="116" cy="729" r="91" fill="#a17aff" opacity=".16"/>
+    <circle cx="116" cy="729" r="83" fill="url(#phasePurple)" stroke="#b49cff" stroke-opacity=".72" stroke-width="1.5"/>
   </g>
-  <text x="116" y="699" text-anchor="middle" class="phase-label" fill="#5b43c7">阶段三</text>
-  <text x="116" y="736" text-anchor="middle" class="phase-title" fill="#4930bd">复审与执行</text>
-  <g color="#5a45d7" transform="translate(88 748)" filter="url(#smallShadow)">
+  <circle class="phase-orbit" cx="116" cy="729" r="96" stroke="#c0a9ff" stroke-opacity=".9"/>
+  <text x="116" y="699" text-anchor="middle" class="phase-label" fill="#c4b2ff">阶段三</text>
+  <text x="116" y="736" text-anchor="middle" class="phase-title" fill="#faf8ff">复审与执行</text>
+  <g color="#ae91ff" transform="translate(88 748)" filter="url(#smallShadow)">
     <use href="#icon-rocket" width="56" height="56"/>
   </g>
 
-  <!-- arrows row 3: compact, reference-style block arrows -->
+  <!-- process arrows only: the phase badge is intentionally independent -->
   <g fill="url(#purple)" opacity=".96">
-    <path d="M211 723h8v-8l12 14-12 14v-8h-8Z"/>
-    <!-- step 10 ? 11: spans the full gap and stays on the shared divider axis -->
-    <path d="M501 723h184v-8l18 14-18 14v-8H501Z"/>
-    <path d="M968 723h39v-8l18 14-18 14v-8h-39Z"/>
-    <path d="M1299 723h12v-8l18 14-18 14v-8h-12Z"/>
+    <path d="M542 736h71v-8l18 14-18 14v-8H542Z"/>
+    <path d="M882 736h71v-8l18 14-18 14v-8H882Z"/>
+    <path d="M1222 736h72v-8l18 14-18 14v-8h-72Z"/>
   </g>
 
   <!-- card 10 -->
   <g filter="url(#shadowPurple)">
-    <rect x="234" y="659" width="264" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="238" y="663" width="256" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
+    <rect x="294" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
+    <rect x="298" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
   </g>
-  <line x1="252" y1="725" x2="480" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="252" y="710" class="card-num" fill="url(#purple)">10</text>
-  <text x="316" y="706" class="card-title sm">条件复审</text>
-  <g color="#6f55df" transform="translate(414 680)"><use href="#icon-shield-check" width="35" height="35"/></g>
-  <text x="254" y="752" class="card-label">输入：</text><text x="316" y="752" class="card-value">首判/上下文</text>
-  <text x="254" y="782" class="card-label">处理：</text><text x="316" y="782" class="card-value">低置信才复审</text>
-  <text x="254" y="812" class="card-label">输出：</text><text x="316" y="812" class="card-value">最终路由</text>
-
-  <!-- clarification loop -->
-  <path d="M708 689 C657 687 621 666 603 636 C596 624 593 609 594 591" fill="none" stroke="#12ae7b" stroke-width="3.5" stroke-dasharray="7 5" stroke-linecap="round" marker-end="url(#greenArrowHead)"/>
-  <path d="M498 751 H538 C578 751 598 760 600 783" fill="none" stroke="#13b07d" stroke-width="3.5" stroke-dasharray="7 5" stroke-linecap="round" marker-end="url(#greenArrowHead)"/>
-  <g filter="url(#smallShadow)">
-    <rect x="575" y="787" width="92" height="30" rx="15" fill="url(#green)"/>
-  </g>
-  <text x="621" y="808" text-anchor="middle" font-size="17" font-weight="650" fill="#fff">用户补充</text>
+  <line x1="312" y1="725" x2="521" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
+  <text x="312" y="710" class="card-num" fill="url(#purple)">10</text>
+  <text x="376" y="706" class="card-title sm">条件复审</text>
+  <g color="#6f55df" transform="translate(474 680)"><use href="#icon-shield-check" width="35" height="35"/></g>
+  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">低置信/理由/clarify</text>
+  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value">审计提示复审</text>
+  <text x="314" y="812" class="card-label">输出：</text><text x="376" y="812" class="card-value small">最终合同/执行计划</text>
 
   <!-- card 11 -->
   <g filter="url(#shadowPurple)">
-    <rect x="706" y="659" width="259" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="710" y="663" width="251" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
+    <rect x="634" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
+    <rect x="638" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
   </g>
-  <line x1="724" y1="725" x2="947" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="724" y="710" class="card-num" fill="url(#purple)">11</text>
-  <text x="789" y="706" class="card-title sm">澄清判断</text>
-  <g color="#7658e0" transform="translate(891 678)"><use href="#icon-question" width="35" height="35"/></g>
-  <text x="726" y="752" class="card-label">输入：</text><text x="789" y="752" class="card-value small">needClarification</text>
-  <text x="726" y="782" class="card-label">处理：</text><text x="789" y="782" class="card-value">提问并保存</text>
-  <text x="726" y="812" class="card-label">输出：</text><text x="789" y="812" class="card-value small">用户补充回到06</text>
+  <line x1="652" y1="725" x2="861" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
+  <text x="652" y="710" class="card-num" fill="url(#purple)">11</text>
+  <text x="717" y="706" class="card-title sm">澄清判断</text>
+  <g color="#7658e0" transform="translate(819 678)"><use href="#icon-question" width="35" height="35"/></g>
+  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small">operation = clarify</text>
+  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small">提问、保存 pending</text>
+  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small">补充后从 01 重提</text>
 
   <!-- card 12 -->
   <g filter="url(#shadowPurple)">
-    <rect x="1029" y="659" width="267" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="1033" y="663" width="259" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
+    <rect x="974" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
+    <rect x="978" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
   </g>
-  <line x1="1047" y1="725" x2="1278" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="1047" y="710" class="card-num" fill="url(#purple)">12</text>
-  <text x="1111" y="706" class="card-title sm">执行与保存</text>
-  <g color="#7951e2" transform="translate(1235 680)"><use href="#icon-plane" width="34" height="34"/></g>
-  <text x="1049" y="752" class="card-label">输入：</text><text x="1111" y="752" class="card-value small">api/prompt/附件</text>
-  <text x="1049" y="782" class="card-label">处理：</text><text x="1111" y="782" class="card-value small">sendChat或sendImage</text>
-  <text x="1049" y="812" class="card-label">输出：</text><text x="1111" y="812" class="card-value">结果与会话</text>
+  <line x1="992" y1="725" x2="1201" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
+  <text x="992" y="710" class="card-num" fill="url(#purple)">12</text>
+  <text x="1056" y="706" class="card-title sm">交接与执行</text>
+  <g color="#7951e2" transform="translate(1174 680)"><use href="#icon-plane" width="34" height="34"/></g>
+  <text x="994" y="752" class="card-label">输入：</text><text x="1056" y="752" class="card-value small">执行计划/附件</text>
+  <text x="994" y="782" class="card-label">处理：</text><text x="1056" y="782" class="card-value small">持久化交接后分发</text>
+  <text x="994" y="812" class="card-label">输出：</text><text x="1056" y="812" class="card-value">结果提交至会话</text>
 
   <!-- completion -->
-  <path d="M1329 676 C1396 650 1499 647 1581 678 C1640 700 1661 770 1622 806 C1578 847 1420 837 1350 807 C1313 791 1298 734 1329 676Z" fill="#ece9ff" opacity=".48"/>
-  <ellipse cx="1414" cy="740" rx="99" ry="91" fill="url(#completionGlow)"/>
-  <ellipse cx="1414" cy="789" rx="58" ry="13" fill="#6752db" opacity=".18"/>
-  <ellipse cx="1414" cy="783" rx="48" ry="12" fill="#7d63eb" opacity=".55"/>
-  <ellipse cx="1414" cy="776" rx="38" ry="9" fill="#d9d1ff"/>
-  <circle cx="1414" cy="733" r="52" fill="#fff" fill-opacity=".66" stroke="#d7cffb"/>
-  <circle cx="1414" cy="733" r="40" fill="url(#discPurple)" opacity=".82"/>
-  <path d="M1414 698 1441 709v20c0 18-11 31-27 38-16-7-27-20-27-38v-20Z" fill="#fff" fill-opacity=".23" stroke="#fff" stroke-width="3"/>
-  <path d="m1400 730 10 10 19-20" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m1510 676 4 11 11 4-11 4-4 11-4-11-11-4 11-4Z" fill="#fff"/>
-  <text x="1494" y="747" font-size="25" font-weight="750" fill="#4e2fc2">任务完成</text>
-  <text x="1494" y="780" font-size="24" font-weight="650" fill="#4e2fc2">结果已保存</text>
+  <g>
+    <g class="completion-station">
+      <rect x="1315" y="659" width="269" height="166" rx="25"/>
+    </g>
+    <g clip-path="url(#completionClip)">
+    <path d="M1329 676 C1396 650 1499 647 1581 678 C1640 700 1661 770 1622 806 C1578 847 1420 837 1350 807 C1313 791 1298 734 1329 676Z" fill="#8d72ed" opacity=".16"/>
+    <ellipse cx="1414" cy="740" rx="99" ry="91" fill="url(#completionGlow)"/>
+    <ellipse cx="1414" cy="789" rx="58" ry="13" fill="#6752db" opacity=".3"/>
+    <ellipse cx="1414" cy="783" rx="48" ry="12" fill="#a589ff" opacity=".58"/>
+    <ellipse cx="1414" cy="776" rx="38" ry="9" fill="#e4ddff" opacity=".8"/>
+    <circle cx="1414" cy="733" r="52" fill="#171438" fill-opacity=".94" stroke="#baaaff" stroke-opacity=".82"/>
+    <circle cx="1414" cy="733" r="40" fill="url(#discPurple)" opacity=".9"/>
+    <path d="M1414 698 1441 709v20c0 18-11 31-27 38-16-7-27-20-27-38v-20Z" fill="#fff" fill-opacity=".23" stroke="#fff" stroke-width="3"/>
+    <path d="m1400 730 10 10 19-20" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m1510 676 4 11 11 4-11 4-4 11-4-11-11-4 11-4Z" fill="#fff"/>
+    <g class="completion-copy" text-anchor="middle">
+      <text x="1526" y="710" font-size="10.5" font-weight="800" letter-spacing="1.6" textLength="104" lengthAdjust="spacingAndGlyphs" fill="#cfc1ff">FINAL HANDOFF</text>
+      <text x="1526" y="747" font-size="22" font-weight="750" textLength="94" lengthAdjust="spacingAndGlyphs" fill="#f5f1ff">任务完成</text>
+      <text x="1526" y="780" font-size="20" font-weight="650" textLength="104" lengthAdjust="spacingAndGlyphs" fill="#d8ccff">结果已保存</text>
+    </g>
+    </g>
+  </g>
+
+  <!-- connected S-shaped route track: top row → middle row → execution row -->
+  <g id="executionSnakeTrack" pointer-events="none">
+    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="url(#snakeSoft)" stroke-opacity=".16" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#061229" stroke-opacity=".98" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="url(#snakeSoft)" stroke-opacity=".96" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#061229" stroke-opacity=".98" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="snakeTrackGuide" d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#e8f9ff" stroke-opacity=".42" stroke-width="1.3" stroke-dasharray="3 18" stroke-linecap="round" stroke-linejoin="round">
+      <animate attributeName="stroke-dashoffset" values="0;-84" dur="2.4s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- one continuous moving light follows the S-shaped route -->
+  <g id="flowComet" class="flow-comet" filter="url(#neonGlow)">
+    <animateMotion id="flowCometMotion" dur="7.2s" repeatCount="indefinite" rotate="auto" path="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584"/>
+    <ellipse cx="-18" cy="0" rx="22" ry="5.4" fill="#4fdfff" fill-opacity=".56">
+      <animate attributeName="fill" values="#4fdfff;#54f0bc;#c1a5ff;#4fdfff" keyTimes="0;.48;.8;1" dur="7.2s" repeatCount="indefinite"/>
+    </ellipse>
+    <circle r="14" fill="#36cfff" fill-opacity=".28">
+      <animate attributeName="fill" values="#36cfff;#38e7aa;#ab8aff;#36cfff" keyTimes="0;.48;.8;1" dur="7.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="5.8" fill="#f8fdff"/>
+  </g>
 
   <!-- bottom note pill -->
   <g filter="url(#shadowPurple)">
-    <rect x="475" y="849" width="688" height="60" rx="30" fill="#fff" fill-opacity=".95" stroke="#d8d0f4" stroke-width="1.4"/>
+    <rect x="475" y="872" width="688" height="50" rx="25" fill="#121c3b" fill-opacity=".96" stroke="#7769ca" stroke-width="1.4"/>
   </g>
-  <line x1="431" y1="879" x2="475" y2="879" stroke="#d3ccf2" stroke-width="1.5"/>
-  <circle cx="447" cy="879" r="5" fill="#9a82eb"/>
-  <circle cx="479" cy="879" r="5" fill="#d6cef5"/>
-  <circle cx="1128" cy="879" r="5" fill="#d6cef5"/>
-  <circle cx="1175" cy="879" r="5.5" fill="#9178e8"/>
-  <line x1="1163" y1="879" x2="1205" y2="879" stroke="#d3ccf2" stroke-width="1.5"/>
-  <g color="#6a4ee1" transform="translate(549 856)"><use href="#icon-shield-check" width="44" height="44"/></g>
-  <text x="618" y="890" class="bottom-copy">不展示模型思维链，仅保留路由摘要</text>
+  <line x1="431" y1="897" x2="475" y2="897" stroke="#847ad2" stroke-width="1.5"/>
+  <circle cx="447" cy="897" r="5" fill="#af95ff"/>
+  <circle cx="479" cy="897" r="5" fill="#d6ceff"/>
+  <circle cx="1128" cy="897" r="5" fill="#d6ceff"/>
+  <circle cx="1175" cy="897" r="5.5" fill="#ad96ff"/>
+  <line x1="1163" y1="897" x2="1205" y2="897" stroke="#847ad2" stroke-width="1.5"/>
+  <g color="#aa91ff" transform="translate(549 874)"><use href="#icon-shield-check" width="44" height="44"/></g>
+  <text x="618" y="908" class="bottom-copy">条件节点按需进入，仅保留路由摘要</text>
 </svg>
 </body>
 </html>

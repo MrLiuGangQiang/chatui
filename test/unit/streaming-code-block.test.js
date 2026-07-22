@@ -165,8 +165,8 @@ function testFencedCodeUsesBalancedContrastTheme() {
   assert.ok(css.includes('.markdown-body .code-block::after') && css.includes('content:none!important'), 'the legacy gradient overlay pseudo-element should be disabled');
   assert.ok(css.includes('backdrop-filter:none!important') && css.includes('.markdown-body .code-lang'), 'glass filters and the translucent language-label surface should be disabled');
   assert.ok(css.includes('.markdown-body .hljs-keyword') && css.includes('color:#7c3aed!important'), 'syntax tokens should use a coordinated light-theme palette');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'the browser cache version should change with the code theme');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code'), 'the immutable CSS bundle URL should change with the code theme');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'the browser cache version should change with the code theme');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map'), 'the immutable CSS bundle URL should change with the code theme');
 
   const dom = new JSDOM(`<style>${css}</style><div class="message assistant"><div class="content markdown-body"><div class="code-block"><span class="code-lang">js</span><pre><code class="hljs language-js">const x = 1;</code></pre></div></div></div>`);
   const codeBlockStyle = dom.window.getComputedStyle(dom.window.document.querySelector('.code-block'));

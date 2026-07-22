@@ -3,6 +3,11 @@
 
   function createRegenerateWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
+    const submitHelpers = root?.ChatUISubmitWorkflowHelpers
+      || (typeof require === 'function' ? require('./submit-workflow.helpers') : {});
+    const routeUtils = root?.ChatUIRouteService
+      || root?.ChatUIServices?.route
+      || (typeof require === 'function' ? require('../services/route-service') : {});
     const {
       state, isSessionBusy, findPreviousUserMessageNode, toast, ensureActiveRun,
       resetMessageActionStates, prepareRegeneratedResponse, getUserAttachmentContextFromNode,
@@ -145,15 +150,14 @@
       const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t);
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:s,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
-      const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>s});
+      const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>s,signal:d.abortController?.signal});
       try{
         task.accept({capture:!0});
         const h=u?await restoreUserAttachmentsFromContext(u):[];
         const quoteRaw=t.dataset.quoteContext||t.__displayItem?.quoteContext||userMessage.quoteContext||"";
         const quotedMessage=quoteRaw?getMessageWorkflow().readQuoteContext(quoteRaw):null;
-        const routeUtils=window.ChatUIServices?.route||window.ChatUIRouteService||{};
-        const cleanQuotedContent=routeUtils.cleanQuotedContent||(value=>String(value||"").replace(/\[base64 image\]/gi,"").replace(/耗时：[^\n]+/g,"").trim());
-        const buildQuotedRouteContent=routeUtils.buildQuotedRouteContent||(({text="",images=[]}={})=>[cleanQuotedContent(text),(images||[]).map((e,i)=>`[quoted_image index=${i+1} id=${e.imageId||e.image_id||""} name=${e.name||""}]`).join("\n")].filter(Boolean).join("\n")||"[quoted_message]");
+        const cleanQuotedContent=routeUtils.cleanQuotedContent;
+        const buildQuotedRouteContent=routeUtils.buildQuotedRouteContent;
         const quotedImageContext=quotedMessage?.imageContext?parseImageContext(quotedMessage.imageContext):null;
         let quotedImageAttachments=[];
         if(quotedImageContext?.attachments?.length)try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err),quotedImageAttachments=[]}
@@ -168,17 +172,8 @@
         else{p=h.length&&!hasImageAttachments(h)?normalizeRoute({mode:"chat",target:"none",usePreviousImage:!1,confidence:1,evidence:"附件不包含图片，直接走聊天模型"},"chat"):await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
         if(updateModeUi(g,state.autoMode),warnMissingModel(g,!0)){task.fail(new Error(`missing ${g} model`));return void e.remove()}
         if(d.stopped||d.abortController?.signal?.aborted)return;
-        const isImageUnderstandingChat=()=>/(图里|图片里|画面|这张图|这张图片|这些图|这些图片|哪张|看图|识别|描述|分析|评价|适合|像什么|是什么|有什么|对比|比较|提取文字|提取.*文字|识别文字|文字识别|读文字|读取文字|ocr|OCR|image|picture|photo|describe|analy[sz]e|what.*(in|on).*image)/i.test(String(s||""));
-        const isFileUnderstandingChat=()=>/(附件|文件|文档|PDF|pdf|表格|Excel|excel|Word|word|TXT|txt|CSV|csv|内容|里面|其中|多少|几个|几条|统计|数量|列举|列出来|邮箱|邮件|地址|包含|有没有|总结|摘要|提取|分析|翻译|解释|改写|整理|读取|读一下|看一下|这个文件|这个文档|这个附件|这是什么|这个是什么|看看这个|看下这个|说说这个|attachment|file|document|summari[sz]e|extract|analy[sz]e|translate)/i.test(String(s||""));
-        const routeImageRefs=()=>Array.isArray(p.imageRefs)?p.imageRefs:[];
-        const routeFileRefs=()=>Array.isArray(p.fileRefs)?p.fileRefs:[];
-        const routeSelectedImageIds=()=>new Set([...(p.selectedImageIds||[]),...routeImageRefs().map(ref=>ref.image_id||ref.imageId).filter(Boolean)]);
-        const routeSelectedIndexes=()=>new Set([...(p.selectedIndexes||[]),...routeImageRefs().map(ref=>Number(ref.index)).filter(index=>Number.isInteger(index)&&index>=1)]);
-        const routeSelectedFileIndexes=()=>new Set(routeFileRefs().map(ref=>Number(ref.index)).filter(index=>Number.isInteger(index)&&index>=1));
-        const routeSelectedFileIds=()=>new Set(routeFileRefs().map(ref=>ref.file_id||ref.fileId||ref.id).filter(Boolean));
-        const selectedChatAttachments=(source=[])=>{const list=source||[],images=list.filter(item=>isImageFile(item)),files=list.filter(item=>!isImageFile(item)),picked=[],fileIds=routeSelectedFileIds(),fileIndexes=routeSelectedFileIndexes();if(fileIds.size||fileIndexes.size)picked.push(...files.filter((item,index)=>fileIds.has(item.attachmentId||item.attachment_id||item.id)||fileIndexes.has(index+1)));else if(isFileUnderstandingChat())picked.push(...files);if(isImageUnderstandingChat()||routeImageRefs().length){const ids=routeSelectedImageIds(),indexes=routeSelectedIndexes();if(!ids.size&&!indexes.size){if(images.length===1)picked.push(images[0])}else picked.push(...images.filter((item,index)=>ids.has(item.imageId||item.image_id)||ids.has(item.id)||indexes.has(index+1)))}return picked};
-        const selectedQuotedEditAttachments=()=>{if(!hasQuotedImage)return h;const ids=routeSelectedImageIds(),indexes=routeSelectedIndexes();return quotedImageAttachments.filter((item,index)=>ids.has(item.imageId||item.image_id)||indexes.has(index+1))};
-        const selectedEditAttachments=(source=[])=>{const images=(source||[]).filter(item=>isImageFile(item)),ids=routeSelectedImageIds(),indexes=routeSelectedIndexes();if(!ids.size&&!indexes.size)return images.length===1?images:[];return images.filter((item,index)=>ids.has(item.imageId||item.image_id)||ids.has(item.id)||indexes.has(index+1))};
+        const routeAttachmentSelectors=submitHelpers.createRouteAttachmentSelectors(p,{isImageFile,isImageUnderstandingChat:()=>submitHelpers.isImageUnderstandingChat(s),isFileUnderstandingChat:()=>submitHelpers.isFileUnderstandingChat(s),currentTurnAttachments:h});
+        const selectedChatAttachments=routeAttachmentSelectors.selectChatAttachments,selectedQuotedEditAttachments=()=>routeAttachmentSelectors.selectQuotedEditAttachments(quotedImageAttachments,h),selectedEditAttachments=routeAttachmentSelectors.selectEditAttachments;
         const q=String(p.contextualImagePrompt||s).trim(),chatH=quotedMessage?selectedChatAttachments(quotedImageAttachments):selectedChatAttachments(h),editH=quotedMessage&&"edit_image"===g?selectedQuotedEditAttachments():"edit_image"===g?selectedEditAttachments(h):h;
         const canResolveExistingEditImage="edit_image"===g&&(!!p.usePreviousImage||p.target==="previous"||p.target==="latest"||p.target==="last_generated"||(p.target==="uploaded"&&!!getUploadedImageContext(l,p.selectedReferenceId)));
         if("edit_image"===g&&!editH.length&&!canResolveExistingEditImage)throw new Error((h||[]).filter(item=>isImageFile(item)).length>1?"请明确要修改哪一张或哪几张图片。":"没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改。");

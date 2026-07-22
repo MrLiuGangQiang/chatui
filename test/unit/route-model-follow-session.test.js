@@ -28,6 +28,20 @@ function responseFor(contract = plainChatContract()) {
   return { choices: [{ message: { content: JSON.stringify(contract) } }] };
 }
 
+function reviewedImageEditContract() {
+  return {
+    schema_version: 'task_contract.v3',
+    operation: 'edit_image',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'target', index: 1, id: 'img-product', reference_id: 'imgref-product', missing: false }],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'white' }], constraints: [] },
+    clarification: { question: '', missing_resource_keys: [] },
+    confidence: 0.6,
+    review_reasons: ['ambiguous target'],
+    rationale: 'review is required before editing',
+  };
+}
+
 function makeStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
@@ -286,7 +300,7 @@ async function testFollowRouteDoesNotRetrySameSessionModelAfterFailure() {
   }
 }
 
-async function testInvalidPrimaryRouteFailsWithoutChangingModels() {
+async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract() {
   const models = ['deepseek-v4-flash', 'gpt-session', 'router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
   const requestedModels = [];
@@ -303,9 +317,76 @@ async function testInvalidPrimaryRouteFailsWithoutChangingModels() {
   try {
     await assert.rejects(
       () => harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {}),
-      err => err?.code === 'ROUTE_COMPLETE_FAILURE',
+      err => err?.code === 'ROUTE_INVALID_CONTRACT',
     );
-    assert.deepStrictEqual(requestedModels, ['router-special'], 'an invalid contract must fail deterministically instead of silently changing route models');
+    assert.deepStrictEqual(requestedModels, ['router-special', 'gpt-session'], 'an invalid primary contract should retry only the distinct session fallback model');
+  } finally {
+    console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback() {
+  const models = ['router-special', 'gpt-session'];
+  const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
+  const requestedModels = [];
+  let requestSignal = null;
+  let notifyRequestStarted;
+  const requestStarted = new Promise(resolve => { notifyRequestStarted = resolve; });
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'router-special', routeModel: 'router-special', models },
+    sessions,
+    requestJson: async (_url, payload, _apiKey, options = {}) => {
+      requestedModels.push(payload.model);
+      requestSignal = options.signal;
+      notifyRequestStarted();
+      return await new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => {
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+  const controller = new AbortController();
+  try {
+    const pending = harness.workflow.getEffectiveRoute('cancel this route', [], 'session-a', {}, {}, { signal: controller.signal });
+    await requestStarted;
+    controller.abort();
+    await assert.rejects(pending, error => error?.code === 'ROUTE_CANCELLED');
+    assert.deepStrictEqual(requestedModels, ['router-special']);
+    assert.strictEqual(requestSignal?.aborted, true, 'the live route request must receive the submission abort signal');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testHighRiskRouteFailsClosedWhenItsReviewFails() {
+  const models = ['router-special'];
+  const sessions = [{ id: 'session-a', chatModel: 'router-special', messages: [] }];
+  let requestCount = 0;
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'router-special', routeModel: 'router-special', models },
+    sessions,
+    requestJson: async () => {
+      requestCount += 1;
+      if (requestCount === 1) return responseFor(reviewedImageEditContract());
+      throw new Error('review unavailable');
+    },
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    await assert.rejects(
+      () => harness.workflow.getEffectiveRoute('change the product background', [], 'session-a', {}, {
+        image_candidates: [{ index: 1, source: 'history', image_id: 'img-product', reference_id: 'imgref-product', target: 'previous' }],
+      }),
+      error => error?.code === 'ROUTE_COMPLETE_FAILURE' && error?.primaryCode === 'ROUTE_REVIEW_REQUIRED',
+    );
+    assert.strictEqual(requestCount, 2, 'the primary decision must not execute after its required review fails');
   } finally {
     console.warn = originalWarn;
     harness.restore();
@@ -381,21 +462,22 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
   const resolution = 'if(typeof getSessionRouteModel==="function"&&!String(preflightConfig.routeModel||"").trim())preflightConfig.routeModel=getSessionRouteModel(sessionId,preflightConfig)';
   assert.ok(submit.includes(resolution), 'submit preflight must resolve follow mode against the target session before checking route availability');
-  assert.ok(app.includes(resolution), 'root fallback submit workflow must preserve session-aware route preflight');
+  assert.ok(!app.includes(resolution), 'the root entry must not retain a duplicate submit preflight implementation');
+  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate to the canonical submit workflow');
   assert.ok(app.includes('getSessionChatModel,getSessionRouteModel,buildRequestHeaders'), 'route workflow dependencies must receive both canonical session model resolvers');
   const continuationResolution = 'const cfg=getConfig(),model=typeof getSessionRouteModel==="function"?getSessionRouteModel(sessionId,cfg):cfg.routeModel||cfg.chatModel';
   assert.ok(submit.includes(continuationResolution), 'pending clarification classification must use the target session route model');
-  assert.ok(app.includes(continuationResolution), 'root submit fallback must preserve session-aware pending clarification classification');
+  assert.ok(!app.includes(continuationResolution), 'the root entry must not retain a duplicate pending-clarification classifier');
   assert.ok(!submit.includes('const cfg=getConfig(),model=cfg.routeModel||cfg.chatModel'), 'pending clarification classification must not fall back to the stale global model rule');
   const chatWorkflowSource = fs.readFileSync(path.join(root, 'client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflowSource.includes('const sessionChatModel=getSessionChatModel(n.sessionId||state.activeSessionId,a)') && chatWorkflowSource.includes('buildChatPayload(sessionChatModel') && chatWorkflowSource.includes('buildResponsesPayload(sessionChatModel'), 'final chat dispatch must use the target session model for both Chat Completions and Responses APIs');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.3-route-fallback-guard'));
-  assert.ok(index.includes('app.js?v=2.1.49-strict-model-only-continuation'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'));
+  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'));
+  assert.ok(index.includes('route-decision-workflow.js?v=2.0.4-verified-routing'));
+  assert.ok(index.includes('app.js?v=2.1.52-single-submit-workflow'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'));
 }
 
 module.exports = [
@@ -407,7 +489,9 @@ module.exports = [
   testExplicitRouteModelSwitchUsesLatestSelection,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
-  testInvalidPrimaryRouteFailsWithoutChangingModels,
+  testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract,
+  testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
+  testHighRiskRouteFailsClosedWhenItsReviewFails,
   testBusyTaskCannotSwitchGlobalRouteModel,
   testBusySessionCannotSwitchModelMidSubmission,
   testSubmitPreflightUsesEffectiveSessionRouteModel,

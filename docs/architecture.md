@@ -44,7 +44,19 @@ The model-facing router accepts exactly one protocol: `task_contract.v3`. It has
 - `standalone` executes the current user input verbatim. It has no base resources or patch operations and cannot inherit historical prompts.
 - `patch` names its base resources and expresses only explicit `preserve`, `add`, `replace`, and `remove` operations. `unmentioned_policy` determines whether unspecified properties must remain unchanged.
 
-The context boundary is mandatory: relation `new` may reference only current-turn resources; follow-ups, corrections, continuations, image edits, and reference-image generation must identify their bases explicitly. Prompt composition is deterministic and does not accept a router-authored replacement prompt. This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt and keeps local image edits from acquiring unrelated historical style text.
+The context boundary is mandatory: relation `new` may reference only current-turn resources; follow-ups, corrections, continuations, image edits, and reference-image generation must identify their bases explicitly. Prompt composition is deterministic and does not accept a router-authored replacement prompt. Reference-image generation sends its selected images as media and forwards the user's natural request directly, rather than serializing internal patch labels such as “补丁基线” into the image prompt. This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt and keeps local image edits from acquiring unrelated historical style text.
+
+### Candidate binding, review, and cancellation
+
+Before a non-missing image or file resource can execute, the parser resolves it to exactly one supplied candidate. The resource type, source, displayed candidate index, and any declared image/file or reference ID must agree. Execution then uses the resolved candidate's real source index and identity; a model-supplied ID or index is never used as a fallback. In mixed attachment batches, `attachments.index`/`source_index` preserve the original upload position while `media_index` is the type-local image or file number used by `resources.index`. Image and file indexes remain separate (`selectedImageIndexes` and `selectedFileIndexes`); the legacy `selectedIndexes` field contains images only.
+
+The active submission signal is propagated to the primary route request, its independent review, and any distinct session-model fallback. User cancellation is terminal for routing: it does not trigger a fallback request. Invalid contracts are retried only through a distinct session chat model and are reported as invalid if no valid contract is returned.
+
+Image editing, reference-image generation, and image comparison are high-risk operations. When their required independent review cannot produce a valid contract, the route fails closed instead of executing an unreviewed route. Clarification is non-executing and must use a standalone directive, so a missing or ambiguous asset cannot carry a partial edit into execution.
+
+### Intent-routing evaluation
+
+`test/fixtures/intent-routing-eval.v1.json` is the versioned, anonymized regression corpus for routing behavior. `npm run eval:intent` sends it to an explicitly configured route model and scores contract validity, operation, relation, resource binding, clarification, and directive mode. Reports are local ignored artifacts; the fixture and scorer remain reviewable source. See `docs/intent-routing-evaluation.md` for the workflow and quality gates.
 
 ## Durable task ownership and recovery
 
@@ -75,6 +87,8 @@ Message completion follows the same state-machine rule in the DOM: streaming and
 The M1 canonical task reducer is exposed through the existing `window.ChatUICore` namespace without adding another browser global. The normal submit path emits task events through the shared task-lifecycle controller, and send-button availability prefers the reducer projection over legacy `busy` flags. This makes late cleanup from an older submission a no-op for a newer task. Explicit stop is also owned by the shared lifecycle controller, which synchronously clears pending ownership, enters `stopping`, settles managed-job aborts, and commits `stopped` without allowing a late stop completion to overwrite a newer task. Standalone assistant regeneration and force-image regeneration now run through `client/app/regenerate-workflow.js`: they persist accepted ownership before asynchronous capture, use the same submission and managed-job identity through handoff, and project completion or recovery through canonical task events. Recovery and background-follow workflows remain on the legacy busy fallback until their dedicated M1 migration pull requests.
 
 The browser composition layer registers extracted workflow modules through the existing `ChatUIApp.appContext` registry instead of adding new `window.ChatUI*` globals. Root `app.js` resolves these modules lazily and supplies explicit dependencies.
+
+`app.js` is a composition entry point, not a second business-logic implementation: submission, attachment metadata, and route-resource selection each have one canonical module implementation.
 
 ## Multi-maintainer guardrails
 

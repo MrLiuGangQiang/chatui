@@ -48,7 +48,10 @@ operation：
 - 历史有猫、狗、牛、汽车等很多候选，current_input=“把猫和狗合并成一张图”：依据候选语义元数据只选择猫和狗，relation=followup，operation=image_reference_gen，directive=patch；不得仅因候选超过两张而澄清。
 - 历史有两张都只描述为“猫”的候选，current_input=“把猫和狗合并”：猫无法唯一定位时才 operation=clarify，并询问具体哪张猫。`;
 
-const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT}
+const ROUTE_OUTPUT_CONTRACT_CHECK = `输出前硬校验：resources.index 只用同类型候选编号（图=image_candidates.index；文件=file_candidates.index 或 attachments.media_index），绝不使用 attachments.index/source_index；file.reference_id 必须为空，图片 reference_id 只填候选给出的值。clarify 永远 standalone，base_resource_keys/operations 为空、unmentioned_policy=allow_change；无候选时 relation=new/source=current，候选歧义时 missing=true。仅纠正前次错误用 correction；对已有图的新修改用 followup；只借配色或风格时 role=style_reference。`;
+const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK}`;
+
+const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}
 
 你现在是独立审计器。输入包含 first_task_contract。逐项检查：是否错误继承历史、relation/operation 是否正确、资源是否唯一且角色正确、patch 基线是否完整、operations 是否只含用户明确变化、未提及内容策略是否正确、是否过度澄清。返回审计后的一个完整 task_contract.v3；即使 confidence 降低也应如实修正。`;
 const intentContract = root?.ChatUICoreIntentContract
@@ -62,6 +65,14 @@ const promptComposer = root?.ChatUIPromptComposerService
   || root?.window?.ChatUIPromptComposerService
   || root?.window?.ChatUIServices?.promptComposer
   || (typeof require === 'function' ? require('./prompt-composer-service') : {});
+
+function executionPrompt(input = '') {
+  // The contract selects media and validates intent. It must not turn into model-facing patch text.
+  const prompt = promptComposer?.composeExecutionPrompt?.(input);
+  if (typeof prompt === 'string') return prompt;
+  const text = String(input || '').trim();
+  return text.length > 3200 ? `${text.slice(0, 3200)}…` : text;
+}
 
 function cleanQuotedContent(text = '') {
   return String(text || '')
@@ -91,18 +102,11 @@ function buildQuotedRouteContent({ text = '', images = [] } = {}) {
 
 function attachComposedPrompt(route = {}, taskContract = {}, options = {}) {
   const input = String(options.input || '').trim();
-  const context = options.context || {};
   let next = { ...route, taskContract };
   if (taskContract.operation === 'text_to_image' || taskContract.operation === 'image_reference_gen') {
-    const prompt = promptComposer?.composeImageGeneratePrompt
-      ? promptComposer.composeImageGeneratePrompt(taskContract, context, input)
-      : input;
-    next = { ...next, contextualImagePrompt: prompt };
+    next = { ...next, contextualImagePrompt: executionPrompt(input) };
   } else if (taskContract.operation === 'edit_image') {
-    const editInstruction = promptComposer?.composeImageEditPrompt
-      ? promptComposer.composeImageEditPrompt(taskContract, context, input)
-      : input;
-    next = { ...next, editInstruction };
+    next = { ...next, editInstruction: executionPrompt(input) };
   }
   return next;
 }
@@ -118,7 +122,7 @@ function parseRouteResult(text = '', options = {}) {
   try {
     const taskContract = JSON.parse(stripJsonFence(value));
     if (!isTaskContractResult(taskContract)) return null;
-    const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, options);
+    const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
     return attachComposedPrompt(executionPlan, taskContract, options);
   } catch {
     return null;
@@ -134,7 +138,10 @@ function buildFileCandidatesFromAttachments(attachments = []) {
   return (attachments || [])
     .filter(item => item && !item.is_image)
     .map((item, index) => ({
-      index: index + 1,
+      index: Number(item.media_index || item.mediaIndex) || index + 1,
+      source_index: Number(item.source_index || item.sourceIndex) || index + 1,
+      source: 'current',
+      target: 'uploaded',
       file_id: item.file_id || item.id || item.attachmentId || item.attachment_id || '',
       name: item.name || 'attachment',
       type: item.type || '',
@@ -177,7 +184,7 @@ function compactRouteUserPayload({ input = '', attachments = [], context = {}, c
   return payload;
 }
 
-function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT } = {}) {
+function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK } = {}) {
   const userPayload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode });
   return {
     model,
@@ -208,6 +215,7 @@ function extractRouteText(response = {}) {
 
 const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT,
+  ROUTE_OUTPUT_CONTRACT_CHECK,
   INTENT_REVIEW_SYSTEM_PROMPT,
   cleanQuotedContent,
   buildQuotedImagePlaceholders,

@@ -1,0 +1,255 @@
+{
+  "schema_version": "intent-routing-eval.v1",
+  "title": "ChatUI intent routing starter benchmark",
+  "cases": [
+    {
+      "id": "plain-chat-does-not-inherit-history-image",
+      "category": "context-boundary",
+      "input": "请把下面这段项目周报改得更专业：本周完成了登录页开发。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "之前生成了一张橘猫插画" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat", "reference_id": "imgref-history-cat", "target": "previous", "description": "一只橘猫插画" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "media_exact", "items": [] }
+      }
+    },
+    {
+      "id": "new-text-to-image-does-not-inherit-history-image",
+      "category": "context-boundary",
+      "input": "画一条在珊瑚礁间游动的金鱼，柔和的晨光。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "之前生成了一张橘猫插画" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat", "reference_id": "imgref-history-cat", "target": "previous", "description": "一只橘猫插画" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "media_exact", "items": [] }
+      }
+    },
+    {
+      "id": "current-image-question-uses-current-image",
+      "category": "image-understanding",
+      "input": "描述这张产品图中的主要物体、配色和拍摄风格。",
+      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-product", "image_id": "img-current-product", "name": "product.png", "type": "image/png", "is_image": true }],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "描述这张产品图中的主要物体、配色和拍摄风格。" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-product", "reference_id": "imgref-current-product", "target": "uploaded", "description": "白色背景上的黑色耳机" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_qa",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-product", "reference_id": "imgref-current-product", "missing": false }] }
+      }
+    },
+    {
+      "id": "current-image-ocr-uses-current-image",
+      "category": "image-understanding",
+      "input": "提取这张发票截图里的公司名称、金额和日期。",
+      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-invoice", "image_id": "img-current-invoice", "name": "invoice.jpg", "type": "image/jpeg", "is_image": true }],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "提取这张发票截图里的公司名称、金额和日期。" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-invoice", "reference_id": "imgref-current-invoice", "target": "uploaded", "description": "一张中文发票截图" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "ocr",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-invoice", "reference_id": "imgref-current-invoice", "missing": false }] }
+      }
+    },
+    {
+      "id": "current-file-question-uses-current-file",
+      "category": "file-understanding",
+      "input": "总结这个合同中的付款节点和违约责任。",
+      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-contract", "file_id": "file-current-contract", "name": "contract.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "总结这个合同中的付款节点和违约责任。" }],
+        "image_candidates": [],
+        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-contract", "name": "contract.pdf", "has_extracted_text": true }]
+      },
+      "expected": {
+        "operation": "file_qa",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-contract", "missing": false }] }
+      }
+    },
+    {
+      "id": "current-image-and-file-need-multimodal-answer",
+      "category": "multimodal-understanding",
+      "input": "根据图片和这份商品说明，判断图片中的产品是否符合文档要求。",
+      "attachments": [
+        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-bottle", "image_id": "img-current-bottle", "name": "bottle.png", "type": "image/png", "is_image": true },
+        { "index": 2, "source_index": 2, "media_index": 1, "id": "file-current-spec", "file_id": "file-current-spec", "name": "specification.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }
+      ],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "根据图片和这份商品说明，判断图片中的产品是否符合文档要求。" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-bottle", "reference_id": "imgref-current-bottle", "target": "uploaded", "description": "一只蓝色保温杯" }],
+        "file_candidates": [{ "index": 1, "source_index": 2, "source": "current", "file_id": "file-current-spec", "name": "specification.pdf", "has_extracted_text": true }]
+      },
+      "expected": {
+        "operation": "multimodal_qa",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [
+          { "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-bottle", "reference_id": "imgref-current-bottle", "missing": false },
+          { "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-spec", "missing": false }
+        ] }
+      }
+    },
+    {
+      "id": "compare-two-numbered-history-images",
+      "category": "image-comparison",
+      "input": "比较第一张和第二张历史产品图的构图与色调差异。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "上一轮生成了两张产品海报" }],
+        "image_candidates": [
+          { "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-poster-a", "reference_id": "imgref-history-posters", "target": "previous", "description": "第一张暖色产品海报" },
+          { "index": 2, "source_index": 2, "source": "history", "image_id": "img-history-poster-b", "reference_id": "imgref-history-posters", "target": "previous", "description": "第二张冷色产品海报" }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_compare",
+        "relation": "followup",
+        "clarification": false,
+        "directive": { "mode": "patch" },
+        "resources": { "mode": "exact", "items": [
+          { "type": "image", "source": "history", "role": "compare_a", "index": 1, "id": "img-history-poster-a", "reference_id": "imgref-history-posters", "missing": false },
+          { "type": "image", "source": "history", "role": "compare_b", "index": 2, "id": "img-history-poster-b", "reference_id": "imgref-history-posters", "missing": false }
+        ] }
+      }
+    },
+    {
+      "id": "edit-previous-image-preserves-subject",
+      "category": "image-editing",
+      "input": "把上一张产品图的背景改成纯白，产品主体保持不变。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "assistant", "content": "已生成产品图" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-product", "reference_id": "imgref-history-product", "target": "previous", "description": "桌面上的黑色耳机产品图" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "clarification": false,
+        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "target", "index": 1, "id": "img-history-product", "reference_id": "imgref-history-product", "missing": false }] }
+      }
+    },
+    {
+      "id": "reference-generate-from-current-image",
+      "category": "reference-generation",
+      "input": "参考这张海报的构图，生成一张水彩风格的版本。",
+      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-poster", "image_id": "img-current-poster", "name": "poster.png", "type": "image/png", "is_image": true }],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "参考这张海报的构图，生成一张水彩风格的版本。" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-poster", "reference_id": "imgref-current-poster", "target": "uploaded", "description": "一张现代产品海报" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_reference_gen",
+        "relation": "new",
+        "clarification": false,
+        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "reference", "index": 1, "id": "img-current-poster", "reference_id": "imgref-current-poster", "missing": false }] }
+      }
+    },
+    {
+      "id": "missing-image-target-requires-clarification",
+      "category": "clarification",
+      "input": "把这张图的背景换成蓝色。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "把这张图的背景换成蓝色。" }],
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "clarify",
+        "relation": "new",
+        "clarification": true,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "target", "index": 1, "missing": true }] }
+      }
+    },
+    {
+      "id": "history-file-question-keeps-history-file",
+      "category": "file-understanding",
+      "input": "总结刚才那份合同中的付款条款。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "刚才上传了一份合同" }],
+        "image_candidates": [],
+        "file_candidates": [{ "index": 1, "source_index": 1, "source": "history", "file_id": "file-history-contract", "name": "previous-contract.pdf", "has_extracted_text": true }]
+      },
+      "expected": {
+        "operation": "file_qa",
+        "relation": "followup",
+        "clarification": false,
+        "directive": { "mode": "patch" },
+        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "history", "role": "attachment", "index": 1, "id": "file-history-contract", "missing": false }] }
+      }
+    },
+    {
+      "id": "ambiguous-history-image-requires-clarification",
+      "category": "clarification",
+      "input": "把猫的背景改成白色。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "assistant", "content": "有两张猫咪图片可供后续编辑" }],
+        "image_candidates": [
+          { "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat-a", "reference_id": "imgref-history-cats", "target": "previous", "description": "一只橘猫" },
+          { "index": 2, "source_index": 2, "source": "history", "image_id": "img-history-cat-b", "reference_id": "imgref-history-cats", "target": "previous", "description": "一只黑猫" }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "clarify",
+        "relation": "followup",
+        "clarification": true,
+        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "target", "index": 1, "missing": true }] }
+      }
+    },
+    {
+      "id": "quoted-image-reference-generation",
+      "category": "reference-generation",
+      "input": "参考引用图片的配色，生成一个更简洁的移动端落地页视觉稿。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [{ "index": 1, "role": "user", "content": "引用了之前的设计稿" }],
+        "image_candidates": [{ "index": 1, "source_index": 1, "source": "quoted", "image_id": "img-quoted-design", "reference_id": "imgref-quoted-design", "target": "previous", "description": "蓝紫渐变的移动端设计稿" }],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_reference_gen",
+        "relation": "followup",
+        "clarification": false,
+        "directive": { "mode": "patch", "unmentioned_policy": "allow_change" },
+        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "quoted", "role": "style_reference", "index": 1, "id": "img-quoted-design", "reference_id": "imgref-quoted-design", "missing": false }] }
+      }
+    }
+  ]
+}

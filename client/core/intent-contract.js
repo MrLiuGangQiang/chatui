@@ -10,6 +10,7 @@
   const VALID_DIRECTIVE_MODES = new Set(['standalone', 'patch']);
   const VALID_UNMENTIONED_POLICIES = new Set(['preserve', 'allow_change']);
   const VALID_PATCH_OPERATIONS = new Set(['preserve', 'add', 'replace', 'remove']);
+  const MEDIA_TYPES = new Set(['image', 'file']);
 
   const TOP_LEVEL_FIELDS = ['schema_version', 'operation', 'relation', 'resources', 'directive', 'clarification', 'confidence', 'review_reasons', 'rationale'];
   const RESOURCE_FIELDS = ['key', 'type', 'source', 'role', 'index', 'id', 'reference_id', 'missing'];
@@ -38,6 +39,106 @@
 
   function contractApi(task = {}) {
     return API_BY_OPERATION[task.operation] || '';
+  }
+
+  function resourceList(task = {}, type = '') {
+    return (task.resources || []).filter(resource => !type || resource.type === type);
+  }
+
+  function hasOnlyResourceTypes(resources = [], types = []) {
+    const allowed = new Set(types);
+    return resources.every(resource => allowed.has(resource.type));
+  }
+
+  function hasOnlyResourceRoles(resources = [], roles = []) {
+    const allowed = new Set(roles);
+    return resources.every(resource => allowed.has(resource.role));
+  }
+
+  function hasExactMissingResourceKeys(task = {}) {
+    const declared = task.clarification?.missing_resource_keys || [];
+    const actual = (task.resources || []).filter(resource => resource.missing).map(resource => resource.key);
+    return new Set(declared).size === declared.length
+      && declared.length === actual.length
+      && declared.every(key => actual.includes(key));
+  }
+
+  function hasOperationResourceShape(task = {}) {
+    const resources = task.resources || [];
+    const images = resourceList(task, 'image');
+    const files = resourceList(task, 'file');
+    const directive = task.directive || {};
+    const baseKeys = new Set(directive.base_resource_keys || []);
+
+    if (files.some(resource => resource.reference_id)) return false;
+    if (task.operation === 'clarify') {
+      return hasExactMissingResourceKeys(task)
+        && directive.mode === 'standalone'
+        && directive.base_resource_keys.length === 0
+        && directive.unmentioned_policy === 'allow_change'
+        && directive.operations.length === 0;
+    }
+    if (task.operation === 'plain_chat') return !images.length && !files.length;
+    if (task.operation === 'text_to_image') {
+      return !files.length
+        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceRoles(images, ['reference'])
+        && images.every(resource => resource.source !== 'current');
+    }
+
+    if (task.operation === 'file_qa') {
+      return files.length > 0
+        && !images.length
+        && hasOnlyResourceTypes(resources, ['file'])
+        && hasOnlyResourceRoles(files, ['attachment']);
+    }
+
+    if (task.operation === 'multimodal_qa') {
+      return images.length > 0
+        && files.length > 0
+        && hasOnlyResourceTypes(resources, ['image', 'file'])
+        && hasOnlyResourceRoles(images, ['source'])
+        && hasOnlyResourceRoles(files, ['attachment']);
+    }
+
+    if (task.operation === 'image_qa' || task.operation === 'ocr') {
+      return images.length > 0
+        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceRoles(images, ['source']);
+    }
+
+    if (task.operation === 'image_compare') {
+      const roles = new Set(images.map(resource => resource.role));
+      return images.length === 2
+        && hasOnlyResourceTypes(resources, ['image'])
+        && roles.size === 2
+        && roles.has('compare_a')
+        && roles.has('compare_b');
+    }
+
+    if (task.operation === 'edit_image') {
+      const targets = images.filter(resource => resource.role === 'target');
+      return directive.mode === 'patch'
+        && images.length > 0
+        && !files.length
+        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceRoles(images, ['target', 'mask'])
+        && targets.length > 0
+        && images.every(resource => baseKeys.has(resource.key));
+    }
+
+    if (task.operation === 'image_reference_gen') {
+      const references = images.filter(resource => ['reference', 'style_reference'].includes(resource.role));
+      return directive.mode === 'patch'
+        && images.length > 0
+        && !files.length
+        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceRoles(images, ['reference', 'style_reference'])
+        && references.length > 0
+        && images.every(resource => baseKeys.has(resource.key));
+    }
+
+    return false;
   }
 
   function hasExactContractShape(value = {}) {
@@ -87,49 +188,154 @@
       if (value.relation !== 'new' && directive.mode !== 'patch') return false;
     }
 
-    if (value.operation === 'edit_image') {
-      const targets = value.resources.filter(resource => resource.type === 'image' && resource.role === 'target');
-      if (directive.mode !== 'patch' || !targets.length || targets.some(resource => !directive.base_resource_keys.includes(resource.key))) return false;
+    return hasOperationResourceShape(value);
+  }
+
+  function currentUserMessageIndex(context = {}) {
+    const messages = Array.isArray(context.recent_messages) ? context.recent_messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'user') continue;
+      const candidateIndex = Number(message.index);
+      return Number.isInteger(candidateIndex) && candidateIndex > 0 ? candidateIndex : index + 1;
     }
-    if (value.operation === 'image_reference_gen') {
-      const references = value.resources.filter(resource => resource.type === 'image' && ['reference', 'style_reference'].includes(resource.role));
-      if (directive.mode !== 'patch' || !references.length || references.some(resource => !directive.base_resource_keys.includes(resource.key))) return false;
+    return 0;
+  }
+
+  function normalizeCandidateSource(source = '', messageIndex = 0, currentMessageIndex = 0) {
+    const value = String(source || '').trim();
+    if (VALID_RESOURCE_SOURCES.has(value)) return value;
+    if (value === 'user_message') return Number(messageIndex) === Number(currentMessageIndex) ? 'current' : 'history';
+    return 'context';
+  }
+
+  function mediaCandidates(type, context = {}, attachments = [], operation = '') {
+    const currentMessageIndex = currentUserMessageIndex(context);
+    const sourceCandidates = Array.isArray(type === 'image' ? context.image_candidates : context.file_candidates)
+      ? (type === 'image' ? context.image_candidates : context.file_candidates)
+      : [];
+    const candidates = sourceCandidates.map(entry => {
+      const index = Number(entry?.index);
+      if (!Number.isInteger(index) || index < 1) return null;
+      return {
+        id: String(type === 'image' ? entry?.image_id || entry?.imageId || '' : entry?.file_id || entry?.fileId || entry?.id || ''),
+        referenceId: String(entry?.reference_id || entry?.referenceId || ''),
+        index,
+        sourceIndex: Number(entry?.source_index || entry?.sourceIndex || entry?.index) || index,
+        source: normalizeCandidateSource(entry?.source, entry?.message_index || entry?.messageIndex, currentMessageIndex),
+        target: String(entry?.target || ''),
+        name: String(entry?.name || entry?.filename || ''),
+      };
+    }).filter(Boolean);
+
+    let attachmentIndex = 0;
+    for (const attachment of attachments || []) {
+      const mime = String(attachment?.type || attachment?.mime || attachment?.file?.type || '').toLowerCase();
+      const isImage = attachment?.is_image === true || attachment?.isImage === true || mime.startsWith('image/');
+      if ((type === 'image') !== isImage) continue;
+      attachmentIndex += 1;
+      const index = attachmentIndex;
+      const candidate = {
+        id: String(type === 'image'
+          ? attachment?.image_id || attachment?.imageId || attachment?.id || attachment?.attachmentId || attachment?.attachment_id || ''
+          : attachment?.file_id || attachment?.fileId || attachment?.id || attachment?.attachmentId || attachment?.attachment_id || ''),
+        referenceId: String(attachment?.reference_id || attachment?.referenceId || ''),
+        index,
+        sourceIndex: Number(attachment?.source_index || attachment?.sourceIndex) || index,
+        source: 'current',
+        target: 'uploaded',
+        name: String(attachment?.name || attachment?.filename || attachment?.file?.name || ''),
+      };
+      if (!candidates.some(item => item.source === candidate.source && item.index === candidate.index)) candidates.push(candidate);
     }
-    if (['image_qa', 'image_compare', 'ocr'].includes(value.operation) && !value.resources.some(resource => resource.type === 'image')) return false;
-    if (['file_qa', 'multimodal_qa'].includes(value.operation) && !value.resources.some(resource => resource.type === 'file')) return false;
+    if (type === 'image' && operation === 'text_to_image' && !candidates.length && context?.last_generated_image?.prompt) {
+      candidates.push({
+        id: '',
+        referenceId: String(context.last_generated_image.reference_id || ''),
+        index: 1,
+        sourceIndex: 1,
+        source: 'history',
+        target: 'previous',
+        name: '',
+      });
+    }
+    return candidates;
+  }
+
+  function resolveResourceCandidate(resource = {}, type = '', options = {}) {
+    if (!MEDIA_TYPES.has(type) || resource.missing) return null;
+    const candidates = mediaCandidates(type, options.context || {}, options.attachments || [], options.operation || '');
+    const matches = candidates.filter(candidate => {
+      if (candidate.source !== resource.source || candidate.index !== Number(resource.index)) return false;
+      if (resource.id && candidate.id !== resource.id) return false;
+      if (resource.reference_id && candidate.referenceId !== resource.reference_id) return false;
+      return true;
+    });
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  function hasResolvedResourceBindings(task = {}, options = {}) {
+    if (!hasExactContractShape(task)) return false;
+    const resolved = [];
+    for (const resource of task.resources || []) {
+      if (resource.missing || !MEDIA_TYPES.has(resource.type)) continue;
+      const candidate = resolveResourceCandidate(resource, resource.type, { ...options, operation: task.operation });
+      if (!candidate) return false;
+      resolved.push({ resource, candidate });
+    }
+    if (task.operation === 'image_compare') {
+      const imageKeys = new Set(resolved
+        .filter(item => item.resource.type === 'image')
+        .map(item => `${item.candidate.id || item.candidate.referenceId || ''}:${item.candidate.source}:${item.candidate.index}`));
+      if (imageKeys.size !== 2) return false;
+    }
     return true;
   }
 
-  function resourceRefs(task, type, context = {}) {
-    const candidates = type === 'image' ? context.image_candidates : context.file_candidates;
-    const list = Array.isArray(candidates) ? candidates : [];
+  function fallbackCandidate(resource = {}) {
+    const source = resource.source;
+    return {
+      id: resource.id || '',
+      referenceId: resource.reference_id || '',
+      index: Number(resource.index),
+      sourceIndex: Number(resource.index),
+      source,
+      target: ['history', 'quoted', 'context'].includes(source) ? 'previous' : 'uploaded',
+      name: '',
+    };
+  }
+
+  function resourceRefs(task, type, options = {}) {
+    const strict = options.requireCandidateMatch === true;
     return task.resources.filter(item => item.type === type && !item.missing).map(item => {
-      const candidate = list.find(entry => {
-        const entryId = type === 'image' ? entry.image_id : entry.file_id;
-        if (item.id && entryId === item.id) return true;
-        if (type === 'image' && item.reference_id && entry.reference_id === item.reference_id && Number(entry.index) === item.index) return true;
-        return Number(entry.index) === item.index && entry.source === item.source;
-      }) || {};
+      const candidate = resolveResourceCandidate(item, type, { ...options, operation: task.operation });
+      if (strict && !candidate) throw new TypeError(`Unresolved ${type} resource: ${item.key}`);
+      const resolved = candidate || fallbackCandidate(item);
+      const target = ['previous', 'uploaded'].includes(resolved.target)
+        ? resolved.target
+        : ['history', 'quoted', 'context'].includes(resolved.source) ? 'previous' : 'uploaded';
       return {
         key: item.key,
         role: item.role,
-        image_id: type === 'image' ? item.id || candidate.image_id || '' : '',
-        file_id: type === 'file' ? item.id || candidate.file_id || '' : '',
-        reference_id: item.reference_id || candidate.reference_id || '',
-        index: Number(candidate.source_index) || Number(candidate.index) || item.index,
-        target: item.source === 'history' || item.source === 'quoted' ? 'previous' : 'uploaded',
-        source: item.source,
-        name: candidate.name || '',
+        image_id: type === 'image' ? resolved.id : '',
+        file_id: type === 'file' ? resolved.id : '',
+        reference_id: resolved.referenceId,
+        index: resolved.sourceIndex,
+        target,
+        source: resolved.source,
+        name: resolved.name,
       };
     });
   }
 
   function taskContractToExecutionPlan(task = {}, options = {}) {
     if (!hasExactContractShape(task)) throw new TypeError('A valid task_contract.v3 is required');
+    if (options.requireCandidateMatch === true && !hasResolvedResourceBindings(task, options)) throw new TypeError('Task resources must resolve to unique candidates');
     const input = String(options.input || '').trim();
-    const imageRefs = resourceRefs(task, 'image', options.context || {});
-    const fileRefs = resourceRefs(task, 'file', options.context || {});
-    const selectedIndexes = [...new Set([...imageRefs, ...fileRefs].map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
+    const imageRefs = resourceRefs(task, 'image', options);
+    const fileRefs = resourceRefs(task, 'file', options);
+    const selectedImageIndexes = [...new Set(imageRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
+    const selectedFileIndexes = [...new Set(fileRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const api = contractApi(task);
     const common = {
       api,
@@ -142,7 +348,9 @@
       evidence: task.rationale,
       needClarification: false,
       clarificationQuestion: '',
-      selectedIndexes,
+      selectedIndexes: selectedImageIndexes,
+      selectedImageIndexes,
+      selectedFileIndexes,
       selectedReferenceId: imageRefs.find(ref => ref.reference_id)?.reference_id || '',
       selectedImageIds: imageRefs.map(ref => ref.image_id).filter(Boolean),
       usePreviousImage: false,
@@ -151,24 +359,24 @@
     };
 
     if (task.operation === 'clarify') {
-      return { ...common, mode: 'chat', target: 'none', needClarification: true, clarificationQuestion: task.clarification.question, selectedIndexes: [], selectedReferenceId: '', selectedImageIds: [], imageRefs: [], fileRefs: [], intent: 'clarify' };
+      return { ...common, mode: 'chat', target: 'none', needClarification: true, clarificationQuestion: task.clarification.question, selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedReferenceId: '', selectedImageIds: [], imageRefs: [], fileRefs: [], intent: 'clarify' };
     }
     if (api === 'image_generation') {
       return { ...common, mode: 'image', target: 'new', contextualImagePrompt: input, intent: task.operation };
     }
     if (api === 'image_edit') {
-      const targetResource = task.resources.find(item => item.type === 'image' && item.role === 'target' && !item.missing);
-      const target = ['history', 'quoted'].includes(targetResource?.source) ? 'previous' : 'uploaded';
-      const targetRefs = imageRefs.filter(ref => ref.role === 'target');
+      const targetRef = imageRefs.find(item => item.role === 'target');
       return {
         ...common,
         mode: 'edit_image',
-        target,
+        target: targetRef?.target || 'none',
         editInstruction: input,
         intent: 'image_edit',
-        selectedReferenceId: targetResource?.reference_id || targetRefs.find(ref => ref.reference_id)?.reference_id || '',
-        selectedImageIds: targetRefs.map(ref => ref.image_id).filter(Boolean),
-        usePreviousImage: target === 'previous',
+        selectedReferenceId: targetRef?.reference_id || '',
+        selectedImageIds: imageRefs.filter(ref => ref.role === 'target').map(ref => ref.image_id).filter(Boolean),
+        selectedIndexes: imageRefs.filter(ref => ref.role === 'target').map(ref => ref.index),
+        selectedImageIndexes: imageRefs.filter(ref => ref.role === 'target').map(ref => ref.index),
+        usePreviousImage: targetRef?.target === 'previous',
       };
     }
     return { ...common, mode: 'chat', target: 'none', intent: task.operation };
@@ -183,6 +391,8 @@
     SCHEMA_VERSION,
     contractApi,
     hasExactContractShape,
+    hasResolvedResourceBindings,
+    resolveResourceCandidate,
     taskContractToExecutionPlan,
     needsIntentReview,
   });

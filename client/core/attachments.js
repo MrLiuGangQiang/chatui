@@ -106,24 +106,19 @@ function getLatestImageReferenceTarget({ display = [], messages = [], lastGenera
   return { target: 'none', usePreviousImage: false, reason: 'no-image-reference', count: 0, selection: 'none' };
 }
 
-function buildRouteFileCandidates(attachments = []) {
-  return (attachments || [])
-    .filter(item => item && !isImageFile(item))
-    .map((item, index) => ({
-      index: index + 1,
-      file_id: item.attachmentId || item.attachment_id || item.id || '',
-      name: item.name || (item.file && item.file.name) || 'attachment',
-      type: item.type || (item.file && item.file.type) || '',
-      size: Number(item.size || (item.file && item.file.size)) || 0,
-      has_extracted_text: !!String(item.text || '').trim(),
-      unsupported_reason: item.unsupportedReason || '',
-    }));
-}
-
 function buildRouteAttachmentMetadata(attachments = []) {
-  return (attachments || []).map(item => {
+  let imageIndex = 0;
+  let fileIndex = 0;
+  return (attachments || []).map((item, index) => {
     const isImage = isImageFile(item);
+    const mediaIndex = isImage ? ++imageIndex : ++fileIndex;
+    const id = item.imageId || item.image_id || item.attachmentId || item.attachment_id || item.id || '';
     return {
+      index: index + 1,
+      source_index: index + 1,
+      media_index: mediaIndex,
+      id,
+      ...(isImage ? { image_id: id } : { file_id: id }),
       name: item.name || (item.file && item.file.name) || 'attachment',
       type: item.type || (item.file && item.file.type) || '',
       size: Number(item.size || (item.file && item.file.size)) || 0,
@@ -151,7 +146,6 @@ const api = Object.freeze({
   normalizeImageContextForStorage,
   parseImageContext,
   getLatestImageReferenceTarget,
-  buildRouteFileCandidates,
   buildRouteAttachmentMetadata,
 });
 

@@ -41,7 +41,7 @@ function testNewImageTaskUsesOnlyCurrentUserInput() {
   const task = imageContract();
   assert.strictEqual(task.relation, 'new');
   assert.strictEqual(task.directive.mode, 'standalone');
-  assert.strictEqual(promptComposer.composeImageGeneratePrompt(task, historyContext(), FISH), FISH);
+  assert.strictEqual(promptComposer.composeExecutionPrompt(FISH), FISH);
 }
 
 function testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt() {
@@ -60,7 +60,7 @@ function testNewTaskContractRejectsHistoricalPatchContamination() {
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(contaminated), { input: FISH, context: historyContext() }), null);
 }
 
-function testQuotedImageGenerationUsesExplicitBaseResource() {
+function testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate() {
   const quotedDescription = '\u4e00\u5e45\u8be6\u7ec6\u7684\u590f\u65e5\u6d77\u8fb9\u63d2\u753b\uff0c\u91d1\u8272\u5915\u9633\uff0c\u900f\u660e\u6d6a\u82b1\uff0c\u8fdc\u5904\u706f\u5854';
   const shortRequest = '\u57fa\u4e8e\u5f15\u7528\u6d88\u606f\u751f\u6210\u6c34\u5f69\u56fe\u7247';
   const context = { image_candidates: [{ index: 1, source: 'quoted', reference_id: 'imgref_quote', image_id: 'img_quote_1', prompt: quotedDescription }] };
@@ -70,13 +70,35 @@ function testQuotedImageGenerationUsesExplicitBaseResource() {
     resources: [{ source: 'quoted', role: 'reference', id: 'img_quote_1', reference_id: 'imgref_quote' }],
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'style', value: 'watercolor' }], constraints: [] },
   });
-  const composed = promptComposer.composeImageGeneratePrompt(raw, context, shortRequest);
-  assert.ok(composed.includes(quotedDescription));
-  assert.ok(composed.includes(shortRequest));
-  assert.ok(composed.includes('watercolor'));
+  const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input: shortRequest, attachments: [], context });
+  assert.strictEqual(parsed.contextualImagePrompt, shortRequest);
+  assert.ok(!parsed.contextualImagePrompt.includes('补丁基线'));
+  assert.ok(!parsed.contextualImagePrompt.includes(quotedDescription));
 }
 
-function testCorrectionTaskUsesHistoricalBaseAndStructuredChanges() {
+function testMultiReferenceGenerationKeepsNaturalUserPrompt() {
+  const input = '把鱼和猫合并成一张图，要求自然';
+  const raw = imageContract({
+    relation: 'followup',
+    operation: 'image_reference_gen',
+    resources: [
+      { source: 'history', role: 'reference', id: 'img_fish', reference_id: 'imgref_fish' },
+      { source: 'history', role: 'reference', id: 'img_cat', reference_id: 'imgref_cat' },
+    ],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'allow_change', operations: [{ op: 'add', target: 'subjects', value: 'merge fish and cat naturally' }], constraints: [] },
+  });
+  const context = {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'img_fish', reference_id: 'imgref_fish', prompt: FISH },
+      { index: 2, source: 'history', image_id: 'img_cat', reference_id: 'imgref_cat', prompt: CAT },
+    ],
+  };
+  const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context });
+  assert.strictEqual(parsed.contextualImagePrompt, input);
+  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.contextualImagePrompt));
+}
+
+function testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest() {
   const input = '\u8fd9\u5f20\u56fe\u4e0d\u5bf9\uff0c\u91cd\u65b0\u751f\u6210';
   const raw = imageContract({
     relation: 'correction',
@@ -85,8 +107,21 @@ function testCorrectionTaskUsesHistoricalBaseAndStructuredChanges() {
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context: historyContext() });
   assert.strictEqual(parsed.taskContract.relation, 'correction');
-  assert.ok(parsed.contextualImagePrompt.includes(CAT));
-  assert.ok(parsed.contextualImagePrompt.includes(input));
+  assert.strictEqual(parsed.contextualImagePrompt, input);
+  assert.ok(!parsed.contextualImagePrompt.includes(CAT));
+}
+
+function testImageEditKeepsOnlyTheCurrentExecutionRequest() {
+  const input = '把猫的背景改成海边，其他不变';
+  const raw = imageContract({
+    relation: 'followup',
+    operation: 'edit_image',
+    resources: [{ source: 'history', role: 'target', id: 'img_1', reference_id: 'imgref_latest' }],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'beach' }], constraints: [] },
+  });
+  const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context: historyContext() });
+  assert.strictEqual(parsed.editInstruction, input);
+  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.editInstruction));
 }
 
 function testRelationSurvivesCanonicalExecutionPlan() {
@@ -111,8 +146,10 @@ module.exports = [
   testNewImageTaskUsesOnlyCurrentUserInput,
   testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt,
   testNewTaskContractRejectsHistoricalPatchContamination,
-  testQuotedImageGenerationUsesExplicitBaseResource,
-  testCorrectionTaskUsesHistoricalBaseAndStructuredChanges,
+  testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate,
+  testMultiReferenceGenerationKeepsNaturalUserPrompt,
+  testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest,
+  testImageEditKeepsOnlyTheCurrentExecutionRequest,
   testRelationSurvivesCanonicalExecutionPlan,
   testRoutePromptsDeclarePatchAndContextBoundary,
 ];

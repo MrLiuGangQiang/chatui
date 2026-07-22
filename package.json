@@ -9,6 +9,7 @@
     "check:syntax": "node --check server.js && node --check app.js",
     "check": "npm run check:project && npm run check:architecture && npm run check:syntax && npm test",
     "test": "node test/run-tests.js",
+    "eval:intent": "node scripts/evaluate-intent-routing.js",
     "start": "node server.js",
     "verify:release": "node scripts/verify-release.js",
     "check:architecture": "node scripts/check-architecture.js"

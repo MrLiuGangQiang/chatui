@@ -62,6 +62,7 @@ const reasoningWorkflowTests = require('../unit/reasoning-workflow.test');
 const reasoningHistoryPersistenceTests = require('../unit/reasoning-history-persistence.test');
 const routeRecognitionSubmitTests = require('../unit/route-recognition-submit.test');
 const routeModelFollowSessionTests = require('../unit/route-model-follow-session.test');
+const intentRoutingEvaluationTests = require('../unit/intent-routing-evaluation.test');
 const taskContextBoundaryTests = require('../unit/task-context-boundary.test');
 const sessionRouteSwitchContinuityTests = require('../unit/session-route-switch-continuity.test');
 const durableTaskLifecycleTests = require('../unit/durable-task-lifecycle.test');
@@ -263,11 +264,8 @@ function testPromptComposerPreservesIntentWithoutOverOptimizing() {
     doNotAdd: ['不要新增用户未要求的风格、对象、背景、文字或构图。'],
     finalInstruction: '重新生成并修正面数错误',
   });
-  const prompt = promptComposer.composeImageGeneratePrompt(task, context, '正方体怎么都7个面了？');
-  assert.ok(prompt.includes('骰子模板'));
-  assert.ok(prompt.includes('正方体怎么都7个面了'));
-  assert.ok(prompt.includes('正方体只能有 6 个面'));
-  assert.ok(prompt.includes('不要新增用户未要求'));
+  const prompt = promptComposer.composeExecutionPrompt('正方体怎么都7个面了？');
+  assert.strictEqual(prompt, '正方体怎么都7个面了？');
   assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(prompt), 'composer must not add unrelated style polish');
 }
 
@@ -286,8 +284,7 @@ function testRouteResultCarriesTaskContractAndComposedPrompt() {
   assert.strictEqual(parsed.mode, 'image');
   assert.strictEqual(parsed.taskContract.operation, 'text_to_image');
   assert.strictEqual(parsed.api, 'image_generation');
-  assert.ok(parsed.contextualImagePrompt.includes('生成一个可打印骰子展开图'));
-  assert.ok(parsed.contextualImagePrompt.includes('正方体怎么都7个面了'));
+  assert.strictEqual(parsed.contextualImagePrompt, '正方体怎么都7个面了？');
   assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(parsed.contextualImagePrompt), 'route prompt must not add unrelated style polish');
 }
 
@@ -305,8 +302,7 @@ function testRouteInstructionDoesNotPolluteImagePrompt() {
   })), { input: '还是不对，面数错了', attachments: [], context });
   assert.strictEqual(parsed.mode, 'image');
   assert.strictEqual(parsed.api, 'image_generation');
-  assert.ok(parsed.contextualImagePrompt.includes('骰子展开图模板'));
-  assert.ok(parsed.contextualImagePrompt.includes('还是不对，面数错了'));
+  assert.strictEqual(parsed.contextualImagePrompt, '还是不对，面数错了');
   assert.ok(!parsed.contextualImagePrompt.includes('粘贴边'), 'route model invented construction detail must not enter final image prompt');
   assert.ok(!/3D|高清|电影感/i.test(parsed.contextualImagePrompt), 'route model invented style detail must not enter final image prompt');
 }
@@ -490,8 +486,8 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.7.1-image-semantics') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'browser cache versions should match the current static bundle');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match browser cache-busting');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.7.1-image-semantics') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'browser cache versions should match the current static bundle');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match browser cache-busting');
 }
 
 function testPendingClarificationMergesFollowupSupplements() {
@@ -688,7 +684,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'), 'submit workflow cache version should be bumped for pending clarification fix');
   assert.ok(index.includes('clarification-service.js?v=1.0.7-strict-continuation-contract'), 'clarification service cache version should be bumped for the strict continuation contract');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -837,11 +833,10 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   assert.ok(body.includes('"has_extracted_text":true'));
   assert.ok(!body.includes('CREATE TABLE users'));
   const submitSource = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  const appSource = require('fs').readFileSync(require('path').join(__dirname, '../../app.js'), 'utf8');
-  assert.ok(submitSource.includes('这是什么') && submitSource.includes('这个附件'));
-  assert.ok(submitSource.includes('里面|其中|多少') && submitSource.includes('邮箱|邮件|地址'));
-  assert.ok(appSource.includes('这是什么') && appSource.includes('这个附件'));
-  assert.ok(appSource.includes('里面|其中|多少') && appSource.includes('邮箱|邮件|地址'));
+  const submitHelpersSource = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/submit-workflow.helpers.js'), 'utf8');
+  assert.ok(submitSource.includes('submitHelpers.isFileUnderstandingChat(promptText)'));
+  assert.ok(submitHelpersSource.includes('这是什么') && submitHelpersSource.includes('这个附件'));
+  assert.ok(submitHelpersSource.includes('里面|其中|多少') && submitHelpersSource.includes('邮箱|邮件|地址'));
 }
 
 function testQuotedFileAttachmentTextIsIncluded() {
@@ -1188,8 +1183,7 @@ function testImageResultCorrectionRebuildsImagePrompt() {
   assert.strictEqual(parsed.mode, 'image');
   assert.strictEqual(parsed.operationType, 'text_to_image');
   assert.strictEqual(parsed.needClarification, false);
-  assert.ok(parsed.contextualImagePrompt.includes(originalPrompt), 'context prompt should preserve original image goal');
-  assert.ok(parsed.contextualImagePrompt.includes(input) || parsed.contextualImagePrompt.includes('7 个面'), 'context prompt should include latest correction');
+  assert.strictEqual(parsed.contextualImagePrompt, input, 'execution prompt should remain the current user request');
 
   const currentCorrectionContext = routeContext.buildRouteContext({
     messages: [
@@ -1199,7 +1193,6 @@ function testImageResultCorrectionRebuildsImagePrompt() {
     ],
     lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png' }] },
   });
-  assert.strictEqual(promptComposer.resolveBaseText(modelContract.resources[0], currentCorrectionContext), originalPrompt, 'the selected historical base resource must resolve to the original image prompt');
   const parsedCurrentCorrection = routeService.parseRouteResult(JSON.stringify(taskContractFixture({
     intent: 'image.generate',
     taskType: 'correction',
@@ -1210,8 +1203,7 @@ function testImageResultCorrectionRebuildsImagePrompt() {
     confidence: 0.9,
   })), { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
   assert.strictEqual(parsedCurrentCorrection.mode, 'image');
-  assert.ok(parsedCurrentCorrection.contextualImagePrompt.includes(originalPrompt));
-  assert.ok(parsedCurrentCorrection.contextualImagePrompt.includes('面数错了') || parsedCurrentCorrection.contextualImagePrompt.includes('修正面数错误'));
+  assert.strictEqual(parsedCurrentCorrection.contextualImagePrompt, '这张图不对，面数错了');
 
   const legacyRoute = routeService.parseRouteResult(JSON.stringify({ route: 'chat', confidence: 0.8 }), { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
   assert.strictEqual(legacyRoute, null, 'legacy route objects must be rejected instead of post-processed');
@@ -1256,7 +1248,7 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.canShowChatWaiting(true), false, 'waiting feedback must be permanently disabled after answer output starts');
   assert.ok(source.includes('if(!canShowChatWaiting(answerStarted))return') && source.includes('canShowChatWaiting(answerStarted)&&setPendingFeedback'), 'accepted callbacks and non-stream fallback must not restore waiting feedback after answer output starts');
   assert.ok(source.includes('const responseStartedAt=metricNow();let answerStarted=!1,streamRequestAccepted=!1;try{let t="",s=!1,c=null,answerText="",reasoningText="",firstTokenMs=null;'), 'answer-start state must remain in scope for the streaming fallback catch');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && bundle.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && bundle.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
 function testStreamingTailRendersWithoutCursor() {
@@ -1274,7 +1266,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.93-live-code-highlight') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.1.99-solid-code'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.93-live-code-highlight') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1408,7 +1400,7 @@ function testEmptySessionRendersPremiumWelcome() {
   assert.ok(app.includes('function shouldShowEmptyWelcome') && app.includes('!e.classList?.contains("empty-welcome")'), 'the empty renderer should treat only the current welcome page as non-message content');
   assert.ok(app.includes('!s&&!n&&!a'), 'the welcome page should render only when messages, pending display items, and other DOM content are empty');
   assert.ok(app.includes(':scope > .empty-welcome:only-child') && app.includes('t.scrollTop=0'), 'empty welcome rendering should stay at the top instead of being focused to the message tail on mobile');
-  assert.ok(index.includes('./app.js?v=2.1.49-strict-model-only-continuation') && index.includes('flat-theme.css?v=2.1.99-solid-code'), 'welcome assets should use updated cache versions');
+  assert.ok(index.includes('./app.js?v=2.1.52-single-submit-workflow') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'welcome assets should use updated cache versions');
   assert.ok(css.includes('.messages:has(>.empty-welcome:only-child)') && css.includes('.welcome-hero{') && css.includes('.welcome-title{'), 'the redesigned welcome page should have a dedicated premium hero layout');
   assert.ok(welcomeSource.includes('class="welcome-globe"') && welcomeSource.includes('id="welcomeGlobeOcean"') && welcomeSource.includes('class="welcome-globe-land"') && !welcomeSource.includes('<strong>AI</strong>') && !welcomeSource.includes('<small>READY</small>'), 'the welcome orbit center should contain only the dedicated layered globe without extra labels');
   assert.ok(css.includes('.welcome-globe{') && css.includes('@keyframes welcome-globe-tilt') && css.includes('@keyframes welcome-globe-land-drift') && css.includes('.welcome-globe-atmosphere{') && css.includes('background:transparent!important;\n  box-shadow:none!important;'), 'the globe should use dimensional lighting and restrained motion without a card-shaped center pedestal');
@@ -1545,7 +1537,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.18-followup-alignment') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.18-followup-alignment') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -1757,8 +1749,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'history spacer submit fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match the directory spacer fix cache-busting');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
 function testHistoryAnchorNavFeature() {
@@ -2430,7 +2422,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(modal.classList.contains('show'));
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'false');
   assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
-  assert.strictEqual(frame.getAttribute('src'), './route.html?v=1.1.3-title-map');
+  assert.strictEqual(frame.getAttribute('src'), './route.html?v=1.3.2-stage3-centered');
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.strictEqual(controller.isOpen(), false);
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'true');
@@ -2442,6 +2434,22 @@ function testRouteDiagramLauncherUsesModal() {
   const routeDiagram = fs.readFileSync(path.join(__dirname, '../../route.html'), 'utf8');
   assert.ok(routeDiagram.includes('fallback stays inside the route card') && routeDiagram.includes('x="1041" y="572" width="208" height="18"'), 'the fallback route should stay inside the first-pass route card rather than covering another stage');
   assert.ok(!routeDiagram.includes('x="1023" y="346" width="244" height="56"'), 'the old floating fallback callout should not overlap the preceding stage');
+  assert.ok(routeDiagram.includes('connected S-shaped route track') && routeDiagram.includes('id="executionSnakeTrack"') && routeDiagram.includes('<animateMotion id="flowCometMotion"') && routeDiagram.includes('repeatCount="indefinite"') && routeDiagram.includes('M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630') && routeDiagram.includes('H311C268 630 240 657 240 699V778C240 820 266 848 308 848') && routeDiagram.includes('H1584'), 'the execution sequence should remain one continuous animated S-shaped flow between cards with matching upper and lower turns');
+  assert.ok(routeDiagram.includes('id="snakeTrackGuide"') && routeDiagram.includes('stroke-dashoffset') && !routeDiagram.includes('step-beacon'), 'the runway should use a flowing center guide and one travelling comet rather than node-by-node beacons');
+  assert.ok(routeDiagram.indexOf('id="executionSnakeTrack"') > routeDiagram.indexOf('<!-- completion -->'), 'the snake track should be painted above the third-stage and completion shadows so its final turn remains fully visible');
+  assert.ok(routeDiagram.includes('M558 273h21v-8l18 14-18 14v-8h-21Z') && routeDiagram.includes('M468 510h6v-8l18 14-18 14v-8h-6Z') && routeDiagram.includes('M542 736h71v-8l18 14-18 14v-8H542Z') && !routeDiagram.includes('M216 273h29v-8l18 14-18 14v-8h-29Z') && !routeDiagram.includes('M214 510h5v-6l11 12-11 12v-6h-5Z') && !routeDiagram.includes('M211 723h68v-8l12 14-12 14v-8h-68Z') && routeDiagram.includes('cx="116" cy="729" r="91"'), 'only card-to-card arrows should remain; phase badges should stay aligned and independent');
+  assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
+  assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
+  assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
+  assert.ok(routeDiagram.includes('task_contract.v3') && routeDiagram.includes('operation = clarify') && routeDiagram.includes('持久化交接后分发'), 'the route diagram should describe the current task-contract routing and durable handoff flow');
+  assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
+  const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
+  assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');
+  const executionGaps = [executionCards[1].x - executionCards[0].x - executionCards[0].width, executionCards[2].x - executionCards[1].x - executionCards[1].width];
+  const outerExecutionGaps = [executionCards[0].x - 199, 1315 - (executionCards[2].x + executionCards[2].width)];
+  const allExecutionGaps = [...executionGaps, ...outerExecutionGaps];
+  assert.ok(Math.max(...allExecutionGaps) - Math.min(...allExecutionGaps) <= 1 && Math.min(...allExecutionGaps) >= 90, 'the phase marker, execution cards, and completion graphic should keep visually uniform spacing');
+  assert.ok(!routeDiagram.includes('本地归一化') && !routeDiagram.includes('低置信才复审') && !routeDiagram.includes('用户补充回到06'), 'the route diagram should not describe the retired local-classification, single-condition review, or direct clarification-loop behavior');
   assert.ok(!formatting.pendingFeedbackHtml('?????????').includes('pending-route-link'), 'route preflight waiting text should stay focused on task status');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
@@ -2726,7 +2734,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.0.3-interface-completion') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2770,7 +2778,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -2779,7 +2787,7 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
@@ -2790,7 +2798,7 @@ function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const composerCss = fs.readFileSync(path.join(__dirname, '../../styles/composer.css'), 'utf8');
   assert.ok(composerCss.includes('min-width:158px!important') && composerCss.includes('grid-template-columns:minmax(0,1fr)!important'), 'the single-section GPT-5 reasoning menu should not retain the obsolete two-column compatibility layout');
-  assert.ok(index.includes('reasoning-workflow.js?v=1.3.35-reasoning-persistence') && index.includes('composer.css?v=1.3.2-gpt5-reasoning-menu') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'reasoning menu changes should bump cache versions');
+  assert.ok(index.includes('reasoning-workflow.js?v=1.3.35-reasoning-persistence') && index.includes('composer.css?v=1.3.2-gpt5-reasoning-menu') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'reasoning menu changes should bump cache versions');
 }
 
 function testModalCloseReleasesFocusBeforeAriaHidden() {
@@ -2815,7 +2823,7 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
   assert.ok(railBlock.includes('rgba(37,99,235,.08)'), 'active history rail should use a very light focus halo');
 
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('styles/flat-theme.css?v=2.1.99-solid-code') && index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code'), 'CSS bundle cache versions should be bumped for visual fixes');
+  assert.ok(index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map') && index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map'), 'CSS bundle cache versions should be bumped for visual fixes');
 }
 
 function testArchitectureBoundaryScaffolding() {
@@ -2933,8 +2941,8 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight'), 'config copy UI changes should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match config copy cache-busting');
+  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match config copy cache-busting');
 }
 
 function testSensitiveConfigAndIntentTraceAreNotPersisted() {
@@ -3010,8 +3018,8 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId'), 'force-image action should send the current user message through a durable canonical image handoff');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('regenerate-workflow.js?v=1.0.3-interface-completion') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'force-image UI and action changes should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match force-image cache-busting');
+  assert.ok(index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match force-image cache-busting');
 }
 
 function testImagePreviewWheelZoom() {
@@ -3028,8 +3036,8 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'image preview zoom should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match image preview zoom bundle cache-busting');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 
 function testMessageActionButtonsUsePolishedStyle() {
@@ -3052,8 +3060,8 @@ function testMessageActionButtonsUsePolishedStyle() {
   assert.ok(!flatCss.includes('background:rgba(239,246,255,.74)!important') && !flatCss.includes('background:rgba(240,253,250,.74)!important') && !flatCss.includes('background:rgba(255,247,237,.78)!important') && !flatCss.includes('background:rgba(236,254,255,.74)!important'), 'message buttons should not use per-action tinted backgrounds');
   assert.ok(flatCss.includes('.msg-actions .quote-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .edit-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .refresh-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .copy-btn.icon-action-btn:hover') && flatCss.includes('.msg-actions .download-answer-btn.icon-action-btn:hover'), 'all message buttons should keep polished per-action hover accents');
   assert.ok(flatCss.includes('transform:translateY(-1px)!important') && flatCss.includes('transform:translateY(0) scale(.96)!important'), 'message action buttons should have subtle hover/active affordance');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'message action visual polish should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match message action polish cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'message action visual polish should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match message action polish cache-busting');
 }
 
 function testPendingFeedbackDoesNotWrapOnMobile() {
@@ -3071,8 +3079,8 @@ function testPendingFeedbackDoesNotWrapOnMobile() {
   assert.ok(!imageWorkflow.includes('<div class="pending-feedback"') && !jobResumeWorkflow.includes('<div class="pending-feedback"'), 'image and resume workflows should use the shared pending feedback renderer instead of handcrafted HTML');
   assert.ok(!imageWorkflow.includes('IMG RUNNING') && !imageWorkflow.includes('setPendingFeedback(d,'), 'image running/waiting prompts should not use a special pending feedback branch');
   assert.ok(imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 0 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(`${e} 已等待 ${t} 秒`)') && imageWorkflow.includes('pendingFeedbackHtml(t)'), 'image generation, editing, and upload waits should use the shared pending feedback renderer');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match pending feedback cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'pending feedback mobile nowrap fix should bump cache-busting versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match pending feedback cache-busting');
 }
 
 function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
@@ -3082,8 +3090,8 @@ function testComposerWidthFollowsSidebarCollapsedMessageColumn() {
   assert.ok(flatCss.includes('body:not(.session-sidebar-collapsed) .composer,') && flatCss.includes('width:var(--ds-chat-column)!important') && flatCss.includes('left:calc(var(--session-sidebar-width) + (100vw - var(--session-sidebar-width) - var(--ds-chat-column))/2)!important'), 'expanded desktop composer should match the same ds chat column as messages');
   assert.ok(flatCss.includes('--ds-collapsed-chat-column:min(1180px,calc(100vw - var(--session-rail-width) - 72px))!important') && flatCss.includes('body.session-sidebar-collapsed .messages>.message,') && flatCss.includes('body.session-sidebar-collapsed .empty{') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important'), 'collapsed desktop messages should use a wider dedicated reading column after the sidebar frees space');
   assert.ok(flatCss.includes('body.session-sidebar-collapsed .composer,') && flatCss.includes('width:var(--ds-collapsed-chat-column)!important') && flatCss.includes('left:calc(var(--session-rail-width) + (100vw - var(--session-rail-width) - var(--ds-collapsed-chat-column))/2)!important'), 'collapsed desktop composer should be centered on the same wider collapsed reading column');
-  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.151-solid-code') && index.includes('chatui.bundle.js?v=1.3.153-java-syntax-highlight') && index.includes('styles/flat-theme.css?v=2.1.99-solid-code'), 'sidebar composer width fix should bump browser cache versions');
-  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.153-java-syntax-highlight'"), 'server bundle version should match sidebar composer cache-busting');
+  assert.ok(index.includes('assets/chatui.bundle.css?v=1.3.154-intent-route-map') && index.includes('chatui.bundle.js?v=1.3.154-intent-route-map') && index.includes('styles/flat-theme.css?v=2.2.0-intent-route-map'), 'sidebar composer width fix should bump browser cache versions');
+  assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.154-intent-route-map'"), 'server bundle version should match sidebar composer cache-busting');
 }
 
 function testSubmitDispatchesCanonicalExecutionPlan() {
@@ -3091,8 +3099,9 @@ function testSubmitDispatchesCanonicalExecutionPlan() {
   const app = sourceAssertions.readSource('app.js');
   for (const source of [submitWorkflow, app]) {
     assert.ok(!source.includes('routeUtils.applyTaskContract'), 'submit flow must not keep the removed legacy RouteInfo-to-TaskContract adapter');
-    assert.ok(source.includes('const executionApi=routeInfo.api||'), 'execution branch should dispatch from the canonical execution plan without re-reading or adapting model fields');
   }
+  assert.ok(submitWorkflow.includes('const executionApi=routeInfo.api||'), 'execution branch should dispatch from the canonical execution plan without re-reading or adapting model fields');
+  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root runtime must delegate to the canonical execution branch');
 }
 
 function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
@@ -3131,7 +3140,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.3-route-fallback-guard') && index.includes('app.js?v=2.1.49-strict-model-only-continuation') && index.includes('flat-theme.css?v=2.1.99-solid-code'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.4-verified-routing') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3181,8 +3190,8 @@ function testImageSuccessResultReconciliation() {
   assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
-  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.49-strict-model-only-continuation'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.21-interface-completion') && index.includes('job-resume-workflow.js?v=1.2.77-owner-finally') && index.includes('app.js?v=2.1.49-strict-model-only-continuation'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.52-single-submit-workflow'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.21-interface-completion') && index.includes('job-resume-workflow.js?v=1.2.77-owner-finally') && index.includes('app.js?v=2.1.52-single-submit-workflow'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
@@ -3347,6 +3356,7 @@ const tests = [
   ...reasoningHistoryPersistenceTests,
   ...routeRecognitionSubmitTests,
   ...routeModelFollowSessionTests,
+  ...intentRoutingEvaluationTests,
   ...taskContextBoundaryTests,
   ...sessionRouteSwitchContinuityTests,
   ...durableTaskLifecycleTests,

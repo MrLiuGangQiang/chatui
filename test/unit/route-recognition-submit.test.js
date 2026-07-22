@@ -7,6 +7,8 @@ const clarificationService = require('../../client/services/clarification-servic
 
 function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  const regenerate = fs.readFileSync(path.join(__dirname, '../../client/app/regenerate-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 
   assert.ok(
@@ -30,9 +32,12 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation'),
+    index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
+  assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
+  assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
+  assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
 }
 
 function testImageGenerationDoesNotShadowSubmitOptions() {
@@ -77,11 +82,11 @@ function testPendingContinuationRequiresStrictModelContract() {
 
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
-  for (const source of [submit, app]) {
-    assert.ok(source.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
-    assert.ok(!source.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
-    assert.ok(!source.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
-  }
+  assert.ok(submit.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
+  assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
+  assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
+  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate submission to the canonical workflow');
+  assert.ok(!app.includes('function initChatUIAppSubmitWorkflow'), 'the root entry must not embed a second submit workflow');
 }
 
 function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
@@ -94,7 +99,7 @@ function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
   assert.ok(submit.includes(fixedDispatch), 'a route that changes image mode back to chat must still allocate a recovery id');
   assert.ok(submit.includes('generatedJobId||`chatjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`'), 'a missing local recovery record must create a fresh client job id');
   assert.ok(!submit.includes('typeof shouldPrepareManagedChatJob==="function"&&!shouldPrepareManagedChatJob(sessionId)'), 'job-id creation must not depend on stale model or local-database state');
-  assert.ok(app.includes(fixedHelper) && app.includes(fixedDispatch), 'the root fallback submit workflow must match the module fix');
+  assert.ok(!app.includes(fixedHelper) && !app.includes(fixedDispatch), 'the root entry must not retain a stale copy of submit dispatch logic');
 }
 
 module.exports = [

@@ -141,10 +141,9 @@ function testEverySubmitModePublishesCanonicalMessageBeforeDomProjection() {
   const canonicalWrite = 'if(isTargetActive()){state.messages.push(message);getActiveSession().messages=cloneMessageList(state.messages)}';
   const domProjection = 'userNode=isTargetActive()?addMessage("user",userHtml';
 
-  for (const source of [submit, app]) {
-    assert.ok(source.includes(universalIndex), 'chat, image generation, and image editing submissions must all receive a canonical message index');
-    assert.ok(source.indexOf(canonicalWrite) < source.indexOf(domProjection), 'canonical state must contain the submitted message before DOM rendering/virtualization observes it');
-  }
+  assert.ok(submit.includes(universalIndex), 'chat, image generation, and image editing submissions must all receive a canonical message index');
+  assert.ok(submit.indexOf(canonicalWrite) < submit.indexOf(domProjection), 'canonical state must contain the submitted message before DOM rendering/virtualization observes it');
+  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root runtime must keep one delegated submission implementation');
   assert.ok(!submit.includes('"chat"===submitMode?(Array.isArray(targetSession?.messages)'), 'image-mode submissions must not create blank message indexes');
   assert.ok(app.includes('ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition'), 'the root runtime must use the shared guarded display-order method');
 }
@@ -155,10 +154,11 @@ function testEditSubmitAlwaysUsesReplacementPathAndCommitsBeforeRouting() {
   const unifiedEdit = 'if(initialEditMessageIndex!==null&&isTargetActive())replacement=applyPendingEdit(promptText,{submissionId,messageIndex:initialEditMessageIndex,node:state.editingNode})';
   const committedReplacement = 'prepareManagedChatJobForLiveItem();await persistTargetMessages()';
 
-  assert.ok(submit.includes(unifiedEdit) && app.includes(unifiedEdit), 'editing must replace the selected turn regardless of the current chat/image mode');
+  assert.ok(submit.includes(unifiedEdit), 'editing must replace the selected turn regardless of the current chat/image mode');
+  assert.ok(app.includes('applyPendingEdit,') && app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root runtime must delegate edit submission to the canonical workflow');
   assert.ok(!submit.includes('state.editingNode&&"chat"===submitMode'), 'image mode must not turn an edit into a newly appended message group');
   assert.ok(submit.includes('editExisting:initialEditMessageIndex!==null') && submit.includes('editMessageIndex:initialEditMessageIndex'), 'pending recovery must retain the edit target identity');
-  assert.ok(submit.includes(committedReplacement) && app.includes(committedReplacement), 'the edited canonical turn must commit before route execution or recovery handoff');
+  assert.ok(submit.includes(committedReplacement), 'the edited canonical turn must commit before route execution or recovery handoff');
 }
 
 function testResumedSubmitUsesOnlyExplicitNonNegativeIndexes() {

@@ -65,6 +65,94 @@ function imageAttachmentIndexGuide(list = [], { isImageFile = defaultIsImageFile
   ].join('\n');
 }
 
+function createRouteAttachmentSelectors(route = {}, {
+  isImageFile = defaultIsImageFile,
+  isImageUnderstandingChat = () => false,
+  isFileUnderstandingChat = () => false,
+  currentTurnAttachments = [],
+  includeCurrentTurnImages = false,
+  editFallbackImages = [],
+  decorateImage = item => item,
+} = {}) {
+  const isImage = typeof isImageFile === 'function' ? isImageFile : defaultIsImageFile;
+  const imageRefs = () => Array.isArray(route?.imageRefs) ? route.imageRefs : [];
+  const fileRefs = () => Array.isArray(route?.fileRefs) ? route.fileRefs : [];
+  const selectedImageIds = () => new Set([
+    ...(route?.selectedImageIds || []),
+    ...imageRefs().map(ref => ref?.image_id || ref?.imageId).filter(Boolean),
+  ]);
+  const selectedImageIndexes = () => new Set([
+    ...(route?.selectedIndexes || []),
+    ...imageRefs().map(ref => Number(ref?.index)).filter(index => Number.isInteger(index) && index >= 1),
+  ]);
+  const selectedFileIndexes = () => new Set(
+    fileRefs().map(ref => Number(ref?.index)).filter(index => Number.isInteger(index) && index >= 1)
+  );
+  const selectedFileIds = () => new Set(
+    fileRefs().map(ref => ref?.file_id || ref?.fileId || ref?.id).filter(Boolean)
+  );
+  const currentImages = () => (currentTurnAttachments || []).filter(isImage);
+
+  function selectChatAttachments(sourceAttachments = []) {
+    const source = sourceAttachments || [];
+    const images = source.filter(isImage);
+    const files = source.filter(item => !isImage(item));
+    const selected = [];
+    const fileIds = selectedFileIds();
+    const fileIndexes = selectedFileIndexes();
+    const addImage = (item, index) => selected.push(decorateImage(item, index) || item);
+
+    if (fileIds.size || fileIndexes.size) {
+      selected.push(...files.filter((item, index) => fileIds.has(item.attachmentId || item.attachment_id || item.id) || fileIndexes.has(index + 1)));
+    } else if (isFileUnderstandingChat()) {
+      selected.push(...files);
+    }
+
+    const imageIds = selectedImageIds();
+    const imageIndexes = selectedImageIndexes();
+    const hasCurrentImages = currentImages().length > 0;
+    const shouldIncludeImages = (includeCurrentTurnImages && hasCurrentImages) || isImageUnderstandingChat() || imageRefs().length > 0;
+    if (shouldIncludeImages) {
+      if (!imageIds.size && !imageIndexes.size) {
+        if (images.length === 1) addImage(images[0], 0);
+        else if (includeCurrentTurnImages && hasCurrentImages) images.forEach(addImage);
+      } else {
+        images.forEach((item, index) => {
+          if (imageIds.has(item.imageId || item.image_id) || imageIds.has(item.id) || imageIndexes.has(index + 1)) addImage(item, index);
+        });
+      }
+    }
+    return selected;
+  }
+
+  function selectEditAttachments(sourceAttachments = []) {
+    const images = (sourceAttachments || []).filter(isImage);
+    const imageIds = selectedImageIds();
+    const imageIndexes = selectedImageIndexes();
+    if (!imageIds.size && !imageIndexes.size) {
+      const fallbackImages = (editFallbackImages || []).filter(isImage);
+      return fallbackImages.length ? fallbackImages : images.length === 1 ? images : [];
+    }
+    return images.filter((item, index) => imageIds.has(item.imageId || item.image_id) || imageIds.has(item.id) || imageIndexes.has(index + 1));
+  }
+
+  function selectQuotedEditAttachments(quotedImages = [], fallbackAttachments = []) {
+    if (!quotedImages.length) return fallbackAttachments;
+    const imageIds = selectedImageIds();
+    const imageIndexes = selectedImageIndexes();
+    return quotedImages.filter((item, index) => imageIds.has(item.imageId || item.image_id) || imageIndexes.has(index + 1));
+  }
+
+  return Object.freeze({
+    isImage,
+    imageRefs,
+    fileRefs,
+    selectChatAttachments,
+    selectEditAttachments,
+    selectQuotedEditAttachments,
+  });
+}
+
 const api = Object.freeze({
   parseContextValue,
   escapeHtml,
@@ -74,6 +162,7 @@ const api = Object.freeze({
   isFileUnderstandingChat,
   originalImageIndex,
   imageAttachmentIndexGuide,
+  createRouteAttachmentSelectors,
 });
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;

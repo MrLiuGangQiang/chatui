@@ -83,7 +83,7 @@ function testPromptInputGuardRunsBeforeTextareaMutationAndRemovesLegacyResizeLis
   assert.ok(!bootstrap.includes('addEventListener("compositionend",scheduleAutoResize)'));
   const submitGuard = 'validateMessageSize?.(rawPromptValue)';
   assert.ok(submit.includes(submitGuard), 'submit workflow must retain a recovery/programmatic-input safety boundary');
-  assert.ok(rootApp.includes(submitGuard), 'root static entry must keep the same submit safety boundary');
+  assert.ok(rootApp.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'root static entry must delegate to the submit workflow safety boundary');
 }
 
 module.exports = [

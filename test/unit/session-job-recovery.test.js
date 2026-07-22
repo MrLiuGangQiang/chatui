@@ -14,7 +14,7 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   assert.ok(app.includes('resumeBackgroundSessionJobs();if(!e)return;'), 'returning to the page should also retry background-session recovery');
   assert.ok(app.includes('resumeBackgroundSessionJobs:resumeBackgroundSessionJobs'), 'bootstrap must receive the background-session recovery dependency');
   assert.ok(bootstrap.includes('await loadSessions(),resumeBackgroundSessionJobs(),loadReasoningPreference()'), 'startup should restore all background jobs immediately after sessions load');
-  assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('app.js?v=2.1.48-route-model-switch-guard'), 'runtime entry assets should receive cache-version updates with the recovery fix');
+  assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('app.js?v=2.1.49-strict-model-only-continuation'), 'runtime entry assets should receive cache-version updates with the recovery fix');
 }
 
 module.exports = [testBackgroundSessionsResumeAndShowBusyStateAfterRestore];

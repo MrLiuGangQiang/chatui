@@ -392,9 +392,9 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.90-interface-completion'));
+  assert.ok(index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.3-route-fallback-guard'));
-  assert.ok(index.includes('app.js?v=2.1.48-route-model-switch-guard'));
+  assert.ok(index.includes('app.js?v=2.1.49-strict-model-only-continuation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.147-interface-completion'));
 }
 

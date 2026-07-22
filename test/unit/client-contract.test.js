@@ -17,6 +17,8 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
   }
   assert.ok(!('apiRouteToExecutionRoute' in routeService));
   assert.ok(!('taskContractForRoute' in routeService));
+  assert.ok(!('reconcileMultiImageCompositionContract' in routeService), 'valid model contracts must not be overridden by local keyword routing');
+  assert.ok(!('semanticallySelectedCompositionCandidates' in routeService), 'image candidate matching belongs to the model contract, not a local fallback');
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {

@@ -696,7 +696,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.5-interface-completion-projection') < index.indexOf('submit-workflow.js?v=1.2.90-interface-completion'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.5-interface-completion-projection') < index.indexOf('submit-workflow.js?v=1.2.91-strict-model-only-continuation'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');

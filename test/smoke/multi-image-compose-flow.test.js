@@ -39,21 +39,37 @@ function close(server) {
   return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 
-function plainChatContract() {
+function imageReferenceContract(candidates) {
+  const resources = candidates.map((candidate, index) => ({
+    key: `r${index + 1}`,
+    type: 'image',
+    source: candidate.source,
+    role: 'reference',
+    index: candidate.index,
+    id: candidate.image_id,
+    reference_id: candidate.reference_id,
+    missing: false,
+  }));
   return {
     schema_version: 'task_contract.v3',
-    operation: 'plain_chat',
-    relation: 'new',
-    resources: [],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    resources,
+    directive: {
+      mode: 'patch',
+      base_resource_keys: resources.map(resource => resource.key),
+      unmentioned_policy: 'allow_change',
+      operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
+      constraints: [],
+    },
     clarification: { question: '', missing_resource_keys: [] },
     confidence: 0.95,
     review_reasons: [],
-    rationale: 'simulated router miss',
+    rationale: 'model selected the referenced images',
   };
 }
 
-async function testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages() {
+async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages() {
   const messages = [
     { role: 'user', content: '画一只猫' }, completedImage('cat-result', '一只猫'),
     { role: 'user', content: '画一头牛' }, completedImage('cow-result', '一头牛'),
@@ -63,12 +79,13 @@ async function testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages() {
   const references = routeContext.collectRecentImageReferences({ messages, limit: 10 });
   const context = routeContext.buildRouteContext({ messages, recentImageReferences: references });
   const input = '把猫和狗合并成一张图';
-  const route = routeService.parseRouteResult(JSON.stringify(plainChatContract()), { input, context, attachments: [] });
+  const selectedCandidates = context.image_candidates.filter(candidate => ['一只猫', '一只狗'].includes(candidate.prompt));
+  const route = routeService.parseRouteResult(JSON.stringify(imageReferenceContract(selectedCandidates)), { input, context, attachments: [] });
 
   assert.strictEqual(route.operationType, 'image_reference_gen');
   assert.strictEqual(route.selectedImageIds.length, 2);
-  const selectedCandidates = context.image_candidates.filter(candidate => route.selectedImageIds.includes(candidate.image_id));
-  assert.deepStrictEqual(new Set(selectedCandidates.map(candidate => candidate.prompt)), new Set(['一只猫', '一只狗']));
+  const routedCandidates = context.image_candidates.filter(candidate => route.selectedImageIds.includes(candidate.image_id));
+  assert.deepStrictEqual(new Set(routedCandidates.map(candidate => candidate.prompt)), new Set(['一只猫', '一只狗']));
 
   const state = { activeSessionId: 'smoke-session', lastGeneratedImage: null, sessions: [{ id: 'smoke-session', messages }] };
   const workflow = imageContextWorkflow.createImageContextWorkflow({
@@ -130,4 +147,4 @@ async function testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages() {
   }
 }
 
-module.exports = [testSemanticMultiImageFlowReachesUpstreamWithBothNamedImages];
+module.exports = [testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages];

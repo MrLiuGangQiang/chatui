@@ -30,7 +30,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.90-interface-completion'),
+    index.includes('submit-workflow.js?v=1.2.91-strict-model-only-continuation'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
 }
@@ -74,6 +74,14 @@ function testPendingContinuationRequiresStrictModelContract() {
     relation: 'pending_answer', confidence: 0.95, final_prompt: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', final_task_mode: 'image', selected_indexes: [], should_merge: true, should_clear_pending: true, reason: 'answers the pending question',
   }));
   assert.ok(continuation, 'only a complete, high-confidence continuation contract may authorize a merge');
+
+  const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  for (const source of [submit, app]) {
+    assert.ok(source.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
+    assert.ok(!source.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
+    assert.ok(!source.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
+  }
 }
 
 function testChatRerouteAllocatesRecoveryIdAfterImageMode() {

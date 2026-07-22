@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const imageReferences = require('../../client/core/image-references');
@@ -6,14 +6,12 @@ const routeContext = require('../../client/core/image-route-context');
 const routeService = require('../../client/services/route-service');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
 
-const COMPOSE_TWO_ANIMALS = '\u628a\u4e24\u4e2a\u52a8\u7269\u5408\u5e76\u6210\u4e00\u5f20\u56fe';
-
 function assistantImageMessage(displayItemId, prompt, src) {
   return {
     role: 'assistant',
     displayItemId,
-    content: `[\u56fe\u7247\u751f\u6210\u5b8c\u6210] ${prompt}`,
-    rawText: `[\u56fe\u7247\u751f\u6210\u5b8c\u6210] ${prompt}`,
+    content: `[图片生成完成] ${prompt}`,
+    rawText: `[图片生成完成] ${prompt}`,
     imageContext: JSON.stringify({
       prompt,
       mode: 'image',
@@ -29,26 +27,50 @@ function plainChatContract() {
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
-    directive: {
-      mode: 'standalone',
-      base_resource_keys: [],
-      unmentioned_policy: 'allow_change',
-      operations: [],
-      constraints: [],
-    },
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
     clarification: { question: '', missing_resource_keys: [] },
     confidence: 0.92,
     review_reasons: [],
-    rationale: 'model_misclassified_as_chat',
+    rationale: 'current request is a standalone text request',
+  };
+}
+
+function imageReferenceContract(candidates) {
+  const resources = candidates.map((candidate, index) => ({
+    key: `r${index + 1}`,
+    type: 'image',
+    source: candidate.source,
+    role: 'reference',
+    index: candidate.index,
+    id: candidate.image_id,
+    reference_id: candidate.reference_id,
+    missing: false,
+  }));
+  return {
+    schema_version: 'task_contract.v3',
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    resources,
+    directive: {
+      mode: 'patch',
+      base_resource_keys: resources.map(resource => resource.key),
+      unmentioned_policy: 'allow_change',
+      operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
+      constraints: [],
+    },
+    clarification: { question: '', missing_resource_keys: [] },
+    confidence: 0.95,
+    review_reasons: [],
+    rationale: 'model selected the referenced images from route context',
   };
 }
 
 function canonicalAnimalHistory(extra = []) {
   return [
-    { role: 'user', content: '\u753b\u4e00\u53ea\u732b' },
-    assistantImageMessage('cat-result', '\u4e00\u53ea\u732b', 'indexeddb://cat'),
-    { role: 'user', content: '\u753b\u4e00\u5934\u725b' },
-    assistantImageMessage('cow-result', '\u4e00\u5934\u725b', 'indexeddb://cow'),
+    { role: 'user', content: '画一只猫' },
+    assistantImageMessage('cat-result', '一只猫', 'indexeddb://cat'),
+    { role: 'user', content: '画一头牛' },
+    assistantImageMessage('cow-result', '一头牛', 'indexeddb://cow'),
     ...extra,
   ];
 }
@@ -58,16 +80,22 @@ function collectAnimalContext(messages = canonicalAnimalHistory()) {
   return routeContext.buildRouteContext({ messages, recentImageReferences: references });
 }
 
+function candidateByPrompt(context, prompt) {
+  const candidate = context.image_candidates.find(item => item.prompt === prompt);
+  assert.ok(candidate, `missing image candidate: ${prompt}`);
+  return candidate;
+}
+
 function testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs() {
-  const message = assistantImageMessage('semantic-result', '\u4e00\u8f86\u7ea2\u8272\u6d88\u9632\u8f66', 'indexeddb://fire-engine');
+  const message = assistantImageMessage('semantic-result', '一辆红色消防车', 'indexeddb://fire-engine');
   const context = JSON.parse(message.imageContext);
-  context.attachments[0].description = '\u7ea2\u8272\u6d88\u9632\u8f66';
-  context.attachments[0].semantic_text = '\u7ea2\u8272\u6d88\u9632\u8f66 | emergency vehicle';
+  context.attachments[0].description = '红色消防车';
+  context.attachments[0].semantic_text = '红色消防车 | emergency vehicle';
   message.imageContext = JSON.stringify(context);
   message.html = '<img data-persisted-src="indexeddb://fire-engine" data-filename="fire-engine.png">';
   const references = routeContext.collectRecentImageReferences({ messages: [message], limit: 10 });
   const route = routeContext.buildRouteContext({ messages: [message], recentImageReferences: references });
-  assert.strictEqual(route.image_candidates[0].description, '\u7ea2\u8272\u6d88\u9632\u8f66');
+  assert.strictEqual(route.image_candidates[0].description, '红色消防车');
   assert.ok(route.image_candidates[0].semantic_text.includes('emergency vehicle'));
 }
 
@@ -79,102 +107,42 @@ function testCanonicalHistoryExposesEveryCompletedImageWithStableIds() {
   assert.ok(context.image_candidates.every(item => item.image_id.startsWith(`img_${item.reference_id}_`)));
 }
 
-function testPluralCompositionOverridesPlainChatAndSelectsBothHistoryImages() {
+function testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics() {
   const context = collectAnimalContext();
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), {
-    input: COMPOSE_TWO_ANIMALS,
-    attachments: [],
-    context,
-  });
+  const input = [
+    '咨询下面几个问题，确定是不是要做二开：',
+    '1、根据页面配置自动创建并关联底层数据模型，支持一对一、一对多、多对多关系。',
+    '2、数据列表视图下支持子表数据自动合并行展示/分组。',
+    '帮我生成一个回复模板，不需要内容。',
+  ].join('\n');
+  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), { input, attachments: [], context });
+
   assert.ok(parsed);
-  assert.strictEqual(parsed.mode, 'image');
-  assert.strictEqual(parsed.operationType, 'image_reference_gen');
-  assert.strictEqual(parsed.relation, 'followup');
-  assert.strictEqual(parsed.selectedImageIds.length, 2);
-  assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(context.image_candidates.map(item => item.image_id)));
-  assert.strictEqual(parsed.taskContract.directive.base_resource_keys.length, 2);
-  assert.strictEqual(parsed.taskContract.directive.unmentioned_policy, 'allow_change');
-  assert.strictEqual(parsed.contextualImagePrompt, COMPOSE_TWO_ANIMALS);
+  assert.strictEqual(parsed.mode, 'chat');
+  assert.strictEqual(parsed.operationType, 'plain_chat');
+  assert.strictEqual(parsed.needClarification, false);
+  assert.strictEqual(parsed.clarificationQuestion, '');
+  assert.deepStrictEqual(parsed.taskContract, plainChatContract());
 }
 
-function testSemanticCompositionSelectsNamedImagesAmongManyCandidates() {
+function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
   const messages = canonicalAnimalHistory([
     { role: 'user', content: '画一只狗' },
     assistantImageMessage('dog-result', '一只狗', 'indexeddb://dog'),
     { role: 'user', content: '画一辆汽车' },
     assistantImageMessage('car-result', '一辆汽车', 'indexeddb://car'),
-    { role: 'user', content: '画一座城堡' },
-    assistantImageMessage('castle-result', '一座城堡', 'indexeddb://castle'),
   ]);
   const context = collectAnimalContext(messages);
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), {
-    input: '把猫和狗合并成一张图，不要牛',
-    attachments: [],
-    context,
-  });
+  const selected = [candidateByPrompt(context, '一只猫'), candidateByPrompt(context, '一只狗')];
+  const input = '把猫和狗合并成一张图，不要牛';
+  const parsed = routeService.parseRouteResult(JSON.stringify(imageReferenceContract(selected)), { input, attachments: [], context });
+
   assert.ok(parsed);
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.needClarification, false);
-  const selected = context.image_candidates.filter(item => parsed.selectedImageIds.includes(item.image_id));
-  assert.deepStrictEqual(new Set(selected.flatMap(item => item.labels)), new Set(['dog', 'cat']));
-  assert.deepStrictEqual(new Set(selected.map(item => item.prompt)), new Set(['一只狗', '一只猫']));
-}
-
-function testSemanticCompositionWorksForSubjectsOutsideLegacyLabels() {
-  const messages = [
-    { role: 'user', content: '生成一辆红色消防车' },
-    assistantImageMessage('fire-engine-result', '一辆红色消防车', 'indexeddb://fire-engine'),
-    { role: 'user', content: '生成一个彩色热气球' },
-    assistantImageMessage('balloon-result', '一个彩色热气球', 'indexeddb://balloon'),
-    { role: 'user', content: '生成一座石头城堡' },
-    assistantImageMessage('stone-castle-result', '一座石头城堡', 'indexeddb://stone-castle'),
-  ];
-  const context = collectAnimalContext(messages);
-  assert.ok(context.image_candidates.every(item => item.semantic_text.includes(item.prompt)));
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), {
-    input: '把消防车和热气球放在一起，合并成一张图',
-    attachments: [],
-    context,
-  });
-  const selected = context.image_candidates.filter(item => parsed.selectedImageIds.includes(item.image_id));
-  assert.strictEqual(selected.length, 2);
-  assert.deepStrictEqual(new Set(selected.map(item => item.prompt)), new Set(['一辆红色消防车', '一个彩色热气球']));
-}
-
-function testSemanticCompositionClarifiesOnlyWhenNamedSubjectIsNotUnique() {
-  const messages = [
-    { role: 'user', content: '画一只黑猫' },
-    assistantImageMessage('black-cat-result', '一只猫', 'indexeddb://black-cat'),
-    { role: 'user', content: '画一只白猫' },
-    assistantImageMessage('white-cat-result', '一只猫', 'indexeddb://white-cat'),
-    { role: 'user', content: '画一只狗' },
-    assistantImageMessage('dog-result', '一只狗', 'indexeddb://dog'),
-  ];
-  const context = collectAnimalContext(messages);
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), {
-    input: '把猫和狗合并成一张图',
-    attachments: [],
-    context,
-  });
-  assert.strictEqual(parsed.needClarification, true);
-  assert.match(parsed.clarificationQuestion, /唯一确定|补充/);
-}
-
-function testPluralCompositionClarifiesWhenMoreThanTwoCandidatesAreAmbiguous() {
-  const messages = canonicalAnimalHistory([
-    { role: 'user', content: '\u753b\u4e00\u53ea\u72d7' },
-    assistantImageMessage('dog-result', '\u4e00\u53ea\u72d7', 'indexeddb://dog'),
-  ]);
-  const context = collectAnimalContext(messages);
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), {
-    input: COMPOSE_TWO_ANIMALS,
-    attachments: [],
-    context,
-  });
-  assert.ok(parsed);
-  assert.strictEqual(parsed.needClarification, true);
-  assert.strictEqual(parsed.mode, 'chat');
-  assert.match(parsed.clarificationQuestion, /\u552f\u4e00\u786e\u5b9a|\u8865\u5145/);
+  assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(selected.map(item => item.image_id)));
+  assert.deepStrictEqual(new Set(parsed.taskContract.directive.base_resource_keys), new Set(['r1', 'r2']));
+  assert.strictEqual(parsed.contextualImagePrompt, input);
 }
 
 function createWorkflow(messages) {
@@ -214,18 +182,15 @@ async function testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneI
   const ids = [context.image_candidates[0].image_id, 'img_imgref_missing-result_1'];
   await assert.rejects(
     () => workflow.getPreviousImageAttachments('s1', null, context.image_candidates[0].reference_id, ids),
-    /\u5386\u53f2\u56fe\u7247\u5df2\u4e22\u5931/
+    /历史图片已丢失/
   );
 }
 
 module.exports = [
   testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs,
   testCanonicalHistoryExposesEveryCompletedImageWithStableIds,
-  testPluralCompositionOverridesPlainChatAndSelectsBothHistoryImages,
-  testSemanticCompositionSelectsNamedImagesAmongManyCandidates,
-  testSemanticCompositionWorksForSubjectsOutsideLegacyLabels,
-  testSemanticCompositionClarifiesOnlyWhenNamedSubjectIsNotUnique,
-  testPluralCompositionClarifiesWhenMoreThanTwoCandidatesAreAmbiguous,
+  testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics,
+  testModelDeclaredCompositionSelectsOnlyItsContractResources,
   testSelectedImageIdsRestoreAcrossMultipleHistoricalReferences,
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,
 ];

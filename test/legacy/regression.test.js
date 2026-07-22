@@ -545,14 +545,15 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
   assert.ok(!/高清|电影感|氛围感/.test(payload.messages[0].content), 'classifier prompt should not encourage creative embellishment');
 
   const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_answer',
     confidence: 0.97,
-    answer_text: '山巅的',
     final_prompt: '山巅的晚霞图',
     final_task_mode: 'edit_image',
-    selectedIndexes: [1],
+    selected_indexes: [1],
     should_merge: true,
     should_clear_pending: true,
+    reason: '用户正在补充未完成的图片任务',
   }));
   assert.strictEqual(decision.finalPrompt, '山巅的晚霞图');
   const merged = clarificationService.mergePendingInput(pending, {
@@ -616,8 +617,6 @@ function testPendingClarificationCarriesOriginalMultiImageContext() {
   assert.ok(pending);
   assert.strictEqual(pending.kind, 'image_edit');
   assert.ok(pending.sourceAttachmentContext.includes('老板.png'));
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '第一张', attachments: [] }), true);
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '今天天气怎么样', attachments: [] }), false);
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
     attachments: [{ name: '老板.png', type: 'image/png' }, { name: '前端.png', type: 'image/png' }, { name: '后端.png', type: 'image/png' }],
@@ -636,11 +635,9 @@ function testPendingClarificationAcceptsShortImageVariantAnswer() {
   });
   assert.ok(pending);
   assert.ok(['image', 'image_edit'].includes(pending.kind));
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '弯轨交叉', attachments: [] }), true, 'short variant/style answer should continue the pending image generation request');
   const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
   assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
   assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '今天天气怎么样', attachments: [] }), false, 'unrelated ordinary question should not continue pending image request');
 }
 
 function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound() {
@@ -652,9 +649,6 @@ function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRoun
     clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
   });
   assert.ok(pending.expects.includes('image_variant'));
-  assert.deepStrictEqual(clarificationService.classifyPendingTurn(pending, { promptText: '弯轨交叉', attachments: [] }).action, 'apply');
-  const miss = clarificationService.classifyPendingTurn(pending, { promptText: '讲讲 useMemo', attachments: [] });
-  assert.strictEqual(miss.action, 'clear', 'clear stale pending state when the next turn is clearly a new task');
 
   const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
   const nextQuestion = '弯轨交叉要做成什么风格？';
@@ -664,7 +658,6 @@ function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRoun
     expects: clarificationService.expectedAnswerTypes({ ...firstAnswer.pending, clarificationText: nextQuestion }),
   };
   assert.ok(nextPending.expects.includes('edit_detail'), 'new clarification question should recompute expected answer type for multi-round follow-up');
-  assert.strictEqual(clarificationService.classifyPendingTurn(nextPending, { promptText: '实物照片风格', attachments: [] }).action, 'apply');
 }
 
 function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
@@ -680,7 +673,6 @@ function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
   });
   assert.ok(pending);
   assert.strictEqual(pending.originalText, '窗帘的交叉轨道给我一个图片', 'vague negative feedback should preserve the previous image request as pending origin');
-  assert.strictEqual(clarificationService.classifyPendingTurn(pending, { promptText: '弯轨交叉', quotedMessage: { role: 'user', content: '不是这个啊' }, attachments: [] }).action, 'apply');
   const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', quotedMessage: { role: 'user', content: '不是这个啊' }, quoteText: '不是这个啊' });
   assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
   assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
@@ -696,7 +688,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(index.includes('submit-workflow.js?v=1.2.90-interface-completion'), 'submit workflow cache version should be bumped for pending clarification fix');
-  assert.ok(index.includes('clarification-service.js?v=1.0.5'), 'clarification service cache version should be bumped for pending state machine fix');
+  assert.ok(index.includes('clarification-service.js?v=1.0.7-strict-continuation-contract'), 'clarification service cache version should be bumped for the strict continuation contract');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
@@ -709,7 +701,6 @@ function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
     clarificationText: '请明确要处理第几张图片。',
   });
   assert.ok(pending);
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '讲讲 useMemo', attachments: [] }), false, 'unrelated next turn should not be treated as a follow-up answer');
 
   const firstAnswer = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
@@ -751,8 +742,6 @@ function testPendingClarificationCoversImageEditFallbackBranch() {
   });
   assert.ok(pending);
   assert.strictEqual(pending.kind, 'image_edit');
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '', attachments: [{ name: 'photo.png', type: 'image/png' }] }), true, 'uploading the requested image should answer the one-shot pending clarification');
-  assert.strictEqual(clarificationService.shouldApplyPending(pending, { promptText: '', attachments: [{ name: 'note.txt', type: 'text/plain' }] }), false, 'non-image attachment should not answer image edit clarification');
 }
 
 function testImageEditPromptFallbackAndValidation() {

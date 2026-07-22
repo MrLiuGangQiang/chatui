@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const clarificationService = require('../../client/services/clarification-service');
 
 function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
@@ -52,6 +53,29 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
   );
 }
 
+function testPendingContinuationRequiresStrictModelContract() {
+  assert.strictEqual(clarificationService.shouldApplyPending, undefined, 'the continuation service must not expose a local heuristic fallback');
+  const taskContract = {
+    schema_version: 'task_contract.v3', operation: 'plain_chat', relation: 'new', resources: [],
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question: '', missing_resource_keys: [] }, confidence: 1, review_reasons: [], rationale: 'independent request',
+  };
+  assert.strictEqual(clarificationService.parseContinuationClassifierResult(JSON.stringify(taskContract)), null, 'a route task_contract must never be misread as permission to merge a pending task');
+
+  const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'new_task', confidence: 1, final_prompt: '', final_task_mode: 'unknown', selected_indexes: [], should_merge: false, should_clear_pending: true, reason: 'complete independent request',
+  }));
+  assert.ok(newTask);
+  assert.strictEqual(newTask.shouldMerge, false);
+
+  const continuation = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer', confidence: 0.95, final_prompt: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', final_task_mode: 'image', selected_indexes: [], should_merge: true, should_clear_pending: true, reason: 'answers the pending question',
+  }));
+  assert.ok(continuation, 'only a complete, high-confidence continuation contract may authorize a merge');
+}
+
 function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
@@ -67,6 +91,7 @@ function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
 
 module.exports = [
   testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift,
+  testPendingContinuationRequiresStrictModelContract,
   testImageGenerationDoesNotShadowSubmitOptions,
   testChatRerouteAllocatesRecoveryIdAfterImageMode,
 ];

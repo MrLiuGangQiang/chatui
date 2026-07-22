@@ -123,17 +123,21 @@
     return null;
   }
 
+  const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v1';
   const CONTINUATION_SYSTEM_PROMPT = `你是 ChatUI 任务延续分类器，只返回 JSON。
 
 你的任务：判断最新用户输入是否在回答/延续一个未完成的追问，并生成 final_prompt。
 
 重要原则：你不是提示词优化器。final_prompt 只做最小语义补全：根据 base_task 和当前回答补齐省略对象或引用。不要添加用户没说的风格、画质、镜头、构图、氛围、细节或创意发挥。尽量保留用户原话。
 
-必须返回：
-{"relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"answer_text":"","final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"should_merge":false,"should_clear_pending":false,"reason":""}
+  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v3：
+  {"schema_version":"pending_continuation.v1","relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"should_merge":false,"should_clear_pending":false,"reason":""}
 
 规则：
-- pending_answer：用户在回答追问。
+  - 只有确信最新输入是在回答 pending.question 时，才可将 relation 设为 pending_answer/revision/continuation，且 should_merge=true。
+  - 任何完整的新需求、编号需求列表、与追问无关的请求，都必须 relation=new_task、should_merge=false、should_clear_pending=true。
+  - 不确定时按 new_task 处理，绝不能合并旧任务。
+  - pending_answer：用户在回答追问。
 - revision/continuation：用户在延续或修改 base_task。
 - new_task：用户开启无关新任务。
 - unclear：信息不足。
@@ -160,6 +164,7 @@
             has_source_attachment: !!normalized.sourceAttachmentContext,
             supplements: normalized.supplements || [],
           } : null,
+          contract_schema: CONTINUATION_SCHEMA_VERSION,
           current_input: String(currentInput || '').trim(),
           attachments: (attachments || []).map((item, index) => ({
             index: index + 1,
@@ -179,19 +184,27 @@
     if (!value) return null;
     try {
       const raw = JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
-      const relation = ['pending_answer', 'revision', 'continuation', 'new_task', 'unclear'].includes(String(raw.relation || '')) ? String(raw.relation) : 'unclear';
-      const finalTaskMode = ['image', 'edit_image', 'chat', 'file_qa', 'unknown'].includes(String(raw.final_task_mode || raw.finalTaskMode || '')) ? String(raw.final_task_mode || raw.finalTaskMode) : 'unknown';
-      const selectedIndexes = Array.isArray(raw.selected_indexes || raw.selectedIndexes) ? (raw.selected_indexes || raw.selectedIndexes).map(Number).filter(item => Number.isInteger(item) && item > 0) : [];
+      const fields = ['schema_version', 'relation', 'confidence', 'final_prompt', 'final_task_mode', 'selected_indexes', 'should_merge', 'should_clear_pending', 'reason'];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length !== fields.length || fields.some(field => !Object.prototype.hasOwnProperty.call(raw, field))) return null;
+      if (raw.schema_version !== CONTINUATION_SCHEMA_VERSION) return null;
+      const relation = String(raw.relation || '');
+      if (!['pending_answer', 'revision', 'continuation', 'new_task', 'unclear'].includes(relation)) return null;
+      if (!Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) return null;
+      if (typeof raw.final_prompt !== 'string' || typeof raw.final_task_mode !== 'string' || typeof raw.should_merge !== 'boolean' || typeof raw.should_clear_pending !== 'boolean' || typeof raw.reason !== 'string') return null;
+      if (!['image', 'edit_image', 'chat', 'file_qa', 'unknown'].includes(raw.final_task_mode) || !Array.isArray(raw.selected_indexes) || raw.selected_indexes.some(item => !Number.isInteger(item) || item < 1)) return null;
+      const continuation = ['pending_answer', 'revision', 'continuation'].includes(relation);
+      if (raw.should_merge !== continuation) return null;
+      if (continuation && (!raw.final_prompt.trim() || raw.final_task_mode === 'unknown' || raw.confidence < 0.85)) return null;
+      if (!continuation && (raw.final_prompt || raw.final_task_mode !== 'unknown' || raw.selected_indexes.length)) return null;
       return {
         relation,
-        confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0)),
-        answerText: String(raw.answer_text || raw.answerText || '').trim(),
-        finalPrompt: String(raw.final_prompt || raw.finalPrompt || '').trim(),
-        finalTaskMode,
-        selectedIndexes,
-        shouldMerge: !!(raw.should_merge || raw.shouldMerge),
-        shouldClearPending: !!(raw.should_clear_pending || raw.shouldClearPending),
-        reason: String(raw.reason || '').trim(),
+        confidence: raw.confidence,
+        finalPrompt: raw.final_prompt.trim(),
+        finalTaskMode: raw.final_task_mode,
+        selectedIndexes: raw.selected_indexes,
+        shouldMerge: raw.should_merge,
+        shouldClearPending: raw.should_clear_pending,
+        reason: raw.reason.trim(),
       };
     } catch { return null; }
   }
@@ -278,6 +291,25 @@
     return false;
   }
 
+  // Pending clarification is a narrow, one-shot state. It must never absorb a
+  // complete new request just because the request happens to mention images,
+  // diagrams, or generation.
+  function isStandaloneTaskRequest(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return false;
+    if (value.length > 120) return true;
+
+    const numberedItems = value.match(/(?:^|\n)\s*\d{1,3}\s*[、.．)）]/g) || [];
+    if (numberedItems.length >= 2) return true;
+
+    const lines = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+    if (lines.length >= 3) return true;
+
+    // Short replies such as “第一张” and “红色背景” remain valid answers.
+    return value.length > 32
+      && /(?:\u54a8\u8be2|\u8bf7|\u5e2e\u6211|\u9700\u8981|\u5e0c\u671b|\u751f\u6210|\u8bbe\u8ba1|\u5206\u6790|\u7f16\u5199|\u603b\u7ed3|\u7ffb\u8bd1)/.test(value);
+  }
+
   function classifyPendingTurn(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return { action: 'none', reason: 'no_pending', pending: null };
@@ -285,6 +317,7 @@
     const hasAttachments = hasAnyAttachment(attachments);
     const hasImages = hasImageAttachment(attachments, isImageFile);
     const expects = Array.isArray(normalized.expects) && normalized.expects.length ? normalized.expects : expectedAnswerTypes(normalized);
+    if (isStandaloneTaskRequest(text)) return { action: 'clear', reason: 'standalone_new_task', pending: normalized };
     if (hasAttachments) {
       if (expects.includes('upload') || expects.includes('file_reference')) {
         if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_upload' : 'wrong_attachment_type', pending: normalized };
@@ -315,7 +348,9 @@
   }
 
   function shouldApplyPending(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
-    return isLikelyClarificationAnswer(pending, { promptText, attachments, quotedMessage, isImageFile });
+    // Deliberately fail closed. Continuation is authorized only by a valid
+    // pending_continuation.v1 model result, never by local keyword heuristics.
+    return false;
   }
 
   function mergePendingInput(pending, { promptText = '', attachments = [], quotedMessage = null, quoteText = '', finalPrompt = '', finalTaskMode = '', selectedIndexes = [] } = {}) {
@@ -362,6 +397,7 @@
   }
 
   const api = Object.freeze({
+    CONTINUATION_SCHEMA_VERSION,
     CONTINUATION_SYSTEM_PROMPT,
     buildContinuationClassifierPayload,
     parseContinuationClassifierResult,
@@ -374,15 +410,8 @@
     normalizePendingClarification,
     createPendingClarification,
     findPendingFromHistory,
-    asksForImageVariant,
-    classifyPendingTurn,
     findPreviousImageRequest,
-    isClearlyNewTask,
     isVagueImageFeedback,
-    isSelectionAnswer,
-    isShortClarificationPhrase,
-    isLikelyClarificationAnswer,
-    shouldApplyPending,
     mergePendingInput,
     clearPendingIfResolved,
   });

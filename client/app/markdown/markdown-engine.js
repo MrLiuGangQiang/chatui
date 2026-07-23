@@ -61,16 +61,17 @@ function applyTaskListFallback(html = '') {
 function normalizeTableAlignToken(token) {
   const style = token.attrGet('style') || '';
   const match = style.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*(?:;|$)/i);
-  if (!match) return;
-  const nextStyle = style.replace(/(?:^|;)\s*text-align\s*:\s*(?:left|center|right)\s*;?/ig, '').trim();
-  if (nextStyle) token.attrSet('style', nextStyle);
-  else {
-    const styleIndex = token.attrIndex('style');
-    if (styleIndex >= 0) token.attrs.splice(styleIndex, 1);
+  if (match) {
+    const nextStyle = style.replace(/(?:^|;)\s*text-align\s*:\s*(?:left|center|right)\s*;?/ig, '').trim();
+    if (nextStyle) token.attrSet('style', nextStyle);
+    else {
+      const styleIndex = token.attrIndex('style');
+      if (styleIndex >= 0) token.attrs.splice(styleIndex, 1);
+    }
   }
-  const cls = `md-align-${match[1].toLowerCase()}`;
+  const cls = `md-align-${match ? match[1].toLowerCase() : 'left'}`;
   const current = token.attrGet('class') || '';
-  if (!current.split(/\s+/).includes(cls)) token.attrSet('class', [current, cls].filter(Boolean).join(' '));
+  if (!current.split(/\s+/).some(name => /^md-align-(?:left|center|right)$/.test(name))) token.attrSet('class', [current, cls].filter(Boolean).join(' '));
 }
 
 

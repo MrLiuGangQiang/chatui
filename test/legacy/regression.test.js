@@ -73,6 +73,8 @@ const contentRegionDialogLayoutTests = require('../unit/content-region-dialog-la
 const regenerateWorkflowTests = require('../unit/regenerate-workflow.test');
 const taskStateTests = require('../unit/task-state.test');
 const doneSoundTests = require('../unit/done-sound.test');
+const markdownStreamingTablePreviewTests = require('../unit/markdown-streaming-table-preview.test');
+const markdownPreviewTableAlignmentTests = require('../unit/markdown-preview-table-alignment.test');
 const messageOrderPersistenceTests = require('../unit/message-order-persistence.test');
 const messageSizeGuardTests = require('../unit/message-size-guard.test');
 const messageQuoteLayoutTests = require('../unit/message-quote-layout.test');
@@ -1267,7 +1269,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.94-finalized-code-radius') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.95-block-table-state') && index.includes('message-workflow.js?v=1.3.39-image-quote') && index.includes('flat-theme.css?v=2.2.0-intent-route-map'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1593,7 +1595,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(browserStreaming.includes('tailTextNode.appendData') && browserStreaming.includes('STREAMING_TAIL_SCAN_LIMIT'), 'streaming Markdown should append cumulative tail deltas and bound expensive tail scans for huge unstable blocks');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.94-finalized-code-radius') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.39-image-quote'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.95-block-table-state') && index.includes('markdown-live-stream.js?v=1.0.3') && index.includes('message-workflow.js?v=1.3.39-image-quote'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
@@ -1612,8 +1614,9 @@ function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
     const chunks = ['| A | B |\n', '|---|---|\n', '| 1 | 2 |\n'];
     for (const chunk of chunks) renderer.append(chunk, container);
     assert.strictEqual(renderer.getConsumed(), 0, 'streaming table rows should remain uncommitted until the table block is complete');
-    assert.ok(container.querySelector('[data-markdown-streaming-tail]'), 'active table block should stay in the lightweight tail while streaming');
-    assert.ok(!container.querySelector('p') && !container.querySelector('table'), 'active table block should not be prematurely rendered as paragraphs or a partial table');
+    assert.ok(container.querySelector('[data-markdown-streaming-table]'), 'active table blocks should render through the lightweight table preview while streaming');
+    assert.ok(container.querySelector('table'), 'the preview should use table semantics instead of raw Markdown delimiters');
+    assert.ok(!container.textContent.includes('|---|'), 'the raw Markdown table divider should not be shown while streaming');
     const result = renderer.final(container);
     assert.strictEqual(result.mode, 'incremental-final', 'unchanged final text should still use incremental finalization');
     assert.ok(container.querySelector('table'), 'finalized streaming Markdown table should render as a table');
@@ -3368,6 +3371,8 @@ const tests = [
   ...regenerateWorkflowTests,
   ...taskStateTests,
   ...doneSoundTests,
+  ...markdownStreamingTablePreviewTests,
+  ...markdownPreviewTableAlignmentTests,
   ...messageOrderPersistenceTests,
   ...messageSizeGuardTests,
   ...messageQuoteLayoutTests,

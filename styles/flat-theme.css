@@ -2474,6 +2474,7 @@ body{
   background:#e9edf4!important;
   border-color:#dde2eb!important;
 }
+.markdown-body .table-wrap,
 .markdown-body .table-wrapper,
 .markdown-body table{
   width:100%!important;
@@ -2805,6 +2806,7 @@ body{
   .message.user .bubble-wrap{max-width:92%!important;}
   .message.assistant .content,
   .message.assistant .markdown-body{font-size:14.5px!important;}
+  .markdown-body .table-wrap,
   .markdown-body .table-wrapper,
   .markdown-body table{font-size:13px!important;}
   .composer textarea,
@@ -3010,6 +3012,7 @@ body{
   background:#f5f6f8!important;
   border-left:3px solid #d5dbe5!important;
 }
+.markdown-body .table-wrap,
 .markdown-body .table-wrapper,
 .markdown-body table{
   border:0!important;
@@ -3135,6 +3138,7 @@ body{
     width:var(--ds-chat-column)!important;
   }
 }
+.markdown-body .table-wrap,
 .markdown-body .table-wrapper{
   display:block!important;
   width:100%!important;

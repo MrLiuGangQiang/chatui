@@ -417,7 +417,13 @@
         const largeAssistantMarkdown = !s.html && !e.classList?.contains("user") && shouldProgressiveRenderMarkdown(rawValue);
         if ((e.__markdownLiveStream?.final || e.__markdownStreamingRenderer?.final) && !s.html && !e.classList?.contains("user")) {
           try {
-            if (e.__markdownLiveStream?.final) {
+            if (largeAssistantMarkdown) {
+              e.__markdownLiveStream?.dispose?.();
+              e.__markdownStreamingRenderer?.dispose?.();
+              rendered = !!renderMarkdownProgressively(e, rawValue, rawHash);
+              e.dataset.markdownFinalMode = "progressive-canonical-final";
+              delete e.dataset.markdownFinalEnhanced;
+            } else if (e.__markdownLiveStream?.final) {
               const result = e.__markdownLiveStream.final(contentNode, rawValue);
               rendered = !!result;
               e.dataset.renderedHash = rawHash;
@@ -426,11 +432,6 @@
               e.dataset.markdownFinalMode = result?.mode || "incremental-final";
               if (result?.reason) e.dataset.markdownFinalReason = result.reason;
               if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
-            } else if (largeAssistantMarkdown) {
-              renderMarkdownProgressively(e, rawValue, rawHash);
-              rendered = true;
-              e.dataset.markdownFinalMode = "progressive-final";
-              delete e.dataset.markdownFinalEnhanced;
             } else {
               const result = e.__markdownStreamingRenderer.final(contentNode, rawValue);
               rendered = !!result;

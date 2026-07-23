@@ -75,7 +75,14 @@
       lastRenderAt = 0;
     }
 
-    return Object.freeze({ append, final, reset, getRaw: () => raw });
+    function dispose() {
+      try { renderer?.dispose?.(); } catch {}
+      renderer = null;
+      raw = '';
+      lastRenderAt = 0;
+    }
+
+    return Object.freeze({ append, final, reset, dispose, getRaw: () => raw });
   }
 
   const api = Object.freeze({ createMarkdownLiveStream });

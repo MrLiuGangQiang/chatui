@@ -46,7 +46,7 @@
       if (/^:\s*-{3,}\s*:$/.test(value)) return 'center';
       if (/^:\s*-{3,}\s*$/.test(value)) return 'left';
       if (/^-{3,}\s*:$/.test(value)) return 'right';
-      return '';
+      return 'left';
     });
   }
 

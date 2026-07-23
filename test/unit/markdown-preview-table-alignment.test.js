@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const preview = require('../../client/features/messages/markdown-preview');
+const markdownEngine = require('../../client/app/markdown/markdown-engine');
 
 function testLargeMarkdownPreviewKeepsTableAlignmentSemantics() {
   const html = preview.renderMarkdownPreview('| Left | Center | Right |\n| :--- | :---: | ---: |\n| A | B | C |');
@@ -12,4 +13,14 @@ function testLargeMarkdownPreviewKeepsTableAlignmentSemantics() {
   assert.ok(html.includes('<td class="md-align-right">C</td>'));
 }
 
-module.exports = [testLargeMarkdownPreviewKeepsTableAlignmentSemantics];
+function testDefaultTableColumnsUseExplicitLeftAlignment() {
+  const source = '| Name | Status |\n| --- | --- |\n| ChatUI | Ready |';
+  const previewHtml = preview.renderMarkdownPreview(source);
+  const finalHtml = markdownEngine.renderMarkdown(source);
+  assert.ok(previewHtml.includes('<th class="md-align-left">Name</th>'));
+  assert.ok(previewHtml.includes('<td class="md-align-left">Ready</td>'));
+  assert.ok(finalHtml.includes('<th class="md-align-left">Name</th>'));
+  assert.ok(finalHtml.includes('<td class="md-align-left">Ready</td>'));
+}
+
+module.exports = [testLargeMarkdownPreviewKeepsTableAlignmentSemantics, testDefaultTableColumnsUseExplicitLeftAlignment];

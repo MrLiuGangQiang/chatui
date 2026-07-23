@@ -172,7 +172,7 @@
     cells.push(cell.trim());
     return cells;
   }
-  function tableAlignments(line = '') { return tableCells(line).map(value => /^:\s*-{3,}\s*:$/.test(value) ? 'center' : /^:\s*-{3,}\s*$/.test(value) ? 'left' : /^-{3,}\s*:$/.test(value) ? 'right' : ''); }
+  function tableAlignments(line = '') { return tableCells(line).map(value => /^:\s*-{3,}\s*:$/.test(value) ? 'center' : /^:\s*-{3,}\s*$/.test(value) ? 'left' : /^-{3,}\s*:$/.test(value) ? 'right' : 'left'); }
   function activeTableBlockStart(text = '') {
     const src = String(text || '').replace(/\r\n?/g, '\n');
     if (!src || /\n\s*\n$/.test(src)) return -1;

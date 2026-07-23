@@ -22,6 +22,7 @@ function testStreamingTableUsesReadablePreviewBeforeFinalRender() {
     assert.ok(preview, 'an unfinished Markdown table should have a live table preview');
     assert.strictEqual(preview.querySelector('th')?.textContent, 'Name');
     assert.deepStrictEqual([...preview.querySelectorAll('td')].map(cell => cell.textContent), ['Chat', 'Ready']);
+    assert.deepStrictEqual([...preview.querySelectorAll('th, td')].map(cell => cell.className), ['md-align-left', 'md-align-left', 'md-align-left', 'md-align-left'], 'unmarked table columns should use explicit left alignment for both headers and body cells');
     assert.ok(!preview.textContent.includes('|') && !preview.textContent.includes('---'), 'the preview must hide Markdown table delimiters');
 
     const body = preview.querySelector('tbody');

@@ -92,9 +92,7 @@
     return tpl.innerHTML;
   }
 
-  function normalizedHtml(value = '') { return String(value || '').replace(/\s+/g, ' ').trim(); }
-  function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); return normalizedHtml(container.innerHTML) === normalizedHtml(tpl.innerHTML); }
-  function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) { if (typeof renderMarkdown !== 'function') return false; const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); const current = container.cloneNode(true); const delta = document.createElement('template'); delta.innerHTML = renderMarkdown(finalDelta); current.append(...delta.content.childNodes); return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML); }
+  function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); return String(container?.innerHTML || '') === tpl.innerHTML; }
 
   const STREAMING_TAIL_SCAN_LIMIT = 65536;
   const STREAMING_TABLE_RENDER_INTERVAL_MS = 80;
@@ -151,6 +149,49 @@
       code: src.slice(active.contentStart),
     };
   }
+  function detailsTagDelta(line = '') {
+    const source = String(line || '');
+    return (source.match(/<details(?:\s|>|$)/gi) || []).length - (source.match(/<\/details\s*>/gi) || []).length;
+  }
+  function isDetailsContainerOpen(line = '') { return /^\s*:::\s*(?:details|detail|fold|collapse|collapsible)\b/i.test(String(line || '')); }
+  function isDetailsContainerClose(line = '') { return /^\s*:::\s*$/.test(String(line || '')); }
+  function readableStreamingText(text = '') {
+    const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+    return lines.map(line => {
+      let value = line;
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      if (/^\s{0,3}(?:`{3,}|~{3,}).*$/.test(value)) return '';
+      if (/^\s{0,3}(?:`{1,2}|~{1,2})(?:[a-z0-9_+#.-]*)?\s*$/i.test(value)) return '';
+      if (/^\s{0,3}(?:(?:-\s*)+|(?:\*\s*)+|(?:_\s*)+)\s*$/.test(value)) return '';
+      const detailsContainer = value.match(/^\s*:::\s*(?:details|detail|fold|collapse|collapsible)\b\s*(.*)$/i);
+      if (detailsContainer) return detailsContainer[1] || '';
+      if (/^\s*:::\s*$/.test(value) || /^\s*:{2,}\s*[a-z-]*\s*$/i.test(value)) return '';
+      value = value
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<!--[\s\S]*$/g, '')
+        .replace(/<\/?[a-z][^>]*>/gi, '')
+        .replace(/<\/?[a-z][^>]*$/gi, '')
+        .replace(/<\/?[a-z]*$/gi, '')
+        .replace(/^(\s*)#{1,6}(?:\s+|$)/, '$1')
+        .replace(/^\s*(?:>\s*)+/, '')
+        .replace(/^(\s*)[-*+]\s+\[([ xX])\]\s+/, (_all, indent, checked) => `${indent}${/x/i.test(checked) ? '☑' : '☐'} `)
+        .replace(/^(\s*)[-*+]\s+/, '$1• ')
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_all, label) => label ? `图片：${label}` : '图片')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/!\[([^\]]*)\]\([^)]*$/g, (_all, label) => label ? `图片：${label}` : '图片')
+        .replace(/\[([^\]]+)\]\([^)]*$/g, '$1')
+        .replace(/!\[([^\]]*)$/g, (_all, label) => label ? `图片：${label}` : '图片')
+        .replace(/(^|[\s(])\[([^\]]*)$/g, '$1$2')
+        .replace(/(`+)([^`]*?)\1/g, '$2')
+        .replace(/(\*\*|__|~~)(\S(?:.*?\S)?)\1/g, '$2')
+        .replace(/([*_])(\S(?:.*?\S)?)\1/g, '$2')
+        .replace(/(^|[\s([{>])(?:\*{1,3}|_{1,2}|~{2,}|`+)(?=\S)/g, '$1')
+        .replace(/(\S)(?:\*{1,3}|_{2,}|~{2,}|`+)(?=$|[\s)\]}.,!?;:])/g, '$1')
+        .replace(/\\([\\`*_[\]{}()#+\-.!>|~])/g, '$1');
+      return value;
+    }).join('\n');
+  }
   function isMarkdownTableRow(line = '') { const value = String(line || '').trim(); return /^\|.*\|$/.test(value) || /\S\s*\|\s*\S/.test(value); }
   function isMarkdownTableDivider(line = '') { return /^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || '').trim()); }
   function isMarkdownTableDividerCandidate(line = '') { const value = String(line || '').trim(); return /[-:]/.test(value) && /^\|?\s*:?-{1,}:?(?:\s*\|\s*:?-{0,}:?)*\s*\|?$/.test(value); }
@@ -196,7 +237,7 @@
     if (count === 1) return isMarkdownTableRow(first) ? start : -1;
     return isMarkdownTableRow(first) && (isMarkdownTableDivider(second) || isMarkdownTableDividerCandidate(second)) ? start : -1;
   }
-  function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete) stable = item.end; continue; } if (inMath) continue; if (blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); const tableStart = activeTableBlockStart(src); if (tableStart >= 0) stable = Math.min(stable, tableStart); return Math.max(0, Math.min(stable, src.length)); }
+  function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false, detailsDepth = 0, detailsContainerDepth = 0; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; if (!detailsDepth && !detailsContainerDepth) stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete && !detailsDepth && !detailsContainerDepth) stable = item.end; continue; } if (inMath) continue; if (isDetailsContainerOpen(line)) { detailsContainerDepth += 1; continue; } if (detailsContainerDepth > 0 && isDetailsContainerClose(line)) { detailsContainerDepth -= 1; if (!detailsDepth && !detailsContainerDepth && complete) stable = item.end; continue; } const previousDetailsDepth = detailsDepth; detailsDepth = Math.max(0, detailsDepth + detailsTagDelta(line)); if (previousDetailsDepth > 0 && !detailsDepth && !detailsContainerDepth && complete) stable = item.end; if (!detailsDepth && !detailsContainerDepth && blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && !detailsDepth && !detailsContainerDepth && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); const tableStart = activeTableBlockStart(src); if (tableStart >= 0) stable = Math.min(stable, tableStart); return Math.max(0, Math.min(stable, src.length)); }
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
   function createStreamingRenderer({
     renderMarkdown: render = renderMarkdown,
@@ -207,7 +248,7 @@
     highlightIntervalMs = 180,
   } = {}) {
     let raw = '', consumed = 0, tailText = '', closed = false;
-    let scanOffset = 0, scanStable = 0, scanInFence = false, scanFenceChar = '', scanFenceLen = 0, scanInMath = false;
+    let scanOffset = 0, scanStable = 0, scanInFence = false, scanFenceChar = '', scanFenceLen = 0, scanInMath = false, scanDetailsDepth = 0, scanDetailsContainerDepth = 0;
     let tailNode = null, tailTextNode = null;
     let streamingCodeNode = null, streamingCodeElement = null, streamingCodeAppendTextNode = null, streamingCodeRaw = '', streamingCodeKey = '';
     let streamingHighlightTimer = null;
@@ -278,7 +319,7 @@
       return tailNode;
     };
     const syncPlainTailNode = (container, text = '') => {
-      const next = String(text || '');
+      const next = readableStreamingText(text);
       if (!next) return removeTailNode();
       const node = ensureTailNode(container);
       if (!node || !tailTextNode) return;
@@ -610,19 +651,29 @@
         if (!scanInMath && fence) {
           const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim();
           if (scanInFence) {
-            if (ch === scanFenceChar && marker.length >= scanFenceLen && !info) { scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; scanStable = end; }
+            if (ch === scanFenceChar && marker.length >= scanFenceLen && !info) { scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; if (!scanDetailsDepth && !scanDetailsContainerDepth) scanStable = end; }
           } else { scanInFence = true; scanFenceChar = ch; scanFenceLen = marker.length; }
         } else if (!scanInFence && mathFence(line)) {
           scanInMath = !scanInMath;
-          if (!scanInMath) scanStable = end;
-        } else if (!scanInFence && !scanInMath && blank(line) && !hasInlineMathTailBefore(end)) scanStable = end;
+          if (!scanInMath && !scanDetailsDepth && !scanDetailsContainerDepth) scanStable = end;
+        } else if (!scanInFence && !scanInMath && isDetailsContainerOpen(line)) {
+          scanDetailsContainerDepth += 1;
+        } else if (!scanInFence && !scanInMath && scanDetailsContainerDepth > 0 && isDetailsContainerClose(line)) {
+          scanDetailsContainerDepth -= 1;
+          if (!scanDetailsDepth && !scanDetailsContainerDepth) scanStable = end;
+        } else if (!scanInFence && !scanInMath) {
+          const previousDetailsDepth = scanDetailsDepth;
+          scanDetailsDepth = Math.max(0, scanDetailsDepth + detailsTagDelta(line));
+          if (previousDetailsDepth > 0 && !scanDetailsDepth && !scanDetailsContainerDepth) scanStable = end;
+          if (!scanDetailsDepth && !scanDetailsContainerDepth && blank(line) && !hasInlineMathTailBefore(end)) scanStable = end;
+        }
         scanOffset = end;
       }
       let index = scanStable;
       const tailScan = boundedStreamingScanTail(raw);
       const tailScanOffset = raw.length - tailScan.length;
       const inlineMathTail = hasConservativeInlineMathTail(tailScan);
-      if (!scanInFence && !scanInMath && raw.endsWith('\n') && !inlineMathTail) index = Math.max(index, raw.length);
+      if (!scanInFence && !scanInMath && !scanDetailsDepth && !scanDetailsContainerDepth && raw.endsWith('\n') && !inlineMathTail) index = Math.max(index, raw.length);
       if (inlineMathTail) index = Math.min(index, Math.max(0, raw.lastIndexOf('\n', raw.length - 2) + 1));
       const tableStartLocal = activeTableBlockStart(tailScan);
       const tableStart = tableStartLocal >= 0 ? tailScanOffset + tableStartLocal : -1;
@@ -660,29 +711,27 @@
         return { raw, consumed, tail: tailText, closed, skipped: true, preview: true };
       },
       final(container, finalText = raw) {
-        const next = String(finalText ?? raw ?? ''), previousRaw = raw, previousConsumed = consumed;
+        const next = String(finalText ?? raw ?? ''), finalTextDiverged = next !== raw;
         raw = next; closed = true;
         let mode = 'noop', reason = '';
         if (container) {
-          const canCommitTail = next === previousRaw && previousConsumed <= next.length, finalDelta = next.slice(previousConsumed);
-          if (canCommitTail) {
-            removeTailNode();
-            removeStreamingCodeNode();
-            removeStreamingTableNode();
-            if (finalDelta) { restoreStreamingResources(container); insertRendered(container, render(finalDelta), null); }
-            else restoreStreamingResources(container);
-            enhanceSafe(container, { final: true, streaming: true });
-            consumed = raw.length; tailText = ''; mode = 'incremental-final';
-          } else {
-            removeTailNode();
-            removeStreamingCodeNode();
-            removeStreamingTableNode();
-            container.replaceChildren(...htmlToFrag(render(raw)).childNodes); consumed = raw.length; tailText = ''; enhanceSafe(container, { final: true, reset: true }); mode = 'full-rerender-final'; reason = 'final-text-diverged';
-          }
+          const finalHtml = render(raw);
+          removeTailNode();
+          removeStreamingCodeNode();
+          removeStreamingTableNode();
+          const unchanged = finalMarkupMatchesCurrent(container, finalHtml);
+          if (unchanged) restoreStreamingResources(container);
+          else container.replaceChildren(...htmlToFrag(finalHtml).childNodes);
+          wrapCompletedStreamingCodeBlocks(container);
+          enhanceSafe(container, { final: true, streaming: true, reset: !unchanged, canonical: true });
+          consumed = raw.length;
+          tailText = '';
+          mode = unchanged ? 'canonical-final-unchanged' : 'canonical-final';
+          if (!unchanged) reason = finalTextDiverged ? 'final-text-diverged' : 'canonical-reconcile';
         } else { consumed = raw.length; tailText = ''; mode = 'no-container'; }
         return { raw, mode, reason, consumed, closed, enhanced: !!container };
       },
-      getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, flush() { flushStreamingTableRender(); return { raw, consumed, tail: tailText, closed }; }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; scanOffset = 0; scanStable = 0; scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; scanInMath = false; removeTailNode(); removeStreamingCodeNode(); removeStreamingTableNode(); if (container) container.innerHTML = ''; }
+      getRaw() { return raw; }, getConsumed() { return consumed; }, getTail() { return tailText; }, flush() { flushStreamingTableRender(); return { raw, consumed, tail: tailText, closed }; }, dispose() { closed = true; if (streamingHighlightTimer != null) { clearTimer(streamingHighlightTimer); streamingHighlightTimer = null; } if (streamingTableTimer != null) { clearTimer(streamingTableTimer); streamingTableTimer = null; } }, reset(container) { raw = ''; consumed = 0; tailText = ''; closed = false; scanOffset = 0; scanStable = 0; scanInFence = false; scanFenceChar = ''; scanFenceLen = 0; scanInMath = false; scanDetailsDepth = 0; scanDetailsContainerDepth = 0; removeTailNode(); removeStreamingCodeNode(); removeStreamingTableNode(); if (container) container.innerHTML = ''; }
     };
   }
 
@@ -690,6 +739,7 @@
     findStableBoundary,
     splitStableTail,
     activeStreamingFence,
+    readableStreamingText,
     activeTableBlockStart,
     createStreamingRenderer,
     deferStreamingResources,

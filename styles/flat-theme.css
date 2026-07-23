@@ -4649,3 +4649,102 @@ body.session-sidebar-collapsed{
   background:#fff!important;
   border-color:#b8c0cc!important;
 }
+
+/* Markdown action interaction lock: state changes must not alter the button box. */
+.markdown-body .code-block>:is(.code-copy-icon:not(.copied):not(.copy-failed),.mermaid-toggle-btn:not(.is-error),.mermaid-render-toggle:not(.is-error)),
+.markdown-body .code-block>:is(.code-copy-icon:not(.copied):not(.copy-failed),.mermaid-toggle-btn:not(.is-error),.mermaid-render-toggle:not(.is-error)):is(:hover,:focus,:focus-visible,:active),
+.markdown-body .code-block>.code-copy-icon:is(.copied,.copy-failed),
+.markdown-body .code-block>.code-copy-icon:is(.copied,.copy-failed):is(:hover,:focus,:focus-visible,:active),
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle):is(.is-error,.is-loading),
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle):is(.is-error,.is-loading):is(:hover,:focus,:focus-visible,:active),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle,
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle:is(:hover,:focus,:focus-visible,:active){
+  position:absolute!important;
+  top:8px!important;
+  left:auto!important;
+  bottom:auto!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:28px!important;
+  height:24px!important;
+  min-width:28px!important;
+  min-height:24px!important;
+  max-width:28px!important;
+  max-height:24px!important;
+  padding:0!important;
+  margin:0!important;
+  box-sizing:border-box!important;
+  color:#667085!important;
+  background-color:rgba(255,255,255,.72)!important;
+  background-image:none!important;
+  border:1px solid #cbd2dc!important;
+  border-radius:6px!important;
+  box-shadow:none!important;
+  filter:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  opacity:1!important;
+  transform:none!important;
+  transition:background-color .16s ease,border-radius .16s ease!important;
+}
+.markdown-body .code-block>.code-copy-icon,
+.markdown-body .code-block>.code-copy-icon:is(:hover,:focus,:focus-visible,:active),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle,
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle:is(:hover,:focus,:focus-visible,:active){
+  right:8px!important;
+}
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle),
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle):is(:hover,:focus,:focus-visible,:active){
+  right:40px!important;
+}
+/* Markdown action motion: visible surface feedback without translation or scaling. */
+.markdown-body .code-block>:is(.code-copy-icon:not(.copied):not(.copy-failed),.mermaid-toggle-btn:not(.is-error),.mermaid-render-toggle:not(.is-error)):is(:hover,:focus-visible),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle:not(.is-error):is(:hover,:focus-visible){
+  background-color:#d8e2f0!important;
+  border-radius:8px!important;
+}
+.markdown-body .code-block>:is(.code-copy-icon:not(.copied):not(.copy-failed),.mermaid-toggle-btn:not(.is-error),.mermaid-render-toggle:not(.is-error)):active,
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle:not(.is-error):active{
+  background-color:#cbd8e9!important;
+  border-radius:8px!important;
+}
+.markdown-body .code-block>.code-copy-icon:is(.copied,.copy-failed):is(:hover,:focus-visible,:active),
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle).is-error:is(:hover,:focus-visible,:active),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle.is-error:is(:hover,:focus-visible,:active){
+  border-radius:8px!important;
+}
+/* Code-block action feedback states retain their meaning without changing on hover. */
+.markdown-body .code-block>.code-copy-icon.copied,
+.markdown-body .code-block>.code-copy-icon.copied:is(:hover,:focus,:focus-visible,:active){
+  color:#059669!important;
+  background-color:#ecfdf5!important;
+  background-image:none!important;
+  border-color:rgba(16,185,129,.25)!important;
+  box-shadow:0 0 0 2px rgba(16,185,129,.10),0 6px 14px rgba(15,23,42,.06)!important;
+}
+.markdown-body .code-block>.code-copy-icon.copy-failed,
+.markdown-body .code-block>.code-copy-icon.copy-failed:is(:hover,:focus,:focus-visible,:active),
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle).is-error,
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle).is-error:is(:hover,:focus,:focus-visible,:active),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle.is-error,
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle.is-error:is(:hover,:focus,:focus-visible,:active){
+  color:#dc2626!important;
+  background-color:#fef2f2!important;
+  background-image:none!important;
+  border-color:rgba(239,68,68,.2)!important;
+  box-shadow:none!important;
+}
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle).is-loading,
+.markdown-body .code-block>:is(.mermaid-toggle-btn,.mermaid-render-toggle).is-loading:is(:hover,:focus,:focus-visible,:active),
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle.is-loading,
+.markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle.is-loading:is(:hover,:focus,:focus-visible,:active){
+  opacity:.72!important;
+  cursor:wait!important;
+}
+@media (prefers-reduced-motion:reduce){
+  .markdown-body .code-block>:is(.code-copy-icon,.mermaid-toggle-btn,.mermaid-render-toggle),
+  .markdown-body :is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle{
+    transition:none!important;
+  }
+}

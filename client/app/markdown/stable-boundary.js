@@ -43,6 +43,12 @@ function isMathFence(line) { return /^\s*\$\$\s*$/.test(line); }
 function isContainerFence(line) { return /^\s*:{3,}\s*\S*/.test(line); }
 function isDetailsOpen(line) { return /^\s*<details(?:\s|>|$)/i.test(line); }
 function isDetailsClose(line) { return /^\s*<\/details\s*>/i.test(line); }
+function detailsTagDelta(line = '') {
+  const source = String(line || '');
+  return (source.match(/<details(?:\s|>|$)/gi) || []).length - (source.match(/<\/details\s*>/gi) || []).length;
+}
+function isDetailsContainerOpen(line = '') { return /^\s*:::\s*(?:details|detail|fold|collapse|collapsible)\b/i.test(String(line || '')); }
+function isDetailsContainerClose(line = '') { return /^\s*:::\s*$/.test(String(line || '')); }
 function isListLine(line) { return /^\s{0,3}(?:[-+*]|\d{1,9}[.)])\s+/.test(line); }
 function isTableSeparator(line) { return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line); }
 function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line) || /^\s*\S.*\|.*\S\s*$/.test(line); }
@@ -69,6 +75,8 @@ function findStableBoundary(text = '') {
   let fenceChar = '';
   let fenceLen = 0;
   let inMathBlock = false;
+  let detailsDepth = 0;
+  let detailsContainerDepth = 0;
   for (const lineInfo of lines) {
     const line = lineInfo.text;
     const complete = lineInfo.hasNl;
@@ -80,7 +88,7 @@ function findStableBoundary(text = '') {
       if (inFence) {
         if (ch === fenceChar && marker.length >= fenceLen && !info) {
           inFence = false; fenceChar = ''; fenceLen = '';
-          stable = lineInfo.end;
+          if (!detailsDepth && !detailsContainerDepth) stable = lineInfo.end;
         }
       } else {
         inFence = true; fenceChar = ch; fenceLen = marker.length;
@@ -90,13 +98,25 @@ function findStableBoundary(text = '') {
     if (inFence) continue;
     if (isMathFence(line)) {
       inMathBlock = !inMathBlock;
-      if (!inMathBlock && complete) stable = lineInfo.end;
+      if (!inMathBlock && complete && !detailsDepth && !detailsContainerDepth) stable = lineInfo.end;
       continue;
     }
     if (inMathBlock) continue;
-    if (isBlank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, lineInfo.end))) stable = lineInfo.end;
+    if (isDetailsContainerOpen(line)) {
+      detailsContainerDepth += 1;
+      continue;
+    }
+    if (detailsContainerDepth > 0 && isDetailsContainerClose(line)) {
+      detailsContainerDepth -= 1;
+      if (!detailsDepth && !detailsContainerDepth && complete) stable = lineInfo.end;
+      continue;
+    }
+    const previousDetailsDepth = detailsDepth;
+    detailsDepth = Math.max(0, detailsDepth + detailsTagDelta(line));
+    if (previousDetailsDepth > 0 && !detailsDepth && !detailsContainerDepth && complete) stable = lineInfo.end;
+    if (!detailsDepth && !detailsContainerDepth && isBlank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, lineInfo.end))) stable = lineInfo.end;
   }
-  if (!inFence && !inMathBlock && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length);
+  if (!inFence && !inMathBlock && !detailsDepth && !detailsContainerDepth && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length);
   if (hasConservativeInlineMathTail(src)) {
     const lastLineStart = Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1);
     stable = Math.min(stable, lastLineStart);
@@ -110,4 +130,4 @@ function splitStableTail(text = '') {
   return { stable: src.slice(0, index), tail: src.slice(index), index };
 }
 
-module.exports = { findStableBoundary, splitStableTail, hasConservativeInlineMathTail };
+module.exports = { findStableBoundary, splitStableTail, hasConservativeInlineMathTail, detailsTagDelta, isDetailsContainerOpen, isDetailsContainerClose };

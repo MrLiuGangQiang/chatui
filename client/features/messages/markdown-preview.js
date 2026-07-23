@@ -20,16 +20,39 @@
   }
 
   function splitTableRow(line = '') {
-    return String(line || '')
-      .trim()
-      .replace(/^\|/, '')
-      .replace(/\|$/, '')
-      .split('|')
-      .map(cell => cell.trim());
+    const source = String(line || '').trim();
+    let start = source.startsWith('|') ? 1 : 0;
+    let end = source.length;
+    if (end > start && source.endsWith('|') && source[end - 2] !== '\\') end -= 1;
+    const cells = [];
+    let cell = '';
+    for (let index = start; index < end; index += 1) {
+      const character = source[index];
+      const next = source[index + 1];
+      if (character === '\\' && (next === '|' || next === '\\')) { cell += next; index += 1; continue; }
+      if (character === '|') { cells.push(cell.trim()); cell = ''; continue; }
+      cell += character;
+    }
+    cells.push(cell.trim());
+    return cells;
   }
 
   function isTableSeparator(line = '') {
     return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || ''));
+  }
+
+  function tableAlignments(line = '') {
+    return splitTableRow(line).map(value => {
+      if (/^:\s*-{3,}\s*:$/.test(value)) return 'center';
+      if (/^:\s*-{3,}\s*$/.test(value)) return 'left';
+      if (/^-{3,}\s*:$/.test(value)) return 'right';
+      return '';
+    });
+  }
+
+  function alignedCell(tag, value, alignment = '') {
+    const className = alignment ? ` class="md-align-${alignment}"` : '';
+    return `<${tag}${className}>${renderInline(value)}</${tag}>`;
   }
 
   function renderMarkdownPreview(source = '') {
@@ -98,6 +121,7 @@
         closeParagraph();
         closeList();
         const headers = splitTableRow(trimmed);
+        const alignments = tableAlignments(lines[i + 1]);
         const body = [];
         i += 2;
         while (i < lines.length && lines[i].trim().includes('|') && lines[i].trim()) {
@@ -105,7 +129,7 @@
           i += 1;
         }
         i -= 1;
-        html.push('<div class="markdown-preview-table-wrap"><table><thead><tr>' + headers.map(cell => `<th>${renderInline(cell)}</th>`).join('') + '</tr></thead><tbody>' + body.map(row => '<tr>' + row.map(cell => `<td>${renderInline(cell)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>');
+        html.push('<div class="markdown-preview-table-wrap table-wrap"><table><thead><tr>' + headers.map((cell, index) => alignedCell('th', cell, alignments[index])).join('') + '</tr></thead><tbody>' + body.map(row => '<tr>' + row.map((cell, index) => alignedCell('td', cell, alignments[index])).join('') + '</tr>').join('') + '</tbody></table></div>');
         continue;
       }
 

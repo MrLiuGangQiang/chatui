@@ -15,11 +15,11 @@ function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed
   }
 
   return function routeJob(req, res) {
-    if (req.url === basePath) {
+    if ((req.pathname || req.url) === basePath) {
       if (req.method !== 'POST') return sendMethodNotAllowed(res);
       return startJob(req, res);
     }
-    if (!req.url.startsWith(`${basePath}/`)) return false;
+    if (!(req.pathname || req.url).startsWith(`${basePath}/`)) return false;
     if (req.method === 'POST' && isAbortJobUrl(req.url)) return abortJobByUrl(req, res);
     if (req.method === 'DELETE' && !isAbortJobUrl(req.url) && !isJobEventsUrl(req.url)) return disposeJobByUrl(req, res);
     if (req.method !== 'GET') return sendMethodNotAllowed(res);

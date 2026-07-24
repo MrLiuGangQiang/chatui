@@ -300,7 +300,7 @@ async function testFollowRouteDoesNotRetrySameSessionModelAfterFailure() {
   }
 }
 
-async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract() {
+async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification() {
   const models = ['deepseek-v4-flash', 'gpt-session', 'router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
   const requestedModels = [];
@@ -315,11 +315,13 @@ async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInval
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    await assert.rejects(
-      () => harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {}),
-      err => err?.code === 'ROUTE_INVALID_CONTRACT',
-    );
+    const route = await harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {});
     assert.deepStrictEqual(requestedModels, ['router-special', 'gpt-session'], 'an invalid primary contract should retry only the distinct session fallback model');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.intent, 'clarify');
+    assert.strictEqual(route.taskContract, null);
+    assert.strictEqual(route.selectedIndexes.length, 0, 'invalid contracts must not select resources locally');
   } finally {
     console.warn = originalWarn;
     harness.restore();
@@ -489,7 +491,7 @@ module.exports = [
   testExplicitRouteModelSwitchUsesLatestSelection,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
-  testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract,
+  testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
   testHighRiskRouteFailsClosedWhenItsReviewFails,
   testBusyTaskCannotSwitchGlobalRouteModel,

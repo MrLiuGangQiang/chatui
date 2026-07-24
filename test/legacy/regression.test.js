@@ -2450,7 +2450,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
   assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
   assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
-  assert.ok(routeDiagram.includes('task_contract.v3') && routeDiagram.includes('operation = clarify') && routeDiagram.includes('持久化交接后分发'), 'the route diagram should describe the current task-contract routing and durable handoff flow');
+  assert.ok(routeDiagram.includes('task_contract.v3') && routeDiagram.includes('clarify / 无效契约') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the current task-contract routing, safe clarification, and durable handoff flow');
   assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
   const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
   assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');

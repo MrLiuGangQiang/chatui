@@ -1,6 +1,9 @@
 'use strict';
 
-const tests = require('./legacy/regression.test');
+const tests = [
+  ...require('./legacy/regression.test'),
+  ...require('./unit/session-attachment-isolation.test'),
+];
 
 async function run() {
   for (const test of tests) {

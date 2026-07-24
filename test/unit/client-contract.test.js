@@ -147,6 +147,27 @@ function testClientContractBindsMediaResourcesToExactCandidates() {
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(wrongSource), { input: 'make the background blue', context }), null, 'a resource must not bind an historical candidate while claiming it is current');
 }
 
+function testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias() {
+  const edit = taskContract({
+    operation: 'edit_image',
+    resources: [{ key: 'r1', type: 'image', source: 'current', role: 'target', index: 1, id: 'att_current_1.png', reference_id: 'imgref_uploaded_7', missing: false }],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'person gender', value: 'female' }], constraints: [] },
+  });
+  const context = {
+    recent_messages: [{ index: 7, role: 'user' }],
+    image_candidates: [{ index: 4, source_index: 1, source: 'current', image_id: 'img_imgref_uploaded_7_1', reference_id: 'imgref_uploaded_7', target: 'uploaded' }],
+  };
+  const attachments = [{ id: 'att_current_1.png', image_id: 'att_current_1.png', media_index: 1, source_index: 1, is_image: true, type: 'image/png' }];
+  const parsed = routeService.parseRouteResult(JSON.stringify(edit), { input: 'change the man into a woman', context, attachments });
+  assert.ok(parsed, 'the transient attachment id must resolve to the same current image as its durable context candidate');
+  assert.deepStrictEqual(parsed.selectedImageIds, ['img_imgref_uploaded_7_1'], 'execution must use the durable canonical image id');
+  assert.deepStrictEqual(parsed.selectedIndexes, [1], 'execution must retain the source-local attachment index');
+
+  const unrelated = structuredClone(edit);
+  unrelated.resources[0].id = 'att_other.png';
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(unrelated), { input: 'change the man into a woman', context, attachments }), null, 'an unrelated attachment id must remain non-executable');
+}
+
 function testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes() {
   const incompleteCompare = taskContract({
     operation: 'image_compare',
@@ -217,6 +238,7 @@ module.exports = [
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
   testClientContractBindsMediaResourcesToExactCandidates,
+  testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
   testClientContractServiceExportsStayStable,
   testClientContractChatAndSseParsingShape,

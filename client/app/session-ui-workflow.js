@@ -15,6 +15,8 @@
     const switchSession = deps.switchSession;
     const saveActivePromptDraft = deps.saveActivePromptDraft || (() => {});
     const restorePromptDraft = deps.restorePromptDraft || (() => {});
+    const saveActiveAttachmentDraft = deps.saveActiveAttachmentDraft || (() => {});
+    const restoreAttachmentDraft = deps.restoreAttachmentDraft || (() => {});
     const saveSessionsMeta = deps.saveSessionsMeta || (() => {});
     const saveChatHistory = deps.saveChatHistory || (() => {});
     const saveDisplayHistory = deps.saveDisplayHistory || (() => {});
@@ -60,6 +62,7 @@
     function newSession() {
       const state = getState();
       saveActivePromptDraft();
+      saveActiveAttachmentDraft();
       try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
@@ -71,6 +74,7 @@
       state.activeOutputNode = null;
       state.activeOutputSessions.delete(session.id);
       state.promptDrafts.set(session.id, '');
+      restoreAttachmentDraft(session.id);
       restorePromptDraft(session.id);
       $('resumeStreamBtn')?.classList.remove('show');
       $('resumeStreamBtn')?.setAttribute('aria-hidden', 'true');
@@ -98,13 +102,13 @@
 
       if (wasActive) {
         clearAttachments();
-        state.attachments = [];
         state.editingIndex = null;
         state.editingNode = null;
         state.activeOutputNode = null;
         state.activeSessionId = state.sessions[0].id;
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
         syncActiveSession({ skipSave: true });
+        restoreAttachmentDraft(state.activeSessionId);
         loadReasoningPreference();
       }
 
@@ -135,7 +139,6 @@
       state.activeSessionId = nextSession.id;
       state.messages = nextSession.messages;
       state.lastGeneratedImage = null;
-      state.attachments = [];
       state.editingIndex = null;
       state.editingNode = null;
       state.activeOutputNode = null;
@@ -143,7 +146,7 @@
 
       localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
       saveSessionsMeta();
-      clearAttachments();
+      restoreAttachmentDraft(state.activeSessionId);
       const messages = $('messages');
       if (messages) messages.innerHTML = '';
       renderActiveSession();

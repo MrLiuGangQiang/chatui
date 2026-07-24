@@ -321,6 +321,9 @@ async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeC
     assert.strictEqual(route.api, 'clarify');
     assert.strictEqual(route.intent, 'clarify');
     assert.strictEqual(route.taskContract, null);
+    assert.strictEqual(route.localClarification, true);
+    assert.match(route.clarificationQuestion, /意图模型返回了无效的任务结构/);
+    assert.doesNotMatch(route.clarificationQuestion, /我需要确认你的目标/);
     assert.strictEqual(route.selectedIndexes.length, 0, 'invalid contracts must not select resources locally');
   } finally {
     console.warn = originalWarn;
@@ -476,8 +479,8 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.4-verified-routing'));
+  assert.ok(index.includes('submit-workflow.js?v=1.2.95-local-contract-failure'));
+  assert.ok(index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }

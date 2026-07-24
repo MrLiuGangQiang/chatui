@@ -5,7 +5,6 @@ const { sanitizeHtml } = require('./sanitizer');
 const { enhanceRenderedMarkdown, enhanceCodeCopy, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks } = require('./enhancer');
 const { findStableBoundary, splitStableTail } = require('./stable-boundary');
 const { createStreamingRenderer } = require('./streaming-renderer');
-const dependencyLoader = require('./resource-loader');
 const sourceNormalizer = require('./source-normalizer');
 const linkPolicy = require('./link-policy');
 const mermaidNormalizer = require('./mermaid-normalizer');
@@ -50,7 +49,6 @@ module.exports = {
   splitStableTail,
   createStreamingRenderer,
   escapeHtml,
-  dependencyLoader,
   sourceNormalizer,
   linkPolicy,
   mermaidNormalizer,

@@ -32,12 +32,16 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'),
+    index.includes('submit-workflow.js?v=1.2.95-local-contract-failure'),
     'the browser must fetch the fixed submit workflow instead of a cached broken version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
+  assert.ok(submit.includes('const needsHistoricalChatImages=()=>"chat"===routeMode'), 'chat tasks with an explicitly selected historical image must request its durable media');
+  assert.ok(submit.includes('getPreviousImageAttachments(sessionId,routeInfo.selectedIndexes,routeInfo.selectedReferenceId,routeInfo.selectedImageIds)'), 'historical chat images must be restored by the exact route bindings');
+  assert.ok(submit.includes('if(createdPending&&!routeInfo.localClarification)'), 'a local contract-failure notice must not create a fake pending user clarification');
+  assert.ok(!submit.includes('我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？'), 'a model contract failure must not be presented as user ambiguity');
 }
 
 function testImageGenerationDoesNotShadowSubmitOptions() {

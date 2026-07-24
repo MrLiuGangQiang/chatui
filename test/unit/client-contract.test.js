@@ -147,6 +147,29 @@ function testClientContractBindsMediaResourcesToExactCandidates() {
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(wrongSource), { input: 'make the background blue', context }), null, 'a resource must not bind an historical candidate while claiming it is current');
 }
 
+function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
+  const reference = taskContract({
+    operation: 'plain_chat',
+    relation: 'followup',
+    resources: [
+      { key: 'r1', type: 'message', source: 'history', role: 'target', index: 4, id: '', reference_id: '', missing: false },
+      { key: 'r2', type: 'image', source: 'history', role: 'style_reference', index: 1, id: 'img-reference-page', reference_id: 'imgref-reference-page', missing: false },
+    ],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'page visual style', value: 'reference image visual style' }], constraints: ['do not embed the image'] },
+  });
+  const parsed = routeService.parseRouteResult(JSON.stringify(reference), {
+    input: 'Restyle the previous webpage to match the reference image without embedding it.',
+    context: {
+      image_candidates: [{ index: 1, source_index: 1, source: 'history', image_id: 'img-reference-page', reference_id: 'imgref-reference-page', target: 'previous' }],
+    },
+  });
+
+  assert.ok(parsed, 'a historical style reference for HTML generation must remain executable');
+  assert.strictEqual(parsed.mode, 'chat');
+  assert.strictEqual(parsed.api, 'chat');
+  assert.deepStrictEqual(parsed.selectedImageIds, ['img-reference-page']);
+}
+
 function testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias() {
   const edit = taskContract({
     operation: 'edit_image',
@@ -238,6 +261,7 @@ module.exports = [
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
   testClientContractBindsMediaResourcesToExactCandidates,
+  testClientContractAcceptsHistoricalStyleReferenceForHtmlChat,
   testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
   testClientContractServiceExportsStayStable,

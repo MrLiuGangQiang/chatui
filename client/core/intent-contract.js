@@ -78,7 +78,14 @@
         && directive.unmentioned_policy === 'allow_change'
         && directive.operations.length === 0;
     }
-    if (task.operation === 'plain_chat') return !images.length && !files.length;
+    if (task.operation === 'plain_chat') {
+      // A chat task may carry an explicitly selected historical image as a visual
+      // reference (for example, reproducing a webpage style in HTML). It remains
+      // a chat task, not an image-generation request.
+      return !files.length
+        && hasOnlyResourceTypes(resources, ['image', 'text', 'message'])
+        && images.every(resource => resource.source !== 'current' && ['reference', 'style_reference'].includes(resource.role));
+    }
     if (task.operation === 'text_to_image') {
       return !files.length
         && hasOnlyResourceTypes(resources, ['image'])

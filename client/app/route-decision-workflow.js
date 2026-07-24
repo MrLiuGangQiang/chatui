@@ -103,7 +103,7 @@
         target: 'none',
         intent: 'clarify',
         needClarification: true,
-        clarificationQuestion: '我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？',
+        clarificationQuestion: '本次未执行：意图模型返回了无效的任务结构。请重试；若持续出现，请更换意图模型。',
         confidence: 0,
         selectedIndexes: [],
         selectedImageIndexes: [],

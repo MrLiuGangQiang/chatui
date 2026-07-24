@@ -3,6 +3,7 @@
 const tests = [
   ...require('./legacy/regression.test'),
   ...require('./unit/session-attachment-isolation.test'),
+  ...require('./unit/markdown-dependency-loader-entry.test'),
 ];
 
 async function run() {

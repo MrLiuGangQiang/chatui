@@ -690,7 +690,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'), 'submit workflow cache version should be bumped for pending clarification fix');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.95-local-contract-failure'), 'submit workflow cache version should be bumped for local contract failures');
   assert.ok(index.includes('clarification-service.js?v=1.0.7-strict-continuation-contract'), 'clarification service cache version should be bumped for the strict continuation contract');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -1757,7 +1757,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.95-local-contract-failure') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -3149,7 +3149,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.4-verified-routing') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.95-local-contract-failure') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {

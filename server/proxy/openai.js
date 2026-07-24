@@ -12,6 +12,32 @@ const {
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 
+const MAX_IMAGE_PROXY_BYTES = Math.max(1, Number(process.env.MAX_IMAGE_PROXY_BYTES || 25 * 1024 * 1024));
+
+async function readResponseBufferWithLimit(response, maxBytes = MAX_IMAGE_PROXY_BYTES) {
+  const declared = Number(response.headers?.get?.('content-length') || 0);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    const err = new Error('Image response is too large');
+    err.statusCode = 413;
+    err.code = 'IMAGE_RESPONSE_TOO_LARGE';
+    throw err;
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body || []) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maxBytes) {
+      const err = new Error('Image response is too large');
+      err.statusCode = 413;
+      err.code = 'IMAGE_RESPONSE_TOO_LARGE';
+      throw err;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, size);
+}
+
 function withQueryParams(rawUrl, params) {
   const url = new URL(rawUrl);
   if (params && typeof params === 'object' && !Array.isArray(params)) {
@@ -190,7 +216,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (!contentType.startsWith('image/')) {
       return sendError(res, 415, '上游返回的不是图片', 'UPSTREAM_NOT_IMAGE');
     }
-    const buffer = Buffer.from(await upstream.arrayBuffer());
+    const buffer = await readResponseBufferWithLimit(upstream);
     send(res, 200, buffer, {
       'Content-Type': contentType,
       'Cache-Control': 'no-store',
@@ -207,4 +233,4 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   return { proxy, proxyImage };
 }
 
-module.exports = { createOpenAiProxy, withQueryParams };
+module.exports = { createOpenAiProxy, withQueryParams, MAX_IMAGE_PROXY_BYTES, readResponseBufferWithLimit };

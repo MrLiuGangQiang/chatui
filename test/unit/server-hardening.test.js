@@ -11,6 +11,7 @@ const extractApi = require('../../server/extract');
 const { ConcurrencyLimiter } = require('../../server/concurrency');
 const safeLog = require('../../server/logging/safe-log');
 const { sendError } = require('../../server/http/response');
+const { readResponseBufferWithLimit } = require('../../server/proxy/openai');
 const { AppError, normalizeError, toErrorPayload } = require('../../server/errors/http-error');
 
 function createMockResponse() {
@@ -196,6 +197,13 @@ async function testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests() {
   assert.strictEqual(resumed, true, 'known oversize bodies should be drained immediately');
 }
 
+async function testImageProxyResponseLimitRejectsDeclaredAndStreamedOversizeBodies() {
+  const response = (length, chunks) => ({ headers: { get: () => length }, body: chunks });
+  await assert.rejects(readResponseBufferWithLimit(response('9', []), 8), err => err.statusCode === 413 && err.code === 'IMAGE_RESPONSE_TOO_LARGE');
+  await assert.rejects(readResponseBufferWithLimit(response('', [Buffer.from('12345'), Buffer.from('67890')]), 8), err => err.statusCode === 413 && err.code === 'IMAGE_RESPONSE_TOO_LARGE');
+  assert.deepStrictEqual(await readResponseBufferWithLimit(response('4', [Buffer.from('test')]), 8), Buffer.from('test'));
+}
+
 async function testConnectionLookupRejectsMixedOrReboundPrivateAddresses() {
   const invokeLookup = (addresses, options = {}) => new Promise((resolve, reject) => {
     const lookup = urlPolicy.createPublicLookup({
@@ -291,6 +299,7 @@ module.exports = [
   testJobEventsSubscribeAndAbortContracts,
   testServerHardeningHelpers,
   testReadBodyHonorsPerRouteLimitAndDrainsOversizeRequests,
+  testImageProxyResponseLimitRejectsDeclaredAndStreamedOversizeBodies,
   testConnectionLookupRejectsMixedOrReboundPrivateAddresses,
   testUpstreamErrorDiagnosticsAreSafeAndActionable,
   testSendErrorKeepsLegacyContract,

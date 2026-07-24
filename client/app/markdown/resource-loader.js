@@ -10,7 +10,7 @@ const resources = Object.freeze({
     Object.freeze({ id: 'highlight-css', cdn: 'https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css', local: './vendor/highlight-github.min.css' }),
   ]),
   scripts: Object.freeze([
-    Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.7/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
+    Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.12/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
     Object.freeze({ id: 'markdown-it', cdn: 'https://registry.npmmirror.com/markdown-it/14.2.0/files/dist/markdown-it.min.js', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
     Object.freeze({ id: 'markdown-it-task-lists', cdn: 'https://registry.npmmirror.com/markdown-it-task-lists/2.1.1/files/dist/markdown-it-task-lists.min.js', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
     Object.freeze({ id: 'markdown-it-emoji', cdn: 'https://registry.npmmirror.com/markdown-it-emoji/3.0.0/files/dist/markdown-it-emoji.min.js', local: './vendor/markdown-it-plugins/markdown-it-emoji.min.js', global: 'markdownitEmoji' }),

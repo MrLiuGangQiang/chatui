@@ -94,6 +94,29 @@
       return error;
     }
 
+    function invalidContractClarificationRoute() {
+      // This route is deliberately local and non-executing.  An invalid model
+      // response must never be repaired into a guessed operation or resource.
+      return {
+        mode: 'chat',
+        api: 'clarify',
+        target: 'none',
+        intent: 'clarify',
+        needClarification: true,
+        clarificationQuestion: '我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？',
+        confidence: 0,
+        selectedIndexes: [],
+        selectedImageIndexes: [],
+        selectedFileIndexes: [],
+        selectedImageIds: [],
+        selectedReferenceId: '',
+        imageRefs: [],
+        fileRefs: [],
+        taskContract: null,
+        localClarification: true,
+      };
+    }
+
     function requiresVerifiedReview(route = {}) {
       const operation = String(route.operationType || route.taskContract?.operation || '');
       return ['edit_image', 'image_reference_gen', 'image_compare'].includes(operation);
@@ -282,10 +305,24 @@
         }
         throwIfRouteCancelled(parentSignal);
         const invalidContract = primaryFailure?.code === 'ROUTE_INVALID_CONTRACT' || fallbackFailure?.code === 'ROUTE_INVALID_CONTRACT';
+        if (invalidContract) {
+          const clarificationRoute = invalidContractClarificationRoute();
+          setIntentTrace({
+            input,
+            model: primaryModel,
+            context: compactTraceValue(context),
+            attachments: attachmentMeta,
+            finalRoute: clarificationRoute,
+            finalApi: 'clarify',
+            fallbackAi: !!fallbackFailure,
+            invalidContractFallback: true,
+          });
+          return clarificationRoute;
+        }
         const routeError = new Error(invalidContract
           ? '\u610f\u56fe\u8bc6\u522b\u7ed3\u679c\u672a\u80fd\u901a\u8fc7\u5b89\u5168\u6821\u9a8c\uff0c\u8bf7\u66f4\u6362\u610f\u56fe\u6a21\u578b\u6216\u7a0d\u540e\u91cd\u8bd5'
           : '\u610f\u56fe\u8bc6\u522b\u5931\u8d25\uff1a\u8def\u7531\u6a21\u578b\u548c\u5907\u7528\u6a21\u578b\u5747\u4e0d\u53ef\u7528\uff0c\u8bf7\u68c0\u67e5\u6a21\u578b\u914d\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5');
-        routeError.code = invalidContract ? 'ROUTE_INVALID_CONTRACT' : 'ROUTE_COMPLETE_FAILURE';
+        routeError.code = 'ROUTE_COMPLETE_FAILURE';
         routeError.primaryCode = primaryFailure?.code || '';
         routeError.fallbackCode = fallbackFailure?.code || '';
         throw routeError;

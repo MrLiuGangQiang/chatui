@@ -7,6 +7,10 @@ const chatService = require('../../client/services/chat-service');
 const jobService = require('../../client/services/job-service');
 const attachmentsCore = require('../../client/core/attachments');
 
+function currentTextResource(key = 'r9') {
+  return { key, type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false };
+}
+
 function testClientContractUsesOneTaskContractRouteProtocol() {
   for (const key of [
     'ROUTE_SYSTEM_PROMPT',
@@ -51,6 +55,31 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   assert.ok(payload.messages[0].content.includes('attachments.media_index'), 'the model must receive the type-local attachment index rule');
   assert.ok(payload.messages[0].content.length < 4000, 'the route prompt must remain within its compact context budget');
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking)/i.test(JSON.stringify(payload)));
+}
+
+function testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles() {
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: 'Compare the newly uploaded file with the prior report.',
+    attachments: [{ id: 'current-file', name: 'current.txt', type: 'text/plain', size: 10, is_image: false }],
+    context: {
+      recent_messages: [
+        { index: 1, role: 'user', content: 'Earlier report' },
+        { index: 2, role: 'user', content: 'Compare the newly uploaded file with the prior report.' },
+      ],
+      file_candidates: [
+        { index: 1, source: 'history', file_id: 'history-file', name: 'history.txt', message_index: 1 },
+        { index: 2, source: 'history', file_id: 'stale-current-file', name: 'current.txt', message_index: 2 },
+      ],
+    },
+  });
+  const user = JSON.parse(payload.messages[1].content);
+
+  assert.deepStrictEqual(user.context.file_candidates.map(item => [item.source, item.file_id]), [
+    ['history', 'history-file'],
+    ['current', 'current-file'],
+  ], 'current attachments must augment, not erase, selectable historical file candidates');
+  assert.deepStrictEqual(user.context.recent_messages.map(item => item.index), [1], 'the current input remains represented only by current_input and attachments');
 }
 
 function testClientContractAttachmentMetadataUsesTypedMediaIndexes() {
@@ -145,6 +174,43 @@ function testClientContractBindsMediaResourcesToExactCandidates() {
   const wrongSource = structuredClone(edit);
   wrongSource.resources[0].source = 'current';
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(wrongSource), { input: 'make the background blue', context }), null, 'a resource must not bind an historical candidate while claiming it is current');
+}
+
+function testClientContractAcceptsCurrentTextResourceForTextToImage() {
+  const textToImage = taskContract({
+    operation: 'text_to_image',
+    resources: [{ key: 'r1', type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false }],
+  });
+  const parsed = routeService.parseRouteResult(JSON.stringify(textToImage), { input: 'Generate a 16:9 presentation image.', attachments: [], context: {} });
+
+  assert.ok(parsed, 'a current text resource must be valid for a standalone text-to-image task');
+  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.api, 'image_generation');
+  assert.strictEqual(parsed.operationType, 'text_to_image');
+}
+
+function testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation() {
+  const currentImage = { key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'img-current', reference_id: '', missing: false };
+  const compareImage = { key: 'r2', type: 'image', source: 'current', role: 'compare_b', index: 2, id: 'img-compare', reference_id: '', missing: false };
+  const compareBase = { ...currentImage, role: 'compare_a' };
+  const currentFile = { key: 'r3', type: 'file', source: 'current', role: 'attachment', index: 1, id: 'file-current', reference_id: '', missing: false };
+  const historyReference = { key: 'r4', type: 'image', source: 'history', role: 'reference', index: 1, id: 'img-history', reference_id: 'imgref-history', missing: false };
+  const historyTarget = { key: 'r5', type: 'image', source: 'history', role: 'target', index: 1, id: 'img-history', reference_id: 'imgref-history', missing: false };
+  const patch = (baseKey, operation) => ({ mode: 'patch', base_resource_keys: [baseKey], unmentioned_policy: 'preserve', operations: [operation], constraints: [] });
+  const cases = [
+    taskContract({ operation: 'plain_chat', resources: [currentTextResource()] }),
+    taskContract({ operation: 'file_qa', resources: [currentFile, currentTextResource()] }),
+    taskContract({ operation: 'multimodal_qa', resources: [currentImage, currentFile, currentTextResource()] }),
+    taskContract({ operation: 'image_qa', resources: [currentImage, currentTextResource()] }),
+    taskContract({ operation: 'ocr', resources: [currentImage, currentTextResource()] }),
+    taskContract({ operation: 'image_compare', resources: [compareBase, compareImage, currentTextResource()] }),
+    taskContract({ operation: 'image_reference_gen', relation: 'followup', resources: [historyReference, currentTextResource()], directive: patch('r4', { op: 'add', target: 'composition', value: 'combine the reference' }) }),
+    taskContract({ operation: 'edit_image', relation: 'correction', resources: [historyTarget, currentTextResource()], directive: patch('r5', { op: 'replace', target: 'background', value: 'blue' }) }),
+  ];
+
+  for (const contract of cases) {
+    assert.strictEqual(routeService.isTaskContractResult(contract), true, `${contract.operation} must accept one neutral current-text resource`);
+  }
 }
 
 function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
@@ -257,10 +323,13 @@ function testClientContractChatAndSseParsingShape() {
 module.exports = [
   testClientContractUsesOneTaskContractRouteProtocol,
   testClientContractRoutePayloadKeepsCompactShape,
+  testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles,
   testClientContractAttachmentMetadataUsesTypedMediaIndexes,
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
   testClientContractBindsMediaResourcesToExactCandidates,
+  testClientContractAcceptsCurrentTextResourceForTextToImage,
+  testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation,
   testClientContractAcceptsHistoricalStyleReferenceForHtmlChat,
   testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,

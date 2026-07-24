@@ -58,6 +58,17 @@ function testRouteAttachmentSelectorsPreserveTypedBindings() {
     { id: 'file-b', type: 'application/pdf' },
     { id: 'img-b', type: 'image/png', sourceIndex: 2 },
   ]);
+  assert.deepStrictEqual(selectors.selectImageGenerationAttachments(source), [], 'chat-only image roles must not leak attachments into reference generation');
+
+  const referenceSelectors = helpers.createRouteAttachmentSelectors({
+    imageRefs: [{ image_id: 'img-b', index: 2, source: 'current', role: 'reference' }],
+  }, {
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    decorateImage: (item, index) => ({ ...item, sourceIndex: index + 1 }),
+  });
+  assert.deepStrictEqual(referenceSelectors.selectImageGenerationAttachments(source), [
+    { id: 'img-b', type: 'image/png', sourceIndex: 2 },
+  ], 'reference generation must upload only the image selected by the route contract');
 
   const fallback = { id: 'img-current', type: 'image/png' };
   const editSelectors = helpers.createRouteAttachmentSelectors({}, {

@@ -295,6 +295,23 @@
       );
     }
 
+    function uploadedImageForReference(sessionId, referenceId = '') {
+      const context = getUploadedImageContextByReference(sessionId, referenceId);
+      if (!context?.attachments?.length) return null;
+      return {
+        images: context.attachments.map(item => ({
+          src: item.src,
+          filename: item.name || item.filename || 'previous-image.png',
+          label: item.label || item.subject || '',
+        })),
+      };
+    }
+
+    function historicalImageForReference(sessionId, referenceId = '') {
+      return uploadedImageForReference(sessionId, referenceId)
+        || generatedImageForReference(sessionId, referenceId);
+    }
+
     async function previousAttachmentFromImage(image, sourceIndex, referenceId, imageId = '') {
       const images = Array.isArray(image?.images) && image.images.length
         ? image.images
@@ -303,7 +320,7 @@
           : [];
       const item = images[sourceIndex - 1];
       if (!item?.src) return null;
-      const file = await imageRefToFile(item.src, item.filename || `previous-image-${sourceIndex}.png`);
+      const file = await imageRefToFile(item.src, item.filename || item.name || `previous-image-${sourceIndex}.png`);
       return {
         file,
         name: file.name,
@@ -328,7 +345,7 @@
           const parsed = parseImageItemId?.(imageId);
           if (!parsed) continue;
           if (!references.has(parsed.referenceId)) {
-            references.set(parsed.referenceId, generatedImageForReference(sessionId, parsed.referenceId));
+            references.set(parsed.referenceId, historicalImageForReference(sessionId, parsed.referenceId));
           }
           const attachment = await previousAttachmentFromImage(
             references.get(parsed.referenceId),
@@ -346,7 +363,7 @@
 
       const reference = parseImageReferenceId(referenceId);
       const normalizedReferenceId = makeImageReferenceId(reference || 'latest');
-      const image = generatedImageForReference(sessionId, normalizedReferenceId);
+      const image = historicalImageForReference(sessionId, normalizedReferenceId);
       const images = Array.isArray(image?.images) && image.images.length
         ? image.images
         : image?.src

@@ -478,7 +478,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
   assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.4-verified-routing'));
-  assert.ok(index.includes('app.js?v=2.1.52-single-submit-workflow'));
+  assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 

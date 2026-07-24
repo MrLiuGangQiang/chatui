@@ -49,25 +49,92 @@
     const limits = deps.imageUploadLimits || DEFAULT_IMAGE_UPLOAD_LIMITS;
     const attachmentService = deps.attachmentService || root.ChatUIServices?.attachments || root.ChatUIAttachmentService || {};
 
+    function ensureStateMap(state, key) {
+      if (!(state[key] instanceof Map)) state[key] = new Map();
+      return state[key];
+    }
+
+    function isDisposedSession(state, sessionId) {
+      return !!sessionId && !!state.disposedSessionIds?.has?.(sessionId);
+    }
+
+    function sessionCanReceiveAttachments(state, sessionId) {
+      if (isDisposedSession(state, sessionId)) return false;
+      if (!sessionId) return true;
+      return !Array.isArray(state.sessions) || !state.sessions.length || state.sessions.some(session => session?.id === sessionId);
+    }
+
+    function attachmentDraftFor(state, sessionId = state.activeSessionId) {
+      if (isDisposedSession(state, sessionId)) return null;
+      if (!sessionId) return Array.isArray(state.attachments) ? state.attachments : (state.attachments = []);
+      const drafts = ensureStateMap(state, 'attachmentDrafts');
+      if (!drafts.has(sessionId)) drafts.set(sessionId, sessionId === state.activeSessionId && Array.isArray(state.attachments) ? state.attachments : []);
+      const draft = drafts.get(sessionId);
+      if (Array.isArray(draft)) return draft;
+      const empty = [];
+      drafts.set(sessionId, empty);
+      return empty;
+    }
+
+    function syncActiveAttachmentDraft(state) {
+      const sessionId = state.activeSessionId;
+      if (!sessionId || isDisposedSession(state, sessionId)) return Array.isArray(state.attachments) ? state.attachments : [];
+      const drafts = ensureStateMap(state, 'attachmentDrafts');
+      const attachments = Array.isArray(state.attachments) ? state.attachments : [];
+      if (drafts.get(sessionId) !== attachments) drafts.set(sessionId, attachments);
+      return attachments;
+    }
+
+    function attachmentDraftVersion(state, sessionId) {
+      const versions = ensureStateMap(state, 'attachmentDraftVersions');
+      return Number(versions.get(sessionId) || 0);
+    }
+
+    function uploadTaskSessionId(state, taskId, fallback = state.activeSessionId) {
+      return ensureStateMap(state, 'uploadTaskSessionIds').get(taskId) || fallback;
+    }
+
+    function uploadTasksFor(state, sessionId = state.activeSessionId) {
+      if (isDisposedSession(state, sessionId)) return [];
+      if (!sessionId) return Array.isArray(state.uploadTasks) ? state.uploadTasks : (state.uploadTasks = []);
+      const drafts = ensureStateMap(state, 'uploadTaskDrafts');
+      if (!drafts.has(sessionId)) drafts.set(sessionId, sessionId === state.activeSessionId && Array.isArray(state.uploadTasks) ? state.uploadTasks : []);
+      const tasks = drafts.get(sessionId);
+      if (Array.isArray(tasks)) return tasks;
+      const empty = [];
+      drafts.set(sessionId, empty);
+      return empty;
+    }
+
+    function syncActiveUploadTasks(state) {
+      const sessionId = state.activeSessionId;
+      if (!sessionId || isDisposedSession(state, sessionId)) return Array.isArray(state.uploadTasks) ? state.uploadTasks : [];
+      const drafts = ensureStateMap(state, 'uploadTaskDrafts');
+      const tasks = Array.isArray(state.uploadTasks) ? state.uploadTasks : [];
+      if (drafts.get(sessionId) !== tasks) drafts.set(sessionId, tasks);
+      return tasks;
+    }
+
     function renderAttachments() {
       const state = getState();
+      const attachments = syncActiveAttachmentDraft(state);
       const bar = getElement('attachmentBar');
       if (!bar) return;
-      bar.innerHTML = state.attachments.map((item, index) => {
+      bar.innerHTML = attachments.map((item, index) => {
         const image = String(item.type || '').startsWith('image/');
         const preview = image ? `<button class="attachment-thumb-btn" type="button" data-preview-attachment="${index}" title="打开预览：${escapeHtml(item.name)}" aria-label="打开预览：${escapeHtml(item.name)}"><img src="${escapeHtml(item.dataUrl)}" alt="" /></button>` : `<span class="file-icon">${escapeHtml(String(item.name || '').split('.').pop() || 'FILE')}</span>`;
         const note = item.compressionNote ? `<em title="${escapeHtml(item.compressionNote)}">已压缩</em>` : item.text || item.dataUrl ? '' : `<em title="${escapeHtml(item.unsupportedReason || '暂不支持解析')}">未解析</em>`;
         return `<div class="attachment-chip${image ? ' attachment-chip-image' : ''}"${image ? ` data-preview-attachment="${index}" role="button" tabindex="0" aria-label="打开预览：${escapeHtml(item.name)}"` : ''} title="${escapeHtml(item.compressionNote || item.unsupportedReason || item.name)}">${preview}<span>${escapeHtml(item.name)}</span>${note}<button type="button" data-remove-attachment="${index}">×</button></div>`;
       }).join('');
-      bar.classList.toggle('show', state.attachments.length > 0);
+      bar.classList.toggle('show', attachments.length > 0);
       bar.querySelectorAll('[data-preview-attachment]').forEach(node => {
-        const open = () => { const item = state.attachments[Number(node.dataset.previewAttachment)]; if (item?.dataUrl) openImagePreview(item.dataUrl); };
+        const open = () => { const item = attachments[Number(node.dataset.previewAttachment)]; if (item?.dataUrl) openImagePreview(item.dataUrl); };
         node.addEventListener('click', event => { if (!event.target.closest('[data-remove-attachment]')) open(); });
         node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
       });
       bar.querySelectorAll('[data-remove-attachment]').forEach(node => node.addEventListener('click', event => {
         event.stopPropagation();
-        state.attachments.splice(Number(node.dataset.removeAttachment), 1);
+        attachments.splice(Number(node.dataset.removeAttachment), 1);
         renderAttachments();
         autoResize();
       }));
@@ -83,12 +150,12 @@
       root.setTimeout?.call(root, focus, 80);
     }
 
-    function hasPendingUploads() { return (getState().uploadTasks || []).some(task => !task.done && !task.error); }
+    function hasPendingUploads(sessionId = getState().activeSessionId) { return uploadTasksFor(getState(), sessionId).some(task => !task.done && !task.error); }
     function renderUploadProgress() {
       const state = getState();
       const node = getElement('uploadProgress');
       if (!node) return;
-      const tasks = state.uploadTasks || [];
+      const tasks = syncActiveUploadTasks(state);
       node.innerHTML = tasks.map(task => {
         const percent = Math.max(0, Math.min(100, Math.round(task.percent || 0)));
         const status = task.error ? '失败' : task.done ? '完成' : task.status || '处理中';
@@ -97,11 +164,42 @@
       node.classList.toggle('show', tasks.length > 0);
       updateSendAvailability();
     }
-    function setUploadTask(id, patch = {}) { const task = (getState().uploadTasks || []).find(item => item.id === id); if (task) { Object.assign(task, patch); renderUploadProgress(); autoResize(); } }
-    function finishUploadProgressSoon() { const state = getState(); window.clearTimeout.call(window, state.uploadProgressTimer); state.uploadProgressTimer = window.setTimeout.call(window, () => { state.uploadTasks = []; renderUploadProgress(); autoResize(); updateSendAvailability(); }, 250); }
-    function setUploadPhase(id, phase, percent = 0) { setUploadTask(id, { phase, percent: Math.max(0, Math.min(100, Math.round(percent))), status: phase }); }
-    function setUploadPhaseProgress(id, phase, loaded, total) { const done = Number(loaded) || 0; const all = Number(total) || 0; setUploadPhase(id, phase, all > 0 ? 100 * done / all : 0); }
-    function startTimedUploadPhase(id, phase, start = 8, end = 96, intervalMs = 220) { const started = root.performance?.now ? root.performance.now() : Date.now(); setUploadPhase(id, phase, start); return setInterval(() => { const elapsed = (root.performance?.now ? root.performance.now() : Date.now()) - started; const value = start + (end - start) * (1 - Math.exp(-elapsed / 4200)); setUploadPhase(id, phase, Math.min(end, value)); }, intervalMs); }
+    function setUploadTask(id, patch = {}, sessionId = null) {
+      const state = getState();
+      const targetSessionId = sessionId || uploadTaskSessionId(state, id);
+      const task = uploadTasksFor(state, targetSessionId).find(item => item.id === id);
+      if (!task) return;
+      Object.assign(task, patch);
+      if (targetSessionId === state.activeSessionId) { renderUploadProgress(); autoResize(); }
+    }
+    function finishUploadProgressSoon(sessionId = getState().activeSessionId) {
+      const state = getState();
+      const timers = ensureStateMap(state, 'uploadProgressTimers');
+      const previous = timers.get(sessionId);
+      if (previous !== undefined) {
+        if (typeof root.clearTimeout === 'function') root.clearTimeout.call(root, previous);
+        else clearTimeout(previous);
+      }
+      const finish = () => {
+        timers.delete(sessionId);
+        if (!sessionCanReceiveAttachments(state, sessionId)) return;
+        const tasks = uploadTasksFor(state, sessionId);
+        const taskSessionIds = ensureStateMap(state, 'uploadTaskSessionIds');
+        tasks.forEach(task => { if (taskSessionIds.get(task?.id) === sessionId) taskSessionIds.delete(task.id); });
+        tasks.splice(0, tasks.length);
+        if (sessionId === state.activeSessionId) {
+          state.uploadTasks = tasks;
+          renderUploadProgress();
+          autoResize();
+          updateSendAvailability();
+        }
+      };
+      const timer = typeof root.setTimeout === 'function' ? root.setTimeout.call(root, finish, 250) : setTimeout(finish, 250);
+      timers.set(sessionId, timer);
+    }
+    function setUploadPhase(id, phase, percent = 0, sessionId = getState().activeSessionId) { setUploadTask(id, { phase, percent: Math.max(0, Math.min(100, Math.round(percent))), status: phase }, sessionId); }
+    function setUploadPhaseProgress(id, phase, loaded, total, sessionId = getState().activeSessionId) { const done = Number(loaded) || 0; const all = Number(total) || 0; setUploadPhase(id, phase, all > 0 ? 100 * done / all : 0, sessionId); }
+    function startTimedUploadPhase(id, phase, start = 8, end = 96, intervalMs = 220, sessionId = getState().activeSessionId) { const started = root.performance?.now ? root.performance.now() : Date.now(); setUploadPhase(id, phase, start, sessionId); return setInterval(() => { const elapsed = (root.performance?.now ? root.performance.now() : Date.now()) - started; const value = start + (end - start) * (1 - Math.exp(-elapsed / 4200)); setUploadPhase(id, phase, Math.min(end, value), sessionId); }, intervalMs); }
 
     function readFileAsDataURL(file, taskId = null, phase = '读取文件') { return new Promise((resolve, reject) => { const reader = new FileReaderCtor(); reader.onload = () => { if (taskId) setUploadPhase(taskId, phase, 100); resolve(reader.result); }; reader.onerror = reject; reader.onprogress = event => { if (taskId && event.lengthComputable) setUploadPhaseProgress(taskId, phase, event.loaded, event.total); }; reader.readAsDataURL(file); }); }
     function readFileAsArrayBuffer(file, taskId = null, phase = '读取文件') { return new Promise((resolve, reject) => { const reader = new FileReaderCtor(); reader.onload = () => { if (taskId) setUploadPhase(taskId, phase, 100); resolve(reader.result); }; reader.onerror = reject; reader.onprogress = event => { if (taskId && event.lengthComputable) setUploadPhaseProgress(taskId, phase, event.loaded, event.total); }; reader.readAsArrayBuffer(file); }); }
@@ -217,10 +315,17 @@
       const incoming = [...files];
       if (!incoming.length) return;
       const state = getState();
+      const sessionId = state.activeSessionId;
+      if (!sessionCanReceiveAttachments(state, sessionId)) return;
+      const draftVersion = attachmentDraftVersion(state, sessionId);
       state.uploadTasks = incoming.map((file, index) => ({ id: `upload_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 6)}`, name: file.name || '文件', percent: 0, status: '等待中', phase: '等待中', done: false, error: false }));
+      const uploadTasks = state.uploadTasks;
+      ensureStateMap(state, 'uploadTaskDrafts').set(sessionId, uploadTasks);
+      const taskSessionIds = ensureStateMap(state, 'uploadTaskSessionIds');
+      uploadTasks.forEach(task => taskSessionIds.set(task.id, sessionId));
       renderUploadProgress();
       for (let index = 0; index < incoming.length; index += 1) {
-        const taskId = state.uploadTasks[index]?.id;
+        const taskId = uploadTasks[index]?.id;
         try {
           let file = incoming[index];
           let originalName = '';
@@ -236,9 +341,15 @@
           else if (isProbablyTextFile(item)) { item.text = await readFileAsText(file, taskId, '读取文本'); if (looksBinary(item.text)) { item.text = ''; item.unsupportedReason = '文件看起来是二进制内容，未内联解析'; } }
           else try { const text = await readFileAsText(file, taskId, '读取文本'); if (looksBinary(text)) item.dataUrl = await readFileAsDataURL(file, taskId, '读取文件'); else item.text = text; } catch { item.dataUrl = await readFileAsDataURL(file, taskId, '读取文件'); }
           setUploadPhase(taskId, '添加到附件', 80);
-          state.attachments.push(item);
-          renderAttachments();
-          autoResize();
+          const draft = attachmentDraftFor(state, sessionId);
+          if (draft && sessionCanReceiveAttachments(state, sessionId) && attachmentDraftVersion(state, sessionId) === draftVersion) {
+            draft.push(item);
+            if (sessionId === state.activeSessionId) {
+              state.attachments = draft;
+              renderAttachments();
+              autoResize();
+            }
+          }
           setUploadTask(taskId, { percent: 100, status: '已添加', phase: '添加到附件', done: true });
           if (item.compressionNote) toast(item.compressionNote);
         } catch (err) {
@@ -247,11 +358,22 @@
         }
       }
       autoResize();
-      finishUploadProgressSoon();
+      finishUploadProgressSoon(sessionId);
       focusComposerSubmitTarget();
     }
 
-    function clearAttachments() { const state = getState(); state.attachments = []; renderAttachments(); }
+    function clearAttachments(sessionId = getState().activeSessionId) {
+      const state = getState();
+      const draft = attachmentDraftFor(state, sessionId);
+      if (!draft) return;
+      draft.splice(0, draft.length);
+      const versions = ensureStateMap(state, 'attachmentDraftVersions');
+      versions.set(sessionId, attachmentDraftVersion(state, sessionId) + 1);
+      if (sessionId === state.activeSessionId) {
+        state.attachments = draft;
+        renderAttachments();
+      }
+    }
 
     return Object.freeze({
       renderAttachments, hasPendingUploads, renderUploadProgress, setUploadTask, finishUploadProgressSoon, setUploadPhase, setUploadPhaseProgress, startTimedUploadPhase,

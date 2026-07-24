@@ -225,6 +225,8 @@
         source: normalizeCandidateSource(entry?.source, entry?.message_index || entry?.messageIndex, currentMessageIndex),
         target: String(entry?.target || ''),
         name: String(entry?.name || entry?.filename || ''),
+        attachmentIdAliases: [],
+        attachmentIndexAliases: [],
       };
     }).filter(Boolean);
 
@@ -241,12 +243,28 @@
           : attachment?.file_id || attachment?.fileId || attachment?.id || attachment?.attachmentId || attachment?.attachment_id || ''),
         referenceId: String(attachment?.reference_id || attachment?.referenceId || ''),
         index,
-        sourceIndex: Number(attachment?.source_index || attachment?.sourceIndex) || index,
+        sourceIndex: type === 'image'
+          ? Number(attachment?.media_index || attachment?.mediaIndex || attachment?.source_index || attachment?.sourceIndex) || index
+          : Number(attachment?.source_index || attachment?.sourceIndex || attachment?.media_index || attachment?.mediaIndex) || index,
         source: 'current',
         target: 'uploaded',
         name: String(attachment?.name || attachment?.filename || attachment?.file?.name || ''),
+        attachmentIdAliases: [],
+        attachmentIndexAliases: [],
       };
-      if (!candidates.some(item => item.source === candidate.source && item.index === candidate.index)) candidates.push(candidate);
+      const canonical = candidates.find(item => item.source === candidate.source && item.sourceIndex === candidate.sourceIndex);
+      if (canonical) {
+        // A just-uploaded image has both a transient attachment id and a durable route-context id.
+        // They identify the same current resource only when their source-local index also agrees.
+        if (candidate.id && candidate.id !== canonical.id && !canonical.attachmentIdAliases.includes(candidate.id)) {
+          canonical.attachmentIdAliases.push(candidate.id);
+        }
+        if (candidate.index !== canonical.index && !canonical.attachmentIndexAliases.includes(candidate.index)) {
+          canonical.attachmentIndexAliases.push(candidate.index);
+        }
+      } else {
+        candidates.push(candidate);
+      }
     }
     if (type === 'image' && operation === 'text_to_image' && !candidates.length && context?.last_generated_image?.prompt) {
       candidates.push({
@@ -266,8 +284,10 @@
     if (!MEDIA_TYPES.has(type) || resource.missing) return null;
     const candidates = mediaCandidates(type, options.context || {}, options.attachments || [], options.operation || '');
     const matches = candidates.filter(candidate => {
-      if (candidate.source !== resource.source || candidate.index !== Number(resource.index)) return false;
-      if (resource.id && candidate.id !== resource.id) return false;
+      const indexes = [candidate.index, ...(candidate.attachmentIndexAliases || [])];
+      const ids = [candidate.id, ...(candidate.attachmentIdAliases || [])];
+      if (candidate.source !== resource.source || !indexes.includes(Number(resource.index))) return false;
+      if (resource.id && !ids.includes(resource.id)) return false;
       if (resource.reference_id && candidate.referenceId !== resource.reference_id) return false;
       return true;
     });

@@ -492,7 +492,7 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
   assert.ok(imageResultSource.includes('fileNames?.timestampedFilename') && imageResultSource.includes("ext: 'png'") && !imageResultSource.includes('generated-${Date.now()}'), 'generated image records should get Shanghai timestamp-only png filenames');
   assert.ok(imageActionsSource.includes('timestampExistingFilename') && imageActionsSource.includes('downloadFilename(e.dataset.filename,"generated-image","png")'), 'image download/share actions should timestamp existing generated image filenames');
   assert.ok(app.includes('window.ChatUIFileNames?.timestampedFilename') && app.includes('ext:"md"'), 'legacy app.js answer download fallback should also use Shanghai timestamped markdown filenames');
-  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.7.1-image-semantics') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'browser cache versions should match the current static bundle');
+  assert.ok(index.includes('client/ui/file-actions.js?v=1.2.67') && index.includes('client/app/image-actions-workflow.js?v=1.2.68') && index.includes('client/app/image-result-workflow.js?v=1.7.1-image-semantics') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'browser cache versions should match the current static bundle');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match browser cache-busting');
 }
 
@@ -1343,7 +1343,7 @@ async function testDeleteSessionCleansRuntimeResources() {
   assert.deepStrictEqual(calls, ['dispose:delete-me:keep-me'], 'session deletion must use the single resource lifecycle boundary');
   assert.deepStrictEqual(state.sessions.map(session => session.id), ['keep-me']);
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('session-ui-workflow.js?v=1.3.14-model-switch-guard'), 'session deletion cleanup should bump the browser cache version');
+  assert.ok(index.includes('session-ui-workflow.js?v=1.3.15-attachment-draft-isolation'), 'session deletion cleanup should bump the browser cache version');
 }
 
 async function testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNetwork() {
@@ -1406,7 +1406,7 @@ function testEmptySessionRendersPremiumWelcome() {
   assert.ok(app.includes('function shouldShowEmptyWelcome') && app.includes('!e.classList?.contains("empty-welcome")'), 'the empty renderer should treat only the current welcome page as non-message content');
   assert.ok(app.includes('!s&&!n&&!a'), 'the welcome page should render only when messages, pending display items, and other DOM content are empty');
   assert.ok(app.includes(':scope > .empty-welcome:only-child') && app.includes('t.scrollTop=0'), 'empty welcome rendering should stay at the top instead of being focused to the message tail on mobile');
-  assert.ok(index.includes('./app.js?v=2.1.52-single-submit-workflow') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'welcome assets should use updated cache versions');
+  assert.ok(index.includes('./app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'welcome assets should use updated cache versions');
   assert.ok(css.includes('.messages:has(>.empty-welcome:only-child)') && css.includes('.welcome-hero{') && css.includes('.welcome-title{'), 'the redesigned welcome page should have a dedicated premium hero layout');
   assert.ok(welcomeSource.includes('class="welcome-globe"') && welcomeSource.includes('id="welcomeGlobeOcean"') && welcomeSource.includes('class="welcome-globe-land"') && !welcomeSource.includes('<strong>AI</strong>') && !welcomeSource.includes('<small>READY</small>'), 'the welcome orbit center should contain only the dedicated layered globe without extra labels');
   assert.ok(css.includes('.welcome-globe{') && css.includes('@keyframes welcome-globe-tilt') && css.includes('@keyframes welcome-globe-land-drift') && css.includes('.welcome-globe-atmosphere{') && css.includes('background:transparent!important;\n  box-shadow:none!important;'), 'the globe should use dimensional lighting and restrained motion without a card-shaped center pedestal');
@@ -2514,7 +2514,7 @@ function testFileUploadReturnsFocusToComposerSubmitPath() {
   assert.ok(bootstrapSource.includes('e.target.value="",updateSendAvailability?.();const t=$("prompt"),s=$("sendBtn"),n=t&&!t.disabled?t:s,o=()=>n?.focus?.();(window.requestAnimationFrame||window.setTimeout).call(window,o,0),window.setTimeout.call(window,o,80)'), 'file input change should move focus away from file button/input to prompt or send button with browser-bound timers');
   assert.ok(attachmentSource.includes('root.requestAnimationFrame.call(root, focus)'), 'attachment workflow should call requestAnimationFrame with the window/root binding');
   assert.ok(attachmentSource.includes('function focusComposerSubmitTarget()'), 'attachment workflow should centralize post-upload focus restore');
-  assert.ok(attachmentSource.replace(/\r\n/g, '\n').includes('finishUploadProgressSoon();\n      focusComposerSubmitTarget();'), 'addFiles completion should restore focus to composer submit target');
+  assert.ok(attachmentSource.replace(/\r\n/g, '\n').includes('finishUploadProgressSoon(sessionId);\n      focusComposerSubmitTarget();'), 'addFiles completion should restore focus to composer submit target after scheduling cleanup for the originating session');
 }
 
 function testImageBubblesAreShrinkWrapped() {
@@ -2743,7 +2743,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2950,7 +2950,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match config copy cache-busting');
 }
 
@@ -3027,7 +3027,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId'), 'force-image action should send the current user message through a durable canonical image handoff');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3142,14 +3142,14 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(configWorkflow.includes('window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)'), 'config modal should bind native setTimeout to window and focus the API Key field');
   assert.ok(dialogWorkflow.includes('window.setTimeout.call(window') && dialogWorkflow.includes('window.clearTimeout.call(window'), 'dialog workflow should bind native timers to window');
   assert.ok(performanceWorkflow.includes('window.setTimeout.call(window') && performanceWorkflow.includes('window.clearTimeout.call(window'), 'performance workflow should bind native timers to window');
-  assert.ok(attachmentsWorkflow.includes('window.setTimeout.call(window') && attachmentsWorkflow.includes('window.clearTimeout.call(window'), 'attachments workflow should bind native timers to window');
+  assert.ok(attachmentsWorkflow.includes('root.setTimeout.call(root') && attachmentsWorkflow.includes('root.clearTimeout.call(root'), 'attachments workflow should bind native timers to its browser root');
 
   assert.ok(index.includes('session-panel-workflow.js?v=1.2.67'), 'session panel Illegal invocation fix should bump cache version');
   assert.ok(!submitWorkflow.includes('stopRouteSlowNoticeTimer()') && submitWorkflow.includes('routeUi?.stopSlowNotice?.()'), 'submit cleanup should call the shared route UI timer cleanup instead of a removed local helper');
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.4-verified-routing') && index.includes('app.js?v=2.1.52-single-submit-workflow') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.4-verified-routing') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3199,8 +3199,8 @@ function testImageSuccessResultReconciliation() {
   assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
-  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.52-single-submit-workflow'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.21-interface-completion') && index.includes('job-resume-workflow.js?v=1.2.77-owner-finally') && index.includes('app.js?v=2.1.52-single-submit-workflow'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.53-session-attachment-isolation'), 'reconciliation module should load before app.js');
+  assert.ok(index.includes('image-workflow.js?v=1.3.21-interface-completion') && index.includes('job-resume-workflow.js?v=1.2.77-owner-finally') && index.includes('app.js?v=2.1.53-session-attachment-isolation'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {

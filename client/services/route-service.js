@@ -15,7 +15,7 @@ const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。你不回答用�
 operation：
 - 普通对话=plain_chat；文件问答=file_qa；文件与图片联合问答=multimodal_qa。
 - 看图=image_qa；多图比较=image_compare；OCR=ocr。
-- 纯文本生图=text_to_image；基于图片生成=image_reference_gen；修改已有图片=edit_image。
+- 纯文本生图=text_to_image；基于图片生成=image_reference_gen；修改已有图片=edit_image。任一非 clarify operation 最多可声明一个 current/text/source 资源，表示当前输入文本；这是中性资源，不改变媒体引用，也不需要澄清。
 - 只有必需资源缺失、多个候选无法消歧、或操作目标无法确定时才使用 clarify。
 
 资源规则：
@@ -154,16 +154,22 @@ function buildFileCandidatesFromAttachments(attachments = []) {
 function compactRoutePayloadContext(context = {}, input = '', attachments = []) {
   const next = context && typeof context === 'object' ? { ...context } : {};
   const currentFiles = buildFileCandidatesFromAttachments(attachments);
-  if (currentFiles.length) next.file_candidates = currentFiles;
-  else if (!Array.isArray(next.file_candidates)) next.file_candidates = [];
   const current = String(input || '').trim();
   const messages = Array.isArray(next.recent_messages) ? [...next.recent_messages] : [];
+  let currentMessageIndex = 0;
   if (current && messages.length) {
     const last = messages[messages.length - 1];
     const content = String(last?.content || '').trim();
     const duplicateCurrent = last?.role === 'user' && (content === current || content.startsWith(`${current}\n\n[image `) || content.startsWith(`${current}\n\n[file `));
-    if (duplicateCurrent) messages.pop();
+    if (duplicateCurrent) {
+      currentMessageIndex = Number(last?.index) || messages.length;
+      messages.pop();
+    }
   }
+  const historicalFiles = Array.isArray(next.file_candidates)
+    ? next.file_candidates.filter(candidate => Number(candidate?.message_index) !== currentMessageIndex)
+    : [];
+  next.file_candidates = currentFiles.length ? [...historicalFiles, ...currentFiles] : historicalFiles;
   next.recent_messages = messages;
   return next;
 }

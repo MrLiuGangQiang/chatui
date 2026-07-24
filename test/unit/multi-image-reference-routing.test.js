@@ -160,6 +160,7 @@ function createWorkflow(messages) {
     parseImageItemId: imageReferences.parseImageItemId,
     normalizeImageSelection: imageReferences.normalizeImageSelection,
     normalizeSelectedImageIds: imageReferences.normalizeSelectedImageIds,
+    parseImageContext: value => typeof value === 'string' ? JSON.parse(value) : value,
   });
 }
 
@@ -186,6 +187,30 @@ async function testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneI
   );
 }
 
+async function testSelectedHistoricalUploadedImageRestoresByItsExactRouteId() {
+  const uploadedReferenceId = routeContext.uploadedReferenceIdForMessageIndex(0);
+  const messages = [{
+    role: 'user',
+    content: 'Please use this uploaded image later.',
+    imageContext: JSON.stringify({
+      target: 'uploaded',
+      mode: 'edit_image',
+      attachments: [
+        { id: 'upload-one', name: 'one.png', type: 'image/png', src: 'indexeddb://one' },
+        { id: 'upload-two', name: 'two.png', type: 'image/png', src: 'indexeddb://two' },
+      ],
+    }),
+  }];
+  const workflow = createWorkflow(messages);
+  const selectedId = imageReferences.makeImageItemId(uploadedReferenceId, 2);
+  const attachments = await workflow.getPreviousImageAttachments('s1', null, uploadedReferenceId, [selectedId]);
+
+  assert.strictEqual(attachments.length, 1);
+  assert.strictEqual(attachments[0].imageId, selectedId);
+  assert.strictEqual(attachments[0].referenceId, uploadedReferenceId);
+  assert.strictEqual(attachments[0].dataUrl, 'indexeddb://two');
+}
+
 module.exports = [
   testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs,
   testCanonicalHistoryExposesEveryCompletedImageWithStableIds,
@@ -193,4 +218,5 @@ module.exports = [
   testModelDeclaredCompositionSelectsOnlyItsContractResources,
   testSelectedImageIdsRestoreAcrossMultipleHistoricalReferences,
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,
+  testSelectedHistoricalUploadedImageRestoresByItsExactRouteId,
 ];

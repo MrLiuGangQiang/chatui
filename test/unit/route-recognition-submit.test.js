@@ -32,14 +32,16 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.95-local-contract-failure'),
-    'the browser must fetch the fixed submit workflow instead of a cached broken version'
+    index.includes('submit-workflow.js?v=1.2.96-exact-history-media'),
+    'the browser must fetch the exact historical-media workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
-  assert.ok(submit.includes('const needsHistoricalChatImages=()=>"chat"===routeMode'), 'chat tasks with an explicitly selected historical image must request its durable media');
-  assert.ok(submit.includes('getPreviousImageAttachments(sessionId,routeInfo.selectedIndexes,routeInfo.selectedReferenceId,routeInfo.selectedImageIds)'), 'historical chat images must be restored by the exact route bindings');
+  assert.ok(submit.includes('const needsHistoricalChatImages=()=>"chat"===routeMode&&historicalRouteImageRefs().length>0'), 'chat tasks with an explicitly selected historical image must request its durable media');
+  assert.ok(submit.includes('getPreviousImageAttachments(sessionId,historicalRouteImageIndexes(),historicalRouteReferenceId(),historicalRouteImageIds())'), 'historical chat images must be restored by their exact historical route bindings without duplicating current uploads');
+  assert.ok(submit.includes('if(needsHistoricalChatImages()&&!previous.length)throw new Error("已选择的历史参考图片无法恢复，不能在未附图的情况下继续执行")'), 'a selected history image must never silently degrade into a text-only request');
+  assert.ok(submit.includes('if(needsHistoricalChatImages()&&!chatAttachments.some(isImageAttachment))throw new Error("已选择的历史参考图片无法作为聊天附件发送，不能在未附图的情况下继续执行")'), 'the final chat attachment list must retain the selected history image');
   assert.ok(submit.includes('if(createdPending&&!routeInfo.localClarification)'), 'a local contract-failure notice must not create a fake pending user clarification');
   assert.ok(!submit.includes('我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？'), 'a model contract failure must not be presented as user ambiguity');
 }
@@ -57,8 +59,16 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
     'the image job response must not create a temporal-dead-zone for t.submissionId'
   );
   assert.ok(
-    index.includes('image-workflow.js?v=1.3.21-interface-completion'),
-    'the browser must fetch the image workflow with the TDZ fix'
+    image.includes('const refBindings=Array.isArray(t.referenceImageBindings)?t.referenceImageBindings:[],directReferenceBindings=refBindings.filter(e=>["current","quoted"].includes(String(e?.source||""))),historicalReferenceIds=refBindings.filter(e=>["history","context"].includes(String(e?.source||""))).map(e=>String(e?.imageId||"")).filter(Boolean);'),
+    'reference generation must keep direct and historical route-media bindings distinct'
+  );
+  assert.ok(
+    image.includes('if(f.length!==directReferenceBindings.length)throw new Error("已选择的参考图片无法作为输入附件发送，不能在未附图的情况下继续执行")') && image.includes('if(e.length!==historicalReferenceIds.length)throw new Error("已选择的参考图片无法恢复，不能在未附图的情况下继续执行")'),
+    'missing direct or historical reference images must fail closed instead of silently generating without them'
+  );
+  assert.ok(
+    index.includes('image-workflow.js?v=1.3.22-reference-media'),
+    'the browser must fetch the image workflow with exact reference-media recovery'
   );
 }
 

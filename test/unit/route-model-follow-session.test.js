@@ -28,6 +28,20 @@ function responseFor(contract = plainChatContract()) {
   return { choices: [{ message: { content: JSON.stringify(contract) } }] };
 }
 
+function currentTextToImageContract() {
+  return {
+    schema_version: 'task_contract.v3',
+    operation: 'text_to_image',
+    relation: 'new',
+    resources: [{ key: 'r1', type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false }],
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: ['16:9'] },
+    clarification: { question: '', missing_resource_keys: [] },
+    confidence: 0.99,
+    review_reasons: [],
+    rationale: 'the current text completely describes the image to generate',
+  };
+}
+
 function reviewedImageEditContract() {
   return {
     schema_version: 'task_contract.v3',
@@ -332,6 +346,27 @@ async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeC
   }
 }
 
+async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(currentTextToImageContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Generate a 16:9 presentation image.', [], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid current-text image contract must execute from the primary route result without a second recognition request');
+    assert.strictEqual(route.mode, 'image');
+    assert.strictEqual(route.api, 'image_generation');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback() {
   const models = ['router-special', 'gpt-session'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
@@ -479,7 +514,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.95-local-contract-failure'));
+  assert.ok(index.includes('submit-workflow.js?v=1.2.96-exact-history-media'));
   assert.ok(index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
@@ -495,6 +530,7 @@ module.exports = [
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
   testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
+  testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
   testHighRiskRouteFailsClosedWhenItsReviewFails,
   testBusyTaskCannotSwitchGlobalRouteModel,

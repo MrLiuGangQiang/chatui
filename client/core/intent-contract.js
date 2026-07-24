@@ -67,6 +67,8 @@
     const resources = task.resources || [];
     const images = resourceList(task, 'image');
     const files = resourceList(task, 'file');
+    const textResources = resourceList(task, 'text');
+    const boundResources = resources.filter(resource => resource.type !== 'text');
     const directive = task.directive || {};
     const baseKeys = new Set(directive.base_resource_keys || []);
 
@@ -78,17 +80,21 @@
         && directive.unmentioned_policy === 'allow_change'
         && directive.operations.length === 0;
     }
+    // The current prompt is already supplied separately to every execution API.
+    // Models may represent it explicitly as one neutral text resource without
+    // changing the operation's media bindings.
+    if (textResources.length > 1 || textResources.some(resource => resource.missing || resource.source !== 'current' || resource.role !== 'source')) return false;
     if (task.operation === 'plain_chat') {
       // A chat task may carry an explicitly selected historical image as a visual
       // reference (for example, reproducing a webpage style in HTML). It remains
       // a chat task, not an image-generation request.
       return !files.length
-        && hasOnlyResourceTypes(resources, ['image', 'text', 'message'])
+        && hasOnlyResourceTypes(boundResources, ['image', 'message'])
         && images.every(resource => resource.source !== 'current' && ['reference', 'style_reference'].includes(resource.role));
     }
     if (task.operation === 'text_to_image') {
       return !files.length
-        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['reference'])
         && images.every(resource => resource.source !== 'current');
     }
@@ -96,28 +102,28 @@
     if (task.operation === 'file_qa') {
       return files.length > 0
         && !images.length
-        && hasOnlyResourceTypes(resources, ['file'])
+        && hasOnlyResourceTypes(boundResources, ['file'])
         && hasOnlyResourceRoles(files, ['attachment']);
     }
 
     if (task.operation === 'multimodal_qa') {
       return images.length > 0
         && files.length > 0
-        && hasOnlyResourceTypes(resources, ['image', 'file'])
+        && hasOnlyResourceTypes(boundResources, ['image', 'file'])
         && hasOnlyResourceRoles(images, ['source'])
         && hasOnlyResourceRoles(files, ['attachment']);
     }
 
     if (task.operation === 'image_qa' || task.operation === 'ocr') {
       return images.length > 0
-        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['source']);
     }
 
     if (task.operation === 'image_compare') {
       const roles = new Set(images.map(resource => resource.role));
       return images.length === 2
-        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image'])
         && roles.size === 2
         && roles.has('compare_a')
         && roles.has('compare_b');
@@ -128,7 +134,7 @@
       return directive.mode === 'patch'
         && images.length > 0
         && !files.length
-        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['target', 'mask'])
         && targets.length > 0
         && images.every(resource => baseKeys.has(resource.key));
@@ -139,7 +145,7 @@
       return directive.mode === 'patch'
         && images.length > 0
         && !files.length
-        && hasOnlyResourceTypes(resources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['reference', 'style_reference'])
         && references.length > 0
         && images.every(resource => baseKeys.has(resource.key));

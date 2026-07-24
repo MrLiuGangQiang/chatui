@@ -136,6 +136,18 @@ function createRouteAttachmentSelectors(route = {}, {
     return images.filter((item, index) => imageIds.has(item.imageId || item.image_id) || imageIds.has(item.id) || imageIndexes.has(index + 1));
   }
 
+  function selectImageGenerationAttachments(sourceAttachments = []) {
+    const images = (sourceAttachments || []).filter(isImage);
+    const references = imageRefs().filter(ref => ['reference', 'style_reference'].includes(String(ref?.role || '')) && ['current', 'quoted'].includes(String(ref?.source || 'current')));
+    if (!references.length) return [];
+    const imageIds = new Set(references.map(ref => ref?.image_id || ref?.imageId).filter(Boolean));
+    const imageIndexes = new Set(references.map(ref => Number(ref?.index)).filter(index => Number.isInteger(index) && index >= 1));
+    return images.reduce((selected, item, index) => {
+      if (imageIds.has(item.imageId || item.image_id) || imageIds.has(item.id) || imageIndexes.has(index + 1)) selected.push(decorateImage(item, index) || item);
+      return selected;
+    }, []);
+  }
+
   function selectQuotedEditAttachments(quotedImages = [], fallbackAttachments = []) {
     if (!quotedImages.length) return fallbackAttachments;
     const imageIds = selectedImageIds();
@@ -149,6 +161,7 @@ function createRouteAttachmentSelectors(route = {}, {
     fileRefs,
     selectChatAttachments,
     selectEditAttachments,
+    selectImageGenerationAttachments,
     selectQuotedEditAttachments,
   });
 }

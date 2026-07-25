@@ -96,10 +96,21 @@
         && messages.every(resource => resource.source === 'history' && resource.role === 'context' && baseKeys.has(resource.key));
     }
     if (task.operation === 'text_to_image') {
+      // A quoted/history message can be the textual source for a generation
+      // request (for example, “base the image on the quoted cat description”).
+      // It is an executable binding just like a historical image reference,
+      // but it must be explicitly selected as a patch baseline.  Do not treat
+      // arbitrary context/history messages as implicit prompt text.
+      const messagePromptResourcesAreValid = messages.every(resource =>
+        ['history', 'quoted'].includes(resource.source)
+        && ['context', 'reference'].includes(resource.role)
+        && baseKeys.has(resource.key)
+      );
       return !files.length
-        && hasOnlyResourceTypes(boundResources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image', 'message'])
         && hasOnlyResourceRoles(images, ['reference'])
-        && images.every(resource => resource.source !== 'current');
+        && images.every(resource => resource.source !== 'current')
+        && messagePromptResourcesAreValid;
     }
 
     if (task.operation === 'file_qa') {
@@ -236,6 +247,8 @@
       return {
         id: String(type === 'image' ? entry?.image_id || entry?.imageId || '' : entry?.file_id || entry?.fileId || entry?.id || ''),
         referenceId: String(entry?.reference_id || entry?.referenceId || ''),
+        messageIndex: Number(entry?.message_index || entry?.messageIndex) || 0,
+        messageId: String(entry?.message_id || entry?.messageId || ''),
         index,
         sourceIndex: Number(entry?.source_index || entry?.sourceIndex || entry?.index) || index,
         source: normalizeCandidateSource(entry?.source, entry?.message_index || entry?.messageIndex, currentMessageIndex),
@@ -298,11 +311,36 @@
 
   function resolveResourceCandidate(resource = {}, type = '', options = {}) {
     if (!MEDIA_TYPES.has(type) || resource.missing) return null;
-    const candidates = mediaCandidates(type, options.context || {}, options.attachments || [], options.operation || '');
+    const context = options.context || {};
+    const quote = context?.quoted_message && typeof context.quoted_message === 'object'
+      ? context.quoted_message
+      : null;
+    const hasExplicitQuote = Number.isInteger(Number(quote?.index)) && Number(quote.index) >= 1;
+    const quoteId = String(quote?.display_item_id || quote?.displayItemId || quote?.id || quote?.message_id || quote?.messageId || '');
+    const candidates = mediaCandidates(type, context, options.attachments || [], options.operation || '');
     const matches = candidates.filter(candidate => {
       const indexes = [candidate.index, ...(candidate.attachmentIndexAliases || [])];
       const ids = [candidate.id, ...(candidate.attachmentIdAliases || [])];
-      if (candidate.source !== resource.source || !indexes.includes(Number(resource.index))) return false;
+      // An explicit UI quote is a concrete history resource. Some route models
+      // describe that resource as `history`, while the UI exposes it as
+      // `quoted` so the downstream request can preserve quote semantics. Keep
+      // both descriptions bound to this exact candidate only; never apply this
+      // alias to ordinary history, current, or context resources.
+      const sourceMatches = candidate.source === resource.source
+        || candidate.source === 'quoted'
+          && resource.source === 'history'
+          && hasExplicitQuote
+          && (() => {
+            const candidateMessageIndex = Number(candidate.messageIndex);
+            const candidateMessageId = String(candidate.messageId || '');
+            if (candidateMessageId && quoteId && candidateMessageId !== quoteId) return false;
+            // A quoted media candidate without message metadata is only
+            // unambiguous in the compact one-quote context (index 1). When
+            // metadata is present, bind it to the exact quoted message.
+            if (Number.isInteger(candidateMessageIndex) && candidateMessageIndex > 0) return candidateMessageIndex === Number(quote.index);
+            return Number(quote.index) === 1;
+          })();
+      if (!sourceMatches || !indexes.includes(Number(resource.index))) return false;
       if (resource.id && !ids.includes(resource.id)) return false;
       if (resource.reference_id && candidate.referenceId !== resource.reference_id) return false;
       return true;
@@ -318,24 +356,39 @@
       return {
         index,
         source: 'history',
-        id: String(message?.id || message?.display_item_id || message?.displayItemId || (Number(quote?.index) === index ? quote?.id || '' : '')),
+        id: String(message?.display_item_id || message?.displayItemId || message?.id || message?.message_id || message?.messageId || (Number(quote?.index) === index ? quote?.display_item_id || quote?.displayItemId || quote?.id || quote?.message_id || quote?.messageId || '' : '')),
         role: String(message?.role || ''),
       };
     }).filter(candidate => Number.isInteger(candidate.index) && candidate.index >= 1);
     const quotedIndex = Number(quote?.index);
     if (Number.isInteger(quotedIndex) && quotedIndex >= 1 && !candidates.some(candidate => candidate.index === quotedIndex)) {
-      candidates.push({ index: quotedIndex, source: 'history', id: String(quote?.id || ''), role: String(quote?.role || '') });
+      candidates.push({ index: quotedIndex, source: 'history', id: String(quote?.display_item_id || quote?.displayItemId || quote?.id || quote?.message_id || quote?.messageId || ''), role: String(quote?.role || '') });
     }
     return candidates;
   }
 
   function resolveMessageResource(resource = {}, options = {}) {
     if (resource?.type !== 'message' || resource.missing) return null;
-    const matches = messageCandidates(options.context || {}).filter(candidate => {
-      if (candidate.source !== resource.source || candidate.index !== Number(resource.index)) return false;
+    const context = options.context || {};
+    const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
+    const quoteIndex = Number(quote?.index);
+    const quoteId = String(quote?.display_item_id || quote?.displayItemId || quote?.id || quote?.message_id || quote?.messageId || '');
+    const isExplicitQuote = candidate => Number.isInteger(quoteIndex)
+      && quoteIndex >= 1
+      && candidate.index === quoteIndex
+      && (!quoteId || !candidate.id || candidate.id === quoteId);
+    const matches = messageCandidates(context).filter(candidate => {
+      // The model may call the explicitly quoted message `quoted`, while the
+      // route context exposes it as the concrete history candidate.  Permit
+      // that alias only for the one UI-selected message, preserving exact
+      // index/id uniqueness for every other history resource.
+      const sourceMatches = candidate.source === resource.source
+        || resource.source === 'quoted' && candidate.source === 'history' && isExplicitQuote(candidate);
+      if (!sourceMatches || candidate.index !== Number(resource.index)) return false;
       return !resource.id || candidate.id === resource.id;
     });
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length !== 1) return null;
+    return resource.source === 'quoted' ? { ...matches[0], source: 'quoted' } : matches[0];
   }
 
   function hasResolvedResourceBindings(task = {}, options = {}) {

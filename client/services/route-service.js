@@ -9,15 +9,16 @@ const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。只把请求转�
 按以下顺序决策：
 1. 边界：只理解 current_input；attachments 是本轮资源。context 仅用于用户明确引用的对象，绝不让历史覆盖一个完整的新请求。context.quoted_message 是用户明确选择的单条历史消息。
 2. 关系：relation=new 是完整独立请求，资源只能 source=current；引用历史答案或 quoted_message=followup；纠正上次结果=correction；只要求继续进行=continuation。
-3. 操作：plain_chat=普通对话；file_qa=文件问答；multimodal_qa=图文问答；image_qa=看图；image_compare=比较两图；ocr=识字；text_to_image=纯文本生图；image_reference_gen=基于图片生成；edit_image=编辑已有图。仅在必需资源缺失、候选无法消歧或目标不能确定时用 clarify。
+3. 操作：plain_chat=普通对话；file_qa=文件问答；multimodal_qa=图文问答；image_qa=看图；image_compare=比较两图；ocr=识字；text_to_image=基于当前输入或引用消息文本生图；image_reference_gen=基于图片生成；edit_image=编辑已有图。仅在必需资源缺失、候选无法消歧或目标不能确定时用 clarify。
 4. 资源：每项使用唯一 r1/r2… 和候选的 1 基 index；当前附件使用类型内编号 attachments.media_index。编辑图=target，看图=source，参考生图=reference，风格参考=style_reference，比较图=compare_a/compare_b，文件=attachment。只按候选元数据匹配，不要猜图片或文件内容；“这张/上一张/那个文件”必须唯一匹配，否则声明 missing=true。
 5. 指令（审计）：standalone 只用于独立请求，base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change。patch 必须列出非 missing 基线；followup、correction、continuation、edit_image、image_reference_gen 必须用 patch。operations 只记录用户明确变化：preserve/remove 的 value 为空，add/replace 的 value 非空；不要重写完整执行提示词。此字段用于校验和审计，不得生成或改写执行提示词。
 6. 澄清与审计：clarify 必须有问题和对应 missing_resource_keys，且 directive 必须 standalone；其他操作不能有 missing 资源或澄清问题。没有不确定性则 review_reasons=[]；rationale 只写一行依据。
 
-明确引用的 plain_chat 必须把 quoted_message 作为 source=history、type=message、role=context 的 patch 基线。候选多不等于歧义；语义元数据能唯一定位就直接执行。`;
+明确引用的 plain_chat 必须把 quoted_message 作为 source=history、type=message、role=context 的 patch 基线。明确引用消息用于 text_to_image 时，也必须把该消息作为 source=history 或 quoted、type=message、role=context 或 reference 的 patch 基线；它的正文会作为生图提示词上下文，不能把 message 当成 image。候选多不等于歧义；语义元数据能唯一定位就直接执行。`;
 
 const ROUTE_OUTPUT_CONTRACT_CHECK = `硬约束：逐字段输出，绝不省略。directive 必含 mode、base_resource_keys、unmentioned_policy、operations、constraints；空数组也输出 []。确认资源候选匹配、file.reference_id 为空、patch 基线有效；只输出完整 task_contract.v3。`;
 const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK}`;
+const MAX_EXECUTION_PROMPT_LENGTH = 3200;
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}
 
@@ -80,9 +81,15 @@ const promptComposer = root?.ChatUIPromptComposerService
 function executionPrompt(input = '') {
   // The contract selects media and validates intent. It must not turn into model-facing patch text.
   const prompt = promptComposer?.composeExecutionPrompt?.(input);
-  if (typeof prompt === 'string') return prompt;
+  if (typeof prompt === 'string') {
+    return prompt.length > MAX_EXECUTION_PROMPT_LENGTH
+      ? `${prompt.slice(0, MAX_EXECUTION_PROMPT_LENGTH - 1)}…`
+      : prompt;
+  }
   const text = String(input || '').trim();
-  return text.length > 3200 ? `${text.slice(0, 3200)}…` : text;
+  return text.length > MAX_EXECUTION_PROMPT_LENGTH
+    ? `${text.slice(0, MAX_EXECUTION_PROMPT_LENGTH - 1)}…`
+    : text;
 }
 
 function cleanQuotedContent(text = '') {
@@ -114,12 +121,105 @@ function buildQuotedRouteContent({ text = '', images = [] } = {}) {
 function attachComposedPrompt(route = {}, taskContract = {}, options = {}) {
   const input = String(options.input || '').trim();
   let next = { ...route, taskContract };
-  if (taskContract.operation === 'text_to_image' || taskContract.operation === 'image_reference_gen') {
+  if (taskContract.operation === 'text_to_image') {
+    next = { ...next, contextualImagePrompt: composeTextToImagePrompt(input, taskContract, options.context || {}) };
+  } else if (taskContract.operation === 'image_reference_gen') {
     next = { ...next, contextualImagePrompt: executionPrompt(input) };
   } else if (taskContract.operation === 'edit_image') {
     next = { ...next, editInstruction: executionPrompt(input) };
   }
   return next;
+}
+
+function messageIdentity(message = {}) {
+  return String(
+    message?.display_item_id
+    || message?.displayItemId
+    || message?.id
+    || message?.message_id
+    || message?.messageId
+    || ''
+  );
+}
+
+function messageBody(message = {}) {
+  const raw = Array.isArray(message?.content)
+    ? message?.rawText || ''
+    : message?.content || message?.rawText || '';
+  const text = cleanQuotedContent(String(raw || '').trim())
+    .replace(/\[quoted_image[^\]]*\]/gi, '')
+    .replace(/\[quoted_message\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  // This is the compact-context sentinel, not user-authored prompt text.
+  return /^\[quoted_message\]$/i.test(text) ? '' : text;
+}
+
+function boundMessageBody(resource = {}, context = {}) {
+  if (resource?.type !== 'message' || resource?.missing) return '';
+  if (typeof intentContract?.resolveMessageResource === 'function'
+      && !intentContract.resolveMessageResource(resource, { context })) return '';
+  const recent = Array.isArray(context?.recent_messages) ? context.recent_messages : [];
+  const index = Number(resource.index);
+  const id = String(resource.id || '');
+  const quote = context?.quoted_message && typeof context.quoted_message === 'object'
+    ? context.quoted_message
+    : null;
+  const quoteIndex = Number(quote?.index);
+  const quoteId = messageIdentity(quote);
+
+  // Prefer the explicitly selected message object whenever the binding points
+  // at it. This applies to both source=quoted and the equivalent source=history
+  // representation emitted by some route models, and keeps a quote binding
+  // independent from whichever compact history slot carries its text.
+  if (Number.isInteger(quoteIndex)
+      && quoteIndex === index
+      && (!id || !quoteId || id === quoteId)) {
+    const quotedText = messageBody(quote);
+    if (quotedText) return quotedText;
+  }
+
+  const matches = recent.filter(message => {
+    const candidateIndex = Number(message?.index);
+    if (candidateIndex !== index) return false;
+    // compact quoted route contexts may carry the quote id in
+    // `quoted_message` while omitting it from the corresponding history row;
+    // mirror intent-contract.messageCandidates' exact index-scoped fallback.
+    const candidateId = messageIdentity(message)
+      || (candidateIndex === quoteIndex ? quoteId : '');
+    return !id || candidateId === id;
+  });
+  if (matches.length !== 1) return '';
+  return messageBody(matches[0]);
+}
+
+/**
+ * Compose the execution prompt for a text-to-image contract that explicitly
+ * binds one or more historical/quoted messages. The router contract selects
+ * the message; this helper only copies the already-bound message text into the
+ * image prompt and then appends the user's current instruction.
+ */
+function composeTextToImagePrompt(input = '', taskContract = {}, context = {}) {
+  const currentPrompt = executionPrompt(input);
+  if (taskContract?.operation !== 'text_to_image' || !Array.isArray(taskContract?.resources)) return currentPrompt;
+  const messageResources = taskContract.resources
+    .filter(resource => resource?.type === 'message' && !resource.missing);
+  const seen = new Set(currentPrompt ? [currentPrompt] : []);
+  const boundBodies = messageResources
+    .map(resource => boundMessageBody(resource, context))
+    .filter(Boolean);
+  if (messageResources.length && !boundBodies.length) {
+    throw new TypeError('Bound message resource has no usable text');
+  }
+  const messagePrompts = boundBodies
+    .filter(text => !seen.has(text) && seen.add(text));
+  if (!messagePrompts.length) return currentPrompt;
+  const separator = currentPrompt ? '\n\n' : '';
+  const available = MAX_EXECUTION_PROMPT_LENGTH - currentPrompt.length - separator.length;
+  if (available <= 0) return currentPrompt;
+  const referencePrompt = messagePrompts.join('\n\n').slice(0, available).trimEnd();
+  if (!referencePrompt) return currentPrompt;
+  return executionPrompt(`${referencePrompt}${separator}${currentPrompt}`);
 }
 
 function isTaskContractResult(value = {}) {
@@ -150,7 +250,7 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   })();
   if (!bound) resources.push({
     key, type: 'message', source: 'history', role: 'context', index,
-    id: String(quote.id || ''), reference_id: '', missing: false,
+    id: String(messageIdentity(quote)), reference_id: '', missing: false,
   });
   const baseKeys = [...directive.base_resource_keys];
   if (!baseKeys.includes(key)) baseKeys.push(key);
@@ -301,6 +401,7 @@ const api = Object.freeze({
   cleanQuotedContent,
   buildQuotedImagePlaceholders,
   buildQuotedRouteContent,
+  composeTextToImagePrompt,
   stripJsonFence,
   needsIntentReview,
   isTaskContractResult,

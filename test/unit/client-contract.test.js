@@ -248,6 +248,31 @@ function testClientContractBindsMediaResourcesToExactCandidates() {
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(wrongSource), { input: 'make the background blue', context }), null, 'a resource must not bind an historical candidate while claiming it is current');
 }
 
+function testClientContractAcceptsHistoryAliasForAnExplicitlyQuotedImageOnly() {
+  const quotedImageQuestion = taskContract({
+    operation: 'image_qa',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'source', index: 1, id: 'img_imgref_latest_1', reference_id: 'imgref_latest', missing: false }],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [], constraints: [] },
+  });
+  const context = {
+    quoted_message: { index: 1, role: 'assistant', id: 'quoted-image-message' },
+    image_candidates: [{ index: 1, source_index: 1, source: 'quoted', image_id: 'img_imgref_latest_1', reference_id: 'imgref_latest', target: 'previous' }],
+  };
+  const parsed = routeService.parseRouteResult(JSON.stringify(quotedImageQuestion), { input: 'What breed is this?', context });
+  assert.ok(parsed, 'a model may describe an explicitly quoted image as history');
+  assert.deepStrictEqual(parsed.selectedImageIds, ['img_imgref_latest_1']);
+  assert.strictEqual(parsed.imageRefs[0].source, 'quoted', 'execution must retain the UI quote source after resolving the alias');
+
+  const wrongImage = structuredClone(quotedImageQuestion);
+  wrongImage.resources[0].id = 'img_imgref_latest_2';
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(wrongImage), { input: 'What breed is this?', context }), null, 'the history alias must not bind a different quoted image');
+
+  const ordinaryHistory = structuredClone(context);
+  ordinaryHistory.image_candidates[0].source = 'context';
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(quotedImageQuestion), { input: 'What breed is this?', context: ordinaryHistory }), null, 'the alias must not match non-quoted resources');
+}
+
 function testClientContractAcceptsCurrentTextResourceForTextToImage() {
   const textToImage = taskContract({
     operation: 'text_to_image',
@@ -415,6 +440,7 @@ module.exports = [
   testClientContractRejectsRedundantOrUnknownFields,
   testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding,
   testClientContractBindsMediaResourcesToExactCandidates,
+  testClientContractAcceptsHistoryAliasForAnExplicitlyQuotedImageOnly,
   testClientContractAcceptsCurrentTextResourceForTextToImage,
   testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation,
   testClientContractAcceptsHistoricalStyleReferenceForHtmlChat,

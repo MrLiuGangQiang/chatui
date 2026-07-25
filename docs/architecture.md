@@ -46,13 +46,13 @@ The model-facing router accepts exactly one protocol: `task_contract.v3`. It has
 
 The context boundary is mandatory: relation `new` may reference only current-turn resources; follow-ups, corrections, continuations, image edits, and reference-image generation must identify their bases explicitly. Prompt composition is deterministic and does not accept a router-authored replacement prompt. Reference-image generation sends its selected images as media and forwards the user's natural request directly, rather than serializing internal patch labels such as “补丁基线” into the image prompt. This prevents an unrelated request such as “画一条鱼” from inheriting a previous cat-generation prompt and keeps local image edits from acquiring unrelated historical style text.
 
-### Candidate binding, review, and cancellation
+### Candidate binding, contract repair, and cancellation
 
 Before a non-missing image or file resource can execute, the parser resolves it to exactly one supplied candidate. The resource type, source, displayed candidate index, and any declared image/file or reference ID must agree. Execution then uses the resolved candidate's real source index and identity; a model-supplied ID or index is never used as a fallback. In mixed attachment batches, `attachments.index`/`source_index` preserve the original upload position while `media_index` is the type-local image or file number used by `resources.index`. Image and file indexes remain separate (`selectedImageIndexes` and `selectedFileIndexes`); the legacy `selectedIndexes` field contains images only.
 
-The active submission signal is propagated to the primary route request, its independent review, and any distinct session-model fallback. User cancellation is terminal for routing: it does not trigger a fallback request. Invalid contracts are retried only through a distinct session chat model and are reported as invalid if no valid contract is returned.
+Route responses request strict JSON-Schema output for the complete `task_contract.v3` structure. If a response still fails local shape or candidate-binding validation, the same route model receives one bounded repair request containing the rejected output and a safe validation reason; it must preserve the decision and repair only the contract. The active submission signal is propagated to the primary request, its bounded repair, and any distinct session-model fallback. User cancellation is terminal for routing: it does not trigger a fallback request.
 
-Image editing, reference-image generation, and image comparison are high-risk operations. When their required independent review cannot produce a valid contract, the route fails closed instead of executing an unreviewed route. Clarification is non-executing and must use a standalone directive, so a missing or ambiguous asset cannot carry a partial edit into execution.
+A complete route with unique, resolved resources executes immediately. Confidence and review-reason fields are audit metadata, not a trigger for a second model decision. Clarification is non-executing and must use a standalone directive, so a missing or ambiguous asset cannot carry a partial edit into execution.
 
 ### Intent-routing evaluation
 

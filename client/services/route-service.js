@@ -22,6 +22,49 @@ const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}
 
 你现在是独立审计器。输入包含 first_task_contract。逐项检查：是否错误继承历史、relation/operation 是否正确、资源是否唯一且角色正确、patch 基线是否完整、operations 是否只含用户明确变化、未提及内容策略是否正确、是否过度澄清。返回审计后的一个完整 task_contract.v3；即使 confidence 降低也应如实修正。`;
+
+const INTENT_REPAIR_SYSTEM_PROMPT = `你是 ChatUI 路由契约修复器。上一份输出已经表达了用户意图；不要改判操作、关系或资源语义，不要回答用户。只根据给出的候选资源和校验错误修复为完整、严格的 task_contract.v3 JSON。只能输出 JSON，不能输出 Markdown、解释、代码围栏或额外字段。`;
+
+function strictObject(properties) {
+  return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
+}
+
+const ROUTE_RESPONSE_FORMAT = Object.freeze({
+  type: 'json_schema',
+  json_schema: {
+    name: 'chatui_task_contract_v3',
+    strict: true,
+    schema: strictObject({
+      schema_version: { type: 'string', const: 'task_contract.v3' },
+      operation: { type: 'string', enum: ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify'] },
+      relation: { type: 'string', enum: ['new', 'followup', 'correction', 'continuation'] },
+      resources: {
+        type: 'array',
+        items: strictObject({
+          key: { type: 'string', pattern: '^r[1-9][0-9]*$' },
+          type: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
+          source: { type: 'string', enum: ['current', 'quoted', 'history', 'context'] },
+          role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
+          index: { type: 'integer', minimum: 1 },
+          id: { type: 'string' },
+          reference_id: { type: 'string' },
+          missing: { type: 'boolean' },
+        }),
+      },
+      directive: strictObject({
+        mode: { type: 'string', enum: ['standalone', 'patch'] },
+        base_resource_keys: { type: 'array', items: { type: 'string', pattern: '^r[1-9][0-9]*$' } },
+        unmentioned_policy: { type: 'string', enum: ['preserve', 'allow_change'] },
+        operations: { type: 'array', items: strictObject({ op: { type: 'string', enum: ['preserve', 'add', 'replace', 'remove'] }, target: { type: 'string' }, value: { type: 'string' } }) },
+        constraints: { type: 'array', items: { type: 'string' } },
+      }),
+      clarification: strictObject({ question: { type: 'string' }, missing_resource_keys: { type: 'array', items: { type: 'string', pattern: '^r[1-9][0-9]*$' } } }),
+      confidence: { type: 'number', minimum: 0, maximum: 1 },
+      review_reasons: { type: 'array', items: { type: 'string' } },
+      rationale: { type: 'string' },
+    }),
+  },
+});
 const intentContract = root?.ChatUICoreIntentContract
   || root?.ChatUICore?.intentContract
   || root?.window?.ChatUICoreIntentContract
@@ -124,17 +167,22 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   };
 }
 
-function parseRouteResult(text = '', options = {}) {
+function inspectRouteResult(text = '', options = {}) {
   const value = String(text || '').trim();
-  if (!value) return null;
+  if (!value) return { route: null, reason: 'empty_response' };
   try {
     const taskContract = bindExplicitQuotedMessage(JSON.parse(stripJsonFence(value)), options.context);
-    if (!isTaskContractResult(taskContract)) return null;
+    if (!isTaskContractResult(taskContract)) return { route: null, reason: 'contract_shape' };
     const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
-    return attachComposedPrompt(executionPlan, taskContract, options);
-  } catch {
-    return null;
+    return { route: attachComposedPrompt(executionPlan, taskContract, options), reason: '' };
+  } catch (error) {
+    const message = String(error?.message || '');
+    return { route: null, reason: /resource/i.test(message) ? 'resource_binding' : 'contract_semantics' };
   }
+}
+
+function parseRouteResult(text = '', options = {}) {
+  return inspectRouteResult(text, options).route;
 }
 
 function needsIntentReview(route = {}, context = {}) {
@@ -198,11 +246,12 @@ function compactRouteUserPayload({ input = '', attachments = [], context = {}, c
   return payload;
 }
 
-function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK } = {}) {
+function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, systemPrompt = ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK, responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
   const userPayload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode });
   return {
     model,
     temperature: 0,
+    ...(responseFormat ? { response_format: responseFormat } : {}),
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: JSON.stringify(userPayload) },
@@ -210,14 +259,30 @@ function buildRoutePayload({ model, input, attachments = [], context = {}, curre
   };
 }
 
-function buildIntentReviewPayload({ model, input, attachments = [], context = {}, firstRoute = null, systemPrompt = INTENT_REVIEW_SYSTEM_PROMPT } = {}) {
+function buildIntentReviewPayload({ model, input, attachments = [], context = {}, firstRoute = null, systemPrompt = INTENT_REVIEW_SYSTEM_PROMPT, responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
   const payload = compactRouteUserPayload({ input, attachments, context, currentMode: 'chat', autoMode: true });
   if (firstRoute?.taskContract) payload.first_task_contract = firstRoute.taskContract;
   return {
     model,
     temperature: 0,
+    ...(responseFormat ? { response_format: responseFormat } : {}),
     messages: [
       { role: 'system', content: systemPrompt },
+      { role: 'user', content: JSON.stringify(payload) },
+    ],
+  };
+}
+
+function buildIntentRepairPayload({ model, input, attachments = [], context = {}, previousOutput = '', validationReason = 'contract_shape', responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
+  const payload = compactRouteUserPayload({ input, attachments, context, currentMode: 'chat', autoMode: true });
+  payload.previous_route_output = String(previousOutput || '').slice(0, 12000);
+  payload.contract_validation_error = String(validationReason || 'contract_shape');
+  return {
+    model,
+    temperature: 0,
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+    messages: [
+      { role: 'system', content: INTENT_REPAIR_SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify(payload) },
     ],
   };
@@ -231,18 +296,22 @@ const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT,
   ROUTE_OUTPUT_CONTRACT_CHECK,
   INTENT_REVIEW_SYSTEM_PROMPT,
+  INTENT_REPAIR_SYSTEM_PROMPT,
+  ROUTE_RESPONSE_FORMAT,
   cleanQuotedContent,
   buildQuotedImagePlaceholders,
   buildQuotedRouteContent,
   stripJsonFence,
   needsIntentReview,
   isTaskContractResult,
+  inspectRouteResult,
   parseRouteResult,
   buildFileCandidatesFromAttachments,
   compactRoutePayloadContext,
   compactRouteUserPayload,
   buildRoutePayload,
   buildIntentReviewPayload,
+  buildIntentRepairPayload,
   extractRouteText,
 });
 

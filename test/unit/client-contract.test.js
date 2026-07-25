@@ -15,6 +15,9 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
   for (const key of [
     'ROUTE_SYSTEM_PROMPT',
     'INTENT_REVIEW_SYSTEM_PROMPT',
+    'INTENT_REPAIR_SYSTEM_PROMPT',
+    'ROUTE_RESPONSE_FORMAT',
+    'inspectRouteResult',
     'isTaskContractResult',
     'parseRouteResult',
     'buildRoutePayload',
@@ -56,6 +59,9 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   });
   assert.strictEqual(payload.model, 'route-model');
   assert.strictEqual(payload.temperature, 0);
+  assert.strictEqual(payload.response_format?.type, 'json_schema');
+  assert.strictEqual(payload.response_format?.json_schema?.strict, true);
+  assert.strictEqual(payload.response_format?.json_schema?.schema?.additionalProperties, false);
   assert.strictEqual(payload.messages.length, 2);
   assert.strictEqual(payload.messages[0].role, 'system');
   assert.strictEqual(payload.messages[1].role, 'user');
@@ -67,6 +73,20 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   assert.ok(payload.messages[0].content.includes('attachments.media_index'), 'the model must receive the type-local attachment index rule');
   assert.ok(payload.messages[0].content.length < 4000, 'the route prompt must remain within its compact context budget');
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking)/i.test(JSON.stringify(payload)));
+}
+
+function testRouteResultInspectionSeparatesShapeAndResourceFailures() {
+  const malformed = routeService.inspectRouteResult('{not-json');
+  assert.strictEqual(malformed.route, null);
+  assert.strictEqual(malformed.reason, 'contract_semantics');
+
+  const unknownField = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'task_contract.v3', operation: 'plain_chat', relation: 'new', resources: [],
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question: '', missing_resource_keys: [] }, confidence: 0.9, review_reasons: [], rationale: 'valid intent but invalid shape', extra: true,
+  }));
+  assert.strictEqual(unknownField.route, null);
+  assert.strictEqual(unknownField.reason, 'contract_shape');
 }
 
 function testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles() {
@@ -385,6 +405,7 @@ module.exports = [
   testClientContractUsesOneTaskContractRouteProtocol,
   testRoutePromptIsOneOrderedDecisionSpecification,
   testClientContractRoutePayloadKeepsCompactShape,
+  testRouteResultInspectionSeparatesShapeAndResourceFailures,
   testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles,
   testClientContractAttachmentMetadataUsesTypedMediaIndexes,
   testClientContractRouteParsingPreservesClarificationShape,

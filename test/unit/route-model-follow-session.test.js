@@ -344,7 +344,7 @@ async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeC
   console.warn = () => {};
   try {
     const route = await harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {});
-    assert.deepStrictEqual(requestedModels, ['router-special', 'gpt-session'], 'an invalid primary contract should retry only the distinct session fallback model');
+    assert.deepStrictEqual(requestedModels, ['router-special', 'router-special', 'gpt-session', 'gpt-session'], 'each invalid response must receive one same-model contract repair before the distinct session-model fallback is attempted');
     assert.strictEqual(route.needClarification, true);
     assert.strictEqual(route.api, 'clarify');
     assert.strictEqual(route.intent, 'clarify');
@@ -442,7 +442,7 @@ async function testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback(
   }
 }
 
-async function testHighRiskRouteFailsClosedWhenItsReviewFails() {
+async function testValidHighRiskRouteExecutesWithoutIndependentReview() {
   const models = ['router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'router-special', messages: [] }];
   let requestCount = 0;
@@ -452,21 +452,44 @@ async function testHighRiskRouteFailsClosedWhenItsReviewFails() {
     requestJson: async () => {
       requestCount += 1;
       if (requestCount === 1) return responseFor(reviewedImageEditContract());
-      throw new Error('review unavailable');
+      throw new Error('a valid first route must not make another route request');
     },
   });
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    await assert.rejects(
-      () => harness.workflow.getEffectiveRoute('change the product background', [], 'session-a', {}, {
-        image_candidates: [{ index: 1, source: 'history', image_id: 'img-product', reference_id: 'imgref-product', target: 'previous' }],
-      }),
-      error => error?.code === 'ROUTE_COMPLETE_FAILURE' && error?.primaryCode === 'ROUTE_REVIEW_REQUIRED',
-    );
-    assert.strictEqual(requestCount, 2, 'the primary decision must not execute after its required review fails');
+    const route = await harness.workflow.getEffectiveRoute('change the product background', [], 'session-a', {}, {
+      image_candidates: [{ index: 1, source: 'history', image_id: 'img-product', reference_id: 'imgref-product', target: 'previous' }],
+    });
+    assert.strictEqual(requestCount, 1, 'a valid first route must execute without an independent review request');
+    assert.strictEqual(route.operationType, 'edit_image');
   } finally {
     console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testInvalidPrimaryContractUsesSameModelRepairBeforeFallback() {
+  const models = ['router-special', 'chat-model'];
+  const sessions = [{ id: 'session-a', chatModel: 'chat-model', messages: [] }];
+  const requested = [];
+  const invalid = { ...plainChatContract(), accidental_field: 'must be rejected' };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'router-special', models },
+    sessions,
+    requestJson: async (_url, payload) => {
+      requested.push(payload);
+      return requested.length === 1 ? responseFor(invalid) : responseFor(plainChatContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Explain this request.', [], 'session-a', {}, {});
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.deepStrictEqual(requested.map(payload => payload.model), ['router-special', 'router-special']);
+    assert.strictEqual(requested[1].messages[0].content, routeService.INTENT_REPAIR_SYSTEM_PROMPT, 'repair must keep the same model and explicitly repair only the rejected contract');
+    assert.strictEqual(requested[1].response_format?.json_schema?.strict, true);
+  } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
   }
@@ -553,7 +576,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
   assert.ok(index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure'));
+  assert.ok(index.includes('route-decision-workflow.js?v=2.0.6-single-route-repair'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
@@ -571,7 +594,8 @@ module.exports = [
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
-  testHighRiskRouteFailsClosedWhenItsReviewFails,
+  testValidHighRiskRouteExecutesWithoutIndependentReview,
+  testInvalidPrimaryContractUsesSameModelRepairBeforeFallback,
   testBusyTaskCannotSwitchGlobalRouteModel,
   testBusySessionCannotSwitchModelMidSubmission,
   testSubmitPreflightUsesEffectiveSessionRouteModel,

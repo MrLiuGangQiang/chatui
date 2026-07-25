@@ -54,10 +54,50 @@
       return !!routeSvc?.needsIntentReview?.(route, context);
     }
 
+    function structuredOutputUnsupported(error) {
+      const text = String(error?.message || error || '').toLowerCase();
+      return /response_format|json_schema|structured.?output/.test(text)
+        && /unsupported|not support|unknown|invalid parameter|unrecognized/.test(text);
+    }
+
     async function requestRouteDecision(payload, config, headers, signal) {
       with (deps) {
-        return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
+        try {
+          return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
+        } catch (error) {
+          // Strict structured output is the primary path. Some OpenAI-compatible
+          // gateways do not implement it, so retain a bounded legacy path rather
+          // than making an otherwise healthy route model unavailable.
+          if (!payload?.response_format || !structuredOutputUnsupported(error)) throw error;
+          const legacyPayload = { ...payload };
+          delete legacyPayload.response_format;
+          return await requestJson(`${config.baseUrl}/chat/completions`, legacyPayload, config.apiKey, { headers, signal });
+        }
       }
+    }
+
+    function inspectRoute(routeSvc, raw, options) {
+      if (typeof routeSvc?.inspectRouteResult === 'function') return routeSvc.inspectRouteResult(raw, options);
+      const route = parseRouteResult(raw, options);
+      return { route, reason: route ? '' : 'contract_shape' };
+    }
+
+    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, raw, config, headers, signal }) {
+      const options = { input, attachments, context };
+      const initial = inspectRoute(routeSvc, raw, options);
+      if (initial.route || typeof routeSvc?.buildIntentRepairPayload !== 'function') return { ...initial, repaired: false, repairRaw: '' };
+      const repairPayload = routeSvc.buildIntentRepairPayload({
+        model,
+        input,
+        attachments,
+        context,
+        previousOutput: raw,
+        validationReason: initial.reason,
+      });
+      const repairResponse = await requestRouteDecision(repairPayload, config, headers, signal);
+      const repairRaw = extractRouteText(routeSvc, repairResponse);
+      const repaired = inspectRoute(routeSvc, repairRaw, options);
+      return { ...repaired, repaired: true, initialReason: initial.reason, repairRaw };
     }
 
     function createRouteCancelledError() {
@@ -194,59 +234,22 @@
             }
 
             trace.firstRaw = extractRouteText(routeSvc, firstResponse);
-            let route = parseRouteResult(trace.firstRaw, { input, attachments: attachmentMeta, context });
-            if (!route) throw invalidRouteError('primary');
-            trace.firstRoute = route;
-            let reviewed = false;
-            if (shouldReviewRoute(routeSvc, route, context, attachmentMeta) && routeSvc?.buildIntentReviewPayload) {
-              try {
-                try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1aAI \u590d\u5ba1\u8def\u7531\u5224\u65ad'); } catch (err) { console.warn('route stage callback failed:', err); }
-                const reviewPayload = routeSvc.buildIntentReviewPayload({ model: primaryModel, input, attachments: attachmentMeta, context, firstRoute: route });
-                trace.reviewPayload = compactTraceValue(reviewPayload);
-                const reviewRequest = createLinkedAbortController(parentSignal);
-                const reviewController = reviewRequest.controller;
-                let reviewTimedOut = false;
-                const reviewTimeout = setTimeout(() => {
-                  reviewTimedOut = true;
-                  reviewController?.abort?.();
-                }, 60000);
-                let reviewResponse;
-                try {
-                  throwIfRouteCancelled(parentSignal);
-                  reviewResponse = await requestRouteDecision(reviewPayload, config, requestHeaders, reviewController?.signal);
-                  throwIfRouteCancelled(parentSignal);
-                } catch (err) {
-                  if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-                  if (reviewTimedOut || err?.name === 'AbortError') {
-                    const timeoutError = new Error('ROUTE_REVIEW_TIMEOUT');
-                    timeoutError.code = 'ROUTE_REVIEW_TIMEOUT';
-                    throw timeoutError;
-                  }
-                  throw err;
-                } finally {
-                  clearTimeout(reviewTimeout);
-                  reviewRequest.dispose();
-                }
-                trace.reviewRaw = extractRouteText(routeSvc, reviewResponse);
-                const reviewRoute = parseRouteResult(trace.reviewRaw, { input, attachments: attachmentMeta, context });
-                if (!reviewRoute) throw invalidRouteError('review');
-                trace.reviewRoute = reviewRoute;
-                route = reviewRoute;
-                reviewed = true;
-              } catch (err) {
-                if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-                trace.reviewError = String(err?.message || err);
-                if (requiresVerifiedReview(route)) {
-                  const reviewError = new Error('ROUTE_REVIEW_REQUIRED');
-                  reviewError.code = 'ROUTE_REVIEW_REQUIRED';
-                  reviewError.causeCode = err?.code || '';
-                  throw reviewError;
-                }
-                console.warn('intent review failed, keeping safe primary route:', err);
-              }
+            const primaryParsed = await parseOrRepairRoute(routeSvc, {
+              model: primaryModel, input, attachments: attachmentMeta, context, raw: trace.firstRaw,
+              config, headers: requestHeaders, signal: parentSignal,
+            });
+            let route = primaryParsed.route;
+            trace.firstValidationReason = primaryParsed.initialReason || primaryParsed.reason || '';
+            trace.repairRaw = primaryParsed.repairRaw || '';
+            trace.repaired = !!primaryParsed.repaired;
+            if (!route) {
+              const invalid = invalidRouteError('primary');
+              invalid.validationReason = primaryParsed.reason || 'contract_shape';
+              throw invalid;
             }
+            trace.firstRoute = route;
             throwIfRouteCancelled(parentSignal);
-            trace.reviewed = reviewed;
+            trace.reviewed = false;
             trace.finalRoute = route;
             trace.finalTaskContract = route.taskContract || null;
             trace.finalApi = route.api;
@@ -286,12 +289,15 @@
                   fallbackRequest.dispose();
                 }
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
-                const fallbackRoute = parseRouteResult(fallbackRaw, { input, attachments: attachmentMeta, context });
-                if (!fallbackRoute) throw invalidRouteError('fallback');
-                if (requiresVerifiedReview(fallbackRoute) && shouldReviewRoute(routeSvc, fallbackRoute, context, attachmentMeta)) {
-                  const reviewError = new Error('ROUTE_FALLBACK_REVIEW_REQUIRED');
-                  reviewError.code = 'ROUTE_FALLBACK_REVIEW_REQUIRED';
-                  throw reviewError;
+                const fallbackParsed = await parseOrRepairRoute(routeSvc, {
+                  model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
+                  config, headers: requestHeaders, signal: parentSignal,
+                });
+                const fallbackRoute = fallbackParsed.route;
+                if (!fallbackRoute) {
+                  const invalid = invalidRouteError('fallback');
+                  invalid.validationReason = fallbackParsed.reason || 'contract_shape';
+                  throw invalid;
                 }
                 setIntentTrace({ input, model: sessionChatModel, context: compactTraceValue(context), attachments: attachmentMeta, finalRoute: fallbackRoute, finalApi: fallbackRoute.api, fallbackAi: true });
                 return fallbackRoute;

@@ -19,6 +19,7 @@ function routeContextSize(value) {
 function compactRouteMessage(message = {}, index = 0) {
   return {
     index,
+    id: String(message.displayItemId || message.id || ''),
     role: message.role || '',
     content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 600),
   };

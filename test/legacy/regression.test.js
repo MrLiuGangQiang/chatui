@@ -38,54 +38,7 @@ const routeDiagramWorkflow = require('../../client/app/route-diagram-workflow');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../../client/app/markdown/source-normalizer');
 const sourceAssertions = require('../../client/testing/source-assertions');
-const usageTests = require('../unit/usage.test');
-const serverHardeningTests = require('../unit/server-hardening.test');
-const staticBundleTests = require('../unit/static-bundle.test');
-const projectToolingTests = require('../unit/project-tooling.test');
-const sessionJobRecoveryTests = require('../unit/session-job-recovery.test');
-const sessionJobResumeReconciliationTests = require('../unit/session-job-resume-reconciliation.test');
 const staticHttp = require('../../server/http/static');
-const apiContractTests = require('../unit/api-contract.test');
-const jobRouteTests = require('../unit/job-routes.test');
-const chatStreamParserTests = require('../unit/chat-stream-parser.test');
-const chatStreamFallbackTests = require('../unit/chat-stream-fallback.test');
-const sessionSnapshotFormatTests = require('../unit/session-snapshot-format.test');
-const sessionStoreRecoveryTests = require('../unit/session-store-recovery.test');
-const imageJobContractTests = require('../unit/image-job-contract.test');
-const imageEditPayloadContractTests = require('../unit/image-edit-payload-contract.test');
-const imageServiceContractTests = require('../unit/image-service-contract.test');
-const imageSessionSwitchMediaTests = require('../unit/image-session-switch-media.test');
-const clientContractTests = require('../unit/client-contract.test');
-const submitWorkflowHelperTests = require('../unit/submit-workflow-helpers.test');
-const webPreviewTests = require('../unit/web-preview.test');
-const reasoningWorkflowTests = require('../unit/reasoning-workflow.test');
-const reasoningHistoryPersistenceTests = require('../unit/reasoning-history-persistence.test');
-const routeRecognitionSubmitTests = require('../unit/route-recognition-submit.test');
-const routeModelFollowSessionTests = require('../unit/route-model-follow-session.test');
-const intentRoutingEvaluationTests = require('../unit/intent-routing-evaluation.test');
-const taskContextBoundaryTests = require('../unit/task-context-boundary.test');
-const sessionRouteSwitchContinuityTests = require('../unit/session-route-switch-continuity.test');
-const durableTaskLifecycleTests = require('../unit/durable-task-lifecycle.test');
-const taskLifecycleStateMachineTests = require('../unit/task-lifecycle-state-machine.test');
-const taskLifecycleTests = require('../unit/task-lifecycle.test');
-const multiImageReferenceRoutingTests = require('../unit/multi-image-reference-routing.test');
-const contentRegionDialogLayoutTests = require('../unit/content-region-dialog-layout.test');
-const regenerateWorkflowTests = require('../unit/regenerate-workflow.test');
-const taskStateTests = require('../unit/task-state.test');
-const doneSoundTests = require('../unit/done-sound.test');
-const markdownStreamingTablePreviewTests = require('../unit/markdown-streaming-table-preview.test');
-const markdownPreviewTableAlignmentTests = require('../unit/markdown-preview-table-alignment.test');
-const messageOrderPersistenceTests = require('../unit/message-order-persistence.test');
-const messageSizeGuardTests = require('../unit/message-size-guard.test');
-const messageQuoteLayoutTests = require('../unit/message-quote-layout.test');
-const promptImeSubmitGuardTests = require('../unit/prompt-ime-submit-guard.test');
-const userMessageCopyTests = require('../unit/user-message-copy.test');
-const streamingCodeBlockTests = require('../unit/streaming-code-block.test');
-const markdownStreamingDetailsTests = require('../unit/markdown-streaming-details.test');
-const markdownStreamingCanonicalFinalTests = require('../unit/markdown-streaming-canonical-final.test');
-const largeMarkdownCanonicalFinalTests = require('../unit/large-markdown-canonical-final.test');
-const serverSmokeTests = require('../smoke/server-smoke.test');
-const multiImageComposeFlowSmokeTests = require('../smoke/multi-image-compose-flow.test');
 
 function stripLargeDataUrlsFromText(text = '') {
   return String(text || '').replace(/data:[^\s"'<>`]+;base64,[A-Za-z0-9+/=\r\n]+/g, '[image-data-omitted]');
@@ -690,7 +643,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.96-exact-history-media'), 'submit workflow cache version should be bumped for exact historical media binding');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding'), 'submit workflow cache version should be bumped for explicit quote binding');
   assert.ok(index.includes('clarification-service.js?v=1.0.7-strict-continuation-contract'), 'clarification service cache version should be bumped for the strict continuation contract');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
@@ -1489,7 +1442,7 @@ function testMessageDomainIsFeatureModule() {
   assert.deepStrictEqual(domain.readQuoteContext({ role: 'assistant', content: ' ok ', responseIndex: 2 }), { role: 'assistant', content: 'ok', responseIndex: '2' });
   const workflow = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesDomain || {}'), 'message workflow should read quote/role helpers from the message domain feature');
+  assert.ok(workflow.includes("getWorkflowModule('messageDomain') || {}"), 'message workflow should read quote/role helpers from the message domain feature');
   assert.ok(!workflow.includes('function readQuoteContext(value)'), 'message workflow should not keep a duplicate quote-context parser');
   assert.ok(!workflow.includes('function normalizeQuoteText(text'), 'message workflow should not keep a duplicate quote text normalizer');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/app/message-workflow.js'), 'message domain feature should load before message workflow');
@@ -1508,7 +1461,7 @@ function testMessageModelHelpersAreFeatureModule() {
   const workflow = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
   const domain = fs.readFileSync(path.join(__dirname, '../../client/features/messages/message-domain.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesModel || messageDomain'), 'message workflow should use the message model helper facade when available');
+  assert.ok(workflow.includes("getWorkflowModule('messageModel') || messageDomain"), 'message workflow should use the message model helper facade when available');
   assert.ok(workflow.includes('messageModel.hasUsableImageContext'), 'image context usability should be delegated to the model helper');
   assert.ok(workflow.includes('messageModel.resolveDisplayItemKey'), 'display/message key extraction should be delegated to the model helper');
   assert.ok(!workflow.includes('function hasUsableImageContext(value)'), 'message workflow should not keep a duplicate image-context helper');
@@ -1530,7 +1483,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(quotePreview.withSentQuotePreview('<p>x</p>', { role: 'user', content: 'quote' }).includes('sent-quote-preview'), 'quote preview feature should prepend preview to user html');
   const workflow = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(workflow.includes('ChatUIFeaturesMessagesQuotePreview?.createQuotePreview'), 'message workflow should delegate sent quote preview rendering to the feature module');
+  assert.ok(workflow.includes("getWorkflowModule('quotePreview')?.createQuotePreview"), 'message workflow should delegate sent quote preview rendering to the feature module');
   assert.ok(!workflow.includes('function renderSentQuotePreview(value)'), 'message workflow should not keep duplicate sent quote preview HTML generation');
   assert.ok(!workflow.includes('classList.add(\'quoted\')') && !workflow.includes('classList.add("quoted")'), 'selecting a quote source should not add a persistent quoted border class');
   assert.ok(workflow.includes('function scrollQuotedMessageToStart') && workflow.includes("block: 'start'") && !workflow.includes("block: 'center', behavior: 'smooth'"), 'quote preview jumps should align the referenced message start/top, not center it');
@@ -1555,7 +1508,7 @@ function testMarkdownFinalRendererIsFeatureModule() {
   assert.ok(feature.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'feature renderer should still replace visible content only once after offscreen rendering');
   assert.ok(feature.includes('stageContent.append(...batch)'), 'offscreen stage may batch append final HTML away from the visible message');
   assert.ok(feature.includes('return [src]') && feature.includes('batch only the already-parsed top-level DOM nodes'), 'large Markdown must be parsed as one canonical source unit and batch only DOM mounting work');
-  assert.ok(workflow.includes('ChatUIFeaturesMessagesMarkdownFinalRenderer?.createMarkdownFinalRenderer'), 'message workflow should delegate final Markdown rendering to the feature module');
+  assert.ok(workflow.includes("getWorkflowModule('markdownFinalRenderer')?.createMarkdownFinalRenderer"), 'message workflow should delegate final Markdown rendering to the feature module');
   assert.ok(!workflow.includes('function splitMarkdownRenderChunks'), 'message workflow should not keep a duplicate Markdown chunk splitter');
   assert.ok(!workflow.includes('content.replaceChildren(...[...stageContent.childNodes])'), 'message workflow should not own final Markdown DOM replacement details');
   assert.ok(index.indexOf('client/features/messages/markdown-final-renderer.js') < index.indexOf('client/app/message-workflow.js'), 'feature renderer should load before message workflow');
@@ -1574,7 +1527,7 @@ function testMarkdownPreviewIsFeatureModule() {
 
   const workflow = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(workflow.includes('root.ChatUIFeaturesMessagesMarkdownPreview?.renderMarkdownPreview'), 'message workflow should delegate initial large Markdown preview to the feature module');
+  assert.ok(workflow.includes("getWorkflowModule('markdownPreview')?.renderMarkdownPreview"), 'message workflow should delegate initial large Markdown preview to the feature module');
   assert.ok(index.indexOf('client/features/messages/markdown-preview.js') < index.indexOf('client/app/message-workflow.js'), 'preview feature should load before message workflow');
 }
 
@@ -1756,8 +1709,8 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('const isLastQuestionNode = node =>') && featureSource.includes('const pinLastQuestionToTop = isLastQuestionNode(node)'), 'history anchor should only add tail spacer when the clicked directory item is the last question that needs top pinning');
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
-  assert.ok(submit.includes('root.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.96-exact-history-media') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1775,7 +1728,7 @@ function testHistoryAnchorNavFeature() {
   assert.ok(index.includes('id="historyAnchorNav"'), 'history anchor nav container should be present in the main chat area');
   assert.ok(index.includes('history-anchor-nav is-empty'), 'history anchor nav should not reuse the legacy .empty placeholder class');
   assert.ok(index.indexOf('client/features/history-anchor-nav.js') < index.indexOf('client/app/bootstrap-workflow.js'), 'history anchor feature should load before bootstrap starts');
-  assert.ok(bootstrap.includes('window.ChatUIHistoryAnchorNav?.init?.({messages:$(\'messages\'),nav:$(\'historyAnchorNav\')'), 'bootstrap should initialize the history anchor nav with the messages scroller');
+  assert.ok(bootstrap.includes("getWorkflowModule?.('historyAnchorNav')?.init?.({messages:$(\'messages\'),nav:$(\'historyAnchorNav\')"), 'bootstrap should initialize the history anchor nav with the messages scroller');
   assert.ok(bootstrap.includes('getItems:()=>historyAnchorItemsFromState()') && bootstrap.includes('ensureItemNode:item=>ensureHistoryAnchorNode(item)'), 'history anchor nav should receive full session history items and a way to render missing nodes before jumping');
   assert.ok(bootstrap.includes('revealNode:revealNodeAboveComposer'), 'history anchor clicks should use the existing composer-aware reveal helper');
   assert.ok(featureSource.includes('const getItems = typeof options.getItems') && featureSource.includes('ensureItemNode') && featureSource.includes('fullItems.map'), 'history anchor nav should build the popup from full session history, not only currently rendered DOM nodes');
@@ -1792,7 +1745,7 @@ function testHistoryAnchorNavFeature() {
   assert.ok(featureSource.includes('function normalizeQuestionTitle') && !featureSource.includes('title: ""'), 'history anchor titles should be normalized from real question text instead of empty fallback labels');
   assert.ok(featureSource.includes('messages.scrollTop = Math.max(0, offsetTopWithin(node) - 18)'), 'history anchor clicks should scroll the messages container directly, not the window');
   assert.ok(featureSource.includes('history-anchor-scroll-spacer') && featureSource.includes('ensureJumpScrollSpace(node, 18)') && featureSource.includes('setActive = id =>') && !featureSource.includes('id === activeId) return'), 'history anchor jumps should keep enough tail space and refresh active state even when the same id is clicked');
-  assert.ok(featureSource.includes('let jumpScrollToken = 0') && featureSource.includes('cancelPendingJump') && featureSource.includes('clearJumpScrollSpace') && featureSource.includes('token !== jumpScrollToken') && scroll.includes('window.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true })'), 'resume output focus should cancel any delayed history-anchor scroll corrections and spacer before pinning the active stream');
+  assert.ok(featureSource.includes('let jumpScrollToken = 0') && featureSource.includes('cancelPendingJump') && featureSource.includes('clearJumpScrollSpace') && featureSource.includes('token !== jumpScrollToken') && scroll.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'resume output focus should cancel any delayed history-anchor scroll corrections and spacer before pinning the active stream');
   assert.ok(app.includes('cleanupBottomScrollLock:()=>getScrollFocusWorkflow().cleanupBottomScrollLock()'), 'history anchor jumps should be able to clean up bottom-lock observers before scrolling upward');
   assert.ok(app.includes('releaseBottomScrollLock:e=>getScrollFocusWorkflow().releaseBottomScrollLock(e)'), 'history anchor jumps should be able to release bottom-lock state before scrolling upward');
   assert.ok(css.includes('--history-anchor-height') && css.includes('height:var(--history-anchor-height)') && css.includes('.history-anchor-nav') && css.includes('.history-anchor-nav.is-expanded .history-anchor-panel') && css.includes('.history-anchor-nav.is-popup-hidden') && css.includes('@media (max-width:840px)'), 'history anchor nav and popup should share identical height, hide smoothly under popups, and be hidden on mobile');
@@ -2743,7 +2696,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.0.6-explicit-quote-binding') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -3027,7 +2980,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId'), 'force-image action should send the current user message through a durable canonical image handoff');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.0.5-single-route-selectors') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.0.6-explicit-quote-binding') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3133,7 +3086,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(imageWorkflow.includes('clearReasoning?.(d)') && imageWorkflow.includes('delete c.reasoningText'), 'image generation should clear route/chat reasoning panel when it starts');
   assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.3.22-reference-media'), 'image reasoning cleanup should be wired and cache-busted');
   const sessionPanelWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/session-panel-workflow.js'), 'utf8');
-  assert.ok(sessionPanelWorkflow.includes('window.setTimeout.call(window,()=>n.focus(),a||60)'), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
+  assert.ok(/window\.setTimeout\.call\(window,\s*\(\)\s*=>\s*\w+\.focus\(\),\s*\w+\s*\|\|\s*60\)/.test(sessionPanelWorkflow), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
 
   const configWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/config-workflow.js'), 'utf8');
   const dialogWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/dialog-workflow.js'), 'utf8');
@@ -3149,7 +3102,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.96-exact-history-media') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.5-local-contract-failure') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3342,53 +3295,6 @@ const tests = [
   testImageOnlyAssistantMessageCanBeQuotedWithImageContext,
   testEmptyAssistantImageContextFallsBackToGeneratedThumbs,
   testQuoteResolverUsesCanonicalAndDisplayContext,
-  ...usageTests,
-  ...serverHardeningTests,
-  ...staticBundleTests,
-  ...projectToolingTests,
-  ...sessionJobRecoveryTests,
-  ...sessionJobResumeReconciliationTests,
-  ...apiContractTests,
-  ...jobRouteTests,
-  ...chatStreamParserTests,
-  ...chatStreamFallbackTests,
-  ...sessionSnapshotFormatTests,
-  ...sessionStoreRecoveryTests,
-  ...imageJobContractTests,
-  ...imageEditPayloadContractTests,
-  ...imageServiceContractTests,
-  ...imageSessionSwitchMediaTests,
-  ...clientContractTests,
-  ...submitWorkflowHelperTests,
-  ...webPreviewTests,
-  ...reasoningWorkflowTests,
-  ...reasoningHistoryPersistenceTests,
-  ...routeRecognitionSubmitTests,
-  ...routeModelFollowSessionTests,
-  ...intentRoutingEvaluationTests,
-  ...taskContextBoundaryTests,
-  ...sessionRouteSwitchContinuityTests,
-  ...durableTaskLifecycleTests,
-  ...taskLifecycleStateMachineTests,
-  ...taskLifecycleTests,
-  ...multiImageReferenceRoutingTests,
-  ...contentRegionDialogLayoutTests,
-  ...regenerateWorkflowTests,
-  ...taskStateTests,
-  ...doneSoundTests,
-  ...markdownStreamingTablePreviewTests,
-  ...markdownPreviewTableAlignmentTests,
-  ...messageOrderPersistenceTests,
-  ...messageSizeGuardTests,
-  ...messageQuoteLayoutTests,
-  ...promptImeSubmitGuardTests,
-  ...userMessageCopyTests,
-  ...streamingCodeBlockTests,
-  ...markdownStreamingDetailsTests,
-  ...markdownStreamingCanonicalFinalTests,
-  ...largeMarkdownCanonicalFinalTests,
-  ...serverSmokeTests,
-  ...multiImageComposeFlowSmokeTests,
   testSessionPromptDraftPersistsPerSession,
   testLegacyDocSupportIsRoutedToWordExtractor,
   testResponseMetricsTextIsUnified,

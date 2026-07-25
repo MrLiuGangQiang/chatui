@@ -95,11 +95,20 @@
   function finalMarkupMatchesCurrent(container, finalHtml = '') { const tpl = document.createElement('template'); tpl.innerHTML = String(finalHtml || ''); return String(container?.innerHTML || '') === tpl.innerHTML; }
 
   const STREAMING_TAIL_SCAN_LIMIT = 65536;
+  // An unclosed code fence, table, or paragraph can otherwise make the live
+  // preview retain and rescan the entire response on every stream update.
+  // The canonical final pass always receives the complete raw source.
+  const STREAMING_TAIL_PREVIEW_LIMIT = 65536;
   const STREAMING_TABLE_RENDER_INTERVAL_MS = 80;
   const STREAMING_TABLE_ALIGNMENT_CLASSES = Object.freeze(['md-align-left', 'md-align-center', 'md-align-right']);
   function boundedStreamingScanTail(text = '') {
     const value = String(text || '');
     return value.length > STREAMING_TAIL_SCAN_LIMIT ? value.slice(-STREAMING_TAIL_SCAN_LIMIT) : value;
+  }
+  function boundedStreamingPreviewTail(text = '') {
+    const value = String(text || '');
+    if (value.length <= STREAMING_TAIL_PREVIEW_LIMIT) return value;
+    return `\n… (流式预览仅显示最后 ${Math.floor(STREAMING_TAIL_PREVIEW_LIMIT / 1024)} KB，完成后将显示全文) …\n${value.slice(-STREAMING_TAIL_PREVIEW_LIMIT)}`;
   }
 
   function hasConservativeInlineMathTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const tail = src.slice(Math.max(0, src.lastIndexOf('\n') + 1)); let escaped = false; for (let i = 0; i < tail.length; i += 1) { const ch = tail[i]; if (escaped) { escaped = false; continue; } if (ch === '\\') { escaped = true; continue; } if (ch === '$' && tail[i + 1] !== '$' && tail[i - 1] !== '$') return true; } return false; }
@@ -609,7 +618,7 @@
     };
     const syncTailNode = (container, text = '') => {
       if (!container) return;
-      const next = String(text || '');
+      const next = boundedStreamingPreviewTail(text);
       if (!next) {
         removeTailNode();
         removeStreamingCodeNode();

@@ -27,7 +27,7 @@ function testArchitectureCheckFreezesLegacyGrowth() {
   const current = checkArchitecture();
   assert.ok(current.appJsBytes <= current.appJsMaxBytes);
   const baseline = readBaseline();
-  assert.ok(current.withScopes <= Object.values(baseline.legacyWithScopes).reduce((sum, count) => sum + count, 0));
+  assert.strictEqual(current.withScopes, Object.values(baseline.legacyWithScopes).reduce((sum, count) => sum + count, 0));
   assert.ok(current.globalNamespaceExports <= baseline.maxGlobalNamespaceExports);
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-architecture-check-'));
@@ -41,6 +41,10 @@ function testArchitectureCheckFreezesLegacyGrowth() {
 
     fs.writeFileSync(path.join(root, 'client', 'new-workflow.js'), 'with (deps) {}', 'utf8');
     assert.throws(() => checkArchitecture({ root, baseline: fixtureBaseline }), /New or expanded with-scopes are forbidden/);
+
+    fs.writeFileSync(path.join(root, 'client', 'new-workflow.js'), '', 'utf8');
+    const staleWithBaseline = { ...fixtureBaseline, legacyWithScopes: { 'client/new-workflow.js': 1 } };
+    assert.throws(() => checkArchitecture({ root, baseline: staleWithBaseline }), /Update the baseline when removing recorded legacy debt/);
 
     fs.writeFileSync(path.join(root, 'client', 'new-workflow.js'), 'window.ChatUINewFeature = {};', 'utf8');
     assert.throws(() => checkArchitecture({ root, baseline: fixtureBaseline }), /browser global namespace exports grew/);

@@ -4,6 +4,7 @@ const assert = require('assert');
 const { JSDOM } = require('jsdom');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
 const streaming = require('../../client/app/markdown/browser-streaming-renderer');
+const liveStreaming = require('../../client/features/messages/markdown-live-stream');
 
 function withDom(run) {
   const previousWindow = global.window;
@@ -83,7 +84,48 @@ function testCanonicalFinalAvoidsUnneededDomReplacement() {
   });
 }
 
+function testLargeUnclosedStreamingTailUsesBoundedPreview() {
+  withDom(container => {
+    const source = '```text\n' + 'x'.repeat(180000);
+    const renderer = streaming.createStreamingRenderer({ renderMarkdown: markdownEngine.renderMarkdown, enhance: () => {} });
+
+    renderer.append(source, container);
+
+    const preview = container.textContent;
+    assert.ok(preview.includes('流式预览仅显示最后'), 'an oversized unfinished tail should disclose that its preview is bounded');
+    assert.ok(preview.length < 70000, 'the live DOM preview must stay bounded even when the raw stream is much larger');
+    assert.strictEqual(renderer.getRaw(), source, 'bounding the preview must not discard canonical source text');
+  });
+}
+
+function testDocumentSizedLiveStreamUsesAdaptiveRenderBudget() {
+  let now = 0;
+  let setCount = 0;
+  let previewCount = 0;
+  const live = liveStreaming.createMarkdownLiveStream({
+    now: () => now,
+    createStreamingRenderer: () => ({
+      set: value => { setCount += 1; return { raw: value, consumed: 0, tail: '' }; },
+      preview: value => { previewCount += 1; return { raw: value, consumed: 0, tail: '' }; },
+      final: () => ({}),
+    }),
+  });
+  const large = 'x'.repeat(70000);
+
+  live.append(null, large, { force: true });
+  now = 100;
+  const deferred = live.append(null, large + 'y');
+  now = 120;
+  live.append(null, large + 'yz');
+
+  assert.strictEqual(deferred.deferredPreview, true, 'document-sized output should not repaint inside its adaptive budget');
+  assert.strictEqual(previewCount, 0, 'deferred document-sized output should avoid preview work entirely');
+  assert.strictEqual(setCount, 2, 'the next adaptive cadence boundary should still repaint the latest content');
+}
+
 module.exports = [
   testStreamingCompletionMatchesCanonicalRefreshMarkup,
   testCanonicalFinalAvoidsUnneededDomReplacement,
+  testLargeUnclosedStreamingTailUsesBoundedPreview,
+  testDocumentSizedLiveStreamUsesAdaptiveRenderBudget,
 ];

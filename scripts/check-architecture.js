@@ -53,18 +53,27 @@ function checkArchitecture({ root = ROOT, baseline = readBaseline() } = {}) {
   }
 
   const legacyWithScopes = baseline.legacyWithScopes || {};
+  const observedLegacyWithScopes = new Map();
   let globalNamespaceExports = 0;
   let withScopes = 0;
   for (const filePath of listJavaScriptFiles(root)) {
     const source = fs.readFileSync(filePath, 'utf8');
     const relative = relativePath(root, filePath);
     const fileWithScopes = countMatches(source, WITH_SCOPE_PATTERN);
+    observedLegacyWithScopes.set(relative, fileWithScopes);
     const allowedWithScopes = Number(legacyWithScopes[relative] || 0);
     if (fileWithScopes > allowedWithScopes) {
       fail(`${relative} contains ${fileWithScopes} with-scopes (legacy allowance: ${allowedWithScopes}). New or expanded with-scopes are forbidden.`);
     }
     withScopes += fileWithScopes;
     globalNamespaceExports += countMatches(source, GLOBAL_EXPORT_PATTERN);
+  }
+
+  for (const [relative, expectedCount] of Object.entries(legacyWithScopes)) {
+    const observedCount = observedLegacyWithScopes.get(relative) || 0;
+    if (observedCount !== Number(expectedCount)) {
+      fail(`${relative} contains ${observedCount} with-scopes, but its legacy baseline records ${expectedCount}. Update the baseline when removing recorded legacy debt.`);
+    }
   }
 
   if (globalNamespaceExports > Number(baseline.maxGlobalNamespaceExports)) {

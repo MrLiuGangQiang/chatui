@@ -1,6 +1,10 @@
 (function initChatUIFeaturesMessagesMarkdownFinalRenderer(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function splitMarkdownRenderChunks(text = '') {
     const src = String(text || '').replace(/\r\n?/g, '\n');
     // Markdown parsing is context-sensitive. Keep one canonical parse unit and
@@ -191,6 +195,5 @@
 
   const api = Object.freeze({ createMarkdownFinalRenderer, splitMarkdownRenderChunks });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesMarkdownFinalRenderer = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesMarkdownFinalRenderer = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('markdownFinalRenderer', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

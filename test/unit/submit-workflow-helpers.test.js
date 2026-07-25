@@ -78,9 +78,30 @@ function testRouteAttachmentSelectorsPreserveTypedBindings() {
   assert.deepStrictEqual(editSelectors.selectEditAttachments(source), [fallback]);
 }
 
+function testRouteMessageContextProjectionUsesOnlyResolvedBindings() {
+  const history = [
+    { role: 'user', content: 'older request', displayItemId: 'message-1' },
+    { role: 'assistant', content: 'selected answer', displayItemId: 'message-2' },
+    { role: 'user', content: 'newer unrelated request', displayItemId: 'message-3' },
+  ];
+  const route = { messageRefs: [{ key: 'r1', index: 2, message_id: 'message-2', source: 'history' }] };
+  const projection = helpers.projectRouteMessageContext(route, history);
+  assert.deepStrictEqual(projection.messages, [history[1]], 'the execution base must contain the route-selected message only');
+  assert.strictEqual(projection.protectedMessageCount, 1);
+  assert.strictEqual(projection.usesExplicitQuote, false);
+
+  assert.strictEqual(helpers.projectRouteMessageContext({ messageRefs: [{ key: 'r1', index: 2, message_id: 'missing', source: 'history' }] }, history), null, 'a stale message id must fail closed');
+
+  const explicitQuote = { role: 'assistant', content: 'quoted answer', displayItemId: 'quote-1' };
+  const quoteProjection = helpers.projectRouteMessageContext({ messageRefs: [{ key: 'r1', index: 1, message_id: 'quote-1', source: 'history' }] }, history, explicitQuote);
+  assert.deepStrictEqual(quoteProjection.messages, [explicitQuote]);
+  assert.strictEqual(quoteProjection.usesExplicitQuote, true, 'the UI quote is allowed only when it matches the route binding');
+}
+
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
   testSubmitHelpersUnderstandingClassifiers,
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
   testRouteAttachmentSelectorsPreserveTypedBindings,
+  testRouteMessageContextProjectionUsesOnlyResolvedBindings,
 ];

@@ -1,6 +1,10 @@
 (function initChatUIFeaturesMessagesMarkdownLiveStream(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function createMarkdownLiveStream(options = {}) {
     const renderMarkdown = options.renderMarkdown || (value => String(value || ''));
     const createStreamingRenderer = options.createStreamingRenderer || root.ChatUIApp?.markdown?.createStreamingRenderer || root.ChatUIMarkdownBrowserStreamingRenderer?.createStreamingRenderer;
@@ -8,10 +12,22 @@
     const enhanceRenderedMarkdown = options.enhanceRenderedMarkdown || (() => {});
     const getNow = options.now || (() => Date.now());
     const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 90;
+    // Updating a very large unfinished Markdown tail requires scanning its text
+    // to build a readable preview.  Do not repeat that work for every token.
+    const previewThrottleLength = Number.isFinite(options.previewThrottleLength) ? options.previewThrottleLength : 65536;
 
     let renderer = null;
     let raw = '';
     let lastRenderAt = 0;
+    let lastPreviewAt = 0;
+
+    function intervalForLength(length = 0) {
+      // Keep short answers responsive, but reserve enough main-thread time for
+      // input, scrolling, and painting once the stream becomes document-sized.
+      if (length > 262144) return Math.max(minIntervalMs, 180);
+      if (length > 65536) return Math.max(minIntervalMs, 120);
+      return minIntervalMs;
+    }
 
     const makeRenderer = () => createStreamingRenderer?.({
       renderMarkdown,
@@ -44,7 +60,8 @@
       const next = String(value || '');
       const now = getNow();
       const deltaLength = Math.max(0, next.length - raw.length);
-      const force = !!meta.force || now - lastRenderAt >= minIntervalMs || next.endsWith('\n') || deltaLength > 3000;
+      const intervalMs = intervalForLength(next.length);
+      const force = !!meta.force || now - lastRenderAt >= intervalMs || deltaLength > 3000;
       raw = next;
       const active = ensure();
       if (!active) return { raw, skipped: true, missingRenderer: true };
@@ -56,8 +73,15 @@
         renderer.__chatuiMounted = true;
         return result;
       };
-      if (!force && !meta.final) return initializeWithoutBlanking(target => active.preview?.(next, target) || { raw, skipped: true });
+      if (!force && !meta.final) {
+        if (next.length > previewThrottleLength && now - lastPreviewAt < intervalMs) {
+          return { raw, skipped: true, deferredPreview: true };
+        }
+        lastPreviewAt = now;
+        return initializeWithoutBlanking(target => active.preview?.(next, target) || { raw, skipped: true });
+      }
       lastRenderAt = now;
+      lastPreviewAt = now;
       return initializeWithoutBlanking(target => active.set(next, target));
     }
 
@@ -73,6 +97,7 @@
       renderer = null;
       raw = '';
       lastRenderAt = 0;
+      lastPreviewAt = 0;
     }
 
     function dispose() {
@@ -80,6 +105,7 @@
       renderer = null;
       raw = '';
       lastRenderAt = 0;
+      lastPreviewAt = 0;
     }
 
     return Object.freeze({ append, final, reset, dispose, getRaw: () => raw });
@@ -87,6 +113,5 @@
 
   const api = Object.freeze({ createMarkdownLiveStream });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIFeaturesMessagesMarkdownLiveStream = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesMarkdownLiveStream = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('markdownLiveStream', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

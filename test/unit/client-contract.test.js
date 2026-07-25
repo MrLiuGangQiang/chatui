@@ -28,6 +28,18 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
   assert.ok(!('semanticallySelectedCompositionCandidates' in routeService), 'image candidate matching belongs to the model contract, not a local fallback');
 }
 
+function testRoutePromptIsOneOrderedDecisionSpecification() {
+  const system = routeService.ROUTE_SYSTEM_PROMPT;
+  assert.ok(system.includes('按以下顺序决策'), 'the route prompt must give the model one explicit decision order');
+  for (const step of ['1. 边界', '2. 关系', '3. 操作', '4. 资源', '5. 指令', '6. 澄清与审计']) {
+    assert.ok(system.includes(step), `missing route decision step: ${step}`);
+  }
+  assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
+  assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
+  assert.ok(system.length < 2400, 'the complete primary routing specification must stay cognitively compact');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 180, 'the final check should remain a short invariant check, not duplicate the routing rules');
+}
+
 function testClientContractRoutePayloadKeepsCompactShape() {
   const payload = routeService.buildRoutePayload({
     model: 'route-model',
@@ -137,6 +149,43 @@ function testClientContractRejectsRedundantOrUnknownFields() {
   assert.strictEqual(routeService.parseRouteResult(JSON.stringify(invalid), { input: 'hello' }), null);
 }
 
+function testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding() {
+  const incompleteFollowup = {
+    schema_version: 'task_contract.v3',
+    operation: 'plain_chat',
+    relation: 'followup',
+    resources: [],
+    directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question: '', missing_resource_keys: [] },
+    confidence: 0.95,
+    review_reasons: [],
+    rationale: 'the user is asking about the explicitly quoted message',
+  };
+
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(incompleteFollowup), { input: 'Can this be improved?', context: {} }), null, 'ordinary history must never be guessed as a quote binding');
+  const parsed = routeService.parseRouteResult(JSON.stringify(incompleteFollowup), {
+    input: 'Can this be improved?',
+    context: { quoted_message: { index: 1, role: 'assistant', id: 'quoted-answer-1' } },
+  });
+
+  assert.ok(parsed, 'an explicit UI quote should make an otherwise mechanically incomplete followup executable without a retry');
+  assert.deepStrictEqual(parsed.taskContract.resources, [{ key: 'r1', type: 'message', source: 'history', role: 'context', index: 1, id: 'quoted-answer-1', reference_id: '', missing: false }]);
+  assert.deepStrictEqual(parsed.taskContract.directive.base_resource_keys, ['r1']);
+  assert.strictEqual(parsed.taskContract.directive.unmentioned_policy, 'preserve');
+
+  const incorrectlyStandalone = {
+    ...incompleteFollowup,
+    relation: 'new',
+    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+  };
+  const normalizedStandalone = routeService.parseRouteResult(JSON.stringify(incorrectlyStandalone), {
+    input: 'Can this be improved?',
+    context: { quoted_message: { index: 1, role: 'assistant', id: 'quoted-answer-1' } },
+  });
+  assert.strictEqual(normalizedStandalone.taskContract.relation, 'followup', 'a visible explicit quote is a route fact, not optional background history');
+  assert.strictEqual(normalizedStandalone.taskContract.directive.mode, 'patch');
+}
+
 function taskContract({ operation, relation = 'new', resources = [], directive, confidence = 0.9, reviewReasons = [] } = {}) {
   return {
     schema_version: 'task_contract.v3',
@@ -218,7 +267,7 @@ function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
     operation: 'plain_chat',
     relation: 'followup',
     resources: [
-      { key: 'r1', type: 'message', source: 'history', role: 'target', index: 4, id: '', reference_id: '', missing: false },
+      { key: 'r1', type: 'message', source: 'history', role: 'context', index: 4, id: 'message-style-source', reference_id: '', missing: false },
       { key: 'r2', type: 'image', source: 'history', role: 'style_reference', index: 1, id: 'img-reference-page', reference_id: 'imgref-reference-page', missing: false },
     ],
     directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'page visual style', value: 'reference image visual style' }], constraints: ['do not embed the image'] },
@@ -226,6 +275,7 @@ function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
   const parsed = routeService.parseRouteResult(JSON.stringify(reference), {
     input: 'Restyle the previous webpage to match the reference image without embedding it.',
     context: {
+      recent_messages: [{ index: 4, id: 'message-style-source', role: 'assistant', content: 'The earlier webpage implementation.' }],
       image_candidates: [{ index: 1, source_index: 1, source: 'history', image_id: 'img-reference-page', reference_id: 'imgref-reference-page', target: 'previous' }],
     },
   });
@@ -234,6 +284,17 @@ function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
   assert.strictEqual(parsed.mode, 'chat');
   assert.strictEqual(parsed.api, 'chat');
   assert.deepStrictEqual(parsed.selectedImageIds, ['img-reference-page']);
+  assert.deepStrictEqual(parsed.messageRefs, [{ key: 'r1', role: 'assistant', message_id: 'message-style-source', index: 4, source: 'history' }]);
+
+  const staleMessage = structuredClone(reference);
+  staleMessage.resources[0].id = 'missing-message';
+  assert.strictEqual(routeService.parseRouteResult(JSON.stringify(staleMessage), {
+    input: 'Restyle the previous webpage to match the reference image without embedding it.',
+    context: {
+      recent_messages: [{ index: 4, id: 'message-style-source', role: 'assistant', content: 'The earlier webpage implementation.' }],
+      image_candidates: [{ index: 1, source_index: 1, source: 'history', image_id: 'img-reference-page', reference_id: 'imgref-reference-page', target: 'previous' }],
+    },
+  }), null, 'a route-selected historical message must resolve exactly instead of silently falling back to arbitrary history');
 }
 
 function testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias() {
@@ -322,11 +383,13 @@ function testClientContractChatAndSseParsingShape() {
 
 module.exports = [
   testClientContractUsesOneTaskContractRouteProtocol,
+  testRoutePromptIsOneOrderedDecisionSpecification,
   testClientContractRoutePayloadKeepsCompactShape,
   testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles,
   testClientContractAttachmentMetadataUsesTypedMediaIndexes,
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
+  testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding,
   testClientContractBindsMediaResourcesToExactCandidates,
   testClientContractAcceptsCurrentTextResourceForTextToImage,
   testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation,

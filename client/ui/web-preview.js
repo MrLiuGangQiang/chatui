@@ -248,6 +248,6 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIWebPreview = api;
-  if (root?.window) root.window.ChatUIWebPreview = api;
+  const appContext = root?.ChatUIApp?.appContext;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('webPreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

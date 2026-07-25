@@ -493,6 +493,6 @@
 
   const api = Object.freeze({ init, createHistoryAnchorNav, normalizeQuestionTitle, cancelPendingJump });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIHistoryAnchorNav = api;
-  if (root?.window) root.window.ChatUIHistoryAnchorNav = api;
+  const appContext = root?.ChatUIApp?.appContext;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('historyAnchorNav', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

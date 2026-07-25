@@ -11,6 +11,7 @@
   const VALID_UNMENTIONED_POLICIES = new Set(['preserve', 'allow_change']);
   const VALID_PATCH_OPERATIONS = new Set(['preserve', 'add', 'replace', 'remove']);
   const MEDIA_TYPES = new Set(['image', 'file']);
+  const EXECUTION_BOUND_RESOURCE_TYPES = new Set(['image', 'file', 'message']);
 
   const TOP_LEVEL_FIELDS = ['schema_version', 'operation', 'relation', 'resources', 'directive', 'clarification', 'confidence', 'review_reasons', 'rationale'];
   const RESOURCE_FIELDS = ['key', 'type', 'source', 'role', 'index', 'id', 'reference_id', 'missing'];
@@ -67,6 +68,7 @@
     const resources = task.resources || [];
     const images = resourceList(task, 'image');
     const files = resourceList(task, 'file');
+    const messages = resourceList(task, 'message');
     const textResources = resourceList(task, 'text');
     const boundResources = resources.filter(resource => resource.type !== 'text');
     const directive = task.directive || {};
@@ -90,7 +92,8 @@
       // a chat task, not an image-generation request.
       return !files.length
         && hasOnlyResourceTypes(boundResources, ['image', 'message'])
-        && images.every(resource => resource.source !== 'current' && ['reference', 'style_reference'].includes(resource.role));
+        && images.every(resource => resource.source !== 'current' && ['reference', 'style_reference'].includes(resource.role))
+        && messages.every(resource => resource.source === 'history' && resource.role === 'context' && baseKeys.has(resource.key));
     }
     if (task.operation === 'text_to_image') {
       return !files.length
@@ -307,12 +310,42 @@
     return matches.length === 1 ? matches[0] : null;
   }
 
+  function messageCandidates(context = {}) {
+    const recent = Array.isArray(context?.recent_messages) ? context.recent_messages : [];
+    const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
+    const candidates = recent.map((message, fallbackIndex) => {
+      const index = Number(message?.index) || fallbackIndex + 1;
+      return {
+        index,
+        source: 'history',
+        id: String(message?.id || message?.display_item_id || message?.displayItemId || (Number(quote?.index) === index ? quote?.id || '' : '')),
+        role: String(message?.role || ''),
+      };
+    }).filter(candidate => Number.isInteger(candidate.index) && candidate.index >= 1);
+    const quotedIndex = Number(quote?.index);
+    if (Number.isInteger(quotedIndex) && quotedIndex >= 1 && !candidates.some(candidate => candidate.index === quotedIndex)) {
+      candidates.push({ index: quotedIndex, source: 'history', id: String(quote?.id || ''), role: String(quote?.role || '') });
+    }
+    return candidates;
+  }
+
+  function resolveMessageResource(resource = {}, options = {}) {
+    if (resource?.type !== 'message' || resource.missing) return null;
+    const matches = messageCandidates(options.context || {}).filter(candidate => {
+      if (candidate.source !== resource.source || candidate.index !== Number(resource.index)) return false;
+      return !resource.id || candidate.id === resource.id;
+    });
+    return matches.length === 1 ? matches[0] : null;
+  }
+
   function hasResolvedResourceBindings(task = {}, options = {}) {
     if (!hasExactContractShape(task)) return false;
     const resolved = [];
     for (const resource of task.resources || []) {
-      if (resource.missing || !MEDIA_TYPES.has(resource.type)) continue;
-      const candidate = resolveResourceCandidate(resource, resource.type, { ...options, operation: task.operation });
+      if (resource.missing || !EXECUTION_BOUND_RESOURCE_TYPES.has(resource.type)) continue;
+      const candidate = resource.type === 'message'
+        ? resolveMessageResource(resource, options)
+        : resolveResourceCandidate(resource, resource.type, { ...options, operation: task.operation });
       if (!candidate) return false;
       resolved.push({ resource, candidate });
     }
@@ -361,12 +394,29 @@
     });
   }
 
+  function messageRefs(task, options = {}) {
+    const strict = options.requireCandidateMatch === true;
+    return task.resources.filter(item => item.type === 'message' && !item.missing).map(item => {
+      const candidate = resolveMessageResource(item, options);
+      if (strict && !candidate) throw new TypeError(`Unresolved message resource: ${item.key}`);
+      const resolved = candidate || { index: Number(item.index), source: item.source, id: item.id || '', role: '' };
+      return {
+        key: item.key,
+        role: resolved.role,
+        message_id: resolved.id,
+        index: resolved.index,
+        source: resolved.source,
+      };
+    });
+  }
+
   function taskContractToExecutionPlan(task = {}, options = {}) {
     if (!hasExactContractShape(task)) throw new TypeError('A valid task_contract.v3 is required');
     if (options.requireCandidateMatch === true && !hasResolvedResourceBindings(task, options)) throw new TypeError('Task resources must resolve to unique candidates');
     const input = String(options.input || '').trim();
     const imageRefs = resourceRefs(task, 'image', options);
     const fileRefs = resourceRefs(task, 'file', options);
+    const selectedMessageRefs = messageRefs(task, options);
     const selectedImageIndexes = [...new Set(imageRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const selectedFileIndexes = [...new Set(fileRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const api = contractApi(task);
@@ -376,6 +426,8 @@
       resources: task.resources,
       imageRefs,
       fileRefs,
+      messageRefs: selectedMessageRefs,
+      directiveAudit: task.directive,
       operationType: task.operation,
       confidence: task.confidence,
       evidence: task.rationale,
@@ -392,7 +444,7 @@
     };
 
     if (task.operation === 'clarify') {
-      return { ...common, mode: 'chat', target: 'none', needClarification: true, clarificationQuestion: task.clarification.question, selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedReferenceId: '', selectedImageIds: [], imageRefs: [], fileRefs: [], intent: 'clarify' };
+      return { ...common, mode: 'chat', target: 'none', needClarification: true, clarificationQuestion: task.clarification.question, selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedReferenceId: '', selectedImageIds: [], imageRefs: [], fileRefs: [], messageRefs: [], intent: 'clarify' };
     }
     if (api === 'image_generation') {
       return { ...common, mode: 'image', target: 'new', contextualImagePrompt: input, intent: task.operation };
@@ -426,6 +478,8 @@
     hasExactContractShape,
     hasResolvedResourceBindings,
     resolveResourceCandidate,
+    resolveMessageResource,
+    messageCandidates,
     taskContractToExecutionPlan,
     needsIntentReview,
   });

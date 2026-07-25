@@ -65,6 +65,41 @@ function imageAttachmentIndexGuide(list = [], { isImageFile = defaultIsImageFile
   ].join('\n');
 }
 
+function messageIdentity(message = {}) {
+  return String(message?.displayItemId || message?.id || message?.messageId || '');
+}
+
+function projectRouteMessageContext(route = {}, sessionMessages = [], explicitQuotedMessage = null) {
+  const refs = Array.isArray(route?.messageRefs) ? route.messageRefs : [];
+  if (!refs.length) return null;
+  const source = Array.isArray(sessionMessages) ? sessionMessages : [];
+  const quotedId = messageIdentity(explicitQuotedMessage);
+  const selected = [];
+  const seen = new Set();
+  let usesExplicitQuote = false;
+
+  for (const ref of refs) {
+    const refId = String(ref?.message_id || ref?.id || '');
+    const index = Number(ref?.index);
+    let message = null;
+    if (explicitQuotedMessage && (!refId || !quotedId || refId === quotedId) && index === 1) {
+      message = explicitQuotedMessage;
+      usesExplicitQuote = true;
+    } else if (Number.isInteger(index) && index >= 1) {
+      message = source[index - 1] || null;
+      if (message && refId && messageIdentity(message) && messageIdentity(message) !== refId) message = null;
+    }
+    if (!message) return null;
+    const key = refId || messageIdentity(message) || `index:${index}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      selected.push(message);
+    }
+  }
+
+  return Object.freeze({ messages: selected, usesExplicitQuote, protectedMessageCount: selected.length });
+}
+
 function createRouteAttachmentSelectors(route = {}, {
   isImageFile = defaultIsImageFile,
   isImageUnderstandingChat = () => false,
@@ -175,6 +210,8 @@ const api = Object.freeze({
   isFileUnderstandingChat,
   originalImageIndex,
   imageAttachmentIndexGuide,
+  messageIdentity,
+  projectRouteMessageContext,
   createRouteAttachmentSelectors,
 });
 

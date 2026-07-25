@@ -189,18 +189,37 @@ function applyContextBudget(messages = [], options = {}) {
 
   const systemMessages = cloned.filter((message, index) => message?.role === 'system' && index !== currentIndex);
   let currentMessage = cloned[currentIndex] || null;
-  const beforeCurrent = cloned.filter((message, index) => index !== currentIndex && message?.role !== 'system');
+  const protectedIndexes = new Set((Array.isArray(options.protectedMessageIndexes) ? options.protectedMessageIndexes : [])
+    .map(index => Number(index))
+    .filter(index => Number.isInteger(index) && index >= 0 && index < cloned.length && index !== currentIndex && cloned[index]?.role !== 'system'));
+  const protectedHistory = cloned.filter((message, index) => protectedIndexes.has(index));
+  const beforeCurrent = cloned.filter((message, index) => index !== currentIndex && message?.role !== 'system' && !protectedIndexes.has(index));
   const groups = groupHistoryTurns(beforeCurrent);
-  const required = [...systemMessages, currentMessage].filter(Boolean);
+  let required = [...systemMessages, ...protectedHistory, currentMessage].filter(Boolean);
   let requiredTokens = estimateMessagesTokens(required);
   let truncatedCurrentUser = false;
 
   if (currentMessage && requiredTokens > inputBudgetTokens) {
-    const systemTokens = estimateMessagesTokens(systemMessages);
-    const currentBudget = Math.max(1, inputBudgetTokens - systemTokens - MESSAGE_OVERHEAD_TOKENS);
-    currentMessage = truncateMessageText(currentMessage, currentBudget);
-    truncatedCurrentUser = true;
-    requiredTokens = estimateMessagesTokens([...systemMessages, currentMessage]);
+    const trimOrder = [
+      { kind: 'current', index: required.length - 1 },
+      ...protectedHistory.map((_, index) => ({ kind: 'protected', index: systemMessages.length + protectedHistory.length - index - 1 })),
+    ];
+    for (const target of trimOrder) {
+      if (requiredTokens <= inputBudgetTokens) break;
+      const original = required[target.index];
+      if (!original) continue;
+      const otherTokens = requiredTokens - estimateMessageTokens(original);
+      const allowedTokens = Math.max(1, inputBudgetTokens - otherTokens);
+      const trimmed = truncateMessageText(original, allowedTokens);
+      required[target.index] = trimmed;
+      if (target.kind === 'current') {
+        currentMessage = trimmed;
+        truncatedCurrentUser = true;
+      } else {
+        protectedHistory[target.index - systemMessages.length] = trimmed;
+      }
+      requiredTokens = estimateMessagesTokens(required);
+    }
   }
 
   const retainedGroups = [];
@@ -239,12 +258,13 @@ function applyContextBudget(messages = [], options = {}) {
     ...systemMessages,
     ...(summaryInserted ? [summary] : []),
     ...retainedGroups.flat(),
+    ...protectedHistory,
     ...(currentMessage ? [currentMessage] : []),
   ];
 
   while (estimateMessagesTokens(result) > inputBudgetTokens && retainedGroups.length) {
     retainedGroups.shift();
-    result = [...systemMessages, ...(summaryInserted ? [summary] : []), ...retainedGroups.flat(), ...(currentMessage ? [currentMessage] : [])];
+    result = [...systemMessages, ...(summaryInserted ? [summary] : []), ...retainedGroups.flat(), ...protectedHistory, ...(currentMessage ? [currentMessage] : [])];
   }
 
   return {

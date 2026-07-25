@@ -68,8 +68,9 @@
       return raw.length > 8000 || raw.split('\n').length > 180;
     }
 
-    const messageDomain = root.ChatUIFeaturesMessagesDomain || {};
-    const messageModel = root.ChatUIFeaturesMessagesModel || messageDomain;
+    const getWorkflowModule = name => root?.ChatUIApp?.appContext?.getWorkflowModule?.(name) || null;
+    const messageDomain = getWorkflowModule('messageDomain') || {};
+    const messageModel = getWorkflowModule('messageModel') || messageDomain;
     const messageRoleLabel = messageDomain.messageRoleLabel || (role => role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息');
     const messageRoleFromNode = messageDomain.messageRoleFromNode || (node => node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error');
     const normalizeQuoteText = messageDomain.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
@@ -77,7 +78,7 @@
     const readQuoteContext = messageDomain.readQuoteContext || (value => messageModel.normalizeQuoteContext?.(value, { normalizeQuoteText }) || null);
     const quoteContextJson = messageDomain.quoteContextJson || (value => messageModel.quoteContextJson?.(value, { normalizeQuoteText }) || '');
 
-    const quotePreview = (root.ChatUIFeaturesMessagesQuotePreview?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
+    const quotePreview = (getWorkflowModule('quotePreview')?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
       readQuoteContext,
       normalizeQuoteText,
       escapeHtml: escapeHtmlLocal,
@@ -296,8 +297,8 @@
 
     function getMarkdownFinalRenderer() {
       if (markdownFinalRenderer) return markdownFinalRenderer;
-      const factory = root.ChatUIFeaturesMessagesMarkdownFinalRenderer?.createMarkdownFinalRenderer;
-      if (!factory) throw new Error('ChatUIFeaturesMessagesMarkdownFinalRenderer 未加载');
+      const factory = getWorkflowModule('markdownFinalRenderer')?.createMarkdownFinalRenderer;
+      if (!factory) throw new Error('markdownFinalRenderer 未加载');
       markdownFinalRenderer = factory({
         state: deps.state,
         document: deps.document || root.document,
@@ -328,7 +329,7 @@
     function syncWebPreviews(messageNode, rawText = '') {
       if (!messageNode?.classList?.contains('assistant')) return 0;
       try {
-        const preview = deps.webPreview || root.ChatUIWebPreview;
+        const preview = deps.webPreview || root?.ChatUIApp?.appContext?.getWorkflowModule?.('webPreview');
         return preview?.syncMessagePreviews?.(messageNode, rawText) || 0;
       } catch (err) {
         console.warn('[chatui] web preview sync failed', err);
@@ -337,7 +338,7 @@
     }
 
     function createLiveMarkdownStream() {
-      const factory = root.ChatUIFeaturesMessagesMarkdownLiveStream?.createMarkdownLiveStream;
+      const factory = getWorkflowModule('markdownLiveStream')?.createMarkdownLiveStream;
       if (factory) return factory({
         renderMarkdown: deps.renderMarkdown,
         createStreamingRenderer: root.ChatUIApp?.markdown?.createStreamingRenderer,
@@ -350,7 +351,7 @@
 
     function renderMarkdownPreviewSnapshot(contentNode, rawValue = '') {
       if (!contentNode) return false;
-      const preview = root.ChatUIFeaturesMessagesMarkdownPreview?.renderMarkdownPreview;
+      const preview = getWorkflowModule('markdownPreview')?.renderMarkdownPreview;
       if (!preview) return renderPlainMarkdownSnapshot(contentNode, rawValue);
       contentNode.innerHTML = preview(String(rawValue || ''));
       contentNode.classList?.remove('markdown-stream-fallback-text');
@@ -729,8 +730,6 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) {
     root.ChatUIAppMessageWorkflow = api;
-    root.ChatUIFeaturesMessagesModel = root.ChatUIFeaturesMessagesModel || {};
-    try { if (typeof require === 'function') root.ChatUIFeaturesMessagesModel = require('../features/messages/message-model'); } catch {}
   }
   if (root?.window) root.window.ChatUIAppMessageWorkflow = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

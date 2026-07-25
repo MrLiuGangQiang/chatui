@@ -1,54 +1,22 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。你不回答用户，只把本轮请求转换成一个严格的 task_contract.v3 JSON 对象。不要输出 Markdown、解释、代码围栏或额外字段。
+const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。只把请求转换成严格的 task_contract.v3 JSON；不回答用户，不要输出 Markdown、解释、代码围栏或额外字段。
 
 唯一合法结构：
 {"schema_version":"task_contract.v3","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify","relation":"new|followup|correction|continuation","resources":[{"key":"r1","type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","missing":false}],"directive":{"mode":"standalone|patch","base_resource_keys":[],"unmentioned_policy":"preserve|allow_change","operations":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[]},"clarification":{"question":"","missing_resource_keys":[]},"confidence":0,"review_reasons":[],"rationale":""}
 
-判定顺序：
-1. 只理解 current_input。attachments 是本轮资源；context 仅用于解析用户明确引用的历史对象，绝不能让历史覆盖一个完整的新请求。
-2. 先确定 relation：独立完整请求=new；依赖引用或历史回答=followup；纠正上一结果=correction；仅要求继续原任务=continuation。relation=new 时 resources 只能使用 source=current。
-3. 再选唯一 operation。执行 API 和高层意图由程序从 operation 唯一推导，你不要重复输出，以避免字段互相矛盾。
-4. 最后确定 resources 和 directive。不要猜图片或文件内容，只使用候选元数据。
+按以下顺序决策：
+1. 边界：只理解 current_input；attachments 是本轮资源。context 仅用于用户明确引用的对象，绝不让历史覆盖一个完整的新请求。context.quoted_message 是用户明确选择的单条历史消息。
+2. 关系：relation=new 是完整独立请求，资源只能 source=current；引用历史答案或 quoted_message=followup；纠正上次结果=correction；只要求继续进行=continuation。
+3. 操作：plain_chat=普通对话；file_qa=文件问答；multimodal_qa=图文问答；image_qa=看图；image_compare=比较两图；ocr=识字；text_to_image=纯文本生图；image_reference_gen=基于图片生成；edit_image=编辑已有图。仅在必需资源缺失、候选无法消歧或目标不能确定时用 clarify。
+4. 资源：每项使用唯一 r1/r2… 和候选的 1 基 index；当前附件使用类型内编号 attachments.media_index。编辑图=target，看图=source，参考生图=reference，风格参考=style_reference，比较图=compare_a/compare_b，文件=attachment。只按候选元数据匹配，不要猜图片或文件内容；“这张/上一张/那个文件”必须唯一匹配，否则声明 missing=true。
+5. 指令（审计）：standalone 只用于独立请求，base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change。patch 必须列出非 missing 基线；followup、correction、continuation、edit_image、image_reference_gen 必须用 patch。operations 只记录用户明确变化：preserve/remove 的 value 为空，add/replace 的 value 非空；不要重写完整执行提示词。此字段用于校验和审计，不得生成或改写执行提示词。
+6. 澄清与审计：clarify 必须有问题和对应 missing_resource_keys，且 directive 必须 standalone；其他操作不能有 missing 资源或澄清问题。没有不确定性则 review_reasons=[]；rationale 只写一行依据。
 
-operation：
-- 普通对话=plain_chat；文件问答=file_qa；文件与图片联合问答=multimodal_qa。
-- 看图=image_qa；多图比较=image_compare；OCR=ocr。
-- 纯文本生图=text_to_image；基于图片生成=image_reference_gen；修改已有图片=edit_image。任一非 clarify operation 最多可声明一个 current/text/source 资源，表示当前输入文本；这是中性资源，不改变媒体引用，也不需要澄清。
-- 只有必需资源缺失、多个候选无法消歧、或操作目标无法确定时才使用 clarify。
+明确引用的 plain_chat 必须把 quoted_message 作为 source=history、type=message、role=context 的 patch 基线。候选多不等于歧义；语义元数据能唯一定位就直接执行。`;
 
-资源规则：
-- 每个资源必须有唯一 key：r1、r2……；index 使用输入或候选列表中的 1 基编号。
-- 编辑对象=target；普通看图=source；生成参考图=reference；风格参考=style_reference；比较图=compare_a/compare_b；文件=attachment。
-- 本轮附图在看图、编辑、参考生成任务中默认参与；用户明确排除时才不选。
-- image_candidates 的 prompt、description、semantic_text、labels、filename 是候选图片的持久语义元数据。用户按主体、属性、场景或名称指代图片时，先用这些字段逐一匹配，并在 resources 中写入匹配图片的准确 id/reference_id/index。
-- 候选很多不等于有歧义。只要用户描述能唯一定位所需图片，就直接执行；只有零个匹配、同一描述匹配多个候选且无法用属性消歧、或操作目标仍不完整时才 clarify。
-- 用户说“这张/上一张/那个文件”时必须匹配唯一候选；无法唯一匹配时创建 missing=true 的资源并使用 clarify。
-
-补丁规则：
-- standalone 表示当前输入可独立执行：base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change。执行端直接使用 current_input，不接受你重写完整提示词。
-- patch 表示任务依赖基线，base_resource_keys 必须引用非 missing 的 resources。
-- relation 为 followup/correction/continuation 时必须使用 patch；edit_image 和 image_reference_gen 也必须使用 patch。
-- operations 只记录用户明确表达的变化：preserve=保持，add=新增，replace=替换，remove=删除。preserve/remove 的 value 必须为空；add/replace 的 value 必须非空。
-- 不得把推测、审美增强词或历史中未被明确引用的内容写入 operations/constraints。
-- 精确编辑、纠错、局部修改通常 unmentioned_policy=preserve；“重新设计、自由发挥、做个不同版本”可为 allow_change。
-- constraints 只放用户明确的硬约束，不要重复 current_input，也不要重写完整执行提示词。
-
-澄清与复审：
-- operation=clarify 时 clarification.question 必须非空；缺失资源的 key 写入 missing_resource_keys。其他 operation 的 clarification 必须为空，且不能存在 missing 资源。
-- 意图、关系、资源角色或补丁边界存在歧义时，把简短原因写入 review_reasons；否则返回空数组。
-- confidence 是整体判断置信度 0..1。rationale 只写一行可审计依据。
-
-边界示例：
-- 历史画过猫，current_input=“画一条鱼”：relation=new，operation=text_to_image，standalone，不引用猫。
-- current_input=“人物不变，把红衣服改蓝，去掉右下角文字”：operation=edit_image，patch，target 在 base_resource_keys；operations 为 preserve 人物、replace 衣服颜色、remove 右下角文字；unmentioned_policy=preserve。
-- current_input=“参考这张图的构图，生成水彩版本”：operation=image_reference_gen，参考图为 reference 和基线；replace 风格为水彩，preserve 构图。
-- current_input=“这张和上一张有什么不同”：operation=image_compare，current 与 history 分别为 compare_a/compare_b，directive=patch。
-- 历史有猫、狗、牛、汽车等很多候选，current_input=“把猫和狗合并成一张图”：依据候选语义元数据只选择猫和狗，relation=followup，operation=image_reference_gen，directive=patch；不得仅因候选超过两张而澄清。
-- 历史有两张都只描述为“猫”的候选，current_input=“把猫和狗合并”：猫无法唯一定位时才 operation=clarify，并询问具体哪张猫。`;
-
-const ROUTE_OUTPUT_CONTRACT_CHECK = `输出前硬校验：resources.index 只用同类型候选编号（图=image_candidates.index；文件=file_candidates.index 或 attachments.media_index），绝不使用 attachments.index/source_index；file.reference_id 必须为空，图片 reference_id 只填候选给出的值。clarify 永远 standalone，base_resource_keys/operations 为空、unmentioned_policy=allow_change；无候选时 relation=new/source=current，候选歧义时 missing=true。仅纠正前次错误用 correction；对已有图的新修改用 followup；只借配色或风格时 role=style_reference。`;
+const ROUTE_OUTPUT_CONTRACT_CHECK = `最终校验：资源类型、source、index、id 与候选一致；file.reference_id 为空；patch 的每个基线均存在且非 missing；只输出完整 task_contract.v3。`;
 const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK}`;
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}
@@ -116,11 +84,51 @@ function isTaskContractResult(value = {}) {
     && intentContract.hasExactContractShape(value);
 }
 
+function bindExplicitQuotedMessage(task = {}, context = {}) {
+  const quote = context?.quoted_message;
+  if (!quote || typeof quote !== 'object') return task;
+  // An explicit UI quote is already an unambiguous, user-selected message.
+  // It is protocol data rather than a model inference: a plain-chat route
+  // cannot legitimately discard it or turn it into an unrelated new task.
+  // This does not infer anything from ordinary history and never changes the
+  // operation or any media resource selected by the model.
+  if (task?.operation !== 'plain_chat' || !Array.isArray(task?.resources)) return task;
+  const directive = task?.directive;
+  if (!directive || !Array.isArray(directive.base_resource_keys) || !Array.isArray(directive.operations) || !Array.isArray(directive.constraints)) return task;
+  const index = Number(quote.index);
+  if (!Number.isInteger(index) || index < 1) return task;
+  const resources = [...task.resources];
+  const bound = resources.find(resource => resource?.type === 'message' && resource?.source === 'history' && Number(resource?.index) === index && resource?.role === 'context' && resource?.missing === false);
+  const key = bound?.key || (() => {
+    const used = new Set(resources.map(resource => String(resource?.key || '')));
+    let number = 1;
+    while (used.has(`r${number}`)) number += 1;
+    return `r${number}`;
+  })();
+  if (!bound) resources.push({
+    key, type: 'message', source: 'history', role: 'context', index,
+    id: String(quote.id || ''), reference_id: '', missing: false,
+  });
+  const baseKeys = [...directive.base_resource_keys];
+  if (!baseKeys.includes(key)) baseKeys.push(key);
+  return {
+    ...task,
+    relation: 'followup',
+    resources,
+    directive: {
+      ...directive,
+      mode: 'patch',
+      base_resource_keys: baseKeys,
+      unmentioned_policy: 'preserve',
+    },
+  };
+}
+
 function parseRouteResult(text = '', options = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
   try {
-    const taskContract = JSON.parse(stripJsonFence(value));
+    const taskContract = bindExplicitQuotedMessage(JSON.parse(stripJsonFence(value)), options.context);
     if (!isTaskContractResult(taskContract)) return null;
     const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
     return attachComposedPrompt(executionPlan, taskContract, options);

@@ -22,6 +22,7 @@
   function createChatWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const ensureChatAttachmentImageDataUrls = deps.ensureChatAttachmentImageDataUrls || (async list => list || []);
+    let nextRequestProtectedMessageCount = 0;
 
     function attachmentTextFromContext(value, { label = '附件', limit = 12000 } = {}) {
       if (!value) return '';
@@ -88,6 +89,7 @@
     }
 
     function requestBaseMessagesForSend(options = {}, messages = []) {
+      nextRequestProtectedMessageCount = Math.max(0, Math.floor(Number(options.routeContextMessageCount) || 0));
       if (options.quotedMessage) return normalizeQuotedBaseMessages(options.requestBaseMessages);
       if (Array.isArray(options.requestBaseMessages)) return messagesWithAttachmentText(options.requestBaseMessages);
       const base = options.userAlreadyAdded && messages.at?.(-1)?.role === 'user' ? messages.slice(0, -1) : messages;
@@ -99,11 +101,27 @@
       return session.hasSystemPromptOverride ? session.systemPrompt || '' : config.systemPrompt || '';
     }
 
-    function applyOutboundContextBudget(messages, config = {}) {
+    function protectedHistoryIndexes(messages = [], count = 0) {
+      const limit = Math.max(0, Math.floor(Number(count) || 0));
+      if (!limit) return [];
+      let currentUserIndex = -1;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role === 'user') { currentUserIndex = index; break; }
+      }
+      const protectedIndexes = [];
+      for (let index = currentUserIndex - 1; index >= 0 && protectedIndexes.length < limit; index -= 1) {
+        if (messages[index]?.role === 'user' || messages[index]?.role === 'assistant') protectedIndexes.unshift(index);
+      }
+      return protectedIndexes;
+    }
+
+    function applyOutboundContextBudget(messages, config = {}, options = {}) {
       const helper = deps.applyContextBudget || root?.ChatUICore?.contextBudget?.applyContextBudget || root?.ChatUICoreContextBudget?.applyContextBudget;
       if (typeof helper !== 'function') return messages;
       const contextWindowTokens = config?.context?.windowTokens ?? config?.contextWindowTokens;
-      return helper(messages, { contextWindowTokens }).messages;
+      const protectedMessageIndexes = Array.isArray(options.protectedMessageIndexes) ? options.protectedMessageIndexes : protectedHistoryIndexes(messages, nextRequestProtectedMessageCount);
+      nextRequestProtectedMessageCount = 0;
+      return helper(messages, { contextWindowTokens, protectedMessageIndexes }).messages;
     }
 
     function appendWithOverlap(base = '', chunk = '') {
@@ -163,7 +181,7 @@
       }
     }
 
-    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, messagesWithAttachmentText, requestBaseMessagesForSend, systemPromptForSend, appendWithOverlap, canShowChatWaiting });
+    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, messagesWithAttachmentText, requestBaseMessagesForSend, protectedHistoryIndexes, systemPromptForSend, appendWithOverlap, canShowChatWaiting });
   }
 
   const api = Object.freeze({ createChatWorkflow, shouldRetryStreamFailure, captureReasoningRequestSettings });

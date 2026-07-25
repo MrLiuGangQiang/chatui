@@ -8,6 +8,7 @@ const clarificationService = require('../../client/services/clarification-servic
 function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const regenerate = fs.readFileSync(path.join(__dirname, '../../client/app/regenerate-workflow.js'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 
@@ -23,6 +24,9 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     submit.includes('getEffectiveRouteWithSlowNotice(promptText,[],buildRequestHeaders("message",sessionId),buildQuotedRouteContext())'),
     'quoted submissions must preserve their route context while passing valid request headers'
   );
+  assert.ok(submit.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'an explicit quote must be forwarded as a structured route binding, not only as background history');
+  assert.ok(regenerate.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'regenerating from a quote must preserve the same structured route binding');
+  assert.ok(regenerate.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(p,state.messages||[],quotedMessage)||null'), 'regeneration must use the same route-message execution projection as normal submission');
   assert.ok(
     !submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,sessionId,'),
     'a session ID must never be shifted into the route request headers slot'
@@ -32,14 +36,18 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.2.96-exact-history-media'),
-    'the browser must fetch the exact historical-media workflow instead of a cached version'
+    index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding'),
+    'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
   assert.ok(submit.includes('const needsHistoricalChatImages=()=>"chat"===routeMode&&historicalRouteImageRefs().length>0'), 'chat tasks with an explicitly selected historical image must request its durable media');
   assert.ok(submit.includes('getPreviousImageAttachments(sessionId,historicalRouteImageIndexes(),historicalRouteReferenceId(),historicalRouteImageIds())'), 'historical chat images must be restored by their exact historical route bindings without duplicating current uploads');
+  assert.ok(submit.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(routeInfo,targetSession.messages||state.messages||[],quotedMessage)||null'), 'every selected message resource must be projected into the outgoing chat base');
+  assert.ok(submit.includes('if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error('), 'a stale selected message must fail closed instead of falling back to arbitrary session history');
+  assert.ok(submit.includes('routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0'), 'the execution projection must mark route-selected messages as protected during context budgeting');
+  assert.ok(chat.includes('protectedHistoryIndexes(messages, nextRequestProtectedMessageCount)'), 'chat context budgeting must preserve selected message bases');
   assert.ok(submit.includes('if(needsHistoricalChatImages()&&!previous.length)throw new Error("已选择的历史参考图片无法恢复，不能在未附图的情况下继续执行")'), 'a selected history image must never silently degrade into a text-only request');
   assert.ok(submit.includes('if(needsHistoricalChatImages()&&!chatAttachments.some(isImageAttachment))throw new Error("已选择的历史参考图片无法作为聊天附件发送，不能在未附图的情况下继续执行")'), 'the final chat attachment list must retain the selected history image');
   assert.ok(submit.includes('if(createdPending&&!routeInfo.localClarification)'), 'a local contract-failure notice must not create a fake pending user clarification');

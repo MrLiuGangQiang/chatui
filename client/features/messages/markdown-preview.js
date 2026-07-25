@@ -1,6 +1,10 @@
 (function initChatUIFeaturesMessagesMarkdownPreview(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function escapeHtml(value = '') {
     return String(value ?? '').replace(/[&<>"'`]/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;',
@@ -163,6 +167,5 @@
 
   const api = Object.freeze({ renderMarkdownPreview, escapeHtml });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesMarkdownPreview = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesMarkdownPreview = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('markdownPreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

@@ -16,7 +16,7 @@ const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。只把请求转�
 
 明确引用的 plain_chat 必须把 quoted_message 作为 source=history、type=message、role=context 的 patch 基线。候选多不等于歧义；语义元数据能唯一定位就直接执行。`;
 
-const ROUTE_OUTPUT_CONTRACT_CHECK = `最终校验：资源类型、source、index、id 与候选一致；file.reference_id 为空；patch 的每个基线均存在且非 missing；只输出完整 task_contract.v3。`;
+const ROUTE_OUTPUT_CONTRACT_CHECK = `硬约束：逐字段输出，绝不省略。directive 必含 mode、base_resource_keys、unmentioned_policy、operations、constraints；空数组也输出 []。确认资源候选匹配、file.reference_id 为空、patch 基线有效；只输出完整 task_contract.v3。`;
 const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK}`;
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}

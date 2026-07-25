@@ -26,7 +26,6 @@ const MIME = {
   '.ttf': 'font/ttf',
 };
 
-const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
 const bundleCache = new Map();
@@ -126,7 +125,11 @@ function encodeBody(body, encoding, cacheKey, mime) {
 }
 
 function cacheControlFor(filePath, url, options = {}) {
-  if (options.bundle || url.searchParams.has('v')) return IMMUTABLE_CACHE;
+  // Query-string versions in index.html are manually maintained, not content
+  // hashes. Marking them immutable lets a new index load alongside stale
+  // workflow code after a deployment, which breaks cross-module contracts at
+  // runtime. Keep executable assets revalidatable until they use hashed URLs.
+  if (options.bundle) return NO_CACHE;
   if (filePath.endsWith('.html')) return NO_CACHE;
   const ext = path.extname(filePath);
   if (['.html', '.js', '.css', '.json'].includes(ext)) return NO_CACHE;
@@ -156,7 +159,7 @@ function serveBundle(req, res, context, kind) {
   }
   const headers = {
     'Content-Type': mime,
-    'Cache-Control': IMMUTABLE_CACHE,
+    'Cache-Control': cacheControlFor('', null, { bundle: true }),
     ETag: bundle.etag,
     Vary: 'Accept-Encoding',
   };
@@ -211,4 +214,4 @@ function serveStatic(req, res, { root, rootWithSep }) {
   });
 }
 
-module.exports = { MIME, safeJoin, isPublicStaticPath, pickCompressedStaticFile, serveStatic };
+module.exports = { MIME, SHORT_CACHE, NO_CACHE, cacheControlFor, safeJoin, isPublicStaticPath, pickCompressedStaticFile, serveStatic };

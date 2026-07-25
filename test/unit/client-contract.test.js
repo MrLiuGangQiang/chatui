@@ -41,6 +41,8 @@ function testRoutePromptIsOneOrderedDecisionSpecification() {
   assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
   assert.ok(system.length < 2400, 'the complete primary routing specification must stay cognitively compact');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 180, 'the final check should remain a short invariant check, not duplicate the routing rules');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('绝不省略'), 'the first route request must require a complete contract even when the intent is simple');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('constraints；空数组也输出 []'), 'the first route request must explicitly retain empty directive fields instead of relying on contract repair');
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {
@@ -71,6 +73,7 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   assert.ok(Array.isArray(user.context.file_candidates));
   assert.ok(!('ignored_empty' in user.context));
   assert.ok(payload.messages[0].content.includes('attachments.media_index'), 'the model must receive the type-local attachment index rule');
+  assert.ok(payload.messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'the first route request must carry the complete-contract output constraint');
   assert.ok(payload.messages[0].content.length < 4000, 'the route prompt must remain within its compact context budget');
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking)/i.test(JSON.stringify(payload)));
 }

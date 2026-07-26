@@ -14,7 +14,7 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的任务路由器。只把请求�
 按以下顺序决策：
 1. 只理解 current_input；attachments 是本轮资源；context 只用于用户明确引用的对象，绝不让历史覆盖一个完整的新请求。像“上一张”或“那个文件”这样的指代不能唯一匹配时必须澄清。
 2. operation 始终表示用户真正要执行的任务，不得用它表示澄清状态。合并一张或多张已有图片生成新构图使用 image_reference_gen，所有输入图角色为 reference；该操作会通过图片编辑传输发送全部参考图。
-3. resources 只放已唯一绑定的资源，missing 固定 false；当前附件索引使用 attachments.media_index。只按候选元数据匹配，不要猜图片或文件内容。
+3. resources 只放已唯一绑定的资源，missing 固定 false。图片和文件的 id/reference_id 是稳定身份，必须原样复制候选值；index 只是本次候选表中的展示位置，也要复制但不能用它替代稳定身份。当前附件索引使用 attachments.media_index。只按候选元数据匹配，不要猜图片或文件内容。
 4. 当所有资源已唯一确定时 readiness=ready，clarification.question="" 且 unresolved_resources=[]。
 5. 只要必需资源缺失、候选无法消歧或目标不能确定，readiness=needs_clarification。保留真实 operation；已确定资源仍放 resources，未确定资源只放 clarification.unresolved_resources。ambiguous 必须列出至少两个真实候选并复制 source/index/id/reference_id；missing 的 choices=[]。绝不能替用户选择候选，也不能输出可执行状态。
 6. directive 描述选择完成后的原任务，可引用 unresolved resource key。standalone 必须 base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change；patch 必须列出全部历史、引用或上下文资源。edit_image、image_reference_gen 始终 patch。
@@ -153,6 +153,37 @@ function readRouteReadiness(text = '') {
   } catch {
     return '';
   }
+}
+
+function mergeRouteReadinessRequirement(...values) {
+  const readiness = values.filter(value => value === 'ready' || value === 'needs_clarification');
+  if (readiness.includes('needs_clarification')) return 'needs_clarification';
+  return readiness.includes('ready') ? 'ready' : '';
+}
+
+function routePlanReadiness(route = {}) {
+  if (route?.taskContract) {
+    const contractReadiness = routeReadiness(decodeTaskContract(route.taskContract));
+    if (contractReadiness) return contractReadiness;
+  }
+  if (route?.needClarification === true || route?.api === 'clarify') return 'needs_clarification';
+  return route && typeof route === 'object' ? 'ready' : '';
+}
+
+function routeSatisfiesReadiness(route = {}, requiredReadiness = '') {
+  if (requiredReadiness !== 'needs_clarification') return !!route;
+  return routePlanReadiness(route) === 'needs_clarification';
+}
+
+function isRouteDispatchable(route = {}) {
+  if (!route || route.needClarification === true || route.api === 'clarify' || route.dispatchAuthorized === false) return false;
+  if (!route.taskContract) return true;
+  const task = decodeTaskContract(route.taskContract);
+  if (!intentContract?.hasExactContractShape?.(task) || task.readiness !== 'ready' || route.dispatchAuthorized !== true) return false;
+  const expectedApi = intentContract?.contractApi?.(task) || '';
+  if (!expectedApi || route.api !== expectedApi) return false;
+  const expectedMode = expectedApi === 'image_generation' ? 'image' : expectedApi === 'image_edit' ? 'edit_image' : 'chat';
+  return route.mode === expectedMode;
 }
 
 
@@ -323,7 +354,10 @@ function inspectRouteResult(text = '', options = {}) {
   const value = String(text || '').trim();
   if (!value) return { route: null, reason: 'empty_response' };
   try {
-    const taskContract = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(value))), options.context);
+    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(value))), options.context);
+    const taskContract = typeof intentContract?.canonicalizeContractBindings === 'function'
+      ? intentContract.canonicalizeContractBindings(decoded, options)
+      : decoded;
     if (!isTaskContractResult(taskContract)) return { route: null, reason: 'contract_shape' };
     const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
     return { route: attachComposedPrompt(executionPlan, taskContract, options), reason: '' };
@@ -338,7 +372,11 @@ function parseRouteResult(text = '', options = {}) {
 }
 
 function resolveClarificationRoute(taskContract = {}, selections = [], options = {}) {
-  const resolvedContract = intentContract?.resolveClarificationContract?.(decodeTaskContract(taskContract), selections, options.attachments || []);
+  const decoded = decodeTaskContract(taskContract);
+  const canonical = typeof intentContract?.canonicalizeContractBindings === 'function'
+    ? intentContract.canonicalizeContractBindings(decoded, options)
+    : decoded;
+  const resolvedContract = intentContract?.resolveClarificationContract?.(canonical, selections, options.attachments || []);
   if (!resolvedContract) return null;
   const executionPlan = intentContract.taskContractToExecutionPlan(resolvedContract, options);
   return attachComposedPrompt(executionPlan, resolvedContract, options);
@@ -465,6 +503,10 @@ const api = Object.freeze({
   stripJsonFence,
   routeReadiness,
   readRouteReadiness,
+  mergeRouteReadinessRequirement,
+  routePlanReadiness,
+  routeSatisfiesReadiness,
+  isRouteDispatchable,
   decodeTaskContract,
   needsIntentReview,
   isTaskContractResult,

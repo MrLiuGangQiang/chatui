@@ -464,6 +464,98 @@
     return resource.source === 'quoted' ? { ...matches[0], source: 'quoted' } : matches[0];
   }
 
+  function candidateIdentityIds(candidate = {}) {
+    return [candidate.id, ...(candidate.attachmentIdAliases || [])].map(value => String(value || '')).filter(Boolean);
+  }
+
+  function uniqueMediaCandidateByIdentity(binding = {}, type = '', options = {}) {
+    if (!MEDIA_TYPES.has(type)) return null;
+    const candidates = mediaCandidates(type, options.context || {}, options.attachments || [], options.operation || '');
+    const declaredId = String(binding.id || '');
+    const declaredReferenceId = String(binding.reference_id || '');
+    if (!declaredId && !declaredReferenceId) return null;
+    let matches = candidates.filter(candidate => {
+      const sourceMatches = candidate.source === binding.source || (() => {
+        if (candidate.source !== 'quoted' || binding.source !== 'history') return false;
+        const probe = resolveResourceCandidate({ ...binding, index: candidate.index }, type, options);
+        return !!probe
+          && probe.index === candidate.index
+          && String(probe.id || '') === String(candidate.id || '')
+          && String(probe.referenceId || '') === String(candidate.referenceId || '');
+      })();
+      if (!sourceMatches) return false;
+      if (declaredId && !candidateIdentityIds(candidate).includes(declaredId)) return false;
+      if (declaredReferenceId && String(candidate.referenceId || '') !== declaredReferenceId) return false;
+      return true;
+    });
+    if (matches.length > 1) {
+      const declaredIndex = Number(binding.index);
+      const exactHints = matches.filter(candidate => {
+        const indexes = [candidate.index, ...(candidate.attachmentIndexAliases || [])];
+        return candidate.source === binding.source && indexes.includes(declaredIndex);
+      });
+      if (exactHints.length === 1) matches = exactHints;
+    }
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  function canonicalizeResourceBinding(resource = {}, options = {}) {
+    if (!resource || typeof resource !== 'object' || Array.isArray(resource)) return resource;
+    if (MEDIA_TYPES.has(resource.type)) {
+      // Stable opaque ids carry resource identity. Candidate indexes are display
+      // positions and can change when route context is compacted, so the runtime
+      // owns them and rewrites them from the uniquely identified candidate.
+      const candidate = uniqueMediaCandidateByIdentity(resource, resource.type, options)
+        || resolveResourceCandidate(resource, resource.type, options);
+      if (!candidate) return { ...resource };
+      return {
+        ...resource,
+        source: candidate.source,
+        index: candidate.index,
+        id: candidate.id || String(resource.id || ''),
+        reference_id: resource.type === 'image' ? candidate.referenceId || String(resource.reference_id || '') : '',
+      };
+    }
+    if (resource.type === 'message') {
+      const candidate = resolveMessageResource(resource, options);
+      if (!candidate) return { ...resource };
+      return { ...resource, source: candidate.source, index: candidate.index, id: candidate.id || String(resource.id || '') };
+    }
+    return { ...resource };
+  }
+
+  function canonicalizeContractBindings(task = {}, options = {}) {
+    const normalized = normalizeContractVersion(task);
+    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return normalized;
+    const operation = String(normalized.operation || '');
+    const bindingOptions = { ...options, operation };
+    const resources = Array.isArray(normalized.resources)
+      ? normalized.resources.map(resource => canonicalizeResourceBinding(resource, bindingOptions))
+      : normalized.resources;
+    const clarification = normalized.clarification && typeof normalized.clarification === 'object' && !Array.isArray(normalized.clarification)
+      ? {
+          ...normalized.clarification,
+          unresolved_resources: Array.isArray(normalized.clarification.unresolved_resources)
+            ? normalized.clarification.unresolved_resources.map(slot => ({
+                ...slot,
+                choices: Array.isArray(slot?.choices) ? slot.choices.map(choice => {
+                  const resource = clarificationChoiceResource(slot, choice, normalized.relation);
+                  const canonical = canonicalizeResourceBinding(resource, bindingOptions);
+                  return {
+                    ...choice,
+                    source: canonical.source,
+                    index: canonical.index,
+                    id: canonical.id,
+                    reference_id: canonical.reference_id,
+                  };
+                }) : slot?.choices,
+              }))
+            : normalized.clarification.unresolved_resources,
+        }
+      : normalized.clarification;
+    return { ...normalized, resources, clarification };
+  }
+
   function hasResolvedResourceBindings(task = {}, options = {}) {
     task = normalizeContractVersion(task);
     if (!hasExactContractShape(task)) return false;
@@ -551,9 +643,13 @@
     const selectedMessageRefs = messageRefs(task, options);
     const selectedImageIndexes = [...new Set(imageRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const selectedFileIndexes = [...new Set(fileRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
-    const api = contractApi(task);
+    const operationApi = contractApi(task);
+    const dispatchAuthorized = task.readiness === 'ready';
     const common = {
-      api,
+      api: dispatchAuthorized ? operationApi : 'clarify',
+      operationApi,
+      readiness: task.readiness,
+      dispatchAuthorized,
       relation: task.relation,
       resources: task.resources,
       imageRefs,
@@ -594,6 +690,7 @@
         clarificationQuestion,
         clarificationSlots: slots,
         resumeOperation: task.operation,
+        resumeApi: operationApi,
         selectedIndexes: [],
         selectedImageIndexes: [],
         selectedFileIndexes: [],
@@ -605,10 +702,10 @@
         intent: 'clarify',
       };
     }
-    if (api === 'image_generation') {
+    if (operationApi === 'image_generation') {
       return { ...common, mode: 'image', target: 'new', contextualImagePrompt: input, intent: task.operation };
     }
-    if (api === 'image_edit') {
+    if (operationApi === 'image_edit') {
       if (task.operation === 'image_reference_gen') {
         const firstReference = imageRefs[0];
         return {
@@ -713,6 +810,7 @@
   const api = Object.freeze({
     SCHEMA_VERSION,
     normalizeContractVersion,
+    canonicalizeContractBindings,
     contractApi,
     hasExactContractShape,
     hasResolvedResourceBindings,

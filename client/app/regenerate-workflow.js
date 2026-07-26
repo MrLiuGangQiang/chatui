@@ -170,6 +170,8 @@
         let p,g;
         try{if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(s,[],buildRequestHeaders("message",l),buildQuotedRouteContext()),g=p.mode}
         else{p=h.length&&!hasImageAttachments(h)?normalizeRoute({mode:"chat",target:"none",usePreviousImage:!1,confidence:1,evidence:"附件不包含图片，直接走聊天模型"},"chat"):await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
+        if(p.needClarification){const err=new Error(p.clarificationQuestion||"请先明确要使用的资源");err.code="ROUTE_NEEDS_CLARIFICATION";throw err}
+        if(p.taskContract&&routeUtils.isRouteDispatchable?.(p)!==!0){const err=new Error("路由任务尚未完成资源确认，已停止发送");err.code="ROUTE_NOT_READY";throw err}
         if(updateModeUi(g,state.autoMode),warnMissingModel(g,!0)){task.fail(new Error(`missing ${g} model`));return void e.remove()}
         if(d.stopped||d.abortController?.signal?.aborted)return;
         const routeAttachmentSelectors=submitHelpers.createRouteAttachmentSelectors(p,{isImageFile,isImageUnderstandingChat:()=>submitHelpers.isImageUnderstandingChat(s),isFileUnderstandingChat:()=>submitHelpers.isFileUnderstandingChat(s),currentTurnAttachments:h});

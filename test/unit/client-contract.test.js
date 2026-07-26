@@ -22,6 +22,8 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
     'isTaskContractResult',
     'parseRouteResult',
     'resolveClarificationRoute',
+    'mergeRouteReadinessRequirement',
+    'isRouteDispatchable',
     'buildRoutePayload',
     'buildIntentReviewPayload',
   ]) {
@@ -515,6 +517,9 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
   const clarificationRoute = routeService.parseRouteResult(JSON.stringify(contract), { input: 'combine the cat and fish', context });
   assert.ok(clarificationRoute);
   assert.strictEqual(clarificationRoute.needClarification, true);
+  assert.strictEqual(clarificationRoute.api, 'clarify');
+  assert.strictEqual(clarificationRoute.dispatchAuthorized, false);
+  assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
   assert.match(clarificationRoute.clarificationQuestion, /1\. hand-drawn fish/);
   assert.match(clarificationRoute.clarificationQuestion, /2\. colorful fish/);
 
@@ -541,6 +546,9 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
   assert.ok(resumed, 'a valid choice must deterministically complete the original contract');
   assert.strictEqual(resumed.operationType, 'image_reference_gen');
   assert.strictEqual(resumed.mode, 'edit_image');
+  assert.strictEqual(resumed.api, 'image_edit');
+  assert.strictEqual(resumed.dispatchAuthorized, true);
+  assert.strictEqual(routeService.isRouteDispatchable(resumed), true);
   assert.deepStrictEqual(resumed.selectedImageIds, ['img-cat', 'img-fish-color']);
   assert.strictEqual(resumed.editInstruction, 'combine the cat and fish');
   assert.strictEqual(routeService.resolveClarificationRoute(contract, [{ resource_key: 'r2', choice_key: 'c9' }], { input: 'combine them' }), null, 'an unknown choice must never be guessed');
@@ -564,6 +572,81 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
   assert.strictEqual(resumedUpload.operationType, 'edit_image');
   assert.deepStrictEqual(resumedUpload.selectedImageIds, ['upload-1']);
   assert.strictEqual(resumedUpload.target, 'uploaded');
+}
+
+function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingForTheUser() {
+  const contract = {
+    schema_version: 'task_contract.v4',
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    resources: [{
+      key: 'r1', type: 'image', source: 'history', role: 'reference', index: 10,
+      id: 'img_imgref_pending-submit-submit-ms1628mm-7ym9tfcp_1',
+      reference_id: 'imgref_pending-submit-submit-ms1628mm-7ym9tfcp', missing: false,
+    }],
+    directive: {
+      mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'allow_change',
+      operations: [{ op: 'add', target: 'prompt', value: '把猫和鱼合并成一张图，场景要自然协调' }], constraints: [],
+    },
+    clarification: {
+      question: '您指的是哪一张鱼图片？',
+      resume_operation: 'image_reference_gen',
+      unresolved_resources: [{
+        key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+          {
+            key: 'c1', source: 'history', index: 20,
+            id: 'img_imgref_pending-submit-submit-ms19jzdh-5gfu2ma1_1',
+            reference_id: 'imgref_pending-submit-submit-ms19jzdh-5gfu2ma1', label: '手绘一条鱼',
+          },
+          {
+            key: 'c2', source: 'history', index: 18,
+            id: 'img_imgref_pending-submit-submit-ms19h3ic-htripy4j_1',
+            reference_id: 'imgref_pending-submit-submit-ms19h3ic-htripy4j', label: '画一条鱼',
+          },
+        ],
+      }],
+    },
+    confidence: 0,
+    review_reasons: ['ambiguous_reference'],
+    rationale: '猫图唯一，但存在两张鱼图，需要用户选择。',
+  };
+  const context = { image_candidates: [
+    {
+      index: 4, source: 'history', target: 'previous',
+      image_id: contract.resources[0].id, reference_id: contract.resources[0].reference_id,
+    },
+    {
+      index: 1, source: 'history', target: 'previous',
+      image_id: contract.clarification.unresolved_resources[0].choices[0].id,
+      reference_id: contract.clarification.unresolved_resources[0].choices[0].reference_id,
+    },
+    {
+      index: 2, source: 'history', target: 'previous',
+      image_id: contract.clarification.unresolved_resources[0].choices[1].id,
+      reference_id: contract.clarification.unresolved_resources[0].choices[1].reference_id,
+    },
+  ] };
+
+  const route = routeService.parseRouteResult(JSON.stringify(contract), {
+    input: '把猫和鱼合并成一张图 场景要自然协调', context, attachments: [],
+  });
+  assert.ok(route, 'stable candidate identities must survive a stale model-authored display index');
+  assert.strictEqual(route.needClarification, true);
+  assert.strictEqual(route.api, 'clarify');
+  assert.strictEqual(route.dispatchAuthorized, false);
+  assert.strictEqual(routeService.isRouteDispatchable(route), false);
+  assert.strictEqual(route.taskContract.resources[0].index, 4, 'the runtime candidate table owns the canonical display index');
+  assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.index), [1, 2]);
+  assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.key), ['c1', 'c2'], 'canonicalization must retain every user choice');
+
+  const resolved = routeService.resolveClarificationRoute(route.taskContract, [{ resource_key: 'r2', choice_key: 'c2' }], {
+    input: '把猫和鱼合并成一张图 场景要自然协调',
+  });
+  assert.ok(resolved);
+  assert.strictEqual(resolved.mode, 'edit_image');
+  assert.strictEqual(resolved.api, 'image_edit');
+  assert.strictEqual(resolved.dispatchAuthorized, true);
+  assert.deepStrictEqual(resolved.selectedImageIds, [contract.resources[0].id, contract.clarification.unresolved_resources[0].choices[1].id]);
 }
 
 function testClientContractServiceExportsStayStable() {
@@ -609,6 +692,7 @@ module.exports = [
   testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
   testStructuredClarificationSelectionResumesTheOriginalCompositionContract,
+  testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingForTheUser,
   testClientContractServiceExportsStayStable,
   testClientContractChatAndSseParsingShape,
 ];

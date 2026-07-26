@@ -478,6 +478,47 @@ async function testOperationPreservingClarificationIsPrimaryTerminalOutcome() {
   }
 }
 
+async function testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser() {
+  const staleIndexes = operationPreservingClarificationContract();
+  staleIndexes.resources[0].index = 10;
+  staleIndexes.clarification.unresolved_resources[0].choices[0].index = 20;
+  staleIndexes.clarification.unresolved_resources[0].choices[1].index = 18;
+  const guessedExecutable = structuredClone(routeService.decodeTaskContract(staleIndexes));
+  guessedExecutable.readiness = 'ready';
+  guessedExecutable.resources.push({
+    key: 'r2', type: 'image', source: 'history', role: 'reference', index: 2,
+    id: 'img-fish-b', reference_id: 'imgref-fish-b', missing: false,
+  });
+  guessedExecutable.clarification = { question: '', unresolved_resources: [] };
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      return responseFor(requests.length === 1 ? staleIndexes : guessedExecutable);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model'], 'a stable-id clarification must terminate primary routing even when its display indexes are stale');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.taskContract.resources[0].index, 4);
+    assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.index), [1, 2]);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testMalformedClarificationFallbackCanOnlyRepairTheClarification() {
   const valid = structuredCompositionClarificationContract();
   const malformed = structuredClone(valid);
@@ -739,8 +780,8 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.3.0-reference-edit-transport'));
-  assert.ok(index.includes('route-decision-workflow.js?v=3.0.0-readiness-terminal'));
+  assert.ok(index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate'));
+  assert.ok(index.includes('route-decision-workflow.js?v=3.1.0-monotonic-readiness'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
@@ -758,6 +799,7 @@ module.exports = [
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
   testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
   testOperationPreservingClarificationIsPrimaryTerminalOutcome,
+  testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,
   testMalformedClarificationFallbackCanOnlyRepairTheClarification,
   testResourceFreePlainChatFollowupIsSingleFlight,
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,

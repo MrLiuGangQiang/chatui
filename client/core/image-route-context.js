@@ -582,10 +582,10 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
 
 function canonicalRouteAction(route = {}) {
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
-  const operationType = String(route?.operation?.type || '').trim();
+  const operationType = String(route?.taskContract?.operation || route?.operationType || route?.operation?.type || '').trim();
   if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'clarify', 'refuse'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
-  if (operationType === 'image_edit') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
+  if (operationType === 'image_edit' || operationType === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
   if (operationType === 'image_reference_gen') return { mode: 'edit_image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
   if (explicitMode === 'chat') return { mode: 'chat', intent: 'unknown', type: 'plain_chat', source: 'mode' };
   if (explicitMode === 'image') return { mode: 'image', intent: 'text_to_image', type: 'text_to_image', source: 'mode' };
@@ -725,6 +725,18 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     imageRefs: plan.needClarification ? [] : imageRefs,
     fileRefs: plan.needClarification ? [] : fileRefs,
     confidence,
+    ...(route?.taskContract ? {
+      api: String(route.api || ''),
+      operationType: String(route.operationType || route.taskContract.operation || ''),
+      operationApi: String(route.operationApi || ''),
+      relation: String(route.relation || route.taskContract.relation || ''),
+      readiness: String(route.readiness || route.taskContract.readiness || ''),
+      dispatchAuthorized: route.dispatchAuthorized === true,
+      resumeApi: String(route.resumeApi || ''),
+      taskContract: route.taskContract,
+      directiveAudit: route.directiveAudit,
+      messageRefs: Array.isArray(route.messageRefs) ? route.messageRefs : [],
+    } : {}),
   };
 }
 

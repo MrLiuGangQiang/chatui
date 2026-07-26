@@ -82,27 +82,40 @@
       return { route, reason: route ? '' : 'contract_shape' };
     }
 
-    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, raw, config, headers, signal }) {
+    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, raw, config, headers, signal, requiredReadiness = '' }) {
       const options = { input, attachments, context };
-      const declaredReadiness = routeSvc?.readRouteReadiness?.(raw) || '';
+      const mergeReadiness = (...values) => typeof routeSvc?.mergeRouteReadinessRequirement === 'function'
+        ? routeSvc.mergeRouteReadinessRequirement(...values)
+        : values.includes('needs_clarification') ? 'needs_clarification' : values.includes('ready') ? 'ready' : '';
+      const satisfiesReadiness = route => typeof routeSvc?.routeSatisfiesReadiness === 'function'
+        ? routeSvc.routeSatisfiesReadiness(route, readinessRequirement)
+        : readinessRequirement !== 'needs_clarification' || route?.needClarification === true;
+      let readinessRequirement = mergeReadiness(requiredReadiness, routeSvc?.readRouteReadiness?.(raw) || '');
       const initial = inspectRoute(routeSvc, raw, options);
-      if (initial.route || typeof routeSvc?.buildIntentRepairPayload !== 'function') return { ...initial, repaired: false, repairRaw: '' };
+      if (initial.route && satisfiesReadiness(initial.route)) {
+        return { ...initial, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
+      const initialReason = initial.route ? 'readiness_transition_forbidden' : initial.reason;
+      if (typeof routeSvc?.buildIntentRepairPayload !== 'function') {
+        return { route: null, reason: initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
       const repairPayload = routeSvc.buildIntentRepairPayload({
         model,
         input,
         attachments,
         context,
         previousOutput: raw,
-        validationReason: initial.reason,
-        expectedReadiness: declaredReadiness,
+        validationReason: initialReason,
+        expectedReadiness: readinessRequirement,
       });
       const repairResponse = await requestRouteDecision(repairPayload, config, headers, signal);
       const repairRaw = extractRouteText(routeSvc, repairResponse);
+      readinessRequirement = mergeReadiness(readinessRequirement, routeSvc?.readRouteReadiness?.(repairRaw) || '');
       const repaired = inspectRoute(routeSvc, repairRaw, options);
-      if (declaredReadiness === 'needs_clarification' && repaired.route && !repaired.route.needClarification) {
-        return { route: null, reason: 'clarification_semantics_changed', repaired: true, initialReason: initial.reason, repairRaw };
+      if (repaired.route && !satisfiesReadiness(repaired.route)) {
+        return { route: null, reason: 'readiness_transition_forbidden', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
       }
-      return { ...repaired, repaired: true, initialReason: initial.reason, repairRaw };
+      return { ...repaired, repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
     }
 
     function createRouteCancelledError() {
@@ -191,7 +204,8 @@
         const context = routeContextOverride || buildRouteContext(sessionId);
         let primaryFailure = null;
         let fallbackFailure = null;
-        let clarificationRepairRaw = '';
+        let readinessRequirement = '';
+        let constrainedRouteRaw = '';
 
         if (config.baseUrl && primaryModel) {
           try {
@@ -245,14 +259,15 @@
               config, headers: requestHeaders, signal: parentSignal,
             });
             let route = primaryParsed.route;
+            readinessRequirement = routeSvc?.mergeRouteReadinessRequirement?.(readinessRequirement, primaryParsed.requiredReadiness) || primaryParsed.requiredReadiness || readinessRequirement;
+            if (readinessRequirement === 'needs_clarification') {
+              constrainedRouteRaw = [trace.firstRaw, primaryParsed.repairRaw]
+                .find(value => routeSvc?.readRouteReadiness?.(value) === 'needs_clarification') || constrainedRouteRaw;
+            }
             trace.firstValidationReason = primaryParsed.initialReason || primaryParsed.reason || '';
             trace.repairRaw = primaryParsed.repairRaw || '';
             trace.repaired = !!primaryParsed.repaired;
             if (!route) {
-              const rejectedRaw = primaryParsed.repairRaw || trace.firstRaw;
-              clarificationRepairRaw = routeSvc?.isClarificationCandidate?.(trace.firstRaw)
-                ? trace.firstRaw
-                : routeSvc?.isClarificationCandidate?.(rejectedRaw) ? rejectedRaw : '';
               const invalid = invalidRouteError('primary');
               invalid.validationReason = primaryParsed.reason || 'contract_shape';
               throw invalid;
@@ -270,12 +285,16 @@
             if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
             primaryFailure = err;
             console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
-            try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad'); } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
+            try {
+              routeOptions?.onStage?.(readinessRequirement === 'needs_clarification'
+                ? '正在执行：chat 模型修复澄清合同'
+                : '\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad');
+            } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
             if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
-                const fallbackPayload = clarificationRepairRaw && typeof routeSvc?.buildIntentRepairPayload === 'function'
-                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: clarificationRepairRaw, validationReason: primaryFailure?.validationReason || 'contract_shape', expectedReadiness: 'needs_clarification' })
+                const fallbackPayload = readinessRequirement === 'needs_clarification' && constrainedRouteRaw && typeof routeSvc?.buildIntentRepairPayload === 'function'
+                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: constrainedRouteRaw, validationReason: primaryFailure?.validationReason || 'contract_shape', expectedReadiness: readinessRequirement })
                   : routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
                 const fallbackRequest = createLinkedAbortController(parentSignal);
                 const fallbackController = fallbackRequest.controller;
@@ -303,17 +322,12 @@
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
                 const fallbackParsed = await parseOrRepairRoute(routeSvc, {
                   model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
-                  config, headers: requestHeaders, signal: parentSignal,
+                  config, headers: requestHeaders, signal: parentSignal, requiredReadiness: readinessRequirement,
                 });
                 const fallbackRoute = fallbackParsed.route;
                 if (!fallbackRoute) {
                   const invalid = invalidRouteError('fallback');
                   invalid.validationReason = fallbackParsed.reason || 'contract_shape';
-                  throw invalid;
-                }
-                if (clarificationRepairRaw && !fallbackRoute.needClarification) {
-                  const invalid = invalidRouteError('fallback');
-                  invalid.validationReason = 'clarification_semantics_changed';
                   throw invalid;
                 }
                 setIntentTrace({ input, model: sessionChatModel, context: compactTraceValue(context), attachments: attachmentMeta, finalRoute: fallbackRoute, finalApi: fallbackRoute.api, fallbackAi: true });

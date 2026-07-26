@@ -187,11 +187,11 @@
         "file_candidates": []
       },
       "expected": {
-        "operation": "clarify",
+        "operation": "edit_image",
         "relation": "new",
         "clarification": true,
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "target", "index": 1, "missing": true }] }
+        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
+        "resources": { "mode": "exact", "items": [] }
       }
     },
     {
@@ -226,11 +226,11 @@
         "file_candidates": []
       },
       "expected": {
-        "operation": "clarify",
+        "operation": "edit_image",
         "relation": "followup",
         "clarification": true,
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "target", "index": 1, "missing": true }] }
+        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
+        "resources": { "mode": "exact", "items": [] }
       }
     },
     {

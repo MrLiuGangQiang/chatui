@@ -322,7 +322,7 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v4"'));
+  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v5"'));
   assert.ok(payload.messages[0].content.includes('"resources"'));
   assert.ok(payload.messages[0].content.includes('"directive"'));
   assert.ok(payload.messages[0].content.includes('"operations"'));
@@ -646,8 +646,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding'), 'submit workflow cache version should be bumped for explicit quote binding');
-  assert.ok(index.includes('clarification-service.js?v=1.0.7-strict-continuation-contract'), 'clarification service cache version should be bumped for the strict continuation contract');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.0-reference-edit-transport'), 'submit workflow cache version should be bumped for reference-image edit transport');
+  assert.ok(index.includes('clarification-service.js?v=1.0.8-task-contract-v5'), 'clarification service cache version should be bumped for task_contract.v5');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
@@ -1019,7 +1019,7 @@ function testStructuredRouteDecisionCarriesRefs() {
   })), { input: '这张和上一张有什么不同', attachments: [{ name: 'new.png', type: 'image/png', is_image: true }], context: { image_candidates: [{ index: 1, source: 'history', reference_id: 'imgref_latest', target: 'previous' }] } });
   assert.strictEqual(taskRoute.mode, 'chat');
   assert.strictEqual(taskRoute.operationType, 'image_compare');
-  assert.strictEqual(taskRoute.taskContract.schema_version, 'task_contract.v4');
+  assert.strictEqual(taskRoute.taskContract.schema_version, 'task_contract.v5');
   assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'history' && item.role === 'compare_a'));
   assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'current' && item.role === 'compare_b'));
   assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'history'));
@@ -1040,7 +1040,7 @@ function testImagePromptExtractionFollowsAiRouteWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.mode, 'edit_image');
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.imageRefs[0].source, 'current');
   assert.deepStrictEqual(parsed.selectedIndexes, [1]);
@@ -1174,7 +1174,8 @@ function testImageResultCorrectionRebuildsImagePrompt() {
 function testRoutePromptUsesChineseCompactRules() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('不要输出 Markdown'));
-  ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
+  ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
+  assert.ok(system.includes('needs_clarification') && system.includes('readiness'), 'clarification must be an independent readiness state instead of an operation');
   assert.ok(!system.includes('multi_step'), 'route contract must not advertise an unimplemented multi-step dispatcher');
   assert.ok(!system.includes('"intent"') && !system.includes('"execution"') && !system.includes('"api"'), 'operation must be the only model-authored dispatch field');
   assert.ok(system.includes('"directive"'));
@@ -1713,7 +1714,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should bump browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.0-reference-edit-transport') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1798,7 +1799,7 @@ function testEnglishImagePromptExtractionFollowsAiRouteWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'image');
+  assert.strictEqual(parsed.mode, 'edit_image');
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.imageRefs[0].source, 'current');
 }
@@ -2406,7 +2407,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
   assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
   assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
-  assert.ok(routeDiagram.includes('task_contract.v4') && routeDiagram.includes('结构化 clarify') && routeDiagram.includes('展示候选、保存原合同') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the structured clarification contract and durable handoff flow');
+  assert.ok(routeDiagram.includes('task_contract.v5') && routeDiagram.includes('结构化澄清') && routeDiagram.includes('展示候选、保存原合同') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the readiness-based structured clarification contract and durable handoff flow');
   assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
   const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
   assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');
@@ -3105,7 +3106,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=2.0.7-conversation-relation') && index.includes('submit-workflow.js?v=1.2.97-explicit-quote-binding') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=2.0.6-single-route-repair') && index.includes('route-service.js?v=2.1.11-conversation-relation') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should be bumped for route timeout UX');
+  assert.ok(index.includes('intent-contract.js?v=3.0.0-readiness-contract') && index.includes('submit-workflow.js?v=1.3.0-reference-edit-transport') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=3.0.0-readiness-terminal') && index.includes('route-service.js?v=3.0.0-readiness-contract') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should match the readiness contract and reference-image edit transport');
 }
 
 function testImageSuccessResultReconciliation() {

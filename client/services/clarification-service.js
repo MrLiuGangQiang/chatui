@@ -130,7 +130,7 @@
 
 重要原则：你不是提示词优化器。final_prompt 只做最小语义补全：根据 base_task 和当前回答补齐省略对象或引用。不要添加用户没说的风格、画质、镜头、构图、氛围、细节或创意发挥。尽量保留用户原话。
 
-  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v4：
+  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v5：
   {"schema_version":"pending_continuation.v2","relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"selections":[{"resource_key":"r2","choice_key":"c1"}],"should_merge":false,"should_clear_pending":false,"reason":""}
 
 规则：

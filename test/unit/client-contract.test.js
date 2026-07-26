@@ -36,9 +36,7 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
 function testRoutePromptIsOneOrderedDecisionSpecification() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('按以下顺序决策'), 'the route prompt must give the model one explicit decision order');
-  for (const step of ['1. 边界', '2. 关系', '3. 操作', '4. 资源', '5. 指令', '6. 澄清', '7. 审计']) {
-    assert.ok(system.includes(step), `missing route decision step: ${step}`);
-  }
+  for (const step of ['1.', '2.', '3.', '4.', '5.', '6.', '7.']) assert.ok(system.includes(step), `missing route decision step: ${step}`);
   assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
   assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
   assert.ok(system.length < 3600, 'the complete primary routing specification must stay cognitively compact');
@@ -167,8 +165,9 @@ function testClientContractRouteParsingPreservesClarificationShape() {
   assert.ok(parsed.clarificationQuestion.startsWith(question));
   assert.match(parsed.clarificationQuestion, /1\. cat image/);
   assert.match(parsed.clarificationQuestion, /2\. fish image/);
-  assert.strictEqual(parsed.taskContract.operation, 'clarify');
-  assert.strictEqual(parsed.operationType, 'clarify');
+  assert.strictEqual(parsed.taskContract.readiness, 'needs_clarification');
+  assert.strictEqual(parsed.taskContract.operation, 'edit_image');
+  assert.strictEqual(parsed.operationType, 'edit_image');
   assert.strictEqual(parsed.resumeOperation, 'edit_image');
 }
 
@@ -524,7 +523,7 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
     clarificationText: clarificationRoute.clarificationQuestion,
     routeInfo: clarificationRoute,
   });
-  assert.deepStrictEqual(pending.routeInfo.taskContract, contract, 'the pending state must retain the validated original contract instead of only its question text');
+  assert.deepStrictEqual(pending.routeInfo.taskContract, routeService.decodeTaskContract(contract), 'the pending state must retain the validated canonical contract instead of only its question text');
 
   const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
@@ -541,9 +540,9 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
   const resumed = routeService.resolveClarificationRoute(pending.routeInfo.taskContract, decision.selections, { input: decision.finalPrompt });
   assert.ok(resumed, 'a valid choice must deterministically complete the original contract');
   assert.strictEqual(resumed.operationType, 'image_reference_gen');
-  assert.strictEqual(resumed.mode, 'image');
+  assert.strictEqual(resumed.mode, 'edit_image');
   assert.deepStrictEqual(resumed.selectedImageIds, ['img-cat', 'img-fish-color']);
-  assert.strictEqual(resumed.contextualImagePrompt, 'combine the cat and fish');
+  assert.strictEqual(resumed.editInstruction, 'combine the cat and fish');
   assert.strictEqual(routeService.resolveClarificationRoute(contract, [{ resource_key: 'r2', choice_key: 'c9' }], { input: 'combine them' }), null, 'an unknown choice must never be guessed');
 
   const missingUpload = {

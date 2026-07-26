@@ -15,7 +15,7 @@ $env:CHATUI_EVAL_ROUTE_MODEL = 'your-route-model'
 npm.cmd run eval:intent
 ```
 
-The evaluator uses the same `task_contract.v4` route payload and strict parser as the browser. It writes a JSON report under `reports/intent-routing/`, which is ignored by Git and never includes the API key or raw model output.
+The evaluator uses the same `task_contract.v5` route payload and strict parser as the browser. It writes a JSON report under `reports/intent-routing/`, which is ignored by Git and never includes the API key or raw model output.
 
 Useful options:
 
@@ -31,8 +31,9 @@ The command exits with a non-zero status when either quality gate is missed. Def
 
 | Dimension | What must be correct |
 | --- | --- |
-| `valid_contract` | The response parses as a strict, executable `task_contract.v4` against the supplied candidates. |
-| `operation` | The task type, such as `file_qa`, `edit_image`, or `clarify`. |
+| `valid_contract` | The response parses as a strict `task_contract.v5` against the supplied candidates. |
+| `operation` | The real task type, such as `file_qa`, `image_reference_gen`, or `edit_image`. |
+| `readiness` | Whether the task is ready to dispatch or must stop for structured clarification. |
 | `relation` | Whether the request is new, a follow-up, a correction, or a continuation. |
 | `resources` | Required image/file type, source, role, typed candidate index (`media_index` for mixed attachments), and declared identity. |
 | `clarification` | Whether clarification is required and the response contains a question. |

@@ -8,7 +8,7 @@ const routeService = require('../../client/services/route-service');
 const SCHEMA_VERSION = 'intent-routing-eval.v1';
 const VALID_OPERATIONS = new Set([
   'plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare',
-  'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify',
+  'ocr', 'text_to_image', 'image_reference_gen', 'edit_image',
 ]);
 const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
 const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
@@ -146,9 +146,9 @@ function directiveMatchesExpectation(expected = {}, actual = {}) {
 function clarificationMatchesExpectation(expected = false, task = {}) {
   const clarification = task?.clarification || {};
   const question = String(clarification.question || '').trim();
-  const missingKeys = Array.isArray(clarification.missing_resource_keys) ? clarification.missing_resource_keys : [];
-  if (expected) return task.operation === 'clarify' && !!question;
-  return task.operation !== 'clarify' && !question && missingKeys.length === 0;
+  const unresolved = Array.isArray(clarification.unresolved_resources) ? clarification.unresolved_resources : [];
+  if (expected) return task.readiness === 'needs_clarification' && !!question && unresolved.length > 0;
+  return task.readiness === 'ready' && !question && unresolved.length === 0;
 }
 
 function scoreRouteCase(caseDefinition = {}, route = null) {

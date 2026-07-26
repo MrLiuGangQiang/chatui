@@ -46,7 +46,7 @@ function testIntentRoutingEvaluationFixtureCoversEverySupportedOperation() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
   assert.ok(suite.cases.length >= 12, 'the starter benchmark must cover a meaningful set of customer requests');
   const operations = new Set(suite.cases.map(item => item.expected.operation));
-  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify']) {
+  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']) {
     assert.ok(operations.has(operation), `benchmark must cover ${operation}`);
   }
   assert.ok(suite.cases.some(item => item.category === 'context-boundary'), 'benchmark must retain context-boundary regressions');

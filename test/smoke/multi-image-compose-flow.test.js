@@ -83,6 +83,8 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
   const route = routeService.parseRouteResult(JSON.stringify(imageReferenceContract(selectedCandidates)), { input, context, attachments: [] });
 
   assert.strictEqual(route.operationType, 'image_reference_gen');
+  assert.strictEqual(route.mode, 'edit_image');
+  assert.strictEqual(route.api, 'image_edit');
   assert.strictEqual(route.selectedImageIds.length, 2);
   const routedCandidates = context.image_candidates.filter(candidate => route.selectedImageIds.includes(candidate.image_id));
   assert.deepStrictEqual(new Set(routedCandidates.map(candidate => candidate.prompt)), new Set(['一只猫', '一只狗']));
@@ -123,7 +125,7 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
   try {
     const job = imageJobs.createImageJobFromRequestBody('imgjob-semantic-smoke', {
       mode: 'edit_image',
-      payload: { model: 'gpt-image-1', prompt: route.contextualImagePrompt },
+      payload: { model: 'gpt-image-1', prompt: route.editInstruction },
       files,
     }, { baseUrl, apiKey: 'test-key', extraHeaders: {} });
     await imageJobs.runImageJob(job, { upstreamTimeoutMs: 5000 });

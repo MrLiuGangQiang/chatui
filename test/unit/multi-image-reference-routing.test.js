@@ -122,7 +122,7 @@ function testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics(
   assert.strictEqual(parsed.operationType, 'plain_chat');
   assert.strictEqual(parsed.needClarification, false);
   assert.strictEqual(parsed.clarificationQuestion, '');
-  assert.deepStrictEqual(parsed.taskContract, plainChatContract());
+  assert.deepStrictEqual(parsed.taskContract, routeService.decodeTaskContract(plainChatContract()));
 }
 
 function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
@@ -142,7 +142,7 @@ function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
   assert.strictEqual(parsed.needClarification, false);
   assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(selected.map(item => item.image_id)));
   assert.deepStrictEqual(new Set(parsed.taskContract.directive.base_resource_keys), new Set(['r1', 'r2']));
-  assert.strictEqual(parsed.contextualImagePrompt, input);
+  assert.strictEqual(parsed.editInstruction, input);
 }
 
 function createWorkflow(messages) {

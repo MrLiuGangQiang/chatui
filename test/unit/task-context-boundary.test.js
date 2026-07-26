@@ -71,9 +71,9 @@ function testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate() {
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'style', value: 'watercolor' }], constraints: [] },
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input: shortRequest, attachments: [], context });
-  assert.strictEqual(parsed.contextualImagePrompt, shortRequest);
-  assert.ok(!parsed.contextualImagePrompt.includes('补丁基线'));
-  assert.ok(!parsed.contextualImagePrompt.includes(quotedDescription));
+  assert.strictEqual(parsed.editInstruction, shortRequest);
+  assert.ok(!parsed.editInstruction.includes('补丁基线'));
+  assert.ok(!parsed.editInstruction.includes(quotedDescription));
 }
 
 function testMultiReferenceGenerationKeepsNaturalUserPrompt() {
@@ -94,8 +94,8 @@ function testMultiReferenceGenerationKeepsNaturalUserPrompt() {
     ],
   };
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context });
-  assert.strictEqual(parsed.contextualImagePrompt, input);
-  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.contextualImagePrompt));
+  assert.strictEqual(parsed.editInstruction, input);
+  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.editInstruction));
 }
 
 function testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest() {
@@ -135,11 +135,11 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 }
 
 function testRoutePromptsDeclarePatchAndContextBoundary() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v4'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 描述对话关系'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史覆盖一个完整的新请求'));
-  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('完整 task_contract.v4'));
+  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('task_contract.v5'));
 }
 
 module.exports = [

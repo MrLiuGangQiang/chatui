@@ -84,6 +84,7 @@
 
     async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, raw, config, headers, signal }) {
       const options = { input, attachments, context };
+      const declaredReadiness = routeSvc?.readRouteReadiness?.(raw) || '';
       const initial = inspectRoute(routeSvc, raw, options);
       if (initial.route || typeof routeSvc?.buildIntentRepairPayload !== 'function') return { ...initial, repaired: false, repairRaw: '' };
       const repairPayload = routeSvc.buildIntentRepairPayload({
@@ -93,10 +94,14 @@
         context,
         previousOutput: raw,
         validationReason: initial.reason,
+        expectedReadiness: declaredReadiness,
       });
       const repairResponse = await requestRouteDecision(repairPayload, config, headers, signal);
       const repairRaw = extractRouteText(routeSvc, repairResponse);
       const repaired = inspectRoute(routeSvc, repairRaw, options);
+      if (declaredReadiness === 'needs_clarification' && repaired.route && !repaired.route.needClarification) {
+        return { route: null, reason: 'clarification_semantics_changed', repaired: true, initialReason: initial.reason, repairRaw };
+      }
       return { ...repaired, repaired: true, initialReason: initial.reason, repairRaw };
     }
 
@@ -245,9 +250,9 @@
             trace.repaired = !!primaryParsed.repaired;
             if (!route) {
               const rejectedRaw = primaryParsed.repairRaw || trace.firstRaw;
-              if (routeSvc?.isClarificationCandidate?.(rejectedRaw) || routeSvc?.isClarificationCandidate?.(trace.firstRaw)) {
-                clarificationRepairRaw = rejectedRaw;
-              }
+              clarificationRepairRaw = routeSvc?.isClarificationCandidate?.(trace.firstRaw)
+                ? trace.firstRaw
+                : routeSvc?.isClarificationCandidate?.(rejectedRaw) ? rejectedRaw : '';
               const invalid = invalidRouteError('primary');
               invalid.validationReason = primaryParsed.reason || 'contract_shape';
               throw invalid;
@@ -270,7 +275,7 @@
               try {
                 throwIfRouteCancelled(parentSignal);
                 const fallbackPayload = clarificationRepairRaw && typeof routeSvc?.buildIntentRepairPayload === 'function'
-                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: clarificationRepairRaw, validationReason: primaryFailure?.validationReason || 'contract_shape' })
+                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: clarificationRepairRaw, validationReason: primaryFailure?.validationReason || 'contract_shape', expectedReadiness: 'needs_clarification' })
                   : routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
                 const fallbackRequest = createLinkedAbortController(parentSignal);
                 const fallbackController = fallbackRequest.controller;
@@ -306,7 +311,7 @@
                   invalid.validationReason = fallbackParsed.reason || 'contract_shape';
                   throw invalid;
                 }
-                if (clarificationRepairRaw && fallbackRoute.operationType !== 'clarify') {
+                if (clarificationRepairRaw && !fallbackRoute.needClarification) {
                   const invalid = invalidRouteError('fallback');
                   invalid.validationReason = 'clarification_semantics_changed';
                   throw invalid;

@@ -9,7 +9,7 @@ ChatUI deliberately keeps a small set of browser entry assets at the repository 
 - `app.js` and `styles.css`: compatibility entry assets referenced directly by the static page.
 - `server.js`: Node.js process entry point.
 
-These files are part of the public static-file contract. Moving or renaming one requires coordinated changes to `index.html`, `server/http/static.js`, the Dockerfile, and tests. `scripts/check-project.js` protects this contract.
+These files are part of the public static-file contract. Moving or renaming one requires coordinated changes to `index.html`, `server/http/static.js`, the Dockerfile, and tests. `scripts/check-project.js` protects this contract. The static server derives content-addressed revisions for the top-level JS/CSS bundles when it renders `index.html`; bundle URLs therefore change automatically whenever a bundled source file changes.
 
 ## Application layers
 

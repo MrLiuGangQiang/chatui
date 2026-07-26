@@ -8,6 +8,7 @@ const {
   bundleMetadata,
   bundleCacheKey,
   buildBundleBody,
+  bundleRevision,
   contentTypeForBundle,
 } = require('../services/static-bundle.service');
 
@@ -125,10 +126,9 @@ function encodeBody(body, encoding, cacheKey, mime) {
 }
 
 function cacheControlFor(filePath, url, options = {}) {
-  // Query-string versions in index.html are manually maintained, not content
-  // hashes. Marking them immutable lets a new index load alongside stale
-  // workflow code after a deployment, which breaks cross-module contracts at
-  // runtime. Keep executable assets revalidatable until they use hashed URLs.
+  // Executable assets and the generated entrypoint must always revalidate. The
+  // entrypoint receives content-addressed bundle URLs at request time, while
+  // direct module URLs retain their manually documented revisions for tooling.
   if (options.bundle) return NO_CACHE;
   if (filePath.endsWith('.html')) return NO_CACHE;
   const ext = path.extname(filePath);
@@ -146,6 +146,37 @@ function buildBundle(root, rootWithSep, kind) {
   bundleCache.set(cacheKey, result);
   trimCache(bundleCache, 12);
   return result;
+}
+
+function rewriteBundleUrls(html, root, rootWithSep) {
+  const revisions = {
+    css: bundleRevision(root, rootWithSep, 'css'),
+    js: bundleRevision(root, rootWithSep, 'js'),
+  };
+  const source = String(html || '');
+  return source
+    .replace(/(\.\/assets\/chatui\.bundle\.css)(?:\?[^"']*)?/g, `$1?v=${revisions.css}`)
+    .replace(/(\.\/assets\/chatui\.bundle\.js)(?:\?[^"']*)?/g, `$1?v=${revisions.js}`);
+}
+
+function serveIndex(req, res, context) {
+  const filePath = path.join(context.root, 'index.html');
+  let body;
+  try {
+    body = rewriteBundleUrls(fs.readFileSync(filePath, 'utf8'), context.root, context.rootWithSep);
+  } catch (err) {
+    console.error('[static] failed to render index bundle URLs:', err);
+    return send(res, 500, 'Failed to render index');
+  }
+  const etag = `"${sha1(body).slice(0, 32)}"`;
+  const headers = {
+    'Content-Type': MIME['.html'],
+    'Cache-Control': NO_CACHE,
+    ETag: etag,
+  };
+  if (isFresh(req, etag)) return send(res, 304, '', headers);
+  if (req.method === 'HEAD') return send(res, 200, '', headers);
+  return send(res, 200, body, headers);
 }
 
 function serveBundle(req, res, context, kind) {
@@ -179,6 +210,7 @@ function serveStatic(req, res, { root, rootWithSep }) {
   if (!url) return send(res, 400, 'Bad Request');
   const bundleKind = BUNDLE_PATHS[url.pathname];
   if (bundleKind) return serveBundle(req, res, { root, rootWithSep }, bundleKind);
+  if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep });
   if (!isPublicStaticPath(url.pathname)) return send(res, 404, 'Not Found');
 
   const filePath = safeJoin(root, rootWithSep, url.pathname);
@@ -214,4 +246,4 @@ function serveStatic(req, res, { root, rootWithSep }) {
   });
 }
 
-module.exports = { MIME, SHORT_CACHE, NO_CACHE, cacheControlFor, safeJoin, isPublicStaticPath, pickCompressedStaticFile, serveStatic };
+module.exports = { MIME, SHORT_CACHE, NO_CACHE, cacheControlFor, safeJoin, isPublicStaticPath, pickCompressedStaticFile, rewriteBundleUrls, serveIndex, serveStatic };

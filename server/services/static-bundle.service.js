@@ -3,6 +3,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ASSET_MANIFEST_ID = 'chatuiAssetManifest';
+// Kept as a bundle namespace for compatibility metadata. Browser URLs use the
+// content-addressed revision from bundleMetadata(), so source changes never
+// depend on manually bumping this value.
 const BUNDLE_VERSION = '1.3.160-code-action-motion';
 const BUNDLE_PATHS = Object.freeze({
   '/assets/chatui.bundle.css': 'css',
@@ -67,16 +70,16 @@ function manifestSource(html) {
 
 function parseAssetManifest(root, rootWithSep, kind) {
   const indexPath = path.join(root, 'index.html');
-  const stat = fs.statSync(indexPath);
-  const cacheKey = `${indexPath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+  const source = fs.readFileSync(indexPath, 'utf8');
+  const cacheKey = `${indexPath}:${sha1(source)}`;
   const cached = manifestCache.get(cacheKey);
   if (cached) return cached[kind] || [];
   manifestCache.clear();
 
-  const source = manifestSource(fs.readFileSync(indexPath, 'utf8'));
+  const manifest = manifestSource(source);
   const css = [];
   const js = [];
-  source.replace(/<link\b([^>]*?)>/gi, (_tag, attrs) => {
+  manifest.replace(/<link\b([^>]*?)>/gi, (_tag, attrs) => {
     const rel = attrValue(attrs, 'rel').toLowerCase();
     const href = attrValue(attrs, 'href');
     if (!rel.split(/\s+/).includes('stylesheet') || href.includes('/assets/chatui.bundle.')) return '';
@@ -84,7 +87,7 @@ function parseAssetManifest(root, rootWithSep, kind) {
     if (asset) css.push(asset);
     return '';
   });
-  source.replace(/<script\b([^>]*?)>\s*<\/script>/gi, (_tag, attrs) => {
+  manifest.replace(/<script\b([^>]*?)>\s*<\/script>/gi, (_tag, attrs) => {
     const src = attrValue(attrs, 'src');
     if (!src || src.includes('/assets/chatui.bundle.')) return '';
     const asset = resolveBundleEntry(root, rootWithSep, src);
@@ -102,17 +105,26 @@ function bundleCacheKey(kind, signature) {
 
 function bundleMetadata(root, rootWithSep, kind) {
   const markdownCoreScripts = kind === 'js'
-    ? MARKDOWN_CORE_SCRIPT_PATHS.map(urlPath => ({ href: urlPath, urlPath, filePath: safeJoin(root, rootWithSep, urlPath) })).filter(asset => asset.filePath)
+    ? MARKDOWN_CORE_SCRIPT_PATHS
+      .map(urlPath => ({ href: urlPath, urlPath, filePath: safeJoin(root, rootWithSep, urlPath) }))
+      .filter(asset => asset.filePath && fs.existsSync(asset.filePath))
     : [];
   const assets = markdownCoreScripts.concat(parseAssetManifest(root, rootWithSep, kind));
   const parts = [`kind:${kind}`, `bundle:${BUNDLE_VERSION}`];
   const entries = assets.map((asset) => {
     const stat = fs.statSync(asset.filePath);
-    parts.push(`${asset.urlPath}:${stat.size}:${Math.floor(stat.mtimeMs)}`);
-    return { ...asset, stat };
+    const content = fs.readFileSync(asset.filePath);
+    const contentHash = sha1(content);
+    parts.push(`${asset.urlPath}:${contentHash}`);
+    return { ...asset, stat, contentHash };
   });
   const signature = parts.join('|');
   return { entries, signature, etag: `"${sha1(signature).slice(0, 32)}"` };
+}
+
+function bundleRevision(root, rootWithSep, kind) {
+  const etag = bundleMetadata(root, rootWithSep, kind).etag;
+  return String(etag).replace(/^W?"|"$/g, '');
 }
 
 function rewriteCssUrls(css, assetUrlPath) {
@@ -149,5 +161,6 @@ module.exports = {
   bundleMetadata,
   bundleCacheKey,
   buildBundleBody,
+  bundleRevision,
   contentTypeForBundle,
 };

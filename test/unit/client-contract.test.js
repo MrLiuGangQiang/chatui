@@ -223,6 +223,38 @@ function taskContract({ operation, relation = 'new', resources = [], directive, 
   };
 }
 
+function testClientContractSeparatesConversationRelationFromResourcePatching() {
+  for (const relation of ['followup', 'correction', 'continuation']) {
+    const conversational = taskContract({ operation: 'plain_chat', relation });
+    assert.strictEqual(
+      routeService.isTaskContractResult(conversational),
+      true,
+      `resource-free plain chat must allow the ${relation} discourse relation without a patch baseline`
+    );
+  }
+
+  const withCurrentText = taskContract({
+    operation: 'plain_chat',
+    relation: 'followup',
+    resources: [currentTextResource()],
+  });
+  assert.strictEqual(routeService.isTaskContractResult(withCurrentText), true, 'the optional current-text resource must not become a historical patch baseline');
+
+  const boundHistoryWithoutPatch = taskContract({
+    operation: 'plain_chat',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'message', source: 'history', role: 'context', index: 1, id: 'message-1', reference_id: '', missing: false }],
+  });
+  assert.strictEqual(routeService.isTaskContractResult(boundHistoryWithoutPatch), false, 'an explicit history binding must still use a patch directive');
+
+  const resourceOperationWithoutPatch = taskContract({
+    operation: 'image_qa',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'image-1', reference_id: '', missing: false }],
+  });
+  assert.strictEqual(routeService.isTaskContractResult(resourceOperationWithoutPatch), false, 'resource operations must not inherit the plain-chat exception');
+}
+
 function testClientContractBindsMediaResourcesToExactCandidates() {
   const edit = taskContract({
     operation: 'edit_image',
@@ -439,6 +471,7 @@ module.exports = [
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
   testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding,
+  testClientContractSeparatesConversationRelationFromResourcePatching,
   testClientContractBindsMediaResourcesToExactCandidates,
   testClientContractAcceptsHistoryAliasForAnExplicitlyQuotedImageOnly,
   testClientContractAcceptsCurrentTextResourceForTextToImage,

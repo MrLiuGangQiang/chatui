@@ -212,7 +212,13 @@
       if (!clarification.question.trim()) return false;
     } else {
       if (clarification.question || clarification.missing_resource_keys.length || value.resources.some(resource => resource.missing)) return false;
-      if (value.relation !== 'new' && directive.mode !== 'patch') return false;
+      // A discourse relation does not by itself create an executable resource
+      // baseline. Resource-free plain chat can acknowledge, correct, or continue
+      // the conversation while still using a standalone directive. Any declared
+      // message/media binding remains subject to the normal patch requirements.
+      const resourceFreePlainChat = value.operation === 'plain_chat'
+        && value.resources.every(resource => resource.type === 'text');
+      if (value.relation !== 'new' && directive.mode !== 'patch' && !resourceFreePlainChat) return false;
     }
 
     return hasOperationResourceShape(value);

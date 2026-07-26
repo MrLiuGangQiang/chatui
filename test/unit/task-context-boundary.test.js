@@ -136,7 +136,7 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 
 function testRoutePromptsDeclarePatchAndContextBoundary() {
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v3'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation=new'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 描述对话关系'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史覆盖一个完整的新请求'));
   assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('完整 task_contract.v3'));

@@ -24,6 +24,14 @@ function plainChatContract() {
   };
 }
 
+function conversationalFollowupContract() {
+  return {
+    ...plainChatContract(),
+    relation: 'followup',
+    rationale: 'the short acknowledgement responds to the preceding conversation without selecting a resource',
+  };
+}
+
 function quotedFollowupWithoutBindingContract() {
   return {
     schema_version: 'task_contract.v3',
@@ -381,6 +389,30 @@ async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition()
   }
 }
 
+async function testResourceFreePlainChatFollowupIsSingleFlight() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(conversationalFollowupContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('可以啊', [], 'session-a', {}, {
+      recent_messages: [{ index: 1, role: 'assistant', content: 'Would you like me to continue?' }],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'resource-free conversational followup must not trigger contract repair or fallback routing');
+    assert.strictEqual(route.relation, 'followup');
+    assert.strictEqual(route.taskContract.directive.mode, 'standalone');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight() {
   const requestedModels = [];
   const harness = createRouteHarness({
@@ -592,6 +624,7 @@ module.exports = [
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
   testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
+  testResourceFreePlainChatFollowupIsSingleFlight,
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
   testValidHighRiskRouteExecutesWithoutIndependentReview,

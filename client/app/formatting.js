@@ -39,8 +39,17 @@
   }
 
   function pendingFeedbackHtml(value) {
-    const text = String(value || '');
-    return `<div class="pending-feedback"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+    const text = String(value || '正在执行：等待任务开始');
+    const stage = /路由|识别|预检/.test(text) ? 3
+      : /准备|上传|上一张图片/.test(text) ? 4
+        : /处理中|等待模型|连接模型|思考|接收|生成图片|修改图片|已等待/.test(text) ? 5 : 2;
+    const steps = ['接收任务', '保存上下文', '路由预检', '准备请求', '执行并等待响应'];
+    const map = steps.map((label, index) => {
+      const number = index + 1;
+      const state = number < stage ? 'done' : number === stage ? 'active' : '';
+      return `<span class="pending-map-step ${state}"><b>${number}</b>${label}</span>`;
+    }).join('');
+    return `<div class="pending-feedback" data-execution-map="true" aria-live="polite"><div class="pending-feedback-head"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="pending-map" aria-label="执行地图：当前第 ${stage} 步">${map}</div></div>`;
   }
 
   function isChatStatusText(value = '') {

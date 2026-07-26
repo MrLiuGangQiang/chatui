@@ -712,6 +712,21 @@
     });
   }
 
+  function clarificationSlotHeading(slot = {}, slotIndex = 0) {
+    const labels = (slot.choices || []).map(choice => String(choice?.label || '').trim()).filter(Boolean);
+    const imageSuffix = slot.type === 'image' ? '图片' : '候选项';
+    if (labels.length > 1) {
+      const englishWords = labels.map(label => new Set((label.toLowerCase().match(/[a-z0-9]+/g) || []).filter(word => word.length > 1)));
+      const commonEnglish = [...englishWords[0] || []].filter(word => englishWords.every(words => words.has(word))).sort((left, right) => right.length - left.length)[0];
+      if (commonEnglish) return `${commonEnglish} ${imageSuffix}`;
+      const ignoredCharacters = new Set(['图', '片', '画', '原', '始', '彩', '绘', '版', '一', '只', '条', '张', '的', '要', '手', '色']);
+      const firstCharacters = [...new Set(labels[0].match(/[\u4e00-\u9fff]/g) || [])];
+      const commonCharacter = firstCharacters.find(character => !ignoredCharacters.has(character) && labels.every(label => label.includes(character)));
+      if (commonCharacter) return `${commonCharacter}${imageSuffix}`;
+    }
+    return `第 ${slotIndex + 1} 组${imageSuffix}`;
+  }
+
   function taskContractToExecutionPlan(task = {}, options = {}) {
     task = normalizeContractVersion(task);
     if (!hasExactContractShape(task)) throw new TypeError('A valid task_contract.v5 is required');
@@ -757,7 +772,7 @@
       }));
       const choiceLines = slots.flatMap((slot, slotIndex) => {
         if (!slot.choices.length) return [];
-        const heading = slots.length > 1 ? [`${slotIndex + 1}. ${slot.key}`] : [];
+        const heading = slots.length > 1 ? [clarificationSlotHeading(slot, slotIndex)] : [];
         return [...heading, ...slot.choices.map((choice, choiceIndex) => `${slots.length > 1 ? '   ' : ''}${choiceIndex + 1}. ${choice.label}`)];
       });
       const clarificationQuestion = [task.clarification.question.trim(), choiceLines.join('\n')].filter(Boolean).join('\n');

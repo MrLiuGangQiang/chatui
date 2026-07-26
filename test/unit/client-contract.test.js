@@ -684,6 +684,39 @@ function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingFor
   assert.deepStrictEqual(resolved.selectedImageIds, [contract.resources[0].id, contract.clarification.unresolved_resources[0].choices[1].id]);
 }
 
+function testClarificationPresentationNeverExposesInternalResourceKeys() {
+  const contract = {
+    schema_version: 'task_contract.v5', readiness: 'needs_clarification', operation: 'image_reference_gen', relation: 'followup', resources: [],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [], constraints: [] },
+    clarification: {
+      question: '请选择要合并的狗图片和鱼图片。',
+      unresolved_resources: [
+        { key: 'r1', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+          { key: 'c1', source: 'history', index: 1, id: 'dog-original', reference_id: 'dog-original-ref', label: '画一只狗（原始）' },
+          { key: 'c2', source: 'history', index: 2, id: 'dog-color', reference_id: 'dog-color-ref', label: '狗要彩绘（彩绘版）' },
+        ] },
+        { key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+          { key: 'c1', source: 'history', index: 3, id: 'fish-original', reference_id: 'fish-original-ref', label: '画一条鱼（原始）' },
+          { key: 'c2', source: 'history', index: 4, id: 'fish-color', reference_id: 'fish-color-ref', label: '鱼要彩绘（彩绘版）' },
+        ] },
+      ],
+    },
+    confidence: 0.9, review_reasons: [], rationale: 'both image groups need a customer choice',
+  };
+  const route = routeService.parseRouteResult(JSON.stringify(contract), {
+    context: { image_candidates: [
+      { index: 1, source: 'history', target: 'previous', image_id: 'dog-original', reference_id: 'dog-original-ref' },
+      { index: 2, source: 'history', target: 'previous', image_id: 'dog-color', reference_id: 'dog-color-ref' },
+      { index: 3, source: 'history', target: 'previous', image_id: 'fish-original', reference_id: 'fish-original-ref' },
+      { index: 4, source: 'history', target: 'previous', image_id: 'fish-color', reference_id: 'fish-color-ref' },
+    ] },
+  });
+  assert.ok(route);
+  assert.match(route.clarificationQuestion, /狗图片/);
+  assert.match(route.clarificationQuestion, /鱼图片/);
+  assert.doesNotMatch(route.clarificationQuestion, /(?:^|\n)\s*\d+\. r[12](?:\n|$)/);
+}
+
 function testClientContractServiceExportsStayStable() {
   for (const key of ['extractChatJobText', 'requestJson', 'parseSseLine']) {
     assert.strictEqual(typeof chatService[key], 'function', `missing chatService export: ${key}`);
@@ -728,6 +761,7 @@ module.exports = [
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
   testStructuredClarificationSelectionResumesTheOriginalCompositionContract,
   testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingForTheUser,
+  testClarificationPresentationNeverExposesInternalResourceKeys,
   testClientContractServiceExportsStayStable,
   testClientContractChatAndSseParsingShape,
 ];

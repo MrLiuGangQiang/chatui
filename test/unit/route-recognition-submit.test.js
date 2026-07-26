@@ -36,7 +36,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate'),
+    index.includes('submit-workflow.js?v=1.3.2-clarification-reroute'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
@@ -107,6 +107,9 @@ function testPendingContinuationRequiresStrictModelContract() {
   assert.ok(submit.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
   assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
   assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
+  assert.ok(submit.includes('const rerouteAfterClarification=storedPending?.routeInfo?.requiresRerouteAfterClarification===!0'), 'a degraded structured clarification must retain an explicit reroute boundary');
+  assert.ok(submit.includes('!structuredTask&&!rerouteAfterClarification&&pendingMerge.finalTaskMode==="image"'), 'a continuation classifier must not directly authorize execution for a degraded clarification');
+  assert.ok(submit.includes('!pendingResolvedRoute&&(rerouteAfterClarification||!('), 'the customer answer to a degraded clarification must return through canonical intent routing');
   assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate submission to the canonical workflow');
   assert.ok(!app.includes('function initChatUIAppSubmitWorkflow'), 'the root entry must not embed a second submit workflow');
 }

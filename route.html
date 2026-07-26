@@ -488,7 +488,7 @@
   <g class="fallback-pill">
     <rect x="1041" y="572" width="208" height="18" rx="5" fill="#f6f1ff" stroke="#e4d9fb"/>
     <path d="M1052 577v5h5" fill="none" stroke="#7a52d4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="1063" y="586" font-size="11.2" font-weight="600" fill="#6842bb">澄清只修复；可执行失败才重新识别</text>
+    <text x="1063" y="586" font-size="11.2" font-weight="600" fill="#6842bb">已声明澄清 → 立即终止路由</text>
   </g>
 
   <!-- card 09 -->
@@ -501,8 +501,8 @@
   <text x="1384" y="476" class="card-title sm">合同校验</text>
   <g color="#0aad78" transform="translate(1506 453)"><use href="#icon-db" width="29" height="29"/></g>
   <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value small">task_contract.v5</text>
-  <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">稳定 ID 规范化 → 校验</text>
-  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">计划或结构化澄清</text>
+  <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">澄清终止 / 执行校验</text>
+  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">客户问题或执行计划</text>
 
   <!-- phase 3 -->
   <g filter="url(#shadowPurple)">
@@ -532,8 +532,8 @@
   <text x="312" y="710" class="card-num" fill="url(#purple)">10</text>
   <text x="376" y="706" class="card-title sm">合同修复</text>
   <g color="#6f55df" transform="translate(474 680)"><use href="#icon-shield-check" width="35" height="35"/></g>
-  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">无效结构/绑定失败</text>
-  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value small">保持 readiness 限次修复</text>
+  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">未声明澄清的无效合同</text>
+  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value small">同模型限次修复</text>
   <text x="314" y="812" class="card-label">输出：</text><text x="376" y="812" class="card-value small">有效合同/安全停止</text>
 
   <!-- card 11 -->
@@ -545,9 +545,9 @@
   <text x="652" y="710" class="card-num" fill="url(#purple)">11</text>
   <text x="717" y="706" class="card-title sm">澄清分支</text>
   <g color="#7658e0" transform="translate(819 678)"><use href="#icon-question" width="35" height="35"/></g>
-  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small">结构化澄清</text>
-  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small">展示候选、保存原合同</text>
-  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small">选择后确定性续办</text>
+  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small">needs_clarification</text>
+  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small">立即展示并保存续办策略</text>
+  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small">选择续办 / 回答后重路由</text>
 
   <!-- card 12 -->
   <g filter="url(#shadowPurple)">

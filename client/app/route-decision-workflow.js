@@ -92,6 +92,19 @@
         : readinessRequirement !== 'needs_clarification' || route?.needClarification === true;
       let readinessRequirement = mergeReadiness(requiredReadiness, routeSvc?.readRouteReadiness?.(raw) || '');
       const initial = inspectRoute(routeSvc, raw, options);
+      if (readinessRequirement === 'needs_clarification') {
+        const terminalRoute = initial.route
+          || routeSvc?.terminalClarificationRouteFromResult?.(raw, options)
+          || invalidContractClarificationRoute();
+        return {
+          route: terminalRoute,
+          reason: '',
+          repaired: false,
+          repairRaw: '',
+          requiredReadiness: readinessRequirement,
+          clarificationTerminal: true,
+        };
+      }
       if (initial.route && satisfiesReadiness(initial.route)) {
         return { ...initial, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }
@@ -204,8 +217,6 @@
         const context = routeContextOverride || buildRouteContext(sessionId);
         let primaryFailure = null;
         let fallbackFailure = null;
-        let readinessRequirement = '';
-        let constrainedRouteRaw = '';
 
         if (config.baseUrl && primaryModel) {
           try {
@@ -259,11 +270,6 @@
               config, headers: requestHeaders, signal: parentSignal,
             });
             let route = primaryParsed.route;
-            readinessRequirement = routeSvc?.mergeRouteReadinessRequirement?.(readinessRequirement, primaryParsed.requiredReadiness) || primaryParsed.requiredReadiness || readinessRequirement;
-            if (readinessRequirement === 'needs_clarification') {
-              constrainedRouteRaw = [trace.firstRaw, primaryParsed.repairRaw]
-                .find(value => routeSvc?.readRouteReadiness?.(value) === 'needs_clarification') || constrainedRouteRaw;
-            }
             trace.firstValidationReason = primaryParsed.initialReason || primaryParsed.reason || '';
             trace.repairRaw = primaryParsed.repairRaw || '';
             trace.repaired = !!primaryParsed.repaired;
@@ -286,16 +292,12 @@
             primaryFailure = err;
             console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
             try {
-              routeOptions?.onStage?.(readinessRequirement === 'needs_clarification'
-                ? '正在执行：chat 模型修复澄清合同'
-                : '\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad');
+              routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad');
             } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
             if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
-                const fallbackPayload = readinessRequirement === 'needs_clarification' && constrainedRouteRaw && typeof routeSvc?.buildIntentRepairPayload === 'function'
-                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: constrainedRouteRaw, validationReason: primaryFailure?.validationReason || 'contract_shape', expectedReadiness: readinessRequirement })
-                  : routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
+                const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
                 const fallbackRequest = createLinkedAbortController(parentSignal);
                 const fallbackController = fallbackRequest.controller;
                 let fallbackTimedOut = false;
@@ -322,7 +324,7 @@
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
                 const fallbackParsed = await parseOrRepairRoute(routeSvc, {
                   model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
-                  config, headers: requestHeaders, signal: parentSignal, requiredReadiness: readinessRequirement,
+                  config, headers: requestHeaders, signal: parentSignal,
                 });
                 const fallbackRoute = fallbackParsed.route;
                 if (!fallbackRoute) {

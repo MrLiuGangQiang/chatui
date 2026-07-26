@@ -243,6 +243,8 @@
         resumeOperation: routeInfo.resumeOperation || '',
         clarificationSlots: Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [],
         taskContract: routeInfo.taskContract || null,
+        requiresRerouteAfterClarification: routeInfo.requiresRerouteAfterClarification === true,
+        clarificationDegraded: routeInfo.clarificationDegraded === true,
       } : null,
       sourceImageContext: sourceImageContext || previousImageContext,
       sourceAttachmentContext,

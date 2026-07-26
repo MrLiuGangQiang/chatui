@@ -519,25 +519,21 @@ async function testStableClarificationIdentityPreventsFallbackFromChoosingForThe
   }
 }
 
-async function testMalformedClarificationFallbackCanOnlyRepairTheClarification() {
-  const valid = structuredCompositionClarificationContract();
-  const malformed = structuredClone(valid);
-  malformed.clarification.unresolved_resources[0].choices = [malformed.clarification.unresolved_resources[0].choices[0]];
-  const guessedExecutable = structuredClone(valid);
-  guessedExecutable.readiness = 'ready';
-  guessedExecutable.resources.push({ key: 'r2', type: 'image', source: 'history', role: 'reference', index: 2, id: 'img-fish-b', reference_id: 'imgref-fish-b', missing: false });
-  guessedExecutable.clarification = { question: '', unresolved_resources: [] };
+async function testDerivedClarificationMetadataCannotTriggerRepairOrFallback() {
+  const incompleteDirective = structuredCompositionClarificationContract();
+  incompleteDirective.directive.base_resource_keys = ['r1'];
+  incompleteDirective.directive.operations = [];
+  incompleteDirective.directive.unmentioned_policy = 'allow_change';
   const requests = [];
   const harness = createRouteHarness({
     config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
     sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
     requestJson: async (_url, payload) => {
       requests.push(payload);
-      return responseFor(requests.length === 1 ? malformed : requests.length === 2 ? guessedExecutable : valid);
+      if (requests.length > 1) throw new Error('declared clarification must be terminal');
+      return responseFor(incompleteDirective);
     },
   });
-  const originalWarn = console.warn;
-  console.warn = () => {};
   try {
     const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
       image_candidates: [
@@ -546,16 +542,55 @@ async function testMalformedClarificationFallbackCanOnlyRepairTheClarification()
         { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
       ],
     });
-    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model', 'route-model', 'chat-model']);
-    assert.ok(requests[2].messages[0].content.includes('路由合同修复器'), 'the fallback model must repair the clarification contract instead of making a fresh routing decision');
-    const fallbackInput = JSON.parse(requests[2].messages[1].content);
-    assert.strictEqual(JSON.parse(fallbackInput.previous_route_output).operation, 'image_reference_gen');
-    assert.strictEqual(fallbackInput.required_readiness, 'needs_clarification');
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model'], 'derived execution metadata must never cause a second model to reinterpret a declared clarification');
+    assert.deepStrictEqual(route.taskContract.directive.base_resource_keys, ['r1', 'r2'], 'the runtime must derive every declared resource-slot baseline without choosing a candidate');
     assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    const resumed = routeService.resolveClarificationRoute(route.taskContract, [{ resource_key: 'r2', choice_key: 'c2' }], { input: 'combine the cat and fish' });
+    assert.ok(resumed);
+    assert.strictEqual(resumed.api, 'image_edit');
+    assert.deepStrictEqual(resumed.selectedImageIds, ['img-cat', 'img-fish-b']);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testMalformedClarificationIsTerminalWithoutRepairOrFallback() {
+  const valid = structuredCompositionClarificationContract();
+  const malformed = structuredClone(valid);
+  malformed.clarification.unresolved_resources[0].choices = [malformed.clarification.unresolved_resources[0].choices[0]];
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      if (requests.length > 1) throw new Error('a declared clarification must not be repaired or rerouted');
+      return responseFor(malformed);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model']);
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
     assert.strictEqual(route.operationType, 'image_reference_gen');
     assert.strictEqual(route.resumeOperation, 'image_reference_gen');
+    assert.strictEqual(route.taskContract, null, 'unsafe structured choices must not be persisted as an executable contract');
+    assert.strictEqual(route.clarificationDegraded, true);
+    assert.strictEqual(route.requiresRerouteAfterClarification, true, 'the customer answer must return to normal routing instead of local execution');
+    assert.strictEqual(route.clarificationQuestion, malformed.clarification.question, 'the original clarification content must be shown to the customer');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
   } finally {
-    console.warn = originalWarn;
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
   }
@@ -780,8 +815,8 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate'));
-  assert.ok(index.includes('route-decision-workflow.js?v=3.1.0-monotonic-readiness'));
+  assert.ok(index.includes('submit-workflow.js?v=1.3.2-clarification-reroute'));
+  assert.ok(index.includes('route-decision-workflow.js?v=3.2.0-terminal-clarification'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
@@ -800,7 +835,8 @@ module.exports = [
   testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
   testOperationPreservingClarificationIsPrimaryTerminalOutcome,
   testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,
-  testMalformedClarificationFallbackCanOnlyRepairTheClarification,
+  testDerivedClarificationMetadataCannotTriggerRepairOrFallback,
+  testMalformedClarificationIsTerminalWithoutRepairOrFallback,
   testResourceFreePlainChatFollowupIsSingleFlight,
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,

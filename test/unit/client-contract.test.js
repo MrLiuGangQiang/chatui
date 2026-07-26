@@ -22,6 +22,7 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
     'isTaskContractResult',
     'parseRouteResult',
     'resolveClarificationRoute',
+    'terminalClarificationRouteFromResult',
     'mergeRouteReadinessRequirement',
     'isRouteDispatchable',
     'buildRoutePayload',
@@ -92,6 +93,35 @@ function testRouteResultInspectionSeparatesShapeAndResourceFailures() {
   }));
   assert.strictEqual(unknownField.route, null);
   assert.strictEqual(unknownField.reason, 'contract_shape');
+
+  const declaredClarification = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'task_contract.v5', readiness: 'needs_clarification', operation: 'image_reference_gen', relation: 'followup', resources: [],
+    directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'preserve', operations: [], constraints: [] },
+    clarification: {
+      question: 'Which fish image should be used?',
+      unresolved_resources: [{
+        key: 'r1', type: 'image', role: 'reference', reason: 'ambiguous',
+        choices: [{ key: 'c1', source: 'history', index: 1, id: 'unbound-fish', reference_id: 'unbound-ref', label: 'fish' }],
+      }],
+    },
+    confidence: 0, review_reasons: [], rationale: 'the route requires a customer choice',
+  }));
+  assert.strictEqual(declaredClarification.reason, '', 'a declared clarification is a successful non-executing route even when its future execution contract is incomplete');
+  assert.strictEqual(declaredClarification.route.api, 'clarify');
+  assert.strictEqual(declaredClarification.route.dispatchAuthorized, false);
+  assert.strictEqual(declaredClarification.route.taskContract, null);
+  assert.strictEqual(declaredClarification.route.requiresRerouteAfterClarification, true);
+  assert.strictEqual(declaredClarification.route.clarificationQuestion, 'Which fish image should be used?');
+  const degradedPending = clarificationService.createPendingClarification({
+    messages: [
+      { role: 'user', content: 'combine the cat and fish' },
+      { role: 'assistant', content: declaredClarification.route.clarificationQuestion },
+    ],
+    clarificationText: declaredClarification.route.clarificationQuestion,
+    routeInfo: declaredClarification.route,
+  });
+  assert.strictEqual(degradedPending.routeInfo.requiresRerouteAfterClarification, true, 'a degraded clarification must persist the requirement to reroute after the customer answers');
+  assert.strictEqual(degradedPending.routeInfo.clarificationDegraded, true);
 }
 
 function testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles() {
@@ -585,7 +615,7 @@ function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingFor
       reference_id: 'imgref_pending-submit-submit-ms1628mm-7ym9tfcp', missing: false,
     }],
     directive: {
-      mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'allow_change',
+      mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'allow_change',
       operations: [{ op: 'add', target: 'prompt', value: '把猫和鱼合并成一张图，场景要自然协调' }], constraints: [],
     },
     clarification: {
@@ -635,6 +665,7 @@ function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingFor
   assert.strictEqual(route.api, 'clarify');
   assert.strictEqual(route.dispatchAuthorized, false);
   assert.strictEqual(routeService.isRouteDispatchable(route), false);
+  assert.deepStrictEqual(route.taskContract.directive.base_resource_keys, ['r1', 'r2'], 'non-executing directive bindings must be derived from the declared resource slots');
   assert.strictEqual(route.taskContract.resources[0].index, 4, 'the runtime candidate table owns the canonical display index');
   assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.index), [1, 2]);
   assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.key), ['c1', 'c2'], 'canonicalization must retain every user choice');

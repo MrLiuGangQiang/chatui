@@ -556,6 +556,85 @@
     return { ...normalized, resources, clarification };
   }
 
+  function projectFields(value = {}, fields = []) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(fields.map(field => [field, source[field]]));
+  }
+
+  function canonicalClarificationDirective(task = {}) {
+    const resources = Array.isArray(task.resources) ? task.resources : [];
+    const slots = Array.isArray(task.clarification?.unresolved_resources) ? task.clarification.unresolved_resources : [];
+    const baselineKeys = [];
+    const seen = new Set();
+    for (const resource of [...resources, ...slots]) {
+      const key = String(resource?.key || '');
+      if (resource?.type === 'text' || !/^r[1-9]\d*$/.test(key) || seen.has(key)) continue;
+      seen.add(key);
+      baselineKeys.push(key);
+    }
+    const hasHistoricalBinding = resources.some(resource => ['quoted', 'history', 'context'].includes(resource?.source))
+      || slots.some(slot => (slot?.choices || []).some(choice => ['quoted', 'history', 'context'].includes(choice?.source)));
+    const operationRequiresPatch = ['edit_image', 'image_reference_gen'].includes(task.operation);
+    const requestedPatch = task.directive?.mode === 'patch' && baselineKeys.length > 0;
+    const mode = operationRequiresPatch || hasHistoricalBinding || requestedPatch ? 'patch' : 'standalone';
+    const constraints = Array.isArray(task.directive?.constraints)
+      ? task.directive.constraints.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim())
+      : [];
+    if (mode === 'standalone') {
+      return { mode, base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints };
+    }
+    const operations = Array.isArray(task.directive?.operations)
+      ? task.directive.operations.filter(operation => {
+          if (!hasOnlyFields(operation, PATCH_OPERATION_FIELDS)) return false;
+          if (!VALID_PATCH_OPERATIONS.has(operation.op) || typeof operation.target !== 'string' || !operation.target.trim() || typeof operation.value !== 'string') return false;
+          if ((operation.op === 'add' || operation.op === 'replace') && !operation.value.trim()) return false;
+          return !((operation.op === 'remove' || operation.op === 'preserve') && operation.value !== '');
+        }).map(operation => ({ ...operation, target: operation.target.trim(), value: operation.value.trim() }))
+      : [];
+    const unmentionedPolicy = VALID_UNMENTIONED_POLICIES.has(task.directive?.unmentioned_policy)
+      ? task.directive.unmentioned_policy
+      : 'preserve';
+    return { mode, base_resource_keys: baselineKeys, unmentioned_policy: unmentionedPolicy, operations, constraints };
+  }
+
+  function canonicalizeClarificationContract(task = {}, options = {}) {
+    const normalized = normalizeContractVersion(task);
+    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized) || normalized.readiness !== 'needs_clarification') return normalized;
+    const resources = Array.isArray(normalized.resources)
+      ? normalized.resources.map(resource => projectFields(resource, RESOURCE_FIELDS))
+      : normalized.resources;
+    const unresolvedResources = Array.isArray(normalized.clarification?.unresolved_resources)
+      ? normalized.clarification.unresolved_resources.map(slot => ({
+          ...projectFields(slot, UNRESOLVED_RESOURCE_FIELDS),
+          choices: Array.isArray(slot?.choices)
+            ? slot.choices.map(choice => projectFields(choice, CLARIFICATION_CHOICE_FIELDS))
+            : slot?.choices,
+        }))
+      : normalized.clarification?.unresolved_resources;
+    const candidate = {
+      schema_version: normalized.schema_version,
+      readiness: 'needs_clarification',
+      operation: normalized.operation,
+      relation: normalized.relation,
+      resources,
+      directive: canonicalClarificationDirective({
+        ...normalized,
+        resources,
+        clarification: { question: normalized.clarification?.question, unresolved_resources: unresolvedResources },
+      }),
+      clarification: {
+        question: typeof normalized.clarification?.question === 'string' ? normalized.clarification.question : '',
+        unresolved_resources: unresolvedResources,
+      },
+      confidence: Number.isFinite(normalized.confidence) ? Math.max(0, Math.min(1, normalized.confidence)) : 0,
+      review_reasons: Array.isArray(normalized.review_reasons)
+        ? normalized.review_reasons.filter(reason => typeof reason === 'string' && reason.trim()).map(reason => reason.trim())
+        : [],
+      rationale: typeof normalized.rationale === 'string' ? normalized.rationale : '',
+    };
+    return canonicalizeContractBindings(candidate, options);
+  }
+
   function hasResolvedResourceBindings(task = {}, options = {}) {
     task = normalizeContractVersion(task);
     if (!hasExactContractShape(task)) return false;
@@ -811,6 +890,7 @@
     SCHEMA_VERSION,
     normalizeContractVersion,
     canonicalizeContractBindings,
+    canonicalizeClarificationContract,
     contractApi,
     hasExactContractShape,
     hasResolvedResourceBindings,

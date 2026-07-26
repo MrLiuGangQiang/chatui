@@ -646,8 +646,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate'), 'submit workflow cache version should include the contract dispatch gate');
-  assert.ok(index.includes('clarification-service.js?v=1.0.8-task-contract-v5'), 'clarification service cache version should be bumped for task_contract.v5');
+  assert.ok(index.includes('submit-workflow.js?v=1.3.2-clarification-reroute'), 'submit workflow cache version should include the clarification reroute boundary');
+  assert.ok(index.includes('clarification-service.js?v=1.0.9-clarification-reroute'), 'clarification service cache version should preserve the clarification resume policy');
   assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
 }
 
@@ -1714,7 +1714,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.2-clarification-reroute') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -2407,7 +2407,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
   assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
   assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
-  assert.ok(routeDiagram.includes('task_contract.v5') && routeDiagram.includes('结构化澄清') && routeDiagram.includes('展示候选、保存原合同') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the readiness-based structured clarification contract and durable handoff flow');
+  assert.ok(routeDiagram.includes('task_contract.v5') && routeDiagram.includes('needs_clarification') && routeDiagram.includes('立即展示并保存续办策略') && routeDiagram.includes('选择续办 / 回答后重路由') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe terminal clarification, safe continuation, and durable handoff');
   assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
   const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
   assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');
@@ -3109,7 +3109,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.1.0-stable-resource-identity') && index.includes('submit-workflow.js?v=1.3.1-contract-dispatch-gate') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=3.1.0-monotonic-readiness') && index.includes('route-service.js?v=3.1.0-monotonic-dispatch') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should match stable resource identity and monotonic dispatch');
+  assert.ok(index.includes('intent-contract.js?v=3.2.0-terminal-clarification') && index.includes('submit-workflow.js?v=1.3.2-clarification-reroute') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=3.2.0-terminal-clarification') && index.includes('route-service.js?v=3.2.0-terminal-clarification') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver terminal clarification and reroute semantics');
 }
 
 function testImageSuccessResultReconciliation() {

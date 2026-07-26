@@ -17,7 +17,7 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的任务路由器。只把请求�
 3. resources 只放已唯一绑定的资源，missing 固定 false。图片和文件的 id/reference_id 是稳定身份，必须原样复制候选值；index 只是本次候选表中的展示位置，也要复制但不能用它替代稳定身份。当前附件索引使用 attachments.media_index。只按候选元数据匹配，不要猜图片或文件内容。
 4. 当所有资源已唯一确定时 readiness=ready，clarification.question="" 且 unresolved_resources=[]。
 5. 只要必需资源缺失、候选无法消歧或目标不能确定，readiness=needs_clarification。保留真实 operation；已确定资源仍放 resources，未确定资源只放 clarification.unresolved_resources。ambiguous 必须列出至少两个真实候选并复制 source/index/id/reference_id；missing 的 choices=[]。绝不能替用户选择候选，也不能输出可执行状态。
-6. directive 描述选择完成后的原任务，可引用 unresolved resource key。standalone 必须 base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change；patch 必须列出全部历史、引用或上下文资源。edit_image、image_reference_gen 始终 patch。
+6. directive 描述选择完成后的原任务。needs_clarification 的 patch 必须把每个 unresolved_resources.key 也列入 base_resource_keys；standalone 必须 base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change；patch 必须列出全部历史、引用或上下文资源。edit_image、image_reference_gen 始终 patch。
 7. relation 描述对话关系，不决定 directive。context.quoted_message 表示用户在界面明确选择的消息。没有不确定性则 review_reasons=[]；rationale 只写一行依据。`;
 
 const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `硬约束：逐字段输出，绝不省略，空数组也输出 []。needs_clarification 必须保留真实 operation 和未决资源；ready 时 clarification 必须为空。不得替用户选择。只输出 task_contract.v5。`;
@@ -350,20 +350,95 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   };
 }
 
-function inspectRouteResult(text = '', options = {}) {
-  const value = String(text || '').trim();
-  if (!value) return { route: null, reason: 'empty_response' };
+function inspectTaskContract(taskContract = {}, options = {}) {
+  if (!isTaskContractResult(taskContract)) return { route: null, reason: 'contract_shape' };
   try {
-    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(value))), options.context);
-    const taskContract = typeof intentContract?.canonicalizeContractBindings === 'function'
-      ? intentContract.canonicalizeContractBindings(decoded, options)
-      : decoded;
-    if (!isTaskContractResult(taskContract)) return { route: null, reason: 'contract_shape' };
     const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
     return { route: attachComposedPrompt(executionPlan, taskContract, options), reason: '' };
   } catch (error) {
     const message = String(error?.message || '');
     return { route: null, reason: /resource/i.test(message) ? 'resource_binding' : 'contract_semantics' };
+  }
+}
+
+function declaredClarificationQuestion(task = {}) {
+  const question = typeof task?.clarification?.question === 'string' ? task.clarification.question.trim() : '';
+  return question || '请补充完成当前任务所需的信息后继续。';
+}
+
+function nonExecutingClarificationRoute(task = {}, validationReason = 'contract_shape') {
+  const operation = String(task?.operation || '');
+  const operationApi = intentContract?.contractApi?.(task) || '';
+  return {
+    mode: 'chat',
+    api: 'clarify',
+    operationApi,
+    readiness: 'needs_clarification',
+    dispatchAuthorized: false,
+    relation: String(task?.relation || ''),
+    operationType: operation,
+    resumeOperation: operation,
+    resumeApi: operationApi,
+    target: 'none',
+    intent: 'clarify',
+    needClarification: true,
+    clarificationQuestion: declaredClarificationQuestion(task),
+    clarificationSlots: [],
+    confidence: Number.isFinite(task?.confidence) ? Math.max(0, Math.min(1, task.confidence)) : 0,
+    evidence: typeof task?.rationale === 'string' ? task.rationale : '',
+    selectedIndexes: [],
+    selectedImageIndexes: [],
+    selectedFileIndexes: [],
+    selectedImageIds: [],
+    selectedReferenceId: '',
+    imageRefs: [],
+    fileRefs: [],
+    messageRefs: [],
+    taskContract: null,
+    localClarification: false,
+    clarificationDegraded: true,
+    clarificationValidationReason: String(validationReason || 'contract_shape'),
+    requiresRerouteAfterClarification: true,
+  };
+}
+
+function inspectDeclaredClarification(task = {}, options = {}) {
+  const canonical = typeof intentContract?.canonicalizeClarificationContract === 'function'
+    ? intentContract.canonicalizeClarificationContract(task, options)
+    : task;
+  const structured = inspectTaskContract(canonical, options);
+  if (structured.route) return { ...structured, clarificationTerminal: true };
+  return {
+    route: nonExecutingClarificationRoute(decodeTaskContract(task), structured.reason),
+    reason: '',
+    clarificationTerminal: true,
+    clarificationDegraded: true,
+    clarificationValidationReason: structured.reason,
+  };
+}
+
+function terminalClarificationRouteFromResult(text = '', options = {}) {
+  try {
+    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(text))), options.context);
+    if (routeReadiness(decoded) !== 'needs_clarification') return null;
+    return inspectDeclaredClarification(decoded, options).route;
+  } catch {
+    return null;
+  }
+}
+
+function inspectRouteResult(text = '', options = {}) {
+  const value = String(text || '').trim();
+  if (!value) return { route: null, reason: 'empty_response' };
+  try {
+    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(value))), options.context);
+    if (routeReadiness(decoded) === 'needs_clarification') return inspectDeclaredClarification(decoded, options);
+    const taskContract = typeof intentContract?.canonicalizeContractBindings === 'function'
+      ? intentContract.canonicalizeContractBindings(decoded, options)
+      : decoded;
+    return inspectTaskContract(taskContract, options);
+  } catch (error) {
+    return { route: null, reason: 'contract_semantics' };
   }
 }
 
@@ -511,6 +586,7 @@ const api = Object.freeze({
   needsIntentReview,
   isTaskContractResult,
   isClarificationCandidate,
+  terminalClarificationRouteFromResult,
   inspectRouteResult,
   parseRouteResult,
   resolveClarificationRoute,

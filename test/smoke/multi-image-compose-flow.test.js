@@ -57,7 +57,7 @@ function imageReferenceClarificationContract(knownCandidate, choices) {
     resources,
     directive: {
       mode: 'patch',
-      base_resource_keys: ['r1', 'r2'],
+      base_resource_keys: ['r1'],
       unmentioned_policy: 'allow_change',
       operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
       constraints: [],
@@ -101,6 +101,7 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
   assert.strictEqual(clarificationRoute.api, 'clarify');
   assert.strictEqual(clarificationRoute.dispatchAuthorized, false);
   assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
+  assert.deepStrictEqual(clarificationRoute.taskContract.directive.base_resource_keys, ['r1', 'r2']);
   const colorFishChoice = clarificationRoute.taskContract.clarification.unresolved_resources[0].choices.find(choice => choice.label === '画一条彩色鱼');
   const route = routeService.resolveClarificationRoute(clarificationRoute.taskContract, [{ resource_key: 'r2', choice_key: colorFishChoice.key }], { input });
 

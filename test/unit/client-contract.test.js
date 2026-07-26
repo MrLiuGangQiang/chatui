@@ -39,13 +39,17 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
 function testRoutePromptIsOneOrderedDecisionSpecification() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('按以下顺序决策'), 'the route prompt must give the model one explicit decision order');
-  for (const step of ['1.', '2.', '3.', '4.', '5.', '6.', '7.']) assert.ok(system.includes(step), `missing route decision step: ${step}`);
+  for (const step of ['1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.']) assert.ok(system.includes(step), `missing route decision step: ${step}`);
   assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
   assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
-  assert.ok(system.length < 3600, 'the complete primary routing specification must stay cognitively compact');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 260, 'the final check should remain a short invariant check, not duplicate the routing rules');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('绝不省略'), 'the first route request must require a complete contract even when the intent is simple');
+  assert.ok(system.length < 4500, 'the complete primary routing specification must stay cognitively compact');
+  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa/ocr', 'text_to_image', 'image_compare', 'edit_image', 'image_reference_gen']) {
+    assert.ok(system.includes(operation), `the contract self-check must cover ${operation}`);
+  }
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 340, 'the final check should remain a compact invariant list, not duplicate the routing rules');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('逐字段输出'), 'the first route request must require a complete contract even when the intent is simple');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('空数组也输出 []'), 'the first route request must explicitly retain empty contract fields instead of relying on contract repair');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('role=reference|style_reference') && routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('preserve/remove 的 value=""'), 'the final check must state the exact image-reference roles and directive values');
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {

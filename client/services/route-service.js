@@ -1,30 +1,31 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
-const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。只把请求转换成严格的 task_contract.v3 JSON；不回答用户，不要输出 Markdown、解释、代码围栏或额外字段。
+const ROUTE_SYSTEM_PROMPT = `你是 ChatUI 的任务路由器。只把请求转换成严格的 task_contract.v4 JSON；不回答用户，不要输出 Markdown、解释、代码围栏或额外字段。
 
 唯一合法结构：
-{"schema_version":"task_contract.v3","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify","relation":"new|followup|correction|continuation","resources":[{"key":"r1","type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","missing":false}],"directive":{"mode":"standalone|patch","base_resource_keys":[],"unmentioned_policy":"preserve|allow_change","operations":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[]},"clarification":{"question":"","missing_resource_keys":[]},"confidence":0,"review_reasons":[],"rationale":""}
+{"schema_version":"task_contract.v4","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image|clarify","relation":"new|followup|correction|continuation","resources":[{"key":"r1","type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","missing":false}],"directive":{"mode":"standalone|patch","base_resource_keys":[],"unmentioned_policy":"preserve|allow_change","operations":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[]},"clarification":{"question":"","resume_operation":"","unresolved_resources":[{"key":"r2","type":"image|file|text|message","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","reason":"missing|ambiguous","choices":[{"key":"c1","source":"current|quoted|history|context","index":1,"id":"","reference_id":"","label":""}]}]},"confidence":0,"review_reasons":[],"rationale":""}
 
 按以下顺序决策：
 1. 边界：只理解 current_input；attachments 是本轮资源。context 仅用于用户明确引用的对象，绝不让历史覆盖一个完整的新请求。context.quoted_message 是用户明确选择的单条历史消息。
 2. 关系：relation 描述对话关系：new=完整独立请求，followup=回应上文，correction=纠正上次结果，continuation=只要求继续；new 的资源只能 source=current。relation 不决定 directive；无资源普通聊天可以保留真实对话关系。
-3. 操作：plain_chat=普通对话；file_qa=文件问答；multimodal_qa=图文问答；image_qa=看图；image_compare=比较两图；ocr=识字；text_to_image=基于当前输入或引用消息文本生图；image_reference_gen=基于图片生成；edit_image=编辑已有图。仅在必需资源缺失、候选无法消歧或目标不能确定时用 clarify。
-4. 资源：每项使用唯一 r1/r2… 和候选的 1 基 index；当前附件使用类型内编号 attachments.media_index。编辑图=target，看图=source，参考生图=reference，风格参考=style_reference，比较图=compare_a/compare_b，文件=attachment。只按候选元数据匹配，不要猜图片或文件内容；“这张/上一张/那个文件”必须唯一匹配，否则声明 missing=true。
-5. 指令（审计）：standalone 表示没有历史或引用资源基线，base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change；无资源 plain_chat 即使是 followup、correction、continuation 也用 standalone。patch 必须列出非 missing 基线；显式引用历史资源、edit_image、image_reference_gen 必须用 patch。operations 只记录用户明确变化：preserve/remove 的 value 为空，add/replace 的 value 非空；不要重写完整执行提示词。此字段用于校验和审计，不得生成或改写执行提示词。
-6. 澄清与审计：clarify 必须有问题和对应 missing_resource_keys，且 directive 必须 standalone；其他操作不能有 missing 资源或澄清问题。没有不确定性则 review_reasons=[]；rationale 只写一行依据。
+3. 操作：plain_chat=普通对话；file_qa=文件问答；multimodal_qa=图文问答；image_qa=看图；image_compare=比较两图；ocr=识字；text_to_image=基于当前输入或引用消息文本生图；image_reference_gen=把一张或多张图片作为参考生成新图；edit_image=修改一张或多张已有图片。合并多张已有图片生成新构图使用 image_reference_gen，所有输入图角色为 reference；不要把其中一张猜成 edit_image 的 target。仅在必需资源缺失、候选无法消歧或目标不能确定时用 clarify。
+4. 资源：resources 只放已唯一绑定、可执行的资源，每项使用唯一 r1/r2… 和候选的 1 基 index，missing 固定为 false；当前附件使用类型内编号 attachments.media_index。编辑图=target，看图=source，参考生图=reference，风格参考=style_reference，比较图=compare_a/compare_b，文件=attachment。只按候选元数据匹配，不要猜图片或文件内容；“这张/上一张/那个文件”不能唯一匹配时进入结构化澄清。
+5. 指令（审计）：standalone 表示没有历史或引用资源基线，base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change；relation 不决定 directive，仅使用当前资源时可以 standalone。patch 必须列出全部历史、引用或上下文资源；edit_image、image_reference_gen 始终使用 patch 并列出全部输入资源。operations 只记录用户明确变化：preserve/remove 的 value 为空，add/replace 的 value 非空；不要重写完整执行提示词。此字段用于校验和审计，不得生成或改写执行提示词。
+6. 澄清：clarify 是成功的非执行路由，不是无效结果。已确定资源仍放 resources；无法确定的资源只放 clarification.unresolved_resources，绝不能伪造 index=0 或 missing 资源。resume_operation 填用户选择后应继续的真实操作。reason=ambiguous 时 choices 必须逐项列出至少两个真实候选，复制其 source/index/id/reference_id，并用候选的 prompt、filename 或 name 生成简短 label；question 只写选择问题，不重复枚举 labels，前端会统一展示。reason=missing 时 choices=[]。directive 描述选择完成后的原任务，可以引用 unresolved resource key。不要替用户选择候选，也不要把 clarify 改判成可执行操作。非 clarify 时 question=""、resume_operation=""、unresolved_resources=[]。
+7. 审计：没有不确定性则 review_reasons=[]；rationale 只写一行依据。
 
 明确引用的 plain_chat 必须把 quoted_message 作为 source=history、type=message、role=context 的 patch 基线。明确引用消息用于 text_to_image 时，也必须把该消息作为 source=history 或 quoted、type=message、role=context 或 reference 的 patch 基线；它的正文会作为生图提示词上下文，不能把 message 当成 image。候选多不等于歧义；语义元数据能唯一定位就直接执行。`;
 
-const ROUTE_OUTPUT_CONTRACT_CHECK = `硬约束：逐字段输出，绝不省略。directive 必含 mode、base_resource_keys、unmentioned_policy、operations、constraints；空数组也输出 []。确认资源候选匹配、file.reference_id 为空、patch 基线有效；只输出完整 task_contract.v3。`;
+const ROUTE_OUTPUT_CONTRACT_CHECK = `硬约束：逐字段输出，绝不省略。directive 必含 mode、base_resource_keys、unmentioned_policy、operations、constraints；clarification 必含 question、resume_operation、unresolved_resources；空数组也输出 []。确认资源与澄清候选匹配、file.reference_id 为空、patch 基线有效；只输出完整 task_contract.v4。`;
 const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK = `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK}`;
 const MAX_EXECUTION_PROMPT_LENGTH = 3200;
 
 const INTENT_REVIEW_SYSTEM_PROMPT = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}
 
-你现在是独立审计器。输入包含 first_task_contract。逐项检查：是否错误继承历史、relation/operation 是否正确、资源是否唯一且角色正确、patch 基线是否完整、operations 是否只含用户明确变化、未提及内容策略是否正确、是否过度澄清。返回审计后的一个完整 task_contract.v3；即使 confidence 降低也应如实修正。`;
+你现在是独立审计器。输入包含 first_task_contract。逐项检查：是否错误继承历史、relation/operation 是否正确、资源是否唯一且角色正确、澄清是否保留原任务与全部真实候选、patch 基线是否完整、operations 是否只含用户明确变化、未提及内容策略是否正确、是否过度澄清。返回审计后的一个完整 task_contract.v4；即使 confidence 降低也应如实修正。`;
 
-const INTENT_REPAIR_SYSTEM_PROMPT = `你是 ChatUI 路由契约修复器。上一份输出已经表达了用户意图；不要改判操作、关系或资源语义，不要回答用户。只根据给出的候选资源和校验错误修复为完整、严格的 task_contract.v3 JSON。只能输出 JSON，不能输出 Markdown、解释、代码围栏或额外字段。`;
+const INTENT_REPAIR_SYSTEM_PROMPT = `你是 ChatUI 路由契约修复器。上一份输出已经表达了用户意图；不要改判操作、关系、澄清决定或资源语义，不要回答用户。只根据给出的候选资源和校验错误修复为完整、严格的 task_contract.v4 JSON。clarify 必须保留为 clarify 并补全结构化候选，禁止替用户选择后改成执行操作。只能输出 JSON，不能输出 Markdown、解释、代码围栏或额外字段。`;
 
 function strictObject(properties) {
   return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
@@ -33,10 +34,10 @@ function strictObject(properties) {
 const ROUTE_RESPONSE_FORMAT = Object.freeze({
   type: 'json_schema',
   json_schema: {
-    name: 'chatui_task_contract_v3',
+    name: 'chatui_task_contract_v4',
     strict: true,
     schema: strictObject({
-      schema_version: { type: 'string', const: 'task_contract.v3' },
+      schema_version: { type: 'string', const: 'task_contract.v4' },
       operation: { type: 'string', enum: ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify'] },
       relation: { type: 'string', enum: ['new', 'followup', 'correction', 'continuation'] },
       resources: {
@@ -59,7 +60,30 @@ const ROUTE_RESPONSE_FORMAT = Object.freeze({
         operations: { type: 'array', items: strictObject({ op: { type: 'string', enum: ['preserve', 'add', 'replace', 'remove'] }, target: { type: 'string' }, value: { type: 'string' } }) },
         constraints: { type: 'array', items: { type: 'string' } },
       }),
-      clarification: strictObject({ question: { type: 'string' }, missing_resource_keys: { type: 'array', items: { type: 'string', pattern: '^r[1-9][0-9]*$' } } }),
+      clarification: strictObject({
+        question: { type: 'string' },
+        resume_operation: { type: 'string', enum: ['', 'plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image'] },
+        unresolved_resources: {
+          type: 'array',
+          items: strictObject({
+            key: { type: 'string', pattern: '^r[1-9][0-9]*$' },
+            type: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
+            role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
+            reason: { type: 'string', enum: ['missing', 'ambiguous'] },
+            choices: {
+              type: 'array',
+              items: strictObject({
+                key: { type: 'string', pattern: '^c[1-9][0-9]*$' },
+                source: { type: 'string', enum: ['current', 'quoted', 'history', 'context'] },
+                index: { type: 'integer', minimum: 1 },
+                id: { type: 'string' },
+                reference_id: { type: 'string' },
+                label: { type: 'string' },
+              }),
+            },
+          }),
+        },
+      }),
       confidence: { type: 'number', minimum: 0, maximum: 1 },
       review_reasons: { type: 'array', items: { type: 'string' } },
       rationale: { type: 'string' },
@@ -227,6 +251,17 @@ function isTaskContractResult(value = {}) {
     && intentContract.hasExactContractShape(value);
 }
 
+function isClarificationCandidate(text = '') {
+  try {
+    const value = JSON.parse(stripJsonFence(text));
+    return value?.operation === 'clarify'
+      && typeof value?.clarification?.question === 'string'
+      && !!value.clarification.question.trim();
+  } catch {
+    return false;
+  }
+}
+
 function bindExplicitQuotedMessage(task = {}, context = {}) {
   const quote = context?.quoted_message;
   if (!quote || typeof quote !== 'object') return task;
@@ -283,6 +318,13 @@ function inspectRouteResult(text = '', options = {}) {
 
 function parseRouteResult(text = '', options = {}) {
   return inspectRouteResult(text, options).route;
+}
+
+function resolveClarificationRoute(taskContract = {}, selections = [], options = {}) {
+  const resolvedContract = intentContract?.resolveClarificationContract?.(taskContract, selections, options.attachments || []);
+  if (!resolvedContract) return null;
+  const executionPlan = intentContract.taskContractToExecutionPlan(resolvedContract, options);
+  return attachComposedPrompt(executionPlan, resolvedContract, options);
 }
 
 function needsIntentReview(route = {}, context = {}) {
@@ -382,7 +424,7 @@ function buildIntentRepairPayload({ model, input, attachments = [], context = {}
     temperature: 0,
     ...(responseFormat ? { response_format: responseFormat } : {}),
     messages: [
-      { role: 'system', content: INTENT_REPAIR_SYSTEM_PROMPT },
+      { role: 'system', content: `${INTENT_REPAIR_SYSTEM_PROMPT}\n\n${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK}` },
       { role: 'user', content: JSON.stringify(payload) },
     ],
   };
@@ -405,8 +447,10 @@ const api = Object.freeze({
   stripJsonFence,
   needsIntentReview,
   isTaskContractResult,
+  isClarificationCandidate,
   inspectRouteResult,
   parseRouteResult,
+  resolveClarificationRoute,
   buildFileCandidatesFromAttachments,
   compactRoutePayloadContext,
   compactRouteUserPayload,

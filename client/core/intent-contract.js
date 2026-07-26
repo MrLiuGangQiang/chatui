@@ -1,7 +1,7 @@
 (function initChatUIIntentContract(root) {
   'use strict';
 
-  const SCHEMA_VERSION = 'task_contract.v3';
+  const SCHEMA_VERSION = 'task_contract.v4';
   const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
   const VALID_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify']);
   const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
@@ -17,7 +17,10 @@
   const RESOURCE_FIELDS = ['key', 'type', 'source', 'role', 'index', 'id', 'reference_id', 'missing'];
   const DIRECTIVE_FIELDS = ['mode', 'base_resource_keys', 'unmentioned_policy', 'operations', 'constraints'];
   const PATCH_OPERATION_FIELDS = ['op', 'target', 'value'];
-  const CLARIFICATION_FIELDS = ['question', 'missing_resource_keys'];
+  const CLARIFICATION_FIELDS = ['question', 'resume_operation', 'unresolved_resources'];
+  const UNRESOLVED_RESOURCE_FIELDS = ['key', 'type', 'role', 'reason', 'choices'];
+  const CLARIFICATION_CHOICE_FIELDS = ['key', 'source', 'index', 'id', 'reference_id', 'label'];
+  const VALID_UNRESOLVED_REASONS = new Set(['missing', 'ambiguous']);
 
   const API_BY_OPERATION = Object.freeze({
     plain_chat: 'chat',
@@ -56,12 +59,22 @@
     return resources.every(resource => allowed.has(resource.role));
   }
 
-  function hasExactMissingResourceKeys(task = {}) {
-    const declared = task.clarification?.missing_resource_keys || [];
-    const actual = (task.resources || []).filter(resource => resource.missing).map(resource => resource.key);
-    return new Set(declared).size === declared.length
-      && declared.length === actual.length
-      && declared.every(key => actual.includes(key));
+  function clarificationChoiceResource(slot = {}, choice = {}, relation = 'followup') {
+    return {
+      key: slot.key,
+      type: slot.type,
+      source: choice.source || (relation === 'new' ? 'current' : 'context'),
+      role: slot.role,
+      index: Number(choice.index) || 1,
+      id: String(choice.id || ''),
+      reference_id: String(choice.reference_id || ''),
+      missing: false,
+    };
+  }
+
+  function projectedClarificationResources(task = {}) {
+    const slots = task.clarification?.unresolved_resources || [];
+    return slots.map(slot => clarificationChoiceResource(slot, slot.choices?.[0], task.relation));
   }
 
   function hasOperationResourceShape(task = {}) {
@@ -76,11 +89,13 @@
 
     if (files.some(resource => resource.reference_id)) return false;
     if (task.operation === 'clarify') {
-      return hasExactMissingResourceKeys(task)
-        && directive.mode === 'standalone'
-        && directive.base_resource_keys.length === 0
-        && directive.unmentioned_policy === 'allow_change'
-        && directive.operations.length === 0;
+      const resumeOperation = task.clarification?.resume_operation;
+      if (!resumeOperation || resumeOperation === 'clarify') return false;
+      return hasOperationResourceShape({
+        ...task,
+        operation: resumeOperation,
+        resources: [...resources, ...projectedClarificationResources(task)],
+      });
     }
     // The current prompt is already supplied separately to every execution API.
     // Models may represent it explicitly as one neutral text resource without
@@ -179,18 +194,51 @@
     const resourceKeys = new Set();
     for (const resource of value.resources) {
       if (!hasOnlyFields(resource, RESOURCE_FIELDS)) return false;
-      if (!/^r\d+$/.test(resource.key) || resourceKeys.has(resource.key)) return false;
+      if (!/^r[1-9]\d*$/.test(resource.key) || resourceKeys.has(resource.key)) return false;
       resourceKeys.add(resource.key);
       if (!VALID_RESOURCE_TYPES.has(resource.type) || !VALID_RESOURCE_SOURCES.has(resource.source) || !VALID_RESOURCE_ROLES.has(resource.role)) return false;
       if (!Number.isInteger(resource.index) || resource.index < 1) return false;
-      if (typeof resource.id !== 'string' || typeof resource.reference_id !== 'string' || typeof resource.missing !== 'boolean') return false;
+      if (typeof resource.id !== 'string' || typeof resource.reference_id !== 'string' || resource.missing !== false) return false;
       if (value.relation === 'new' && resource.source !== 'current') return false;
+    }
+
+    const clarification = value.clarification;
+    if (typeof clarification.question !== 'string' || typeof clarification.resume_operation !== 'string' || !Array.isArray(clarification.unresolved_resources)) return false;
+    const unresolvedKeys = new Set();
+    for (const slot of clarification.unresolved_resources) {
+      if (!hasOnlyFields(slot, UNRESOLVED_RESOURCE_FIELDS)) return false;
+      if (!/^r[1-9]\d*$/.test(slot.key) || resourceKeys.has(slot.key) || unresolvedKeys.has(slot.key)) return false;
+      unresolvedKeys.add(slot.key);
+      if (!VALID_RESOURCE_TYPES.has(slot.type) || !VALID_RESOURCE_ROLES.has(slot.role) || !VALID_UNRESOLVED_REASONS.has(slot.reason) || !Array.isArray(slot.choices)) return false;
+      if (slot.reason === 'missing' && slot.choices.length !== 0) return false;
+      if (slot.reason === 'ambiguous' && slot.choices.length < 2) return false;
+      const choiceKeys = new Set();
+      const choiceBindings = new Set();
+      for (const choice of slot.choices) {
+        if (!hasOnlyFields(choice, CLARIFICATION_CHOICE_FIELDS)) return false;
+        if (!/^c[1-9]\d*$/.test(choice.key) || choiceKeys.has(choice.key)) return false;
+        choiceKeys.add(choice.key);
+        if (!VALID_RESOURCE_SOURCES.has(choice.source) || !Number.isInteger(choice.index) || choice.index < 1) return false;
+        if (typeof choice.id !== 'string' || typeof choice.reference_id !== 'string' || typeof choice.label !== 'string' || !choice.label.trim()) return false;
+        if (slot.type === 'file' && choice.reference_id) return false;
+        if (value.relation === 'new' && choice.source !== 'current') return false;
+        const binding = `${choice.source}:${choice.index}:${choice.id}:${choice.reference_id}`;
+        if (choiceBindings.has(binding)) return false;
+        choiceBindings.add(binding);
+      }
+    }
+
+    if (value.operation === 'clarify') {
+      if (!clarification.question.trim() || !VALID_OPERATIONS.has(clarification.resume_operation) || clarification.resume_operation === 'clarify' || !clarification.unresolved_resources.length) return false;
+    } else if (clarification.question || clarification.resume_operation || clarification.unresolved_resources.length) {
+      return false;
     }
 
     const directive = value.directive;
     if (!VALID_DIRECTIVE_MODES.has(directive.mode) || !VALID_UNMENTIONED_POLICIES.has(directive.unmentioned_policy)) return false;
     if (!Array.isArray(directive.base_resource_keys) || !Array.isArray(directive.operations) || !Array.isArray(directive.constraints)) return false;
-    if (directive.base_resource_keys.some(key => typeof key !== 'string' || !resourceKeys.has(key) || value.resources.find(resource => resource.key === key)?.missing)) return false;
+    const declaredResourceKeys = new Set([...resourceKeys, ...(value.operation === 'clarify' ? unresolvedKeys : [])]);
+    if (directive.base_resource_keys.some(key => typeof key !== 'string' || !declaredResourceKeys.has(key))) return false;
     if (new Set(directive.base_resource_keys).size !== directive.base_resource_keys.length) return false;
     if (directive.constraints.some(item => typeof item !== 'string' || !item.trim())) return false;
     if (directive.mode === 'standalone') {
@@ -205,21 +253,10 @@
       if ((operation.op === 'remove' || operation.op === 'preserve') && operation.value !== '') return false;
     }
 
-    const clarification = value.clarification;
-    if (typeof clarification.question !== 'string' || !Array.isArray(clarification.missing_resource_keys)) return false;
-    if (clarification.missing_resource_keys.some(key => !resourceKeys.has(key) || !value.resources.find(resource => resource.key === key)?.missing)) return false;
-    if (value.operation === 'clarify') {
-      if (!clarification.question.trim()) return false;
-    } else {
-      if (clarification.question || clarification.missing_resource_keys.length || value.resources.some(resource => resource.missing)) return false;
-      // A discourse relation does not by itself create an executable resource
-      // baseline. Resource-free plain chat can acknowledge, correct, or continue
-      // the conversation while still using a standalone directive. Any declared
-      // message/media binding remains subject to the normal patch requirements.
-      const resourceFreePlainChat = value.operation === 'plain_chat'
-        && value.resources.every(resource => resource.type === 'text');
-      if (value.relation !== 'new' && directive.mode !== 'patch' && !resourceFreePlainChat) return false;
-    }
+    const baselineResources = value.operation === 'clarify'
+      ? [...value.resources, ...clarification.unresolved_resources.flatMap(slot => slot.choices.map(choice => clarificationChoiceResource(slot, choice, value.relation)))]
+      : value.resources;
+    if (baselineResources.some(resource => ['quoted', 'history', 'context'].includes(resource.source) && !directive.base_resource_keys.includes(resource.key))) return false;
 
     return hasOperationResourceShape(value);
   }
@@ -400,15 +437,19 @@
   function hasResolvedResourceBindings(task = {}, options = {}) {
     if (!hasExactContractShape(task)) return false;
     const resolved = [];
-    for (const resource of task.resources || []) {
-      if (resource.missing || !EXECUTION_BOUND_RESOURCE_TYPES.has(resource.type)) continue;
+    const operation = task.operation === 'clarify' ? task.clarification.resume_operation : task.operation;
+    const choiceResources = task.operation === 'clarify'
+      ? task.clarification.unresolved_resources.flatMap(slot => slot.choices.map(choice => clarificationChoiceResource(slot, choice, task.relation)))
+      : [];
+    for (const resource of [...(task.resources || []), ...choiceResources]) {
+      if (!EXECUTION_BOUND_RESOURCE_TYPES.has(resource.type)) continue;
       const candidate = resource.type === 'message'
         ? resolveMessageResource(resource, options)
-        : resolveResourceCandidate(resource, resource.type, { ...options, operation: task.operation });
+        : resolveResourceCandidate(resource, resource.type, { ...options, operation });
       if (!candidate) return false;
       resolved.push({ resource, candidate });
     }
-    if (task.operation === 'image_compare') {
+    if (operation === 'image_compare' && task.operation !== 'clarify') {
       const imageKeys = new Set(resolved
         .filter(item => item.resource.type === 'image')
         .map(item => `${item.candidate.id || item.candidate.referenceId || ''}:${item.candidate.source}:${item.candidate.index}`));
@@ -470,7 +511,7 @@
   }
 
   function taskContractToExecutionPlan(task = {}, options = {}) {
-    if (!hasExactContractShape(task)) throw new TypeError('A valid task_contract.v3 is required');
+    if (!hasExactContractShape(task)) throw new TypeError('A valid task_contract.v4 is required');
     if (options.requireCandidateMatch === true && !hasResolvedResourceBindings(task, options)) throw new TypeError('Task resources must resolve to unique candidates');
     const input = String(options.input || '').trim();
     const imageRefs = resourceRefs(task, 'image', options);
@@ -503,7 +544,34 @@
     };
 
     if (task.operation === 'clarify') {
-      return { ...common, mode: 'chat', target: 'none', needClarification: true, clarificationQuestion: task.clarification.question, selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedReferenceId: '', selectedImageIds: [], imageRefs: [], fileRefs: [], messageRefs: [], intent: 'clarify' };
+      const slots = task.clarification.unresolved_resources.map(slot => ({
+        ...slot,
+        choices: slot.choices.map(choice => ({ ...choice })),
+      }));
+      const choiceLines = slots.flatMap((slot, slotIndex) => {
+        if (!slot.choices.length) return [];
+        const heading = slots.length > 1 ? [`${slotIndex + 1}. ${slot.key}`] : [];
+        return [...heading, ...slot.choices.map((choice, choiceIndex) => `${slots.length > 1 ? '   ' : ''}${choiceIndex + 1}. ${choice.label}`)];
+      });
+      const clarificationQuestion = [task.clarification.question.trim(), choiceLines.join('\n')].filter(Boolean).join('\n');
+      return {
+        ...common,
+        mode: 'chat',
+        target: 'none',
+        needClarification: true,
+        clarificationQuestion,
+        clarificationSlots: slots,
+        resumeOperation: task.clarification.resume_operation,
+        selectedIndexes: [],
+        selectedImageIndexes: [],
+        selectedFileIndexes: [],
+        selectedReferenceId: '',
+        selectedImageIds: [],
+        imageRefs: [],
+        fileRefs: [],
+        messageRefs: [],
+        intent: 'clarify',
+      };
     }
     if (api === 'image_generation') {
       return { ...common, mode: 'image', target: 'new', contextualImagePrompt: input, intent: task.operation };
@@ -531,6 +599,69 @@
     return task.review_reasons.length > 0 || task.confidence < 0.72 || task.operation === 'clarify';
   }
 
+  function resolveClarificationContract(task = {}, selections = [], attachments = []) {
+    if (!hasExactContractShape(task) || task.operation !== 'clarify' || !Array.isArray(selections) || !Array.isArray(attachments)) return null;
+    const selectionMap = new Map();
+    for (const selection of selections) {
+      if (!hasOnlyFields(selection, ['resource_key', 'choice_key'])) return null;
+      if (typeof selection.resource_key !== 'string' || typeof selection.choice_key !== 'string' || selectionMap.has(selection.resource_key)) return null;
+      selectionMap.set(selection.resource_key, selection.choice_key);
+    }
+
+    const missingSlotsByType = new Map();
+    for (const slot of task.clarification.unresolved_resources.filter(item => item.reason === 'missing')) {
+      if (!['image', 'file'].includes(slot.type)) return null;
+      const slots = missingSlotsByType.get(slot.type) || [];
+      slots.push(slot);
+      missingSlotsByType.set(slot.type, slots);
+    }
+    const attachmentResources = new Map();
+    for (const [type, slots] of missingSlotsByType) {
+      const candidates = attachments.filter(item => type === 'image' ? item?.is_image === true : item?.is_image !== true);
+      if (candidates.length !== slots.length) return null;
+      slots.forEach((slot, index) => {
+        const candidate = candidates[index];
+        attachmentResources.set(slot.key, {
+          key: slot.key,
+          type,
+          source: 'current',
+          role: slot.role,
+          index: Number(candidate.media_index || candidate.mediaIndex) || index + 1,
+          id: String(type === 'image' ? candidate.image_id || candidate.imageId || candidate.id || '' : candidate.file_id || candidate.fileId || candidate.id || ''),
+          reference_id: '',
+          missing: false,
+        });
+      });
+    }
+
+    const selectedResources = [];
+    for (const slot of task.clarification.unresolved_resources) {
+      const choiceKey = selectionMap.get(slot.key);
+      if (slot.reason === 'missing') {
+        if (choiceKey || !attachmentResources.has(slot.key)) return null;
+        selectedResources.push(attachmentResources.get(slot.key));
+        continue;
+      }
+      const choice = slot.choices.find(item => item.key === choiceKey);
+      if (!choice) return null;
+      selectedResources.push(clarificationChoiceResource(slot, choice, task.relation));
+    }
+    if (selectionMap.size !== task.clarification.unresolved_resources.filter(slot => slot.reason === 'ambiguous').length) return null;
+
+    const resolved = {
+      ...task,
+      operation: task.clarification.resume_operation,
+      resources: [...task.resources, ...selectedResources],
+      clarification: { question: '', resume_operation: '', unresolved_resources: [] },
+    };
+    if (!hasExactContractShape(resolved)) return null;
+    if (resolved.operation === 'image_compare') {
+      const bindings = resolved.resources.filter(resource => resource.type === 'image').map(resource => `${resource.source}:${resource.index}:${resource.id}:${resource.reference_id}`);
+      if (new Set(bindings).size !== 2) return null;
+    }
+    return resolved;
+  }
+
   const api = Object.freeze({
     SCHEMA_VERSION,
     contractApi,
@@ -539,6 +670,7 @@
     resolveResourceCandidate,
     resolveMessageResource,
     messageCandidates,
+    resolveClarificationContract,
     taskContractToExecutionPlan,
     needsIntentReview,
   });

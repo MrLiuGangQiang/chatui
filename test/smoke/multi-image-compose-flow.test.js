@@ -51,7 +51,7 @@ function imageReferenceContract(candidates) {
     missing: false,
   }));
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'image_reference_gen',
     relation: 'followup',
     resources,
@@ -62,7 +62,7 @@ function imageReferenceContract(candidates) {
       operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'model selected the referenced images',

@@ -186,6 +186,7 @@
         const context = routeContextOverride || buildRouteContext(sessionId);
         let primaryFailure = null;
         let fallbackFailure = null;
+        let clarificationRepairRaw = '';
 
         if (config.baseUrl && primaryModel) {
           try {
@@ -243,6 +244,10 @@
             trace.repairRaw = primaryParsed.repairRaw || '';
             trace.repaired = !!primaryParsed.repaired;
             if (!route) {
+              const rejectedRaw = primaryParsed.repairRaw || trace.firstRaw;
+              if (routeSvc?.isClarificationCandidate?.(rejectedRaw) || routeSvc?.isClarificationCandidate?.(trace.firstRaw)) {
+                clarificationRepairRaw = rejectedRaw;
+              }
               const invalid = invalidRouteError('primary');
               invalid.validationReason = primaryParsed.reason || 'contract_shape';
               throw invalid;
@@ -264,7 +269,9 @@
             if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
-                const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
+                const fallbackPayload = clarificationRepairRaw && typeof routeSvc?.buildIntentRepairPayload === 'function'
+                  ? routeSvc.buildIntentRepairPayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, previousOutput: clarificationRepairRaw, validationReason: primaryFailure?.validationReason || 'contract_shape' })
+                  : routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
                 const fallbackRequest = createLinkedAbortController(parentSignal);
                 const fallbackController = fallbackRequest.controller;
                 let fallbackTimedOut = false;
@@ -297,6 +304,11 @@
                 if (!fallbackRoute) {
                   const invalid = invalidRouteError('fallback');
                   invalid.validationReason = fallbackParsed.reason || 'contract_shape';
+                  throw invalid;
+                }
+                if (clarificationRepairRaw && fallbackRoute.operationType !== 'clarify') {
+                  const invalid = invalidRouteError('fallback');
+                  invalid.validationReason = 'clarification_semantics_changed';
                   throw invalid;
                 }
                 setIntentTrace({ input, model: sessionChatModel, context: compactTraceValue(context), attachments: attachmentMeta, finalRoute: fallbackRoute, finalApi: fallbackRoute.api, fallbackAi: true });

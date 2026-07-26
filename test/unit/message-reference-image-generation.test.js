@@ -23,7 +23,7 @@ function quotedMessageContext() {
 
 function messageImageContract(role) {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'text_to_image',
     relation: 'followup',
     resources: [{
@@ -43,7 +43,7 @@ function messageImageContract(role) {
       operations: [],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: role === 'reference' ? 1 : 0.98,
     review_reasons: [],
     rationale: 'Generate from the explicitly quoted historical assistant message.',
@@ -147,7 +147,7 @@ function testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable() {
 
 function testQuotedImageHistoryAliasRequiresAnExplicitQuote() {
   const contract = {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'image_qa',
     relation: 'followup',
     resources: [{
@@ -167,7 +167,7 @@ function testQuotedImageHistoryAliasRequiresAnExplicitQuote() {
       operations: [],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.9,
     review_reasons: [],
     rationale: 'The image candidate is only marked quoted, without a UI quote binding.',
@@ -192,7 +192,7 @@ function testQuotedImageHistoryAliasRequiresAnExplicitQuote() {
 
 function testQuotedImageHistoryAliasCannotCrossMessageIdentity() {
   const contract = {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'image_qa',
     relation: 'followup',
     resources: [{
@@ -202,7 +202,7 @@ function testQuotedImageHistoryAliasCannotCrossMessageIdentity() {
     directive: {
       mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [], constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.9,
     review_reasons: [],
     rationale: 'The quoted image belongs to a different historical message.',

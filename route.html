@@ -63,7 +63,7 @@
 <body>
 <svg class="poster" viewBox="0 0 1672 941" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="posterTitle posterDesc">
   <title id="posterTitle">ChatUI · 奥哲AI助手：12节点执行地图</title>
-  <desc id="posterDesc">三阶段、十二个节点的任务路由执行流程图；资源恢复、澄清续办、复审、备用模型和安全澄清均按条件进入，交接后异步等待结果。</desc>
+  <desc id="posterDesc">三阶段、十二个节点的任务路由执行流程图；资源恢复、结构化澄清续办、合同修复和备用模型均按条件进入，交接后异步等待结果。</desc>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
@@ -454,9 +454,9 @@
   <text x="511" y="478" class="card-num" fill="url(#green)">06</text>
   <text x="575" y="476" class="card-title sm">澄清续办</text>
   <g color="#0aa774" transform="translate(678 451)"><use href="#icon-link" width="32" height="32"/></g>
-  <text x="513" y="521" class="card-label">输入：</text><text x="575" y="521" class="card-value">待澄清/补充</text>
-  <text x="513" y="551" class="card-label">处理：</text><text x="575" y="551" class="card-value">分类并决定合并</text>
-  <text x="513" y="581" class="card-label">输出：</text><text x="575" y="581" class="card-value">合并或新任务</text>
+  <text x="513" y="521" class="card-label">输入：</text><text x="575" y="521" class="card-value">原合同/用户选择</text>
+  <text x="513" y="551" class="card-label">处理：</text><text x="575" y="551" class="card-value">绑定候选选择</text>
+  <text x="513" y="581" class="card-label">输出：</text><text x="575" y="581" class="card-value">恢复原任务/新任务</text>
 
   <!-- card 07 -->
   <g filter="url(#shadowGreen)">
@@ -482,13 +482,13 @@
   <g color="#0aa774" transform="translate(1208 451)"><use href="#icon-route" width="33" height="33"/></g>
   <text x="1043" y="517" class="card-label">输入：</text><text x="1105" y="517" class="card-value small">context/routeModel</text>
   <text x="1043" y="542" class="card-label">处理：</text><text x="1105" y="542" class="card-value small">/chat/completions</text>
-  <text x="1043" y="566" class="card-label">输出：</text><text x="1105" y="566" class="card-value small">task_contract.v3</text>
+  <text x="1043" y="566" class="card-label">输出：</text><text x="1105" y="566" class="card-value small">task_contract.v4</text>
 
   <!-- fallback stays inside the route card so it never covers another stage -->
   <g class="fallback-pill">
     <rect x="1041" y="572" width="208" height="18" rx="5" fill="#f6f1ff" stroke="#e4d9fb"/>
     <path d="M1052 577v5h5" fill="none" stroke="#7a52d4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="1063" y="586" font-size="11.2" font-weight="600" fill="#6842bb">失败且模型不同 → chatModel 备用</text>
+    <text x="1063" y="586" font-size="11.2" font-weight="600" fill="#6842bb">修复失败且模型不同 → chatModel 备用</text>
   </g>
 
   <!-- card 09 -->
@@ -500,9 +500,9 @@
   <text x="1320" y="478" class="card-num" fill="url(#green)">09</text>
   <text x="1384" y="476" class="card-title sm">合同校验</text>
   <g color="#0aad78" transform="translate(1506 453)"><use href="#icon-db" width="29" height="29"/></g>
-  <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value small">task_contract.v3</text>
+  <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value small">task_contract.v4</text>
   <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">校验 → 派生计划</text>
-  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">计划或安全澄清</text>
+  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">计划或结构化澄清</text>
 
   <!-- phase 3 -->
   <g filter="url(#shadowPurple)">
@@ -530,11 +530,11 @@
   </g>
   <line x1="312" y1="725" x2="521" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
   <text x="312" y="710" class="card-num" fill="url(#purple)">10</text>
-  <text x="376" y="706" class="card-title sm">条件复审</text>
+  <text x="376" y="706" class="card-title sm">合同修复</text>
   <g color="#6f55df" transform="translate(474 680)"><use href="#icon-shield-check" width="35" height="35"/></g>
-  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">低置信/理由/clarify</text>
-  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value">审计提示复审</text>
-  <text x="314" y="812" class="card-label">输出：</text><text x="376" y="812" class="card-value small">复审合同/保留首轮</text>
+  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">无效结构/绑定失败</text>
+  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value">同模型限次修复</text>
+  <text x="314" y="812" class="card-label">输出：</text><text x="376" y="812" class="card-value small">有效合同/备用</text>
 
   <!-- card 11 -->
   <g filter="url(#shadowPurple)">
@@ -545,9 +545,9 @@
   <text x="652" y="710" class="card-num" fill="url(#purple)">11</text>
   <text x="717" y="706" class="card-title sm">澄清分支</text>
   <g color="#7658e0" transform="translate(819 678)"><use href="#icon-question" width="35" height="35"/></g>
-  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small">clarify / 无效契约</text>
-  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small">提问、保存 pending</text>
-  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small">补充后续办/新任务</text>
+  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small">结构化 clarify</text>
+  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small">展示候选、保存原合同</text>
+  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small">选择后确定性续办</text>
 
   <!-- card 12 -->
   <g filter="url(#shadowPurple)">
@@ -620,7 +620,7 @@
   <circle cx="1175" cy="897" r="5.5" fill="#ad96ff"/>
   <line x1="1163" y1="897" x2="1205" y2="897" stroke="#847ad2" stroke-width="1.5"/>
   <g color="#aa91ff" transform="translate(549 874)"><use href="#icon-shield-check" width="44" height="44"/></g>
-  <text x="618" y="908" class="bottom-copy">条件分支按需进入：复审、澄清、备用与恢复</text>
+  <text x="618" y="908" class="bottom-copy">条件分支按需进入：修复、澄清、备用与恢复</text>
 </svg>
 </body>
 </html>

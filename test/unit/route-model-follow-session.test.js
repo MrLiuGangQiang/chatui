@@ -12,12 +12,12 @@ const sessionUiWorkflow = require('../../client/app/session-ui-workflow');
 
 function plainChatContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'route model follow-session test',
@@ -34,12 +34,12 @@ function conversationalFollowupContract() {
 
 function quotedFollowupWithoutBindingContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'followup',
     resources: [],
     directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'follow up on the visible quoted message',
@@ -52,12 +52,12 @@ function responseFor(contract = plainChatContract()) {
 
 function currentTextToImageContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'text_to_image',
     relation: 'new',
     resources: [{ key: 'r1', type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false }],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: ['16:9'] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.99,
     review_reasons: [],
     rationale: 'the current text completely describes the image to generate',
@@ -66,15 +66,36 @@ function currentTextToImageContract() {
 
 function reviewedImageEditContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'edit_image',
     relation: 'followup',
     resources: [{ key: 'r1', type: 'image', source: 'history', role: 'target', index: 1, id: 'img-product', reference_id: 'imgref-product', missing: false }],
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'white' }], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.6,
     review_reasons: ['ambiguous target'],
     rationale: 'review is required before editing',
+  };
+}
+
+function structuredCompositionClarificationContract() {
+  return {
+    schema_version: 'task_contract.v4',
+    operation: 'clarify',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'reference', index: 4, id: 'img-cat', reference_id: 'imgref-cat', missing: false }],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'add', target: 'composition', value: 'combine cat and fish' }], constraints: [] },
+    clarification: {
+      question: 'Which fish should be used?',
+      resume_operation: 'image_reference_gen',
+      unresolved_resources: [{ key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'img-fish-a', reference_id: 'imgref-fish-a', label: 'sketched fish' },
+        { key: 'c2', source: 'history', index: 2, id: 'img-fish-b', reference_id: 'imgref-fish-b', label: 'colorful fish' },
+      ] }],
+    },
+    confidence: 0.9,
+    review_reasons: [],
+    rationale: 'two fish candidates remain',
   };
 }
 
@@ -389,6 +410,71 @@ async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition()
   }
 }
 
+async function testValidStructuredClarificationDoesNotTriggerRepairOrFallback() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(structuredCompositionClarificationContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid clarification is a successful primary route and must not be repaired or sent to a fallback recognizer');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.resumeOperation, 'image_reference_gen');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testMalformedClarificationFallbackCanOnlyRepairTheClarification() {
+  const valid = structuredCompositionClarificationContract();
+  const malformed = structuredClone(valid);
+  malformed.clarification.unresolved_resources[0].choices = [malformed.clarification.unresolved_resources[0].choices[0]];
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      return responseFor(requests.length < 3 ? malformed : valid);
+    },
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model', 'route-model', 'chat-model']);
+    assert.ok(requests[2].messages[0].content.includes('路由契约修复器'), 'the fallback model must repair the clarification contract instead of making a fresh routing decision');
+    const fallbackInput = JSON.parse(requests[2].messages[1].content);
+    assert.strictEqual(JSON.parse(fallbackInput.previous_route_output).operation, 'clarify');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.operationType, 'clarify');
+    assert.strictEqual(route.resumeOperation, 'image_reference_gen');
+  } finally {
+    console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testResourceFreePlainChatFollowupIsSingleFlight() {
   const requestedModels = [];
   const harness = createRouteHarness({
@@ -519,7 +605,8 @@ async function testInvalidPrimaryContractUsesSameModelRepairBeforeFallback() {
     const route = await harness.workflow.getEffectiveRoute('Explain this request.', [], 'session-a', {}, {});
     assert.strictEqual(route.operationType, 'plain_chat');
     assert.deepStrictEqual(requested.map(payload => payload.model), ['router-special', 'router-special']);
-    assert.strictEqual(requested[1].messages[0].content, routeService.INTENT_REPAIR_SYSTEM_PROMPT, 'repair must keep the same model and explicitly repair only the rejected contract');
+    assert.ok(requested[1].messages[0].content.startsWith(routeService.INTENT_REPAIR_SYSTEM_PROMPT), 'repair must keep the same model and explicitly repair only the rejected contract');
+    assert.ok(requested[1].messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'repair must receive the complete current contract instead of relying on an obsolete schema memory');
     assert.strictEqual(requested[1].response_format?.json_schema?.strict, true);
   } finally {
     harness.restore();
@@ -624,6 +711,8 @@ module.exports = [
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
   testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
+  testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
+  testMalformedClarificationFallbackCanOnlyRepairTheClarification,
   testResourceFreePlainChatFollowupIsSingleFlight,
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,

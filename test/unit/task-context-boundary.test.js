@@ -15,7 +15,7 @@ function resource(overrides = {}, index = 0) {
 function imageContract({ relation = 'new', operation = 'text_to_image', resources = [], directive = null, confidence = 0.95 } = {}) {
   const patch = relation !== 'new' || operation === 'image_reference_gen';
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation,
     resources: resources.map(resource),
@@ -26,7 +26,7 @@ function imageContract({ relation = 'new', operation = 'text_to_image', resource
       operations: patch ? [{ op: 'add', target: 'current request', value: 'apply the current request' }] : [],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence,
     review_reasons: [],
     rationale: relation === 'new' ? 'fresh image task' : 'related image task',
@@ -135,11 +135,11 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 }
 
 function testRoutePromptsDeclarePatchAndContextBoundary() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v3'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v4'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 描述对话关系'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史覆盖一个完整的新请求'));
-  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('完整 task_contract.v3'));
+  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('完整 task_contract.v4'));
 }
 
 module.exports = [

@@ -123,15 +123,15 @@
     return null;
   }
 
-  const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v1';
+  const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v2';
   const CONTINUATION_SYSTEM_PROMPT = `你是 ChatUI 任务延续分类器，只返回 JSON。
 
 你的任务：判断最新用户输入是否在回答/延续一个未完成的追问，并生成 final_prompt。
 
 重要原则：你不是提示词优化器。final_prompt 只做最小语义补全：根据 base_task 和当前回答补齐省略对象或引用。不要添加用户没说的风格、画质、镜头、构图、氛围、细节或创意发挥。尽量保留用户原话。
 
-  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v3：
-  {"schema_version":"pending_continuation.v1","relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"should_merge":false,"should_clear_pending":false,"reason":""}
+  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v4：
+  {"schema_version":"pending_continuation.v2","relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"selections":[{"resource_key":"r2","choice_key":"c1"}],"should_merge":false,"should_clear_pending":false,"reason":""}
 
 规则：
   - 只有确信最新输入是在回答 pending.question 时，才可将 relation 设为 pending_answer/revision/continuation，且 should_merge=true。
@@ -141,6 +141,8 @@
 - revision/continuation：用户在延续或修改 base_task。
 - new_task：用户开启无关新任务。
 - unclear：信息不足。
+- pending.route_info.task_contract 如果包含结构化 unresolved_resources，用户明确选择 ambiguous 候选后必须从相应 choices 中逐槽返回 resource_key/choice_key；不得自己选择用户未指定的候选。reason=missing 的槽位由本轮同类型上传附件确定，不写入 selections。只有所有 ambiguous 槽位已有选择、所有 missing 槽位已有对应附件时才能 should_merge=true。
+- 没有结构化候选的旧追问使用 selections=[]；new_task/unclear 必须 selections=[]。
 - final_prompt 必须是可直接执行的自然请求，不能包含“本轮补充/原始任务”等内部事务文本。
 - 如果生成 final_prompt 需要加入 base_task/current_input 都没有的信息，就不要加入。
 - 示例：base_task=晚霞图，current_input=山巅的 => final_prompt=山巅的晚霞图。
@@ -184,7 +186,7 @@
     if (!value) return null;
     try {
       const raw = JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
-      const fields = ['schema_version', 'relation', 'confidence', 'final_prompt', 'final_task_mode', 'selected_indexes', 'should_merge', 'should_clear_pending', 'reason'];
+      const fields = ['schema_version', 'relation', 'confidence', 'final_prompt', 'final_task_mode', 'selected_indexes', 'selections', 'should_merge', 'should_clear_pending', 'reason'];
       if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length !== fields.length || fields.some(field => !Object.prototype.hasOwnProperty.call(raw, field))) return null;
       if (raw.schema_version !== CONTINUATION_SCHEMA_VERSION) return null;
       const relation = String(raw.relation || '');
@@ -192,16 +194,23 @@
       if (!Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) return null;
       if (typeof raw.final_prompt !== 'string' || typeof raw.final_task_mode !== 'string' || typeof raw.should_merge !== 'boolean' || typeof raw.should_clear_pending !== 'boolean' || typeof raw.reason !== 'string') return null;
       if (!['image', 'edit_image', 'chat', 'file_qa', 'unknown'].includes(raw.final_task_mode) || !Array.isArray(raw.selected_indexes) || raw.selected_indexes.some(item => !Number.isInteger(item) || item < 1)) return null;
+      if (!Array.isArray(raw.selections) || raw.selections.some(item => {
+        const fields = item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item) : [];
+        return fields.length !== 2 || !fields.includes('resource_key') || !fields.includes('choice_key')
+          || !/^r[1-9][0-9]*$/.test(String(item.resource_key || '')) || !/^c[1-9][0-9]*$/.test(String(item.choice_key || ''));
+      })) return null;
+      if (new Set(raw.selections.map(item => item.resource_key)).size !== raw.selections.length) return null;
       const continuation = ['pending_answer', 'revision', 'continuation'].includes(relation);
       if (raw.should_merge !== continuation) return null;
       if (continuation && (!raw.final_prompt.trim() || raw.final_task_mode === 'unknown' || raw.confidence < 0.85)) return null;
-      if (!continuation && (raw.final_prompt || raw.final_task_mode !== 'unknown' || raw.selected_indexes.length)) return null;
+      if (!continuation && (raw.final_prompt || raw.final_task_mode !== 'unknown' || raw.selected_indexes.length || raw.selections.length)) return null;
       return {
         relation,
         confidence: raw.confidence,
         finalPrompt: raw.final_prompt.trim(),
         finalTaskMode: raw.final_task_mode,
         selectedIndexes: raw.selected_indexes,
+        selections: raw.selections.map(item => ({ resource_key: item.resource_key, choice_key: item.choice_key })),
         shouldMerge: raw.should_merge,
         shouldClearPending: raw.should_clear_pending,
         reason: raw.reason.trim(),
@@ -225,7 +234,16 @@
       originalText,
       clarificationText,
       expects: expectedAnswerTypes({ kind, originalText, clarificationText }),
-      routeInfo: routeInfo ? { mode: routeInfo.mode, target: routeInfo.target, intent: routeInfo.intent } : null,
+      routeInfo: routeInfo ? {
+        mode: routeInfo.mode,
+        target: routeInfo.target,
+        intent: routeInfo.intent,
+        needClarification: routeInfo.needClarification === true,
+        clarificationQuestion: String(routeInfo.clarificationQuestion || ''),
+        resumeOperation: routeInfo.resumeOperation || '',
+        clarificationSlots: Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [],
+        taskContract: routeInfo.taskContract || null,
+      } : null,
       sourceImageContext: sourceImageContext || previousImageContext,
       sourceAttachmentContext,
       sourceQuoteContext,
@@ -349,7 +367,7 @@
 
   function shouldApplyPending(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
     // Deliberately fail closed. Continuation is authorized only by a valid
-    // pending_continuation.v1 model result, never by local keyword heuristics.
+    // pending_continuation.v2 model result, never by local keyword heuristics.
     return false;
   }
 

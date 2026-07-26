@@ -10,12 +10,12 @@ const FIXTURE_PATH = path.join(__dirname, '../fixtures/intent-routing-eval.v1.js
 
 function imageQaContract(operation = 'image_qa') {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation: 'new',
     resources: [{ key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'img-current-product', reference_id: 'imgref-current-product', missing: false }],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.98,
     review_reasons: [],
     rationale: 'The request asks to understand the attached image.',
@@ -24,12 +24,12 @@ function imageQaContract(operation = 'image_qa') {
 
 function plainChatContract(rationale = 'The request is an independent text task.') {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.98,
     review_reasons: [],
     rationale,

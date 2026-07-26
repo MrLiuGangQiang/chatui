@@ -63,7 +63,7 @@ function taskContractFixture({
 } = {}) {
   const relation = taskType === 'new_task' ? 'new' : taskType;
   const patchRequired = intent !== 'clarify' && (relation !== 'new' || intent === 'image.edit' || operation === 'image_reference_gen');
-  const sourceResources = resources.length ? resources : intent === 'clarify' ? [{ type: 'image', source: relation === 'new' ? 'current' : 'context', role: 'target', index: 1, missing: true }] : patchRequired ? [{
+  const sourceResources = resources.length ? resources : patchRequired ? [{
     type: intent === 'file.qa' ? 'file' : intent === 'chat' ? 'message' : 'image',
     source: 'history',
     role: intent === 'image.edit' ? 'target' : intent === 'file.qa' ? 'attachment' : 'reference',
@@ -79,27 +79,29 @@ function taskContractFixture({
     reference_id: resource.reference_id || '',
     missing: resource.missing === true,
   }));
-  const rawClarification = clarification || { needed: intent === 'clarify', question: intent === 'clarify' ? '请补充缺失的任务信息。' : '', missing_resource_keys: [] };
-  const declaredMissingKeys = Array.isArray(rawClarification.missing_resource_keys) ? rawClarification.missing_resource_keys : [];
-  const missingKeys = declaredMissingKeys.length ? declaredMissingKeys : normalizedResources.filter(resource => resource.missing).map(resource => resource.key);
+  const rawClarification = clarification || { needed: intent === 'clarify', question: intent === 'clarify' ? '请补充缺失的任务信息。' : '' };
+  const unresolvedResources = intent === 'clarify'
+    ? [{ key: 'r1', type: 'image', role: 'target', reason: 'missing', choices: [] }]
+    : [];
+  const executableResources = normalizedResources.filter(resource => !resource.missing);
   const defaultOperations = patchRequired ? [
     ...(contextToPreserve ? [{ op: 'preserve', target: contextToPreserve, value: '' }] : []),
     ...(finalInstruction ? [{ op: 'add', target: '当前请求', value: finalInstruction }] : []),
     ...doNotAdd.map(target => ({ op: 'remove', target, value: '' })),
   ] : [];
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation,
-    resources: normalizedResources,
+    resources: executableResources,
     directive: directive || {
-      mode: patchRequired ? 'patch' : 'standalone',
-      base_resource_keys: patchRequired ? normalizedResources.filter(resource => !resource.missing).map(resource => resource.key) : [],
-      unmentioned_policy: patchRequired ? 'preserve' : 'allow_change',
+      mode: patchRequired || intent === 'clarify' ? 'patch' : 'standalone',
+      base_resource_keys: intent === 'clarify' ? ['r1'] : patchRequired ? executableResources.map(resource => resource.key) : [],
+      unmentioned_policy: patchRequired || intent === 'clarify' ? 'preserve' : 'allow_change',
       operations: defaultOperations,
       constraints,
     },
-    clarification: { question: rawClarification.question || '', missing_resource_keys: missingKeys },
+    clarification: { question: rawClarification.question || '', resume_operation: intent === 'clarify' ? 'edit_image' : '', unresolved_resources: unresolvedResources },
     confidence,
     review_reasons: needsReview ? [reason || '需要复审'] : [],
     rationale: reason,
@@ -320,7 +322,7 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v3"'));
+  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v4"'));
   assert.ok(payload.messages[0].content.includes('"resources"'));
   assert.ok(payload.messages[0].content.includes('"directive"'));
   assert.ok(payload.messages[0].content.includes('"operations"'));
@@ -507,6 +509,7 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     final_prompt: '山巅的晚霞图',
     final_task_mode: 'edit_image',
     selected_indexes: [1],
+    selections: [],
     should_merge: true,
     should_clear_pending: true,
     reason: '用户正在补充未完成的图片任务',
@@ -1016,7 +1019,7 @@ function testStructuredRouteDecisionCarriesRefs() {
   })), { input: '这张和上一张有什么不同', attachments: [{ name: 'new.png', type: 'image/png', is_image: true }], context: { image_candidates: [{ index: 1, source: 'history', reference_id: 'imgref_latest', target: 'previous' }] } });
   assert.strictEqual(taskRoute.mode, 'chat');
   assert.strictEqual(taskRoute.operationType, 'image_compare');
-  assert.strictEqual(taskRoute.taskContract.schema_version, 'task_contract.v3');
+  assert.strictEqual(taskRoute.taskContract.schema_version, 'task_contract.v4');
   assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'history' && item.role === 'compare_a'));
   assert.ok(taskRoute.taskContract.resources.some(item => item.source === 'current' && item.role === 'compare_b'));
   assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'history'));
@@ -2403,7 +2406,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
   assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
   assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
-  assert.ok(routeDiagram.includes('task_contract.v3') && routeDiagram.includes('clarify / 无效契约') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the current task-contract routing, safe clarification, and durable handoff flow');
+  assert.ok(routeDiagram.includes('task_contract.v4') && routeDiagram.includes('结构化 clarify') && routeDiagram.includes('展示候选、保存原合同') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe the structured clarification contract and durable handoff flow');
   assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
   const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
   assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');

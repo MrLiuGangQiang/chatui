@@ -15,7 +15,7 @@ $env:CHATUI_EVAL_ROUTE_MODEL = 'your-route-model'
 npm.cmd run eval:intent
 ```
 
-The evaluator uses the same `task_contract.v3` route payload and strict parser as the browser. It writes a JSON report under `reports/intent-routing/`, which is ignored by Git and never includes the API key or raw model output.
+The evaluator uses the same `task_contract.v4` route payload and strict parser as the browser. It writes a JSON report under `reports/intent-routing/`, which is ignored by Git and never includes the API key or raw model output.
 
 Useful options:
 
@@ -31,7 +31,7 @@ The command exits with a non-zero status when either quality gate is missed. Def
 
 | Dimension | What must be correct |
 | --- | --- |
-| `valid_contract` | The response parses as a strict, executable `task_contract.v3` against the supplied candidates. |
+| `valid_contract` | The response parses as a strict, executable `task_contract.v4` against the supplied candidates. |
 | `operation` | The task type, such as `file_qa`, `edit_image`, or `clarify`. |
 | `relation` | Whether the request is new, a follow-up, a correction, or a continuation. |
 | `resources` | Required image/file type, source, role, typed candidate index (`media_index` for mixed attachments), and declared identity. |
@@ -52,6 +52,6 @@ Each case must provide:
 
 Use `resources.mode: "media_exact"` for a case whose safety requirement is “do not select an image or file.” It ignores non-executing `text`/`message` annotations while still failing any unexpected media binding. Use `exact` when every contract resource itself is significant.
 
-The unit suite validates that every non-missing expected resource resolves uniquely against the case candidates. This prevents a benchmark from silently testing an impossible resource selection.
+The unit suite validates that every concrete resource and every structured clarification choice resolves uniquely against the case candidates. This prevents a benchmark from silently testing an impossible resource selection.
 
 When changing the route prompt or model, run the benchmark first with the current production model to establish a baseline, then compare the score dimensions and failing case IDs. Do not promote a model based only on average score: preserve a 100% valid-contract rate and inspect every resource-binding or clarification regression.

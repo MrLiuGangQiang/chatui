@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const routeService = require('../../client/services/route-service');
+const clarificationService = require('../../client/services/clarification-service');
 const chatService = require('../../client/services/chat-service');
 const jobService = require('../../client/services/job-service');
 const attachmentsCore = require('../../client/core/attachments');
@@ -20,6 +21,7 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
     'inspectRouteResult',
     'isTaskContractResult',
     'parseRouteResult',
+    'resolveClarificationRoute',
     'buildRoutePayload',
     'buildIntentReviewPayload',
   ]) {
@@ -34,15 +36,15 @@ function testClientContractUsesOneTaskContractRouteProtocol() {
 function testRoutePromptIsOneOrderedDecisionSpecification() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
   assert.ok(system.includes('按以下顺序决策'), 'the route prompt must give the model one explicit decision order');
-  for (const step of ['1. 边界', '2. 关系', '3. 操作', '4. 资源', '5. 指令', '6. 澄清与审计']) {
+  for (const step of ['1. 边界', '2. 关系', '3. 操作', '4. 资源', '5. 指令', '6. 澄清', '7. 审计']) {
     assert.ok(system.includes(step), `missing route decision step: ${step}`);
   }
   assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
   assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
-  assert.ok(system.length < 2400, 'the complete primary routing specification must stay cognitively compact');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 180, 'the final check should remain a short invariant check, not duplicate the routing rules');
+  assert.ok(system.length < 3600, 'the complete primary routing specification must stay cognitively compact');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 260, 'the final check should remain a short invariant check, not duplicate the routing rules');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('绝不省略'), 'the first route request must require a complete contract even when the intent is simple');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('constraints；空数组也输出 []'), 'the first route request must explicitly retain empty directive fields instead of relying on contract repair');
+  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('空数组也输出 []'), 'the first route request must explicitly retain empty contract fields instead of relying on contract repair');
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {
@@ -84,9 +86,9 @@ function testRouteResultInspectionSeparatesShapeAndResourceFailures() {
   assert.strictEqual(malformed.reason, 'contract_semantics');
 
   const unknownField = routeService.inspectRouteResult(JSON.stringify({
-    schema_version: 'task_contract.v3', operation: 'plain_chat', relation: 'new', resources: [],
+    schema_version: 'task_contract.v4', operation: 'plain_chat', relation: 'new', resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] }, confidence: 0.9, review_reasons: [], rationale: 'valid intent but invalid shape', extra: true,
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] }, confidence: 0.9, review_reasons: [], rationale: 'valid intent but invalid shape', extra: true,
   }));
   assert.strictEqual(unknownField.route, null);
   assert.strictEqual(unknownField.reason, 'contract_shape');
@@ -138,31 +140,46 @@ function testClientContractAttachmentMetadataUsesTypedMediaIndexes() {
 function testClientContractRouteParsingPreservesClarificationShape() {
   const question = 'Please specify which image to edit.';
   const parsed = routeService.parseRouteResult(JSON.stringify({
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'clarify',
     relation: 'followup',
-    resources: [{ key: 'r1', type: 'image', source: 'context', role: 'target', index: 1, id: '', reference_id: '', missing: true }],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question, missing_resource_keys: ['r1'] },
+    resources: [],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'red' }], constraints: [] },
+    clarification: {
+      question,
+      resume_operation: 'edit_image',
+      unresolved_resources: [{
+        key: 'r1', type: 'image', role: 'target', reason: 'ambiguous', choices: [
+          { key: 'c1', source: 'history', index: 1, id: 'img-cat', reference_id: 'imgref-cat', label: 'cat image' },
+          { key: 'c2', source: 'history', index: 2, id: 'img-fish', reference_id: 'imgref-fish', label: 'fish image' },
+        ],
+      }],
+    },
     confidence: 0.7,
     review_reasons: [],
     rationale: 'multiple candidates',
-  }), { input: 'edit this image', attachments: [], context: {} });
+  }), { input: 'edit this image', attachments: [], context: { image_candidates: [
+    { index: 1, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+    { index: 2, source: 'history', image_id: 'img-fish', reference_id: 'imgref-fish', target: 'previous' },
+  ] } });
   assert.strictEqual(parsed.mode, 'chat');
   assert.strictEqual(parsed.needClarification, true);
-  assert.strictEqual(parsed.clarificationQuestion, question);
+  assert.ok(parsed.clarificationQuestion.startsWith(question));
+  assert.match(parsed.clarificationQuestion, /1\. cat image/);
+  assert.match(parsed.clarificationQuestion, /2\. fish image/);
   assert.strictEqual(parsed.taskContract.operation, 'clarify');
   assert.strictEqual(parsed.operationType, 'clarify');
+  assert.strictEqual(parsed.resumeOperation, 'edit_image');
 }
 
 function testClientContractRejectsRedundantOrUnknownFields() {
   const invalid = {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.9,
     review_reasons: [],
     rationale: 'chat',
@@ -174,12 +191,12 @@ function testClientContractRejectsRedundantOrUnknownFields() {
 
 function testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding() {
   const incompleteFollowup = {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'followup',
     resources: [],
     directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'the user is asking about the explicitly quoted message',
@@ -211,12 +228,12 @@ function testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding() {
 
 function taskContract({ operation, relation = 'new', resources = [], directive, confidence = 0.9, reviewReasons = [] } = {}) {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation,
     resources,
     directive: directive || { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence,
     review_reasons: reviewReasons,
     rationale: 'contract validation test',
@@ -252,7 +269,14 @@ function testClientContractSeparatesConversationRelationFromResourcePatching() {
     relation: 'followup',
     resources: [{ key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'image-1', reference_id: '', missing: false }],
   });
-  assert.strictEqual(routeService.isTaskContractResult(resourceOperationWithoutPatch), false, 'resource operations must not inherit the plain-chat exception');
+  assert.strictEqual(routeService.isTaskContractResult(resourceOperationWithoutPatch), true, 'a current-turn resource remains standalone regardless of the discourse relation');
+
+  const historyImageWithoutPatch = taskContract({
+    operation: 'image_qa',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'source', index: 1, id: 'image-1', reference_id: 'imgref-1', missing: false }],
+  });
+  assert.strictEqual(routeService.isTaskContractResult(historyImageWithoutPatch), false, 'historical resources must declare their patch baseline regardless of operation');
 }
 
 function testClientContractBindsMediaResourcesToExactCandidates() {
@@ -342,6 +366,21 @@ function testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation
   }
 }
 
+function testCurrentTurnResourcesStayStandaloneAcrossConversationRelations() {
+  for (const relation of ['followup', 'correction', 'continuation']) {
+    const image = { key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'img-current', reference_id: '', missing: false };
+    const file = { key: 'r1', type: 'file', source: 'current', role: 'attachment', index: 1, id: 'file-current', reference_id: '', missing: false };
+    assert.strictEqual(routeService.isTaskContractResult(taskContract({ operation: 'image_qa', relation, resources: [image] })), true);
+    assert.strictEqual(routeService.isTaskContractResult(taskContract({ operation: 'file_qa', relation, resources: [file] })), true);
+    assert.strictEqual(routeService.isTaskContractResult(taskContract({ operation: 'text_to_image', relation, resources: [currentTextResource('r1')] })), true);
+  }
+
+  const currentReference = { key: 'r1', type: 'image', source: 'current', role: 'reference', index: 1, id: 'img-current', reference_id: '', missing: false };
+  const currentTarget = { ...currentReference, role: 'target' };
+  assert.strictEqual(routeService.isTaskContractResult(taskContract({ operation: 'image_reference_gen', relation: 'followup', resources: [currentReference] })), false, 'reference generation still requires an explicit patch baseline');
+  assert.strictEqual(routeService.isTaskContractResult(taskContract({ operation: 'edit_image', relation: 'followup', resources: [currentTarget] })), false, 'image editing still requires an explicit patch baseline');
+}
+
 function testClientContractAcceptsHistoricalStyleReferenceForHtmlChat() {
   const reference = taskContract({
     operation: 'plain_chat',
@@ -428,14 +467,104 @@ function testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes() {
   fileWithReferenceId.resources[1].reference_id = 'file-current';
   assert.strictEqual(routeService.isTaskContractResult(fileWithReferenceId), false, 'file resources must not invent an image-style reference id');
 
-  const clarifyWithPatch = {
-    schema_version: 'task_contract.v3', operation: 'clarify', relation: 'followup',
-    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'target', index: 1, id: '', reference_id: '', missing: true }],
-    directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'preserve', operations: [], constraints: [] },
-    clarification: { question: 'Which image should I edit?', missing_resource_keys: ['r1'] },
-    confidence: 0.5, review_reasons: ['image selection is ambiguous'], rationale: 'two candidates match',
+  const structuredClarification = {
+    schema_version: 'task_contract.v4', operation: 'clarify', relation: 'followup',
+    resources: [],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'blue' }], constraints: [] },
+    clarification: { question: 'Which image should I edit?', resume_operation: 'edit_image', unresolved_resources: [{ key: 'r1', type: 'image', role: 'target', reason: 'missing', choices: [] }] },
+    confidence: 0.5, review_reasons: ['image selection is missing'], rationale: 'no candidate is available',
   };
-  assert.strictEqual(routeService.isTaskContractResult(clarifyWithPatch), false, 'clarification must use a standalone, non-executing directive');
+  assert.strictEqual(routeService.isTaskContractResult(structuredClarification), true, 'clarification must preserve the directive of the task that resumes after resource binding');
+}
+
+function testStructuredClarificationSelectionResumesTheOriginalCompositionContract() {
+  const contract = {
+    schema_version: 'task_contract.v4',
+    operation: 'clarify',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'reference', index: 4, id: 'img-cat', reference_id: 'imgref-cat', missing: false }],
+    directive: {
+      mode: 'patch',
+      base_resource_keys: ['r1', 'r2'],
+      unmentioned_policy: 'preserve',
+      operations: [{ op: 'add', target: 'composition', value: 'combine the cat and selected fish' }],
+      constraints: ['natural composition'],
+    },
+    clarification: {
+      question: 'Which fish image should be combined with the cat?',
+      resume_operation: 'image_reference_gen',
+      unresolved_resources: [{
+        key: 'r2',
+        type: 'image',
+        role: 'reference',
+        reason: 'ambiguous',
+        choices: [
+          { key: 'c1', source: 'history', index: 1, id: 'img-fish-sketch', reference_id: 'imgref-fish-sketch', label: 'hand-drawn fish' },
+          { key: 'c2', source: 'history', index: 2, id: 'img-fish-color', reference_id: 'imgref-fish-color', label: 'colorful fish' },
+        ],
+      }],
+    },
+    confidence: 0.9,
+    review_reasons: [],
+    rationale: 'the cat is unique but two fish candidates remain',
+  };
+  const context = { image_candidates: [
+    { index: 4, source_index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+    { index: 1, source_index: 1, source: 'history', image_id: 'img-fish-sketch', reference_id: 'imgref-fish-sketch', target: 'previous' },
+    { index: 2, source_index: 2, source: 'history', image_id: 'img-fish-color', reference_id: 'imgref-fish-color', target: 'previous' },
+  ] };
+  const clarificationRoute = routeService.parseRouteResult(JSON.stringify(contract), { input: 'combine the cat and fish', context });
+  assert.ok(clarificationRoute);
+  assert.strictEqual(clarificationRoute.needClarification, true);
+  assert.match(clarificationRoute.clarificationQuestion, /1\. hand-drawn fish/);
+  assert.match(clarificationRoute.clarificationQuestion, /2\. colorful fish/);
+
+  const pending = clarificationService.createPendingClarification({
+    messages: [{ role: 'user', content: 'combine the cat and fish' }, { role: 'assistant', content: clarificationRoute.clarificationQuestion }],
+    clarificationText: clarificationRoute.clarificationQuestion,
+    routeInfo: clarificationRoute,
+  });
+  assert.deepStrictEqual(pending.routeInfo.taskContract, contract, 'the pending state must retain the validated original contract instead of only its question text');
+
+  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer',
+    confidence: 0.99,
+    final_prompt: 'combine the cat and fish',
+    final_task_mode: 'image',
+    selected_indexes: [],
+    selections: [{ resource_key: 'r2', choice_key: 'c2' }],
+    should_merge: true,
+    should_clear_pending: true,
+    reason: 'the user selected the colorful fish option',
+  }));
+  const resumed = routeService.resolveClarificationRoute(pending.routeInfo.taskContract, decision.selections, { input: decision.finalPrompt });
+  assert.ok(resumed, 'a valid choice must deterministically complete the original contract');
+  assert.strictEqual(resumed.operationType, 'image_reference_gen');
+  assert.strictEqual(resumed.mode, 'image');
+  assert.deepStrictEqual(resumed.selectedImageIds, ['img-cat', 'img-fish-color']);
+  assert.strictEqual(resumed.contextualImagePrompt, 'combine the cat and fish');
+  assert.strictEqual(routeService.resolveClarificationRoute(contract, [{ resource_key: 'r2', choice_key: 'c9' }], { input: 'combine them' }), null, 'an unknown choice must never be guessed');
+
+  const missingUpload = {
+    schema_version: 'task_contract.v4',
+    operation: 'clarify',
+    relation: 'followup',
+    resources: [],
+    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'red' }], constraints: [] },
+    clarification: { question: 'Please upload the image to edit.', resume_operation: 'edit_image', unresolved_resources: [{ key: 'r1', type: 'image', role: 'target', reason: 'missing', choices: [] }] },
+    confidence: 0.8,
+    review_reasons: [],
+    rationale: 'the required image is absent',
+  };
+  const resumedUpload = routeService.resolveClarificationRoute(missingUpload, [], {
+    input: 'make the background red',
+    attachments: [{ index: 1, source_index: 1, media_index: 1, id: 'upload-1', image_id: 'upload-1', name: 'photo.png', type: 'image/png', is_image: true }],
+  });
+  assert.ok(resumedUpload, 'a uniquely supplied missing resource must bind to the original task without rerouting');
+  assert.strictEqual(resumedUpload.operationType, 'edit_image');
+  assert.deepStrictEqual(resumedUpload.selectedImageIds, ['upload-1']);
+  assert.strictEqual(resumedUpload.target, 'uploaded');
 }
 
 function testClientContractServiceExportsStayStable() {
@@ -476,9 +605,11 @@ module.exports = [
   testClientContractAcceptsHistoryAliasForAnExplicitlyQuotedImageOnly,
   testClientContractAcceptsCurrentTextResourceForTextToImage,
   testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation,
+  testCurrentTurnResourcesStayStandaloneAcrossConversationRelations,
   testClientContractAcceptsHistoricalStyleReferenceForHtmlChat,
   testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
+  testStructuredClarificationSelectionResumesTheOriginalCompositionContract,
   testClientContractServiceExportsStayStable,
   testClientContractChatAndSseParsingShape,
 ];

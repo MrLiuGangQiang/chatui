@@ -207,29 +207,34 @@ function testCompilerKeepsUnavailableAndAttachmentOnlyTurnsNonExecuting() {
   assert.strictEqual(attachmentOnlyRoute.taskContract.resources[0].id, 'photo');
 }
 
-function testCompilerDowngradesAnUnjustifiedSingleImageChoiceToClarification() {
+function testCompilerMapsDeclaredImageClarificationWithoutChoosingLocally() {
   const options = historicalAnimalOptions([
     { id: 'dog-a', description: '草地上的金毛犬', labels: ['dog'] },
     { id: 'dog-b', description: '客厅里的拉布拉多犬', labels: ['dog'] },
     { id: 'cat-a', description: '窗边的猫', labels: ['cat'] },
   ]);
-  const unjustified = decision({
+  const declaredClarification = decision({
+    readiness: 'needs_clarification',
     operation: 'edit_image',
     relation: 'followup',
-    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    bindings: [],
+    clarification: {
+      question: '检测到两张狗的图片，请选择要修改的其中一张。',
+      unresolved: [{ type: 'image', role: 'target', reason: 'ambiguous', candidate_keys: ['i1', 'i2'] }],
+    },
   });
-  const guarded = routeService.inspectRouteResult(JSON.stringify(unjustified), options).route;
-  assert.ok(guarded);
-  assert.strictEqual(guarded.api, 'clarify');
-  assert.strictEqual(guarded.dispatchAuthorized, false);
-  assert.strictEqual(guarded.taskContract.operation, 'edit_image');
-  assert.deepStrictEqual(guarded.taskContract.review_reasons, ['ambiguous_target_selection']);
+  const mapped = routeService.inspectRouteResult(JSON.stringify(declaredClarification), options).route;
+  assert.ok(mapped);
+  assert.strictEqual(mapped.api, 'clarify');
+  assert.strictEqual(mapped.dispatchAuthorized, false);
+  assert.strictEqual(mapped.taskContract.operation, 'edit_image');
+  assert.deepStrictEqual(mapped.taskContract.review_reasons, []);
   assert.deepStrictEqual(
-    guarded.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id),
+    mapped.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id),
     ['dog-a', 'dog-b'],
-    'the compiler must offer matching dog candidates without pulling in the unrelated cat',
+    'the compiler must map exactly the candidates selected by the first route decision',
   );
-  assert.doesNotMatch(guarded.clarificationQuestion, /全部|所有|都要/);
+  assert.doesNotMatch(mapped.clarificationQuestion, /全部|所有|都要/);
 
   const multipleTargets = decision({
     operation: 'edit_image',
@@ -237,14 +242,8 @@ function testCompilerDowngradesAnUnjustifiedSingleImageChoiceToClarification() {
     bindings: [{ candidate_key: 'i1', role: 'target' }, { candidate_key: 'i2', role: 'target' }],
     changes: [{ op: 'replace', target: 'dog color', value: 'black' }],
   });
-  const multipleTargetRoute = routeService.inspectRouteResult(JSON.stringify(multipleTargets), options).route;
-  assert.ok(multipleTargetRoute);
-  assert.strictEqual(multipleTargetRoute.api, 'clarify');
-  assert.deepStrictEqual(
-    multipleTargetRoute.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id),
-    ['dog-a', 'dog-b'],
-    'multiple edit targets must become a single-choice clarification instead of a multi-image edit',
-  );
+  const rejectedMultipleTargets = routeService.inspectRouteResult(JSON.stringify(multipleTargets), options);
+  assert.strictEqual(rejectedMultipleTargets.route, null, 'the compiler must reject multiple edit targets instead of rewriting them');
 
   const explicitSecond = decision({
     operation: 'edit_image',
@@ -272,7 +271,7 @@ function testCompilerDowngradesAnUnjustifiedSingleImageChoiceToClarification() {
   assert.strictEqual(uniqueRoute.taskContract.readiness, 'ready', 'a uniquely matching dog must not be over-clarified merely because an unrelated cat exists');
 }
 
-function testCompilerClarifiesMissingEditValueWithoutRepairingSemantics() {
+function testCompilerRejectsMissingEditValueWithoutLocalClarification() {
   const decisionWithMissingValue = decision({
     operation: 'edit_image',
     relation: 'correction',
@@ -293,22 +292,31 @@ function testCompilerClarifiesMissingEditValueWithoutRepairingSemantics() {
       }],
     },
   });
-  assert.ok(inspected.route, 'an incomplete edit must become a local clarification route');
-  assert.strictEqual(inspected.route.api, 'clarify');
-  assert.strictEqual(inspected.route.dispatchAuthorized, false);
-  assert.strictEqual(inspected.route.taskContract.operation, 'edit_image');
-  assert.strictEqual(inspected.route.taskContract.relation, 'correction');
-  assert.deepStrictEqual(inspected.route.taskContract.directive.operations, []);
-  assert.deepStrictEqual(inspected.route.taskContract.resources, [{
-    key: 'r1', type: 'image', source: 'history', role: 'target', index: 1,
-    id: 'img-cat', reference_id: 'imgref-cat', missing: false,
-  }]);
-  assert.deepStrictEqual(inspected.route.taskContract.clarification.unresolved_resources, [{
-    key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [],
-  }]);
-  assert.match(inspected.route.clarificationQuestion, /目标颜色|具体效果/);
-  assert.deepStrictEqual(inspected.route.taskContract.review_reasons, ['missing_change_detail']);
+  assert.strictEqual(inspected.route, null, 'an incomplete change must be rejected rather than converted into a local clarification');
   assert.strictEqual(routeService.hasExactRouteDecision(decisionWithMissingValue), false);
+
+  const declaredClarification = decision({
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'correction',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [],
+    clarification: {
+      question: '请补充目标颜色或具体效果。',
+      unresolved: [{ type: 'text', role: 'source', reason: 'missing', candidate_keys: [] }],
+    },
+  });
+  const declared = routeService.inspectRouteResult(JSON.stringify(declaredClarification), {
+    input: 'change the cat color',
+    context: {
+      image_candidates: [{
+        index: 1, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', description: 'cat', labels: ['cat'],
+      }],
+    },
+  }).route;
+  assert.ok(declared);
+  assert.strictEqual(declared.api, 'clarify');
+  assert.deepStrictEqual(declared.taskContract.review_reasons, []);
   const schema = routeService.ROUTE_RESPONSE_FORMAT.json_schema.schema;
   const changeVariants = schema.properties.changes.items.anyOf;
   assert.ok(changeVariants.some(variant => variant.properties.value.pattern === '\\S'), 'structured output must require a non-empty add/replace value');
@@ -323,7 +331,7 @@ function testSelfContainedImageFollowupDoesNotInheritPriorPrompt() {
   const selfContained = decision({
     operation: 'text_to_image',
     relation: 'followup',
-    bindings: [{ candidate_key: 'm1', role: 'context' }],
+    bindings: [],
   });
   const currentInput = '再画一只狗，换个品种';
   const currentRoute = routeService.inspectRouteResult(JSON.stringify(selfContained), { input: currentInput, context }).route;
@@ -334,12 +342,15 @@ function testSelfContainedImageFollowupDoesNotInheritPriorPrompt() {
   assert.deepStrictEqual(currentRoute.taskContract.directive, {
     mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [],
   });
-  assert.deepStrictEqual(currentRoute.taskContract.review_reasons, ['redundant_history_text_binding']);
+  assert.deepStrictEqual(currentRoute.taskContract.review_reasons, []);
   assert.strictEqual(currentRoute.contextualImagePrompt, currentInput);
   assert.doesNotMatch(currentRoute.contextualImagePrompt, /画一只狗\s+再画一只狗/);
 
   const dependentInput = '再生成一张';
-  const dependentRoute = routeService.inspectRouteResult(JSON.stringify(selfContained), { input: dependentInput, context }).route;
+  const dependent = decision({
+    operation: 'text_to_image', relation: 'followup', bindings: [{ candidate_key: 'm1', role: 'context' }],
+  });
+  const dependentRoute = routeService.inspectRouteResult(JSON.stringify(dependent), { input: dependentInput, context }).route;
   assert.ok(dependentRoute);
   assert.strictEqual(dependentRoute.taskContract.resources.length, 1);
   assert.match(dependentRoute.contextualImagePrompt, /^画一只狗\s+再生成一张$/);
@@ -415,8 +426,8 @@ module.exports = [
   testQuotedPlainChatDecisionUsesTheSameCanonicalMessageSource,
   testCompilerEnforcesOnlyAnExplicitFixedProductMode,
   testCompilerKeepsUnavailableAndAttachmentOnlyTurnsNonExecuting,
-  testCompilerDowngradesAnUnjustifiedSingleImageChoiceToClarification,
-  testCompilerClarifiesMissingEditValueWithoutRepairingSemantics,
+  testCompilerMapsDeclaredImageClarificationWithoutChoosingLocally,
+  testCompilerRejectsMissingEditValueWithoutLocalClarification,
   testSelfContainedImageFollowupDoesNotInheritPriorPrompt,
   testDecisionCompilerBuildsClarificationChoicesWithoutModelAuthoredIds,
   testDecisionBoundaryRejectsInventedKeysRolesAndSemanticRepairDrift,

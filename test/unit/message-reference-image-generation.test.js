@@ -257,7 +257,7 @@ function testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWitho
   assert.ok(!parsed.contextualImagePrompt.includes('[quoted_image'), 'route-only quote markers must not reach the image model');
 }
 
-function testSelfContainedImageFollowupIgnoresRedundantHistoricalMessageBinding() {
+function testBoundHistoricalMessageIsNeverRemovedLocally() {
   const contract = messageImageContract('context');
   contract.resources[0].id = 'prior-dog-prompt';
   const currentInput = '再画一只狗，换个品种';
@@ -268,8 +268,8 @@ function testSelfContainedImageFollowupIgnoresRedundantHistoricalMessageBinding(
     },
   });
   assert.ok(parsed);
-  assert.strictEqual(parsed.contextualImagePrompt, currentInput);
-  assert.doesNotMatch(parsed.contextualImagePrompt, /画一只狗\s+再画一只狗/);
+  assert.match(parsed.contextualImagePrompt, /^画一只狗\s+再画一只狗，换个品种$/);
+  assert.strictEqual(parsed.taskContract.resources[0].id, 'prior-dog-prompt');
 }
 
 module.exports = [
@@ -281,5 +281,5 @@ module.exports = [
   testQuotedImageHistoryAliasRequiresAnExplicitQuote,
   testQuotedImageHistoryAliasCannotCrossMessageIdentity,
   testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWithoutSilentTruncation,
-  testSelfContainedImageFollowupIgnoresRedundantHistoricalMessageBinding,
+  testBoundHistoricalMessageIsNeverRemovedLocally,
 ];

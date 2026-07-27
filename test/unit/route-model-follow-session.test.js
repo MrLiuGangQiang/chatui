@@ -430,7 +430,7 @@ async function testSelfContainedImageFollowupIsPrimarySingleFlight() {
   const semantic = {
     ...currentTextToImageDecision(),
     relation: 'followup',
-    bindings: [{ candidate_key: 'm1', role: 'context' }],
+    bindings: [],
     constraints: [],
   };
   const harness = createRouteHarness({
@@ -449,7 +449,7 @@ async function testSelfContainedImageFollowupIsPrimarySingleFlight() {
     assert.strictEqual(route.relation, 'followup');
     assert.deepStrictEqual(route.taskContract.resources, []);
     assert.strictEqual(route.contextualImagePrompt, input);
-    assert.deepStrictEqual(route.taskContract.review_reasons, ['redundant_history_text_binding']);
+    assert.deepStrictEqual(route.taskContract.review_reasons, []);
   } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
@@ -490,19 +490,25 @@ async function testValidQuotedTextImageDecisionIsPrimarySingleFlight() {
   }
 }
 
-async function testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute() {
+async function testAmbiguousEditIsClarifiedByFirstRoute() {
   const requestedModels = [];
   const semantic = {
     schema_version: 'route_decision.v1',
-    readiness: 'ready',
+    readiness: 'needs_clarification',
     operation: 'edit_image',
     relation: 'followup',
-    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    bindings: [],
     changes: [],
     constraints: [],
-    clarification: { question: '', unresolved: [] },
+    clarification: {
+      question: '检测到两张狗的图片，请选择要修改的一张，并补充目标颜色。',
+      unresolved: [
+        { type: 'image', role: 'target', reason: 'ambiguous', candidate_keys: ['i1', 'i2'] },
+        { type: 'text', role: 'source', reason: 'missing', candidate_keys: [] },
+      ],
+    },
     confidence: 0.95,
-    rationale: 'incorrectly defaulted to the latest dog image',
+    rationale: 'the target image and destination color both need clarification',
   };
   const context = {
     image_candidates: [
@@ -520,7 +526,7 @@ async function testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute() {
   });
   try {
     const route = await harness.workflow.getEffectiveRoute('把狗的颜色换一下', [], 'session-a', {}, context);
-    assert.deepStrictEqual(requestedModels, ['route-model'], 'the deterministic ambiguity downgrade must be terminal and must not invoke repair or fallback routing');
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'the first route must return the final clarification without repair or fallback routing');
     assert.strictEqual(route.api, 'clarify');
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id), ['dog-a', 'dog-b']);
@@ -530,19 +536,22 @@ async function testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute() {
   }
 }
 
-async function testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute() {
+async function testMissingEditDetailIsClarifiedByFirstRoute() {
   const requestedModels = [];
-  const incompleteDecision = {
+  const clarificationDecision = {
     schema_version: 'route_decision.v1',
-    readiness: 'ready',
+    readiness: 'needs_clarification',
     operation: 'edit_image',
     relation: 'correction',
     bindings: [{ candidate_key: 'i1', role: 'target' }],
-    changes: [{ op: 'replace', target: 'color', value: '' }],
+    changes: [],
     constraints: [],
-    clarification: { question: '', unresolved: [] },
+    clarification: {
+      question: '请补充目标颜色或具体效果。',
+      unresolved: [{ type: 'text', role: 'source', reason: 'missing', candidate_keys: [] }],
+    },
     confidence: 0.95,
-    rationale: 'the user wants to change the cat color',
+    rationale: 'the target image is clear but the destination color is missing',
   };
   const harness = createRouteHarness({
     config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
@@ -550,7 +559,7 @@ async function testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute() {
     requestJson: async (_url, payload) => {
       requestedModels.push(payload.model);
       if (requestedModels.length > 1) throw new Error('missing edit detail must not invoke repair or fallback');
-      return responseFor(incompleteDecision);
+      return responseFor(clarificationDecision);
     },
   });
   try {
@@ -566,7 +575,7 @@ async function testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute() {
     assert.strictEqual(route.taskContract.operation, 'edit_image');
     assert.strictEqual(route.taskContract.relation, 'correction');
     assert.deepStrictEqual(route.taskContract.directive.operations, []);
-    assert.deepStrictEqual(route.taskContract.review_reasons, ['missing_change_detail']);
+    assert.deepStrictEqual(route.taskContract.review_reasons, []);
     assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
   } finally {
     harness.restore();
@@ -1013,8 +1022,8 @@ module.exports = [
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
   testSelfContainedImageFollowupIsPrimarySingleFlight,
   testValidQuotedTextImageDecisionIsPrimarySingleFlight,
-  testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute,
-  testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute,
+  testAmbiguousEditIsClarifiedByFirstRoute,
+  testMissingEditDetailIsClarifiedByFirstRoute,
   testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
   testOperationPreservingClarificationIsPrimaryTerminalOutcome,
   testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,

@@ -59,6 +59,7 @@ function testRoutePromptIsOneOrderedDecisionSpecification() {
   }
   assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
   assert.ok(system.includes('再画一只狗，换个品种') && system.includes('必须 bindings=[]'), 'a self-contained image followup must not inherit the prior prompt');
+  assert.ok(system.includes('应用不会在本地替你增删 bindings'), 'the first route must own semantics without local correction');
   assert.ok(system.includes('必须选择对应 m key') && system.includes('不是 resources 为空的新任务'), 'quoted text must be selected semantically on the first route');
   assert.ok(system.includes('应用会把你的决策确定性编译为 task_contract.v5'), 'the model must not author the execution contract');
   assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');

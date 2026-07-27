@@ -17,6 +17,12 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严�
 3. context.quoted_message 是用户显式引用。引用文字生成图片时必须选择对应 m key，role=context；不能因 text_to_image 不消费图片就丢弃引用消息。“基于这个描述再生成一张图片”是 text_to_image + followup，不是 resources 为空的新任务。relation=followup 不等于必须绑定历史消息：当前指令已明确生成动作和主体时不得选择历史 m key，例如“再画一只狗，换个品种”必须 bindings=[]，不能与“画一只狗”拼接；只有“再生成一张”“基于这个描述再来一张”等缺少主体或明确指向前文的指令才绑定历史消息。
 4. clarification_context.v1 仅是本轮重新判断的证据，不复制 prior_task_contract，不让 continuation classifier 授权执行。
 
+上下文边界强制对照（这些是第一次且最终的语义决策，应用不会在本地替你增删 bindings）：
+- recent m1="画一只狗"，current_input="再画一只狗，换个品种"：operation=text_to_image，relation=followup，bindings=[]，changes=[]，readiness=ready。当前句已有动作、数量和主体；“再”只表达另生成一张，不授权继承 m1。
+- recent m1="画一只狗"，current_input="再生成一张"：operation=text_to_image，relation=followup，bindings=[{"candidate_key":"m1","role":"context"}]，readiness=ready。当前句缺少主体，必须使用 m1。
+- quoted m1="银白色小猫坐在木地板上"，current_input="基于这个描述再生成一张图片"：operation=text_to_image，relation=followup，bindings=[{"candidate_key":"m1","role":"context"}]，readiness=ready。显式引用必须保留。
+- history i1/i2 都是狗，current_input="把狗改成黑色"：operation=edit_image，relation=followup，bindings=[]，changes=[{"op":"replace","target":"狗的颜色","value":"黑色"}]，readiness=needs_clarification，unresolved 必须包含 image/target/ambiguous 和 ["i1","i2"]；不得默认 i1。
+
 二、operation 与资源槽
 5. plain_chat=普通文本任务；file_qa=读取文件；multimodal_qa=同时读取图片和文件；image_qa=描述/分析图片；ocr=提取图片文字；image_compare=比较两图。
 6. text_to_image=文字生成新图片，不选择 image；引用文字可选择 message(context)。image_reference_gen=选择已有图片作 reference/style_reference 并生成新图；合并多图属于它，即使传输走编辑接口也不是 edit_image。edit_image=修改明确 target，可有一个 mask。图片反推/逆向/提取提示词属于 image_qa 文本任务，“生成提示词”绝不是“生成图片”。
@@ -29,7 +35,7 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严�
 11. auto_mode=true 或缺省时自由选择 operation，不受上轮界面模式影响。auto_mode=false 时 current_mode 固定产品族：chat 允许聊天/理解类，image 允许 text_to_image/image_reference_gen，edit_image 允许 edit_image；冲突时 needs_clarification + text/source/missing，不要求用户理解内部接口。
 12. changes 只记录用户明确修改：add/replace 的 target/value 非空；preserve/remove 的 target 非空且 value=""。constraints 只写明确约束。多项要求可由同一 operation 一次完成才合并，否则 needs_clarification，不得部分执行。`;
 
-const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前自检：恰好 10 个顶层字段，空数组也输出 []；只选 resource_candidates 中的 key；ready 无 unresolved；引用文字生图必须绑定 m key；bindings 的类型/role 满足 operation；只输出 route_decision.v1 JSON。`;
+const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前自检：这是第一次且最终的语义决定，不能假设应用会在本地纠错；恰好 10 个顶层字段，空数组也输出 []；只选 resource_candidates 中的 key；ready 无 unresolved；引用文字生图必须绑定 m key；自包含生图追问不得绑定历史 m key；bindings 的类型/role 满足 operation；只输出 route_decision.v1 JSON。`;
 const ROUTE_MISSING_DETAIL_GUIDANCE_V5 = `关键反例：“把猫的颜色换一下”没有给出目标颜色，不能 ready，也不能输出 value=""。必须保持 edit_image 和已明确的 target binding，输出 needs_clarification，changes=[]，clarification.question 询问目标颜色，并声明 text/source/missing、candidate_keys=[]。只有“把猫改成黑色”这类目标值明确的指令才能输出非空 replace.value。`;
 const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_MISSING_DETAIL_GUIDANCE_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
 
@@ -283,35 +289,7 @@ function publicRouteResourceCandidates(catalog = []) {
   }));
 }
 
-function explicitlyReferencesPriorText(input = '') {
-  const text = String(input || '').trim();
-  return /(?:这个|这段|上述|上面|前面|前文|刚才|之前|原来|上一(?:个|条|段)|同一)(?:的)?(?:描述|内容|文字|提示词|设定|方案|版本)?|(?:基于|根据|按照|沿用|延续|照着|参考)(?:这个|这段|上述|上面|前面|前文|刚才|之前|原来)|\b(?:this|that|above|earlier|previous|same)\s+(?:description|text|prompt|content|version)|\b(?:based on|according to|continue from|use)\s+(?:this|that|the above|the previous)\b/i.test(text);
-}
-
-function hasSelfContainedTextToImageSubject(input = '') {
-  const text = String(input || '').trim();
-  if (!text || explicitlyReferencesPriorText(text)) return false;
-  const chinese = text.match(/(?:^|[，。！？,.!?\s])(?:请|帮我|给我)?(?:再|重新|另外|另)?(?:画|绘制|生成|创作|制作|做|来)\s*(?:一|1|两|2)?(?:张|幅|个|只|条|位|辆|件|座|朵|棵)?\s*([^，。！？,.!?]*)/);
-  if (chinese) {
-    const subject = chinese[1]
-      .replace(/\s+/g, '')
-      .replace(/(?:图片|图像|照片|画面|作品|版本|变体)/g, '')
-      .replace(/(?:新的?|不同的?|类似的?|同样的?|高清|高质量|好看|漂亮)/g, '')
-      .replace(/换(?:个|一种)?品种/g, '')
-      .replace(/^(?:一个|一只|一条|一位|一辆|一件)/, '')
-      .trim();
-    if (subject && !/^[的地得]+$/.test(subject) && !/的$/.test(subject)) return true;
-  }
-  const english = text.match(/\b(?:draw|generate|create|make|render)\s+(?:another|a|an|one|new)?\s*([^,.!?]*)/i);
-  if (!english) return false;
-  const subject = english[1]
-    .replace(/\b(?:image|picture|photo|artwork|version|variant|another|new|different|similar|same|high[- ]quality|beautiful|of|a|an|the)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return !!subject;
-}
-
-function hasRouteDecisionShape(value = {}, { allowIncompleteChanges = false } = {}) {
+function hasRouteDecisionShape(value = {}) {
   if (!hasOnlyExactFields(value, ROUTE_DECISION_FIELDS)
       || value.schema_version !== ROUTE_DECISION_VERSION
       || !['ready', 'needs_clarification'].includes(value.readiness)
@@ -336,7 +314,7 @@ function hasRouteDecisionShape(value = {}, { allowIncompleteChanges = false } = 
         || typeof change.target !== 'string'
         || typeof change.value !== 'string') return true;
     if (['add', 'replace'].includes(change.op)) {
-      return !allowIncompleteChanges && (!change.target.trim() || !change.value.trim());
+      return !change.target.trim() || !change.value.trim();
     }
     return !change.target.trim() || change.value !== '';
   })) return false;
@@ -366,208 +344,13 @@ function operationAllowedByProductMode(operation = '', currentMode = 'chat', aut
   return allowed.has(operation);
 }
 
-const SELECTION_ENGLISH_STOP_WORDS = new Set([
-  'the', 'this', 'that', 'these', 'those', 'image', 'images', 'picture', 'pictures', 'photo', 'photos',
-  'please', 'change', 'modify', 'edit', 'replace', 'make', 'turn', 'into', 'color', 'colour', 'background',
-  'with', 'from', 'and', 'all', 'one', 'some', 'again', 'want', 'use', 'using', 'based', 'reference',
-]);
-const SELECTION_CJK_STOP_CHARS = new Set('把将请帮给让对这那张幅个只一下的了着并和与及图片照片相进行修改编辑改变替换换改成变为颜色色彩背景上中里要想需要使用基于按照参考生成新重新全部所有都处理调整'.split(''));
-const SELECTION_SUBJECT_ALIASES = [
-  ['subject:dog', /狗|犬|\b(?:dog|dogs|puppy|puppies)\b/i],
-  ['subject:cat', /猫|\b(?:cat|cats|kitten|kittens)\b/i],
-  ['subject:fish', /鱼|\b(?:fish|fishes)\b/i],
-  ['subject:bird', /鸟|\b(?:bird|birds)\b/i],
-  ['subject:person', /人物|人像|\b(?:person|people|human|portrait)\b/i],
-  ['subject:car', /汽车|车辆|轿车|\b(?:car|cars|vehicle|vehicles)\b/i],
-  ['subject:product', /产品|商品|\b(?:product|products|item|items)\b/i],
-];
-
-function imageSelectionTokens(text = '') {
-  const value = String(text || '').toLowerCase();
-  const tokens = new Set();
-  for (const word of value.match(/[a-z0-9]+/g) || []) {
-    if (word.length >= 2 && !SELECTION_ENGLISH_STOP_WORDS.has(word) && !/^\d+$/.test(word)) tokens.add(word);
-  }
-  for (const char of value.match(/[\u3400-\u9fff]/g) || []) {
-    if (!SELECTION_CJK_STOP_CHARS.has(char)) tokens.add(char);
-  }
-  for (const [token, pattern] of SELECTION_SUBJECT_ALIASES) if (pattern.test(value)) tokens.add(token);
-  return tokens;
-}
-
-function chineseOrdinalNumber(value = '') {
-  const text = String(value || '');
-  if (/^\d+$/.test(text)) return Number(text);
-  const digits = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
-  if (text === '十') return 10;
-  if (text.startsWith('十') && digits[text[1]]) return 10 + digits[text[1]];
-  if (text.endsWith('十') && digits[text[0]]) return digits[text[0]] * 10;
-  if (text.includes('十') && digits[text[0]] && digits[text[2]]) return digits[text[0]] * 10 + digits[text[2]];
-  return digits[text] || 0;
-}
-
-function explicitImageOrdinal(input = '') {
-  const text = String(input || '');
-  const chinese = text.match(/第\s*([一二两三四五六七八九十\d]+)\s*(?:张|幅|个)?(?:图片|图像|照片|图)?/);
-  if (chinese) return chineseOrdinalNumber(chinese[1]);
-  const numbered = text.match(/(?:图片|图像|照片|图)\s*(?:第|编号|号码|no\.?|#)?\s*(\d+)\s*(?:号|张)?/i);
-  if (numbered) return Number(numbered[1]);
-  const english = text.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(?:image|picture|photo)\b/i);
-  if (english) return ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].indexOf(english[1].toLowerCase()) + 1;
-  return 0;
-}
-
-function candidateConfirmedByClarification(candidate = {}, context = {}) {
-  const selected = Array.isArray(context?.clarification_context?.selected_choices)
-    ? context.clarification_context.selected_choices
-    : [];
-  return selected.some(choice => {
-    const id = String(choice?.id || choice?.image_id || '');
-    const referenceId = String(choice?.reference_id || '');
-    return candidate.id && id === candidate.id
-      || candidate.reference_id && referenceId === candidate.reference_id && (!id || id === candidate.id);
-  });
-}
-
-function hasExplicitImageSelection(candidate = {}, catalog = [], options = {}) {
-  if (candidate.source === 'quoted' || candidateConfirmedByClarification(candidate, options.context || {})) return true;
-  const currentImages = catalog.filter(item => item.type === 'image' && item.source === 'current');
-  if (candidate.source === 'current' && currentImages.length === 1) return true;
-  const ordinal = explicitImageOrdinal(options.input || '');
-  if (ordinal > 0 && candidate.candidate_key === `i${ordinal}`) return true;
-  if (/上一张|刚才(?:那|这)?张|最新(?:的)?(?:图片|图|照片)/.test(String(options.input || '')) && candidate.candidate_key === 'i1') return true;
-  const filename = String(candidate.filename || '').trim().toLowerCase();
-  return filename.length >= 3 && String(options.input || '').toLowerCase().includes(filename);
-}
-
-function ambiguousReadyEditTarget(decision = {}, catalog = [], options = {}) {
-  if (decision.readiness !== 'ready' || decision.operation !== 'edit_image') return null;
-  const targetBindings = decision.bindings.filter(binding => binding.role === 'target');
-  const images = catalog.filter(candidate => candidate.type === 'image');
-  if (targetBindings.length > 1) {
-    const selectedTargets = targetBindings
-      .map(binding => images.find(candidate => candidate.candidate_key === binding.candidate_key))
-      .filter(Boolean);
-    return selectedTargets.length > 1
-      ? [...new Map(selectedTargets.map(candidate => [candidate.candidate_key, candidate])).values()]
-      : null;
-  }
-  if (targetBindings.length !== 1) return null;
-  if (images.length < 2) return null;
-  const selected = images.find(candidate => candidate.candidate_key === targetBindings[0].candidate_key);
-  if (!selected || hasExplicitImageSelection(selected, catalog, options)) return null;
-
-  const queryTokens = imageSelectionTokens(options.input || '');
-  const scored = images.map(candidate => {
-    const candidateTokens = imageSelectionTokens(candidate.selection_text || candidate.label || '');
-    let score = 0;
-    for (const token of queryTokens) if (candidateTokens.has(token)) score += 1;
-    return { candidate, score };
-  });
-  const selectedScore = scored.find(item => item.candidate.candidate_key === selected.candidate_key)?.score || 0;
-  let contenders = selectedScore > 0
-    ? scored.filter(item => item.score >= selectedScore && item.score > 0).map(item => item.candidate)
-    : [];
-  const genericDeictic = /(?:这|那|上一|刚才|当前).{0,4}(?:图片|图|照片)|\b(?:this|that|current|previous)\s+(?:image|picture|photo)\b/i.test(String(options.input || ''));
-  if (contenders.length < 2 && (selectedScore === 0 || genericDeictic)) contenders = images;
-  if (contenders.length < 2) return null;
-  if (!contenders.some(candidate => candidate.candidate_key === selected.candidate_key)) contenders.unshift(selected);
-  return [...new Map(contenders.map(candidate => [candidate.candidate_key, candidate])).values()];
-}
-
-function applyDeterministicRouteSafety(decision = {}, catalog = [], options = {}) {
-  const ambiguousTargets = ambiguousReadyEditTarget(decision, catalog, options);
-  if (!ambiguousTargets) return { decision, reviewReasons: [] };
-  const ambiguousKeys = new Set(ambiguousTargets.map(candidate => candidate.candidate_key));
-  return {
-    decision: {
-      ...decision,
-      readiness: 'needs_clarification',
-      bindings: decision.bindings.filter(binding => binding.role !== 'target' || !ambiguousKeys.has(binding.candidate_key)),
-      clarification: {
-        question: '检测到多张可能符合描述的图片。请选择要修改的其中一张。',
-        unresolved: [{ type: 'image', role: 'target', reason: 'ambiguous', candidate_keys: ambiguousTargets.map(candidate => candidate.candidate_key) }],
-      },
-      confidence: Math.min(decision.confidence, 0.7),
-      rationale: '应用检测到单一编辑目标缺少可验证的选择依据。',
-    },
-    reviewReasons: ['ambiguous_target_selection'],
-  };
-}
-
-function missingChangeDetailQuestion(changes = []) {
-  const targets = [...new Set(changes
-    .map(change => String(change?.target || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean))];
-  if (targets.some(target => /颜色|色彩|\bcolou?r\b/i.test(target))) {
-    return '请补充目标颜色（例如黑色、白色），或说明想要的具体效果。';
-  }
-  if (targets.length === 1) return `请补充“${targets[0].slice(0, 80)}”的具体目标值或效果。`;
-  return '请补充要修改的对象以及具体目标值或效果。';
-}
-
-function applyMissingChangeDetailSafety(decision = {}) {
-  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) {
-    return { decision, reviewReasons: [] };
-  }
-  const incomplete = decision.changes.filter(change => ['add', 'replace'].includes(change.op)
-    && (!change.target.trim() || !change.value.trim()));
-  if (!incomplete.length) return { decision, reviewReasons: [] };
-  const unresolved = Array.isArray(decision.clarification?.unresolved)
-    ? decision.clarification.unresolved.map(slot => ({ ...slot, candidate_keys: [...slot.candidate_keys] }))
-    : [];
-  if (!unresolved.some(slot => slot.type === 'text' && slot.role === 'source' && slot.reason === 'missing')) {
-    unresolved.push({ type: 'text', role: 'source', reason: 'missing', candidate_keys: [] });
-  }
-  const existingQuestion = String(decision.clarification?.question || '').trim();
-  const detailQuestion = missingChangeDetailQuestion(incomplete);
-  const questionAlreadyRequestsDetail = /目标颜色|具体目标|具体效果|改成什么/.test(existingQuestion);
-  return {
-    decision: {
-      ...decision,
-      readiness: 'needs_clarification',
-      changes: decision.changes.filter(change => !incomplete.includes(change)),
-      clarification: {
-        question: existingQuestion
-          ? questionAlreadyRequestsDetail ? existingQuestion : `${existingQuestion}\n${detailQuestion}`
-          : detailQuestion,
-        unresolved,
-      },
-      confidence: Math.min(decision.confidence, 0.7),
-    },
-    reviewReasons: ['missing_change_detail'],
-  };
-}
-
-function applyTextToImageHistoryBindingSafety(decision = {}, catalog = [], options = {}) {
-  if (decision.readiness !== 'ready'
-      || decision.operation !== 'text_to_image'
-      || !hasSelfContainedTextToImageSubject(options.input || '')) {
-    return { decision, reviewReasons: [] };
-  }
-  const redundantKeys = new Set(catalog
-    .filter(candidate => candidate.type === 'message' && candidate.source === 'history')
-    .map(candidate => candidate.candidate_key));
-  const bindings = decision.bindings.filter(binding => !redundantKeys.has(binding.candidate_key));
-  if (bindings.length === decision.bindings.length) return { decision, reviewReasons: [] };
-  return {
-    decision: { ...decision, bindings },
-    reviewReasons: ['redundant_history_text_binding'],
-  };
-}
-
 function compileRouteDecision(decision = {}, options = {}) {
-  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) throw new TypeError('Invalid route_decision.v1 shape');
+  if (!hasExactRouteDecision(decision)) throw new TypeError('Invalid route_decision.v1 shape');
   const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || []);
   const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
-  const textBindingSafety = applyTextToImageHistoryBindingSafety(decision, catalog, { ...options, context: compilerContext });
-  const selectionSafety = applyDeterministicRouteSafety(textBindingSafety.decision, catalog, { ...options, context: compilerContext });
-  const detailSafety = applyMissingChangeDetailSafety(selectionSafety.decision);
-  const effectiveDecision = detailSafety.decision;
-  if (!hasExactRouteDecision(effectiveDecision)) throw new TypeError('Invalid route_decision.v1 shape');
   const candidates = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
   const usedCandidateKeys = new Set();
-  const resources = effectiveDecision.bindings.map((binding, index) => {
+  const resources = decision.bindings.map((binding, index) => {
     const candidate = candidates.get(binding.candidate_key);
     if (!candidate || usedCandidateKeys.has(binding.candidate_key) || !roleMatchesCandidate(candidate.type, binding.role)) {
       throw new TypeError(`Invalid route binding: ${binding.candidate_key}`);
@@ -586,7 +369,7 @@ function compileRouteDecision(decision = {}, options = {}) {
   });
 
   let nextResourceNumber = resources.length + 1;
-  const unresolvedResources = effectiveDecision.clarification.unresolved.map(slot => {
+  const unresolvedResources = decision.clarification.unresolved.map(slot => {
     const keys = [...new Set(slot.candidate_keys)];
     if (keys.length !== slot.candidate_keys.length
         || slot.reason === 'ambiguous' && keys.length < 2
@@ -613,15 +396,15 @@ function compileRouteDecision(decision = {}, options = {}) {
     };
   });
 
-  if (effectiveDecision.readiness === 'ready' && (effectiveDecision.clarification.question || unresolvedResources.length)
-      || effectiveDecision.readiness === 'needs_clarification' && (!effectiveDecision.clarification.question.trim() || !unresolvedResources.length)) {
+  if (decision.readiness === 'ready' && (decision.clarification.question || unresolvedResources.length)
+      || decision.readiness === 'needs_clarification' && (!decision.clarification.question.trim() || !unresolvedResources.length)) {
     throw new TypeError('Decision readiness and clarification disagree');
   }
 
-  const operationRequiresPatch = ['edit_image', 'image_reference_gen'].includes(effectiveDecision.operation);
+  const operationRequiresPatch = ['edit_image', 'image_reference_gen'].includes(decision.operation);
   const historicalResources = resources.filter(resource => ['quoted', 'history', 'context'].includes(resource.source));
-  const unresolvedNeedsBaseline = effectiveDecision.readiness === 'needs_clarification'
-    && effectiveDecision.relation !== 'new'
+  const unresolvedNeedsBaseline = decision.readiness === 'needs_clarification'
+    && decision.relation !== 'new'
     && unresolvedResources.some(slot => slot.type !== 'text');
   const mode = operationRequiresPatch || historicalResources.length || unresolvedNeedsBaseline ? 'patch' : 'standalone';
   const baselineKeys = [];
@@ -629,30 +412,30 @@ function compileRouteDecision(decision = {}, options = {}) {
     if (resource.type === 'text') continue;
     if (operationRequiresPatch && resource.type === 'image' || ['quoted', 'history', 'context'].includes(resource.source)) baselineKeys.push(resource.key);
   }
-  if (mode === 'patch' && effectiveDecision.readiness === 'needs_clarification') {
+  if (mode === 'patch' && decision.readiness === 'needs_clarification') {
     for (const slot of unresolvedResources) if (slot.type !== 'text') baselineKeys.push(slot.key);
   }
 
   const taskContract = {
     schema_version: 'task_contract.v5',
-    readiness: effectiveDecision.readiness,
-    operation: effectiveDecision.operation,
-    relation: effectiveDecision.relation,
+    readiness: decision.readiness,
+    operation: decision.operation,
+    relation: decision.relation,
     resources,
     directive: {
       mode,
       base_resource_keys: [...new Set(baselineKeys)],
       unmentioned_policy: mode === 'patch' ? 'preserve' : 'allow_change',
-      operations: effectiveDecision.changes.map(change => ({ ...change })),
-      constraints: effectiveDecision.constraints.map(constraint => String(constraint)),
+      operations: decision.changes.map(change => ({ ...change })),
+      constraints: decision.constraints.map(constraint => String(constraint)),
     },
     clarification: {
-      question: effectiveDecision.clarification.question,
+      question: decision.clarification.question,
       unresolved_resources: unresolvedResources,
     },
-    confidence: effectiveDecision.confidence,
-    review_reasons: [...new Set([...textBindingSafety.reviewReasons, ...selectionSafety.reviewReasons, ...detailSafety.reviewReasons])],
-    rationale: effectiveDecision.rationale,
+    confidence: decision.confidence,
+    review_reasons: [],
+    rationale: decision.rationale,
   };
   return taskContract;
 }
@@ -1019,14 +802,6 @@ function composeTextToImagePrompt(input = '', taskContract = {}, context = {}) {
   if (taskContract?.operation !== 'text_to_image' || !Array.isArray(taskContract?.resources)) return currentPrompt;
   const messageResources = taskContract.resources
     .filter(resource => resource?.type === 'message' && !resource.missing);
-  const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
-  const quoteIndex = Number(quote?.index);
-  const quoteId = String(messageIdentity(quote || {}));
-  const hasExplicitQuoteBinding = messageResources.some(resource => resource.source === 'quoted'
-    || quote && Number(resource.index) === quoteIndex && (!quoteId || String(resource.id || '') === quoteId));
-  if (messageResources.length && !hasExplicitQuoteBinding && hasSelfContainedTextToImageSubject(currentPrompt)) {
-    return currentPrompt;
-  }
   const seen = new Set(currentPrompt ? [currentPrompt] : []);
   const boundBodies = messageResources
     .map(resource => boundMessageBody(resource, context))
@@ -1127,7 +902,7 @@ function inspectTaskContract(taskContract = {}, options = {}) {
 }
 
 function inspectRouteDecision(decision = {}, options = {}) {
-  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) return { route: null, reason: 'decision_shape' };
+  if (!hasExactRouteDecision(decision)) return { route: null, reason: 'decision_shape' };
   try {
     const taskContract = compileRouteDecision(decision, options);
     if (routeReadiness(taskContract) === 'needs_clarification') {

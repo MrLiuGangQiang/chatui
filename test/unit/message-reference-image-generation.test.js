@@ -132,6 +132,34 @@ function testQuotedMessageTextToImageCanUseAnExplicitQuoteWithoutHistoryRows() {
   assert.ok(parsed.contextualImagePrompt.includes(USER_INSTRUCTION));
 }
 
+function testExplicitQuotedMessageIsBoundWhenTextToImageRouteOmitsIt() {
+  const contract = messageImageContract('reference');
+  contract.resources = [];
+  contract.directive = {
+    mode: 'standalone',
+    base_resource_keys: [],
+    unmentioned_policy: 'allow_change',
+    operations: [],
+    constraints: [],
+  };
+  contract.relation = 'new';
+
+  const parsed = routeService.parseRouteResult(JSON.stringify(contract), {
+    input: USER_INSTRUCTION,
+    attachments: [],
+    context: quotedMessageContext(),
+  });
+
+  assert.ok(parsed, 'an explicit UI quote must survive a text-to-image route that omitted its message resource');
+  assert.strictEqual(parsed.taskContract.relation, 'followup');
+  assert.strictEqual(parsed.taskContract.directive.mode, 'patch');
+  assert.deepStrictEqual(parsed.taskContract.directive.base_resource_keys, ['r1']);
+  assert.strictEqual(parsed.taskContract.resources[0].type, 'message');
+  assert.strictEqual(parsed.taskContract.resources[0].role, 'reference');
+  assert.ok(parsed.contextualImagePrompt.includes(QUOTED_MESSAGE_TEXT));
+  assert.ok(parsed.contextualImagePrompt.includes(USER_INSTRUCTION));
+}
+
 function testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable() {
   const contract = messageImageContract('reference');
   const parsed = routeService.parseRouteResult(JSON.stringify(contract), {
@@ -240,6 +268,7 @@ module.exports = [
   testQuotedMessageTextToImageContractsBindAndComposeBothRoleVariants,
   testQuotedMessageTextToImageBindingFailsClosedForWrongIdentity,
   testQuotedMessageTextToImageCanUseAnExplicitQuoteWithoutHistoryRows,
+  testExplicitQuotedMessageIsBoundWhenTextToImageRouteOmitsIt,
   testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable,
   testQuotedImageHistoryAliasRequiresAnExplicitQuote,
   testQuotedImageHistoryAliasCannotCrossMessageIdentity,

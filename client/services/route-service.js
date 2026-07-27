@@ -493,17 +493,24 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   const quote = context?.quoted_message;
   if (!quote || typeof quote !== 'object') return task;
   // An explicit UI quote is already an unambiguous, user-selected message.
-  // It is protocol data rather than a model inference: a plain-chat route
-  // cannot legitimately discard it or turn it into an unrelated new task.
+  // It is protocol data rather than a model inference: a plain-chat or
+  // text-to-image route cannot legitimately discard it or turn it into an
+  // unrelated new task. Text-to-image additionally copies the bound body into
+  // the final image prompt through composeTextToImagePrompt.
   // This does not infer anything from ordinary history and never changes the
   // operation or any media resource selected by the model.
-  if (task?.operation !== 'plain_chat' || !Array.isArray(task?.resources)) return task;
+  if (!['plain_chat', 'text_to_image'].includes(task?.operation) || !Array.isArray(task?.resources)) return task;
   const directive = task?.directive;
   if (!directive || !Array.isArray(directive.base_resource_keys) || !Array.isArray(directive.operations) || !Array.isArray(directive.constraints)) return task;
   const index = Number(quote.index);
   if (!Number.isInteger(index) || index < 1) return task;
   const resources = [...task.resources];
-  const bound = resources.find(resource => resource?.type === 'message' && resource?.source === 'history' && Number(resource?.index) === index && resource?.role === 'context' && resource?.missing === false);
+  const allowedRoles = task.operation === 'text_to_image' ? ['context', 'reference'] : ['context'];
+  const bound = resources.find(resource => resource?.type === 'message'
+    && ['history', 'quoted'].includes(resource?.source)
+    && Number(resource?.index) === index
+    && allowedRoles.includes(resource?.role)
+    && resource?.missing === false);
   const key = bound?.key || (() => {
     const used = new Set(resources.map(resource => String(resource?.key || '')));
     let number = 1;
@@ -511,7 +518,7 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
     return `r${number}`;
   })();
   if (!bound) resources.push({
-    key, type: 'message', source: 'history', role: 'context', index,
+    key, type: 'message', source: 'history', role: task.operation === 'text_to_image' ? 'reference' : 'context', index,
     id: String(messageIdentity(quote)), reference_id: '', missing: false,
   });
   const baseKeys = [...directive.base_resource_keys];

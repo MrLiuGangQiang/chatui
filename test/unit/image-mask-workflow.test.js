@@ -284,6 +284,13 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   assert.ok(source.includes('canonicalExecution.operation === "edit_image" ? ""'), 'global image style must be disabled for preserve-oriented edits');
 }
 
+function testResumedImageResultPersistsReturnedImageInsteadOfJobInput() {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'job-resume-workflow.js'), 'utf8');
+  assert.ok(source.includes('const resultImageContext = d.imageContext'), 'a completed resumed image job must derive its durable context from the returned result');
+  assert.ok(source.includes('imageContext: resultImageContextText'), 'the returned image context must be written to both the completion display and canonical message');
+  assert.ok(source.includes('setImageContext(e, resultImageContext)'), 'the live node must use the same returned image context as persistence');
+}
+
 async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
   const context = {
     mode: 'edit_image',
@@ -356,5 +363,6 @@ module.exports = [
   testImageJobServiceForwardsMasksInManagedRequest,
   testRootImageJobAdapterForwardsMasksInBothPaths,
   testReferenceRolesReachTheImageRequestBoundary,
+  testResumedImageResultPersistsReturnedImageInsteadOfJobInput,
   testImageResumeRestoresMasksIntoTheirDedicatedSlot,
 ];

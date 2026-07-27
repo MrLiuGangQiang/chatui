@@ -228,6 +228,20 @@
                 prompt: s.prompt || "",
                 sessionId: e,
               });
+            // The managed-job context describes the image submitted to the
+            // provider (A1).  Once the provider returns, the completed
+            // message must instead own the newly persisted result (A2).
+            // Reusing s.imageContext here made a resumed edit look correct in
+            // the live DOM but restore the input image after a refresh.
+            const resultImageContext = d.imageContext
+              ? normalizeImageContextForStorage({
+                  ...d.imageContext,
+                  mode: a ? "edit_image" : "image",
+                  target: "previous",
+                  usePreviousImage: !0,
+                })
+              : normalizeImageContextForStorage(s.imageContext || {}),
+              resultImageContextText = JSON.stringify(resultImageContext);
             if (
               (a &&
                 (d.html = d.html.replace(
@@ -242,6 +256,7 @@
         耗时：${r}`,
                 metaText: d.metaText || `RT ${r}`,
                 pending: !1,
+                imageContext: resultImageContextText,
               }),
               e === state.activeSessionId)
             ) {
@@ -253,7 +268,7 @@
         耗时：${r}`,
                   metaText: d.metaText || `RT ${r}`,
                 }),
-                s.imageContext && setImageContext(e, s.imageContext));
+                setImageContext(e, resultImageContext));
             }
             const c = `${a ? "[图片编辑完成]" : "[图片生成完成]"} ${s.prompt || ""}`,
               m = upsertImageAssistantMessage(
@@ -268,11 +283,7 @@
                     "" !== i?.responseIndex && void 0 !== i?.responseIndex
                       ? i.responseIndex
                       : void 0,
-                  imageContext: s.imageContext
-                    ? JSON.stringify(
-                        normalizeImageContextForStorage(s.imageContext),
-                      )
-                    : "",
+                  imageContext: resultImageContextText,
                   kind: a ? "edit_image" : "image",
                   metaText: d.metaText || `RT ${r}`,
                 },

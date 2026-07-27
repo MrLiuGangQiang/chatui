@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const clarificationService = require('../../client/services/clarification-service');
+const submitWorkflow = require('../../client/app/submit-workflow');
 
 function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
@@ -13,16 +14,16 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 
   assert.ok(
-    submit.includes('const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context)=>routeUi.getEffectiveRouteWithSlowNotice(input,routeAttachments,headers,context);'),
-    'the route UI wrapper must accept exactly the headers and route-context arguments it forwards'
+    submit.includes('const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context,intentOptions={})=>{routeUi.startSlowNotice();return getEffectiveRoute(input,routeAttachments,sessionId,headers,context,{...intentOptions,onSlow:routeUi.showSlowNotice,onStage:routeUi.showSlowNotice,signal:run.abortController?.signal})'),
+    'the route UI wrapper must forward headers, context, cancellation, and the absolute pipeline deadline without an argument shift'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null)'),
+    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt})'),
     'normal submissions must pass request headers as the third route argument, not the session ID'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(promptText,[],buildRequestHeaders("message",sessionId),buildQuotedRouteContext())'),
-    'quoted submissions must preserve their route context while passing valid request headers'
+    submit.includes('getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt})'),
+    'quoted submissions must preserve both their structured quote context and the current-turn attachment candidates'
   );
   assert.ok(submit.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'an explicit quote must be forwarded as a structured route binding, not only as background history');
   assert.ok(regenerate.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'regenerating from a quote must preserve the same structured route binding');
@@ -36,22 +37,42 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.3.2-clarification-reroute'),
+    index.includes('submit-workflow.js?v=1.4.0-intent-deadline'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
+  assert.ok(submit.includes('classifierDeadline.race(requestJson('), 'the pending continuation classifier must consume the same bounded intent interval');
+  assert.ok(submit.includes('compatibilityPayload') && submit.includes('delete compatibilityPayload.response_format'), 'a structured-output compatibility retry must remain inside that same interval');
+  assert.ok(submit.includes('{deadlineAt:intentDeadlineAt}'), 'every full-router branch must inherit the absolute deadline started before continuation classification');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
-  assert.ok(submit.includes('const needsHistoricalChatImages=()=>"chat"===routeMode&&historicalRouteImageRefs().length>0'), 'chat tasks with an explicitly selected historical image must request its durable media');
-  assert.ok(submit.includes('getPreviousImageAttachments(sessionId,historicalRouteImageIndexes(),historicalRouteReferenceId(),historicalRouteImageIds())'), 'historical chat images must be restored by their exact historical route bindings without duplicating current uploads');
   assert.ok(submit.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(routeInfo,targetSession.messages||state.messages||[],quotedMessage)||null'), 'every selected message resource must be projected into the outgoing chat base');
   assert.ok(submit.includes('if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error('), 'a stale selected message must fail closed instead of falling back to arbitrary session history');
   assert.ok(submit.includes('routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0'), 'the execution projection must mark route-selected messages as protected during context budgeting');
   assert.ok(chat.includes('protectedHistoryIndexes(messages, nextRequestProtectedMessageCount)'), 'chat context budgeting must preserve selected message bases');
-  assert.ok(submit.includes('if(needsHistoricalChatImages()&&!previous.length)throw new Error("已选择的历史参考图片无法恢复，不能在未附图的情况下继续执行")'), 'a selected history image must never silently degrade into a text-only request');
-  assert.ok(submit.includes('if(needsHistoricalChatImages()&&!chatAttachments.some(isImageAttachment))throw new Error("已选择的历史参考图片无法作为聊天附件发送，不能在未附图的情况下继续执行")'), 'the final chat attachment list must retain the selected history image');
+  assert.match(submit, /const sourcePools\s*=\s*\{\s*current:currentTurnAttachments,\s*quoted:quotedResourceAttachments,\s*history:/, 'all attachment sources must enter distinct execution pools');
+  assert.ok(submit.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the validated route contract must create the one canonical media projection');
+  assert.ok(submit.includes('prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages])'), 'chat dispatch must use only contract-selected files and images');
+  assert.ok(submit.includes('const editAttachments=executionMedia.imageInputs'), 'image dispatch must use only contract-selected image inputs');
+  assert.ok(submit.includes('maskAttachments:executionMedia.masks'), 'mask bindings must remain separate from edit targets at dispatch');
+  assert.ok(!submit.includes('needsHistoricalChatImages'), 'historical media must not use a parallel keyword-driven selection path');
   assert.ok(submit.includes('if(createdPending&&!routeInfo.localClarification)'), 'a local contract-failure notice must not create a fake pending user clarification');
   assert.ok(!submit.includes('我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？'), 'a model contract failure must not be presented as user ambiguity');
+}
+
+async function testContinuationClassifierDeadlineFailsClosed() {
+  assert.strictEqual(submitWorkflow.INTENT_PIPELINE_DEADLINE_MS, 60000);
+  const bounded = submitWorkflow.createBoundedIntentRequest(null, Date.now() + 30);
+  const started = Date.now();
+  try {
+    await assert.rejects(
+      () => bounded.race(new Promise(() => {})),
+      error => error?.code === 'ROUTE_INTENT_TIMEOUT' && error?.timeoutMs === 60000,
+    );
+    assert.ok(Date.now() - started < 500, 'the classifier deadline must reject promptly instead of waiting for an unbounded model request');
+  } finally {
+    bounded.dispose();
+  }
 }
 
 function testImageGenerationDoesNotShadowSubmitOptions() {
@@ -59,23 +80,27 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 
   assert.ok(
-    image.includes('const imageJob=await startImageGenerationJob(u,s,e,{signal:a.abortController.signal,headers:q,sessionId:n});'),
+    /const imageJob\s*=\s*await startImageGenerationJob\(u,\s*s,\s*e,\s*\{[\s\S]*?signal:\s*a\.abortController\.signal,[\s\S]*?headers:\s*q,[\s\S]*?sessionId:\s*n,[\s\S]*?\}\);/.test(image),
     'plain image generation must store the created job without shadowing the sendImage options parameter'
   );
   assert.ok(
-    !image.includes('const t=await startImageGenerationJob(u,s,e,{signal:a.abortController.signal,headers:q,sessionId:n});'),
+    !/const t\s*=\s*await startImageGenerationJob\(u,\s*s,\s*e/.test(image),
     'the image job response must not create a temporal-dead-zone for t.submissionId'
   );
   assert.ok(
-    image.includes('const refBindings=Array.isArray(t.referenceImageBindings)?t.referenceImageBindings:[],directReferenceBindings=refBindings.filter(e=>["current","quoted"].includes(String(e?.source||""))),historicalReferenceIds=refBindings.filter(e=>["history","context"].includes(String(e?.source||""))).map(e=>String(e?.imageId||"")).filter(Boolean);'),
-    'reference generation must keep direct and historical route-media bindings distinct'
+    image.includes('const canonicalExecution = requireCanonicalImageExecution(t.taskContract, t.executionMedia)') && image.includes('m = canonicalExecution.imageInputs'),
+    'canonical image execution must require a matching v5 contract and execution-resource projection'
   );
   assert.ok(
-    image.includes('if(f.length!==directReferenceBindings.length)throw new Error("已选择的参考图片无法作为输入附件发送，不能在未附图的情况下继续执行")') && image.includes('if(e.length!==historicalReferenceIds.length)throw new Error("已选择的参考图片无法恢复，不能在未附图的情况下继续执行")'),
-    'missing direct or historical reference images must fail closed instead of silently generating without them'
+    !image.includes('t.referenceImageBindings') && !image.includes('t.selectedImageIds') && !image.includes('t.usePreviousImage'),
+    'image execution must not retain a second resource-selection path'
   );
   assert.ok(
-    index.includes('image-workflow.js?v=1.3.22-reference-media'),
+    !image.includes('getPreviousImageAttachments(') && !image.includes('getLatestUploadedImageContext('),
+    'sendImage must not restore or infer resources after canonical projection'
+  );
+  assert.ok(
+    index.includes('image-workflow.js?v=1.4.1-product-mode-separation'),
     'the browser must fetch the image workflow with exact reference-media recovery'
   );
 }
@@ -91,25 +116,43 @@ function testPendingContinuationRequiresStrictModelContract() {
 
   const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'new_task', confidence: 1, final_prompt: '', final_task_mode: 'unknown', selected_indexes: [], selections: [], should_merge: false, should_clear_pending: true, reason: 'complete independent request',
+    relation: 'new_task', confidence: 1, resolved_input: '', selections: [], should_merge: false, should_clear_pending: true, assistant_reply: '', reason: 'complete independent request',
   }));
   assert.ok(newTask);
   assert.strictEqual(newTask.shouldMerge, false);
 
   const continuation = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer', confidence: 0.95, final_prompt: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', final_task_mode: 'image', selected_indexes: [], selections: [], should_merge: true, should_clear_pending: true, reason: 'answers the pending question',
+    relation: 'pending_answer', confidence: 0.95, resolved_input: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', selections: [], should_merge: true, should_clear_pending: true, assistant_reply: '', reason: 'answers the pending question',
   }));
   assert.ok(continuation, 'only a complete, high-confidence continuation contract may authorize a merge');
+
+  const assistance = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_assistance', confidence: 0.95, resolved_input: '', selections: [], should_merge: false, should_clear_pending: false, assistant_reply: '可选犬种：沙皮狗、柴犬、金毛、拉布拉多。请选择一种。', reason: 'the user requested choices for the active breed question',
+  }));
+  assert.ok(assistance, 'an assistance reply must preserve the active pending task rather than start a new route');
+  assert.strictEqual(assistance.assistantReply.includes('沙皮狗'), true);
+  const retained = clarificationService.retainPendingAfterAssistance({
+    originalText: '画一只狗', clarificationText: '你想换成什么品种？', rounds: 1,
+  }, { promptText: '列举一些犬种', assistantReply: assistance.assistantReply });
+  assert.strictEqual(retained.originalText, '画一只狗');
+  assert.strictEqual(retained.clarificationText, '你想换成什么品种？');
+  assert.strictEqual(retained.assistanceHistory[0].reply, assistance.assistantReply);
 
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(submit.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
+  assert.ok(submit.includes('const pendingAssistance=pendingDecision?.relation==="pending_assistance"'), 'pending assistance must answer within the active task before route dispatch');
   assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
   assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
-  assert.ok(submit.includes('const rerouteAfterClarification=storedPending?.routeInfo?.requiresRerouteAfterClarification===!0'), 'a degraded structured clarification must retain an explicit reroute boundary');
-  assert.ok(submit.includes('!structuredTask&&!rerouteAfterClarification&&pendingMerge.finalTaskMode==="image"'), 'a continuation classifier must not directly authorize execution for a degraded clarification');
-  assert.ok(submit.includes('!pendingResolvedRoute&&(rerouteAfterClarification||!('), 'the customer answer to a degraded clarification must return through canonical intent routing');
+  assert.ok(!submit.includes('finalTaskMode') && !submit.includes('selectedIndexes'), 'a continuation classifier must expose no operation or media-selection controls');
+  assert.ok(!submit.includes('resolveClarificationRoute') && !submit.includes('pendingResolvedRoute'), 'a structured choice must never bypass canonical intent routing');
+  assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a continuation must become explicit context for full rerouting');
+  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a continuation must reroute with current attachments only');
+  assert.ok(submit.includes('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'), 'submit must apply the canonical execution gate even when a route has no task contract');
+  assert.ok(!submit.includes('if(routeInfo.taskContract&&routeUtils.isRouteDispatchable'), 'the dispatch gate must not be conditional on a contract being present');
+  assert.ok(!submit.includes('引用图片为准，按引用图片执行编辑'), 'quoted routes must not be rewritten after contract validation');
   assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate submission to the canonical workflow');
   assert.ok(!app.includes('function initChatUIAppSubmitWorkflow'), 'the root entry must not embed a second submit workflow');
 }
@@ -127,9 +170,20 @@ function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
   assert.ok(!app.includes(fixedHelper) && !app.includes(fixedDispatch), 'the root entry must not retain a stale copy of submit dispatch logic');
 }
 
+function testForceImageUsesExplicitCanonicalContract() {
+  const regenerate = fs.readFileSync(path.join(__dirname, '../../client/app/regenerate-workflow.js'), 'utf8');
+  assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(t)'), 'the force-image action must create an explicit v5 task contract');
+  assert.ok(regenerate.includes('routeUtils.isRouteDispatchable?.(routeInfo)!==!0'), 'the force-image action must pass the same execution gate as routed requests');
+  assert.ok(regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the force-image action must use the canonical execution-resource projection');
+  assert.ok(regenerate.includes('taskContract:routeInfo.taskContract'), 'the validated force-image contract must reach image dispatch');
+  assert.ok(!regenerate.includes('attachments:c.filter(item=>!isImageFile(item))'), 'force-image dispatch must not leak unrelated message attachments into text-to-image execution');
+}
+
 module.exports = [
   testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift,
+  testContinuationClassifierDeadlineFailsClosed,
   testPendingContinuationRequiresStrictModelContract,
   testImageGenerationDoesNotShadowSubmitOptions,
   testChatRerouteAllocatesRecoveryIdAfterImageMode,
+  testForceImageUsesExplicitCanonicalContract,
 ];

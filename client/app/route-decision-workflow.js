@@ -49,11 +49,6 @@
       return routeSvc?.extractRouteText ? routeSvc.extractRouteText(response) : response?.choices?.[0]?.message?.content || response?.output_text || '';
     }
 
-    function shouldReviewRoute(routeSvc, route, context) {
-      if (!route) return false;
-      return !!routeSvc?.needsIntentReview?.(route, context);
-    }
-
     function structuredOutputUnsupported(error) {
       const text = String(error?.message || error || '').toLowerCase();
       return /response_format|json_schema|structured.?output/.test(text)
@@ -112,6 +107,10 @@
       if (typeof routeSvc?.buildIntentRepairPayload !== 'function') {
         return { route: null, reason: initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }
+      const repairInvariants = routeSvc?.repairInvariantSnapshot?.(raw) || null;
+      if (!repairInvariants) {
+        return { route: null, reason: 'repair_invariants_unavailable', initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
       const repairPayload = routeSvc.buildIntentRepairPayload({
         model,
         input,
@@ -125,6 +124,9 @@
       const repairRaw = extractRouteText(routeSvc, repairResponse);
       readinessRequirement = mergeReadiness(readinessRequirement, routeSvc?.readRouteReadiness?.(repairRaw) || '');
       const repaired = inspectRoute(routeSvc, repairRaw, options);
+      if (repaired.route && routeSvc?.repairPreservesInvariants?.(repairInvariants, repaired.route) !== true) {
+        return { route: null, reason: 'repair_semantic_drift', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
+      }
       if (repaired.route && !satisfiesReadiness(repaired.route)) {
         return { route: null, reason: 'readiness_transition_forbidden', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
       }
@@ -158,6 +160,54 @@
       };
     }
 
+    const DEFAULT_INTENT_DEADLINE_MS = 60000;
+
+    function createIntentDeadline(parentSignal = null, timeoutMs = DEFAULT_INTENT_DEADLINE_MS) {
+      const linked = createLinkedAbortController(parentSignal);
+      const duration = Math.max(1, Number(timeoutMs) || DEFAULT_INTENT_DEADLINE_MS);
+      const startedAt = Date.now();
+      let timedOut = false;
+      let disposed = false;
+      let rejectTerminal = null;
+      const timeoutError = () => {
+        const error = new Error('ROUTE_INTENT_TIMEOUT');
+        error.code = 'ROUTE_INTENT_TIMEOUT';
+        error.routeTimedOut = true;
+        error.timeoutMs = duration;
+        return error;
+      };
+      const terminal = new Promise((resolve, reject) => {
+        rejectTerminal = reject;
+      });
+      terminal.catch(() => {});
+      const cancel = () => {
+        if (!disposed) rejectTerminal?.(createRouteCancelledError());
+      };
+      if (parentSignal?.aborted) cancel();
+      else parentSignal?.addEventListener?.('abort', cancel, { once: true });
+      const timer = setTimeout(() => {
+        if (disposed) return;
+        timedOut = true;
+        linked.controller?.abort?.();
+        rejectTerminal?.(timeoutError());
+      }, duration);
+      return {
+        signal: linked.controller?.signal || parentSignal || null,
+        get timedOut() { return timedOut; },
+        get elapsedMs() { return Math.max(0, Date.now() - startedAt); },
+        get remainingMs() { return Math.max(0, duration - (Date.now() - startedAt)); },
+        race: promise => Promise.race([Promise.resolve(promise), terminal]),
+        timeoutError,
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          clearTimeout(timer);
+          parentSignal?.removeEventListener?.('abort', cancel);
+          linked.dispose();
+        },
+      };
+    }
+
     function invalidRouteError(stage = 'primary') {
       const error = new Error('ROUTE_INVALID_CONTRACT');
       error.code = 'ROUTE_INVALID_CONTRACT';
@@ -188,11 +238,6 @@
       };
     }
 
-    function requiresVerifiedReview(route = {}) {
-      const operation = String(route.operationType || route.taskContract?.operation || '');
-      return ['edit_image', 'image_reference_gen', 'image_compare'].includes(operation);
-    }
-
     function resolveRouteModels(sessionId, config = {}) {
       const sessionChatModel = typeof deps.getSessionChatModel === 'function'
         ? String(deps.getSessionChatModel(sessionId, config) || '').trim()
@@ -207,26 +252,33 @@
       with (deps) {
         const parentSignal = routeOptions?.signal || null;
         throwIfRouteCancelled(parentSignal);
-        await loadPublicContext?.();
-        throwIfRouteCancelled(parentSignal);
-        const config = getConfig();
-        const requestHeaders = headers || buildRequestHeaders('message', sessionId);
-        const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
-        const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
-        const attachmentMeta = buildRouteAttachmentMetadata(attachments);
-        const context = routeContextOverride || buildRouteContext(sessionId);
-        let primaryFailure = null;
-        let fallbackFailure = null;
+        const absoluteDeadlineAt = Number(routeOptions?.deadlineAt);
+        const remainingDeadlineMs = Number.isFinite(absoluteDeadlineAt) && absoluteDeadlineAt > 0
+          ? Math.max(1, absoluteDeadlineAt - Date.now())
+          : routeOptions?.deadlineMs || DEFAULT_INTENT_DEADLINE_MS;
+        const intentDeadline = createIntentDeadline(parentSignal, remainingDeadlineMs);
+        let slowNotified = false;
+        const slowTimer = setTimeout(() => {
+          slowNotified = true;
+          try { routeOptions?.onSlow?.('\u6b63\u5728\u6267\u884c\uff1a\u8def\u7531\u6a21\u578b\u610f\u56fe\u8bc6\u522b'); } catch (err) { console.warn('route slow callback failed:', err); }
+        }, 10000);
+        try {
+          await intentDeadline.race(loadPublicContext?.());
+          throwIfRouteCancelled(parentSignal);
+          const config = getConfig();
+          const requestHeaders = headers || buildRequestHeaders('message', sessionId);
+          const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
+          const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
+          const attachmentMeta = buildRouteAttachmentMetadata(attachments);
+          const context = routeContextOverride || buildRouteContext(sessionId);
+          let primaryFailure = null;
+          let fallbackFailure = null;
 
         if (config.baseUrl && primaryModel) {
           try {
             const firstPayload = routeSvc?.buildRoutePayload
               ? routeSvc.buildRoutePayload({ model: primaryModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode })
               : { model: primaryModel, temperature: 0, messages: [] };
-            const request = createLinkedAbortController(parentSignal);
-            const controller = request.controller;
-            let timedOut = false;
-            let slowNotified = false;
             const trace = {
               input,
               model: primaryModel,
@@ -234,41 +286,26 @@
               attachments: attachmentMeta,
               firstPayload: compactTraceValue(firstPayload),
             };
-            const slowTimer = setTimeout(() => {
-              slowNotified = true;
-              try { routeOptions?.onSlow?.('\u6b63\u5728\u6267\u884c\uff1a\u8def\u7531\u6a21\u578b\u610f\u56fe\u8bc6\u522b'); } catch (err) { console.warn('route slow callback failed:', err); }
-            }, 10000);
-            const timeout = setTimeout(() => {
-              timedOut = true;
-              controller?.abort?.();
-            }, 60000);
             let firstResponse;
             try {
               throwIfRouteCancelled(parentSignal);
-              firstResponse = await requestRouteDecision(firstPayload, config, requestHeaders, controller?.signal);
+              firstResponse = await intentDeadline.race(requestRouteDecision(firstPayload, config, requestHeaders, intentDeadline.signal));
               throwIfRouteCancelled(parentSignal);
             } catch (err) {
               if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-              if (timedOut || err?.name === 'AbortError') {
-                const timeoutError = new Error('ROUTE_INTENT_TIMEOUT');
-                timeoutError.code = 'ROUTE_INTENT_TIMEOUT';
-                timeoutError.routeTimedOut = true;
-                timeoutError.timeoutMs = 60000;
-                timeoutError.slowNotified = slowNotified;
-                throw timeoutError;
+              if (intentDeadline.timedOut || err?.code === 'ROUTE_INTENT_TIMEOUT' || err?.name === 'AbortError') {
+                const deadlineError = intentDeadline.timeoutError();
+                deadlineError.slowNotified = slowNotified;
+                throw deadlineError;
               }
               throw err;
-            } finally {
-              clearTimeout(slowTimer);
-              clearTimeout(timeout);
-              request.dispose();
             }
 
             trace.firstRaw = extractRouteText(routeSvc, firstResponse);
-            const primaryParsed = await parseOrRepairRoute(routeSvc, {
+            const primaryParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
               model: primaryModel, input, attachments: attachmentMeta, context, raw: trace.firstRaw,
-              config, headers: requestHeaders, signal: parentSignal,
-            });
+              config, headers: requestHeaders, signal: intentDeadline.signal,
+            }));
             let route = primaryParsed.route;
             trace.firstValidationReason = primaryParsed.initialReason || primaryParsed.reason || '';
             trace.repairRaw = primaryParsed.repairRaw || '';
@@ -290,42 +327,33 @@
           } catch (err) {
             if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
             primaryFailure = err;
-            console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
-            try {
+            const deadlineExpired = intentDeadline.timedOut || err?.code === 'ROUTE_INTENT_TIMEOUT';
+            console.warn(deadlineExpired ? 'intent recognition deadline exhausted' : 'route model failed, trying chat model fallback', err);
+            if (!deadlineExpired) try {
               routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad');
             } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
-            if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
+            if (!deadlineExpired && config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
                 const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
-                const fallbackRequest = createLinkedAbortController(parentSignal);
-                const fallbackController = fallbackRequest.controller;
-                let fallbackTimedOut = false;
-                const fallbackTimeout = setTimeout(() => {
-                  fallbackTimedOut = true;
-                  fallbackController?.abort?.();
-                }, 30000);
                 let fallbackResponse;
                 try {
-                  fallbackResponse = await requestRouteDecision(fallbackPayload, config, requestHeaders, fallbackController?.signal);
+                  fallbackResponse = await intentDeadline.race(requestRouteDecision(fallbackPayload, config, requestHeaders, intentDeadline.signal));
                   throwIfRouteCancelled(parentSignal);
                 } catch (fallbackErr) {
                   if (isRouteCancelled(fallbackErr, parentSignal)) throw createRouteCancelledError();
-                  if (fallbackTimedOut || fallbackErr?.name === 'AbortError') {
-                    const timeoutError = new Error('ROUTE_FALLBACK_TIMEOUT');
-                    timeoutError.code = 'ROUTE_FALLBACK_TIMEOUT';
-                    throw timeoutError;
+                  if (intentDeadline.timedOut || fallbackErr?.code === 'ROUTE_INTENT_TIMEOUT' || fallbackErr?.name === 'AbortError') {
+                    const deadlineError = intentDeadline.timeoutError();
+                    deadlineError.slowNotified = slowNotified;
+                    throw deadlineError;
                   }
                   throw fallbackErr;
-                } finally {
-                  clearTimeout(fallbackTimeout);
-                  fallbackRequest.dispose();
                 }
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
-                const fallbackParsed = await parseOrRepairRoute(routeSvc, {
+                const fallbackParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
                   model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
-                  config, headers: requestHeaders, signal: parentSignal,
-                });
+                  config, headers: requestHeaders, signal: intentDeadline.signal,
+                }));
                 const fallbackRoute = fallbackParsed.route;
                 if (!fallbackRoute) {
                   const invalid = invalidRouteError('fallback');
@@ -343,6 +371,11 @@
           }
         }
         throwIfRouteCancelled(parentSignal);
+        if (intentDeadline.timedOut || primaryFailure?.code === 'ROUTE_INTENT_TIMEOUT' || fallbackFailure?.code === 'ROUTE_INTENT_TIMEOUT') {
+          const deadlineError = intentDeadline.timeoutError();
+          deadlineError.slowNotified = slowNotified;
+          throw deadlineError;
+        }
         const invalidContract = primaryFailure?.code === 'ROUTE_INVALID_CONTRACT' || fallbackFailure?.code === 'ROUTE_INVALID_CONTRACT';
         if (invalidContract) {
           const clarificationRoute = invalidContractClarificationRoute();
@@ -365,6 +398,10 @@
         routeError.primaryCode = primaryFailure?.code || '';
         routeError.fallbackCode = fallbackFailure?.code || '';
         throw routeError;
+        } finally {
+          clearTimeout(slowTimer);
+          intentDeadline.dispose();
+        }
       }
     }
 

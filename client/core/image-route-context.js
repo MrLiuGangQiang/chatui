@@ -576,7 +576,8 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
   // Only text-only generation uses /images/generations. Every operation that
   // consumes image inputs uses the multipart /images/edits transport.
   if (intent === 'text_to_image') return 'image';
-  if (intent === 'image_reference_gen' || intent === 'image_edit' || intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose') return 'edit_image';
+  if (intent === 'image_reference_gen') return 'image';
+  if (intent === 'image_edit' || intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose') return 'edit_image';
   return fallbackMode;
 }
 
@@ -586,7 +587,7 @@ function canonicalRouteAction(route = {}) {
   if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'clarify', 'refuse'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
   if (operationType === 'image_edit' || operationType === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
-  if (operationType === 'image_reference_gen') return { mode: 'edit_image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
+  if (operationType === 'image_reference_gen') return { mode: 'image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
   if (explicitMode === 'chat') return { mode: 'chat', intent: 'unknown', type: 'plain_chat', source: 'mode' };
   if (explicitMode === 'image') return { mode: 'image', intent: 'text_to_image', type: 'text_to_image', source: 'mode' };
   if (explicitMode === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: 'image_edit', source: 'mode' };
@@ -734,6 +735,7 @@ function normalizeRoute(route, fallbackMode = 'chat') {
       dispatchAuthorized: route.dispatchAuthorized === true,
       resumeApi: String(route.resumeApi || ''),
       taskContract: route.taskContract,
+      executionResources: route.executionResources || null,
       directiveAudit: route.directiveAudit,
       messageRefs: Array.isArray(route.messageRefs) ? route.messageRefs : [],
     } : {}),

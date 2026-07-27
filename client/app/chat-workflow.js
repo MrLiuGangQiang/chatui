@@ -52,6 +52,8 @@
         .filter(item => item && !/^image\//i.test(String(item.type || '')))
         .map((item, index) => ({
           index: index + 1,
+          source_index: index + 1,
+          source: 'quoted',
           file_id: item.id || item.attachmentId || item.attachment_id || '',
           name: item.name || 'attachment',
           type: item.type || 'application/octet-stream',

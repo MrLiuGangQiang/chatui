@@ -4,6 +4,7 @@ const http = require('http');
 const imageReferences = require('../../client/core/image-references');
 const routeContext = require('../../client/core/image-route-context');
 const routeService = require('../../client/services/route-service');
+const clarificationService = require('../../client/services/clarification-service');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
 const imageService = require('../../client/services/image-service');
 const imageJobs = require('../../server/jobs/image');
@@ -103,10 +104,35 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
   assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
   assert.deepStrictEqual(clarificationRoute.taskContract.directive.base_resource_keys, ['r1', 'r2']);
   const colorFishChoice = clarificationRoute.taskContract.clarification.unresolved_resources[0].choices.find(choice => choice.label === '画一条彩色鱼');
-  const route = routeService.resolveClarificationRoute(clarificationRoute.taskContract, [{ resource_key: 'r2', choice_key: colorFishChoice.key }], { input });
+  const pending = clarificationService.createPendingClarification({
+    messages: [...messages, { role: 'user', content: input }],
+    clarificationText: clarificationRoute.clarificationQuestion,
+    routeInfo: clarificationRoute,
+  });
+  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer', confidence: 0.99, resolved_input: input,
+    selections: [{ resource_key: 'r2', choice_key: colorFishChoice.key }],
+    should_merge: true, should_clear_pending: true, assistant_reply: '', reason: 'selected the colorful fish',
+  }), { pending });
+  const rerouteContext = clarificationService.buildClarificationRouteContext({
+    baseContext: context, pending, currentInput: '彩色鱼', resolvedInput: decision.resolvedInput,
+    selections: decision.selections, attachments: [],
+  });
+  const readyContract = {
+    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'image_reference_gen', relation: 'followup',
+    resources: [
+      { ...clarificationRoute.taskContract.resources[0], key: 'r1' },
+      { key: 'r2', type: 'image', source: colorFishChoice.source, role: 'reference', index: colorFishChoice.index, id: colorFishChoice.id, reference_id: colorFishChoice.reference_id, missing: false },
+    ],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }], constraints: [] },
+    clarification: { question: '', unresolved_resources: [] },
+    confidence: 0.99, review_reasons: [], rationale: 'the user explicitly selected the colorful fish',
+  };
+  const route = routeService.parseRouteResult(JSON.stringify(readyContract), { input: decision.resolvedInput, context: rerouteContext, attachments: [] });
 
   assert.strictEqual(route.operationType, 'image_reference_gen');
-  assert.strictEqual(route.mode, 'edit_image');
+  assert.strictEqual(route.mode, 'image');
   assert.strictEqual(route.api, 'image_edit');
   assert.strictEqual(route.dispatchAuthorized, true);
   assert.strictEqual(routeService.isRouteDispatchable(route), true);

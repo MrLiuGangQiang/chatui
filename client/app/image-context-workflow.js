@@ -79,6 +79,9 @@
         sourceIndex: Number(item.sourceIndex) || 0,
         imageId: item.imageId || item.image_id || '',
         referenceId: item.referenceId || item.reference_id || '',
+        routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
+        routeRole: item.routeRole || item.route_role || item.role || '',
+        routeSource: item.routeSource || item.route_source || item.source || '',
       } : null;
     }
 
@@ -108,13 +111,22 @@
       return result;
     }
 
-    function normalizeImageContextForStorage(context = {}) {
-      const attachments = (context.attachments || []).map(serializeImageAttachment).filter(Boolean).map((item, index) => ({
+    function normalizeImageAttachmentList(list = [], fallbackRole = '', context = {}) {
+      return (Array.isArray(list) ? list : []).map(item => serializeImageAttachment({
         ...item,
+        routeRole: item?.routeRole || item?.route_role || item?.role || fallbackRole,
+      })).filter(Boolean).map((item, index) => ({
+        ...item,
+        routeRole: item.routeRole || fallbackRole,
         referenceId: item.referenceId || context.referenceId || context.selectedReferenceId || '',
         imageId: item.imageId || makeImageItemId(item.referenceId || context.referenceId || context.selectedReferenceId || 'latest', item.sourceIndex || index + 1),
         sourceIndex: Number(item.sourceIndex) || index + 1,
       }));
+    }
+
+    function normalizeImageContextForStorage(context = {}) {
+      const attachments = normalizeImageAttachmentList(context.attachments, '', context);
+      const masks = normalizeImageAttachmentList(context.masks || context.maskAttachments || context.mask_attachments, 'mask', context);
       return {
         prompt: context.prompt || '',
         mode: context.mode || 'image',
@@ -122,11 +134,13 @@
         usePreviousImage: !!context.usePreviousImage,
         updatedAt: context.updatedAt || context.updated_at || null,
         imageCount: attachments.length,
+        maskCount: masks.length,
         referenceId: context.referenceId || '',
         selectedReferenceId: context.selectedReferenceId || '',
         selectedIndexes: normalizeImageSelection(context.selectedIndexes || context.selected_indexes || []) || [],
         selectedImageIds: normalizeSelectedImageIds(context.selectedImageIds || context.selected_image_ids || []),
         attachments,
+        masks,
       };
     }
 
@@ -257,13 +271,16 @@
       return getUploadedImageContextByReference(sessionId, referenceId) || getLatestUploadedImageContext(sessionId);
     }
 
-    async function restoreImageAttachmentsFromContext(context) {
-      const attachments = Array.isArray(context?.attachments) ? context.attachments : [];
+    async function restoreImageAttachmentsFromContext(context, { role = 'target' } = {}) {
+      const sourceAttachments = role === 'mask'
+        ? (context?.masks || context?.maskAttachments || context?.mask_attachments || [])
+        : context?.attachments || [];
+      const attachments = Array.isArray(sourceAttachments) ? sourceAttachments : [];
       const result = [];
       for (const item of attachments) {
         if (!item?.src) continue;
         const file = await imageRefToFile(item.src, item.name || 'image.png');
-        result.push({ file, name: item.name || file.name, type: item.type || file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: !!item.fromPrevious, sourceIndex: Number(item.sourceIndex) || 0, imageId: item.imageId || '', referenceId: item.referenceId || '' });
+        result.push({ file, name: item.name || file.name, type: item.type || file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: !!item.fromPrevious, sourceIndex: Number(item.sourceIndex) || 0, imageId: item.imageId || '', referenceId: item.referenceId || '', routeResourceKey: item.routeResourceKey || '', routeRole: item.routeRole || (role === 'mask' ? 'mask' : ''), routeSource: item.routeSource || '' });
       }
       return result;
     }

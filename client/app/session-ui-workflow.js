@@ -70,6 +70,9 @@
       state.sessions.unshift(session);
       state.activeSessionId = session.id;
       state.messages = session.messages;
+      // Execution mode is derived per request in automatic routing. A new
+      // session must never display or persist the previous session's mode.
+      state.mode = 'chat';
       state.lastGeneratedImage = null;
       state.activeOutputNode = null;
       state.activeOutputSessions.delete(session.id);
@@ -138,6 +141,7 @@
       state.sessions = [nextSession];
       state.activeSessionId = nextSession.id;
       state.messages = nextSession.messages;
+      state.mode = 'chat';
       state.lastGeneratedImage = null;
       state.editingIndex = null;
       state.editingNode = null;

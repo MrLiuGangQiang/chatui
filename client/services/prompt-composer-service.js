@@ -1,15 +1,23 @@
 (function initChatUIPromptComposerService(root) {
   'use strict';
 
-  const MAX_EXECUTION_PROMPT_LENGTH = 3200;
+  const preflightGuards = root?.ChatUICorePreflightGuards
+    || root?.window?.ChatUICorePreflightGuards
+    || (typeof require === 'function' ? require('../core/preflight-guards') : {});
 
   // The task contract chooses the operation and source media. It must never rewrite the user's
   // request into internal routing or patch language before that request reaches the model.
   function composeExecutionPrompt(input = '') {
     const text = String(input || '').trim();
-    return text.length > MAX_EXECUTION_PROMPT_LENGTH
-      ? `${text.slice(0, MAX_EXECUTION_PROMPT_LENGTH)}…`
-      : text;
+    const validation = preflightGuards?.validateMessageSize?.(text);
+    if (validation && !validation.ok) {
+      const error = new RangeError(validation.message || 'Message exceeds the configured input limit');
+      error.code = validation.code || 'message_too_many_characters';
+      error.length = validation.length;
+      error.maxChars = validation.maxChars;
+      throw error;
+    }
+    return text;
   }
 
   const api = Object.freeze({ composeExecutionPrompt });

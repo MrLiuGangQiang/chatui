@@ -44,6 +44,22 @@ function testNewImageTaskUsesOnlyCurrentUserInput() {
   assert.strictEqual(promptComposer.composeExecutionPrompt(FISH), FISH);
 }
 
+function testExecutionPromptPreservesFullInputAndUsesUnifiedLimit() {
+  const longPrompt = `开头-${'图像细节'.repeat(1200)}-结尾`;
+  assert.strictEqual(promptComposer.composeExecutionPrompt(longPrompt), longPrompt, 'execution prompts must never be silently truncated');
+  const overLimit = 'x'.repeat(120001);
+  assert.throws(
+    () => promptComposer.composeExecutionPrompt(overLimit),
+    error => error?.code === 'message_too_many_characters' && error?.maxChars === 120000,
+    'the same explicit user-message limit must protect execution prompt composition',
+  );
+  assert.throws(
+    () => routeService.buildRoutePayload({ model: 'router', input: overLimit }),
+    error => error?.code === 'message_too_many_characters',
+    'direct route payload construction must enforce the unified input limit too',
+  );
+}
+
 function testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt() {
   const parsed = routeService.parseRouteResult(JSON.stringify(imageContract()), { input: FISH, attachments: [], context: historyContext() });
   assert.strictEqual(parsed.taskContract.relation, 'new');
@@ -102,13 +118,14 @@ function testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest() {
   const input = '\u8fd9\u5f20\u56fe\u4e0d\u5bf9\uff0c\u91cd\u65b0\u751f\u6210';
   const raw = imageContract({
     relation: 'correction',
+    operation: 'image_reference_gen',
     resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }],
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'incorrect result', value: 'regenerate correctly' }], constraints: [] },
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context: historyContext() });
   assert.strictEqual(parsed.taskContract.relation, 'correction');
-  assert.strictEqual(parsed.contextualImagePrompt, input);
-  assert.ok(!parsed.contextualImagePrompt.includes(CAT));
+  assert.strictEqual(parsed.editInstruction, input);
+  assert.ok(!parsed.editInstruction.includes(CAT));
 }
 
 function testImageEditKeepsOnlyTheCurrentExecutionRequest() {
@@ -125,7 +142,7 @@ function testImageEditKeepsOnlyTheCurrentExecutionRequest() {
 }
 
 function testRelationSurvivesCanonicalExecutionPlan() {
-  const task = imageContract({ relation: 'followup', resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }] });
+  const task = imageContract({ operation: 'image_reference_gen', relation: 'followup', resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }] });
   const executionPlan = intentContract.taskContractToExecutionPlan(task);
   assert.strictEqual(executionPlan.relation, 'followup');
   assert.ok(!('taskType' in executionPlan));
@@ -136,14 +153,15 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 
 function testRoutePromptsDeclarePatchAndContextBoundary() {
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 描述对话关系'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 只描述对话关系'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史覆盖一个完整的新请求'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('完整新任务') && routeService.ROUTE_SYSTEM_PROMPT.includes('不得因历史'));
   assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('task_contract.v5'));
 }
 
 module.exports = [
   testNewImageTaskUsesOnlyCurrentUserInput,
+  testExecutionPromptPreservesFullInputAndUsesUnifiedLimit,
   testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt,
   testNewTaskContractRejectsHistoricalPatchContamination,
   testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate,

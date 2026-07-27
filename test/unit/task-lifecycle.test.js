@@ -696,12 +696,12 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
   const resume = fs.readFileSync(path.join(root, 'client/app/job-resume-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.5-interface-completion-projection') < index.indexOf('submit-workflow.js?v=1.3.2-clarification-reroute'),
+  assert.ok(index.indexOf('task-lifecycle.js?v=1.2.5-interface-completion-projection') < index.indexOf('submit-workflow.js?v=1.4.0-intent-deadline'),
     'the shared lifecycle must load before workflows that emit completion events');
   assert.ok(submit.includes('finishSessionTask(sessionId,{run,stopSlowNotice:'),
     'normal submit completion must use the shared lifecycle finalizer');
-  assert.ok(resume.includes('taskOutcome?settleSessionTask(e,{...options')
-    && resume.includes('jobKind:"image"') && resume.includes('jobKind:"chat"'),
+  assert.ok(/taskOutcome\s*\?\s*settleSessionTask\(e,\s*\{\s*\.\.\.options/.test(resume)
+    && /jobKind:\s*"image"/.test(resume) && /jobKind:\s*"chat"/.test(resume),
     'resumed image and chat terminal outcomes must settle canonical task state through one method');
   assert.ok(app.includes('return clearImageJob(e),void settleSessionTask(e,{outcome:"completed"')
     && app.includes('return clearChatJob(e),void settleSessionTask(e,{outcome:"completed"'),

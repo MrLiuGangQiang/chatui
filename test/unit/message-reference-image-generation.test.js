@@ -220,7 +220,7 @@ function testQuotedImageHistoryAliasCannotCrossMessageIdentity() {
   assert.strictEqual(parsed, null, 'a history alias must stay tied to the explicitly quoted message, not merely any quoted candidate');
 }
 
-function testQuotedMessagePromptBoundsReferenceTextButPreservesCurrentInstruction() {
+function testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWithoutSilentTruncation() {
   const contract = messageImageContract('context');
   const context = quotedMessageContext();
   context.recent_messages[0].content = `${'A'.repeat(3500)}\n[quoted_image index=1 id=hidden]`;
@@ -231,7 +231,8 @@ function testQuotedMessagePromptBoundsReferenceTextButPreservesCurrentInstructio
   });
   assert.ok(parsed);
   assert.ok(parsed.contextualImagePrompt.includes('Keep this current instruction at the end of the image prompt.'));
-  assert.ok(parsed.contextualImagePrompt.length <= 3200, 'the composed image prompt remains within the execution limit');
+  assert.ok(parsed.contextualImagePrompt.startsWith('A'.repeat(3500)), 'the complete bound reference text must reach the image prompt');
+  assert.ok(parsed.contextualImagePrompt.length > 3500, 'the composed image prompt must retain both complete parts rather than silently truncating at 3200 characters');
   assert.ok(!parsed.contextualImagePrompt.includes('[quoted_image'), 'route-only quote markers must not reach the image model');
 }
 
@@ -242,5 +243,5 @@ module.exports = [
   testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable,
   testQuotedImageHistoryAliasRequiresAnExplicitQuote,
   testQuotedImageHistoryAliasCannotCrossMessageIdentity,
-  testQuotedMessagePromptBoundsReferenceTextButPreservesCurrentInstruction,
+  testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWithoutSilentTruncation,
 ];

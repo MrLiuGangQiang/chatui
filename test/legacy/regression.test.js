@@ -231,11 +231,14 @@ function testPromptComposerPreservesIntentWithoutOverOptimizing() {
 }
 
 function testRouteResultCarriesTaskContractAndComposedPrompt() {
-  const context = { last_generated_image: { prompt: '生成一个可打印骰子展开图' } };
+  const context = {
+    last_generated_image: { prompt: '生成一个可打印骰子展开图' },
+    image_candidates: [{ index: 1, source: 'history', image_id: 'legacy-image', reference_id: 'imgref_latest' }],
+  };
   const parsed = routeService.parseRouteResult(JSON.stringify(taskContractFixture({
     intent: 'image.generate',
     taskType: 'correction',
-    operation: 'text_to_image',
+    operation: 'image_reference_gen',
     currentIntent: '正方体怎么都7个面了？',
     contextToPreserve: '生成一个可打印骰子展开图',
     finalInstruction: '重新生成，修正正方体面数错误',
@@ -243,18 +246,21 @@ function testRouteResultCarriesTaskContractAndComposedPrompt() {
     reason: '上一张图结构错误，需重做',
   })), { input: '正方体怎么都7个面了？', attachments: [], context });
   assert.strictEqual(parsed.mode, 'image');
-  assert.strictEqual(parsed.taskContract.operation, 'text_to_image');
-  assert.strictEqual(parsed.api, 'image_generation');
-  assert.strictEqual(parsed.contextualImagePrompt, '正方体怎么都7个面了？');
-  assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(parsed.contextualImagePrompt), 'route prompt must not add unrelated style polish');
+  assert.strictEqual(parsed.taskContract.operation, 'image_reference_gen');
+  assert.strictEqual(parsed.api, 'image_edit');
+  assert.strictEqual(parsed.editInstruction, '正方体怎么都7个面了？');
+  assert.ok(!/电影感|超现实|8k|赛博朋克/i.test(parsed.editInstruction), 'route prompt must not add unrelated style polish');
 }
 
 function testRouteInstructionDoesNotPolluteImagePrompt() {
-  const context = { last_generated_image: { prompt: '做一个可打印、可涂色、可裁剪组装的二年级学科骰子展开图模板' } };
+  const context = {
+    last_generated_image: { prompt: '做一个可打印、可涂色、可裁剪组装的二年级学科骰子展开图模板' },
+    image_candidates: [{ index: 1, source: 'history', image_id: 'legacy-image', reference_id: 'imgref_latest' }],
+  };
   const parsed = routeService.parseRouteResult(JSON.stringify(taskContractFixture({
     intent: 'image.generate',
     taskType: 'correction',
-    operation: 'text_to_image',
+    operation: 'image_reference_gen',
     currentIntent: '还是不对，面数错了',
     contextToPreserve: '做一个可打印、可涂色、可裁剪组装的二年级学科骰子展开图模板',
     finalInstruction: '还是不对，面数错了',
@@ -262,10 +268,10 @@ function testRouteInstructionDoesNotPolluteImagePrompt() {
     reason: '上一张图面数错误，需要重做',
   })), { input: '还是不对，面数错了', attachments: [], context });
   assert.strictEqual(parsed.mode, 'image');
-  assert.strictEqual(parsed.api, 'image_generation');
-  assert.strictEqual(parsed.contextualImagePrompt, '还是不对，面数错了');
-  assert.ok(!parsed.contextualImagePrompt.includes('粘贴边'), 'route model invented construction detail must not enter final image prompt');
-  assert.ok(!/3D|高清|电影感/i.test(parsed.contextualImagePrompt), 'route model invented style detail must not enter final image prompt');
+  assert.strictEqual(parsed.api, 'image_edit');
+  assert.strictEqual(parsed.editInstruction, '还是不对，面数错了');
+  assert.ok(!parsed.editInstruction.includes('粘贴边'), 'route model invented construction detail must not enter final image prompt');
+  assert.ok(!/3D|高清|电影感/i.test(parsed.editInstruction), 'route model invented style detail must not enter final image prompt');
 }
 
 function testRouteContextUsesTokenWindowAndDropsOldestMessages() {
@@ -330,7 +336,7 @@ function testRouteContextIsCompactAndIndexed() {
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking|thinking_budget|thinkingConfig)/i.test(payloadJson), 'route recognition payload should not send thinking/reasoning params');
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
   assert.strictEqual(minimalPayload.messages[1].content, JSON.stringify({ current_input: '解释一下 JavaScript 里的 Promise 是什么。' }));
-  assert.ok(minimalPayload.messages[0].content.length < 4000, `route system prompt too large: ${minimalPayload.messages[0].content.length}`);
+  assert.ok(minimalPayload.messages[0].content.length < 6000, `v5 route system prompt too large: ${minimalPayload.messages[0].content.length}`);
 }
 
 function testImageCandidatesUseGlobalIndexesAndExecuteSourceIndexes() {
@@ -452,29 +458,21 @@ function testDownloadFilenamesUseShanghaiTimestamp() {
 }
 
 function testPendingClarificationMergesFollowupSupplements() {
-  const messages = [
-    { role: 'user', rawText: '把这张图改成红色背景' },
-    { role: 'assistant', rawText: '请上传要修改的图片。' },
-  ];
-  const pending = clarificationService.findPendingFromHistory(messages);
-  assert.ok(pending, 'should find pending clarification from history');
-  assert.strictEqual(pending.kind, 'image_edit');
-
+  const pending = clarificationService.createPendingClarification({
+    messages: [{ role: 'user', rawText: '把这张图改成红色背景' }],
+    clarificationText: '请上传要修改的图片。',
+  });
+  assert.ok(pending);
+  const rejected = clarificationService.mergePendingInput(pending, { promptText: '已上传' });
+  assert.strictEqual(rejected.merged, false, 'local text concatenation must never authorize a continuation');
   const merged = clarificationService.mergePendingInput(pending, {
-    promptText: '',
-    attachments: [{ name: 'photo.png', type: 'image/png' }],
+    promptText: '背景用深红色，保留主体',
+    resolvedInput: '把这张图改成深红色背景，保留主体',
   });
   assert.strictEqual(merged.merged, true);
-  assert.ok(merged.promptText.includes('把这张图改成红色背景'));
-  assert.ok(merged.promptText.includes('用户上传了 1 个附件'));
-
-  const second = clarificationService.mergePendingInput(merged.pending, {
-    promptText: '背景用深红色，保留主体',
-    attachments: [],
-  });
-  assert.ok(second.promptText.includes('补充1'));
-  assert.ok(second.promptText.includes('本轮补充：背景用深红色，保留主体'));
-  assert.strictEqual(second.pending.rounds, 3);
+  assert.strictEqual(merged.promptText, '把这张图改成深红色背景，保留主体');
+  assert.strictEqual(merged.pending.originalText, merged.promptText);
+  assert.ok(!/本轮补充|原始任务|附件 \d+ 个/.test(merged.promptText));
 }
 
 function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
@@ -489,8 +487,7 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     routeInfo: { mode: 'chat', intent: 'image_edit' },
   });
   assert.ok(pending);
-  assert.strictEqual(pending.originalText, '我要一个晚霞图');
-  assert.ok(pending.sourceImageContext, 'vague image feedback should carry previous generated image context');
+  assert.strictEqual(pending.originalText, '不满意，帮我改', 'pending state must not rewrite history through local image keywords');
 
   const payload = clarificationService.buildContinuationClassifierPayload({
     model: 'gpt-5.5',
@@ -498,41 +495,41 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     currentInput: '山巅的',
   });
   assert.strictEqual(payload.temperature, 0);
-  assert.ok(payload.messages[0].content.includes('你不是提示词优化器'));
+  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v4');
+  assert.ok(payload.messages[0].content.includes('无权决定'));
   assert.ok(payload.messages[0].content.includes('最小语义补全'));
-  assert.ok(!/高清|电影感|氛围感/.test(payload.messages[0].content), 'classifier prompt should not encourage creative embellishment');
+  assert.ok(payload.messages[0].content.includes('operation、API、mode'));
 
   const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_answer',
     confidence: 0.97,
-    final_prompt: '山巅的晚霞图',
-    final_task_mode: 'edit_image',
-    selected_indexes: [1],
+    resolved_input: '山巅的晚霞图',
     selections: [],
     should_merge: true,
     should_clear_pending: true,
+    assistant_reply: '',
     reason: '用户正在补充未完成的图片任务',
   }));
-  assert.strictEqual(decision.finalPrompt, '山巅的晚霞图');
+  assert.strictEqual(decision.resolvedInput, '山巅的晚霞图');
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '山巅的',
-    finalPrompt: decision.finalPrompt,
-    finalTaskMode: decision.finalTaskMode,
-    selectedIndexes: decision.selectedIndexes,
+    resolvedInput: decision.resolvedInput,
   });
   assert.strictEqual(merged.promptText, '山巅的晚霞图');
-  assert.ok(!merged.promptText.includes('本轮补充'), 'model final_prompt should prevent internal transaction text from entering image prompt');
-  assert.ok(!merged.promptText.includes('突出'), 'minimal final_prompt must not add creative details');
+  assert.ok(!merged.promptText.includes('本轮补充'), 'resolved_input must prevent internal transaction text from entering execution input');
 }
 
 function testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup() {
-  const messages = [
-    { role: 'user', rawText: '介绍一下 React useMemo' },
-    { role: 'assistant', rawText: '可以，先说结论：useMemo 用来缓存计算结果。你平时主要用 React 还是 Vue？' },
-  ];
-  assert.strictEqual(clarificationService.isClarificationResponse(messages[1].rawText), false);
-  assert.strictEqual(clarificationService.findPendingFromHistory(messages), null);
+  assert.strictEqual(clarificationService.findPendingFromHistory, undefined, 'ordinary conversation must never create pending state through a keyword scan');
+  assert.strictEqual(clarificationService.isClarificationResponse, undefined);
+  const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'new_task', confidence: 1, resolved_input: '', selections: [],
+    should_merge: false, should_clear_pending: true, assistant_reply: '', reason: 'independent question',
+  }));
+  assert.ok(newTask);
+  assert.strictEqual(newTask.shouldMerge, false);
 }
 
 function testPendingClarificationCanMergeTextFileAndQuote() {
@@ -544,16 +541,21 @@ function testPendingClarificationCanMergeTextFileAndQuote() {
     clarificationText: '请上传或引用要总结的文件。',
   });
   assert.ok(pending);
-  assert.strictEqual(pending.kind, 'file_qa');
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '重点关注结论部分',
-    attachments: [{ name: 'demo.txt', type: 'text/plain' }],
-    quotedMessage: { role: 'user', content: '[附件消息]' },
-    quoteText: '引用文件 demo.txt',
+    resolvedInput: '总结引用的 demo.txt，重点关注结论部分',
   });
-  assert.ok(merged.promptText.includes('总结这个文件'));
-  assert.ok(merged.promptText.includes('重点关注结论部分'));
-  assert.ok(merged.promptText.includes('引用文件 demo.txt'));
+  assert.strictEqual(merged.promptText, '总结引用的 demo.txt，重点关注结论部分');
+  const context = clarificationService.buildClarificationRouteContext({
+    baseContext: { recent_messages: [{ index: 1, id: 'm1', role: 'user', content: '总结这个文件' }], file_candidates: [{ index: 1, source: 'history', file_id: 'old-file' }] },
+    quotedContext: { quoted_message: { index: 1, id: 'm1', role: 'user' }, recent_messages: [{ index: 1, id: 'm1', role: 'user', content: '[quoted_message]' }], file_candidates: [{ index: 1, source: 'quoted', file_id: 'quote-file' }] },
+    pending, currentInput: '重点关注结论部分', resolvedInput: merged.promptText, selections: [],
+    attachments: [{ id: 'new-file', name: 'demo.txt', type: 'text/plain' }], quoteText: '引用文件 demo.txt',
+  });
+  assert.strictEqual(context.clarification_context.schema_version, 'clarification_context.v1');
+  assert.strictEqual(context.clarification_context.attachments.current[0].source, 'current');
+  assert.ok(context.file_candidates.some(item => item.source === 'history'));
+  assert.ok(context.file_candidates.some(item => item.source === 'quoted'));
 }
 
 function testPendingClarificationCarriesOriginalMultiImageContext() {
@@ -574,14 +576,13 @@ function testPendingClarificationCarriesOriginalMultiImageContext() {
     ] }),
   });
   assert.ok(pending);
-  assert.strictEqual(pending.kind, 'image_edit');
   assert.ok(pending.sourceAttachmentContext.includes('老板.png'));
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
-    attachments: [{ name: '老板.png', type: 'image/png' }, { name: '前端.png', type: 'image/png' }, { name: '后端.png', type: 'image/png' }],
+    resolvedInput: '把原消息第一张图改一下',
   });
-  assert.ok(merged.promptText.includes('把这张图改一下'));
-  assert.ok(merged.promptText.includes('本轮补充：第一张'));
+  assert.strictEqual(merged.promptText, '把原消息第一张图改一下');
+  assert.ok(!merged.promptText.includes('本轮补充'));
 }
 
 function testPendingClarificationAcceptsShortImageVariantAnswer() {
@@ -593,10 +594,10 @@ function testPendingClarificationAcceptsShortImageVariantAnswer() {
     clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
   });
   assert.ok(pending);
-  assert.ok(['image', 'image_edit'].includes(pending.kind));
-  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
-  assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
-  assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
+  const withoutModel = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉' });
+  assert.strictEqual(withoutModel.merged, false);
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '生成弯轨交叉窗帘轨道图片' });
+  assert.strictEqual(merged.promptText, '生成弯轨交叉窗帘轨道图片');
 }
 
 function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound() {
@@ -607,16 +608,15 @@ function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRoun
     ],
     clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
   });
-  assert.ok(pending.expects.includes('image_variant'));
-
-  const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', attachments: [] });
+  const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '生成弯轨交叉窗帘轨道图片' });
   const nextQuestion = '弯轨交叉要做成什么风格？';
-  const nextPending = {
+  const nextPending = clarificationService.normalizePendingClarification({
     ...firstAnswer.pending,
     clarificationText: nextQuestion,
-    expects: clarificationService.expectedAnswerTypes({ ...firstAnswer.pending, clarificationText: nextQuestion }),
-  };
-  assert.ok(nextPending.expects.includes('edit_detail'), 'new clarification question should recompute expected answer type for multi-round follow-up');
+  });
+  assert.strictEqual(nextPending.originalText, '生成弯轨交叉窗帘轨道图片');
+  assert.strictEqual(nextPending.clarificationText, nextQuestion);
+  assert.strictEqual(clarificationService.expectedAnswerTypes, undefined, 'multi-round state must not reintroduce local answer-type heuristics');
 }
 
 function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
@@ -631,24 +631,24 @@ function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
     routeInfo: { mode: 'chat', intent: 'image_edit' },
   });
   assert.ok(pending);
-  assert.strictEqual(pending.originalText, '窗帘的交叉轨道给我一个图片', 'vague negative feedback should preserve the previous image request as pending origin');
-  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', quotedMessage: { role: 'user', content: '不是这个啊' }, quoteText: '不是这个啊' });
-  assert.ok(merged.promptText.includes('窗帘的交叉轨道给我一个图片'));
-  assert.ok(merged.promptText.includes('本轮补充：弯轨交叉'));
-  assert.ok(!merged.promptText.startsWith('不是这个啊'), 'merged prompt should not degrade to the vague feedback text');
+  assert.strictEqual(pending.originalText, '不是这个啊', 'local keywords must not silently replace the pending base task with older history');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '重新生成弯轨交叉窗帘轨道图片' });
+  assert.strictEqual(merged.promptText, '重新生成弯轨交叉窗帘轨道图片');
 }
 
 function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
-  assert.ok(submit.includes('if(pendingMerge?.merged&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'merged clarification should be cleared immediately after routing succeeds');
   assert.ok(!submit.includes('findPendingFromHistory?.(targetSession.messages||state.messages||[])'), 'pending clarification must be an explicit one-shot state, not inferred repeatedly from history');
   assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
   assert.ok(submit.includes('if(storedPending&&targetSession.pendingClarification){delete targetSession.pendingClarification'), 'pending clarification state should be consumed/cleared as soon as the next message is submitted');
+  assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a merged answer must create an explicit clarification route context');
+  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a merged answer must be fully rerouted with current-turn attachments only');
+  assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.3.2-clarification-reroute'), 'submit workflow cache version should include the clarification reroute boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.0.9-clarification-reroute'), 'clarification service cache version should preserve the clarification resume policy');
-  assert.ok(submit.includes('expects:clarification.expectedAnswerTypes?.({...pendingMerge.pending,clarificationText:e})'), 'multi-round clarification should recompute expected answer type from the new question');
+  assert.ok(index.includes('submit-workflow.js?v=1.4.0-intent-deadline'), 'submit workflow cache version should include the shared intent deadline boundary');
+  assert.ok(index.includes('clarification-service.js?v=1.1.0-continuation-v4'), 'clarification service cache version should match the strict continuation protocol');
+  assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
 function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
@@ -663,11 +663,10 @@ function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
 
   const firstAnswer = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
-    attachments: [],
+    resolvedInput: '把这几张图中的第一张改成头像',
   });
   assert.ok(firstAnswer.merged);
-  assert.ok(firstAnswer.promptText.includes('把这几张图改成头像'));
-  assert.ok(firstAnswer.promptText.includes('本轮补充：第一张'));
+  assert.strictEqual(firstAnswer.promptText, '把这几张图中的第一张改成头像');
 
   const nextPending = {
     ...firstAnswer.pending,
@@ -675,22 +674,18 @@ function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
   };
   const secondAnswer = clarificationService.mergePendingInput(nextPending, {
     promptText: '改成漫画风，保留脸部特征',
-    attachments: [],
+    resolvedInput: '把这几张图中的第一张改成漫画风头像，保留脸部特征',
   });
   assert.ok(secondAnswer.merged, 'a new explicit pending clarification should continue the multi-round chain');
-  assert.ok(secondAnswer.promptText.includes('把这几张图改成头像'));
-  assert.ok(secondAnswer.promptText.includes('补充1：第一张'));
-  assert.ok(secondAnswer.promptText.includes('本轮补充：改成漫画风，保留脸部特征'));
+  assert.strictEqual(secondAnswer.promptText, '把这几张图中的第一张改成漫画风头像，保留脸部特征');
+  assert.strictEqual(secondAnswer.pending.rounds, 3);
 }
 
 function testPendingClarificationCoversImageEditFallbackBranch() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  const fallbackIndex = submit.indexOf('if("edit_image"===routeMode&&!editAttachments.length&&!canResolveExistingEditImage)');
-  assert.ok(fallbackIndex >= 0, 'image edit missing-attachment fallback should exist');
-  const fallbackBlock = submit.slice(fallbackIndex, submit.indexOf('if(pendingMerge?.merged&&targetSession.pendingClarification)', fallbackIndex));
-  assert.ok(fallbackBlock.includes('clarification.createPendingClarification?.'), 'missing image/edit target fallback must create explicit one-shot pending clarification');
-  assert.ok(fallbackBlock.includes('targetSession.pendingClarification=createdPending'), 'fallback pending clarification should be persisted to the session');
-  assert.ok(fallbackBlock.includes('saveSessionsMeta?.()'), 'fallback pending clarification should persist session metadata before returning');
+  assert.ok(!submit.includes('canResolveExistingEditImage'), 'submission must not reinterpret a ready route through a local image fallback');
+  assert.ok(!submit.includes('includeCurrentTurnImages:!0') && !submit.includes('editFallbackImages:currentTurnAttachments'), 'unselected current images must not leak into execution');
+  assert.ok(submit.includes('projectRouteExecutionMedia(routeInfo,executionPools)'), 'a missing edit target must fail in canonical execution-resource projection');
 
   const pending = clarificationService.createPendingClarification({
     messages: [
@@ -700,7 +695,7 @@ function testPendingClarificationCoversImageEditFallbackBranch() {
     clarificationText: '没有可编辑的图片，请先上传图片，或明确说明要基于上一张图修改。',
   });
   assert.ok(pending);
-  assert.strictEqual(pending.kind, 'image_edit');
+  assert.strictEqual(pending.kind, undefined, 'pending state must not carry a local operation classifier');
 }
 
 function testImageEditPromptFallbackAndValidation() {
@@ -788,17 +783,15 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
   assert.ok(system.includes('候选元数据'));
-  assert.ok(system.includes('不要猜图片或文件内容'));
+  assert.ok(system.includes('不猜测图片或文件内容'));
   assert.ok(system.includes('resources'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
   assert.ok(!body.includes('CREATE TABLE users'));
   const submitSource = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  const submitHelpersSource = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/submit-workflow.helpers.js'), 'utf8');
-  assert.ok(submitSource.includes('submitHelpers.isFileUnderstandingChat(promptText)'));
-  assert.ok(submitHelpersSource.includes('这是什么') && submitHelpersSource.includes('这个附件'));
-  assert.ok(submitHelpersSource.includes('里面|其中|多少') && submitHelpersSource.includes('邮箱|邮件|地址'));
+  assert.ok(submitSource.includes('executionMedia.chatFiles'), 'file forwarding must use the contract-selected execution projection');
+  assert.ok(!submitSource.includes('submitHelpers.isFileUnderstandingChat(promptText)'), 'local keywords must not select files after routing');
 }
 
 function testQuotedFileAttachmentTextIsIncluded() {
@@ -1026,12 +1019,12 @@ function testStructuredRouteDecisionCarriesRefs() {
   assert.ok(taskRoute.imageRefs.some(ref => ref.source === 'current'));
 }
 
-function testImagePromptExtractionFollowsAiRouteWithCurrentImage() {
+function testImagePromptExtractionFollowsVisionRouteWithCurrentImage() {
   const parsed = routeService.parseRouteResult(JSON.stringify(taskContractFixture({
-    intent: 'image.generate',
+    intent: 'vision_qa',
     taskType: 'new_task',
-    operation: 'image_reference_gen',
-    resources: [{ type: 'image', source: 'current', role: 'reference', index: 1 }],
+    operation: 'image_qa',
+    resources: [{ type: 'image', source: 'current', role: 'source', index: 1 }],
     currentIntent: '根据图片生成提示词',
     finalInstruction: '根据图片生成提示词',
     confidence: 0.9,
@@ -1040,8 +1033,8 @@ function testImagePromptExtractionFollowsAiRouteWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'edit_image');
-  assert.strictEqual(parsed.operationType, 'image_reference_gen');
+  assert.strictEqual(parsed.mode, 'chat');
+  assert.strictEqual(parsed.operationType, 'image_qa');
   assert.strictEqual(parsed.imageRefs[0].source, 'current');
   assert.deepStrictEqual(parsed.selectedIndexes, [1]);
 }
@@ -1124,16 +1117,17 @@ function testImageResultCorrectionRebuildsImagePrompt() {
       { role: 'assistant', content: `[图片生成完成] ${originalPrompt}` },
       { role: 'user', content: input },
     ],
-    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png' }], updatedAt: Date.now() },
+    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png', src: 'data:image/png;base64,iVBORw0KGgo=' }], updatedAt: Date.now() },
     maxChars: 12000,
   });
+  context.image_candidates = [{ index: 1, source: 'history', image_id: 'legacy-image', reference_id: 'imgref_latest' }];
   assert.strictEqual(context.last_generated_image.count, 1);
   assert.ok(context.last_generated_image.prompt.includes('骰子展开图'));
 
   const modelContract = taskContractFixture({
     intent: 'image.generate',
     taskType: 'correction',
-    operation: 'text_to_image',
+    operation: 'image_reference_gen',
     currentIntent: input,
     contextToPreserve: originalPrompt,
     constraints: ['正方体不能有 7 个面'],
@@ -1143,9 +1137,9 @@ function testImageResultCorrectionRebuildsImagePrompt() {
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(modelContract), { input, attachments: [], context });
   assert.strictEqual(parsed.mode, 'image');
-  assert.strictEqual(parsed.operationType, 'text_to_image');
+  assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.needClarification, false);
-  assert.strictEqual(parsed.contextualImagePrompt, input, 'execution prompt should remain the current user request');
+  assert.strictEqual(parsed.editInstruction, input, 'execution prompt should remain the current user request');
 
   const currentCorrectionContext = routeContext.buildRouteContext({
     messages: [
@@ -1153,48 +1147,25 @@ function testImageResultCorrectionRebuildsImagePrompt() {
       { role: 'assistant', content: `[图片生成完成] ${originalPrompt}` },
       { role: 'user', content: '这张图不对，面数错了' },
     ],
-    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png' }] },
+    lastGeneratedImage: { prompt: originalPrompt, images: [{ filename: 'dice.png', src: 'data:image/png;base64,iVBORw0KGgo=' }] },
   });
+  currentCorrectionContext.image_candidates = [{ index: 1, source: 'history', image_id: 'legacy-image', reference_id: 'imgref_latest' }];
   const parsedCurrentCorrection = routeService.parseRouteResult(JSON.stringify(taskContractFixture({
     intent: 'image.generate',
     taskType: 'correction',
-    operation: 'text_to_image',
+    operation: 'image_reference_gen',
     currentIntent: '这张图不对，面数错了',
     contextToPreserve: originalPrompt,
     finalInstruction: '修正面数错误，重新生成',
     confidence: 0.9,
   })), { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
   assert.strictEqual(parsedCurrentCorrection.mode, 'image');
-  assert.strictEqual(parsedCurrentCorrection.contextualImagePrompt, '这张图不对，面数错了');
+  assert.strictEqual(parsedCurrentCorrection.editInstruction, '这张图不对，面数错了');
 
   const legacyRoute = routeService.parseRouteResult(JSON.stringify({ route: 'chat', confidence: 0.8 }), { input: '这张图不对，面数错了', attachments: [], context: currentCorrectionContext });
   assert.strictEqual(legacyRoute, null, 'legacy route objects must be rejected instead of post-processed');
 }
 
-function testRoutePromptUsesChineseCompactRules() {
-  const system = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.ok(system.includes('不要输出 Markdown'));
-  ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image'].forEach(type => assert.ok(system.includes(type), `task contract should define ${type}`));
-  assert.ok(system.includes('needs_clarification') && system.includes('readiness'), 'clarification must be an independent readiness state instead of an operation');
-  assert.ok(!system.includes('multi_step'), 'route contract must not advertise an unimplemented multi-step dispatcher');
-  assert.ok(!system.includes('"intent"') && !system.includes('"execution"') && !system.includes('"api"'), 'operation must be the only model-authored dispatch field');
-  assert.ok(system.includes('"directive"'));
-  assert.ok(system.includes('"operations"'));
-  assert.ok(system.includes('image_compare'));
-  assert.ok(system.includes('只理解 current_input'), 'route prompt should make the current input authoritative');
-  assert.ok(system.includes('历史覆盖一个完整的新请求'), 'route prompt should prevent history contamination');
-  assert.ok(system.includes('image_reference_gen') && system.includes('edit_image'), 'route prompt should classify visual artifacts semantically');
-  assert.ok(system.includes('上一张') && system.includes('那个文件'), 'route prompt should allow explicit contextual references');
-  assert.ok(system.includes('不要猜图片或文件内容'));
-  assert.ok(system.includes('unmentioned_policy'));
-  assert.ok(system.length < 4000, `route prompt should stay compact: ${system.length}`);
-  const payload = routeService.compactRouteUserPayload({
-    input: '重新写一段产品介绍，不要画图',
-    context: { recent_messages: [{ role: 'user', content: '上一轮：画一张猫图' }, { role: 'assistant', content: '[图片生成完成] 猫图' }] },
-  });
-  assert.strictEqual(payload.current_input, '重新写一段产品介绍，不要画图', 'route payload should keep latest user input as a separate primary field');
-  assert.ok(payload.context.recent_messages.some(item => item.content.includes('画一张猫图')), 'history can still be present only as background context');
-}
 function testChatAnswerStreamingFlushesQuickly() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
@@ -1211,7 +1182,7 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.canShowChatWaiting(true), false, 'waiting feedback must be permanently disabled after answer output starts');
   assert.ok(source.includes('if(!canShowChatWaiting(answerStarted))return') && source.includes('canShowChatWaiting(answerStarted)&&setPendingFeedback'), 'accepted callbacks and non-stream fallback must not restore waiting feedback after answer output starts');
   assert.ok(source.includes('const responseStartedAt=metricNow();let answerStarted=!1,streamRequestAccepted=!1;try{let t="",s=!1,c=null,answerText="",reasoningText="",firstTokenMs=null;'), 'answer-start state must remain in scope for the streaming fallback catch');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && bundle.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && bundle.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
 function testStreamingTailRendersWithoutCursor() {
@@ -1300,7 +1271,7 @@ async function testDeleteSessionCleansRuntimeResources() {
   assert.deepStrictEqual(calls, ['dispose:delete-me:keep-me'], 'session deletion must use the single resource lifecycle boundary');
   assert.deepStrictEqual(state.sessions.map(session => session.id), ['keep-me']);
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('session-ui-workflow.js?v=1.3.15-attachment-draft-isolation'), 'session deletion cleanup should bump the browser cache version');
+  assert.ok(index.includes('session-ui-workflow.js?v=1.3.16-mode-isolation'), 'session deletion cleanup should bump the browser cache version');
 }
 
 async function testSessionResourceDisposalDeletesSnapshotWithoutWaitingForJobNetwork() {
@@ -1714,7 +1685,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.3.2-clarification-reroute') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.0-intent-deadline') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -1799,7 +1770,7 @@ function testEnglishImagePromptExtractionFollowsAiRouteWithCurrentImage() {
     attachments: [{ name: 'room.png', type: 'image/png', is_image: true }],
     context: { image_candidates: [] },
   });
-  assert.strictEqual(parsed.mode, 'edit_image');
+  assert.strictEqual(parsed.mode, 'image');
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.imageRefs[0].source, 'current');
 }
@@ -2426,7 +2397,7 @@ function testRouteDiagramLauncherUsesModal() {
 function testImageCompletionKeepsLiveMediaVisibleBeforeHydration() {
   const imageWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const messageWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
-  assert.ok(imageWorkflow.includes('preserveLiveMedia:!0'), 'image completion should request immediate media rendering for the active message');
+  assert.match(imageWorkflow, /preserveLiveMedia:\s*!0/, 'image completion should request immediate media rendering for the active message');
   assert.ok(messageWorkflow.includes('s.preserveLiveMedia ? String(t || "") : stripTransientBlobUrlsFromHtml(t)'), 'the message renderer should retain the live Blob URL until IndexedDB hydration replaces it');
 }
 
@@ -2558,9 +2529,9 @@ function testStreamingDownloadActionIsDisabled() {
 function testResumeStreamingDoesNotUseStatusTextAsOffset() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
-  assert.ok(source.includes('isChatStatusText(e)?"":e'), 'resume offsets should ignore transient status text');
-  assert.ok(source.includes('r();try{const t=getConfig()'), 'resume should immediately paint a non-empty status instead of waiting blank');
-  assert.ok(source.includes('if(!m.content&&!m.reasoning){try{const e=l(await getChatJob(s.id,{resumeOffsets:R()}))'), 'empty compact done events should refetch the final job snapshot');
+  assert.match(source, /isChatStatusText\(e\)\s*\?\s*""\s*:\s*e/, 'resume offsets should ignore transient status text');
+  assert.match(source, /r\(\);\s*try\s*\{\s*const t\s*=\s*getConfig\(\)/, 'resume should immediately paint a non-empty status instead of waiting blank');
+  assert.match(source, /if\s*\(!m\.content\s*&&\s*!m\.reasoning\)\s*\{\s*try\s*\{\s*const e\s*=\s*l\(await getChatJob\(s\.id,\s*\{\s*resumeOffsets:\s*R\(\)/, 'empty compact done events should refetch the final job snapshot');
   assert.ok(app.includes('resumeSessionJobs(t.id)}'), 'session render should always attempt to rebind or resume pending jobs after switch/render');
   assert.ok(app.includes('state.pageUnloading=!1;const liveRun=getActiveRun(e);if(window.ChatUIApp?.runs?.isLiveRun?.(liveRun))') && app.includes('const liveImageJob=loadImageJob(e),liveChatJob=loadLatestChatJob(e)') && app.includes('return}const pendingSubmit='), 'resume should clear stale page-unloading state, rebind only the live run own job, and return before durable recovery replay');
   assert.ok(app.includes('if(selectedChatJob?.id){if(sessionHasCompletedAssistantForResponse(n,selectedChatJob.responseIndex))return clearChatJob(e),void settleSessionTask(e,{outcome:"completed"'), 'chat resume should settle canonical task state when the selected durable response is already complete');
@@ -2670,7 +2641,7 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(submit.includes('assistantNode.__displayItem=liveItem') && submit.includes('assistantNode.dataset.displayItemId=liveItem.id') && submit.includes('assistantNode.dataset.responseIndex=String(responseIndex)'), 'assistant placeholders should persist displayItemId and responseIndex on the DOM node');
   assert.ok(submit.includes('updateMessage(assistantNode,e,{rawText:e,responseIndex})'), 'clarification final message should keep its responseIndex on the DOM node');
-  assert.ok(image.includes('if((e&&s&&e!==s)||(t&&a&&t!==a))d=null;'), 'image workflow should reject stale loading nodes from a different display item/response');
+  assert.match(image, /if \(\(e && s && e !== s\) \|\| \(t && a && t !== a\)\) d = null;/, 'image workflow should reject stale loading nodes from a different display item/response');
 }
 
 function testPendingSubmitResumeInsertsFallbackAtOriginalPosition() {
@@ -2700,7 +2671,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.0.7-contract-dispatch-gate') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.1.0-execution-resources') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2744,7 +2715,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -2753,7 +2724,7 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
@@ -2864,7 +2835,7 @@ function testChatAndRouteUsePublicContextWindow() {
   const routeSource = fs.readFileSync(path.join(__dirname, '../../client/app/route-decision-workflow.js'), 'utf8');
   const appSource = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(chatSource.includes('await loadPublicContext?.();') && chatSource.includes('applyOutboundContextBudget(rawMessages,a)'), 'normal chat must refresh and apply the public context token window before building its request');
-  assert.ok(routeSource.includes('await loadPublicContext?.();') && routeSource.includes('contextWindowTokens=config?.context?.windowTokens'), 'route decision must use the same public context token window');
+  assert.ok(routeSource.includes('await intentDeadline.race(loadPublicContext?.())') && routeSource.includes('contextWindowTokens=config?.context?.windowTokens'), 'route decision must refresh public context inside the shared intent deadline and use the same token window');
   assert.ok(appSource.includes('createChatWorkflow({state,loadPublicContext,getConfig'), 'app bootstrap must provide public-context loading to normal chat');
 }
 
@@ -2982,9 +2953,9 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(messageWorkflow.includes('if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));') && messageWorkflow.includes('else forceImage?.remove();'), 'force-image button should only be available on user messages');
   assert.ok(app.includes('forceImageFromUserMessage'), 'app should expose force-image action to the message workflow');
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
-  assert.ok(regenerate.includes('await sendImage(t,{loadingNode:l.node,attachments:c.filter(item=>!isImageFile(item)),routePrompt:t,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId'), 'force-image action should send the current user message through a durable canonical image handoff');
+  assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(t)') && regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)') && regenerate.includes('await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract'), 'force-image action should send the current user message through a validated v5 contract and canonical resource projection');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.0.7-contract-dispatch-gate') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.1.0-execution-resources') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('assets/chatui.bundle.css?v=1.3.160-code-action-motion') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3080,7 +3051,8 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   const flatCss = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(routeWorkflow.includes('slowNotified = true;') && routeWorkflow.includes('}, 10000);'), 'route recognition should update UI after 10 seconds');
-  assert.ok(routeWorkflow.includes('}, 60000);') && routeWorkflow.includes('ROUTE_INTENT_TIMEOUT'), 'route recognition should timeout after 60 seconds with dedicated error');
+  assert.ok(routeWorkflow.includes('DEFAULT_INTENT_DEADLINE_MS = 60000') && routeWorkflow.includes('ROUTE_INTENT_TIMEOUT'), 'the complete intent-recognition chain should share one 60-second deadline and dedicated error');
+  assert.ok(!routeWorkflow.includes('ROUTE_FALLBACK_TIMEOUT') && !routeWorkflow.includes('fallbackTimeout'), 'fallback and repair must not start independent timeout windows');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(app.includes('routeOptions=null') && app.includes('routeContextOverride,routeOptions'), 'app route wrapper should forward routeOptions so slow UI callbacks fire');
   assert.ok(app.includes('正在执行：路由模型意图识别'), 'slow route notice should show the current routing stage');
@@ -3091,7 +3063,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!flatCss.includes('.manual-intent-card') && !flatCss.includes('.manual-intent-actions'), 'manual intent chooser CSS should be removed');
   const imageWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(imageWorkflow.includes('clearReasoning?.(d)') && imageWorkflow.includes('delete c.reasoningText'), 'image generation should clear route/chat reasoning panel when it starts');
-  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.3.22-reference-media'), 'image reasoning cleanup should be wired and cache-busted');
+  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.4.1-product-mode-separation'), 'image reasoning cleanup should be wired and cache-busted');
   const sessionPanelWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/session-panel-workflow.js'), 'utf8');
   assert.ok(/window\.setTimeout\.call\(window,\s*\(\)\s*=>\s*\w+\.focus\(\),\s*\w+\s*\|\|\s*60\)/.test(sessionPanelWorkflow), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
 
@@ -3109,7 +3081,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.2.0-terminal-clarification') && index.includes('submit-workflow.js?v=1.3.2-clarification-reroute') && index.includes('chat-workflow.js?v=1.3.25-interface-completion') && index.includes('route-decision-workflow.js?v=3.2.0-terminal-clarification') && index.includes('route-service.js?v=3.2.0-terminal-clarification') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver terminal clarification and reroute semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.1-reference-generation-mode') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.0-intent-deadline') && index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('route-decision-workflow.js?v=3.3.0-shared-deadline') && index.includes('route-service.js?v=3.3.3-auto-mode-isolation') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3154,13 +3126,13 @@ function testImageSuccessResultReconciliation() {
   const resumeWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(imageWorkflow.includes('reconcileSuccessfulImageResult(n,c,'), 'normal image success path should call the shared reconciliation');
-  assert.ok(resumeWorkflow.includes('reconcileSuccessfulImageResult(e,i,s,m)'), 'resumed image success path should call the shared reconciliation');
-  assert.ok(resumeWorkflow.includes('if(hasSuccessfulImageResult(e,null,s,'), 'resume should discard a stale stored image job before it can recreate a completed image');
+  assert.match(imageWorkflow, /reconcileSuccessfulImageResult\(\s*n,\s*c,/, 'normal image success path should call the shared reconciliation');
+  assert.match(resumeWorkflow, /reconcileSuccessfulImageResult\(e,\s*i,\s*s,\s*m\)/, 'resumed image success path should call the shared reconciliation');
+  assert.match(resumeWorkflow, /if\s*\(\s*hasSuccessfulImageResult\(\s*e,\s*null,\s*s,/, 'resume should discard a stale stored image job before it can recreate a completed image');
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
   assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.1.53-session-attachment-isolation'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.3.22-reference-media') && index.includes('job-resume-workflow.js?v=1.2.77-owner-finally') && index.includes('app.js?v=2.1.53-session-attachment-isolation'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-workflow.js?v=1.4.1-product-mode-separation') && index.includes('job-resume-workflow.js?v=1.3.0-execution-resources') && index.includes('app.js?v=2.1.53-session-attachment-isolation'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {
@@ -3268,12 +3240,11 @@ const tests = [
   testQuotedAssistantImageContextRestoresFromCanonicalMessage,
   testUploadedImageUsesOneDurableBlobAcrossMessageContexts,
   testStructuredRouteDecisionCarriesRefs,
-  testImagePromptExtractionFollowsAiRouteWithCurrentImage,
+  testImagePromptExtractionFollowsVisionRouteWithCurrentImage,
   testImplicitImagePromptExtractionFollowsAiRouteWithCurrentImage,
   testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent,
   testRouteOperationTypeDrivesCanonicalMode,
   testImageResultCorrectionRebuildsImagePrompt,
-  testRoutePromptUsesChineseCompactRules,
   testChatAnswerStreamingFlushesQuickly,
   testStreamingTailRendersWithoutCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,

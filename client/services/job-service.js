@@ -197,7 +197,7 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
   });
 }
 
-async function startImageGenerationJob({ payload, config, jobId, mode = 'image', files = [], headers = {}, signal, onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {
+async function startImageGenerationJob({ payload, config, jobId, mode = 'image', files = [], masks = [], headers = {}, signal, onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/image-jobs',
@@ -205,7 +205,7 @@ async function startImageGenerationJob({ payload, config, jobId, mode = 'image',
     parseResponseJson,
     normalizeError,
     onUploadProgress,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, mode, files, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, mode, files, masks, headers },
   });
 }
 

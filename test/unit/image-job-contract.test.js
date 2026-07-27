@@ -237,6 +237,18 @@ async function testImageJobStartEditValidationContracts() {
 
   result = await invokeStart({
     baseUrl: 'https://api.example.com/v1',
+    jobId: 'imgjob-multimask',
+    mode: 'edit_image',
+    payload: { model: 'gpt-image-1', prompt: 'edit' },
+    files: [imageFile({ name: 'target.png' })],
+    masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+  });
+  assert.strictEqual(result.res.status, 400);
+  assert.deepStrictEqual(result.json, { error: { message: '图片编辑任务最多支持一个 mask 附件' } });
+  assert.strictEqual(result.imageJobs.has('imgjob-multimask'), false);
+
+  result = await invokeStart({
+    baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-noprompt',
     payload: { model: 'gpt-image-1', images: [imageFile()] },
   });
@@ -380,7 +392,7 @@ function testImageUpstreamRequestEditMultipartContract() {
       images: [imageFile()],
     },
     files: [imageFile({ name: 'one.png' }), imageFile({ name: 'two.png' })],
-    masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+    masks: [imageFile({ name: 'mask-a.png' })],
   });
 
   assert.strictEqual(request.headers.Authorization, 'Bearer sk-edit');
@@ -413,6 +425,16 @@ function testImageJobPrepareRequestHelperContracts() {
   assert.strictEqual(edit.payload.prompt, '改色');
   assert.strictEqual(edit.files.length, 1);
   assert.strictEqual(edit.masks.length, 0);
+
+  assert.throws(
+    () => prepareImageJobRequest({
+      mode: 'edit_image',
+      payload: { prompt: 'edit' },
+      files: [imageFile({ name: 'target.png' })],
+      masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+    }),
+    err => err.statusCode === 400 && err.message === '图片编辑任务最多支持一个 mask 附件'
+  );
 
   assert.throws(
     () => prepareImageJobRequest({ mode: 'edit_image', payload: { prompt: '改一下' } }),

@@ -32,6 +32,9 @@ function prepareImageJobRequest(body = {}) {
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
   const masks = extractImageEditMasks(body);
+  if (masks.length > 1) {
+    throw createImageJobValidationError('图片编辑任务最多支持一个 mask 附件');
+  }
   validateImageFilePayloads([...imageFiles, ...masks]);
   const mode = resolveImageJobMode(body, imageFiles);
   if (mode === 'edit_image') payload = ensureImageEditPrompt(payload, body);

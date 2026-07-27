@@ -84,11 +84,15 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   assert.strictEqual(fixture.pending[0].submissionId, 'submit-regenerate-a');
   assert.strictEqual(fixture.pending.at(-1).stage, 'handoff');
   assert.strictEqual(fixture.pending.at(-1).jobId, 'imgjob-regenerate-a');
-  assert.ok(fixture.calls.findIndex(call => call[0] === 'save' && call[1] === 'accepted') < fixture.calls.findIndex(call => call[0] === 'restore'),
-    'accepted pending ownership must persist before attachment restoration');
+  assert.strictEqual(fixture.calls.some(call => call[0] === 'restore'), false,
+    'explicit text-to-image must not restore or leak attachments from the historical message');
   const options = fixture.getSentOptions();
   assert.strictEqual(options.submissionId, 'submit-regenerate-a');
   assert.strictEqual(options.clientJobId, 'imgjob-regenerate-a');
+  assert.strictEqual(options.taskContract.schema_version, 'task_contract.v5');
+  assert.strictEqual(options.taskContract.operation, 'text_to_image');
+  assert.strictEqual(options.executionMedia.version, 'execution_resources.v1');
+  assert.deepStrictEqual(options.attachments, []);
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
 }
 

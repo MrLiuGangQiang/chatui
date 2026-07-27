@@ -1,439 +1,441 @@
 (function initChatUIClarificationService(root) {
   'use strict';
 
+  const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v4';
+  const CLARIFICATION_CONTEXT_VERSION = 'clarification_context.v1';
+  const CONTINUATION_RELATIONS = Object.freeze([
+    'pending_answer',
+    'revision',
+    'continuation',
+    'pending_assistance',
+    'new_task',
+    'unclear',
+  ]);
+  const MERGE_RELATIONS = new Set(['pending_answer', 'revision', 'continuation']);
+
+  function strictObject(properties) {
+    return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
+  }
+
+  const CONTINUATION_RESPONSE_FORMAT = Object.freeze({
+    type: 'json_schema',
+    json_schema: {
+      name: 'chatui_pending_continuation_v4',
+      strict: true,
+      schema: strictObject({
+        schema_version: { type: 'string', const: CONTINUATION_SCHEMA_VERSION },
+        relation: { type: 'string', enum: CONTINUATION_RELATIONS },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        resolved_input: { type: 'string' },
+        selections: {
+          type: 'array',
+          items: strictObject({
+            resource_key: { type: 'string', pattern: '^r[1-9][0-9]*$' },
+            choice_key: { type: 'string', pattern: '^c[1-9][0-9]*$' },
+          }),
+        },
+        should_merge: { type: 'boolean' },
+        should_clear_pending: { type: 'boolean' },
+        assistant_reply: { type: 'string' },
+        reason: { type: 'string' },
+      }),
+    },
+  });
+
+  const CONTINUATION_SYSTEM_PROMPT = `你是 ChatUI 的未完成追问关系分类器。只返回严格的 pending_continuation.v4 JSON；不回答原任务，不返回 task_contract，不决定任何执行路线。
+
+你的唯一职责：判断 current_input 是否在回答 pending.question，并在确实延续时给出最小语义补全后的 resolved_input。operation、API、mode、图片/文件角色、资源 source、资源数量和是否可执行，全部由后续完整任务路由器重新决定；你无权决定或暗示这些字段。
+
+唯一结构：
+{"schema_version":"pending_continuation.v4","relation":"pending_answer|revision|continuation|pending_assistance|new_task|unclear","confidence":0,"resolved_input":"","selections":[{"resource_key":"r2","choice_key":"c1"}],"should_merge":false,"should_clear_pending":false,"assistant_reply":"","reason":""}
+
+状态规则：
+1. pending_answer：直接回答追问；revision：修改未完成任务；continuation：补充未完成任务。三者仅在置信度至少 0.85 时允许 should_merge=true、should_clear_pending=true，且 resolved_input 必须是可交给后续路由器重新识别的完整自然请求。
+2. pending_assistance：用户仍在当前追问中请求候选、示例或解释。此时 should_merge=false、should_clear_pending=false、resolved_input=""、selections=[]，assistant_reply 给出直接有用且不替用户做决定的简短帮助。
+3. new_task：与追问无关的完整新任务，包括同时提出多个独立目标。unclear：无法可靠判断。二者都必须 should_merge=false、should_clear_pending=true、resolved_input=""、selections=[]、assistant_reply=""。不确定时使用 new_task 或 unclear，绝不合并旧任务。
+4. resolved_input 只能合并 pending.base_task、current_input、显式 quote_text 和已记录 supplements 中用户已经表达的信息；不得加入风格、画质、镜头、构图、对象、约束或操作类型等未表达内容，不得出现“本轮补充”“原始任务”“追问来源”等内部事务措辞。
+5. prior_task_contract 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。对 missing 槽不返回 selection，由后续路由器检查本轮附件。
+6. 如果用户新增、替换或同时上传多个附件，只描述用户明确表达的任务，不判断附件角色，也不把附件数量解释成选择。附件是否满足任务由后续完整路由器决定。
+7. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
+
   function textOfMessage(message = {}) {
     return String(message.rawText || message.content || '').trim();
   }
 
-  function hasImageAttachment(list = [], isImageFile = () => false) {
-    return (list || []).some(item => isImageFile(item) || String(item?.type || item?.file?.type || '').startsWith('image/'));
+  function latestUserMessage(messages = []) {
+    for (let index = (Array.isArray(messages) ? messages.length : 0) - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role === 'user') return { message, index, text: textOfMessage(message) };
+    }
+    return null;
   }
 
-  function hasAnyAttachment(list = []) {
-    return Array.isArray(list) && list.length > 0;
-  }
-
-  function isUploadImageClarification(text = '') {
-    return /(上传|提供|补充|发送).*(图片|图)|没有可编辑的图片|要修改的图片|请.*图片/i.test(String(text || ''));
-  }
-
-  function isClarificationResponse(text = '') {
-    const value = String(text || '').trim();
-    if (!value) return false;
-    return /((请|需要|麻烦).*(上传|提供|补充|明确|选择)|请.*说明.*(哪|哪个|哪张|哪个文件|哪个附件|要处理什么|想让我怎么)|哪一张|第几张|哪个文件|哪个附件|要处理什么|想让我怎么|没有可编辑的图片|请先上传|请上传|请明确)/i.test(value);
-  }
-
-  function isImageEditIntent(text = '') {
-    return /(改|修改|换|变成|改成|替换|去掉|去除|删除|加上|添加|背景|风格|漫画|红色|蓝色|黑白|修复|变清晰|抠图|edit|change|replace|remove|background|style)/i.test(String(text || ''));
-  }
-
-  function inferPendingKind({ originalText = '', clarificationText = '' } = {}) {
-    const combined = `${originalText}\n${clarificationText}`;
-    if (isImageEditIntent(combined) || isUploadImageClarification(combined)) return 'image_edit';
-    if (/(文件|文档|附件|file|document|pdf|表格|总结|提取)/i.test(combined)) return 'file_qa';
-    if (/(第几张|哪一张|这些图|图片|图)/i.test(combined)) return 'image';
-    return 'general';
-  }
-
-  function expectsSelection(text = '') {
-    return /(第几|哪一?张|哪几张|哪一个|哪个|选择|指定.*(编号|序号)|全部|全都)/i.test(String(text || ''));
-  }
-
-  function expectsUpload(text = '') {
-    return /(上传|提供|补充|发送|引用).*(图片|图|文件|文档|附件)|请先上传|请上传|没有可编辑的图片/i.test(String(text || ''));
-  }
-
-  function expectsEditDetail(text = '') {
-    return /(改成什么|什么风格|怎么改|如何修改|修改成|具体.*(风格|颜色|背景|效果|要求)|补充.*(风格|颜色|背景|效果|要求))/i.test(String(text || ''));
-  }
-
-  function expectsImageVariant(text = '') {
-    const value = String(text || '');
-    return /(哪一?种|什么样|具体.*(样式|类型|款式|风格|用途)|补充.*(样式|类型|款式|用途)|样式|类型|款式|用途|效果|结构|示意|实物|安装)/i.test(value)
-      && /(图|图片|画面|照片|示意|轨道|窗帘|产品|生成)/i.test(value);
-  }
-
-  function expectedAnswerTypes({ kind = 'general', originalText = '', clarificationText = '' } = {}) {
-    const combined = `${originalText}\n${clarificationText}`;
-    const expects = [];
-    if (expectsUpload(combined)) expects.push('upload');
-    if (expectsSelection(combined)) expects.push('selection');
-    if (expectsImageVariant(combined)) expects.push('image_variant');
-    if (expectsEditDetail(combined)) expects.push('edit_detail');
-    if (kind === 'file_qa' && !expects.includes('upload')) expects.push('file_reference');
-    if ((kind === 'image' || kind === 'image_edit') && !expects.length) expects.push('image_detail');
-    if (!expects.length) expects.push('confirmation_or_detail');
-    return [...new Set(expects)];
-  }
-
-  function normalizePendingClarification(value = null) {
-    if (!value || typeof value !== 'object') return null;
-    const originalText = String(value.originalText || value.original_text || '').trim();
-    if (!originalText) return null;
+  function compactRouteInfo(routeInfo = null) {
+    if (!routeInfo || typeof routeInfo !== 'object' || Array.isArray(routeInfo)) return null;
     return {
-      id: value.id || `clarify-${Date.now().toString(36)}`,
-      kind: value.kind || 'general',
-      originalText,
-      clarificationText: String(value.clarificationText || value.clarification_text || '').trim(),
-      supplements: Array.isArray(value.supplements) ? value.supplements : [],
-      expects: Array.isArray(value.expects) && value.expects.length ? value.expects : expectedAnswerTypes({ kind: value.kind || 'general', originalText, clarificationText: value.clarificationText || value.clarification_text || '' }),
-      routeInfo: value.routeInfo || value.route_info || null,
-      sourceImageContext: value.sourceImageContext || value.source_image_context || null,
-      sourceAttachmentContext: value.sourceAttachmentContext || value.source_attachment_context || null,
-      sourceQuoteContext: value.sourceQuoteContext || value.source_quote_context || null,
-      createdAt: Number(value.createdAt || value.created_at) || Date.now(),
-      updatedAt: Number(value.updatedAt || value.updated_at) || Date.now(),
-      rounds: Number(value.rounds || 1) || 1,
+      mode: String(routeInfo.mode || ''),
+      api: String(routeInfo.api || ''),
+      operationType: String(routeInfo.operationType || routeInfo.operation_type || ''),
+      relation: String(routeInfo.relation || ''),
+      readiness: String(routeInfo.readiness || ''),
+      needClarification: routeInfo.needClarification === true,
+      clarificationQuestion: String(routeInfo.clarificationQuestion || ''),
+      taskContract: routeInfo.taskContract && typeof routeInfo.taskContract === 'object'
+        ? routeInfo.taskContract
+        : null,
+      clarificationDegraded: routeInfo.clarificationDegraded === true,
+      requiresRerouteAfterClarification: routeInfo.requiresRerouteAfterClarification === true,
     };
   }
 
-  function findLastUserBeforeAssistant(messages = [], assistantIndex = messages.length - 1) {
-    for (let i = Math.min(assistantIndex - 1, messages.length - 1); i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message?.role === 'user') {
-        const text = textOfMessage(message).replace(/\n\s*\[(image|file) id=.*$/is, '').trim();
-        if (text) return { text, index: i, message };
-      }
-    }
-    return null;
+  function normalizePendingClarification(value = null) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const originalText = String(value.originalText ?? value.original_text ?? value.baseTask ?? value.base_task ?? '').trim();
+    const routeInfo = compactRouteInfo(value.routeInfo || value.route_info || null);
+    if (!originalText && !routeInfo?.taskContract) return null;
+    return {
+      id: String(value.id || `clarify-${Date.now().toString(36)}`),
+      originalText,
+      clarificationText: String(value.clarificationText || value.clarification_text || '').trim(),
+      routeInfo,
+      sourceImageContext: value.sourceImageContext || value.source_image_context || null,
+      sourceAttachmentContext: value.sourceAttachmentContext || value.source_attachment_context || null,
+      sourceQuoteContext: value.sourceQuoteContext || value.source_quote_context || null,
+      assistanceHistory: Array.isArray(value.assistanceHistory || value.assistance_history)
+        ? (value.assistanceHistory || value.assistance_history).slice(-4)
+        : [],
+      createdAt: Number(value.createdAt || value.created_at) || Date.now(),
+      updatedAt: Number(value.updatedAt || value.updated_at) || Date.now(),
+      rounds: Math.max(1, Number(value.rounds || 1) || 1),
+    };
   }
 
-  function isVagueImageFeedback(text = '') {
-    return /^(不是(这个|这样|这种)?|不对|不太对|不满意|不满意[，,\s]*(帮我)?改(一下)?|换一个|重新来|重做|不要这个|不是这个啊|不行)$/i.test(String(text || '').trim());
+  function createPendingClarification({
+    messages = [],
+    clarificationText = '',
+    routeInfo = null,
+    sourceImageContext = null,
+    sourceAttachmentContext = null,
+    sourceQuoteContext = null,
+  } = {}) {
+    const latestUser = latestUserMessage(messages);
+    return normalizePendingClarification({
+      originalText: latestUser?.text || '',
+      clarificationText,
+      routeInfo,
+      sourceImageContext: sourceImageContext || latestUser?.message?.imageContext || latestUser?.message?.image_context || null,
+      sourceAttachmentContext: sourceAttachmentContext || latestUser?.message?.attachmentContext || latestUser?.message?.attachment_context || null,
+      sourceQuoteContext: sourceQuoteContext || latestUser?.message?.quoteContext || latestUser?.message?.quote_context || null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      rounds: 1,
+    });
   }
 
-  function findPreviousImageRequest(messages = [], beforeIndex = messages.length) {
-    for (let i = Math.min(beforeIndex - 1, messages.length - 1); i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message?.role !== 'user') continue;
-      const text = textOfMessage(message).replace(/\n\s*\[(image|file) id=.*$/is, '').trim();
-      if (!text || isVagueImageFeedback(text)) continue;
-      if (/(画|生成|图片|图|海报|头像|插画|logo|图标|照片|示意|产品图|效果图|窗帘|轨道|修改|编辑|改)/i.test(text)) return { text, index: i, message };
-    }
-    return null;
+  function attachmentSummary(item = {}, index = 0, source = 'current') {
+    const type = String(item?.type || item?.mime || item?.file?.type || '').trim();
+    const isImage = item?.is_image === true || item?.isImage === true || type.startsWith('image/');
+    return {
+      index: index + 1,
+      source,
+      id: String(isImage
+        ? item?.image_id || item?.imageId || item?.attachmentId || item?.attachment_id || item?.id || ''
+        : item?.file_id || item?.fileId || item?.attachmentId || item?.attachment_id || item?.id || ''),
+      name: String(item?.name || item?.filename || item?.file?.name || ''),
+      type,
+      is_image: isImage,
+    };
   }
 
-  function findPreviousImageResultContext(messages = [], beforeIndex = messages.length) {
-    for (let i = Math.min(beforeIndex - 1, messages.length - 1); i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message?.role !== 'assistant') continue;
-      const context = message.imageContext || message.image_context;
-      if (context) return context;
-    }
-    return null;
-  }
-
-  const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v2';
-  const CONTINUATION_SYSTEM_PROMPT = `你是 ChatUI 任务延续分类器，只返回 JSON。
-
-你的任务：判断最新用户输入是否在回答/延续一个未完成的追问，并生成 final_prompt。
-
-重要原则：你不是提示词优化器。final_prompt 只做最小语义补全：根据 base_task 和当前回答补齐省略对象或引用。不要添加用户没说的风格、画质、镜头、构图、氛围、细节或创意发挥。尽量保留用户原话。
-
-  必须返回且只能返回以下 schema_version 的完整 JSON；字段不得增删，不得返回 task_contract.v5：
-  {"schema_version":"pending_continuation.v2","relation":"pending_answer|revision|continuation|new_task|unclear","confidence":0,"final_prompt":"","final_task_mode":"image|edit_image|chat|file_qa|unknown","selected_indexes":[],"selections":[{"resource_key":"r2","choice_key":"c1"}],"should_merge":false,"should_clear_pending":false,"reason":""}
-
-规则：
-  - 只有确信最新输入是在回答 pending.question 时，才可将 relation 设为 pending_answer/revision/continuation，且 should_merge=true。
-  - 任何完整的新需求、编号需求列表、与追问无关的请求，都必须 relation=new_task、should_merge=false、should_clear_pending=true。
-  - 不确定时按 new_task 处理，绝不能合并旧任务。
-  - pending_answer：用户在回答追问。
-- revision/continuation：用户在延续或修改 base_task。
-- new_task：用户开启无关新任务。
-- unclear：信息不足。
-- pending.route_info.task_contract 如果包含结构化 unresolved_resources，用户明确选择 ambiguous 候选后必须从相应 choices 中逐槽返回 resource_key/choice_key；不得自己选择用户未指定的候选。reason=missing 的槽位由本轮同类型上传附件确定，不写入 selections。只有所有 ambiguous 槽位已有选择、所有 missing 槽位已有对应附件时才能 should_merge=true。
-- 没有结构化候选的旧追问使用 selections=[]；new_task/unclear 必须 selections=[]。
-- final_prompt 必须是可直接执行的自然请求，不能包含“本轮补充/原始任务”等内部事务文本。
-- 如果生成 final_prompt 需要加入 base_task/current_input 都没有的信息，就不要加入。
-- 示例：base_task=晚霞图，current_input=山巅的 => final_prompt=山巅的晚霞图。
-- 示例：base_task=晚霞图，current_input=不要湖泊 => final_prompt=晚霞图，不要湖泊。`;
-
-  function buildContinuationClassifierPayload({ model, pending, currentInput = '', attachments = [], quoteText = '', recentMessages = [] } = {}) {
+  function buildContinuationClassifierPayload({
+    model,
+    pending,
+    currentInput = '',
+    attachments = [],
+    quoteText = '',
+    recentMessages = [],
+  } = {}) {
     const normalized = normalizePendingClarification(pending);
     return {
       model,
       temperature: 0,
+      response_format: CONTINUATION_RESPONSE_FORMAT,
       messages: [
         { role: 'system', content: CONTINUATION_SYSTEM_PROMPT },
         { role: 'user', content: JSON.stringify({
+          contract_schema: CONTINUATION_SCHEMA_VERSION,
           pending: normalized ? {
-            kind: normalized.kind,
             base_task: normalized.originalText,
             question: normalized.clarificationText,
-            expects: normalized.expects || [],
-            route_info: normalized.routeInfo || null,
+            prior_task_contract: normalized.routeInfo?.taskContract || null,
             has_source_image: !!normalized.sourceImageContext,
             has_source_attachment: !!normalized.sourceAttachmentContext,
-            supplements: normalized.supplements || [],
+            has_source_quote: !!normalized.sourceQuoteContext,
+            assistance_history: normalized.assistanceHistory,
           } : null,
-          contract_schema: CONTINUATION_SCHEMA_VERSION,
           current_input: String(currentInput || '').trim(),
-          attachments: (attachments || []).map((item, index) => ({
-            index: index + 1,
-            name: item?.name || item?.file?.name || '',
-            type: item?.type || item?.file?.type || '',
-            is_image: /^image\//i.test(String(item?.type || item?.file?.type || '')),
-          })),
+          attachments: (Array.isArray(attachments) ? attachments : []).map((item, index) => attachmentSummary(item, index, 'current')),
           quote_text: String(quoteText || '').trim(),
-          recent_messages: (recentMessages || []).slice(-6).map((item, index) => ({ index: index + 1, role: item?.role || '', content: textOfMessage(item).slice(0, 500) })),
+          recent_messages: (Array.isArray(recentMessages) ? recentMessages : []).slice(-6).map((item, index) => ({
+            index: index + 1,
+            role: String(item?.role || ''),
+            content: textOfMessage(item).slice(0, 800),
+          })),
         }) },
       ],
     };
   }
 
-  function parseContinuationClassifierResult(text = '') {
+  function hasExactFields(value, fields) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const keys = Object.keys(value);
+    return keys.length === fields.length && fields.every(field => Object.prototype.hasOwnProperty.call(value, field));
+  }
+
+  function validSelectionList(selections = []) {
+    if (!Array.isArray(selections)) return false;
+    const resourceKeys = new Set();
+    for (const selection of selections) {
+      if (!hasExactFields(selection, ['resource_key', 'choice_key'])) return false;
+      if (!/^r[1-9][0-9]*$/.test(String(selection.resource_key || ''))
+          || !/^c[1-9][0-9]*$/.test(String(selection.choice_key || ''))
+          || resourceKeys.has(selection.resource_key)) return false;
+      resourceKeys.add(selection.resource_key);
+    }
+    return true;
+  }
+
+  function selectionsMatchPending(pending, selections = []) {
+    const normalized = normalizePendingClarification(pending);
+    if (!normalized) return selections.length === 0;
+    const unresolved = normalized.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    if (!Array.isArray(unresolved) || !unresolved.length) return selections.length === 0;
+    const ambiguous = unresolved.filter(slot => slot?.reason === 'ambiguous');
+    if (selections.length !== ambiguous.length) return false;
+    const selected = new Map(selections.map(item => [item.resource_key, item.choice_key]));
+    return ambiguous.every(slot => {
+      const choiceKey = selected.get(slot.key);
+      return !!choiceKey && Array.isArray(slot.choices) && slot.choices.some(choice => choice?.key === choiceKey);
+    });
+  }
+
+  function parseContinuationClassifierResult(text = '', options = {}) {
     const value = String(text || '').trim();
     if (!value) return null;
     try {
       const raw = JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
-      const fields = ['schema_version', 'relation', 'confidence', 'final_prompt', 'final_task_mode', 'selected_indexes', 'selections', 'should_merge', 'should_clear_pending', 'reason'];
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length !== fields.length || fields.some(field => !Object.prototype.hasOwnProperty.call(raw, field))) return null;
-      if (raw.schema_version !== CONTINUATION_SCHEMA_VERSION) return null;
+      const fields = [
+        'schema_version', 'relation', 'confidence', 'resolved_input', 'selections',
+        'should_merge', 'should_clear_pending', 'assistant_reply', 'reason',
+      ];
+      if (!hasExactFields(raw, fields) || raw.schema_version !== CONTINUATION_SCHEMA_VERSION) return null;
       const relation = String(raw.relation || '');
-      if (!['pending_answer', 'revision', 'continuation', 'new_task', 'unclear'].includes(relation)) return null;
-      if (!Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) return null;
-      if (typeof raw.final_prompt !== 'string' || typeof raw.final_task_mode !== 'string' || typeof raw.should_merge !== 'boolean' || typeof raw.should_clear_pending !== 'boolean' || typeof raw.reason !== 'string') return null;
-      if (!['image', 'edit_image', 'chat', 'file_qa', 'unknown'].includes(raw.final_task_mode) || !Array.isArray(raw.selected_indexes) || raw.selected_indexes.some(item => !Number.isInteger(item) || item < 1)) return null;
-      if (!Array.isArray(raw.selections) || raw.selections.some(item => {
-        const fields = item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item) : [];
-        return fields.length !== 2 || !fields.includes('resource_key') || !fields.includes('choice_key')
-          || !/^r[1-9][0-9]*$/.test(String(item.resource_key || '')) || !/^c[1-9][0-9]*$/.test(String(item.choice_key || ''));
-      })) return null;
-      if (new Set(raw.selections.map(item => item.resource_key)).size !== raw.selections.length) return null;
-      const continuation = ['pending_answer', 'revision', 'continuation'].includes(relation);
-      if (raw.should_merge !== continuation) return null;
-      if (continuation && (!raw.final_prompt.trim() || raw.final_task_mode === 'unknown' || raw.confidence < 0.85)) return null;
-      if (!continuation && (raw.final_prompt || raw.final_task_mode !== 'unknown' || raw.selected_indexes.length || raw.selections.length)) return null;
-      return {
+      if (!CONTINUATION_RELATIONS.includes(relation)
+          || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1
+          || typeof raw.resolved_input !== 'string'
+          || typeof raw.should_merge !== 'boolean'
+          || typeof raw.should_clear_pending !== 'boolean'
+          || typeof raw.assistant_reply !== 'string'
+          || typeof raw.reason !== 'string'
+          || !validSelectionList(raw.selections)) return null;
+
+      const resolvedInput = raw.resolved_input.trim();
+      const assistantReply = raw.assistant_reply.trim();
+      const merging = MERGE_RELATIONS.has(relation);
+      const assistance = relation === 'pending_assistance';
+      if (merging && (raw.confidence < 0.85 || raw.should_merge !== true || raw.should_clear_pending !== true || !resolvedInput || assistantReply)) return null;
+      if (assistance && (raw.should_merge || raw.should_clear_pending || resolvedInput || raw.selections.length || !assistantReply)) return null;
+      if (!merging && !assistance && (raw.should_merge || raw.should_clear_pending !== true || resolvedInput || raw.selections.length || assistantReply)) return null;
+      if (merging && options.pending && !selectionsMatchPending(options.pending, raw.selections)) return null;
+
+      return Object.freeze({
         relation,
         confidence: raw.confidence,
-        finalPrompt: raw.final_prompt.trim(),
-        finalTaskMode: raw.final_task_mode,
-        selectedIndexes: raw.selected_indexes,
-        selections: raw.selections.map(item => ({ resource_key: item.resource_key, choice_key: item.choice_key })),
+        resolvedInput,
+        selections: raw.selections.map(item => Object.freeze({ resource_key: item.resource_key, choice_key: item.choice_key })),
         shouldMerge: raw.should_merge,
         shouldClearPending: raw.should_clear_pending,
+        assistantReply,
         reason: raw.reason.trim(),
-      };
-    } catch { return null; }
-  }
-
-  function createPendingClarification({ messages = [], clarificationText = '', routeInfo = null, sourceImageContext = null, sourceAttachmentContext = null, sourceQuoteContext = null } = {}) {
-    const latestUser = findLastUserBeforeAssistant(messages, messages.length);
-    if (!latestUser?.text) return null;
-    const routePrompt = String(routeInfo?.contextualImagePrompt || routeInfo?.contextual_image_prompt || routeInfo?.editInstruction || routeInfo?.edit_instruction || '').trim();
-    const routeLooksImage = /image|edit|图|图片|生成|修改|编辑/i.test(`${routeInfo?.mode || ''} ${routeInfo?.intent || ''} ${clarificationText}`);
-    const previousImageRequest = routeLooksImage && isVagueImageFeedback(latestUser.text)
-      ? (routePrompt ? { text: routePrompt, index: latestUser.index, message: latestUser.message } : findPreviousImageRequest(messages, latestUser.index))
-      : null;
-    const originalText = previousImageRequest?.text || latestUser.text;
-    const kind = inferPendingKind({ originalText, clarificationText });
-    const previousImageContext = !sourceImageContext && routeLooksImage ? findPreviousImageResultContext(messages, latestUser.index) : null;
-    return normalizePendingClarification({
-      kind,
-      originalText,
-      clarificationText,
-      expects: expectedAnswerTypes({ kind, originalText, clarificationText }),
-      routeInfo: routeInfo ? {
-        mode: routeInfo.mode,
-        target: routeInfo.target,
-        intent: routeInfo.intent,
-        needClarification: routeInfo.needClarification === true,
-        clarificationQuestion: String(routeInfo.clarificationQuestion || ''),
-        resumeOperation: routeInfo.resumeOperation || '',
-        clarificationSlots: Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [],
-        taskContract: routeInfo.taskContract || null,
-        requiresRerouteAfterClarification: routeInfo.requiresRerouteAfterClarification === true,
-        clarificationDegraded: routeInfo.clarificationDegraded === true,
-      } : null,
-      sourceImageContext: sourceImageContext || previousImageContext,
-      sourceAttachmentContext,
-      sourceQuoteContext,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      rounds: 1,
-    });
-  }
-
-  function findPendingFromHistory(messages = []) {
-    let assistantIndex = -1;
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      if (msg?.role === 'assistant' && isClarificationResponse(textOfMessage(msg))) {
-        assistantIndex = i;
-        break;
-      }
-      if (msg?.role === 'assistant' && !isClarificationResponse(textOfMessage(msg))) break;
-    }
-    if (assistantIndex < 0) return null;
-    const clarificationText = textOfMessage(messages[assistantIndex]);
-    const latestUser = findLastUserBeforeAssistant(messages, assistantIndex);
-    if (!latestUser?.text) return null;
-    return normalizePendingClarification({
-      kind: inferPendingKind({ originalText: latestUser.text, clarificationText }),
-      originalText: latestUser.text,
-      clarificationText,
-      expects: expectedAnswerTypes({ kind: inferPendingKind({ originalText: latestUser.text, clarificationText }), originalText: latestUser.text, clarificationText }),
-      sourceImageContext: latestUser.message?.imageContext || latestUser.message?.image_context || null,
-      sourceAttachmentContext: latestUser.message?.attachmentContext || latestUser.message?.attachment_context || null,
-      sourceQuoteContext: latestUser.message?.quoteContext || latestUser.message?.quote_context || null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      rounds: 1,
-    });
-  }
-
-  function isSelectionAnswer(text = '') {
-    const value = String(text || '').trim();
-    if (!value) return false;
-    return /^(第?[一二三四五六七八九十\d]+[张个份]?|[一二三四五六七八九十\d]+|全部|全都|都要|都处理|这张|那张|这个|那个|前者|后者|第一张|第二张|第三张|last|latest|previous|all)$/i.test(value)
-      || /(第\s*\d+\s*张|第[一二三四五六七八九十]+张|图片?\s*\d+|image\s*\d+)/i.test(value);
-  }
-
-  function isShortClarificationPhrase(text = '') {
-    const value = String(text || '').trim();
-    if (!value) return false;
-    if (/[？?。.!！]/.test(value)) return false;
-    if (value.length > 24) return false;
-    if (/^(讲讲|介绍|解释|为什么|怎么|如何|多少|今天|天气|新闻|搜索|查询|打开|帮我写|写一篇)/i.test(value)) return false;
-    return /^[\p{Script=Han}\w\s\-_/、，,]+$/u.test(value);
-  }
-
-  function asksForImageVariant(text = '') {
-    return expectsImageVariant(text);
-  }
-
-  function isClearlyNewTask(text = '') {
-    const value = String(text || '').trim();
-    if (!value) return false;
-    if (/^(讲讲|介绍|解释|搜索|查询|打开|帮我写|写一篇|生成一篇|总结一下|翻译一下|计算|对比一下)/i.test(value)) return true;
-    if (/^(为什么|怎么|如何|多少|今天|天气|新闻|几点|哪里|谁|什么是)/i.test(value)) return true;
-    return false;
-  }
-
-  // Pending clarification is a narrow, one-shot state. It must never absorb a
-  // complete new request just because the request happens to mention images,
-  // diagrams, or generation.
-  function isStandaloneTaskRequest(text = '') {
-    const value = String(text || '').trim();
-    if (!value) return false;
-    if (value.length > 120) return true;
-
-    const numberedItems = value.match(/(?:^|\n)\s*\d{1,3}\s*[、.．)）]/g) || [];
-    if (numberedItems.length >= 2) return true;
-
-    const lines = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
-    if (lines.length >= 3) return true;
-
-    // Short replies such as “第一张” and “红色背景” remain valid answers.
-    return value.length > 32
-      && /(?:\u54a8\u8be2|\u8bf7|\u5e2e\u6211|\u9700\u8981|\u5e0c\u671b|\u751f\u6210|\u8bbe\u8ba1|\u5206\u6790|\u7f16\u5199|\u603b\u7ed3|\u7ffb\u8bd1)/.test(value);
-  }
-
-  function classifyPendingTurn(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
-    const normalized = normalizePendingClarification(pending);
-    if (!normalized) return { action: 'none', reason: 'no_pending', pending: null };
-    const text = String(promptText || '').trim();
-    const hasAttachments = hasAnyAttachment(attachments);
-    const hasImages = hasImageAttachment(attachments, isImageFile);
-    const expects = Array.isArray(normalized.expects) && normalized.expects.length ? normalized.expects : expectedAnswerTypes(normalized);
-    if (isStandaloneTaskRequest(text)) return { action: 'clear', reason: 'standalone_new_task', pending: normalized };
-    if (hasAttachments) {
-      if (expects.includes('upload') || expects.includes('file_reference')) {
-        if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_upload' : 'wrong_attachment_type', pending: normalized };
-        return { action: 'apply', reason: 'attachment_answer', pending: normalized };
-      }
-      if (normalized.kind === 'image_edit' || normalized.kind === 'image') return { action: hasImages ? 'apply' : 'clear', reason: hasImages ? 'image_attachment_answer' : 'wrong_attachment_type', pending: normalized };
-      return { action: 'apply', reason: 'attachment_answer', pending: normalized };
-    }
-    if (quotedMessage && (expects.includes('upload') || expects.includes('file_reference'))) return { action: 'apply', reason: 'quoted_message', pending: normalized };
-    if (!text) return { action: 'clear', reason: 'empty_next_turn', pending: normalized };
-    if (isSelectionAnswer(text)) return { action: 'apply', reason: 'selection_answer', pending: normalized };
-    if (isClearlyNewTask(text) && !isShortClarificationPhrase(text)) return { action: 'clear', reason: 'new_task', pending: normalized };
-    if (expects.includes('image_variant') && isShortClarificationPhrase(text)) return { action: 'apply', reason: 'short_image_variant', pending: normalized };
-    if (expects.includes('edit_detail') && (isImageEditIntent(text) || isShortClarificationPhrase(text))) return { action: 'apply', reason: 'edit_detail', pending: normalized };
-    if (expects.includes('file_reference')) return /(这个|该|上面|刚才|文件|文档|附件|重点|结论|摘要|页|表|列|行)/i.test(text)
-      ? { action: 'apply', reason: 'file_reference_text', pending: normalized }
-      : { action: 'clear', reason: 'not_file_answer', pending: normalized };
-    if (normalized.kind === 'image_edit' || normalized.kind === 'image') {
-      if (/(这张|那张|上面|刚才|原图|图片|图\d*|背景|主体|颜色|风格|保留|去掉|删除|替换|改成|换成|清晰|抠图)/i.test(text)) return { action: 'apply', reason: 'image_context_text', pending: normalized };
-      return { action: 'clear', reason: 'not_image_answer', pending: normalized };
-    }
-    if (/^(是|不是|对|不对|可以|继续|确认|好|就这样|按这个|没错)$/i.test(text) || isShortClarificationPhrase(text)) return { action: 'apply', reason: 'general_detail', pending: normalized };
-    return { action: 'clear', reason: 'not_pending_answer', pending: normalized };
-  }
-
-  function isLikelyClarificationAnswer(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
-    return classifyPendingTurn(pending, { promptText, attachments, quotedMessage, isImageFile }).action === 'apply';
-  }
-
-  function shouldApplyPending(pending, { promptText = '', attachments = [], quotedMessage = null, isImageFile = () => false } = {}) {
-    // Deliberately fail closed. Continuation is authorized only by a valid
-    // pending_continuation.v2 model result, never by local keyword heuristics.
-    return false;
-  }
-
-  function mergePendingInput(pending, { promptText = '', attachments = [], quotedMessage = null, quoteText = '', finalPrompt = '', finalTaskMode = '', selectedIndexes = [] } = {}) {
-    const normalized = normalizePendingClarification(pending);
-    if (!normalized) return { promptText, merged: false, pending: null };
-    const supplementText = String(promptText || '').trim();
-    const modelFinalPrompt = String(finalPrompt || '').trim();
-    const parts = modelFinalPrompt ? [modelFinalPrompt] : [normalized.originalText];
-    if (!modelFinalPrompt && normalized.supplements?.length) {
-      normalized.supplements.forEach((item, index) => {
-        const text = String(item?.text || '').trim();
-        const notes = [];
-        if (item?.attachments) notes.push(`附件 ${item.attachments} 个`);
-        if (item?.quoted) notes.push('包含引用消息');
-        if (text || notes.length) parts.push(`补充${index + 1}：${[text, notes.join('，')].filter(Boolean).join('；')}`);
       });
+    } catch {
+      return null;
     }
-    if (!modelFinalPrompt && supplementText) parts.push(`本轮补充：${supplementText}`);
-    if (!modelFinalPrompt && quotedMessage) parts.push(`本轮引用：${quoteText || textOfMessage(quotedMessage) || '[quoted_message]'}`);
-    if (!modelFinalPrompt && attachments?.length && !supplementText) parts.push(`本轮补充：用户上传了 ${attachments.length} 个附件。`);
-    const mergedPrompt = parts.filter(Boolean).join('\n\n');
+  }
+
+  function mergePendingInput(pending, { promptText = '', resolvedInput = '' } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    const resolved = String(resolvedInput || '').trim();
+    if (!normalized || !resolved) return { promptText: String(promptText || '').trim(), merged: false, pending: normalized };
     return {
-      promptText: mergedPrompt,
+      promptText: resolved,
       originalPromptText: normalized.originalText,
-      supplementText,
-      finalPrompt: modelFinalPrompt,
-      finalTaskMode: String(finalTaskMode || '').trim(),
-      selectedIndexes: Array.isArray(selectedIndexes) ? selectedIndexes : [],
+      supplementText: String(promptText || '').trim(),
+      resolvedInput: resolved,
       merged: true,
-      pending: {
+      pending: normalizePendingClarification({
         ...normalized,
-        supplements: [
-          ...(normalized.supplements || []),
-          { text: supplementText, attachments: attachments?.length || 0, quoted: !!quotedMessage, at: Date.now() },
-        ],
+        originalText: resolved,
         updatedAt: Date.now(),
-        rounds: (normalized.rounds || 1) + 1,
-      },
+        rounds: normalized.rounds + 1,
+      }),
     };
   }
 
-  function clearPendingIfResolved(routeInfo = {}) {
-    return !routeInfo?.needClarification;
+  function retainPendingAfterAssistance(pending, { promptText = '', assistantReply = '' } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    const reply = String(assistantReply || '').trim();
+    if (!normalized || !reply) return null;
+    return normalizePendingClarification({
+      ...normalized,
+      assistanceHistory: [
+        ...normalized.assistanceHistory,
+        { prompt: String(promptText || '').trim(), reply, at: Date.now() },
+      ].slice(-4),
+      updatedAt: Date.now(),
+      rounds: normalized.rounds + 1,
+    });
+  }
+
+  function selectedChoiceDetails(pending, selections = []) {
+    const unresolved = pending?.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    if (!Array.isArray(unresolved)) return [];
+    return selections.map(selection => {
+      const slot = unresolved.find(item => item?.key === selection.resource_key);
+      const choice = slot?.choices?.find(item => item?.key === selection.choice_key);
+      return {
+        resource_key: selection.resource_key,
+        choice_key: selection.choice_key,
+        type: String(slot?.type || ''),
+        role: String(slot?.role || ''),
+        source: String(choice?.source || ''),
+        index: Number(choice?.index) || 0,
+        id: String(choice?.id || ''),
+        reference_id: String(choice?.reference_id || ''),
+        label: String(choice?.label || ''),
+      };
+    });
+  }
+
+  function candidateIdentity(candidate = {}, type = '') {
+    const id = type === 'image'
+      ? candidate.image_id || candidate.imageId || ''
+      : candidate.file_id || candidate.fileId || candidate.id || '';
+    return [candidate.source || '', id, candidate.reference_id || candidate.referenceId || '', candidate.source_index || candidate.sourceIndex || ''].join('|');
+  }
+
+  function mergeCandidates(base = [], quoted = [], type = '') {
+    const result = [];
+    const seen = new Set();
+    for (const candidate of [...(Array.isArray(base) ? base : []), ...(Array.isArray(quoted) ? quoted : [])]) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const identity = candidateIdentity(candidate, type);
+      if (identity && seen.has(identity)) continue;
+      if (identity) seen.add(identity);
+      result.push({ ...candidate, index: result.length + 1 });
+    }
+    return result;
+  }
+
+  function mergeQuotedMessageContext(baseContext = {}, quotedContext = null) {
+    const context = { ...baseContext };
+    if (!quotedContext || typeof quotedContext !== 'object') return context;
+    const recent = Array.isArray(context.recent_messages) ? [...context.recent_messages] : [];
+    const quote = quotedContext.quoted_message && typeof quotedContext.quoted_message === 'object'
+      ? quotedContext.quoted_message
+      : null;
+    if (quote) {
+      const quoteId = String(quote.id || quote.display_item_id || quote.displayItemId || '');
+      let match = quoteId ? recent.find(message => String(message?.id || message?.display_item_id || message?.displayItemId || '') === quoteId) : null;
+      if (!match) {
+        const quotedMessage = Array.isArray(quotedContext.recent_messages) ? quotedContext.recent_messages[0] : null;
+        if (quotedMessage) {
+          const nextIndex = recent.reduce((max, message) => Math.max(max, Number(message?.index) || 0), 0) + 1;
+          match = { ...quotedMessage, index: nextIndex, ...(quoteId ? { id: quoteId } : {}) };
+          recent.push(match);
+        }
+      }
+      if (match) context.quoted_message = { ...quote, index: Number(match.index), ...(quoteId ? { id: quoteId } : {}) };
+    }
+    context.recent_messages = recent;
+    context.image_candidates = mergeCandidates(context.image_candidates, quotedContext.image_candidates, 'image');
+    context.file_candidates = mergeCandidates(context.file_candidates, quotedContext.file_candidates, 'file');
+    return context;
+  }
+
+  function priorResourceSources(taskContract = null) {
+    if (!taskContract || typeof taskContract !== 'object') return [];
+    const bound = Array.isArray(taskContract.resources) ? taskContract.resources : [];
+    const unresolved = Array.isArray(taskContract.clarification?.unresolved_resources)
+      ? taskContract.clarification.unresolved_resources
+      : [];
+    return [
+      ...bound.map(resource => ({
+        resource_key: String(resource?.key || ''), type: String(resource?.type || ''), role: String(resource?.role || ''),
+        source: String(resource?.source || ''), id: String(resource?.id || ''), reference_id: String(resource?.reference_id || ''),
+      })),
+      ...unresolved.flatMap(slot => (Array.isArray(slot?.choices) ? slot.choices : []).map(choice => ({
+        resource_key: String(slot?.key || ''), type: String(slot?.type || ''), role: String(slot?.role || ''),
+        source: String(choice?.source || ''), id: String(choice?.id || ''), reference_id: String(choice?.reference_id || ''),
+      }))),
+    ];
+  }
+
+  function buildClarificationRouteContext({
+    baseContext = {},
+    quotedContext = null,
+    pending,
+    currentInput = '',
+    resolvedInput = '',
+    selections = [],
+    attachments = [],
+    quoteText = '',
+  } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    const resolved = String(resolvedInput || '').trim();
+    if (!normalized || !resolved || !selectionsMatchPending(normalized, selections)) return null;
+    const context = mergeQuotedMessageContext(baseContext && typeof baseContext === 'object' ? baseContext : {}, quotedContext);
+    const quotedMedia = [
+      ...(Array.isArray(context.image_candidates) ? context.image_candidates.filter(item => item?.source === 'quoted') : []),
+      ...(Array.isArray(context.file_candidates) ? context.file_candidates.filter(item => item?.source === 'quoted') : []),
+    ];
+    context.clarification_context = {
+      schema_version: CLARIFICATION_CONTEXT_VERSION,
+      base_task: normalized.originalText,
+      clarification_question: normalized.clarificationText,
+      prior_task_contract: normalized.routeInfo?.taskContract || null,
+      current_answer: String(currentInput || '').trim(),
+      resolved_input: resolved,
+      selected_choices: selectedChoiceDetails(normalized, selections),
+      explicit_quote_text: String(quoteText || '').trim(),
+      attachments: {
+        current: (Array.isArray(attachments) ? attachments : []).map((item, index) => attachmentSummary(item, index, 'current')),
+        quoted: quotedMedia.map((item, index) => ({
+          index: Number(item?.index) || index + 1,
+          source: 'quoted',
+          id: String(item?.image_id || item?.file_id || item?.id || ''),
+          reference_id: String(item?.reference_id || ''),
+          name: String(item?.filename || item?.name || ''),
+        })),
+        prior_sources: priorResourceSources(normalized.routeInfo?.taskContract),
+      },
+      source_policy: 'Only this turn attachments are current. Earlier pending resources remain history/context; explicit UI quote resources are quoted. Re-run the complete router before execution.',
+    };
+    return context;
   }
 
   const api = Object.freeze({
     CONTINUATION_SCHEMA_VERSION,
+    CLARIFICATION_CONTEXT_VERSION,
     CONTINUATION_SYSTEM_PROMPT,
+    CONTINUATION_RESPONSE_FORMAT,
     buildContinuationClassifierPayload,
     parseContinuationClassifierResult,
-    findPreviousImageResultContext,
-    isClarificationResponse,
-    isUploadImageClarification,
-    isImageEditIntent,
-    inferPendingKind,
-    expectedAnswerTypes,
     normalizePendingClarification,
     createPendingClarification,
-    findPendingFromHistory,
-    findPreviousImageRequest,
-    isVagueImageFeedback,
     mergePendingInput,
-    clearPendingIfResolved,
+    retainPendingAfterAssistance,
+    buildClarificationRouteContext,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

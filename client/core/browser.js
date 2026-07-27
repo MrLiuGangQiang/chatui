@@ -64,6 +64,10 @@
     enumerable: true,
     get: () => registeredModules.get('taskState') || null,
   });
+  Object.defineProperty(api, 'executionResources', {
+    enumerable: true,
+    get: () => registeredModules.get('executionResources') || null,
+  });
   Object.freeze(api);
   if (typeof window !== 'undefined') window.ChatUICore = api;
   else global.ChatUICore = api;

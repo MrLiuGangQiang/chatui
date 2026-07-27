@@ -192,6 +192,7 @@ function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
 function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
+  const imageCompact = image.replace(/\s+/g, '');
   const chat = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(!submit.includes('clearPendingSubmit(sessionId);const replacementResponseIndex='), 'pending submit must not be cleared before dispatch owns a durable job');
@@ -199,11 +200,11 @@ function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask'), 'submit must wire interface completion to the canonical task event');
   assert.ok(submit.includes('completeInterfaceTask=(completion={})=>'), 'submit must identity-check interface completion callbacks');
-  assert.ok(image.includes('notifyInterfaceCompleted()') && image.includes('jobKind:"image"'), 'image success must publish its interface completion identity after canonical persistence');
+  assert.ok(imageCompact.includes('notifyInterfaceCompleted()') && imageCompact.includes('jobKind:"image"'), 'image success must publish its interface completion identity after canonical persistence');
   assert.ok(chat.includes('notifyInterfaceCompleted()') && chat.includes('jobKind:"chat"'), 'chat success must publish its interface completion identity after canonical persistence');
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind)'));
   assert.ok(!submit.includes('saveChatJob(sessionId,{id:preparedChatJobId'), 'routing must not create an incomplete chat job that can outrank pending-submit recovery');
-  assert.ok(image.includes('savedImageJob=saveImageJob(n,durableImageJob)') && image.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && image.includes('completeDurableHandoff();T=performance.now()'), 'image dispatch must verify a restartable local owner before clearing pending-submit');
+  assert.ok(imageCompact.includes('savedImageJob=saveImageJob(n,durableImageJob)') && imageCompact.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && imageCompact.includes('completeDurableHandoff();T=performance.now()'), 'image dispatch must verify a restartable local owner before clearing pending-submit');
   assert.ok(app.includes('setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id)'), 'active task evidence must mark the session busy before first render');
   assert.ok(app.includes('flushSessionSnapshots()'), 'page leave must flush every session snapshot, including background tasks');
 }

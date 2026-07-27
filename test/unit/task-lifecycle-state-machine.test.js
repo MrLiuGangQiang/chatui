@@ -264,8 +264,8 @@ function testImageHandoffUsesTheSameClientJobIdentity() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(submit.includes('jobKind:"image",stage:"handoff"') && submit.includes('clientJobId:preparedImageJobId'));
-  assert.ok(image.includes('clientImageJobId=t.clientJobId||makeClientImageJobId()'));
-  assert.strictEqual((image.match(/const e=clientImageJobId;/g) || []).length, 2, 'generation and edit must both reuse the durable preallocated image job id');
+  assert.match(image, /clientImageJobId\s*=\s*t\.clientJobId\s*\|\|\s*makeClientImageJobId\(\)/);
+  assert.strictEqual((image.match(/const e\s*=\s*clientImageJobId;/g) || []).length, 2, 'generation and edit must both reuse the durable preallocated image job id');
 }
 
 function testTerminalPreflightCommitsBeforeOwnerClear() {
@@ -284,21 +284,21 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   assert.ok(chat.includes('if(e?.terminalJob){f&&clearChatJob(i);throw e}'), 'terminal chat failures must not leave an auto-resuming failed job');
-  assert.ok(image.includes('catch(e){if(e?.terminalJob)clearImageJob(n);throw e}'), 'terminal image failures must not leave an auto-resuming failed job');
-  assert.ok(resume.includes('terminal&&(clearImageJob(e),taskOutcome="failed",taskError=t)'));
-  assert.ok(resume.includes('terminal&&(clearChatJob(e),taskOutcome="failed",taskError=t)'));
-  assert.ok(resume.includes('taskOutcome?settleSessionTask(e,{...options'),
+  assert.match(image, /catch\s*\(e\)\s*\{\s*if\s*\(e\?\.terminalJob\)\s*clearImageJob\(n\);\s*throw e;?\s*\}/, 'terminal image failures must not leave an auto-resuming failed job');
+  assert.match(resume, /terminal\s*&&\s*\(\s*clearImageJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
+  assert.match(resume, /terminal\s*&&\s*\(\s*clearChatJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
+  assert.match(resume, /taskOutcome\s*\?\s*settleSessionTask\(e,\s*\{\s*\.\.\.options/,
     'terminal recovery failures must settle the canonical task before releasing transient owners');
-  assert.ok(resume.includes('n=completedJobData(t)') && resume.includes('n=completedJobData(e)'),
+  assert.ok(/n\s*=\s*completedJobData\(t\)/.test(resume) && /n\s*=\s*completedJobData\(e\)/.test(resume),
     'polling an already failed image job must classify it as terminal instead of trying to restart the same failed id forever');
 }
 
 function testImageCompletionCommitsBeforeClearingRecoveryOwner() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
-  assert.ok(image.includes('await saveSessionMessages(n,i.messages||[]);clearImageJob(n)'),
+  assert.match(image, /await saveSessionMessages\(n,\s*i\.messages\s*\|\|\s*\[\]\);\s*\(?clearImageJob\(n\)/,
     'normal image completion must durably commit reconciliation before clearing its job');
-  assert.ok(resume.includes('completedSession&&await saveSessionMessages(e,completedSession.messages||[]);clearImageJob(e)'),
+  assert.match(resume, /completedSession\s*&&\s*\(?await saveSessionMessages\(e,\s*completedSession\.messages\s*\|\|\s*\[\]\)\)?;\s*\(?clearImageJob\(e\)/,
     'resumed image completion must durably commit reconciliation before clearing its job');
 }
 

@@ -15,12 +15,14 @@ const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
 const VALID_RESOURCE_SOURCES = new Set(['current', 'quoted', 'history', 'context']);
 const VALID_RESOURCE_ROLES = new Set(['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context']);
 const VALID_RESOURCE_MATCH_MODES = new Set(['exact', 'contains', 'media_exact']);
+const VALID_UNRESOLVED_REASONS = new Set(['missing', 'ambiguous', 'unavailable']);
 const SCORE_WEIGHTS = Object.freeze({
   valid_contract: 15,
-  operation: 25,
-  relation: 15,
-  resources: 25,
-  clarification: 10,
+  operation: 20,
+  readiness: 10,
+  relation: 10,
+  resources: 20,
+  clarification: 15,
   directive: 10,
 });
 
@@ -52,7 +54,33 @@ function validateExpected(expected = {}, label = 'expected') {
   if (!isPlainObject(expected)) fail(`${label} must be an object.`);
   if (!VALID_OPERATIONS.has(expected.operation)) fail(`${label}.operation is invalid.`);
   if (!VALID_RELATIONS.has(expected.relation)) fail(`${label}.relation is invalid.`);
-  if (typeof expected.clarification !== 'boolean') fail(`${label}.clarification must be boolean.`);
+  if (!isPlainObject(expected.clarification) || typeof expected.clarification.required !== 'boolean' || !Array.isArray(expected.clarification.unresolved)) {
+    fail(`${label}.clarification must contain required and unresolved.`);
+  }
+  expected.clarification.unresolved.forEach((slot, index) => {
+    const slotLabel = `${label}.clarification.unresolved[${index}]`;
+    if (!isPlainObject(slot)) fail(`${slotLabel} must be an object.`);
+    if (!VALID_RESOURCE_TYPES.has(slot.type)) fail(`${slotLabel}.type is invalid.`);
+    if (!VALID_RESOURCE_ROLES.has(slot.role)) fail(`${slotLabel}.role is invalid.`);
+    if (!VALID_UNRESOLVED_REASONS.has(slot.reason)) fail(`${slotLabel}.reason is invalid.`);
+    if (!Number.isInteger(slot.choice_count) || slot.choice_count < 0) fail(`${slotLabel}.choice_count must be a non-negative integer.`);
+    if (slot.reason === 'ambiguous' && slot.choice_count < 2) fail(`${slotLabel} must expect at least two choices.`);
+    if (slot.reason !== 'ambiguous' && slot.choice_count !== 0) fail(`${slotLabel} cannot expect choices for ${slot.reason}.`);
+    if ('choices' in slot) {
+      if (!Array.isArray(slot.choices) || slot.choices.length !== slot.choice_count) fail(`${slotLabel}.choices must match choice_count.`);
+      slot.choices.forEach((choice, choiceIndex) => {
+        const choiceLabel = `${slotLabel}.choices[${choiceIndex}]`;
+        if (!isPlainObject(choice) || !VALID_RESOURCE_SOURCES.has(choice.source)) fail(`${choiceLabel}.source is invalid.`);
+        if (!Number.isInteger(choice.index) || choice.index < 1) fail(`${choiceLabel}.index must be a positive integer.`);
+        for (const key of ['id', 'reference_id']) {
+          if (key in choice && typeof choice[key] !== 'string') fail(`${choiceLabel}.${key} must be a string when present.`);
+        }
+      });
+    }
+  });
+  if (!expected.clarification.required && expected.clarification.unresolved.length) {
+    fail(`${label}.clarification.unresolved must be empty when clarification is not required.`);
+  }
   if (!isPlainObject(expected.directive) || !['standalone', 'patch'].includes(expected.directive.mode)) {
     fail(`${label}.directive.mode must be standalone or patch.`);
   }
@@ -75,9 +103,13 @@ function validateFixtureCase(caseDefinition = {}, seenIds = new Set()) {
   if (seenIds.has(id)) fail(`Duplicate fixture id: ${id}.`);
   seenIds.add(id);
   if (!String(caseDefinition.category || '').trim()) fail(`${id}.category is required.`);
-  if (!String(caseDefinition.input || '').trim()) fail(`${id}.input is required.`);
+  if (typeof caseDefinition.safety_critical !== 'boolean') fail(`${id}.safety_critical must be boolean.`);
+  if (typeof caseDefinition.input !== 'string') fail(`${id}.input must be a string.`);
   if (!Array.isArray(caseDefinition.attachments)) fail(`${id}.attachments must be an array.`);
+  if (!caseDefinition.input.trim() && !caseDefinition.attachments.length) fail(`${id} needs input or at least one attachment.`);
   if (!isPlainObject(caseDefinition.context)) fail(`${id}.context must be an object.`);
+  if ('current_mode' in caseDefinition && !['chat', 'image', 'edit_image'].includes(caseDefinition.current_mode)) fail(`${id}.current_mode is invalid.`);
+  if ('auto_mode' in caseDefinition && typeof caseDefinition.auto_mode !== 'boolean') fail(`${id}.auto_mode must be boolean.`);
   validateExpected(caseDefinition.expected, `${id}.expected`);
 
   for (const resource of caseDefinition.expected.resources.items) {
@@ -143,12 +175,40 @@ function directiveMatchesExpectation(expected = {}, actual = {}) {
   return Object.entries(expected).every(([field, value]) => String(actual?.[field] || '') === String(value || ''));
 }
 
-function clarificationMatchesExpectation(expected = false, task = {}) {
+function choiceMatchesExpectation(expected = {}, actual = {}) {
+  return Object.entries(expected).every(([field, value]) => {
+    if (field === 'index') return Number(actual?.index) === Number(value);
+    return String(actual?.[field] || '') === String(value || '');
+  });
+}
+
+function unresolvedSlotMatchesExpectation(expected = {}, actual = {}) {
+  if (actual?.type !== expected.type || actual?.role !== expected.role || actual?.reason !== expected.reason) return false;
+  const choices = Array.isArray(actual?.choices) ? actual.choices : [];
+  if (choices.length !== expected.choice_count) return false;
+  if (!Array.isArray(expected.choices)) return true;
+  const unmatched = [...choices];
+  for (const expectedChoice of expected.choices) {
+    const index = unmatched.findIndex(actualChoice => choiceMatchesExpectation(expectedChoice, actualChoice));
+    if (index < 0) return false;
+    unmatched.splice(index, 1);
+  }
+  return unmatched.length === 0;
+}
+
+function clarificationMatchesExpectation(expected = {}, task = {}) {
   const clarification = task?.clarification || {};
   const question = String(clarification.question || '').trim();
   const unresolved = Array.isArray(clarification.unresolved_resources) ? clarification.unresolved_resources : [];
-  if (expected) return task.readiness === 'needs_clarification' && !!question && unresolved.length > 0;
-  return task.readiness === 'ready' && !question && unresolved.length === 0;
+  if (!expected.required) return !question && unresolved.length === 0;
+  if (!question || unresolved.length !== expected.unresolved.length) return false;
+  const unmatched = [...unresolved];
+  for (const expectedSlot of expected.unresolved) {
+    const index = unmatched.findIndex(actualSlot => unresolvedSlotMatchesExpectation(expectedSlot, actualSlot));
+    if (index < 0) return false;
+    unmatched.splice(index, 1);
+  }
+  return unmatched.length === 0;
 }
 
 function scoreRouteCase(caseDefinition = {}, route = null) {
@@ -158,6 +218,7 @@ function scoreRouteCase(caseDefinition = {}, route = null) {
   const checks = {
     valid_contract: validContract,
     operation: validContract && task.operation === expected.operation,
+    readiness: validContract && task.readiness === (expected.clarification.required ? 'needs_clarification' : 'ready'),
     relation: validContract && task.relation === expected.relation,
     resources: validContract && resourcesMatchExpectation(expected.resources, task.resources),
     clarification: validContract && clarificationMatchesExpectation(expected.clarification, task),
@@ -168,6 +229,7 @@ function scoreRouteCase(caseDefinition = {}, route = null) {
   return {
     id: String(caseDefinition.id || ''),
     category: String(caseDefinition.category || ''),
+    safety_critical: caseDefinition.safety_critical === true,
     score,
     checks,
     perfect: failureReasons.length === 0,
@@ -203,6 +265,8 @@ function summarizeCaseScores(results = []) {
     summary.perfect_case_rate = Number((summary.perfect_cases * 100 / summary.total).toFixed(2));
     delete summary.score_total;
   }
+  const safetyCriticalResults = list.filter(result => result?.safety_critical === true);
+  const safetyCriticalPerfect = safetyCriticalResults.filter(result => result?.perfect);
   return {
     total_cases: total,
     average_score: total ? Number((list.reduce((sum, result) => sum + (Number(result?.score) || 0), 0) / total).toFixed(2)) : 0,
@@ -210,6 +274,14 @@ function summarizeCaseScores(results = []) {
     perfect_case_rate: total ? Number((list.filter(result => result?.perfect).length * 100 / total).toFixed(2)) : 0,
     dimension_accuracy: dimensionAccuracy,
     by_category: byCategory,
+    safety_critical: {
+      total_cases: safetyCriticalResults.length,
+      perfect_cases: safetyCriticalPerfect.length,
+      perfect_case_rate: safetyCriticalResults.length
+        ? Number((safetyCriticalPerfect.length * 100 / safetyCriticalResults.length).toFixed(2))
+        : 100,
+      failed_case_ids: safetyCriticalResults.filter(result => !result?.perfect).map(result => String(result.id || '')),
+    },
   };
 }
 

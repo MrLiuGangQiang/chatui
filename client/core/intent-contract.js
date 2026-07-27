@@ -13,6 +13,7 @@
   const VALID_PATCH_OPERATIONS = new Set(['preserve', 'add', 'replace', 'remove']);
   const MEDIA_TYPES = new Set(['image', 'file']);
   const EXECUTION_BOUND_RESOURCE_TYPES = new Set(['image', 'file', 'message']);
+  const EXECUTION_RESOURCE_PROJECTION_VERSION = 'execution_resources.v1';
 
   const TOP_LEVEL_FIELDS = ['schema_version', 'readiness', 'operation', 'relation', 'resources', 'directive', 'clarification', 'confidence', 'review_reasons', 'rationale'];
   const RESOURCE_FIELDS = ['key', 'type', 'source', 'role', 'index', 'id', 'reference_id', 'missing'];
@@ -21,7 +22,7 @@
   const CLARIFICATION_FIELDS = ['question', 'unresolved_resources'];
   const UNRESOLVED_RESOURCE_FIELDS = ['key', 'type', 'role', 'reason', 'choices'];
   const CLARIFICATION_CHOICE_FIELDS = ['key', 'source', 'index', 'id', 'reference_id', 'label'];
-  const VALID_UNRESOLVED_REASONS = new Set(['missing', 'ambiguous']);
+  const VALID_UNRESOLVED_REASONS = new Set(['missing', 'ambiguous', 'unavailable']);
 
   const API_BY_OPERATION = Object.freeze({
     plain_chat: 'chat',
@@ -37,6 +38,18 @@
     edit_image: 'image_edit',
   });
 
+  const MODE_BY_OPERATION = Object.freeze({
+    plain_chat: 'chat',
+    file_qa: 'chat',
+    multimodal_qa: 'chat',
+    image_qa: 'chat',
+    image_compare: 'chat',
+    ocr: 'chat',
+    text_to_image: 'image',
+    image_reference_gen: 'image',
+    edit_image: 'edit_image',
+  });
+
   function hasOnlyFields(value, fields) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const keys = Object.keys(value);
@@ -45,6 +58,10 @@
 
   function contractApi(task = {}) {
     return API_BY_OPERATION[task.operation] || '';
+  }
+
+  function contractMode(task = {}) {
+    return MODE_BY_OPERATION[task.operation] || '';
   }
 
   function resourceList(task = {}, type = '') {
@@ -140,20 +157,18 @@
         && messages.every(resource => resource.source === 'history' && resource.role === 'context' && baseKeys.has(resource.key));
     }
     if (task.operation === 'text_to_image') {
-      // A quoted/history message can be the textual source for a generation
-      // request (for example, “base the image on the quoted cat description”).
-      // It is an executable binding just like a historical image reference,
-      // but it must be explicitly selected as a patch baseline.  Do not treat
-      // arbitrary context/history messages as implicit prompt text.
+      // Pure text-to-image generation does not consume an existing image.  A
+      // request that uses an existing image is image_reference_gen instead.
+      // A quoted/history message may still be selected as textual source, but
+      // it must be an explicit patch baseline rather than implicit history.
       const messagePromptResourcesAreValid = messages.every(resource =>
         ['history', 'quoted'].includes(resource.source)
         && ['context', 'reference'].includes(resource.role)
         && baseKeys.has(resource.key)
       );
       return !files.length
-        && hasOnlyResourceTypes(boundResources, ['image', 'message'])
-        && hasOnlyResourceRoles(images, ['reference'])
-        && images.every(resource => resource.source !== 'current')
+        && !images.length
+        && hasOnlyResourceTypes(boundResources, ['message'])
         && messagePromptResourcesAreValid;
     }
 
@@ -189,12 +204,14 @@
 
     if (task.operation === 'edit_image') {
       const targets = images.filter(resource => resource.role === 'target');
+      const masks = images.filter(resource => resource.role === 'mask');
       return directive.mode === 'patch'
         && images.length > 0
         && !files.length
         && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['target', 'mask'])
         && targets.length > 0
+        && masks.length <= 1
         && images.every(resource => baseKeys.has(resource.key));
     }
 
@@ -240,7 +257,7 @@
       if (!/^r[1-9]\d*$/.test(slot.key) || resourceKeys.has(slot.key) || unresolvedKeys.has(slot.key)) return false;
       unresolvedKeys.add(slot.key);
       if (!VALID_RESOURCE_TYPES.has(slot.type) || !VALID_RESOURCE_ROLES.has(slot.role) || !VALID_UNRESOLVED_REASONS.has(slot.reason) || !Array.isArray(slot.choices)) return false;
-      if (slot.reason === 'missing' && slot.choices.length !== 0) return false;
+      if ((slot.reason === 'missing' || slot.reason === 'unavailable') && slot.choices.length !== 0) return false;
       if (slot.reason === 'ambiguous' && slot.choices.length < 2) return false;
       const choiceKeys = new Set();
       const choiceBindings = new Set();
@@ -327,6 +344,8 @@
         source: normalizeCandidateSource(entry?.source, entry?.message_index || entry?.messageIndex, currentMessageIndex),
         target: String(entry?.target || ''),
         name: String(entry?.name || entry?.filename || ''),
+        unavailable: type === 'file'
+          && (entry?.has_extracted_text === false || !!String(entry?.unsupported_reason || entry?.unsupportedReason || '').trim()),
         attachmentIdAliases: [],
         attachmentIndexAliases: [],
       };
@@ -351,6 +370,10 @@
         source: 'current',
         target: 'uploaded',
         name: String(attachment?.name || attachment?.filename || attachment?.file?.name || ''),
+        unavailable: type === 'file'
+          && (attachment?.has_extracted_text === false
+            || attachment?.hasExtractedText === false
+            || !!String(attachment?.unsupported_reason || attachment?.unsupportedReason || '').trim()),
         attachmentIdAliases: [],
         attachmentIndexAliases: [],
       };
@@ -364,22 +387,12 @@
         if (candidate.index !== canonical.index && !canonical.attachmentIndexAliases.includes(candidate.index)) {
           canonical.attachmentIndexAliases.push(candidate.index);
         }
+        if (type === 'file' && candidate.unavailable) canonical.unavailable = true;
       } else {
         candidates.push(candidate);
       }
     }
-    if (type === 'image' && operation === 'text_to_image' && !candidates.length && context?.last_generated_image?.prompt) {
-      candidates.push({
-        id: '',
-        referenceId: String(context.last_generated_image.reference_id || ''),
-        index: 1,
-        sourceIndex: 1,
-        source: 'history',
-        target: 'previous',
-        name: '',
-      });
-    }
-    return candidates;
+    return type === 'file' ? candidates.filter(candidate => !candidate.unavailable) : candidates;
   }
 
   function resolveResourceCandidate(resource = {}, type = '', options = {}) {
@@ -692,6 +705,8 @@
         target,
         source: resolved.source,
         name: resolved.name,
+        identity_aliases: candidateIdentityIds(resolved).filter(id => id !== String(resolved.id || '')),
+        index_aliases: (resolved.attachmentIndexAliases || []).map(Number).filter(index => Number.isInteger(index) && index >= 1),
       };
     });
   }
@@ -710,6 +725,71 @@
         source: resolved.source,
       };
     });
+  }
+
+  function taskContractToExecutionResources(task = {}, options = {}) {
+    task = normalizeContractVersion(task);
+    if (!hasExactContractShape(task) || task.readiness !== 'ready') {
+      throw new TypeError('A ready task_contract.v5 is required for execution resources');
+    }
+    if (options.requireCandidateMatch === true && !hasResolvedResourceBindings(task, options)) {
+      throw new TypeError('Task resources must resolve to unique candidates');
+    }
+    const resolvedImages = Array.isArray(options.imageRefs)
+      ? options.imageRefs
+      : resourceRefs(task, 'image', options);
+    const resolvedFiles = Array.isArray(options.fileRefs)
+      ? options.fileRefs
+      : resourceRefs(task, 'file', options);
+    const resolvedMessages = Array.isArray(options.messageRefs)
+      ? options.messageRefs
+      : messageRefs(task, options);
+    const canonicalMediaResource = (resource, type) => ({
+      key: String(resource.key || ''),
+      type,
+      source: String(resource.source || ''),
+      role: String(resource.role || ''),
+      index: Number(resource.index),
+      id: String(type === 'image' ? resource.image_id || resource.imageId || resource.id || '' : resource.file_id || resource.fileId || resource.id || ''),
+      reference_id: type === 'image' ? String(resource.reference_id || resource.referenceId || '') : '',
+      identity_aliases: [...new Set((resource.identity_aliases || resource.identityAliases || []).map(value => String(value || '')).filter(Boolean))],
+      index_aliases: [...new Set((resource.index_aliases || resource.indexAliases || []).map(Number).filter(index => Number.isInteger(index) && index >= 1))],
+    });
+    const images = resolvedImages.map(resource => canonicalMediaResource(resource, 'image'));
+    const files = resolvedFiles.map(resource => canonicalMediaResource(resource, 'file'));
+    const messages = resolvedMessages.map(resource => ({
+      key: String(resource.key || ''),
+      type: 'message',
+      source: String(resource.source || ''),
+      role: String(resource.role || ''),
+      index: Number(resource.index),
+      id: String(resource.message_id || resource.messageId || resource.id || ''),
+      reference_id: '',
+      identity_aliases: [],
+      index_aliases: [],
+    }));
+    const targets = images.filter(resource => resource.role === 'target');
+    const masks = images.filter(resource => resource.role === 'mask');
+    const references = images.filter(resource => ['reference', 'style_reference'].includes(resource.role));
+    return {
+      version: EXECUTION_RESOURCE_PROJECTION_VERSION,
+      operation: task.operation,
+      api: contractApi(task),
+      relation: task.relation,
+      images,
+      files,
+      messages,
+      targets,
+      masks,
+      references,
+      // These are the only media groups that the formal request builders may
+      // consume.  They are deliberately role-specific; a mask can never be
+      // silently promoted to an ordinary image input.
+      imageInputs: [...targets, ...references],
+      chatImages: images,
+      chatFiles: files,
+      selectedMessageRefs: messages,
+    };
   }
 
   function clarificationSlotHeading(slot = {}, slotIndex = 0) {
@@ -735,13 +815,18 @@
     const imageRefs = resourceRefs(task, 'image', options);
     const fileRefs = resourceRefs(task, 'file', options);
     const selectedMessageRefs = messageRefs(task, options);
+    const executionResources = task.readiness === 'ready'
+      ? taskContractToExecutionResources(task, { ...options, imageRefs, fileRefs, messageRefs: selectedMessageRefs })
+      : null;
     const selectedImageIndexes = [...new Set(imageRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const selectedFileIndexes = [...new Set(fileRefs.map(ref => Number(ref.index)).filter(index => Number.isInteger(index) && index >= 1))];
     const operationApi = contractApi(task);
+    const operationMode = contractMode(task);
     const dispatchAuthorized = task.readiness === 'ready';
     const common = {
       api: dispatchAuthorized ? operationApi : 'clarify',
       operationApi,
+      operationMode,
       readiness: task.readiness,
       dispatchAuthorized,
       relation: task.relation,
@@ -749,6 +834,7 @@
       imageRefs,
       fileRefs,
       messageRefs: selectedMessageRefs,
+      executionResources,
       directiveAudit: task.directive,
       operationType: task.operation,
       confidence: task.confidence,
@@ -796,7 +882,7 @@
         intent: 'clarify',
       };
     }
-    if (operationApi === 'image_generation') {
+    if (operationMode === 'image' && operationApi === 'image_generation') {
       return { ...common, mode: 'image', target: 'new', contextualImagePrompt: input, intent: task.operation };
     }
     if (operationApi === 'image_edit') {
@@ -804,8 +890,11 @@
         const firstReference = imageRefs[0];
         return {
           ...common,
-          mode: 'edit_image',
-          target: firstReference?.target || 'none',
+          // Reference generation produces a new image.  It uses the image-edit
+          // multipart transport only because that endpoint carries input media;
+          // the product/runtime mode must remain the image-generation family.
+          mode: 'image',
+          target: 'new',
           editInstruction: input,
           intent: 'image_reference_gen',
           selectedReferenceId: firstReference?.reference_id || '',
@@ -837,82 +926,19 @@
     return task.review_reasons.length > 0 || task.confidence < 0.72 || task.readiness === 'needs_clarification';
   }
 
-  function resolveClarificationContract(task = {}, selections = [], attachments = []) {
-    task = normalizeContractVersion(task);
-    if (!hasExactContractShape(task) || task.readiness !== 'needs_clarification' || !Array.isArray(selections) || !Array.isArray(attachments)) return null;
-    const selectionMap = new Map();
-    for (const selection of selections) {
-      if (!hasOnlyFields(selection, ['resource_key', 'choice_key'])) return null;
-      if (typeof selection.resource_key !== 'string' || typeof selection.choice_key !== 'string' || selectionMap.has(selection.resource_key)) return null;
-      selectionMap.set(selection.resource_key, selection.choice_key);
-    }
-
-    const missingSlotsByType = new Map();
-    for (const slot of task.clarification.unresolved_resources.filter(item => item.reason === 'missing')) {
-      if (!['image', 'file'].includes(slot.type)) return null;
-      const slots = missingSlotsByType.get(slot.type) || [];
-      slots.push(slot);
-      missingSlotsByType.set(slot.type, slots);
-    }
-    const attachmentResources = new Map();
-    for (const [type, slots] of missingSlotsByType) {
-      const candidates = attachments.filter(item => type === 'image' ? item?.is_image === true : item?.is_image !== true);
-      if (candidates.length !== slots.length) return null;
-      slots.forEach((slot, index) => {
-        const candidate = candidates[index];
-        attachmentResources.set(slot.key, {
-          key: slot.key,
-          type,
-          source: 'current',
-          role: slot.role,
-          index: Number(candidate.media_index || candidate.mediaIndex) || index + 1,
-          id: String(type === 'image' ? candidate.image_id || candidate.imageId || candidate.id || '' : candidate.file_id || candidate.fileId || candidate.id || ''),
-          reference_id: '',
-          missing: false,
-        });
-      });
-    }
-
-    const selectedResources = [];
-    for (const slot of task.clarification.unresolved_resources) {
-      const choiceKey = selectionMap.get(slot.key);
-      if (slot.reason === 'missing') {
-        if (choiceKey || !attachmentResources.has(slot.key)) return null;
-        selectedResources.push(attachmentResources.get(slot.key));
-        continue;
-      }
-      const choice = slot.choices.find(item => item.key === choiceKey);
-      if (!choice) return null;
-      selectedResources.push(clarificationChoiceResource(slot, choice, task.relation));
-    }
-    if (selectionMap.size !== task.clarification.unresolved_resources.filter(slot => slot.reason === 'ambiguous').length) return null;
-
-    const resolved = {
-      ...task,
-      readiness: 'ready',
-      resources: [...task.resources, ...selectedResources],
-      clarification: { question: '', unresolved_resources: [] },
-    };
-    if (!hasExactContractShape(resolved)) return null;
-    if (resolved.operation === 'image_compare') {
-      const bindings = resolved.resources.filter(resource => resource.type === 'image').map(resource => `${resource.source}:${resource.index}:${resource.id}:${resource.reference_id}`);
-      if (new Set(bindings).size !== 2) return null;
-    }
-    return resolved;
-  }
-
   const api = Object.freeze({
     SCHEMA_VERSION,
     normalizeContractVersion,
     canonicalizeContractBindings,
     canonicalizeClarificationContract,
     contractApi,
+    contractMode,
     hasExactContractShape,
     hasResolvedResourceBindings,
     resolveResourceCandidate,
     resolveMessageResource,
     messageCandidates,
-    resolveClarificationContract,
+    taskContractToExecutionResources,
     taskContractToExecutionPlan,
     needsIntentReview,
   });

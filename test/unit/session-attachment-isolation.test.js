@@ -26,6 +26,7 @@ function createAttachmentHarness() {
   const state = {
     sessions: [{ id: 'session-a' }, { id: 'session-b' }],
     activeSessionId: 'session-a',
+    mode: 'edit_image',
     attachments: [],
     uploadTasks: [],
     attachmentDrafts: new Map([['session-a', []], ['session-b', []]]),
@@ -110,6 +111,7 @@ function testNewSessionStartsWithAnIndependentAttachmentDraft() {
   workflow.newSession();
 
   assert.strictEqual(state.activeSessionId, 'session-b');
+  assert.strictEqual(state.mode, 'chat', 'a new session must not inherit the previous session execution mode');
   assert.deepStrictEqual(state.attachmentDrafts.get('session-a'), [{ name: 'a.png', type: 'image/png' }], 'creating a session must retain the previous session draft');
   assert.deepStrictEqual(state.attachments, [], 'a new session must not inherit attachments from the previous session');
 }

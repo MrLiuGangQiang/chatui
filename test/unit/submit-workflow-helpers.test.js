@@ -17,16 +17,6 @@ function testSubmitHelpersParseAndPreviewQuoteContext() {
   assert.strictEqual(helpers.withPendingQuotePreview('<button class="sent-quote-preview"></button>', { role: 'user', content: 'x' }), '<button class="sent-quote-preview"></button>');
 }
 
-function testSubmitHelpersUnderstandingClassifiers() {
-  assert.strictEqual(helpers.isImageUnderstandingChat('这张图里有什么文字？'), true);
-  assert.strictEqual(helpers.isImageUnderstandingChat('看看这个'), true);
-  assert.strictEqual(helpers.isImageUnderstandingChat('看一下'), true);
-  assert.strictEqual(helpers.isImageUnderstandingChat('这是什么'), true);
-  assert.strictEqual(helpers.isImageUnderstandingChat('解释一下 Promise'), false);
-  assert.strictEqual(helpers.isFileUnderstandingChat('总结这个 PDF 里的内容'), true);
-  assert.strictEqual(helpers.isFileUnderstandingChat('帮我画一只猫'), false);
-}
-
 function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
   assert.strictEqual(helpers.originalImageIndex({ sourceIndex: 3, imageId: 'img_any_1' }, 0), 3);
   assert.strictEqual(helpers.originalImageIndex({ imageId: 'img_ref_4' }, 0), 4);
@@ -38,44 +28,6 @@ function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
   assert.ok(guide.includes('当前随附图片1 = 原消息第2张'));
   assert.ok(guide.includes('image_id=img_a_5'));
   assert.strictEqual(helpers.imageAttachmentIndexGuide([{ imageId: 'img_a_1', type: 'image/png' }]), '');
-}
-
-function testRouteAttachmentSelectorsPreserveTypedBindings() {
-  const selectors = helpers.createRouteAttachmentSelectors({
-    imageRefs: [{ image_id: 'img-b', index: 2 }],
-    fileRefs: [{ file_id: 'file-b', index: 2 }],
-  }, {
-    isImageFile: item => String(item?.type || '').startsWith('image/'),
-    decorateImage: (item, index) => ({ ...item, sourceIndex: index + 1 }),
-  });
-  const source = [
-    { id: 'img-a', type: 'image/png' },
-    { id: 'file-a', type: 'application/pdf' },
-    { id: 'img-b', type: 'image/png' },
-    { id: 'file-b', type: 'application/pdf' },
-  ];
-  assert.deepStrictEqual(selectors.selectChatAttachments(source), [
-    { id: 'file-b', type: 'application/pdf' },
-    { id: 'img-b', type: 'image/png', sourceIndex: 2 },
-  ]);
-  assert.deepStrictEqual(selectors.selectImageGenerationAttachments(source), [], 'chat-only image roles must not leak attachments into reference generation');
-
-  const referenceSelectors = helpers.createRouteAttachmentSelectors({
-    imageRefs: [{ image_id: 'img-b', index: 2, source: 'current', role: 'reference' }],
-  }, {
-    isImageFile: item => String(item?.type || '').startsWith('image/'),
-    decorateImage: (item, index) => ({ ...item, sourceIndex: index + 1 }),
-  });
-  assert.deepStrictEqual(referenceSelectors.selectImageGenerationAttachments(source), [
-    { id: 'img-b', type: 'image/png', sourceIndex: 2 },
-  ], 'reference generation must upload only the image selected by the route contract');
-
-  const fallback = { id: 'img-current', type: 'image/png' };
-  const editSelectors = helpers.createRouteAttachmentSelectors({}, {
-    isImageFile: item => String(item?.type || '').startsWith('image/'),
-    editFallbackImages: [fallback],
-  });
-  assert.deepStrictEqual(editSelectors.selectEditAttachments(source), [fallback]);
 }
 
 function testRouteMessageContextProjectionUsesOnlyResolvedBindings() {
@@ -98,10 +50,72 @@ function testRouteMessageContextProjectionUsesOnlyResolvedBindings() {
   assert.strictEqual(quoteProjection.usesExplicitQuote, true, 'the UI quote is allowed only when it matches the route binding');
 }
 
+function testRouteExecutionMediaProjectionIsCanonicalAndRoleAware() {
+  const route = {
+    executionResources: {
+      version: 'execution_resources.v1',
+      operation: 'edit_image',
+      images: [
+        { key: 'r1', type: 'image', source: 'current', role: 'target', index: 1, id: 'target', reference_id: '', missing: false },
+        { key: 'r2', type: 'image', source: 'current', role: 'mask', index: 2, id: 'mask', reference_id: '', missing: false },
+      ],
+      files: [],
+    },
+  };
+  const media = helpers.projectRouteExecutionMedia(route, {
+    imagePools: { current: [{ id: 'target' }, { id: 'mask' }] },
+  });
+  assert.deepStrictEqual(media.targets.map(item => item.routeResourceKey), ['r1']);
+  assert.deepStrictEqual(media.masks.map(item => item.routeResourceKey), ['r2']);
+  assert.throws(
+    () => helpers.projectRouteExecutionMedia({ taskContract: {} }, {}),
+    error => error.code === 'EXECUTION_RESOURCE_PROJECTION_MISSING'
+  );
+}
+
+async function testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHistoryFiles() {
+  const route = {
+    executionResources: {
+      version: 'execution_resources.v1',
+      operation: 'multimodal_qa',
+      images: [{ key: 'r1', type: 'image', source: 'quoted', role: 'source', index: 1, id: 'quoted-image', reference_id: 'quoted-ref', identity_aliases: [], index_aliases: [] }],
+      files: [{ key: 'r2', type: 'file', source: 'history', role: 'attachment', index: 1, id: 'history-file', reference_id: '', identity_aliases: [], index_aliases: [] }],
+    },
+  };
+  const messages = [{
+    role: 'user',
+    attachmentContext: JSON.stringify({ attachments: [
+      { id: 'history-file', name: 'selected.txt', type: 'text/plain', text: 'selected body' },
+      { id: 'unselected-file', name: 'other.txt', type: 'text/plain', text: 'other body' },
+    ] }),
+  }];
+  const restoredHistory = await helpers.restoreHistoricalFilePool(route, {
+    messages,
+    isImageFile: item => String(item?.type || '').startsWith('image/'),
+    restoreUserAttachmentsFromContext: async context => context.attachments.map(item => ({
+      attachmentId: item.id,
+      name: item.name,
+      type: item.type,
+      text: item.text,
+    })),
+  });
+  assert.deepStrictEqual(restoredHistory.map(item => item.attachmentId), ['history-file']);
+
+  const pools = helpers.buildExecutionResourcePools({
+    current: [{ attachmentId: 'current-file', type: 'text/plain' }],
+    quoted: [{ imageId: 'quoted-image', referenceId: 'quoted-ref', type: 'image/png' }],
+    history: restoredHistory,
+  });
+  const media = helpers.projectRouteExecutionMedia(route, pools);
+  assert.deepStrictEqual(media.chatImages.map(item => item.routeSource), ['quoted']);
+  assert.deepStrictEqual(media.chatFiles.map(item => item.attachmentId), ['history-file']);
+  assert.ok(!media.chatFiles.some(item => item.attachmentId === 'current-file'), 'an unselected current file must not leak into execution');
+}
+
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
-  testSubmitHelpersUnderstandingClassifiers,
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
-  testRouteAttachmentSelectorsPreserveTypedBindings,
   testRouteMessageContextProjectionUsesOnlyResolvedBindings,
+  testRouteExecutionMediaProjectionIsCanonicalAndRoleAware,
+  testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHistoryFiles,
 ];

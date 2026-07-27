@@ -71,6 +71,8 @@ function testContinuationV4UsesOneStrictNonExecutingSchema() {
   assert.strictEqual(payload.response_format.type, 'json_schema');
   assert.strictEqual(payload.response_format.json_schema.strict, true);
   assert.strictEqual(payload.response_format.json_schema.schema.additionalProperties, false);
+  assert.ok(payload.messages[0].content.includes('一次只能选择一个 choice'));
+  assert.ok(payload.messages[0].content.includes('返回 pending_assistance'));
   assert.ok(payload.messages[0].content.includes('无权决定或暗示这些字段'));
   assert.ok(!payload.messages[0].content.includes('final_task_mode'));
 

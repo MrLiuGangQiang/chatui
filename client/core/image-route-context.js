@@ -420,6 +420,9 @@ function canonicalImageReferenceId(message = {}, messageIndex = 0) {
 
 function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []) {
   if (message?.role !== 'assistant') return null;
+  // Clarification thumbnails preview existing candidates; they are not a new
+  // assistant image result and must never be re-added to the route catalog.
+  if (/data-clarification-image-choices=["']1["']/i.test(String(message.html || ''))) return null;
   const imageContext = parseJsonObject(message.imageContext);
   const contextAttachments = Array.isArray(imageContext?.attachments)
     ? imageContext.attachments.filter(item => item?.src)

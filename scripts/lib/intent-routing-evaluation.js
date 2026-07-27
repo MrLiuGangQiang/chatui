@@ -114,11 +114,15 @@ function validateFixtureCase(caseDefinition = {}, seenIds = new Set()) {
 
   for (const resource of caseDefinition.expected.resources.items) {
     if (resource.missing) continue;
-    const candidate = intentContract.resolveResourceCandidate(resource, resource.type, {
-      context: caseDefinition.context,
-      attachments: caseDefinition.attachments,
-      operation: caseDefinition.expected.operation,
-    });
+    const candidate = resource.type === 'message'
+      ? intentContract.resolveMessageResource(resource, {
+        context: caseDefinition.context,
+      })
+      : intentContract.resolveResourceCandidate(resource, resource.type, {
+        context: caseDefinition.context,
+        attachments: caseDefinition.attachments,
+        operation: caseDefinition.expected.operation,
+      });
     if (!candidate) fail(`${id} has an expected resource that cannot resolve to exactly one fixture candidate.`);
   }
 }
@@ -242,6 +246,8 @@ function evaluateRouteText(caseDefinition = {}, rawText = '') {
     input: caseDefinition.input,
     attachments: caseDefinition.attachments || [],
     context: caseDefinition.context || {},
+    currentMode: caseDefinition.current_mode || 'chat',
+    autoMode: caseDefinition.auto_mode !== false,
   });
   return scoreRouteCase(caseDefinition, route);
 }

@@ -93,17 +93,21 @@ function testRepairRequiresExplicitCompleteV5SemanticBoundary() {
   assert.strictEqual(routeService.repairInvariantSnapshot(oversized), null, 'oversized malformed output must fail closed instead of being silently truncated for repair');
   assert.throws(
     () => routeService.buildIntentRepairPayload({ model: 'route-model', input: 'request', previousOutput: JSON.stringify(legacy) }),
-    /complete task_contract\.v5 semantic invariant/,
+    /complete route semantic invariant/,
   );
 }
 
 function testRepairPayloadCarriesMachineCheckedInvariantBoundary() {
   const previous = JSON.stringify({ ...readyContract(), accidental_field: true });
-  const payload = routeService.buildIntentRepairPayload({ model: 'route-model', input: 'make it red', previousOutput: previous });
+  const payload = routeService.buildIntentRepairPayload({
+    model: 'route-model', input: 'make it red', currentMode: 'edit_image', autoMode: false, previousOutput: previous,
+  });
   const user = JSON.parse(payload.messages[1].content);
   assert.deepStrictEqual(user.repair_invariants, routeService.repairInvariantSnapshot(previous));
+  assert.strictEqual(user.current_mode, 'edit_image');
+  assert.strictEqual(user.auto_mode, false);
   assert.ok(payload.messages[0].content.includes('repair_invariants 是不可变边界'));
-  assert.ok(payload.messages[0].content.includes('增删资源'));
+  assert.ok(payload.messages[0].content.includes('增删候选'));
 }
 
 function hangingRequest(signal) {
@@ -196,7 +200,7 @@ async function testStructuredOutputCompatibilityRetrySharesTheSameDeadline() {
       assert.ok(payload.response_format, 'the primary attempt must request strict structured output');
       throw new Error('response_format json_schema is unsupported by this endpoint');
     }
-    assert.ok(!payload.response_format, 'the compatibility retry may remove only the unsupported response_format field');
+    assert.deepStrictEqual(payload.response_format, { type: 'json_object' }, 'the compatibility retry must retain machine-readable JSON mode');
     return hangingRequest(options.signal);
   });
   const originalWarn = console.warn;

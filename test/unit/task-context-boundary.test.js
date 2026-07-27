@@ -154,9 +154,8 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 function testRoutePromptsDeclarePatchAndContextBoundary() {
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 只描述对话关系'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('完整新任务') && routeService.ROUTE_SYSTEM_PROMPT.includes('不得因历史'));
-  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('task_contract.v5'));
+  assert.ok(!routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'), 'mechanical directive fields must not be model output');
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('完整独立的新请求') && routeService.ROUTE_SYSTEM_PROMPT.includes('不得继承历史'));
 }
 
 module.exports = [

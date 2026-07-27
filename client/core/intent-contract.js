@@ -82,7 +82,7 @@
     return {
       key: slot.key,
       type: slot.type,
-      source: choice.source || (relation === 'new' ? 'current' : 'context'),
+      source: choice.source || (slot.type === 'text' ? 'current' : relation === 'new' ? 'current' : 'context'),
       role: slot.role,
       index: Number(choice.index) || 1,
       id: String(choice.id || ''),
@@ -154,7 +154,7 @@
       return !files.length
         && hasOnlyResourceTypes(boundResources, ['image', 'message'])
         && images.every(resource => resource.source !== 'current' && ['reference', 'style_reference'].includes(resource.role))
-        && messages.every(resource => resource.source === 'history' && resource.role === 'context' && baseKeys.has(resource.key));
+        && messages.every(resource => ['history', 'quoted'].includes(resource.source) && resource.role === 'context' && baseKeys.has(resource.key));
     }
     if (task.operation === 'text_to_image') {
       // Pure text-to-image generation does not consume an existing image.  A
@@ -210,7 +210,7 @@
         && !files.length
         && hasOnlyResourceTypes(boundResources, ['image'])
         && hasOnlyResourceRoles(images, ['target', 'mask'])
-        && targets.length > 0
+        && targets.length === 1
         && masks.length <= 1
         && images.every(resource => baseKeys.has(resource.key));
     }
@@ -857,7 +857,10 @@
         choices: slot.choices.map(choice => ({ ...choice })),
       }));
       const choiceLines = slots.flatMap((slot, slotIndex) => {
-        if (!slot.choices.length) return [];
+        // Image candidates are rendered as numbered thumbnail cards by the
+        // presentation layer.  Keeping their labels out of the question avoids
+        // duplicating semantic metadata as an unreadable wall of text.
+        if (slot.type === 'image' || !slot.choices.length) return [];
         const heading = slots.length > 1 ? [clarificationSlotHeading(slot, slotIndex)] : [];
         return [...heading, ...slot.choices.map((choice, choiceIndex) => `${slots.length > 1 ? '   ' : ''}${choiceIndex + 1}. ${choice.label}`)];
       });
@@ -921,11 +924,6 @@
     return { ...common, mode: 'chat', target: 'none', intent: task.operation };
   }
 
-  function needsIntentReview(task = {}) {
-    if (!hasExactContractShape(task)) return false;
-    return task.review_reasons.length > 0 || task.confidence < 0.72 || task.readiness === 'needs_clarification';
-  }
-
   const api = Object.freeze({
     SCHEMA_VERSION,
     normalizeContractVersion,
@@ -935,12 +933,12 @@
     contractMode,
     hasExactContractShape,
     hasResolvedResourceBindings,
+    mediaCandidates,
     resolveResourceCandidate,
     resolveMessageResource,
     messageCandidates,
     taskContractToExecutionResources,
     taskContractToExecutionPlan,
-    needsIntentReview,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

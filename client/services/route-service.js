@@ -3,111 +3,89 @@
 
 const MAX_ROUTE_REPAIR_OUTPUT_CHARS = 12000;
 
-// v5 separates the requested operation from execution readiness.  A route can
-// therefore keep operation=image_reference_gen while explicitly stopping for
-// a resource choice; readiness, not operation, controls whether it may run.
-const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的任务路由器。你的唯一输出是严格的 task_contract.v5 JSON。不要回答用户，不要输出 Markdown、解释、代码围栏或任何未定义字段。
+// The model decides semantics only. The application compiles this compact
+// decision into the sole executable task_contract.v5; the model never copies
+// ids, indexes, sources, directive base keys, or other mechanical fields.
+const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严格的 route_decision.v1 JSON；不要回答用户，不要输出分析、Markdown、代码围栏或未定义字段。应用会把你的决策确定性编译为 task_contract.v5，你绝不能手写完整合同或复制资源 id/index/source。
 
 唯一结构：
-{"schema_version":"task_contract.v5","readiness":"ready|needs_clarification","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image","relation":"new|followup|correction|continuation","resources":[{"key":"r1","type":"image|file|text|message","source":"current|quoted|history|context","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","index":1,"id":"","reference_id":"","missing":false}],"directive":{"mode":"standalone|patch","base_resource_keys":[],"unmentioned_policy":"preserve|allow_change","operations":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[]},"clarification":{"question":"","unresolved_resources":[{"key":"r2","type":"image|file|text|message","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","reason":"missing|ambiguous|unavailable","choices":[{"key":"c1","source":"current|quoted|history|context","index":1,"id":"","reference_id":"","label":""}]}]},"confidence":0,"review_reasons":[],"rationale":""}
+{"schema_version":"route_decision.v1","readiness":"ready|needs_clarification","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image","relation":"new|followup|correction|continuation","bindings":[{"candidate_key":"i1|f1|m1","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context"}],"changes":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[],"clarification":{"question":"","unresolved":[{"type":"image|file|text|message","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","reason":"missing|ambiguous|unavailable","candidate_keys":[]}]},"confidence":0,"rationale":""}
 
-一、输入边界与优先级
-1. current_input 是本轮用户指令，允许为空；attachments 只代表本轮上传资源；context 只为明确指代提供候选，不能自行扩展任务；context.quoted_message 表示用户在界面显式引用的消息。证据优先级是：current_input 中的明确要求和本轮附件/显式引用 > clarification_context.v1 中本轮确认的选择 > 普通历史。
-2. 一个语义完整、对象和约束自足的新请求必须按新任务处理，不得因历史中存在同类图片、文件、关键词或上一轮 operation 而继承资源。只有“上一张、那个文件、继续、还是不对”等明确依赖上下文的表达才使用历史。
-3. clarification_context.v1 只是上一轮问题、用户回答和已选项的证据。必须重新判断 operation、relation、resources、directive 和 readiness；禁止复制 prior_task_contract、禁止仅修改 readiness、禁止让 continuation classifier 的结论授权执行。
-4. auto_mode 缺省或 true 时按语义自由选择 operation。auto_mode=false 时 current_mode 是用户固定的产品执行族：chat 仅允许聊天/视觉理解类 operation，image 允许 text_to_image 与 image_reference_gen（两者交付物都是新图片），edit_image 允许 edit_image；image_reference_gen 虽使用图片编辑 multipart 传输，仍属于 image 产品模式。若明确任务与固定模式冲突，不得篡改任务去迎合模式；返回 needs_clarification，并用一个 type=text、role=source、reason=missing、choices=[] 的未决槽说明需要用户调整模式或指令。
+一、只做语义决策
+1. current_input 是本轮指令；resource_candidates 是应用给出的唯一可选资源目录。bindings 只能选择其中的 candidate_key 并赋予语义 role，不能编造 key。current_input 本身是隐式文本，不需要 binding。
+2. attachments 只代表本轮上传；context 只提供明确指代证据。完整独立的新请求不得继承历史。只有“这张、那个文件、基于这个描述、继续、还是不对”等明确指代才选择历史/引用候选。
+3. context.quoted_message 是用户显式引用。引用文字生成图片时必须选择对应 m key，role=context；不能因 text_to_image 不消费图片就丢弃引用消息。“基于这个描述再生成一张图片”是 text_to_image + followup，不是 resources 为空的新任务。relation=followup 不等于必须绑定历史消息：当前指令已明确生成动作和主体时不得选择历史 m key，例如“再画一只狗，换个品种”必须 bindings=[]，不能与“画一只狗”拼接；只有“再生成一张”“基于这个描述再来一张”等缺少主体或明确指向前文的指令才绑定历史消息。
+4. clarification_context.v1 仅是本轮重新判断的证据，不复制 prior_task_contract，不让 continuation classifier 授权执行。
 
-二、operation 语义
-5. plain_chat：普通文本问答、写作、代码或分析，且不需要读取文件。file_qa：只读取一个或多个可用文件。multimodal_qa：回答必须同时读取图片和文件。image_qa：描述、识别或分析图片；ocr：明确提取图片文字；image_compare：比较恰好两张图片。
-6. text_to_image：仅凭文本生成图片，不消费任何图片。image_reference_gen：消费一张或多张已有图片作为 reference/style_reference，并以新图片为交付物，生成新的构图或版本；即使传输使用图片编辑接口，也不是修改原图。要求从图片反推、逆向生成、还原、提取或输出提示词时，交付物是文本，属于 image_qa；“生成提示词”绝不是“生成图片”。edit_image：修改明确的 target，可有最多一个 mask；reference/style_reference 不能伪装成 target。
-7. 多个要求若能由同一 operation、同一组资源一次完成，可以合并为一个合同。若包含多个相互独立或跨执行族的正式任务，不得静默选择一项、不得部分执行：以用户首先明确提出的任务作为暂定 operation，只保留该任务已唯一确定的资源，readiness=needs_clarification，并增加 type=text、role=source、reason=missing、choices=[] 的未决槽，请用户一次选择或重述一个任务。
+二、operation 与资源槽
+5. plain_chat=普通文本任务；file_qa=读取文件；multimodal_qa=同时读取图片和文件；image_qa=描述/分析图片；ocr=提取图片文字；image_compare=比较两图。
+6. text_to_image=文字生成新图片，不选择 image；引用文字可选择 message(context)。image_reference_gen=选择已有图片作 reference/style_reference 并生成新图；合并多图属于它，即使传输走编辑接口也不是 edit_image。edit_image=修改明确 target，可有一个 mask。图片反推/逆向/提取提示词属于 image_qa 文本任务，“生成提示词”绝不是“生成图片”。
+7. 槽位固定：file 只能 attachment；message 只能 context；image_qa/ocr 图片为 source；image_compare 恰好 compare_a+compare_b；edit_image 图片只用 target/mask，且恰好 1 个 target、至多 1 个 mask，绝不能把“全部”解释为多个 target；image_reference_gen 图片只用 reference/style_reference。plain_chat 的非当前图片只能 reference/style_reference。
+8. 不可解析文件不能进入 bindings 或 ambiguous 候选；若任务依赖它，输出 file/attachment/unavailable 且 candidate_keys=[]。附件无指令时按附件类型保留暂定 operation，并增加 text/source/missing。
 
-三、资源绑定与附件可用性
-8. resources 只放已唯一确定且可用于正式请求的资源，missing 固定 false。图片和文件的 id/reference_id 是稳定身份，必须逐字复制候选；index 是本次候选表位置，也必须复制但不能替代身份。当前附件的 image/file 类型内索引使用 attachments.media_index，attachments.index/source_index 只是原上传顺序。文件 reference_id 必须为 ""。
-9. 只根据候选元数据和用户明确指代绑定资源，不猜测图片或文件内容。任何 source=history|quoted|context 的资源或澄清 choice 都要求 relation 非 new，并且其 key 必须进入 patch.base_resource_keys。
-10. 非图片附件只有 has_extracted_text=true 且 unsupported_reason 为空时才可作为 file 资源。has_extracted_text=false 或存在 unsupported_reason 的文件绝不能放入 resources 或 choices。若任务依赖它，保留真实 operation，使用 type=file、role=attachment、reason=unavailable、choices=[] 的未决槽，问题中明确要求重新上传可解析格式；若任务与它无关，直接忽略该附件。
-11. current_input 为空但存在附件时，不猜用户目的：图片暂定 image_qa，文件暂定 file_qa，图片与文件混合暂定 multimodal_qa；已可用附件仍按真实身份放入 resources，同时增加 type=text、role=source、reason=missing、choices=[] 的未决槽询问要执行什么。只有不可用文件时按第 10 条处理；同时缺少指令时可以再增加文本未决槽。
+三、关系、澄清与修改
+9. relation 只描述对话关系：new=独立新任务；followup=基于已有内容扩展；correction=修正结果；continuation=继续未完成任务。选择 quoted/history/context 候选时 relation 不能是 new；只选 current 候选也可按真实语义为 followup/correction/continuation。
+10. ready 时 clarification.question="" 且 unresolved=[]。缺资源、候选歧义、文件不可用、目标不明、固定模式冲突、附件无指令或跨执行族多任务时 needs_clarification；ambiguous 至少两个 candidate_keys，missing/unavailable 必须 []，不得替用户选择。尤其是 edit_image：若多个图片候选都符合“狗、产品、人物”等同一泛称，用户又未引用、编号或明确描述其中一张，必须澄清，绝不能默认最新图片。
+11. auto_mode=true 或缺省时自由选择 operation，不受上轮界面模式影响。auto_mode=false 时 current_mode 固定产品族：chat 允许聊天/理解类，image 允许 text_to_image/image_reference_gen，edit_image 允许 edit_image；冲突时 needs_clarification + text/source/missing，不要求用户理解内部接口。
+12. changes 只记录用户明确修改：add/replace 的 target/value 非空；preserve/remove 的 target 非空且 value=""。constraints 只写明确约束。多项要求可由同一 operation 一次完成才合并，否则 needs_clarification，不得部分执行。`;
 
-四、readiness 与澄清
-12. 只有唯一 operation、所有必需资源可用且唯一、固定模式兼容、任务可以由一次正式请求完成时，readiness=ready；此时 clarification.question="" 且 unresolved_resources=[]。
-13. 必需资源缺失、候选歧义、附件不可用、目标不明确、固定模式冲突、附件无指令或跨执行族多任务时，readiness=needs_clarification。已确定资源留在 resources；未决项只放 unresolved_resources，绝不能替用户选候选或输出可执行状态。
-14. reason=ambiguous 时 choices 至少两个，且每项必须复制真实候选的 source/index/id/reference_id；reason=missing 或 unavailable 时 choices=[]。question 和 choice.label 使用面向用户的自然语言，覆盖每个未决槽，不展示 r/c key。
+const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前自检：恰好 10 个顶层字段，空数组也输出 []；只选 resource_candidates 中的 key；ready 无 unresolved；引用文字生图必须绑定 m key；bindings 的类型/role 满足 operation；只输出 route_decision.v1 JSON。`;
+const ROUTE_MISSING_DETAIL_GUIDANCE_V5 = `关键反例：“把猫的颜色换一下”没有给出目标颜色，不能 ready，也不能输出 value=""。必须保持 edit_image 和已明确的 target binding，输出 needs_clarification，changes=[]，clarification.question 询问目标颜色，并声明 text/source/missing、candidate_keys=[]。只有“把猫改成黑色”这类目标值明确的指令才能输出非空 replace.value。`;
+const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_MISSING_DETAIL_GUIDANCE_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
 
-五、relation 与 directive
-15. relation 只描述对话关系：new=独立新任务；followup=基于已有内容追问或扩展；correction=指出前一结果错误并要求修正；continuation=继续尚未完成的同一任务。relation 不决定 directive。只使用 current 资源的请求也可以是 followup/correction/continuation；反之完整新任务即使历史相似仍是 new。
-16. image_reference_gen 使用本轮 current 参考图时可以 relation=new；使用 history/quoted/context 图时必须非 new，并依据语义选择 followup、correction 或 continuation，绝不能一律写成 followup。
-17. standalone 表示不依赖历史/引用/上下文基线：base_resource_keys=[]、operations=[]、unmentioned_policy=allow_change。只用 current 资源的理解类任务通常 standalone。patch 必须列出全部历史、引用或上下文资源；edit_image 和 image_reference_gen 始终 patch，并把全部 target/mask/reference/style_reference（包括 current）列入 base_resource_keys。needs_clarification 的 patch 还要包含作为基线的未决资源 key；文本指令槽不是基线。
-18. directive 只记录用户明确表达的修改：add/replace 的 target、value 都为非空字符串；preserve/remove 的 target 非空且 value 必须严格为 ""；不要把推测内容写入 operations 或 constraints。
-
-六、最终合同校验
-19. 顶层恰好 10 个字段；schema_version 固定 task_contract.v5；confidence 为 0~1；review_reasons 无需复核时为 []；rationale 只写一行依据。resource.key 在全部资源/未决槽中唯一且形如 r1，choice.key 在各槽内唯一且形如 c1，index 为正整数。
-20. operation 资源形状：plain_chat 不含 file，非当前图片只能是 reference/style_reference、历史消息只能是 context；file_qa 至少一 file(attachment)；multimodal_qa 同时有 image(source) 与 file(attachment)；image_qa/ocr 的图片均为 source；text_to_image 无 image/file；image_compare 恰两图 compare_a/compare_b；edit_image 仅 target/mask 且至少一 target；image_reference_gen 的图片均为 reference/style_reference。未决槽按假设被补齐后也必须满足该形状。`;
-
-const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前逐字段自检，空数组也必须输出 []：ready 的 clarification 必须为空；needs_clarification 必须保留真实/暂定 operation 和全部未决槽。不可解析文件不得进入 resources/choices；跨执行族多任务不得部分执行；完整新任务不得继承历史。image_reference_gen 的非 current 参考图 relation 必须非 new 并按语义选择 followup/correction/continuation，所有参考图均为 patch 基线；preserve/remove 的 value=""，add/replace 的 target/value 非空。只输出 task_contract.v5 JSON。`;
-const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
-
-const INTENT_REVIEW_SYSTEM_PROMPT_V5 = `${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5}\n\n你是独立审计器。输入可能包含 first_task_contract；只能校正字段和资源绑定，不能替用户消歧。返回一个完整 task_contract.v5。`;
-const INTENT_REPAIR_SYSTEM_PROMPT_V5 = `你是 ChatUI 路由合同修复器。repair_invariants 是不可变边界：operation、relation、readiness，以及 resources/unresolved_resources 的类型、角色、来源和数量必须逐项保持；只可补齐结构字段或用候选元数据校正 id/reference_id/index。无法在该边界内修复就仍返回同语义的完整合同，绝不能改任务、改资源角色、增删资源、替用户选择或把澄清改为可执行。只输出 task_contract.v5 JSON。`;
+const INTENT_REPAIR_SYSTEM_PROMPT_V5 = `你是 route_decision.v1 格式修复器。repair_invariants 是不可变边界：operation、relation、readiness、bindings、changes、constraints、clarification.question 和 unresolved 语义不可改变；只能补齐非语义结构字段，不能增删候选、改角色、改约束、替用户选择或改变是否执行。只输出严格 JSON。`;
 
 function strictObject(properties) {
   return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
 }
 
+const ROUTE_CHANGE_SCHEMA = Object.freeze({
+  anyOf: [
+    strictObject({
+      op: { type: 'string', enum: ['add', 'replace'] },
+      target: { type: 'string', pattern: '\\S' },
+      value: { type: 'string', pattern: '\\S' },
+    }),
+    strictObject({
+      op: { type: 'string', enum: ['preserve', 'remove'] },
+      target: { type: 'string', pattern: '\\S' },
+      value: { type: 'string', const: '' },
+    }),
+  ],
+});
+
 const ROUTE_RESPONSE_FORMAT = Object.freeze({
   type: 'json_schema',
   json_schema: {
-    name: 'chatui_task_contract_v5',
+    name: 'chatui_route_decision_v1',
     strict: true,
     schema: strictObject({
-      schema_version: { type: 'string', const: 'task_contract.v5' },
+      schema_version: { type: 'string', const: 'route_decision.v1' },
       readiness: { type: 'string', enum: ['ready', 'needs_clarification'] },
       operation: { type: 'string', enum: ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image'] },
       relation: { type: 'string', enum: ['new', 'followup', 'correction', 'continuation'] },
-      resources: {
+      bindings: {
         type: 'array',
         items: strictObject({
-          key: { type: 'string', pattern: '^r[1-9][0-9]*$' },
-          type: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
-          source: { type: 'string', enum: ['current', 'quoted', 'history', 'context'] },
+          candidate_key: { type: 'string', pattern: '^[ifm][1-9][0-9]*$' },
           role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
-          index: { type: 'integer', minimum: 1 },
-          id: { type: 'string' },
-          reference_id: { type: 'string' },
-          missing: { type: 'boolean' },
         }),
       },
-      directive: strictObject({
-        mode: { type: 'string', enum: ['standalone', 'patch'] },
-        base_resource_keys: { type: 'array', items: { type: 'string', pattern: '^r[1-9][0-9]*$' } },
-        unmentioned_policy: { type: 'string', enum: ['preserve', 'allow_change'] },
-        operations: { type: 'array', items: strictObject({ op: { type: 'string', enum: ['preserve', 'add', 'replace', 'remove'] }, target: { type: 'string' }, value: { type: 'string' } }) },
-        constraints: { type: 'array', items: { type: 'string' } },
-      }),
+      changes: { type: 'array', items: ROUTE_CHANGE_SCHEMA },
+      constraints: { type: 'array', items: { type: 'string' } },
       clarification: strictObject({
         question: { type: 'string' },
-        unresolved_resources: {
+        unresolved: {
           type: 'array',
           items: strictObject({
-            key: { type: 'string', pattern: '^r[1-9][0-9]*$' },
             type: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
             role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
             reason: { type: 'string', enum: ['missing', 'ambiguous', 'unavailable'] },
-            choices: {
-              type: 'array',
-              items: strictObject({
-                key: { type: 'string', pattern: '^c[1-9][0-9]*$' },
-                source: { type: 'string', enum: ['current', 'quoted', 'history', 'context'] },
-                index: { type: 'integer', minimum: 1 },
-                id: { type: 'string' },
-                reference_id: { type: 'string' },
-                label: { type: 'string' },
-              }),
-            },
+            candidate_keys: { type: 'array', items: { type: 'string', pattern: '^[ifm][1-9][0-9]*$' } },
           }),
         },
       }),
       confidence: { type: 'number', minimum: 0, maximum: 1 },
-      review_reasons: { type: 'array', items: { type: 'string' } },
       rationale: { type: 'string' },
     }),
   },
@@ -160,6 +138,525 @@ function stripJsonFence(text = '') {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
+const ROUTE_DECISION_VERSION = 'route_decision.v1';
+const ROUTE_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']);
+const ROUTE_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
+const ROUTE_ROLES = new Set(['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context']);
+const ROUTE_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
+const ROUTE_REASONS = new Set(['missing', 'ambiguous', 'unavailable']);
+const ROUTE_CHANGES = new Set(['preserve', 'add', 'replace', 'remove']);
+const ROUTE_DECISION_FIELDS = ['schema_version', 'readiness', 'operation', 'relation', 'bindings', 'changes', 'constraints', 'clarification', 'confidence', 'rationale'];
+const OPERATIONS_BY_FIXED_MODE = Object.freeze({
+  chat: new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']),
+  image: new Set(['text_to_image', 'image_reference_gen']),
+  edit_image: new Set(['edit_image']),
+});
+
+function hasOnlyExactFields(value = {}, fields = []) {
+  return !!value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.keys(value).length === fields.length
+    && fields.every(field => Object.prototype.hasOwnProperty.call(value, field));
+}
+
+function routeCandidateLabel(candidate = {}, raw = {}) {
+  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const unique = values => {
+    const seen = new Set();
+    return values.map(normalize).filter(value => {
+      const fingerprint = value.toLocaleLowerCase();
+      if (!value || seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    });
+  };
+  const filename = normalize(raw?.name || raw?.filename || candidate?.name || '');
+  const descriptions = unique([
+    raw?.description, raw?.semantic_description, raw?.semanticDescription,
+    raw?.subject, raw?.label,
+  ]);
+  const labels = unique(Array.isArray(raw?.labels) ? raw.labels : []);
+  const semanticParts = unique(String(raw?.semantic_text || '').split(/\s*\|\s*/));
+  const promptParts = unique(String(raw?.prompt || '').split(/\s*\|\s*/));
+  const preferred = candidate.type === 'file'
+    ? [filename, ...descriptions]
+    : [filename, ...descriptions, ...labels];
+  const fallback = [...semanticParts, ...promptParts];
+  const parts = unique((preferred.some(Boolean) ? preferred : fallback)).slice(0, 2);
+  return (parts.join(' · ') || `${candidate.type || 'resource'} ${candidate.index || ''}`).slice(0, 120);
+}
+
+function routeCandidateSelectionText(candidate = {}, raw = {}) {
+  const specific = [
+    raw?.description, raw?.semantic_description, raw?.semanticDescription,
+    raw?.subject, raw?.label,
+    ...(Array.isArray(raw?.labels) ? raw.labels : []),
+    raw?.name, raw?.filename,
+  ].map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const fallback = [raw?.semantic_text, raw?.prompt, candidate?.label]
+    .map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  return (specific.length ? specific : fallback).join(' | ').slice(0, 720);
+}
+
+function buildRouteResourceCandidates({ attachments = [], context = {} } = {}) {
+  const catalog = [];
+  const addMedia = (type, prefix) => {
+    const candidates = typeof intentContract?.mediaCandidates === 'function'
+      ? intentContract.mediaCandidates(type, context, attachments)
+      : [];
+    const rawCandidates = Array.isArray(type === 'image' ? context?.image_candidates : context?.file_candidates)
+      ? (type === 'image' ? context.image_candidates : context.file_candidates)
+      : [];
+    const rawAttachments = (Array.isArray(attachments) ? attachments : []).filter(item => {
+      const mime = String(item?.type || item?.mime || '').toLowerCase();
+      const isImage = item?.is_image === true || item?.isImage === true || mime.startsWith('image/');
+      return (type === 'image') === isImage;
+    });
+    candidates.forEach((candidate, index) => {
+      const contextualRaw = rawCandidates.find(item => {
+        const id = String(type === 'image' ? item?.image_id || item?.imageId || '' : item?.file_id || item?.fileId || item?.id || '');
+        const referenceId = String(item?.reference_id || item?.referenceId || '');
+        return candidate.id && id === candidate.id
+          || type === 'image' && candidate.referenceId && referenceId === candidate.referenceId && Number(item?.index) === Number(candidate.index)
+          || Number(item?.index) === Number(candidate.index) && String(item?.source || '') === String(candidate.source || '');
+      });
+      const attachmentRaw = candidate.source === 'current' ? rawAttachments.find((item, attachmentIndex) => {
+        const id = String(type === 'image'
+          ? item?.image_id || item?.imageId || item?.id || item?.attachmentId || item?.attachment_id || ''
+          : item?.file_id || item?.fileId || item?.id || item?.attachmentId || item?.attachment_id || '');
+        const sourceIndex = Number(type === 'image'
+          ? item?.media_index || item?.mediaIndex || item?.source_index || item?.sourceIndex
+          : item?.source_index || item?.sourceIndex || item?.media_index || item?.mediaIndex) || attachmentIndex + 1;
+        return candidate.id && id === candidate.id || sourceIndex === Number(candidate.sourceIndex);
+      }) : null;
+      const raw = contextualRaw || attachmentRaw || {};
+      const catalogCandidate = {
+        candidate_key: `${prefix}${index + 1}`,
+        type,
+        source: String(candidate.source || 'context'),
+        index: Number(candidate.index),
+        id: String(candidate.id || ''),
+        reference_id: type === 'image' ? String(candidate.referenceId || '') : '',
+        label: routeCandidateLabel({ ...candidate, type }, raw),
+        filename: String(raw?.name || raw?.filename || candidate?.name || ''),
+      };
+      catalogCandidate.selection_text = routeCandidateSelectionText(catalogCandidate, raw);
+      catalog.push(catalogCandidate);
+    });
+  };
+  addMedia('image', 'i');
+  addMedia('file', 'f');
+
+  const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
+  const quoteIndex = Number(quote?.index);
+  const quoteId = messageIdentity(quote);
+  const messages = typeof intentContract?.messageCandidates === 'function'
+    ? intentContract.messageCandidates(context)
+    : [];
+  messages.forEach((candidate, index) => {
+    const isQuote = Number.isInteger(quoteIndex)
+      && quoteIndex >= 1
+      && Number(candidate.index) === quoteIndex
+      && (!quoteId || !candidate.id || String(candidate.id) === quoteId);
+    const recent = (Array.isArray(context?.recent_messages) ? context.recent_messages : []).find(message => Number(message?.index) === Number(candidate.index));
+    const raw = isQuote && quote ? { ...recent, ...quote } : recent || {};
+    catalog.push({
+      candidate_key: `m${index + 1}`,
+      type: 'message',
+      source: isQuote ? 'quoted' : 'history',
+      index: Number(candidate.index),
+      id: String(candidate.id || (isQuote ? quoteId : '')),
+      reference_id: '',
+      label: String(messageBody(raw) || `${candidate.role || 'message'} message ${candidate.index}`).replace(/\s+/g, ' ').slice(0, 240),
+    });
+  });
+  return catalog;
+}
+
+function publicRouteResourceCandidates(catalog = []) {
+  return catalog.map(candidate => ({
+    candidate_key: candidate.candidate_key,
+    type: candidate.type,
+    source: candidate.source,
+    label: candidate.label,
+  }));
+}
+
+function explicitlyReferencesPriorText(input = '') {
+  const text = String(input || '').trim();
+  return /(?:这个|这段|上述|上面|前面|前文|刚才|之前|原来|上一(?:个|条|段)|同一)(?:的)?(?:描述|内容|文字|提示词|设定|方案|版本)?|(?:基于|根据|按照|沿用|延续|照着|参考)(?:这个|这段|上述|上面|前面|前文|刚才|之前|原来)|\b(?:this|that|above|earlier|previous|same)\s+(?:description|text|prompt|content|version)|\b(?:based on|according to|continue from|use)\s+(?:this|that|the above|the previous)\b/i.test(text);
+}
+
+function hasSelfContainedTextToImageSubject(input = '') {
+  const text = String(input || '').trim();
+  if (!text || explicitlyReferencesPriorText(text)) return false;
+  const chinese = text.match(/(?:^|[，。！？,.!?\s])(?:请|帮我|给我)?(?:再|重新|另外|另)?(?:画|绘制|生成|创作|制作|做|来)\s*(?:一|1|两|2)?(?:张|幅|个|只|条|位|辆|件|座|朵|棵)?\s*([^，。！？,.!?]*)/);
+  if (chinese) {
+    const subject = chinese[1]
+      .replace(/\s+/g, '')
+      .replace(/(?:图片|图像|照片|画面|作品|版本|变体)/g, '')
+      .replace(/(?:新的?|不同的?|类似的?|同样的?|高清|高质量|好看|漂亮)/g, '')
+      .replace(/换(?:个|一种)?品种/g, '')
+      .replace(/^(?:一个|一只|一条|一位|一辆|一件)/, '')
+      .trim();
+    if (subject && !/^[的地得]+$/.test(subject) && !/的$/.test(subject)) return true;
+  }
+  const english = text.match(/\b(?:draw|generate|create|make|render)\s+(?:another|a|an|one|new)?\s*([^,.!?]*)/i);
+  if (!english) return false;
+  const subject = english[1]
+    .replace(/\b(?:image|picture|photo|artwork|version|variant|another|new|different|similar|same|high[- ]quality|beautiful|of|a|an|the)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return !!subject;
+}
+
+function hasRouteDecisionShape(value = {}, { allowIncompleteChanges = false } = {}) {
+  if (!hasOnlyExactFields(value, ROUTE_DECISION_FIELDS)
+      || value.schema_version !== ROUTE_DECISION_VERSION
+      || !['ready', 'needs_clarification'].includes(value.readiness)
+      || !ROUTE_OPERATIONS.has(value.operation)
+      || !ROUTE_RELATIONS.has(value.relation)
+      || !Array.isArray(value.bindings)
+      || !Array.isArray(value.changes)
+      || !Array.isArray(value.constraints)
+      || !hasOnlyExactFields(value.clarification, ['question', 'unresolved'])
+      || typeof value.clarification.question !== 'string'
+      || !Array.isArray(value.clarification.unresolved)
+      || !Number.isFinite(value.confidence)
+      || value.confidence < 0
+      || value.confidence > 1
+      || typeof value.rationale !== 'string') return false;
+  if (value.bindings.some(binding => !hasOnlyExactFields(binding, ['candidate_key', 'role'])
+      || !/^[ifm][1-9]\d*$/.test(binding.candidate_key)
+      || !ROUTE_ROLES.has(binding.role))) return false;
+  if (value.changes.some(change => {
+    if (!hasOnlyExactFields(change, ['op', 'target', 'value'])
+        || !ROUTE_CHANGES.has(change.op)
+        || typeof change.target !== 'string'
+        || typeof change.value !== 'string') return true;
+    if (['add', 'replace'].includes(change.op)) {
+      return !allowIncompleteChanges && (!change.target.trim() || !change.value.trim());
+    }
+    return !change.target.trim() || change.value !== '';
+  })) return false;
+  if (value.constraints.some(constraint => typeof constraint !== 'string' || !constraint.trim())) return false;
+  return !value.clarification.unresolved.some(slot => !hasOnlyExactFields(slot, ['type', 'role', 'reason', 'candidate_keys'])
+    || !ROUTE_RESOURCE_TYPES.has(slot.type)
+    || !ROUTE_ROLES.has(slot.role)
+    || !ROUTE_REASONS.has(slot.reason)
+    || !Array.isArray(slot.candidate_keys)
+    || slot.candidate_keys.some(key => typeof key !== 'string' || !/^[ifm][1-9]\d*$/.test(key)));
+}
+
+function hasExactRouteDecision(value = {}) {
+  return hasRouteDecisionShape(value);
+}
+
+function roleMatchesCandidate(type = '', role = '') {
+  if (type === 'file') return role === 'attachment';
+  if (type === 'message') return role === 'context';
+  if (type === 'text') return role === 'source';
+  return type === 'image' && ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b'].includes(role);
+}
+
+function operationAllowedByProductMode(operation = '', currentMode = 'chat', autoMode = true) {
+  if (autoMode !== false) return true;
+  const allowed = OPERATIONS_BY_FIXED_MODE[String(currentMode || 'chat')] || OPERATIONS_BY_FIXED_MODE.chat;
+  return allowed.has(operation);
+}
+
+const SELECTION_ENGLISH_STOP_WORDS = new Set([
+  'the', 'this', 'that', 'these', 'those', 'image', 'images', 'picture', 'pictures', 'photo', 'photos',
+  'please', 'change', 'modify', 'edit', 'replace', 'make', 'turn', 'into', 'color', 'colour', 'background',
+  'with', 'from', 'and', 'all', 'one', 'some', 'again', 'want', 'use', 'using', 'based', 'reference',
+]);
+const SELECTION_CJK_STOP_CHARS = new Set('把将请帮给让对这那张幅个只一下的了着并和与及图片照片相进行修改编辑改变替换换改成变为颜色色彩背景上中里要想需要使用基于按照参考生成新重新全部所有都处理调整'.split(''));
+const SELECTION_SUBJECT_ALIASES = [
+  ['subject:dog', /狗|犬|\b(?:dog|dogs|puppy|puppies)\b/i],
+  ['subject:cat', /猫|\b(?:cat|cats|kitten|kittens)\b/i],
+  ['subject:fish', /鱼|\b(?:fish|fishes)\b/i],
+  ['subject:bird', /鸟|\b(?:bird|birds)\b/i],
+  ['subject:person', /人物|人像|\b(?:person|people|human|portrait)\b/i],
+  ['subject:car', /汽车|车辆|轿车|\b(?:car|cars|vehicle|vehicles)\b/i],
+  ['subject:product', /产品|商品|\b(?:product|products|item|items)\b/i],
+];
+
+function imageSelectionTokens(text = '') {
+  const value = String(text || '').toLowerCase();
+  const tokens = new Set();
+  for (const word of value.match(/[a-z0-9]+/g) || []) {
+    if (word.length >= 2 && !SELECTION_ENGLISH_STOP_WORDS.has(word) && !/^\d+$/.test(word)) tokens.add(word);
+  }
+  for (const char of value.match(/[\u3400-\u9fff]/g) || []) {
+    if (!SELECTION_CJK_STOP_CHARS.has(char)) tokens.add(char);
+  }
+  for (const [token, pattern] of SELECTION_SUBJECT_ALIASES) if (pattern.test(value)) tokens.add(token);
+  return tokens;
+}
+
+function chineseOrdinalNumber(value = '') {
+  const text = String(value || '');
+  if (/^\d+$/.test(text)) return Number(text);
+  const digits = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+  if (text === '十') return 10;
+  if (text.startsWith('十') && digits[text[1]]) return 10 + digits[text[1]];
+  if (text.endsWith('十') && digits[text[0]]) return digits[text[0]] * 10;
+  if (text.includes('十') && digits[text[0]] && digits[text[2]]) return digits[text[0]] * 10 + digits[text[2]];
+  return digits[text] || 0;
+}
+
+function explicitImageOrdinal(input = '') {
+  const text = String(input || '');
+  const chinese = text.match(/第\s*([一二两三四五六七八九十\d]+)\s*(?:张|幅|个)?(?:图片|图像|照片|图)?/);
+  if (chinese) return chineseOrdinalNumber(chinese[1]);
+  const numbered = text.match(/(?:图片|图像|照片|图)\s*(?:第|编号|号码|no\.?|#)?\s*(\d+)\s*(?:号|张)?/i);
+  if (numbered) return Number(numbered[1]);
+  const english = text.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(?:image|picture|photo)\b/i);
+  if (english) return ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].indexOf(english[1].toLowerCase()) + 1;
+  return 0;
+}
+
+function candidateConfirmedByClarification(candidate = {}, context = {}) {
+  const selected = Array.isArray(context?.clarification_context?.selected_choices)
+    ? context.clarification_context.selected_choices
+    : [];
+  return selected.some(choice => {
+    const id = String(choice?.id || choice?.image_id || '');
+    const referenceId = String(choice?.reference_id || '');
+    return candidate.id && id === candidate.id
+      || candidate.reference_id && referenceId === candidate.reference_id && (!id || id === candidate.id);
+  });
+}
+
+function hasExplicitImageSelection(candidate = {}, catalog = [], options = {}) {
+  if (candidate.source === 'quoted' || candidateConfirmedByClarification(candidate, options.context || {})) return true;
+  const currentImages = catalog.filter(item => item.type === 'image' && item.source === 'current');
+  if (candidate.source === 'current' && currentImages.length === 1) return true;
+  const ordinal = explicitImageOrdinal(options.input || '');
+  if (ordinal > 0 && candidate.candidate_key === `i${ordinal}`) return true;
+  if (/上一张|刚才(?:那|这)?张|最新(?:的)?(?:图片|图|照片)/.test(String(options.input || '')) && candidate.candidate_key === 'i1') return true;
+  const filename = String(candidate.filename || '').trim().toLowerCase();
+  return filename.length >= 3 && String(options.input || '').toLowerCase().includes(filename);
+}
+
+function ambiguousReadyEditTarget(decision = {}, catalog = [], options = {}) {
+  if (decision.readiness !== 'ready' || decision.operation !== 'edit_image') return null;
+  const targetBindings = decision.bindings.filter(binding => binding.role === 'target');
+  const images = catalog.filter(candidate => candidate.type === 'image');
+  if (targetBindings.length > 1) {
+    const selectedTargets = targetBindings
+      .map(binding => images.find(candidate => candidate.candidate_key === binding.candidate_key))
+      .filter(Boolean);
+    return selectedTargets.length > 1
+      ? [...new Map(selectedTargets.map(candidate => [candidate.candidate_key, candidate])).values()]
+      : null;
+  }
+  if (targetBindings.length !== 1) return null;
+  if (images.length < 2) return null;
+  const selected = images.find(candidate => candidate.candidate_key === targetBindings[0].candidate_key);
+  if (!selected || hasExplicitImageSelection(selected, catalog, options)) return null;
+
+  const queryTokens = imageSelectionTokens(options.input || '');
+  const scored = images.map(candidate => {
+    const candidateTokens = imageSelectionTokens(candidate.selection_text || candidate.label || '');
+    let score = 0;
+    for (const token of queryTokens) if (candidateTokens.has(token)) score += 1;
+    return { candidate, score };
+  });
+  const selectedScore = scored.find(item => item.candidate.candidate_key === selected.candidate_key)?.score || 0;
+  let contenders = selectedScore > 0
+    ? scored.filter(item => item.score >= selectedScore && item.score > 0).map(item => item.candidate)
+    : [];
+  const genericDeictic = /(?:这|那|上一|刚才|当前).{0,4}(?:图片|图|照片)|\b(?:this|that|current|previous)\s+(?:image|picture|photo)\b/i.test(String(options.input || ''));
+  if (contenders.length < 2 && (selectedScore === 0 || genericDeictic)) contenders = images;
+  if (contenders.length < 2) return null;
+  if (!contenders.some(candidate => candidate.candidate_key === selected.candidate_key)) contenders.unshift(selected);
+  return [...new Map(contenders.map(candidate => [candidate.candidate_key, candidate])).values()];
+}
+
+function applyDeterministicRouteSafety(decision = {}, catalog = [], options = {}) {
+  const ambiguousTargets = ambiguousReadyEditTarget(decision, catalog, options);
+  if (!ambiguousTargets) return { decision, reviewReasons: [] };
+  const ambiguousKeys = new Set(ambiguousTargets.map(candidate => candidate.candidate_key));
+  return {
+    decision: {
+      ...decision,
+      readiness: 'needs_clarification',
+      bindings: decision.bindings.filter(binding => binding.role !== 'target' || !ambiguousKeys.has(binding.candidate_key)),
+      clarification: {
+        question: '检测到多张可能符合描述的图片。请选择要修改的其中一张。',
+        unresolved: [{ type: 'image', role: 'target', reason: 'ambiguous', candidate_keys: ambiguousTargets.map(candidate => candidate.candidate_key) }],
+      },
+      confidence: Math.min(decision.confidence, 0.7),
+      rationale: '应用检测到单一编辑目标缺少可验证的选择依据。',
+    },
+    reviewReasons: ['ambiguous_target_selection'],
+  };
+}
+
+function missingChangeDetailQuestion(changes = []) {
+  const targets = [...new Set(changes
+    .map(change => String(change?.target || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean))];
+  if (targets.some(target => /颜色|色彩|\bcolou?r\b/i.test(target))) {
+    return '请补充目标颜色（例如黑色、白色），或说明想要的具体效果。';
+  }
+  if (targets.length === 1) return `请补充“${targets[0].slice(0, 80)}”的具体目标值或效果。`;
+  return '请补充要修改的对象以及具体目标值或效果。';
+}
+
+function applyMissingChangeDetailSafety(decision = {}) {
+  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) {
+    return { decision, reviewReasons: [] };
+  }
+  const incomplete = decision.changes.filter(change => ['add', 'replace'].includes(change.op)
+    && (!change.target.trim() || !change.value.trim()));
+  if (!incomplete.length) return { decision, reviewReasons: [] };
+  const unresolved = Array.isArray(decision.clarification?.unresolved)
+    ? decision.clarification.unresolved.map(slot => ({ ...slot, candidate_keys: [...slot.candidate_keys] }))
+    : [];
+  if (!unresolved.some(slot => slot.type === 'text' && slot.role === 'source' && slot.reason === 'missing')) {
+    unresolved.push({ type: 'text', role: 'source', reason: 'missing', candidate_keys: [] });
+  }
+  const existingQuestion = String(decision.clarification?.question || '').trim();
+  const detailQuestion = missingChangeDetailQuestion(incomplete);
+  const questionAlreadyRequestsDetail = /目标颜色|具体目标|具体效果|改成什么/.test(existingQuestion);
+  return {
+    decision: {
+      ...decision,
+      readiness: 'needs_clarification',
+      changes: decision.changes.filter(change => !incomplete.includes(change)),
+      clarification: {
+        question: existingQuestion
+          ? questionAlreadyRequestsDetail ? existingQuestion : `${existingQuestion}\n${detailQuestion}`
+          : detailQuestion,
+        unresolved,
+      },
+      confidence: Math.min(decision.confidence, 0.7),
+    },
+    reviewReasons: ['missing_change_detail'],
+  };
+}
+
+function applyTextToImageHistoryBindingSafety(decision = {}, catalog = [], options = {}) {
+  if (decision.readiness !== 'ready'
+      || decision.operation !== 'text_to_image'
+      || !hasSelfContainedTextToImageSubject(options.input || '')) {
+    return { decision, reviewReasons: [] };
+  }
+  const redundantKeys = new Set(catalog
+    .filter(candidate => candidate.type === 'message' && candidate.source === 'history')
+    .map(candidate => candidate.candidate_key));
+  const bindings = decision.bindings.filter(binding => !redundantKeys.has(binding.candidate_key));
+  if (bindings.length === decision.bindings.length) return { decision, reviewReasons: [] };
+  return {
+    decision: { ...decision, bindings },
+    reviewReasons: ['redundant_history_text_binding'],
+  };
+}
+
+function compileRouteDecision(decision = {}, options = {}) {
+  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) throw new TypeError('Invalid route_decision.v1 shape');
+  const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || []);
+  const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
+  const textBindingSafety = applyTextToImageHistoryBindingSafety(decision, catalog, { ...options, context: compilerContext });
+  const selectionSafety = applyDeterministicRouteSafety(textBindingSafety.decision, catalog, { ...options, context: compilerContext });
+  const detailSafety = applyMissingChangeDetailSafety(selectionSafety.decision);
+  const effectiveDecision = detailSafety.decision;
+  if (!hasExactRouteDecision(effectiveDecision)) throw new TypeError('Invalid route_decision.v1 shape');
+  const candidates = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
+  const usedCandidateKeys = new Set();
+  const resources = effectiveDecision.bindings.map((binding, index) => {
+    const candidate = candidates.get(binding.candidate_key);
+    if (!candidate || usedCandidateKeys.has(binding.candidate_key) || !roleMatchesCandidate(candidate.type, binding.role)) {
+      throw new TypeError(`Invalid route binding: ${binding.candidate_key}`);
+    }
+    usedCandidateKeys.add(binding.candidate_key);
+    return {
+      key: `r${index + 1}`,
+      type: candidate.type,
+      source: candidate.source,
+      role: binding.role,
+      index: candidate.index,
+      id: candidate.id,
+      reference_id: candidate.reference_id,
+      missing: false,
+    };
+  });
+
+  let nextResourceNumber = resources.length + 1;
+  const unresolvedResources = effectiveDecision.clarification.unresolved.map(slot => {
+    const keys = [...new Set(slot.candidate_keys)];
+    if (keys.length !== slot.candidate_keys.length
+        || slot.reason === 'ambiguous' && keys.length < 2
+        || slot.reason !== 'ambiguous' && keys.length !== 0
+        || !roleMatchesCandidate(slot.type, slot.role)) throw new TypeError('Invalid unresolved route slot');
+    const choices = keys.map((key, index) => {
+      const candidate = candidates.get(key);
+      if (!candidate || candidate.type !== slot.type || usedCandidateKeys.has(key)) throw new TypeError(`Invalid clarification candidate: ${key}`);
+      return {
+        key: `c${index + 1}`,
+        source: candidate.source,
+        index: candidate.index,
+        id: candidate.id,
+        reference_id: candidate.reference_id,
+        label: candidate.label,
+      };
+    });
+    return {
+      key: `r${nextResourceNumber++}`,
+      type: slot.type,
+      role: slot.role,
+      reason: slot.reason,
+      choices,
+    };
+  });
+
+  if (effectiveDecision.readiness === 'ready' && (effectiveDecision.clarification.question || unresolvedResources.length)
+      || effectiveDecision.readiness === 'needs_clarification' && (!effectiveDecision.clarification.question.trim() || !unresolvedResources.length)) {
+    throw new TypeError('Decision readiness and clarification disagree');
+  }
+
+  const operationRequiresPatch = ['edit_image', 'image_reference_gen'].includes(effectiveDecision.operation);
+  const historicalResources = resources.filter(resource => ['quoted', 'history', 'context'].includes(resource.source));
+  const unresolvedNeedsBaseline = effectiveDecision.readiness === 'needs_clarification'
+    && effectiveDecision.relation !== 'new'
+    && unresolvedResources.some(slot => slot.type !== 'text');
+  const mode = operationRequiresPatch || historicalResources.length || unresolvedNeedsBaseline ? 'patch' : 'standalone';
+  const baselineKeys = [];
+  for (const resource of resources) {
+    if (resource.type === 'text') continue;
+    if (operationRequiresPatch && resource.type === 'image' || ['quoted', 'history', 'context'].includes(resource.source)) baselineKeys.push(resource.key);
+  }
+  if (mode === 'patch' && effectiveDecision.readiness === 'needs_clarification') {
+    for (const slot of unresolvedResources) if (slot.type !== 'text') baselineKeys.push(slot.key);
+  }
+
+  const taskContract = {
+    schema_version: 'task_contract.v5',
+    readiness: effectiveDecision.readiness,
+    operation: effectiveDecision.operation,
+    relation: effectiveDecision.relation,
+    resources,
+    directive: {
+      mode,
+      base_resource_keys: [...new Set(baselineKeys)],
+      unmentioned_policy: mode === 'patch' ? 'preserve' : 'allow_change',
+      operations: effectiveDecision.changes.map(change => ({ ...change })),
+      constraints: effectiveDecision.constraints.map(constraint => String(constraint)),
+    },
+    clarification: {
+      question: effectiveDecision.clarification.question,
+      unresolved_resources: unresolvedResources,
+    },
+    confidence: effectiveDecision.confidence,
+    review_reasons: [...new Set([...textBindingSafety.reviewReasons, ...selectionSafety.reviewReasons, ...detailSafety.reviewReasons])],
+    rationale: effectiveDecision.rationale,
+  };
+  return taskContract;
+}
+
 function sortedSignatures(values = []) {
   return values.map(value => JSON.stringify(value)).sort();
 }
@@ -169,6 +666,57 @@ function repairInvariantSnapshot(value = '') {
     if (typeof value === 'string' && value.length > MAX_ROUTE_REPAIR_OUTPUT_CHARS) return null;
     const raw = typeof value === 'string' ? JSON.parse(stripJsonFence(value)) : value;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (raw.schema_version === ROUTE_DECISION_VERSION) {
+      if (!ROUTE_OPERATIONS.has(raw.operation)
+          || !ROUTE_RELATIONS.has(raw.relation)
+          || !['ready', 'needs_clarification'].includes(raw.readiness)
+          || !Array.isArray(raw.bindings)
+          || !Array.isArray(raw.changes)
+          || !Array.isArray(raw.constraints)
+          || typeof raw.clarification?.question !== 'string'
+          || !Array.isArray(raw.clarification?.unresolved)) return null;
+      const bindings = raw.bindings.map(binding => {
+        const candidateKey = String(binding?.candidate_key || '');
+        const role = String(binding?.role || '');
+        if (!/^[ifm][1-9]\d*$/.test(candidateKey) || !ROUTE_ROLES.has(role)) throw new TypeError('incomplete binding invariant');
+        return { candidate_key: candidateKey, role };
+      });
+      const unresolved = raw.clarification.unresolved.map(slot => {
+        const type = String(slot?.type || '');
+        const role = String(slot?.role || '');
+        const reason = String(slot?.reason || '');
+        if (!ROUTE_RESOURCE_TYPES.has(type) || !ROUTE_ROLES.has(role) || !ROUTE_REASONS.has(reason) || !Array.isArray(slot?.candidate_keys)) {
+          throw new TypeError('incomplete unresolved invariant');
+        }
+        const candidateKeys = slot.candidate_keys.map(key => String(key || '')).sort();
+        if (candidateKeys.some(key => !/^[ifm][1-9]\d*$/.test(key))) throw new TypeError('incomplete unresolved candidates');
+        return { type, role, reason, candidate_keys: candidateKeys };
+      });
+      const changes = raw.changes.map(change => {
+        const op = String(change?.op || '');
+        if (!ROUTE_CHANGES.has(op) || typeof change?.target !== 'string' || typeof change?.value !== 'string') {
+          throw new TypeError('incomplete change invariant');
+        }
+        return { op, target: change.target, value: change.value };
+      });
+      const constraints = raw.constraints.map(constraint => {
+        if (typeof constraint !== 'string') throw new TypeError('incomplete constraint invariant');
+        return constraint;
+      });
+      return Object.freeze({
+        protocol: ROUTE_DECISION_VERSION,
+        operation: raw.operation,
+        relation: raw.relation,
+        readiness: raw.readiness,
+        resource_count: bindings.length,
+        resources: sortedSignatures(bindings),
+        changes,
+        constraints,
+        clarification_question: raw.clarification.question,
+        unresolved_count: unresolved.length,
+        unresolved: sortedSignatures(unresolved),
+      });
+    }
     if (raw.schema_version !== 'task_contract.v5'
         || !Object.prototype.hasOwnProperty.call(raw, 'readiness')) return null;
     const task = raw;
@@ -200,6 +748,7 @@ function repairInvariantSnapshot(value = '') {
       return { type, role, reason, choice_count: slot.choices.length, choice_sources: choiceSources };
     });
     return Object.freeze({
+      protocol: 'task_contract.v5',
       operation,
       relation,
       readiness,
@@ -215,15 +764,21 @@ function repairInvariantSnapshot(value = '') {
 
 function repairPreservesInvariants(invariants = null, repairedValue = null) {
   if (!invariants || !repairedValue) return false;
-  const task = repairedValue?.taskContract || repairedValue;
-  const repaired = repairInvariantSnapshot(task);
+  const candidate = invariants.protocol === ROUTE_DECISION_VERSION
+    ? repairedValue?.routeDecision || repairedValue
+    : repairedValue?.taskContract || repairedValue;
+  const repaired = repairInvariantSnapshot(candidate);
   if (!repaired) return false;
-  return repaired.operation === invariants.operation
+  return repaired.protocol === invariants.protocol
+    && repaired.operation === invariants.operation
     && repaired.relation === invariants.relation
     && repaired.readiness === invariants.readiness
     && repaired.resource_count === invariants.resource_count
     && repaired.unresolved_count === invariants.unresolved_count
     && JSON.stringify(repaired.resources) === JSON.stringify(invariants.resources)
+    && JSON.stringify(repaired.changes || []) === JSON.stringify(invariants.changes || [])
+    && JSON.stringify(repaired.constraints || []) === JSON.stringify(invariants.constraints || [])
+    && String(repaired.clarification_question || '') === String(invariants.clarification_question || '')
     && JSON.stringify(repaired.unresolved) === JSON.stringify(invariants.unresolved);
 }
 
@@ -464,6 +1019,14 @@ function composeTextToImagePrompt(input = '', taskContract = {}, context = {}) {
   if (taskContract?.operation !== 'text_to_image' || !Array.isArray(taskContract?.resources)) return currentPrompt;
   const messageResources = taskContract.resources
     .filter(resource => resource?.type === 'message' && !resource.missing);
+  const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
+  const quoteIndex = Number(quote?.index);
+  const quoteId = String(messageIdentity(quote || {}));
+  const hasExplicitQuoteBinding = messageResources.some(resource => resource.source === 'quoted'
+    || quote && Number(resource.index) === quoteIndex && (!quoteId || String(resource.id || '') === quoteId));
+  if (messageResources.length && !hasExplicitQuoteBinding && hasSelfContainedTextToImageSubject(currentPrompt)) {
+    return currentPrompt;
+  }
   const seen = new Set(currentPrompt ? [currentPrompt] : []);
   const boundBodies = messageResources
     .map(resource => boundMessageBody(resource, context))
@@ -493,19 +1056,16 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   const quote = context?.quoted_message;
   if (!quote || typeof quote !== 'object') return task;
   // An explicit UI quote is already an unambiguous, user-selected message.
-  // It is protocol data rather than a model inference: a plain-chat or
-  // text-to-image route cannot legitimately discard it or turn it into an
-  // unrelated new task. Text-to-image additionally copies the bound body into
-  // the final image prompt through composeTextToImagePrompt.
-  // This does not infer anything from ordinary history and never changes the
-  // operation or any media resource selected by the model.
-  if (!['plain_chat', 'text_to_image'].includes(task?.operation) || !Array.isArray(task?.resources)) return task;
+  // It is protocol data rather than a model inference for plain_chat. Image
+  // generation must declare its message resource in the first contract and is
+  // never repaired by appending quoted prompt context here.
+  if (task?.operation !== 'plain_chat' || !Array.isArray(task?.resources)) return task;
   const directive = task?.directive;
   if (!directive || !Array.isArray(directive.base_resource_keys) || !Array.isArray(directive.operations) || !Array.isArray(directive.constraints)) return task;
   const index = Number(quote.index);
   if (!Number.isInteger(index) || index < 1) return task;
   const resources = [...task.resources];
-  const allowedRoles = task.operation === 'text_to_image' ? ['context', 'reference'] : ['context'];
+  const allowedRoles = ['context'];
   const bound = resources.find(resource => resource?.type === 'message'
     && ['history', 'quoted'].includes(resource?.source)
     && Number(resource?.index) === index
@@ -518,7 +1078,7 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
     return `r${number}`;
   })();
   if (!bound) resources.push({
-    key, type: 'message', source: 'history', role: task.operation === 'text_to_image' ? 'reference' : 'context', index,
+    key, type: 'message', source: 'history', role: 'context', index,
     id: String(messageIdentity(quote)), reference_id: '', missing: false,
   });
   const baseKeys = [...directive.base_resource_keys];
@@ -536,14 +1096,50 @@ function bindExplicitQuotedMessage(task = {}, context = {}) {
   };
 }
 
+function hasRequiredTextToImageQuoteBinding(task = {}, context = {}) {
+  if (task?.operation !== 'text_to_image') return true;
+  const quote = context?.quoted_message;
+  if (!quote || typeof quote !== 'object') return true;
+  const index = Number(quote.index);
+  if (!Number.isInteger(index) || index < 1 || !Array.isArray(task?.resources)) return false;
+  const quoteId = String(messageIdentity(quote));
+  return task.resources.some(resource => resource?.type === 'message'
+    && ['quoted', 'history'].includes(resource?.source)
+    && ['context', 'reference'].includes(resource?.role)
+    && Number(resource?.index) === index
+    && resource?.missing === false
+    && (!quoteId || String(resource?.id || '') === quoteId));
+}
+
 function inspectTaskContract(taskContract = {}, options = {}) {
   if (!isTaskContractResult(taskContract)) return { route: null, reason: 'contract_shape' };
+  if (taskContract.readiness === 'ready'
+      && !operationAllowedByProductMode(taskContract.operation, options.currentMode, options.autoMode)) {
+    return { route: null, reason: 'mode_conflict' };
+  }
   try {
     const executionPlan = intentContract.taskContractToExecutionPlan(taskContract, { ...options, requireCandidateMatch: true });
     return { route: attachComposedPrompt(executionPlan, taskContract, options), reason: '' };
   } catch (error) {
     const message = String(error?.message || '');
     return { route: null, reason: /resource/i.test(message) ? 'resource_binding' : 'contract_semantics' };
+  }
+}
+
+function inspectRouteDecision(decision = {}, options = {}) {
+  if (!hasRouteDecisionShape(decision, { allowIncompleteChanges: true })) return { route: null, reason: 'decision_shape' };
+  try {
+    const taskContract = compileRouteDecision(decision, options);
+    if (routeReadiness(taskContract) === 'needs_clarification') {
+      const inspected = inspectDeclaredClarification(taskContract, options);
+      return inspected.route ? { ...inspected, route: { ...inspected.route, routeDecision: decision } } : inspected;
+    }
+    if (!hasRequiredTextToImageQuoteBinding(taskContract, options.context)) return { route: null, reason: 'resource_binding' };
+    const inspected = inspectTaskContract(taskContract, options);
+    return inspected.route ? { ...inspected, route: { ...inspected.route, routeDecision: decision } } : inspected;
+  } catch (error) {
+    const message = String(error?.message || '');
+    return { route: null, reason: /binding|candidate|resource/i.test(message) ? 'resource_binding' : 'decision_semantics' };
   }
 }
 
@@ -605,7 +1201,12 @@ function inspectDeclaredClarification(task = {}, options = {}) {
 
 function terminalClarificationRouteFromResult(text = '', options = {}) {
   try {
-    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(text))), options.context);
+    const parsed = JSON.parse(stripJsonFence(text));
+    if (parsed?.schema_version === ROUTE_DECISION_VERSION) {
+      if (routeReadiness(parsed) !== 'needs_clarification') return null;
+      return inspectRouteDecision(parsed, options).route;
+    }
+    const decoded = bindExplicitQuotedMessage(decodeTaskContract(parsed), options.context);
     if (routeReadiness(decoded) !== 'needs_clarification') return null;
     return inspectDeclaredClarification(decoded, options).route;
   } catch {
@@ -617,8 +1218,11 @@ function inspectRouteResult(text = '', options = {}) {
   const value = String(text || '').trim();
   if (!value) return { route: null, reason: 'empty_response' };
   try {
-    const decoded = bindExplicitQuotedMessage(decodeTaskContract(JSON.parse(stripJsonFence(value))), options.context);
+    const parsed = JSON.parse(stripJsonFence(value));
+    if (parsed?.schema_version === ROUTE_DECISION_VERSION) return inspectRouteDecision(parsed, options);
+    const decoded = bindExplicitQuotedMessage(decodeTaskContract(parsed), options.context);
     if (routeReadiness(decoded) === 'needs_clarification') return inspectDeclaredClarification(decoded, options);
+    if (!hasRequiredTextToImageQuoteBinding(decoded, options.context)) return { route: null, reason: 'resource_binding' };
     const taskContract = typeof intentContract?.canonicalizeContractBindings === 'function'
       ? intentContract.canonicalizeContractBindings(decoded, options)
       : decoded;
@@ -664,11 +1268,6 @@ function createExplicitTextToImageRoute(input = '') {
   };
   const route = inspectTaskContract(taskContract, { input: prompt, attachments: [], context: {} }).route;
   return isRouteDispatchable(route) ? route : null;
-}
-
-function needsIntentReview(route = {}, context = {}) {
-  if (!route?.taskContract) return false;
-  return intentContract?.needsIntentReview ? intentContract.needsIntentReview(route.taskContract, context) : false;
 }
 
 function buildFileCandidatesFromAttachments(attachments = []) {
@@ -722,6 +1321,8 @@ function compactRouteUserPayload({ input = '', attachments = [], context = {}, c
     payload.auto_mode = false;
   }
   if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
+  const resourceCandidates = buildRouteResourceCandidates({ attachments, context: routeContext });
+  if (resourceCandidates.length) payload.resource_candidates = publicRouteResourceCandidates(resourceCandidates);
   const compactContext = Object.fromEntries(Object.entries(routeContext || {}).filter(([, value]) => {
     if (Array.isArray(value)) return value.length > 0;
     if (!value) return false;
@@ -745,24 +1346,10 @@ function buildRoutePayload({ model, input, attachments = [], context = {}, curre
   };
 }
 
-function buildIntentReviewPayload({ model, input, attachments = [], context = {}, firstRoute = null, systemPrompt = INTENT_REVIEW_SYSTEM_PROMPT_V5, responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
-  const payload = compactRouteUserPayload({ input, attachments, context, currentMode: 'chat', autoMode: true });
-  if (firstRoute?.taskContract) payload.first_task_contract = firstRoute.taskContract;
-  return {
-    model,
-    temperature: 0,
-    ...(responseFormat ? { response_format: responseFormat } : {}),
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: JSON.stringify(payload) },
-    ],
-  };
-}
-
-function buildIntentRepairPayload({ model, input, attachments = [], context = {}, previousOutput = '', validationReason = 'contract_shape', expectedReadiness = '', responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
-  const payload = compactRouteUserPayload({ input, attachments, context, currentMode: 'chat', autoMode: true });
+function buildIntentRepairPayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, previousOutput = '', validationReason = 'contract_shape', expectedReadiness = '', responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
+  const payload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode });
   const repairInvariants = repairInvariantSnapshot(previousOutput);
-  if (!repairInvariants) throw new TypeError('A complete task_contract.v5 semantic invariant is required for repair');
+  if (!repairInvariants) throw new TypeError('A complete route semantic invariant is required for repair');
   payload.previous_route_output = String(previousOutput || '');
   payload.contract_validation_error = String(validationReason || 'contract_shape');
   payload.required_readiness = expectedReadiness || readRouteReadiness(previousOutput) || '';
@@ -785,14 +1372,17 @@ function extractRouteText(response = {}) {
 const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT: ROUTE_SYSTEM_PROMPT_V5,
   ROUTE_OUTPUT_CONTRACT_CHECK: ROUTE_OUTPUT_CONTRACT_CHECK_V5,
-  INTENT_REVIEW_SYSTEM_PROMPT: INTENT_REVIEW_SYSTEM_PROMPT_V5,
   INTENT_REPAIR_SYSTEM_PROMPT: INTENT_REPAIR_SYSTEM_PROMPT_V5,
   ROUTE_RESPONSE_FORMAT,
+  ROUTE_DECISION_VERSION,
   cleanQuotedContent,
   buildQuotedImagePlaceholders,
   buildQuotedRouteContent,
   composeTextToImagePrompt,
   stripJsonFence,
+  buildRouteResourceCandidates,
+  hasExactRouteDecision,
+  compileRouteDecision,
   repairInvariantSnapshot,
   repairPreservesInvariants,
   routeReadiness,
@@ -802,7 +1392,6 @@ const api = Object.freeze({
   routeSatisfiesReadiness,
   isRouteDispatchable,
   decodeTaskContract,
-  needsIntentReview,
   isTaskContractResult,
   isClarificationCandidate,
   terminalClarificationRouteFromResult,
@@ -813,7 +1402,6 @@ const api = Object.freeze({
   compactRoutePayloadContext,
   compactRouteUserPayload,
   buildRoutePayload,
-  buildIntentReviewPayload,
   buildIntentRepairPayload,
   extractRouteText,
 });

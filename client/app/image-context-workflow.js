@@ -431,6 +431,10 @@
 
     function getAssistantImageContext(node) {
       if (!node) return null;
+      // Numbered clarification cards only mirror existing image candidates.
+      // Quoting that assistant message must not turn the previews into a new
+      // multi-image attachment source.
+      if (node.matches?.('[data-clarification-image-choices="1"]') || node.querySelector?.('[data-clarification-image-choices="1"]')) return null;
       const candidates = [node.dataset.imageContext || '', node.__displayItem?.imageContext || ''];
       const session = getActiveSession();
       const displayItemId = node.dataset.displayItemId || node.__displayItem?.id || '';

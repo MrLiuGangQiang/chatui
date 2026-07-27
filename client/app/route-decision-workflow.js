@@ -22,7 +22,7 @@
     }
 
     function summarizeIntentTrace(trace = {}) {
-      const route = trace.finalRoute || trace.reviewRoute || trace.firstRoute || {};
+      const route = trace.finalRoute || trace.firstRoute || {};
       const contract = route.taskContract || trace.finalTaskContract || null;
       return {
         timestamp: new Date().toISOString(),
@@ -31,9 +31,7 @@
         confidence: Number.isFinite(Number(route.confidence)) ? Number(route.confidence) : null,
         api: String(trace.finalApi || route.api || ''),
         model: String(trace.model || ''),
-        reviewed: !!trace.reviewed,
         fallbackAi: !!trace.fallbackAi,
-        reviewErrorCode: trace.reviewError ? String(trace.reviewError).slice(0, 120) : '',
       };
     }
 
@@ -60,13 +58,12 @@
         try {
           return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
         } catch (error) {
-          // Strict structured output is the primary path. Some OpenAI-compatible
-          // gateways do not implement it, so retain a bounded legacy path rather
-          // than making an otherwise healthy route model unavailable.
+          // Strict JSON Schema is primary.  A gateway that lacks it may use
+          // JSON-object mode for the same compact semantic protocol, but route
+          // recognition never drops response_format and accepts arbitrary text.
           if (!payload?.response_format || !structuredOutputUnsupported(error)) throw error;
-          const legacyPayload = { ...payload };
-          delete legacyPayload.response_format;
-          return await requestJson(`${config.baseUrl}/chat/completions`, legacyPayload, config.apiKey, { headers, signal });
+          const jsonPayload = { ...payload, response_format: { type: 'json_object' } };
+          return await requestJson(`${config.baseUrl}/chat/completions`, jsonPayload, config.apiKey, { headers, signal });
         }
       }
     }
@@ -77,8 +74,8 @@
       return { route, reason: route ? '' : 'contract_shape' };
     }
 
-    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, raw, config, headers, signal, requiredReadiness = '' }) {
-      const options = { input, attachments, context };
+    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, currentMode = 'chat', autoMode = true, raw, config, headers, signal, requiredReadiness = '' }) {
+      const options = { input, attachments, context, currentMode, autoMode };
       const mergeReadiness = (...values) => typeof routeSvc?.mergeRouteReadinessRequirement === 'function'
         ? routeSvc.mergeRouteReadinessRequirement(...values)
         : values.includes('needs_clarification') ? 'needs_clarification' : values.includes('ready') ? 'ready' : '';
@@ -116,6 +113,8 @@
         input,
         attachments,
         context,
+        currentMode,
+        autoMode,
         previousOutput: raw,
         validationReason: initialReason,
         expectedReadiness: readinessRequirement,
@@ -304,6 +303,7 @@
             trace.firstRaw = extractRouteText(routeSvc, firstResponse);
             const primaryParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
               model: primaryModel, input, attachments: attachmentMeta, context, raw: trace.firstRaw,
+              currentMode: state.mode, autoMode: state.autoMode,
               config, headers: requestHeaders, signal: intentDeadline.signal,
             }));
             let route = primaryParsed.route;
@@ -317,7 +317,6 @@
             }
             trace.firstRoute = route;
             throwIfRouteCancelled(parentSignal);
-            trace.reviewed = false;
             trace.finalRoute = route;
             trace.finalTaskContract = route.taskContract || null;
             trace.finalApi = route.api;
@@ -352,6 +351,7 @@
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
                 const fallbackParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
                   model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
+                  currentMode: state.mode, autoMode: state.autoMode,
                   config, headers: requestHeaders, signal: intentDeadline.signal,
                 }));
                 const fallbackRoute = fallbackParsed.route;

@@ -328,10 +328,10 @@ function testRouteContextIsCompactAndIndexed() {
   const parsedRouteUser = JSON.parse(body);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('"schema_version":"task_contract.v5"'));
-  assert.ok(payload.messages[0].content.includes('"resources"'));
-  assert.ok(payload.messages[0].content.includes('"directive"'));
-  assert.ok(payload.messages[0].content.includes('"operations"'));
+  assert.ok(payload.messages[0].content.includes('"schema_version":"route_decision.v1"'));
+  assert.ok(payload.messages[0].content.includes('"bindings"'));
+  assert.ok(payload.messages[0].content.includes('"changes"'));
+  assert.ok(payload.messages[0].content.includes('resource_candidates'));
   const payloadJson = JSON.stringify(payload);
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking|thinking_budget|thinkingConfig)/i.test(payloadJson), 'route recognition payload should not send thinking/reasoning params');
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
@@ -647,7 +647,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(index.includes('submit-workflow.js?v=1.4.0-intent-deadline'), 'submit workflow cache version should include the shared intent deadline boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.1.0-continuation-v4'), 'clarification service cache version should match the strict continuation protocol');
+  assert.ok(index.includes('clarification-service.js?v=1.1.1-single-image-choice'), 'clarification service cache version should match the strict continuation protocol');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -782,9 +782,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   });
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
-  assert.ok(system.includes('候选元数据'));
-  assert.ok(system.includes('不猜测图片或文件内容'));
-  assert.ok(system.includes('resources'));
+  assert.ok(system.includes('resource_candidates'));
+  assert.ok(system.includes('不能编造 key'));
+  assert.ok(system.includes('bindings'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
@@ -1471,7 +1471,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.18-followup-alignment') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.21-clarification-list-isolation') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -2640,7 +2640,7 @@ function testClarificationAssistantNodeKeepsStableDisplayIdentity() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(submit.includes('assistantNode.__displayItem=liveItem') && submit.includes('assistantNode.dataset.displayItemId=liveItem.id') && submit.includes('assistantNode.dataset.responseIndex=String(responseIndex)'), 'assistant placeholders should persist displayItemId and responseIndex on the DOM node');
-  assert.ok(submit.includes('updateMessage(assistantNode,e,{rawText:e,responseIndex})'), 'clarification final message should keep its responseIndex on the DOM node');
+  assert.ok(submit.includes('updateMessage(assistantNode,displayContent,{html:!!clarificationHtml,rawText:e,responseIndex})'), 'clarification final message should keep its responseIndex on the DOM node');
   assert.match(image, /if \(\(e && s && e !== s\) \|\| \(t && a && t !== a\)\) d = null;/, 'image workflow should reject stale loading nodes from a different display item/response');
 }
 
@@ -2914,12 +2914,11 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
     context: { recent_messages: [{ content: 'secret conversation' }] },
     firstRaw: '{"secret":"model output"}',
     finalApi: 'image_generation',
-    reviewed: true,
     finalRoute: { mode: 'image', operationType: 'image_generate', confidence: 0.91, taskContract: { execution: { api: 'image_generation' } } },
   });
   assert.strictEqual(summary.mode, 'image');
   assert.strictEqual(summary.api, 'image_generation');
-  assert.strictEqual(summary.reviewed, true);
+  assert.ok(!('reviewed' in summary), 'the trace must not retain fields for the removed independent-review stage');
   assert.ok(!JSON.stringify(summary).includes('private prompt'));
   assert.ok(!JSON.stringify(summary).includes('secret conversation'));
   assert.ok(!JSON.stringify(summary).includes('model output'));
@@ -3081,7 +3080,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.1-reference-generation-mode') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.0-intent-deadline') && index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('route-decision-workflow.js?v=3.3.0-shared-deadline') && index.includes('route-service.js?v=3.3.4-quoted-text-image-binding') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.0-intent-deadline') && index.includes('chat-workflow.js?v=1.3.26-route-resource-source') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.4.4-self-contained-image-followup') && index.includes('app.js?v=2.1.53-session-attachment-isolation') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {

@@ -51,16 +51,17 @@ function responseFor(contract = plainChatContract()) {
   return { choices: [{ message: { content: JSON.stringify(contract) } }] };
 }
 
-function currentTextToImageContract() {
+function currentTextToImageDecision() {
   return {
-    schema_version: 'task_contract.v4',
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
     operation: 'text_to_image',
     relation: 'new',
-    resources: [{ key: 'r1', type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false }],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: ['16:9'] },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
+    bindings: [],
+    changes: [],
+    constraints: ['16:9'],
+    clarification: { question: '', unresolved: [] },
     confidence: 0.99,
-    review_reasons: [],
     rationale: 'the current text completely describes the image to generate',
   };
 }
@@ -407,7 +408,7 @@ async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition()
     sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
     requestJson: async (_url, payload) => {
       requestedModels.push(payload.model);
-      return responseFor(currentTextToImageContract());
+      return responseFor(currentTextToImageDecision());
     },
   });
   try {
@@ -415,6 +416,158 @@ async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition()
     assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid current-text image contract must execute from the primary route result without a second recognition request');
     assert.strictEqual(route.mode, 'image');
     assert.strictEqual(route.api, 'image_generation');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testSelfContainedImageFollowupIsPrimarySingleFlight() {
+  const requestedModels = [];
+  const context = {
+    recent_messages: [{ index: 1, id: 'prior-dog-prompt', role: 'user', content: '画一只狗' }],
+  };
+  const semantic = {
+    ...currentTextToImageDecision(),
+    relation: 'followup',
+    bindings: [{ candidate_key: 'm1', role: 'context' }],
+    constraints: [],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('self-contained image followup must not trigger repair or fallback');
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const input = '再画一只狗，换个品种';
+    const route = await harness.workflow.getEffectiveRoute(input, [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model']);
+    assert.strictEqual(route.relation, 'followup');
+    assert.deepStrictEqual(route.taskContract.resources, []);
+    assert.strictEqual(route.contextualImagePrompt, input);
+    assert.deepStrictEqual(route.taskContract.review_reasons, ['redundant_history_text_binding']);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testValidQuotedTextImageDecisionIsPrimarySingleFlight() {
+  const requestedModels = [];
+  let firstUserPayload = null;
+  const context = {
+    quoted_message: { index: 1, id: 'quoted-cat', role: 'assistant', content: '银白色带灰色条纹的小猫坐在木地板上。' },
+    recent_messages: [{ index: 1, id: 'quoted-cat', role: 'assistant', content: '银白色带灰色条纹的小猫坐在木地板上。' }],
+  };
+  const semantic = {
+    ...currentTextToImageDecision(),
+    relation: 'followup',
+    bindings: [{ candidate_key: 'm1', role: 'context' }],
+    constraints: [],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      firstUserPayload = JSON.parse(payload.messages[1].content);
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('基于这个描述再生成一张图片', [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid quoted-text decision must not trigger format repair or fallback recognition');
+    assert.deepStrictEqual(firstUserPayload.resource_candidates, [{ candidate_key: 'm1', type: 'message', source: 'quoted', label: '银白色带灰色条纹的小猫坐在木地板上。' }]);
+    assert.strictEqual(route.taskContract.resources[0].id, 'quoted-cat');
+    assert.ok(route.contextualImagePrompt.includes('银白色带灰色条纹的小猫坐在木地板上。'));
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute() {
+  const requestedModels = [];
+  const semantic = {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'edit_image',
+    relation: 'followup',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.95,
+    rationale: 'incorrectly defaulted to the latest dog image',
+  };
+  const context = {
+    image_candidates: [
+      { index: 1, source_index: 1, source: 'history', target: 'previous', image_id: 'dog-a', reference_id: 'dog-a-ref', description: '草地上的金毛犬', labels: ['dog'] },
+      { index: 2, source_index: 1, source: 'history', target: 'previous', image_id: 'dog-b', reference_id: 'dog-b-ref', description: '客厅里的拉布拉多犬', labels: ['dog'] },
+    ],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('把狗的颜色换一下', [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'the deterministic ambiguity downgrade must be terminal and must not invoke repair or fallback routing');
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id), ['dog-a', 'dog-b']);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute() {
+  const requestedModels = [];
+  const incompleteDecision = {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'edit_image',
+    relation: 'correction',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [{ op: 'replace', target: 'color', value: '' }],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.95,
+    rationale: 'the user wants to change the cat color',
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('missing edit detail must not invoke repair or fallback');
+      return responseFor(incompleteDecision);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('change the cat color', [], 'session-a', {}, {
+      image_candidates: [{
+        index: 1, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat',
+        description: 'cat', labels: ['cat'],
+      }],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'the primary response must terminate routing without repair or chat-model fallback');
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.taskContract.operation, 'edit_image');
+    assert.strictEqual(route.taskContract.relation, 'correction');
+    assert.deepStrictEqual(route.taskContract.directive.operations, []);
+    assert.deepStrictEqual(route.taskContract.review_reasons, ['missing_change_detail']);
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
   } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
@@ -842,7 +995,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
   assert.ok(index.includes('submit-workflow.js?v=1.4.0-intent-deadline'));
-  assert.ok(index.includes('route-decision-workflow.js?v=3.3.0-shared-deadline'));
+  assert.ok(index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler'));
   assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
@@ -858,6 +1011,10 @@ module.exports = [
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
   testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
+  testSelfContainedImageFollowupIsPrimarySingleFlight,
+  testValidQuotedTextImageDecisionIsPrimarySingleFlight,
+  testAmbiguousReadyEditIsLocallyClarifiedWithoutSecondRoute,
+  testIncompleteReadyEditIsLocallyClarifiedWithoutSecondRoute,
   testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
   testOperationPreservingClarificationIsPrimaryTerminalOutcome,
   testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,

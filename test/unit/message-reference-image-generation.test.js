@@ -132,7 +132,7 @@ function testQuotedMessageTextToImageCanUseAnExplicitQuoteWithoutHistoryRows() {
   assert.ok(parsed.contextualImagePrompt.includes(USER_INSTRUCTION));
 }
 
-function testExplicitQuotedMessageIsBoundWhenTextToImageRouteOmitsIt() {
+function testTextToImageRouteMustDeclareQuotedMessageInItsFirstContract() {
   const contract = messageImageContract('reference');
   contract.resources = [];
   contract.directive = {
@@ -150,14 +150,7 @@ function testExplicitQuotedMessageIsBoundWhenTextToImageRouteOmitsIt() {
     context: quotedMessageContext(),
   });
 
-  assert.ok(parsed, 'an explicit UI quote must survive a text-to-image route that omitted its message resource');
-  assert.strictEqual(parsed.taskContract.relation, 'followup');
-  assert.strictEqual(parsed.taskContract.directive.mode, 'patch');
-  assert.deepStrictEqual(parsed.taskContract.directive.base_resource_keys, ['r1']);
-  assert.strictEqual(parsed.taskContract.resources[0].type, 'message');
-  assert.strictEqual(parsed.taskContract.resources[0].role, 'reference');
-  assert.ok(parsed.contextualImagePrompt.includes(QUOTED_MESSAGE_TEXT));
-  assert.ok(parsed.contextualImagePrompt.includes(USER_INSTRUCTION));
+  assert.strictEqual(parsed, null, 'the runtime must reject an omitted quote instead of patching or silently dropping it');
 }
 
 function testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable() {
@@ -264,13 +257,29 @@ function testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWitho
   assert.ok(!parsed.contextualImagePrompt.includes('[quoted_image'), 'route-only quote markers must not reach the image model');
 }
 
+function testSelfContainedImageFollowupIgnoresRedundantHistoricalMessageBinding() {
+  const contract = messageImageContract('context');
+  contract.resources[0].id = 'prior-dog-prompt';
+  const currentInput = '再画一只狗，换个品种';
+  const parsed = routeService.parseRouteResult(JSON.stringify(contract), {
+    input: currentInput,
+    context: {
+      recent_messages: [{ index: 1, id: 'prior-dog-prompt', role: 'user', content: '画一只狗' }],
+    },
+  });
+  assert.ok(parsed);
+  assert.strictEqual(parsed.contextualImagePrompt, currentInput);
+  assert.doesNotMatch(parsed.contextualImagePrompt, /画一只狗\s+再画一只狗/);
+}
+
 module.exports = [
   testQuotedMessageTextToImageContractsBindAndComposeBothRoleVariants,
   testQuotedMessageTextToImageBindingFailsClosedForWrongIdentity,
   testQuotedMessageTextToImageCanUseAnExplicitQuoteWithoutHistoryRows,
-  testExplicitQuotedMessageIsBoundWhenTextToImageRouteOmitsIt,
+  testTextToImageRouteMustDeclareQuotedMessageInItsFirstContract,
   testQuotedMessageTextToImageFailsClosedWhenBoundBodyIsUnavailable,
   testQuotedImageHistoryAliasRequiresAnExplicitQuote,
   testQuotedImageHistoryAliasCannotCrossMessageIdentity,
   testQuotedMessagePromptPreservesReferenceTextAndCurrentInstructionWithoutSilentTruncation,
+  testSelfContainedImageFollowupIgnoresRedundantHistoricalMessageBinding,
 ];

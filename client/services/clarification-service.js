@@ -57,6 +57,7 @@
 5. prior_task_contract 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。对 missing 槽不返回 selection，由后续路由器检查本轮附件。
 6. 如果用户新增、替换或同时上传多个附件，只描述用户明确表达的任务，不判断附件角色，也不把附件数量解释成选择。附件是否满足任务由后续完整路由器决定。
 7. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
+  const CONTINUATION_SINGLE_IMAGE_GUIDANCE = `图片 target 的 ambiguous 槽一次只能选择一个 choice。用户回答“全部”“都要”或同时指定多个编号时，不得返回 selection，也不得合并执行；返回 pending_assistance，assistant_reply 明确说明一次只能选择一张图片并请用户回复一个编号。`;
 
   function textOfMessage(message = {}) {
     return String(message.rawText || message.content || '').trim();
@@ -161,7 +162,7 @@
       temperature: 0,
       response_format: CONTINUATION_RESPONSE_FORMAT,
       messages: [
-        { role: 'system', content: CONTINUATION_SYSTEM_PROMPT },
+        { role: 'system', content: `${CONTINUATION_SYSTEM_PROMPT}\n\n${CONTINUATION_SINGLE_IMAGE_GUIDANCE}` },
         { role: 'user', content: JSON.stringify({
           contract_schema: CONTINUATION_SCHEMA_VERSION,
           pending: normalized ? {

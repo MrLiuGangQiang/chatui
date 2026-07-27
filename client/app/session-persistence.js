@@ -115,12 +115,28 @@
       || /data-persisted-src=(['"])indexeddb:\/\//i.test(String(message?.html || ''))
       || /indexeddb:\/\//i.test(String(message?.imageContext || ''));
   }
+  function imageResultRevision(message = {}) {
+    const context = message?.imageContext;
+    let parsed = context;
+    if (typeof context === 'string') {
+      try { parsed = JSON.parse(context); } catch { parsed = null; }
+    }
+    const revision = Number(parsed?.updatedAt || parsed?.updated_at || message?.updatedAt || 0);
+    return Number.isFinite(revision) && revision > 0 ? revision : 0;
+  }
   function preferStoredMessage(current, next) {
     const currentIsImageResult = isDurableImageMessage(current);
     const nextIsImageResult = isDurableImageMessage(next);
     // A completed image is the only durable record that can restore the generated
     // result. It must win if a stale clarification/pending reply reused its index.
     if (currentIsImageResult !== nextIsImageResult) return nextIsImageResult ? next : current;
+    if (currentIsImageResult && nextIsImageResult) {
+      const currentRevision = imageResultRevision(current);
+      const nextRevision = imageResultRevision(next);
+      if (currentRevision !== nextRevision) return nextRevision > currentRevision ? next : current;
+      // Matching or legacy-missing revisions retain the later canonical result.
+      return next;
+    }
     const currentText = String(current?.content || current?.rawText || '');
     const nextText = String(next?.content || next?.rawText || '');
     const currentIsStatus = /^(正在处理中|正在生成图片|正在修改图片|正在恢复图片)/.test(currentText);

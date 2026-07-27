@@ -3182,6 +3182,27 @@ function testDockerfileIncludesSharedRuntimeModules() {
   assert.ok(dockerfile.includes('npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund'), 'Docker release build should omit optional native packages to avoid arm64 QEMU npm install crashes');
 }
 
+function testSessionPersistenceKeepsNewestEditedImageAtSameResponseIndex() {
+  const result = sessionPersistence.compactAdjacentDuplicateMessages([
+    {
+      role: 'assistant',
+      content: '[image generation complete] cat A1 with a deliberately longer original prompt',
+      html: '<img class="generated-thumb" data-persisted-src="indexeddb://cat-a1">',
+      imageContext: JSON.stringify({ updatedAt: 100, attachments: [{ src: 'indexeddb://cat-a1' }] }),
+      responseIndex: '1',
+    },
+    {
+      role: 'assistant',
+      content: '[image edit complete] cat A2 standing',
+      html: '<img class="generated-thumb" data-persisted-src="indexeddb://cat-a2">',
+      imageContext: JSON.stringify({ updatedAt: 200, attachments: [{ src: 'indexeddb://cat-a2' }] }),
+      responseIndex: '1',
+    },
+  ]);
+  assert.strictEqual(result.length, 1, 'an edited image must replace its source at the same response index');
+  assert.ok(result[0].html.includes('indexeddb://cat-a2'), 'restoration must retain A2 rather than selecting A1 by prompt length');
+}
+
 const tests = [
   testHttpNormalizeUpstreamErrors,
   testPreflightGuardsOnlyHandleDeterministicConditions,
@@ -3194,6 +3215,7 @@ const tests = [
   testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex,
   testSessionPersistenceKeepsRichDisplayItemAtDuplicateRestoreIndex,
   testSessionPersistenceKeepsDurableImageWhenAStaleTextReplyCollides,
+  testSessionPersistenceKeepsNewestEditedImageAtSameResponseIndex,
   testSessionPersistenceKeepsDurableImageDisplayWhenAStaleTextReplyCollides,
   testAttachmentPresentationRebuildsFromCanonicalDescriptors,
   testCanonicalRendererPrefersImageDescriptorsOverStaleHtml,

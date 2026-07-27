@@ -70,6 +70,47 @@ function createWorkflow({ getImageBlob = async () => null, setTimeout, clearTime
   return { workflow, getCalls: () => getCalls };
 }
 
+function testClarificationImagesBypassGenericStableMediaBox() {
+  const { workflow } = createWorkflow();
+  const attributes = new Map([['width', '160'], ['height', '120']]);
+  const properties = new Map([
+    ['--thumb-w', '160px'],
+    ['--thumb-h', '120px'],
+    ['--markdown-media-w', '160px'],
+    ['--markdown-media-h', '120px'],
+    ['width', '160px'],
+    ['height', '120px'],
+    ['aspect-ratio', '4 / 3'],
+    ['object-fit', 'contain'],
+  ]);
+  const image = {
+    dataset: {
+      thumbWidth: '160', thumbHeight: '120', markdownWidth: '160', markdownHeight: '120',
+      markdownMediaPending: '0', markdownMediaBound: '1',
+    },
+    classList: { contains: name => name === 'clarification-choice-image' },
+    getAttribute: name => attributes.get(name) || null,
+    removeAttribute: name => attributes.delete(name),
+    style: {
+      setProperty: (name, value) => properties.set(name, value),
+      removeProperty: name => properties.delete(name),
+    },
+  };
+
+  workflow.stabilizeImageBoxes({
+    querySelectorAll: selector => selector === '.markdown-body img.clarification-choice-image' ? [image] : [],
+  });
+
+  assert.strictEqual(attributes.has('width'), false);
+  assert.strictEqual(attributes.has('height'), false);
+  assert.strictEqual(properties.has('--markdown-media-w'), false);
+  assert.strictEqual(properties.has('--markdown-media-h'), false);
+  assert.strictEqual(properties.has('aspect-ratio'), false);
+  assert.strictEqual(properties.has('object-fit'), false);
+  assert.strictEqual('markdownMediaBound' in image.dataset, false);
+  assert.strictEqual('markdownWidth' in image.dataset, false);
+}
+
 async function testMediaWorkflowUsesInjectedTimerDependencies() {
   let scheduled = 0;
   let cleared = null;
@@ -109,6 +150,7 @@ async function testLiveBlobHydrationDoesNotHideCompletedImage() {
 
 module.exports = [
   testMediaWorkflowUsesExplicitDependencies,
+  testClarificationImagesBypassGenericStableMediaBox,
   testMediaWorkflowUsesInjectedTimerDependencies,
   testGeneratedObjectUrlSurvivesImmediateSessionSwitch,
   testLiveBlobHydrationDoesNotHideCompletedImage,

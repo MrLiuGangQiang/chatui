@@ -197,7 +197,7 @@ function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(!submit.includes('clearPendingSubmit(sessionId);const replacementResponseIndex='), 'pending submit must not be cleared before dispatch owns a durable job');
   assert.ok(submit.includes('stage:"accepted"') && submit.includes('stage:"captured"') && submit.includes('stage:"routing"') && submit.includes('stage:"handoff"'), 'submission ownership must be explicit across every pre-job phase');
-  assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
+  assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;pendingMerge?.merged&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask'), 'submit must wire interface completion to the canonical task event');
   assert.ok(submit.includes('completeInterfaceTask=(completion={})=>'), 'submit must identity-check interface completion callbacks');
   assert.ok(imageCompact.includes('notifyInterfaceCompleted()') && imageCompact.includes('jobKind:"image"'), 'image success must publish its interface completion identity after canonical persistence');

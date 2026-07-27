@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const coreAttachments = require('../../client/core/attachments');
 const imageGenerationService = require('../../client/services/image-generation-service');
@@ -118,15 +120,15 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
         },
       },
     },
-    getConfig: () => ({ baseUrl: 'https://api.example.com/v1', imageModel: 'gpt-image-1', imageSize: 'auto' }),
+    getConfig: () => ({ baseUrl: 'https://api.example.com/v1', imageModel: 'gpt-image-1', imageSize: 'auto', imageStylePrompt: '全局风格不应进入编辑' }),
     ensureActiveRun: () => ({ stopped: false, token: 'run-mask', abortController: new AbortController() }),
     setActiveOutputForSession() {},
     getActiveSession: () => state.sessions[0],
     persistSessionDisplay() {},
     clearReasoning() {},
-    buildImagePromptWithStylePrompt: prompt => prompt,
+    buildImagePromptWithStylePrompt: (prompt, style) => style ? `${prompt} ${style}` : prompt,
     buildPromptWithTextAttachments: prompt => prompt,
-    getEffectiveImageStylePrompt: () => '',
+    getEffectiveImageStylePrompt: () => '全局风格不应进入编辑',
     buildRequestHeaders: () => ({}),
     isImageFile,
     persistImageAttachmentRefs: async list => list.map(item => ({
@@ -150,6 +152,10 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
       name: item.name,
       type: item.type,
       data: `payload:${item.attachmentId || item.id}`,
+      routeRole: item.routeRole,
+      routeResourceKey: item.routeResourceKey,
+      routeId: item.routeId,
+      routeReferenceId: item.routeReferenceId,
     })),
     saveImageJob: (sessionId, job) => {
       savedJobs.push({ sessionId, job: structuredClone(job) });
@@ -185,6 +191,7 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
   assert.deepStrictEqual(dispatches[0].options.masks.map(item => item.data), ['payload:mask-1']);
   assert.ok(!JSON.stringify(dispatches[0]).includes('unselected-1'), 'an attachment outside the route contract must never reach the formal image request');
   assert.strictEqual(handoffs, 1);
+  assert.strictEqual(dispatches[0].payload.prompt, 'replace the sky', 'edit_image must preserve the explicit edit prompt without a global style suffix');
   assert.strictEqual(savedJobs[0].job.imageContext.masks.length, 1, 'the pre-handoff durable snapshot must retain the mask');
   assert.strictEqual(savedJobs[0].job.imageContext.masks[0].routeRole, 'mask');
 }
@@ -247,6 +254,34 @@ async function testImageJobServiceForwardsMasksInManagedRequest() {
   assert.strictEqual(response.id, 'imgjob-mask-service');
   assert.strictEqual(body.url, '/api/image-jobs');
   assert.deepStrictEqual(body.masks.map(item => item.name), ['mask.png']);
+}
+
+function testRootImageJobAdapterForwardsMasksInBothPaths() {
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'app.js'), 'utf8');
+  const start = app.indexOf('async function startImageGenerationJob');
+  const end = app.indexOf('async function getImageGenerationJob', start);
+  const adapter = app.slice(start, end);
+  assert.ok(start >= 0 && end > start, 'the root image-job adapter must be present');
+  assert.strictEqual((adapter.match(/masks:n\.masks\|\|\[\]/g) || []).length, 2, 'both the service path and fetch fallback must forward masks');
+}
+
+function testReferenceRolesReachTheImageRequestBoundary() {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'image-workflow.js'), 'utf8');
+  const inputs = [
+    { routeRole: 'reference', routeResourceKey: 'r1', routeId: 'content-1', routeReferenceId: 'refset-1' },
+    { routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' },
+  ];
+  assert.deepStrictEqual(imageWorkflow.buildImageRoleMap(inputs), [
+    { position: 1, role: 'reference', resource_key: 'r1', id: 'content-1', reference_id: 'refset-1' },
+    { position: 2, role: 'style_reference', resource_key: 'r2', id: 'style-2', reference_id: 'refset-2' },
+  ], 'the role map must describe every uploaded image in exact multipart order');
+  assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片1：作为内容参考/);
+  assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片2：仅作为风格参考/);
+  assert.ok(source.includes('随附图片角色（按上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
+  assert.ok(source.includes('u.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
+  assert.ok(source.includes('buildImageRoleMap(canonicalExecution.imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
+  assert.ok(source.includes('F.length !== f.length'), 'a partially restored multi-image request must fail before handoff');
+  assert.ok(source.includes('canonicalExecution.operation === "edit_image" ? ""'), 'global image style must be disabled for preserve-oriented edits');
 }
 
 async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
@@ -319,5 +354,7 @@ module.exports = [
   testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings,
   testImageWorkflowRejectsNonCanonicalDispatchBeforeRequest,
   testImageJobServiceForwardsMasksInManagedRequest,
+  testRootImageJobAdapterForwardsMasksInBothPaths,
+  testReferenceRolesReachTheImageRequestBoundary,
   testImageResumeRestoresMasksIntoTheirDedicatedSlot,
 ];

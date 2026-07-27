@@ -46,11 +46,20 @@ async function imageFileToJobPayload(attachment, readFileAsDataURL) {
   const dataUrl = file ? await readFileAsDataURL(file) : existingDataUrl;
   if (!String(dataUrl || '').startsWith('data:')) return null;
   const data = String(dataUrl || '').split(',')[1] || '';
-  return data ? {
+  if (!data) return null;
+  const routeRole = String(attachment.routeRole || attachment.role || '').trim();
+  const routeResourceKey = String(attachment.routeResourceKey || attachment.resourceKey || '').trim();
+  const routeId = String(attachment.routeId || attachment.imageId || attachment.image_id || attachment.id || '').trim();
+  const routeReferenceId = String(attachment.routeReferenceId || attachment.referenceId || attachment.reference_id || '').trim();
+  return {
     name: attachment.name || file?.name || 'image.png',
     type: attachment.type || file?.type || String(dataUrl).match(/^data:([^;,]+)/)?.[1] || 'image/png',
     data,
-  } : null;
+    ...(routeRole ? { routeRole } : {}),
+    ...(routeResourceKey ? { routeResourceKey } : {}),
+    ...(routeId ? { routeId } : {}),
+    ...(routeReferenceId ? { routeReferenceId } : {}),
+  };
 }
 
 async function imageFilesToJobPayload(attachments = [], readFileAsDataURL) {

@@ -12,7 +12,7 @@
     'unclear',
   ]);
   const MERGE_RELATIONS = new Set(['pending_answer', 'revision', 'continuation']);
-  const RESOLVED_INPUT_DESCRIPTION = '完整自然请求。若 selections 非空，候选编号、顺序、文件名和标签只用于外部资源选择，不得保留在本字段中；应将已选资源表述为“当前图片/当前文件”或省略资源指代，只保留用户要求执行的动作与内容。';
+  const RESOLVED_INPUT_DESCRIPTION = '完整自然请求。若 selections 非空，只移除仅用于外部候选定位的编号、顺序、文件名、标签或左右位置词；必须保留 pending.base_task 和 current_input 中用户已经表达的对象、属性、动作、数值、颜色及约束，不得把具体对象泛化成“当前图片/当前文件”。';
 
   function strictObject(properties) {
     return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
@@ -54,13 +54,13 @@
 1. pending_answer：直接回答追问；revision：修改未完成任务；continuation：补充未完成任务。三者仅在置信度至少 0.85 时允许 should_merge=true、should_clear_pending=true，且 resolved_input 必须是可交给后续路由器重新识别的完整自然请求。
 2. pending_assistance：用户仍在当前追问中请求候选、示例或解释。此时 should_merge=false、should_clear_pending=false、resolved_input=""、selections=[]，assistant_reply 给出直接有用且不替用户做决定的简短帮助。
 3. new_task：与追问无关的完整新任务，包括同时提出多个独立目标。unclear：无法可靠判断。二者都必须 should_merge=false、should_clear_pending=true、resolved_input=""、selections=[]、assistant_reply=""。不确定时使用 new_task 或 unclear，绝不合并旧任务。
-4. resolved_input 只能合并 pending.base_task、current_input、显式 quote_text 和已记录 supplements 中用户已经表达的信息；不得加入风格、画质、镜头、构图、对象、约束或操作类型等未表达内容，不得出现“本轮补充”“原始任务”“追问来源”等内部事务措辞。
+4. resolved_input 只能合并 pending.base_task、current_input、显式 quote_text 和已记录 supplements 中用户已经表达的信息；不得加入风格、画质、镜头、构图、对象、约束或操作类型等未表达内容，不得出现“本轮补充”“原始任务”“追问来源”等内部事务措辞。若本轮只是回答 ambiguous 资源选择，应用会以 pending.base_task 作为执行语义权威，resolved_input 无权覆盖它。
 5. prior_task_contract 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。对 missing 槽不返回 selection，由后续路由器检查本轮附件。
 6. 如果用户新增、替换或同时上传多个附件，只描述用户明确表达的任务，不判断附件角色，也不把附件数量解释成选择。附件是否满足任务由后续完整路由器决定。
 7. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
   const CONTINUATION_SINGLE_IMAGE_GUIDANCE = `图片 target 的 ambiguous 槽一次只能选择一个 choice。用户回答“全部”“都要”或同时指定多个编号时，不得返回 selection，也不得合并执行；返回 pending_assistance，assistant_reply 明确说明一次只能选择一张图片并请用户回复一个编号。
 
-资源选择与执行指令必须正交：编号、顺序、候选标签、文件名以及“左边/右边那张”等仅用于回答候选选择问题时，只能体现在 selections 中，绝不能继续出现在 resolved_input 里，否则图片模型可能把它误解为图片内部区域。resolved_input 应把已经结构化选定的外部资源称为“当前图片/当前文件”或直接省略该指代，只保留实际动作和内容变化。例如 pending.base_task="把图片改成红色"、current_input="第二张图改成红色" 且选择第二个 choice 时，必须输出 resolved_input="把当前图片改成红色"，不能输出“把第二张图改成红色”。`;
+资源选择与执行指令必须正交：编号、顺序、候选标签、文件名以及“左边/右边那张”等仅用于回答候选选择问题时，只能体现在 selections 中，绝不能继续出现在 resolved_input 里，否则图片模型可能把它误解为图片内部区域。但这类定位词之外的原始语义绝不能丢失：必须保留 pending.base_task 和 current_input 中用户已经表达的对象、部位、属性、动作、数值、颜色及约束；“猫”“猫的颜色”是编辑对象/属性，不是候选定位词，不能改写成泛化的“当前图片”。如果用户只是回答候选编号，resolved_input 应以原始任务为主。例如 pending.base_task="把猫的颜色换成红色"、current_input="第二张图" 且选择第二个 choice 时，必须输出 resolved_input="把猫的颜色换成红色"；如果 current_input="第二张图改成红色"，也必须输出 resolved_input="把猫的颜色换成红色"，不能输出“把当前图片换成红色”或“把第二张图改成红色”。`;
 
   function textOfMessage(message = {}) {
     return String(message.rawText || message.content || '').trim();
@@ -223,6 +223,17 @@
     });
   }
 
+  function isPureResourceSelectionAnswer(pending, relation = '', selections = []) {
+    if (relation !== 'pending_answer') return false;
+    const normalized = normalizePendingClarification(pending);
+    const unresolved = normalized?.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    return !!normalized?.originalText
+      && Array.isArray(unresolved)
+      && unresolved.length > 0
+      && unresolved.every(slot => slot?.reason === 'ambiguous' && slot?.type !== 'text')
+      && selectionsMatchPending(normalized, selections);
+  }
+
   function parseContinuationClassifierResult(text = '', options = {}) {
     const value = String(text || '').trim();
     if (!value) return null;
@@ -252,10 +263,13 @@
       if (!merging && !assistance && (raw.should_merge || raw.should_clear_pending !== true || resolvedInput || raw.selections.length || assistantReply)) return null;
       if (merging && options.pending && !selectionsMatchPending(options.pending, raw.selections)) return null;
 
+      const canonicalResolvedInput = isPureResourceSelectionAnswer(options.pending, relation, raw.selections)
+        ? normalizePendingClarification(options.pending)?.originalText || resolvedInput
+        : resolvedInput;
       return Object.freeze({
         relation,
         confidence: raw.confidence,
-        resolvedInput,
+        resolvedInput: canonicalResolvedInput,
         selections: raw.selections.map(item => Object.freeze({ resource_key: item.resource_key, choice_key: item.choice_key })),
         shouldMerge: raw.should_merge,
         shouldClearPending: raw.should_clear_pending,
@@ -391,6 +405,7 @@
     pending,
     currentInput = '',
     resolvedInput = '',
+    continuationRelation = '',
     selections = [],
     attachments = [],
     quoteText = '',
@@ -410,6 +425,7 @@
       prior_task_contract: normalized.routeInfo?.taskContract || null,
       current_answer: String(currentInput || '').trim(),
       resolved_input: resolved,
+      continuation_relation: String(continuationRelation || ''),
       selected_choices: selectedChoiceDetails(normalized, selections),
       explicit_quote_text: String(quoteText || '').trim(),
       attachments: {

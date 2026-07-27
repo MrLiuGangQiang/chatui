@@ -37,7 +37,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.4.0-intent-deadline'),
+    index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
@@ -49,7 +49,8 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   assert.ok(submit.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(routeInfo,targetSession.messages||state.messages||[],quotedMessage)||null'), 'every selected message resource must be projected into the outgoing chat base');
   assert.ok(submit.includes('if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error('), 'a stale selected message must fail closed instead of falling back to arbitrary session history');
   assert.ok(submit.includes('routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0'), 'the execution projection must mark route-selected messages as protected during context budgeting');
-  assert.ok(chat.includes('protectedHistoryIndexes(messages, nextRequestProtectedMessageCount)'), 'chat context budgeting must preserve selected message bases');
+  assert.ok(chat.includes('protectedHistoryIndexes(rawMessages,protectedContextMessageCount(n))'), 'chat context budgeting must preserve selected messages and explicit quotes without shared mutable state');
+  assert.ok(!chat.includes('nextRequestProtectedMessageCount'), 'concurrent chat requests must not share context-protection state');
   assert.match(submit, /const sourcePools\s*=\s*\{\s*current:currentTurnAttachments,\s*quoted:quotedResourceAttachments,\s*history:/, 'all attachment sources must enter distinct execution pools');
   assert.ok(submit.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the validated route contract must create the one canonical media projection');
   assert.ok(submit.includes('prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages])'), 'chat dispatch must use only contract-selected files and images');
@@ -100,7 +101,7 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
     'sendImage must not restore or infer resources after canonical projection'
   );
   assert.ok(
-    index.includes('image-workflow.js?v=1.4.1-product-mode-separation'),
+    index.includes('image-workflow.js?v=1.6.0-role-binding-integrity'),
     'the browser must fetch the image workflow with exact reference-media recovery'
   );
 }
@@ -144,6 +145,10 @@ function testPendingContinuationRequiresStrictModelContract() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(submit.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
   assert.ok(submit.includes('const pendingAssistance=pendingDecision?.relation==="pending_assistance"'), 'pending assistance must answer within the active task before route dispatch');
+  assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'an invalid or unavailable continuation classifier must fail closed');
+  assert.ok(submit.includes('原任务已保留，请重试'), 'the fail-closed response must tell the user that pending state was retained');
+  assert.ok(submit.includes('pendingMerge?.merged&&clearStoredPendingClarification()'), 'a merged clarification must be consumed only after durable request handoff');
+  assert.ok(!submit.includes('treating current input as a new task'), 'classifier failure must not silently turn a clarification answer into a new task');
   assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
   assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
   assert.ok(!submit.includes('finalTaskMode') && !submit.includes('selectedIndexes'), 'a continuation classifier must expose no operation or media-selection controls');

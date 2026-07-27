@@ -1003,9 +1003,9 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.4.0-intent-deadline'));
+  assert.ok(index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'));
   assert.ok(index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler'));
-  assert.ok(index.includes('app.js?v=2.1.53-session-attachment-isolation'));
+  assert.ok(index.includes('app.js?v=2.1.56-encoding-integrity'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 

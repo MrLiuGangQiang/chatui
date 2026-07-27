@@ -78,8 +78,8 @@ function testImageClarificationRendersNumberedDurableThumbnails() {
   assert.strictEqual(rendered.hasImageChoices, true);
   assert.match(rendered.html, /class="clarification-image-list"/);
   assert.match(rendered.html, /data-clarification-image-choices="1"/);
-  assert.match(rendered.html, /class="clarification-choice-number">1</);
-  assert.match(rendered.html, /class="clarification-choice-number">2</);
+  assert.match(rendered.html, /class="clarification-choice-media"><span class="clarification-choice-number" aria-hidden="true">1<\/span><img[^>]+alt="候选图片 1"[^>]*><\/div>/);
+  assert.match(rendered.html, /class="clarification-choice-media"><span class="clarification-choice-number" aria-hidden="true">2<\/span><img[^>]+alt="候选图片 2"[^>]*><\/div>/);
   assert.match(rendered.html, /请回复一个编号/);
   assert.match(rendered.html, /一次只能选择一张图片/);
   assert.doesNotMatch(rendered.html, /全部|所有|都要/);
@@ -149,11 +149,23 @@ function testRouteCandidateDisplayLabelIsShortAndDeduplicated() {
 
 function testClarificationListOverridesGlobalMarkdownTableLayout() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/messages.css'), 'utf8');
-  assert.match(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*display:grid!important;/s);
-  assert.match(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*grid-template-columns:repeat\(auto-fill,minmax\([^;]+\)\);[^}]*grid-auto-flow:row;/s);
-  assert.match(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card\s*\{[^}]*display:grid!important;[^}]*grid-template-columns:[^;]+!important;[^}]*align-items:center!important;[^}]*gap:[^;]+!important;/s);
+  assert.match(css, /\.clarification-presentation\s*\{[^}]*width:min\(640px,calc\(100vw - 112px\)\);/s);
+  assert.match(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*--clarification-image-height:72px;[^}]*--clarification-image-width:96px;[^}]*display:grid!important;[^}]*grid-template-columns:repeat\(3,max-content\);[^}]*grid-auto-flow:row;[^}]*justify-content:start;/s);
+  assert.match(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card\s*\{[^}]*display:inline-flex!important;[^}]*align-items:stretch;[^}]*justify-self:center;[^}]*width:max-content;[^}]*overflow:visible;[^}]*border:0;[^}]*background:transparent;[^}]*box-shadow:none;/s);
+  assert.doesNotMatch(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card\s*\{[^}]*position:relative;/s);
+  assert.match(css, /\.clarification-choice-number\s*\{[^}]*position:static!important;[^}]*order:0;[^}]*align-self:stretch;[^}]*height:auto;[^}]*margin:0!important;[^}]*padding:0!important;[^}]*background:#2563eb;/s);
+  assert.doesNotMatch(css, /\.clarification-choice-number\s*\{[^}]*position:absolute;/s);
+  assert.match(css, /\.clarification-choice-media\s*\{[^}]*display:inline-flex!important;[^}]*position:static!important;[^}]*align-items:stretch;[^}]*gap:0!important;[^}]*column-gap:0!important;[^}]*width:max-content;[^}]*height:auto;/s);
+  assert.match(css, /\.clarification-choice-media\[data-choice-number\]::after\s*\{[^}]*content:none!important;[^}]*display:none!important;/s);
+  assert.match(css, /\.markdown-body img\.clarification-choice-image,\s*\.markdown-body img\.clarification-choice-image\[data-markdown-media-bound="1"\]\s*\{[^}]*width:var\(--clarification-image-width\)!important;[^}]*height:var\(--clarification-image-height\)!important;[^}]*min-width:var\(--clarification-image-width\)!important;[^}]*min-height:var\(--clarification-image-height\)!important;[^}]*max-width:var\(--clarification-image-width\)!important;[^}]*max-height:var\(--clarification-image-height\)!important;[^}]*aspect-ratio:4\/3!important;[^}]*object-fit:cover!important;/s);
+  assert.doesNotMatch(css, /\.markdown-body img\.clarification-choice-image[^}]*max-width:100%/s);
   assert.match(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card::before\s*\{[^}]*content:none!important;[^}]*display:none!important;/s);
   assert.match(css, /\.clarification-image-list\s*\{[^}]*padding:0!important;[^}]*list-style:none!important;/s);
+}
+
+function testMessageImagesDoNotInheritGenericFrames() {
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/messages.css'), 'utf8');
+  assert.match(css, /\.message \.content img:not\(\.image-missing\),\s*\.message \.markdown-body img:not\(\.image-missing\)\s*\{[^}]*border:0!important;[^}]*background:transparent!important;[^}]*box-shadow:none!important;/s);
 }
 
 module.exports = [
@@ -163,4 +175,5 @@ module.exports = [
   testClarificationThumbnailHtmlSurvivesCanonicalPersistence,
   testRouteCandidateDisplayLabelIsShortAndDeduplicated,
   testClarificationListOverridesGlobalMarkdownTableLayout,
+  testMessageImagesDoNotInheritGenericFrames,
 ];

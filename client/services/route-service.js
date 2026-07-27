@@ -15,7 +15,7 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严�
 1. current_input 是本轮指令；resource_candidates 是应用给出的唯一可选资源目录。bindings 只能选择其中的 candidate_key 并赋予语义 role，不能编造 key。current_input 本身是隐式文本，不需要 binding。
 2. attachments 只代表本轮上传；context 只提供明确指代证据。完整独立的新请求不得继承历史。只有“这张、那个文件、基于这个描述、继续、还是不对”等明确指代才选择历史/引用候选。
 3. context.quoted_message 是用户显式引用。引用文字生成图片时必须选择对应 m key，role=context；不能因 text_to_image 不消费图片就丢弃引用消息。“基于这个描述再生成一张图片”是 text_to_image + followup，不是 resources 为空的新任务。relation=followup 不等于必须绑定历史消息：当前指令已明确生成动作和主体时不得选择历史 m key，例如“再画一只狗，换个品种”必须 bindings=[]，不能与“画一只狗”拼接；只有“再生成一张”“基于这个描述再来一张”等缺少主体或明确指向前文的指令才绑定历史消息。
-4. clarification_context.v1 仅是本轮重新判断的证据，不复制 prior_task_contract，不让 continuation classifier 授权执行。selected_choices 是用户对外部候选资源的结构化选择：必须按其稳定身份绑定对应 resource_candidate；候选编号、顺序、标签或文件名仅用于确定资源，绝不能解释成图片内部的序号、宫格、图层或空间区域，也不能成为 changes.target。
+4. clarification_context.v1 仅是本轮重新判断的证据，不让 continuation classifier 授权执行。selected_choices 是用户对外部候选资源的结构化选择：必须按其稳定身份绑定对应 resource_candidate；候选编号、顺序、标签或文件名仅用于确定资源，绝不能解释成图片内部的序号、宫格、图层或空间区域，也不能成为 changes.target。若 continuation_relation=pending_answer 且 prior_task_contract 只剩 ambiguous 外部资源待选，base_task 是不可覆盖的原始执行语义；operation、changes、constraints 必须与 prior_task_contract 完全一致，只更新资源 binding。
 
 上下文边界强制对照（这些是第一次且最终的语义决策，应用不会在本地替你增删 bindings）：
 - recent m1="画一只狗"，current_input="再画一只狗，换个品种"：operation=text_to_image，relation=followup，bindings=[]，changes=[]，readiness=ready。当前句已有动作、数量和主体；“再”只表达另生成一张，不授权继承 m1。
@@ -337,13 +337,14 @@ function selectedChoiceCandidateMatches(candidate = {}, selected = {}) {
   const selectedId = String(selected.id || '');
   const candidateReference = String(candidate.reference_id || '');
   const selectedReference = String(selected.reference_id || '');
-  const sameId = !!selectedId && !!candidateId && selectedId === candidateId;
-  const sameReference = !!selectedReference && !!candidateReference
-    && selectedReference === candidateReference
-    && Number(candidate.index) === Number(selected.index);
+  if (selectedId && candidateId) return selectedId === candidateId;
+  if (selectedReference && candidateReference) {
+    return selectedReference === candidateReference && Number(candidate.index) === Number(selected.index);
+  }
+  if ((selectedId || selectedReference) && (candidateId || candidateReference)) return false;
   const sameSourceIndex = String(candidate.source || '') === String(selected.source || '')
     && Number(candidate.index) === Number(selected.index);
-  return sameId || sameReference || sameSourceIndex;
+  return sameSourceIndex;
 }
 
 function assertSelectedChoicesAreBound(decision = {}, catalog = [], context = {}) {
@@ -352,9 +353,59 @@ function assertSelectedChoicesAreBound(decision = {}, catalog = [], context = {}
   if (!Array.isArray(selectedChoices) || !selectedChoices.length) return;
   for (const selected of selectedChoices) {
     const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, selected));
-    if (matches.length !== 1 || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key)) {
+    if (matches.length !== 1 || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key && binding.role === selected.role)) {
       throw new TypeError('A selected clarification resource was not preserved in the ready route');
     }
+  }
+}
+
+function selectionAnswerInvariantContext(context = {}) {
+  const clarification = context?.clarification_context;
+  if (clarification?.continuation_relation !== 'pending_answer') return null;
+  const prior = clarification.prior_task_contract;
+  const unresolved = prior?.clarification?.unresolved_resources;
+  const selected = clarification.selected_choices;
+  if (!prior || !Array.isArray(unresolved) || !unresolved.length
+      || unresolved.some(slot => slot?.reason !== 'ambiguous' || slot?.type === 'text')
+      || !Array.isArray(selected) || selected.length !== unresolved.length) return null;
+  const selectedKeys = new Set(selected.map(item => String(item?.resource_key || '')));
+  if (unresolved.some(slot => !selectedKeys.has(String(slot?.key || '')))) return null;
+  return { prior, selected };
+}
+
+function assertSelectionAnswerPreservesOriginalSemantics(decision = {}, context = {}) {
+  const invariant = selectionAnswerInvariantContext(context);
+  if (!invariant) return;
+  const { prior } = invariant;
+  const priorChanges = Array.isArray(prior.directive?.operations) ? prior.directive.operations : [];
+  const priorConstraints = Array.isArray(prior.directive?.constraints) ? prior.directive.constraints : [];
+  if (decision.operation !== prior.operation
+      || JSON.stringify(sortedSignatures(decision.changes)) !== JSON.stringify(sortedSignatures(priorChanges))
+      || JSON.stringify([...decision.constraints].sort()) !== JSON.stringify([...priorConstraints].sort())) {
+    throw new TypeError('A resource-selection answer cannot replace the original task semantics');
+  }
+}
+
+function assertSelectionAnswerPreservesOriginalBindings(decision = {}, catalog = [], context = {}) {
+  const invariant = selectionAnswerInvariantContext(context);
+  if (!invariant || decision.readiness !== 'ready') return;
+  const expectedResources = [
+    ...(Array.isArray(invariant.prior.resources) ? invariant.prior.resources : []),
+    ...invariant.selected,
+  ].filter(resource => resource && resource.type !== 'text' && resource.missing !== true);
+  const expectedCandidateKeys = new Set();
+  for (const expected of expectedResources) {
+    const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, expected));
+    if (matches.length !== 1
+        || expectedCandidateKeys.has(matches[0].candidate_key)
+        || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key && binding.role === expected.role)) {
+      throw new TypeError('A resource-selection answer cannot replace an established resource binding');
+    }
+    expectedCandidateKeys.add(matches[0].candidate_key);
+  }
+  if (decision.bindings.length !== expectedCandidateKeys.size
+      || decision.bindings.some(binding => !expectedCandidateKeys.has(binding.candidate_key))) {
+    throw new TypeError('A resource-selection answer cannot add or remove resource bindings');
   }
 }
 
@@ -376,6 +427,8 @@ function compileRouteDecision(decision = {}, options = {}) {
   const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || []);
   const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
   assertSelectedChoicesAreBound(decision, catalog, compilerContext);
+  assertSelectionAnswerPreservesOriginalBindings(decision, catalog, compilerContext);
+  assertSelectionAnswerPreservesOriginalSemantics(decision, compilerContext);
   const candidates = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
   const usedCandidateKeys = new Set();
   const resources = decision.bindings.map((binding, index) => {

@@ -101,11 +101,43 @@ function testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext() {
     pending,
     currentInput: '彩色鱼',
     resolvedInput: decision.resolvedInput,
+    continuationRelation: decision.relation,
     selections: decision.selections,
   });
+  assert.strictEqual(decision.resolvedInput, '把猫和鱼合并成一张图', 'a pure resource choice must restore the immutable original task instead of trusting model paraphrase');
   assert.strictEqual(context.clarification_context.selected_choices[0].id, 'fish-b');
   assert.strictEqual(context.clarification_context.prior_task_contract.readiness, 'needs_clarification');
   assert.match(context.clarification_context.source_policy, /Re-run the complete router/);
+
+  const readyDecision = {
+    schema_version: 'route_decision.v1', readiness: 'ready', operation: 'image_reference_gen', relation: 'continuation',
+    bindings: [{ candidate_key: 'i1', role: 'reference' }, { candidate_key: 'i3', role: 'reference' }],
+    changes: [{ op: 'add', target: 'composition', value: 'combine cat and selected fish' }], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'preserved cat and selected fish',
+  };
+  const ready = routeService.inspectRouteResult(JSON.stringify(readyDecision), { input: decision.resolvedInput, context });
+  assert.ok(ready.route, 'the reroute must preserve both the established cat and the selected fish');
+
+  const droppedEstablished = routeService.inspectRouteResult(JSON.stringify({
+    ...readyDecision,
+    bindings: [{ candidate_key: 'i3', role: 'reference' }],
+    rationale: 'dropped the established cat',
+  }), { input: decision.resolvedInput, context });
+  assert.strictEqual(droppedEstablished.route, null, 'a pure selection answer may not drop an already established resource');
+
+  const changedRole = routeService.inspectRouteResult(JSON.stringify({
+    ...readyDecision,
+    bindings: [{ candidate_key: 'i1', role: 'reference' }, { candidate_key: 'i3', role: 'style_reference' }],
+    rationale: 'changed the selected fish role',
+  }), { input: decision.resolvedInput, context });
+  assert.strictEqual(changedRole.route, null, 'a pure selection answer may not change a selected resource role');
+
+  const inventedExtra = routeService.inspectRouteResult(JSON.stringify({
+    ...readyDecision,
+    bindings: [...readyDecision.bindings, { candidate_key: 'i2', role: 'reference' }],
+    rationale: 'added an unselected fish',
+  }), { input: decision.resolvedInput, context });
+  assert.strictEqual(inventedExtra.route, null, 'a pure selection answer may not add an unselected resource');
 }
 
 function testResolvedInputIsRequiredAndNeverSynthesizedLocally() {
@@ -132,7 +164,7 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     resources: [],
     directive: {
       mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve',
-      operations: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+      operations: [{ op: 'replace', target: '猫的颜色', value: '红色' }], constraints: [],
     },
     clarification: {
       question: '请选择要修改的图片。',
@@ -149,7 +181,7 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     rationale: 'two image targets remain',
   };
   const pending = clarification.createPendingClarification({
-    messages: [{ role: 'user', content: '把图片改成红色' }],
+    messages: [{ role: 'user', content: '把猫的颜色换成红色' }],
     clarificationText: '请选择要修改的图片。',
     routeInfo: {
       mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
@@ -160,14 +192,15 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     model: 'route-model', pending, currentInput: '第二张图改成红色', attachments: [],
   });
   assert.match(classifierPayload.messages[0].content, /只能体现在 selections 中/);
-  assert.match(classifierPayload.messages[0].content, /把当前图片改成红色/);
+  assert.match(classifierPayload.messages[0].content, /把猫的颜色换成红色/);
+  assert.match(classifierPayload.messages[0].content, /不能改写成泛化的“当前图片”/);
   assert.doesNotMatch(classifierPayload.response_format.json_schema.schema.properties.resolved_input.description, /第二张图/);
 
   const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_answer',
     confidence: 0.99,
-    resolved_input: '把当前图片改成红色',
+    resolved_input: '把当前图片换成红色',
     selections: [{ resource_key: 'r1', choice_key: 'c2' }],
     should_merge: true,
     should_clear_pending: true,
@@ -175,6 +208,7 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     reason: 'the second external candidate was explicitly selected',
   }), { pending });
   assert.ok(decision);
+  assert.strictEqual(decision.resolvedInput, '把猫的颜色换成红色', 'a pure image choice must not be allowed to generalize away the original edit subject');
 
   const merged = clarification.mergePendingInput(pending, {
     promptText: '第二张图改成红色', resolvedInput: decision.resolvedInput,
@@ -189,13 +223,14 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     pending,
     currentInput: '第二张图改成红色',
     resolvedInput: merged.promptText,
+    continuationRelation: decision.relation,
     selections: decision.selections,
   });
   const routePayload = routeService.buildRoutePayload({
     model: 'route-model', input: merged.promptText, context,
   });
   const routeUserPayload = JSON.parse(routePayload.messages[1].content);
-  assert.strictEqual(routeUserPayload.current_input, '把当前图片改成红色');
+  assert.strictEqual(routeUserPayload.current_input, '把猫的颜色换成红色');
   assert.doesNotMatch(routeUserPayload.current_input, /第二张|第2张/);
   assert.strictEqual(routeUserPayload.context.clarification_context.selected_choices[0].id, 'grid-b');
   assert.match(routePayload.messages[0].content, /绝不能解释成图片内部的序号、宫格、图层或空间区域/);
@@ -204,20 +239,44 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     schema_version: 'route_decision.v1',
     readiness: 'ready', operation: 'edit_image', relation: 'continuation',
     bindings: [{ candidate_key: 'i2', role: 'target' }],
-    changes: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+    changes: [{ op: 'replace', target: '猫的颜色', value: '红色' }], constraints: [],
     clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'selected external image',
   }), { input: merged.promptText, attachments: [], context });
   assert.ok(selectedRoute.route, 'the chosen external image must bind into the executable route');
-  assert.strictEqual(selectedRoute.route.editInstruction, '把当前图片改成红色');
+  assert.strictEqual(selectedRoute.route.editInstruction, '把猫的颜色换成红色');
+
+  const semanticDrift = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'route_decision.v1',
+    readiness: 'ready', operation: 'edit_image', relation: 'continuation',
+    bindings: [{ candidate_key: 'i2', role: 'target' }],
+    changes: [{ op: 'replace', target: '整张图片', value: '红色' }], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'generalized the edit target',
+  }), { input: '把当前图片换成红色', attachments: [], context });
+  assert.strictEqual(semanticDrift.route, null, 'a ready reroute may bind the choice but may not replace the original task semantics');
 
   const droppedSelection = routeService.inspectRouteResult(JSON.stringify({
     schema_version: 'route_decision.v1',
     readiness: 'ready', operation: 'edit_image', relation: 'continuation',
     bindings: [{ candidate_key: 'i1', role: 'target' }],
-    changes: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+    changes: [{ op: 'replace', target: '猫的颜色', value: '红色' }], constraints: [],
     clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'wrong image',
   }), { input: merged.promptText, attachments: [], context });
   assert.strictEqual(droppedSelection.route, null, 'a ready route may not silently discard the explicit image choice');
+
+  const identityConflictContext = {
+    ...context,
+    image_candidates: context.image_candidates.map(candidate => Number(candidate.index) === 2
+      ? { ...candidate, image_id: 'different-grid-b', reference_id: 'different-grid-ref-b' }
+      : candidate),
+  };
+  const identityConflict = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'route_decision.v1',
+    readiness: 'ready', operation: 'edit_image', relation: 'continuation',
+    bindings: [{ candidate_key: 'i2', role: 'target' }],
+    changes: [{ op: 'replace', target: '猫的颜色', value: '红色' }], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'same display index but different stable identity',
+  }), { input: merged.promptText, attachments: [], context: identityConflictContext });
+  assert.strictEqual(identityConflict.route, null, 'conflicting stable IDs must never fall back to a matching source/index pair');
 }
 
 function testNewTaskMultiIntentAndAssistanceCannotDispatch() {

@@ -17,7 +17,6 @@ const MESSAGE_OVERHEAD_TOKENS = 4;
 const IMAGE_PART_TOKENS = 1024;
 const SUMMARY_MAX_TOKENS = 4096;
 const SUMMARY_MIN_TOKENS = 512;
-const TRUNCATION_NOTICE = '[上下文预算提示：本条用户消息过长，已截断较早部分，仅保留末尾内容。]\n';
 
 function cloneValue(value) {
   if (value === undefined) return undefined;
@@ -113,62 +112,20 @@ function makeSummaryMessage(omitted = [], maxTokens = SUMMARY_MAX_TOKENS) {
   return { role: 'assistant', content: text };
 }
 
-function groupHistoryTurns(messages = []) {
+function groupHistoryTurns(entries = []) {
   const groups = [];
   let current = [];
-  for (const message of messages) {
+  for (const entry of entries) {
+    const message = entry?.message || entry;
     if (message?.role === 'user' && current.length) {
       groups.push(current);
-      current = [message];
+      current = [entry];
     } else {
-      current.push(message);
+      current.push(entry);
     }
   }
   if (current.length) groups.push(current);
   return groups;
-}
-
-function trimTextTail(text, maxTokens) {
-  const raw = String(text || '');
-  if (estimateTextTokens(raw) <= maxTokens) return raw;
-  let low = 0;
-  let high = raw.length;
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    const candidate = TRUNCATION_NOTICE + raw.slice(mid);
-    if (estimateTextTokens(candidate) <= maxTokens) high = mid;
-    else low = mid + 1;
-  }
-  return TRUNCATION_NOTICE + raw.slice(low);
-}
-
-function truncateMessageText(message = {}, maxTokens) {
-  const next = cloneValue(message) || {};
-  const content = next.content;
-  if (typeof content === 'string') {
-    next.content = trimTextTail(content, maxTokens);
-    return next;
-  }
-  if (Array.isArray(content)) {
-    const fixedCost = content.reduce((sum, part) => {
-      if (!part || typeof part !== 'object') return sum;
-      const type = String(part.type || '').toLowerCase();
-      return type.includes('image') || part.image_url || part.image || part.input_image ? sum + IMAGE_PART_TOKENS : sum;
-    }, MESSAGE_OVERHEAD_TOKENS);
-    const textBudget = Math.max(1, maxTokens - fixedCost);
-    next.content = content.map(part => {
-      if (!part || typeof part !== 'object') return part;
-      const type = String(part.type || '').toLowerCase();
-      if (type.includes('image') || part.image_url || part.image || part.input_image) return cloneValue(part);
-      const copy = cloneValue(part) || {};
-      const key = copy.text !== undefined ? 'text' : (copy.input_text !== undefined ? 'input_text' : (copy.content !== undefined ? 'content' : 'text'));
-      copy[key] = trimTextTail(copy[key] || '', textBudget);
-      return copy;
-    });
-    return next;
-  }
-  next.content = trimTextTail(content === undefined ? '' : JSON.stringify(content), maxTokens);
-  return next;
 }
 
 function applyContextBudget(messages = [], options = {}) {
@@ -178,7 +135,16 @@ function applyContextBudget(messages = [], options = {}) {
   const inputBudgetTokens = Math.max(1, Math.floor(Number(options.inputBudgetTokens) || inputBudgetForContextWindow(contextWindowTokens)));
   const cloned = cloneValue(source) || [];
   if (originalEstimatedTokens <= inputBudgetTokens) {
-    return { messages: cloned, originalEstimatedTokens, finalEstimatedTokens: estimateMessagesTokens(cloned), omittedCount: 0, summaryInserted: false, truncatedCurrentUser: false };
+    return {
+      messages: cloned,
+      originalEstimatedTokens,
+      finalEstimatedTokens: estimateMessagesTokens(cloned),
+      omittedCount: 0,
+      summaryInserted: false,
+      truncatedCurrentUser: false,
+      requiredOverflow: false,
+      overflowTokens: 0,
+    };
   }
 
   let currentIndex = -1;
@@ -187,47 +153,39 @@ function applyContextBudget(messages = [], options = {}) {
   }
   if (currentIndex < 0) currentIndex = cloned.length - 1;
 
-  const systemMessages = cloned.filter((message, index) => message?.role === 'system' && index !== currentIndex);
-  let currentMessage = cloned[currentIndex] || null;
+  const systemIndexes = new Set(cloned.map((message, index) => message?.role === 'system' && index !== currentIndex ? index : -1).filter(index => index >= 0));
   const protectedIndexes = new Set((Array.isArray(options.protectedMessageIndexes) ? options.protectedMessageIndexes : [])
     .map(index => Number(index))
     .filter(index => Number.isInteger(index) && index >= 0 && index < cloned.length && index !== currentIndex && cloned[index]?.role !== 'system'));
-  const protectedHistory = cloned.filter((message, index) => protectedIndexes.has(index));
-  const beforeCurrent = cloned.filter((message, index) => index !== currentIndex && message?.role !== 'system' && !protectedIndexes.has(index));
-  const groups = groupHistoryTurns(beforeCurrent);
-  let required = [...systemMessages, ...protectedHistory, currentMessage].filter(Boolean);
-  let requiredTokens = estimateMessagesTokens(required);
-  let truncatedCurrentUser = false;
+  const requiredIndexes = new Set([...systemIndexes, ...protectedIndexes]);
+  if (currentIndex >= 0) requiredIndexes.add(currentIndex);
+  const indexed = cloned.map((message, index) => ({ index, message }));
+  const requiredEntries = indexed.filter(entry => requiredIndexes.has(entry.index));
+  const requiredTokens = estimateMessagesTokens(requiredEntries.map(entry => entry.message));
 
-  if (currentMessage && requiredTokens > inputBudgetTokens) {
-    const trimOrder = [
-      { kind: 'current', index: required.length - 1 },
-      ...protectedHistory.map((_, index) => ({ kind: 'protected', index: systemMessages.length + protectedHistory.length - index - 1 })),
-    ];
-    for (const target of trimOrder) {
-      if (requiredTokens <= inputBudgetTokens) break;
-      const original = required[target.index];
-      if (!original) continue;
-      const otherTokens = requiredTokens - estimateMessageTokens(original);
-      const allowedTokens = Math.max(1, inputBudgetTokens - otherTokens);
-      const trimmed = truncateMessageText(original, allowedTokens);
-      required[target.index] = trimmed;
-      if (target.kind === 'current') {
-        currentMessage = trimmed;
-        truncatedCurrentUser = true;
-      } else {
-        protectedHistory[target.index - systemMessages.length] = trimmed;
-      }
-      requiredTokens = estimateMessagesTokens(required);
-    }
+  if (requiredTokens > inputBudgetTokens) {
+    const requiredMessages = requiredEntries.map(entry => entry.message);
+    return {
+      messages: requiredMessages,
+      originalEstimatedTokens,
+      finalEstimatedTokens: requiredTokens,
+      omittedCount: Math.max(0, cloned.length - requiredMessages.length),
+      summaryInserted: false,
+      truncatedCurrentUser: false,
+      requiredOverflow: true,
+      overflowTokens: requiredTokens - inputBudgetTokens,
+    };
   }
+
+  const optionalEntries = indexed.filter(entry => !requiredIndexes.has(entry.index) && entry.message?.role !== 'system');
+  const groups = groupHistoryTurns(optionalEntries);
 
   const retainedGroups = [];
   const omittedGroups = [];
   let used = requiredTokens;
   for (let index = groups.length - 1; index >= 0; index -= 1) {
     const group = groups[index];
-    const cost = estimateMessagesTokens(group);
+    const cost = estimateMessagesTokens(group.map(entry => entry.message));
     if (used + cost <= inputBudgetTokens) {
       retainedGroups.unshift(group);
       used += cost;
@@ -236,56 +194,68 @@ function applyContextBudget(messages = [], options = {}) {
     }
   }
 
-  const omitted = omittedGroups.flat();
+  let omittedEntries = omittedGroups.flat();
   let summary = null;
   let summaryInserted = false;
-  if (omitted.length) {
+  if (omittedEntries.length) {
     const availableForSummary = Math.max(32, inputBudgetTokens - used - MESSAGE_OVERHEAD_TOKENS);
     const summaryBudget = Math.min(SUMMARY_MAX_TOKENS, Math.max(32, Math.min(Math.max(SUMMARY_MIN_TOKENS, Math.floor(inputBudgetTokens * 0.03)), availableForSummary)));
-    summary = makeSummaryMessage(omitted, summaryBudget);
+    summary = makeSummaryMessage(omittedEntries.map(entry => entry.message), summaryBudget);
     let summaryCost = estimateMessageTokens(summary);
     while (retainedGroups.length && used + summaryCost > inputBudgetTokens) {
       const removed = retainedGroups.shift();
-      used -= estimateMessagesTokens(removed);
-      omitted.unshift(...removed);
-      summary = makeSummaryMessage(omitted, Math.min(summaryBudget, Math.max(32, inputBudgetTokens - used - MESSAGE_OVERHEAD_TOKENS)));
+      used -= estimateMessagesTokens(removed.map(entry => entry.message));
+      omittedEntries = [...omittedEntries, ...removed].sort((left, right) => left.index - right.index);
+      summary = makeSummaryMessage(omittedEntries.map(entry => entry.message), Math.min(summaryBudget, Math.max(32, inputBudgetTokens - used - MESSAGE_OVERHEAD_TOKENS)));
       summaryCost = estimateMessageTokens(summary);
     }
     if (used + summaryCost <= inputBudgetTokens) summaryInserted = true;
   }
 
-  let result = [
-    ...systemMessages,
-    ...(summaryInserted ? [summary] : []),
-    ...retainedGroups.flat(),
-    ...protectedHistory,
-    ...(currentMessage ? [currentMessage] : []),
-  ];
-
-  while (estimateMessagesTokens(result) > inputBudgetTokens && retainedGroups.length) {
-    retainedGroups.shift();
-    result = [...systemMessages, ...(summaryInserted ? [summary] : []), ...retainedGroups.flat(), ...protectedHistory, ...(currentMessage ? [currentMessage] : [])];
-  }
+  const retainedIndexes = new Set(retainedGroups.flat().map(entry => entry.index));
+  const systemMessages = indexed.filter(entry => systemIndexes.has(entry.index)).map(entry => entry.message);
+  const retainedMessages = indexed
+    .filter(entry => !systemIndexes.has(entry.index) && (requiredIndexes.has(entry.index) || retainedIndexes.has(entry.index)))
+    .map(entry => entry.message);
+  const result = [...systemMessages, ...(summaryInserted ? [summary] : []), ...retainedMessages];
 
   return {
     messages: result,
     originalEstimatedTokens,
     finalEstimatedTokens: estimateMessagesTokens(result),
-    omittedCount: omitted.length,
+    omittedCount: omittedEntries.length,
     summaryInserted,
-    truncatedCurrentUser,
+    truncatedCurrentUser: false,
+    requiredOverflow: false,
+    overflowTokens: 0,
   };
+}
+
+function requiredContentOverflowError(result = {}) {
+  const error = new RangeError('当前请求及已绑定上下文超出模型上下文窗口，未发送请求。请缩短当前内容或减少所选上下文后重试');
+  error.code = 'CONTEXT_REQUIRED_CONTENT_TOO_LARGE';
+  error.statusCode = 400;
+  error.overflowTokens = result.overflowTokens;
+  return error;
 }
 
 function applyContextBudgetToChatPayload(payload = {}, options = {}) {
   const copy = { ...(payload || {}) };
-  if (Array.isArray(copy.messages)) copy.messages = applyContextBudget(copy.messages, options).messages;
+  if (Array.isArray(copy.messages)) {
+    const result = applyContextBudget(copy.messages, options);
+    if (result.requiredOverflow) throw requiredContentOverflowError(result);
+    copy.messages = result.messages;
+  }
   return copy;
 }
 
 function applyContextBudgetToResponsesPayload(payload = {}, options = {}) {
   const copy = { ...(payload || {}) };
-  if (Array.isArray(copy.input)) copy.input = applyContextBudget(copy.input, options).messages;
+  if (Array.isArray(copy.input)) {
+    const result = applyContextBudget(copy.input, options);
+    if (result.requiredOverflow) throw requiredContentOverflowError(result);
+    copy.input = result.messages;
+  }
   return copy;
 }
 

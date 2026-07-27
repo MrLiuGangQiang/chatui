@@ -27,11 +27,51 @@ function createImageJobValidationError(message) {
   return err;
 }
 
+function validateImageRoleMap(payload = {}, imageFiles = []) {
+  const encoded = payload?.image_role_map;
+  const taggedFiles = imageFiles.filter(file => String(file?.routeRole || '').trim());
+  if (encoded === undefined || encoded === null || encoded === '') {
+    if (imageFiles.length > 1 && taggedFiles.length) {
+      throw createImageJobValidationError('多图任务缺少图片角色映射');
+    }
+    return;
+  }
+  let entries;
+  try {
+    entries = typeof encoded === 'string' ? JSON.parse(encoded) : encoded;
+  } catch {
+    throw createImageJobValidationError('图片参考图角色映射无效');
+  }
+  if (!Array.isArray(entries) || entries.length !== imageFiles.length) {
+    throw createImageJobValidationError('图片参考图角色映射与附件数量不一致');
+  }
+  const allowedRoles = new Set(['target', 'reference', 'style_reference']);
+  const resourceKeys = new Set();
+  entries.forEach((entry, index) => {
+    const file = imageFiles[index] || {};
+    const role = String(entry?.role || '').trim();
+    const resourceKey = String(entry?.resource_key || '').trim();
+    if (!entry || typeof entry !== 'object'
+        || Number(entry.position) !== index + 1
+        || !allowedRoles.has(role)
+        || role !== String(file.routeRole || '')
+        || !resourceKey
+        || resourceKeys.has(resourceKey)
+        || resourceKey !== String(file.routeResourceKey || '')
+        || String(entry.id || '') !== String(file.routeId || '')
+        || String(entry.reference_id || '') !== String(file.routeReferenceId || '')) {
+      throw createImageJobValidationError('图片角色映射与稳定资源绑定不一致');
+    }
+    resourceKeys.add(resourceKey);
+  });
+}
+
 function prepareImageJobRequest(body = {}) {
   let payload = body.payload || {};
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
   const masks = extractImageEditMasks(body);
+  validateImageRoleMap(payload, imageFiles);
   if (masks.length > 1) {
     throw createImageJobValidationError('图片编辑任务最多支持一个 mask 附件');
   }
@@ -185,6 +225,7 @@ module.exports = {
   markImageJobFailed,
   parseImageUpstreamResponse,
   prepareImageJobRequest,
+  validateImageRoleMap,
   resolveImageJobMode,
   runImageJob,
   buildImageEditMultipartBody,

@@ -65,6 +65,15 @@ async function testImageFileToJobPayloadContracts() {
   });
   assert.deepStrictEqual(fromFile, { name: 'from-file.webp', type: 'image/webp', data: 'BBBB' });
 
+  const bound = await imageService.imageFileToJobPayload({
+    name: 'reference.png', type: 'image/png', dataUrl: 'data:image/png;base64,CCCC',
+    routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'ref-2',
+  }, async () => '');
+  assert.deepStrictEqual(bound, {
+    name: 'reference.png', type: 'image/png', data: 'CCCC',
+    routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'ref-2',
+  }, 'image upload serialization must retain the validated role and stable identity');
+
   assert.strictEqual(await imageService.imageFileToJobPayload({ name: 'remote.png', src: 'https://img.example/remote.png' }, async () => ''), null);
   assert.strictEqual(await imageService.imageFileToJobPayload({ name: 'empty.png', dataUrl: 'data:image/png;base64,' }, async () => ''), null);
 }

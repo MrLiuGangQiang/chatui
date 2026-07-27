@@ -6,6 +6,7 @@ const routeContext = require('../../client/core/image-route-context');
 const routeService = require('../../client/services/route-service');
 const clarificationService = require('../../client/services/clarification-service');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
+const imageWorkflow = require('../../client/app/image-workflow');
 const imageService = require('../../client/services/image-service');
 const imageJobs = require('../../server/jobs/image');
 
@@ -156,9 +157,24 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
     normalizeSelectedImageIds: imageReferences.normalizeSelectedImageIds,
   });
   const attachments = await workflow.getPreviousImageAttachments('smoke-session', null, route.selectedReferenceId, route.selectedImageIds);
-  const files = await imageService.imageFilesToJobPayload(attachments, file => file.dataUrl);
+  const roleBoundAttachments = route.executionResources.images.map(resource => {
+    const attachment = attachments.find(item => item.imageId === resource.id);
+    assert.ok(attachment, `selected image ${resource.id} must restore before dispatch`);
+    return {
+      ...attachment,
+      routeRole: resource.role,
+      routeResourceKey: resource.key,
+      routeSource: resource.source,
+      routeId: resource.id,
+      routeReferenceId: resource.reference_id,
+    };
+  });
+  const files = await imageService.imageFilesToJobPayload(roleBoundAttachments, file => file.dataUrl);
   assert.strictEqual(files.length, 2);
   assert.deepStrictEqual(new Set(files.map(file => file.name)), new Set(['cat-result.png', 'fish-color-result.png']));
+  assert.deepStrictEqual(files.map(file => file.routeResourceKey), ['r1', 'r2']);
+  const imageRoleMap = imageWorkflow.buildImageRoleMap(roleBoundAttachments);
+  const roleAwarePrompt = [route.editInstruction, imageWorkflow.buildImageRoleGuide(roleBoundAttachments)].filter(Boolean).join('\n\n');
 
   let captured = null;
   const upstreamServer = http.createServer((req, res) => {
@@ -176,7 +192,7 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
   try {
     const job = imageJobs.createImageJobFromRequestBody('imgjob-semantic-smoke', {
       mode: 'edit_image',
-      payload: { model: 'gpt-image-1', prompt: route.editInstruction },
+      payload: { model: 'gpt-image-1', prompt: roleAwarePrompt, image_role_map: JSON.stringify(imageRoleMap) },
       files,
     }, { baseUrl, apiKey: 'test-key', extraHeaders: {} });
     await imageJobs.runImageJob(job, { upstreamTimeoutMs: 5000 });
@@ -190,9 +206,12 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
     assert.ok(multipart.includes('filename="fish-color-result.png"'));
     assert.ok(!multipart.includes('filename="fish-sketch-result.png"'));
     assert.ok(!multipart.includes('filename="car-result.png"'));
+    assert.ok(!multipart.includes('image_role_map'), 'internal role metadata must be validated and stripped before the upstream boundary');
     const promptPart = multipartUtf8.match(/name="prompt"\r\n\r\n([\s\S]*?)\r\n--/);
     assert.ok(promptPart, 'multipart request should contain a prompt field');
-    assert.strictEqual(promptPart[1], input, 'multi-image composition must send the user prompt unchanged');
+    assert.ok(promptPart[1].startsWith(input), 'multi-image composition must preserve the complete original request at the prompt boundary');
+    assert.match(promptPart[1], /图片1：作为内容参考/);
+    assert.match(promptPart[1], /图片2：作为内容参考/);
   } finally {
     if (previousPrivateUpstream === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
     else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousPrivateUpstream;

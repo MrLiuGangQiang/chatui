@@ -277,6 +277,7 @@ function stripImageEditFileFields(payload = {}) {
   if (hasFilePayloadData(next.image) || hasEmbeddedBinaryData(next.image)) delete next.image;
   if (hasFilePayloadData(next.mask) || hasEmbeddedBinaryData(next.mask)) delete next.mask;
   if (hasFilePayloadData(next.masks) || hasEmbeddedBinaryData(next.masks)) delete next.masks;
+  delete next.image_role_map;
   return next;
 }
 

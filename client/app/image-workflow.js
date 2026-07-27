@@ -1,6 +1,34 @@
 ﻿(function initChatUIAppImageWorkflow(root) {
   // Intentionally not strict: sendImage body is migrated from app.js and resolved through a deps scope.
 
+  function imageRoleLabel(role = "") {
+    return role === "target"
+      ? "作为编辑目标图"
+      : role === "style_reference"
+        ? "仅作为风格参考"
+        : "作为内容参考";
+  }
+
+  function buildImageRoleGuide(imageInputs = []) {
+    if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return "";
+    return [
+      "随附图片角色（按上传顺序）：",
+      ...imageInputs.map((item, index) => `- 图片${index + 1}：${imageRoleLabel(item?.routeRole)}`),
+      "请严格按上述角色使用各图片。",
+    ].join("\n");
+  }
+
+  function buildImageRoleMap(imageInputs = []) {
+    if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return [];
+    return imageInputs.map((item, index) => ({
+      position: index + 1,
+      role: String(item?.routeRole || ""),
+      resource_key: String(item?.routeResourceKey || ""),
+      id: String(item?.routeId || ""),
+      reference_id: String(item?.routeReferenceId || ""),
+    }));
+  }
+
   function createImageWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
     const intentContract = root?.ChatUICoreIntentContract
@@ -151,7 +179,10 @@
             t.editInstruction || t.routePrompt || t.originalPrompt || P || "",
           ).trim(),
           E = executionPrompt || routeFallbackPrompt || P,
-          g = buildImagePromptWithStylePrompt(E, getEffectiveImageStylePrompt(n, s)),
+          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs),
+          roleAwarePrompt = [E, referenceRoleGuide].filter(Boolean).join("\n\n"),
+          stylePrompt = canonicalExecution.operation === "edit_image" ? "" : getEffectiveImageStylePrompt(n, s),
+          g = buildImagePromptWithStylePrompt(roleAwarePrompt, stylePrompt),
           q = buildRequestHeaders("message", n),
           u = window.ChatUIServices?.images?.buildImageRequestPayload
             ? window.ChatUIServices.images.buildImageRequestPayload({
@@ -160,6 +191,9 @@
                 size: s.imageSize,
               })
             : { model: s.imageModel, prompt: g };
+        if (canonicalExecution.imageInputs.length > 1) {
+          u.image_role_map = JSON.stringify(buildImageRoleMap(canonicalExecution.imageInputs));
+        }
         if (
           canonicalExecution.api === "image_edit" &&
           !String(u.prompt || "").trim()
@@ -210,7 +244,7 @@
           if (requiresImageEdit && !f.length) {
             throw new Error("路由合同没有提供可执行的图片输入，已停止发送");
           }
-          const selectedBindings = [...canonicalExecution.targets, ...canonicalExecution.references],
+          const selectedBindings = [...canonicalExecution.imageInputs],
             selectedReferenceId = String(selectedBindings.find((item) => item?.routeReferenceId)?.routeReferenceId || ""),
             selectedIndexes = selectedBindings.map((item) => Number(item?.routeIndex)).filter((index) => Number.isInteger(index) && index >= 1),
             selectedImageIds = selectedBindings.map((item) => String(item?.routeId || "")).filter(Boolean),
@@ -312,13 +346,13 @@
               state.followingImageJobs.add(e));
             let F = await imageFilesToJobPayload(f);
             let M = await imageFilesToJobPayload(maskAttachments);
-            if (f.length && !F.length) {
+            if (f.length && F.length !== f.length) {
               const e = await restoreImageAttachmentsFromContext(I);
-              e.length && ((f = e), (F = await imageFilesToJobPayload(f)));
+              e.length === f.length && ((f = e), (F = await imageFilesToJobPayload(f)));
             }
-            if (f.length && !F.length)
+            if (F.length !== f.length)
               throw new Error(
-                "图片编辑任务没有可上传的图片数据，请重新上传图片后再修改",
+                "图片编辑任务有部分图片数据无法恢复，请重新上传全部目标图和参考图后再修改",
               );
             if (maskAttachments.length && M.length !== maskAttachments.length) {
               const restoredMasks = await restoreImageAttachmentsFromContext(I, {
@@ -663,7 +697,7 @@
     return Object.freeze({ sendImage });
   }
 
-  const api = Object.freeze({ createImageWorkflow });
+  const api = Object.freeze({ createImageWorkflow, buildImageRoleGuide, buildImageRoleMap });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.ChatUIAppImageWorkflow = api;
   if (root?.window) root.window.ChatUIAppImageWorkflow = api;

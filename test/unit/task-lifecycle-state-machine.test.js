@@ -296,7 +296,7 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
 function testImageCompletionCommitsBeforeClearingRecoveryOwner() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
-  assert.match(image, /await saveSessionMessages\(n,\s*i\.messages\s*\|\|\s*\[\]\);[\s\S]{0,500}\(?clearImageJob\(n\)/,
+  assert.match(image, /await saveSessionMessages\(n,\s*i\.messages\s*\|\|\s*\[\]\);\s*\(?clearImageJob\(n\)/,
     'normal image completion must durably commit reconciliation before clearing its job');
   assert.match(resume, /completedSession\s*&&\s*\(?await saveSessionMessages\(e,\s*completedSession\.messages\s*\|\|\s*\[\]\)\)?;\s*\(?clearImageJob\(e\)/,
     'resumed image completion must durably commit reconciliation before clearing its job');

@@ -682,11 +682,6 @@
             completedIndex,
           );
           await saveSessionMessages(n, i.messages || []);
-          // The image result replacement is the final canonical mutation for
-          // this run. Wait for its snapshot write so an immediate page reload
-          // cannot read the pre-edit image from a still-pending persistence
-          // queue.
-          if (typeof flushSessionSnapshots === "function") await flushSessionSnapshots(n);
           (clearImageJob(n), notifyInterfaceCompleted(), playDoneSound());
         } catch (e) {
           if (e?.terminalJob) clearImageJob(n);

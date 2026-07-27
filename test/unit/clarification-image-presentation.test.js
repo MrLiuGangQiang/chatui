@@ -87,8 +87,10 @@ function testImageClarificationRendersNumberedDurableThumbnails() {
   assert.match(rendered.html, /data-choice-key="c2"/);
   assert.match(rendered.html, /data-persisted-src="indexeddb:\/\/dog-second"/);
   assert.match(rendered.html, /data-persisted-src="indexeddb:\/\/dog-first"/);
-  assert.match(rendered.html, />20260727202021\.png</);
-  assert.match(rendered.html, />20260727201719\.png</);
+  assert.doesNotMatch(rendered.html, /clarification-choice-label/);
+  assert.doesNotMatch(rendered.html, /data-filename/);
+  assert.doesNotMatch(rendered.html, /20260727202021\.png/);
+  assert.doesNotMatch(rendered.html, /20260727201719\.png/);
   assert.doesNotMatch(rendered.html, /\| dog|dog \|/);
   assert.ok(rendered.html.indexOf('data-choice-key="c1"') < rendered.html.indexOf('data-choice-key="c2"'), 'reply 2 must keep mapping to the second structured choice');
 }
@@ -148,6 +150,7 @@ function testRouteCandidateDisplayLabelIsShortAndDeduplicated() {
 function testClarificationListOverridesGlobalMarkdownTableLayout() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/messages.css'), 'utf8');
   assert.match(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*display:grid!important;/s);
+  assert.match(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*grid-template-columns:repeat\(auto-fill,minmax\([^;]+\)\);[^}]*grid-auto-flow:row;/s);
   assert.match(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card\s*\{[^}]*display:grid!important;[^}]*grid-template-columns:[^;]+!important;[^}]*align-items:center!important;[^}]*gap:[^;]+!important;/s);
   assert.match(css, /\.markdown-body \.clarification-image-list>\.clarification-choice-card::before\s*\{[^}]*content:none!important;[^}]*display:none!important;/s);
   assert.match(css, /\.clarification-image-list\s*\{[^}]*padding:0!important;[^}]*list-style:none!important;/s);

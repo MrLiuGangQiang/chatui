@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const clarification = require('../../client/services/clarification-service');
+const routeService = require('../../client/services/route-service');
 
 function ambiguousContract() {
   return {
@@ -122,6 +123,103 @@ function testResolvedInputIsRequiredAndNeverSynthesizedLocally() {
   assert.ok(!/本轮补充|原始任务|追问来源/.test(merged.promptText));
 }
 
+function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
+  const contract = {
+    schema_version: 'task_contract.v5',
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'followup',
+    resources: [],
+    directive: {
+      mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve',
+      operations: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+    },
+    clarification: {
+      question: '请选择要修改的图片。',
+      unresolved_resources: [{
+        key: 'r1', type: 'image', role: 'target', reason: 'ambiguous',
+        choices: [
+          { key: 'c1', source: 'history', index: 1, id: 'grid-a', reference_id: 'grid-ref-a', label: '第一张九宫格图片' },
+          { key: 'c2', source: 'history', index: 2, id: 'grid-b', reference_id: 'grid-ref-b', label: '第二张九宫格图片' },
+        ],
+      }],
+    },
+    confidence: 0.9,
+    review_reasons: [],
+    rationale: 'two image targets remain',
+  };
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '把图片改成红色' }],
+    clarificationText: '请选择要修改的图片。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      clarificationQuestion: '请选择要修改的图片。', taskContract: contract,
+    },
+  });
+  const classifierPayload = clarification.buildContinuationClassifierPayload({
+    model: 'route-model', pending, currentInput: '第二张图改成红色', attachments: [],
+  });
+  assert.match(classifierPayload.messages[0].content, /只能体现在 selections 中/);
+  assert.match(classifierPayload.messages[0].content, /把当前图片改成红色/);
+  assert.doesNotMatch(classifierPayload.response_format.json_schema.schema.properties.resolved_input.description, /第二张图/);
+
+  const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer',
+    confidence: 0.99,
+    resolved_input: '把当前图片改成红色',
+    selections: [{ resource_key: 'r1', choice_key: 'c2' }],
+    should_merge: true,
+    should_clear_pending: true,
+    assistant_reply: '',
+    reason: 'the second external candidate was explicitly selected',
+  }), { pending });
+  assert.ok(decision);
+
+  const merged = clarification.mergePendingInput(pending, {
+    promptText: '第二张图改成红色', resolvedInput: decision.resolvedInput,
+  });
+  const context = clarification.buildClarificationRouteContext({
+    baseContext: {
+      image_candidates: [
+        { index: 1, source: 'history', image_id: 'grid-a', reference_id: 'grid-ref-a' },
+        { index: 2, source: 'history', image_id: 'grid-b', reference_id: 'grid-ref-b' },
+      ],
+    },
+    pending,
+    currentInput: '第二张图改成红色',
+    resolvedInput: merged.promptText,
+    selections: decision.selections,
+  });
+  const routePayload = routeService.buildRoutePayload({
+    model: 'route-model', input: merged.promptText, context,
+  });
+  const routeUserPayload = JSON.parse(routePayload.messages[1].content);
+  assert.strictEqual(routeUserPayload.current_input, '把当前图片改成红色');
+  assert.doesNotMatch(routeUserPayload.current_input, /第二张|第2张/);
+  assert.strictEqual(routeUserPayload.context.clarification_context.selected_choices[0].id, 'grid-b');
+  assert.match(routePayload.messages[0].content, /绝不能解释成图片内部的序号、宫格、图层或空间区域/);
+
+  const selectedRoute = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'route_decision.v1',
+    readiness: 'ready', operation: 'edit_image', relation: 'continuation',
+    bindings: [{ candidate_key: 'i2', role: 'target' }],
+    changes: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'selected external image',
+  }), { input: merged.promptText, attachments: [], context });
+  assert.ok(selectedRoute.route, 'the chosen external image must bind into the executable route');
+  assert.strictEqual(selectedRoute.route.editInstruction, '把当前图片改成红色');
+
+  const droppedSelection = routeService.inspectRouteResult(JSON.stringify({
+    schema_version: 'route_decision.v1',
+    readiness: 'ready', operation: 'edit_image', relation: 'continuation',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [{ op: 'replace', target: '图片颜色', value: '红色' }], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'wrong image',
+  }), { input: merged.promptText, attachments: [], context });
+  assert.strictEqual(droppedSelection.route, null, 'a ready route may not silently discard the explicit image choice');
+}
+
 function testNewTaskMultiIntentAndAssistanceCannotDispatch() {
   const newTask = clarification.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
@@ -174,6 +272,7 @@ module.exports = [
   testContinuationV4UsesOneStrictNonExecutingSchema,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
   testResolvedInputIsRequiredAndNeverSynthesizedLocally,
+  testImageChoiceOrdinalDoesNotReachTheExecutionPrompt,
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
 ];

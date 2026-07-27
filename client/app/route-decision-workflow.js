@@ -223,7 +223,7 @@
         target: 'none',
         intent: 'clarify',
         needClarification: true,
-        clarificationQuestion: '本次未执行：意图模型返回了无效的任务结构。请重试；若持续出现，请更换意图模型。',
+        clarificationQuestion: '\u672c\u6b21\u672a\u6267\u884c\uff1a\u610f\u56fe\u6a21\u578b\u8fd4\u56de\u4e86\u65e0\u6548\u7684\u4efb\u52a1\u7ed3\u6784\u3002\u8bf7\u91cd\u8bd5\uff1b\u82e5\u6301\u7eed\u51fa\u73b0\uff0c\u8bf7\u66f4\u6362\u610f\u56fe\u6a21\u578b\u3002',
         confidence: 0,
         selectedIndexes: [],
         selectedImageIndexes: [],

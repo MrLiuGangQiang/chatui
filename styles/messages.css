@@ -391,7 +391,8 @@
 .clarification-choice-heading{margin:0 0 1px;color:#64748b;font-size:12px;font-weight:650;line-height:1.4;}
 .markdown-body .clarification-image-list{
   display:grid!important;
-  grid-template-columns:minmax(0,1fr);
+  grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+  grid-auto-flow:row;
   gap:7px;
   margin:0!important;
   padding:0!important;
@@ -401,7 +402,7 @@
 }
 .markdown-body .clarification-image-list>.clarification-choice-card{
   display:grid!important;
-  grid-template-columns:28px 104px minmax(0,1fr)!important;
+  grid-template-columns:28px minmax(0,1fr)!important;
   align-items:center!important;
   gap:10px!important;
   min-width:0;
@@ -430,7 +431,7 @@
 .clarification-choice-media{
   display:grid;
   place-items:center;
-  width:104px;
+  width:100%;
   height:72px;
   min-width:0;
   min-height:0;
@@ -440,7 +441,7 @@
   background:#f1f5f9;
 }
 .content .clarification-choice-image{
-  width:104px!important;
+  width:100%!important;
   height:72px!important;
   max-width:none!important;
   max-height:none!important;
@@ -451,13 +452,12 @@
   background:#f1f5f9;
 }
 .clarification-choice-placeholder{display:grid;place-items:center;width:100%;height:100%;padding:8px;color:#94a3b8;font-size:11px;line-height:1.35;text-align:center;}
-.clarification-choice-label{display:block;min-width:0;overflow:hidden;color:#334155;font-size:13px;font-weight:650;line-height:1.45;text-align:left;text-overflow:ellipsis;white-space:nowrap;}
 .clarification-choice-hint{padding-top:1px;color:#64748b;font-size:12px;line-height:1.5;}
 @media (max-width:640px){
   .clarification-presentation{width:min(100%,calc(100vw - 58px));gap:10px;}
-  .markdown-body .clarification-image-list>.clarification-choice-card{grid-template-columns:24px 78px minmax(0,1fr)!important;gap:8px!important;padding:6px 8px 6px 6px!important;}
+  .markdown-body .clarification-image-list{grid-template-columns:repeat(auto-fill,minmax(116px,1fr));}
+  .markdown-body .clarification-image-list>.clarification-choice-card{grid-template-columns:24px minmax(0,1fr)!important;gap:8px!important;padding:6px 8px 6px 6px!important;}
   .clarification-choice-number{width:23px;height:23px;font-size:11px;}
-  .clarification-choice-media{width:78px;height:60px;}
-  .content .clarification-choice-image{width:78px!important;height:60px!important;}
-  .clarification-choice-label{font-size:12px;}
+  .clarification-choice-media{height:60px;}
+  .content .clarification-choice-image{height:60px!important;}
 }

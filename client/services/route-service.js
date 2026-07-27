@@ -15,7 +15,7 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严�
 1. current_input 是本轮指令；resource_candidates 是应用给出的唯一可选资源目录。bindings 只能选择其中的 candidate_key 并赋予语义 role，不能编造 key。current_input 本身是隐式文本，不需要 binding。
 2. attachments 只代表本轮上传；context 只提供明确指代证据。完整独立的新请求不得继承历史。只有“这张、那个文件、基于这个描述、继续、还是不对”等明确指代才选择历史/引用候选。
 3. context.quoted_message 是用户显式引用。引用文字生成图片时必须选择对应 m key，role=context；不能因 text_to_image 不消费图片就丢弃引用消息。“基于这个描述再生成一张图片”是 text_to_image + followup，不是 resources 为空的新任务。relation=followup 不等于必须绑定历史消息：当前指令已明确生成动作和主体时不得选择历史 m key，例如“再画一只狗，换个品种”必须 bindings=[]，不能与“画一只狗”拼接；只有“再生成一张”“基于这个描述再来一张”等缺少主体或明确指向前文的指令才绑定历史消息。
-4. clarification_context.v1 仅是本轮重新判断的证据，不复制 prior_task_contract，不让 continuation classifier 授权执行。
+4. clarification_context.v1 仅是本轮重新判断的证据，不复制 prior_task_contract，不让 continuation classifier 授权执行。selected_choices 是用户对外部候选资源的结构化选择：必须按其稳定身份绑定对应 resource_candidate；候选编号、顺序、标签或文件名仅用于确定资源，绝不能解释成图片内部的序号、宫格、图层或空间区域，也不能成为 changes.target。
 
 上下文边界强制对照（这些是第一次且最终的语义决策，应用不会在本地替你增删 bindings）：
 - recent m1="画一只狗"，current_input="再画一只狗，换个品种"：operation=text_to_image，relation=followup，bindings=[]，changes=[]，readiness=ready。当前句已有动作、数量和主体；“再”只表达另生成一张，不授权继承 m1。
@@ -331,6 +331,33 @@ function hasExactRouteDecision(value = {}) {
   return hasRouteDecisionShape(value);
 }
 
+function selectedChoiceCandidateMatches(candidate = {}, selected = {}) {
+  if (!candidate || !selected || String(candidate.type || '') !== String(selected.type || '')) return false;
+  const candidateId = String(candidate.id || '');
+  const selectedId = String(selected.id || '');
+  const candidateReference = String(candidate.reference_id || '');
+  const selectedReference = String(selected.reference_id || '');
+  const sameId = !!selectedId && !!candidateId && selectedId === candidateId;
+  const sameReference = !!selectedReference && !!candidateReference
+    && selectedReference === candidateReference
+    && Number(candidate.index) === Number(selected.index);
+  const sameSourceIndex = String(candidate.source || '') === String(selected.source || '')
+    && Number(candidate.index) === Number(selected.index);
+  return sameId || sameReference || sameSourceIndex;
+}
+
+function assertSelectedChoicesAreBound(decision = {}, catalog = [], context = {}) {
+  if (decision.readiness !== 'ready') return;
+  const selectedChoices = context?.clarification_context?.selected_choices;
+  if (!Array.isArray(selectedChoices) || !selectedChoices.length) return;
+  for (const selected of selectedChoices) {
+    const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, selected));
+    if (matches.length !== 1 || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key)) {
+      throw new TypeError('A selected clarification resource was not preserved in the ready route');
+    }
+  }
+}
+
 function roleMatchesCandidate(type = '', role = '') {
   if (type === 'file') return role === 'attachment';
   if (type === 'message') return role === 'context';
@@ -348,6 +375,7 @@ function compileRouteDecision(decision = {}, options = {}) {
   if (!hasExactRouteDecision(decision)) throw new TypeError('Invalid route_decision.v1 shape');
   const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || []);
   const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
+  assertSelectedChoicesAreBound(decision, catalog, compilerContext);
   const candidates = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
   const usedCandidateKeys = new Set();
   const resources = decision.bindings.map((binding, index) => {

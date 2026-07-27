@@ -129,10 +129,6 @@
     return label.length > max ? `${label.slice(0, max - 1)}…` : label;
   }
 
-  function choiceLabel(choice = {}, image = null, ordinal = 1) {
-    return compactLabel(imageName(image || {}) || choice.label) || `图片 ${ordinal}`;
-  }
-
   function questionHtml(question = '') {
     return escapeHtml(question).replace(/\r?\n/g, '<br>');
   }
@@ -150,11 +146,10 @@
         const ordinal = choiceIndex + 1;
         const item = resolveChoiceImage(choice, lookup);
         const source = imageSource(item || {});
-        const label = choiceLabel(choice, item, ordinal);
         const media = source
-          ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" data-filename="${escapeHtml(imageName(item || {}) || label)}" alt="候选图片 ${ordinal}：${escapeHtml(label)}" />`
+          ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" alt="候选图片 ${ordinal}" />`
           : `<span class="clarification-choice-placeholder" aria-label="候选图片 ${ordinal} 暂时无法预览">图片暂时无法预览</span>`;
-        return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><span class="clarification-choice-number">${ordinal}</span><div class="clarification-choice-media">${media}</div><span class="clarification-choice-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span></li>`;
+        return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><span class="clarification-choice-number">${ordinal}</span><div class="clarification-choice-media">${media}</div></li>`;
       }).join('');
       const heading = multipleSlots
         ? `<h4 class="clarification-choice-heading">第 ${slotIndex + 1} 组图片</h4>`

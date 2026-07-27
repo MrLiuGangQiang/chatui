@@ -12,6 +12,7 @@
     'unclear',
   ]);
   const MERGE_RELATIONS = new Set(['pending_answer', 'revision', 'continuation']);
+  const RESOLVED_INPUT_DESCRIPTION = '完整自然请求。若 selections 非空，候选编号、顺序、文件名和标签只用于外部资源选择，不得保留在本字段中；应将已选资源表述为“当前图片/当前文件”或省略资源指代，只保留用户要求执行的动作与内容。';
 
   function strictObject(properties) {
     return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
@@ -26,7 +27,7 @@
         schema_version: { type: 'string', const: CONTINUATION_SCHEMA_VERSION },
         relation: { type: 'string', enum: CONTINUATION_RELATIONS },
         confidence: { type: 'number', minimum: 0, maximum: 1 },
-        resolved_input: { type: 'string' },
+        resolved_input: { type: 'string', description: RESOLVED_INPUT_DESCRIPTION },
         selections: {
           type: 'array',
           items: strictObject({
@@ -57,7 +58,9 @@
 5. prior_task_contract 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。对 missing 槽不返回 selection，由后续路由器检查本轮附件。
 6. 如果用户新增、替换或同时上传多个附件，只描述用户明确表达的任务，不判断附件角色，也不把附件数量解释成选择。附件是否满足任务由后续完整路由器决定。
 7. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
-  const CONTINUATION_SINGLE_IMAGE_GUIDANCE = `图片 target 的 ambiguous 槽一次只能选择一个 choice。用户回答“全部”“都要”或同时指定多个编号时，不得返回 selection，也不得合并执行；返回 pending_assistance，assistant_reply 明确说明一次只能选择一张图片并请用户回复一个编号。`;
+  const CONTINUATION_SINGLE_IMAGE_GUIDANCE = `图片 target 的 ambiguous 槽一次只能选择一个 choice。用户回答“全部”“都要”或同时指定多个编号时，不得返回 selection，也不得合并执行；返回 pending_assistance，assistant_reply 明确说明一次只能选择一张图片并请用户回复一个编号。
+
+资源选择与执行指令必须正交：编号、顺序、候选标签、文件名以及“左边/右边那张”等仅用于回答候选选择问题时，只能体现在 selections 中，绝不能继续出现在 resolved_input 里，否则图片模型可能把它误解为图片内部区域。resolved_input 应把已经结构化选定的外部资源称为“当前图片/当前文件”或直接省略该指代，只保留实际动作和内容变化。例如 pending.base_task="把图片改成红色"、current_input="第二张图改成红色" 且选择第二个 choice 时，必须输出 resolved_input="把当前图片改成红色"，不能输出“把第二张图改成红色”。`;
 
   function textOfMessage(message = {}) {
     return String(message.rawText || message.content || '').trim();

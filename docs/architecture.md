@@ -11,6 +11,8 @@ ChatUI deliberately keeps a small set of browser entry assets at the repository 
 
 These files are part of the public static-file contract. Moving or renaming one requires coordinated changes to `index.html`, `server/http/static.js`, the Dockerfile, and tests. `scripts/check-project.js` protects this contract. The static server derives content-addressed revisions for the top-level JS/CSS bundles when it renders `index.html`; bundle URLs therefore change automatically whenever a bundled source file changes.
 
+The primary JavaScript bundle contains the application and the Markdown parser core. Large optional rendering runtimes such as KaTeX and highlight.js remain self-hosted under `vendor/` and are loaded by the Markdown dependency loader during bootstrap. Keeping them out of `chatui.bundle.js` reduces the main script's download and parse unit without introducing a CDN dependency.
+
 ## Application layers
 
 | Area | Responsibility |

@@ -38,22 +38,40 @@
         : job?.data;
     }
 
+    function placeCompletedImageNode(node, responseIndex) {
+      if (!node || !Number.isFinite(Number(responseIndex))) return node || null;
+      if (typeof deps.insertMessageNodeAtDisplayPosition === "function") {
+        return deps.insertMessageNodeAtDisplayPosition(node, {
+          role: "assistant",
+          responseIndex,
+        });
+      }
+      const sharedInsert = root?.ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition;
+      return typeof sharedInsert === "function" && node.parentNode
+        ? sharedInsert(node.parentNode, node, {
+            role: "assistant",
+            responseIndex,
+          })
+        : node;
+    }
+
     async function resumeImageJob(sessionId = deps.state.activeSessionId) {
       const e = sessionId;
       with (deps) {
-        const t = `image:${e}`;
-        if (state.resumingJobs.has(t)) return;
-        state.resumingJobs.add(t);
+        const resumeKey = `image:${e}`;
+        if (state.resumingJobs.has(resumeKey)) return;
+        state.resumingJobs.add(resumeKey);
         let outerJob = null,
           ownsFollower = !1;
         try {
           const s = (outerJob = loadImageJob(e));
-          if (!s?.id) return void finishSessionTask(e, { resumeKey: t });
+          if (!s?.id)
+            return void finishSessionTask(e, { resumeKey });
           const n = state.sessions.find((t) => t.id === e);
           if (!n)
             return (
               clearImageJob(e),
-              void finishSessionTask(e, { resumeKey: t })
+              void finishSessionTask(e, { resumeKey })
             );
           if (
             hasSuccessfulImageResult(
@@ -72,29 +90,40 @@
                 submissionId: s.submissionId || "",
                 jobId: s.id,
                 jobKind: "image",
-                resumeKey: t,
+                resumeKey,
               })
             );
-          if (isFollowingImageJob(s.id)) {
+          const activeRun = state.activeRuns?.get(e),
+            hasLiveRun = !!(
+              activeRun &&
+              !activeRun.stopped &&
+              activeRun.abortController?.signal?.aborted !== !0 &&
+              activeRun.jobIds?.has(`image:${s.id}`)
+            );
+          // The in-memory run is the authoritative follower owner. The legacy
+          // Set is only a projection and may be temporarily stale while a
+          // session is detached/rebound. Starting recovery in that window
+          // creates a second timer and a second job follower for the same UI.
+          if (isFollowingImageJob(s.id) || hasLiveRun) {
             window.ChatUIApp?.runs?.bindFollowingRun
               ? window.ChatUIApp.runs.bindFollowingRun(state, e, s.id, "image")
               : addActiveRunJob(e, "image", s.id);
-            const t =
+            const displayItem =
               (s.displayItemId &&
                 (n.display || []).find((e) => e.id === s.displayItemId)) ||
               findImageDisplayItemByJob(n, s) ||
               null;
             if (
-              (t &&
-                ((t.jobId = s.id || t.jobId || ""),
+              (displayItem &&
+                ((displayItem.jobId = s.id || displayItem.jobId || ""),
                 void 0 !== s.responseIndex &&
                   null !== s.responseIndex &&
-                  (t.responseIndex = String(s.responseIndex)),
+                  (displayItem.responseIndex = String(s.responseIndex)),
                 persistSessionDisplay(e)),
               setSessionBusy(e, !0),
               e === state.activeSessionId)
             ) {
-              const n = findMessageNodeByDisplayItem(t);
+              const n = findMessageNodeByDisplayItem(displayItem);
               n &&
                 ((n.dataset.streaming = "1"),
                 (n.dataset.streamKind = "image"),
@@ -106,7 +135,7 @@
                 }),
                 updateResumeStreamButton());
             }
-            return void state.resumingJobs.delete(t);
+            return void state.resumingJobs.delete(resumeKey);
           }
           state.followingImageJobs.add(s.id);
           ownsFollower = !0;
@@ -295,7 +324,9 @@
                 (i.jobId = s.id || i.jobId || ""),
                 persistSessionDisplay(e));
               const t = findMessageNodeByDisplayItem(i);
-              t && (t.dataset.responseIndex = String(m));
+              t &&
+                ((t.dataset.responseIndex = String(m)),
+                placeCompletedImageNode(t, m));
             }
             reconcileSuccessfulImageResult(e, i, s, m);
             const completedSession = state.sessions.find((t) => t.id === e);
@@ -322,7 +353,7 @@
                 addMessage("error", s, { rawText: s }));
           } finally {
             const options = {
-              resumeKey: t,
+              resumeKey,
               followingKind: "image",
               jobId: s?.id || "",
               timer: d,
@@ -338,7 +369,7 @@
               : finishSessionTask(e, options);
           }
         } finally {
-          const orphanedResume = state.resumingJobs.has(t),
+          const orphanedResume = state.resumingJobs.has(resumeKey),
             orphanedFollower = !!(
               ownsFollower &&
               outerJob?.id &&
@@ -346,7 +377,7 @@
             );
           (orphanedResume || orphanedFollower) &&
             finishSessionTask(e, {
-              resumeKey: t,
+              resumeKey,
               followingKind: "image",
               jobId: outerJob?.id || "",
             });

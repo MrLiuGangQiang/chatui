@@ -78,7 +78,21 @@ function testStaticBundleHelpersBuildExpectedBodyAndMetadata() {
   });
 }
 
+function testHeavyMarkdownEnhancementsAreDeferredFromPrimaryBundle() {
+  assert.deepStrictEqual(staticBundle.DEFERRED_MARKDOWN_SCRIPT_PATHS, [
+    '/vendor/highlight-common.min.js',
+    '/vendor/katex.min.js',
+  ]);
+  for (const asset of staticBundle.DEFERRED_MARKDOWN_SCRIPT_PATHS) {
+    assert.ok(!staticBundle.MARKDOWN_CORE_SCRIPT_PATHS.includes(asset), `${asset} must not be concatenated into chatui.bundle.js`);
+  }
+  const loader = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/dependency-loader.js'), 'utf8');
+  assert.match(loader, /local: '\.\/vendor\/highlight-common\.min\.js'/, 'highlight.js must remain available from the self-hosted dependency loader');
+  assert.match(loader, /local: '\.\/vendor\/katex\.min\.js'/, 'KaTeX must remain available from the self-hosted dependency loader');
+}
+
 module.exports = [
   testStaticBundleManifestParsesLocalEntriesOnly,
   testStaticBundleHelpersBuildExpectedBodyAndMetadata,
+  testHeavyMarkdownEnhancementsAreDeferredFromPrimaryBundle,
 ];

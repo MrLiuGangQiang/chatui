@@ -24,6 +24,13 @@ const MARKDOWN_CORE_SCRIPT_PATHS = Object.freeze([
   '/vendor/markdown-it-plugins/markdown-it-mark.min.js',
   '/vendor/markdown-it-plugins/markdown-it-sub.min.js',
   '/vendor/markdown-it-plugins/markdown-it-sup.min.js',
+]);
+// These large enhancement runtimes are intentionally not concatenated into the
+// primary application bundle. The browser dependency loader fetches the same
+// self-hosted files during Markdown bootstrap, so code highlighting and math
+// rendering keep their existing behavior without making every browser parse
+// them as part of chatui.bundle.js.
+const DEFERRED_MARKDOWN_SCRIPT_PATHS = Object.freeze([
   '/vendor/highlight-common.min.js',
   '/vendor/katex.min.js',
 ]);
@@ -156,6 +163,7 @@ module.exports = {
   BUNDLE_PATHS,
   BUNDLE_VERSION,
   MARKDOWN_CORE_SCRIPT_PATHS,
+  DEFERRED_MARKDOWN_SCRIPT_PATHS,
   parseAssetManifest,
   resolveBundleEntry,
   bundleMetadata,

@@ -57,14 +57,14 @@
     function bindBackupControls(){
       if(backupControlsBound)return;
       const backupApi=root?.ChatUIApp?.appContext?.getWorkflowModule?.("backup");
-      const exportButton=getElement("exportBackupBtn"),fileInput=getElement("importBackupFile"),includeSecretsInput=getElement("includeBackupSecrets"),status=getElement("backupTransferStatus");
+      const exportButton=getElement("exportBackupBtn"),fileInput=getElement("importBackupFile"),status=getElement("backupTransferStatus");
       if(!backupApi?.createBackupWorkflow||!exportButton||!fileInput||typeof root?.getSessionDisplayWorkflow!=="function")return;
       backupControlsBound=true;
       const commitSession=session=>root.getSessionDisplayWorkflow().commitSession(session);
       const backup=backupApi.createBackupWorkflow({state,localStorage,document,window,CONFIG_KEY,isSessionBusy,clearSessionSnapshots:root.clearSessionSnapshots,commitSession,flushSessionSnapshots:root.flushSessionSnapshots,collectIndexedDbKeys:root.collectIndexedDbKeys,getImageBlob:root.getImageBlob,putImageBlob:root.putImageBlob,clearImageDb:root.clearImageDb,dataUrlToBlob:root.dataUrlToBlob,saveSessionsMeta,toast});
       const showStatus=(message,type="")=>{if(status){status.textContent=message;status.dataset.status=type}else toast?.(message)};
       const reportError=error=>{const message=error?.message||"备份操作失败，请重试";showStatus(message,"error");toast?.(message)};
-      exportButton.addEventListener("click",()=>{showStatus("正在生成备份…","pending");const includeSecrets=includeSecretsInput?.checked===true;return Promise.resolve(backup.downloadBackup({includeSecrets})).then(archive=>{const count=Number(archive?.media?.length)||0;showStatus(count?`备份已导出，包含 ${count} 个附件或图片`:"备份已导出，请妥善保管文件","success")}).catch(reportError)});
+      exportButton.addEventListener("click",()=>{showStatus("正在生成备份…","pending");return Promise.resolve(backup.downloadBackup()).then(archive=>{const count=Number(archive?.media?.length)||0;showStatus(count?`备份已导出，包含 ${count} 个附件或图片`:"备份已导出，请妥善保管文件","success")}).catch(reportError)});
       fileInput.addEventListener("change",async event=>{try{showStatus("正在读取备份…","pending");const restored=await backup.importBackupFile(event.target?.files?.[0]);if(!restored)showStatus("已取消导入","neutral")}catch(error){reportError(error)}finally{event.target.value=""}});
     }
 

@@ -2854,7 +2854,7 @@ function testConfigBaseUrlDefault() {
   assert.ok(configSource.includes('getElement("baseUrl").value=t.baseUrl||defaults.baseUrl'), 'loadConfig should restore the saved Endpoint field and use the default only when storage is empty');
   assert.ok(configSource.includes(String.raw`baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, "")`) && configSource.includes('getElement("baseUrl").readOnly=!1'), 'config workflow should submit the editable Endpoint Base URL after removing a trailing slash');
   assert.ok(index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" />') && !index.includes('id="baseUrl" value="https://ingress.lfans.cn/v1" readonly'), 'settings UI should allow users to edit Endpoint Base URL');
-  assert.ok(index.includes('config-workflow.js?v=1.2.77-backup-secrets-opt-in'), 'config workflow changes should bump browser cache-busting version');
+  assert.ok(index.includes('config-workflow.js?v=1.2.78-secret-free-backup'), 'config workflow changes should bump browser cache-busting version');
 
   const values = new Map([['config', JSON.stringify({ baseUrl: 'https://gateway.example/v1/' })]]);
   const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };
@@ -2884,7 +2884,7 @@ function testConfigCopyButtonsForBaseUrlAndApiKey() {
   assert.ok(bootstrapSource.includes('$("copyBaseUrlBtn")?.addEventListener("click",()=>copyConfigField("baseUrl"))') && bootstrapSource.includes('$("copyApiKeyBtn")?.addEventListener("click",()=>copyConfigField("apiKey"))'), 'bootstrap should bind config copy buttons');
   assert.ok(app.includes('function copyConfigField(...args)') && app.includes('copyConfigField:copyConfigField'), 'legacy app bundle path should expose config copy action to bootstrap workflow');
   assert.ok(flatCss.includes('.config-field-actions') && flatCss.includes('.config-copy-btn') && flatCss.includes('.secret-field input') && flatCss.includes('Final config layout') && flatCss.includes('padding-right: 88px !important') && flatCss.includes('right: 43px !important') && flatCss.includes('right: 7px !important'), 'flat theme should keep URL and API-key copy icons inside inputs, with the API-key visibility icon beside copy');
-  assert.ok(index.includes('config-workflow.js?v=1.2.77-backup-secrets-opt-in') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'config copy UI changes should bump browser cache versions');
+  assert.ok(index.includes('config-workflow.js?v=1.2.78-secret-free-backup') && index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'config copy UI changes should bump browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match config copy cache-busting');
 }
 

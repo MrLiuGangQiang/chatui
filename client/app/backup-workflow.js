@@ -2,9 +2,10 @@
   'use strict';
 
   const BACKUP_FORMAT = 'chatui-backup';
-  const BACKUP_VERSION = 3;
+  const BACKUP_VERSION = 4;
   const PORTABLE_MEDIA_VERSION = 2;
-  const SUPPORTED_BACKUP_VERSIONS = new Set([1, PORTABLE_MEDIA_VERSION, BACKUP_VERSION]);
+  const SECRETS_OPT_IN_VERSION = 3;
+  const SUPPORTED_BACKUP_VERSIONS = new Set([1, PORTABLE_MEDIA_VERSION, SECRETS_OPT_IN_VERSION, BACKUP_VERSION]);
   // Media is encoded in the JSON archive, so allow normal image/file backups
   // while still bounding a malformed import before it is read into memory.
   const MAX_BACKUP_FILE_BYTES = 200 * 1024 * 1024;
@@ -31,20 +32,16 @@
     return `chatui-backup-${now.getFullYear()}${safeDatePart(now.getMonth() + 1)}${safeDatePart(now.getDate())}-${safeDatePart(now.getHours())}${safeDatePart(now.getMinutes())}${safeDatePart(now.getSeconds())}.json`;
   }
 
-  function normalizeBackupConfig(value, { includeSecrets = true } = {}) {
+  function normalizeBackupConfig(value) {
     if (!isRecord(value)) return {};
     const config = cloneJson(value, {});
     if (!isRecord(config)) return {};
     delete config.apiKey;
     delete config.context;
-    if (!includeSecrets && Array.isArray(config.headerParams)) {
+    if (Array.isArray(config.headerParams)) {
       config.headerParams = config.headerParams.map(item => isRecord(item) ? { ...item, value: '' } : item);
     }
     return config;
-  }
-
-  function normalizeHeaderValues(value) {
-    return isRecord(value) ? cloneJson(value, {}) : {};
   }
 
   function normalizeMediaKey(value, index = 0) {
@@ -75,7 +72,7 @@
     });
   }
 
-  function normalizeImportedSession(value, index = 0, { includeHeaderValues = true } = {}) {
+  function normalizeImportedSession(value, index = 0) {
     if (!isRecord(value)) throw new Error(`第 ${index + 1} 个会话格式不正确`);
     const id = asText(value.id).trim();
     if (!id || id.length > 200) throw new Error(`第 ${index + 1} 个会话缺少有效 ID`);
@@ -91,7 +88,7 @@
       imageStylePrompt: asText(value.imageStylePrompt),
       hasImageStylePromptOverride: !!value.hasImageStylePromptOverride,
       chatModel: asText(value.chatModel),
-      headerValues: includeHeaderValues ? normalizeHeaderValues(value.headerValues) : {},
+      headerValues: {},
       promptDraft: asText(value.promptDraft).slice(0, 20000),
       reasoningMode: value.reasoningMode === undefined || value.reasoningMode === null ? undefined : !!value.reasoningMode,
       reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(value.reasoningType) ? value.reasoningType : '',
@@ -113,22 +110,9 @@
     const values = legacy
       ? (isRecord(backup.config) ? backup.config : isRecord(backup.settings) ? backup.settings : configured.values)
       : configured.values;
-    const apiKey = configured.apiKey ?? backup.apiKey ?? (isRecord(values) ? values.apiKey : '');
     return {
       values: normalizeBackupConfig(values),
-      apiKey: asText(apiKey).trim(),
     };
-  }
-
-  function configurationContainsSecrets(configuration = {}) {
-    if (asText(configuration.apiKey).trim()) return true;
-    const headerParams = configuration.values?.headerParams;
-    return Array.isArray(headerParams) && headerParams.some(item => isRecord(item) && asText(item.value).trim());
-  }
-
-  function sessionsContainHeaderValues(sessions = []) {
-    return sessions.some(session => isRecord(session?.headerValues)
-      && Object.values(session.headerValues).some(value => asText(value).trim()));
   }
 
   function normalizeBackup(backup) {
@@ -172,25 +156,20 @@
       sessions,
       activeSessionId: sessionIds.has(requestedActiveId) ? requestedActiveId : sessions[0].id,
       media,
-      includesSecrets: backup.includesSecrets === true
-        || configurationContainsSecrets(configuration)
-        || sessionsContainHeaderValues(sessions),
     };
   }
 
-  function createBackupArchive({ config = {}, sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [], includeSecrets = false } = {}) {
-    const normalizedSessions = sessions.map((session, index) => normalizeImportedSession(session, index, { includeHeaderValues: includeSecrets }));
+  function createBackupArchive({ config = {}, sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [] } = {}) {
+    const normalizedSessions = sessions.map((session, index) => normalizeImportedSession(session, index));
     if (!normalizedSessions.length) throw new Error('当前没有可导出的会话');
     const activeId = normalizedSessions.some(session => session.id === activeSessionId) ? activeSessionId : normalizedSessions[0].id;
     const configuration = {
-      values: normalizeBackupConfig(config, { includeSecrets }),
-      apiKey: includeSecrets ? asText(config.apiKey).trim() : '',
+      values: normalizeBackupConfig(config),
     };
     return {
       format: BACKUP_FORMAT,
       version: BACKUP_VERSION,
       exportedAt,
-      includesSecrets: configurationContainsSecrets(configuration) || sessionsContainHeaderValues(normalizedSessions),
       configuration,
       sessions: normalizedSessions,
       activeSessionId: activeId,
@@ -211,7 +190,6 @@
     const windowRef = deps.window || root?.window || root;
     const documentRef = deps.document || root?.document;
     const configKey = deps.CONFIG_KEY || 'openapi-chat-image-config-v2';
-    const apiKeyStorageKey = `${configKey}:api-key`;
     const isSessionBusy = deps.isSessionBusy || (() => false);
     const clearSessionSnapshots = deps.clearSessionSnapshots || (async () => {});
     const commitSession = deps.commitSession || (async () => {});
@@ -237,9 +215,7 @@
         const parsed = raw ? JSON.parse(raw) : {};
         stored = isRecord(parsed) ? parsed : {};
       } catch {}
-      let apiKey = '';
-      try { apiKey = asText(storage?.getItem?.(apiKeyStorageKey)).trim(); } catch {}
-      return { ...stored, apiKey };
+      return stored;
     }
 
     function assertNoRunningTasks() {
@@ -272,7 +248,7 @@
       return media;
     }
 
-    async function buildBackup({ includeSecrets = false } = {}) {
+    async function buildBackup() {
       await flushSessionSnapshots();
       const sessions = state.sessions || [];
       return createBackupArchive({
@@ -280,12 +256,11 @@
         sessions,
         activeSessionId: state.activeSessionId,
         media: await buildBackupMedia(sessions),
-        includeSecrets,
       });
     }
 
-    async function downloadBackup({ includeSecrets = false } = {}) {
-      const archive = await buildBackup({ includeSecrets });
+    async function downloadBackup() {
+      const archive = await buildBackup();
       const contents = `${JSON.stringify(archive, null, 2)}\n`;
       if (utf8ByteLength(contents) > MAX_BACKUP_FILE_BYTES) {
         throw new Error('备份文件超过 200 MB，请减少附件或图片后再导出');
@@ -306,9 +281,19 @@
     }
 
     function writeImportedConfig(configuration) {
-      storage?.setItem?.(configKey, JSON.stringify(normalizeBackupConfig(configuration.values)));
-      if (configuration.apiKey) storage?.setItem?.(apiKeyStorageKey, configuration.apiKey);
-      else storage?.removeItem?.(apiKeyStorageKey);
+      const currentValues = readStoredConfig();
+      const localHeaderValues = new Map((Array.isArray(currentValues.headerParams) ? currentValues.headerParams : [])
+        .filter(isRecord)
+        .map(item => [`${asText(item.name).trim()}\u0000${asText(item.mode).trim()}`, asText(item.value)]));
+      const importedValues = normalizeBackupConfig(configuration.values);
+      if (Array.isArray(importedValues.headerParams)) {
+        importedValues.headerParams = importedValues.headerParams.map(item => {
+          if (!isRecord(item)) return item;
+          const key = `${asText(item.name).trim()}\u0000${asText(item.mode).trim()}`;
+          return { ...item, value: localHeaderValues.get(key) || '' };
+        });
+      }
+      storage?.setItem?.(configKey, JSON.stringify(importedValues));
     }
 
     async function restoreBackup(backup) {
@@ -375,8 +360,7 @@
 
     async function importBackupFile(file) {
       const backup = await readImportFile(file);
-      const secretNotice = backup.includesSecrets ? '，且备份文件包含 API Key 或自定义 Header 明文' : '';
-      const accepted = windowRef?.confirm?.(`导入会覆盖当前浏览器中的所有聊天记录和模型配置${secretNotice}。确认继续吗？`);
+      const accepted = windowRef?.confirm?.('导入会覆盖当前浏览器中的所有聊天记录和模型配置，但会保留本机 API Key 和同名自定义 Header 值。确认继续吗？');
       if (!accepted) return false;
       const restored = await restoreBackup(backup);
       const mediaText = restored.restoredMediaCount ? `，已恢复 ${restored.restoredMediaCount} 个附件或图片` : '';

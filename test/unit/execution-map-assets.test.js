@@ -16,7 +16,7 @@ function testExecutionMapAssetsShipTogether() {
     assert.ok(formatting.includes(label), `missing execution map step: ${label}`);
   }
   assert.ok(styles.includes('[data-execution-map]') && styles.includes('.pending-map-step.active'), 'root styles must include execution map layout and active-state styling');
-  assert.ok(index.includes('styles.css?v=1.3.3-execution-map'), 'the root stylesheet cache version must include the execution map release');
+  assert.ok(index.includes('styles.css?v=1.3.4-execution-map-compact-secret-free-backup'), 'the root stylesheet cache version must include the execution map and compact backup release');
   assert.ok(index.includes('formatting.js?v=1.2.69-execution-map'), 'the formatting module cache version must include the execution map release');
 }
 

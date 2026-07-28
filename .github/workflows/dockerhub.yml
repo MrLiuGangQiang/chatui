@@ -71,7 +71,7 @@ jobs:
   docker-publish:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -132,4 +132,3 @@ jobs:
             ${{ steps.meta-dockerhub.outputs.labels }}
             ${{ steps.meta-acr.outputs.labels }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
-          cache-to: type=gha,scope=${{ env.IMAGE_NAME }},mode=max

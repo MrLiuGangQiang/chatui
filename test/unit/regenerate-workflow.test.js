@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 require('../../client/app/app-context');
 const taskState = require('../../client/core/task-state');
+const clarification = require('../../client/services/clarification-service');
+require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
 
 function makeMessageNode() {
@@ -130,9 +132,91 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
 }
 
+async function testRegeneratingClarificationReplaysPendingContractWithoutRerouting() {
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '换一下猫的姿势' }],
+    clarificationText: '请选择要修改的猫图。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', needClarification: true,
+      clarificationQuestion: '请选择要修改的猫图。',
+      clarificationSlots: [{
+        key: 'r1', type: 'image', role: 'target', reason: 'ambiguous',
+        choices: [
+          { key: 'c1', source: 'history', index: 1, id: 'cat-a', reference_id: 'cats', label: '猫 1' },
+          { key: 'c2', source: 'history', index: 2, id: 'cat-b', reference_id: 'cats', label: '猫 2' },
+        ],
+      }],
+    },
+  });
+  const legacyPending = { ...pending };
+  delete legacyPending.id;
+  const userNode = { dataset: { rawText: '换一下猫的姿势', messageIndex: '0' } };
+  const contentNode = { textContent: '' };
+  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
+  const liveItem = { id: 'display-clarification', role: 'assistant', responseIndex: '1' };
+  const assistantNode = {
+    dataset: { rawText: pending.clarificationText, responseIndex: '1', displayItemId: liveItem.id },
+    __displayItem: liveItem,
+    isConnected: true,
+    querySelector(selector) {
+      if (selector === '.refresh-btn') return refreshButton;
+      if (selector === '.content') return contentNode;
+      return null;
+    },
+    querySelectorAll() { return []; },
+  };
+  const state = {
+    activeSessionId: 'session-clarification',
+    messages: [
+      { role: 'user', content: '换一下猫的姿势', rawText: '换一下猫的姿势', messageIndex: '0' },
+      { role: 'assistant', content: pending.clarificationText, rawText: pending.clarificationText, responseIndex: '1' },
+    ],
+    sessions: [{ id: 'session-clarification', pendingClarification: legacyPending, display: [liveItem], messages: [] }],
+  };
+  state.sessions[0].messages = state.messages.slice();
+  let prepareCalls = 0;
+  let routeCalls = 0;
+  let rendered = null;
+  const previous = {
+    updateMessage: global.updateMessage,
+    persistSessionDisplay: global.persistSessionDisplay,
+    saveSessionMessages: global.saveSessionMessages,
+    saveSessionsMeta: global.saveSessionsMeta,
+  };
+  global.updateMessage = (node, value, options) => { rendered = { node, value, options }; };
+  global.persistSessionDisplay = () => {};
+  global.saveSessionMessages = () => {};
+  global.saveSessionsMeta = () => {};
+  try {
+    const workflow = regenerateWorkflow.createRegenerateWorkflow({
+      state,
+      isSessionBusy: () => false,
+      findPreviousUserMessageNode: () => userNode,
+      toast: () => {},
+      resetMessageActionStates: () => {},
+      prepareRegeneratedResponse: () => { prepareCalls += 1; return {}; },
+      createRouteRecognitionUi: () => { routeCalls += 1; return {}; },
+    });
+    await workflow.regenerateAssistantMessage(assistantNode);
+    await workflow.regenerateAssistantMessage(assistantNode);
+  } finally {
+    global.updateMessage = previous.updateMessage;
+    global.persistSessionDisplay = previous.persistSessionDisplay;
+    global.saveSessionMessages = previous.saveSessionMessages;
+    global.saveSessionsMeta = previous.saveSessionsMeta;
+  }
+
+  assert.strictEqual(prepareCalls, 0, 'replaying a clarification must not replace it with a generic routing placeholder');
+  assert.strictEqual(routeCalls, 0, 'replaying a persisted clarification must not ask the route model to guess the task again');
+  assert.ok(rendered?.value.includes('clarification-choice-card'));
+  assert.ok(state.messages[1].clarificationId, 'legacy clarification messages must be upgraded with a stable identity');
+  assert.strictEqual(state.sessions[0].pendingClarification.id, state.messages[1].clarificationId);
+}
+
 module.exports = [
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
   testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal,
   testRegenerateReusesSubmitResourceAndClarificationSemantics,
+  testRegeneratingClarificationReplaysPendingContractWithoutRerouting,
 ];

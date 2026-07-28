@@ -23,7 +23,7 @@
     return label;
   }
 
-  async function loadAppVersion({ fetchImpl = fetch, setVersion = setDisplayedVersion, fallback = '1.1.1', runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService } = {}) {
+  async function loadAppVersion({ fetchImpl = fetch, setVersion = setDisplayedVersion, fallback = '', runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService } = {}) {
     try {
       const version = runtimeService?.requestAppVersion
         ? await runtimeService.requestAppVersion({ fetchImpl })

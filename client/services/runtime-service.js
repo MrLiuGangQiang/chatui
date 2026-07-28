@@ -8,9 +8,7 @@
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
     const version = String(payload?.version || '').trim();
-    const gitSha = String(payload?.gitSha || '').trim();
-    if (!version || !gitSha || gitSha === 'unknown') return version;
-    return `${version}+${gitSha.slice(0, 8)}${payload?.dirty ? '.dirty' : ''}`;
+    return version;
   }
 
   const api = Object.freeze({ requestAppVersion });

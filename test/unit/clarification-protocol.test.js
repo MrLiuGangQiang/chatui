@@ -403,6 +403,33 @@ function testClarificationContextPreservesCurrentQuotedAndPriorSources() {
   assert.strictEqual(context.quoted_message.id, 'quoted-message');
 }
 
+function testPendingClarificationCanReplayItsPersistedContract() {
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '换一下猫的姿势' }],
+    clarificationText: '请选择要修改的猫图。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', needClarification: true,
+      clarificationQuestion: '请选择要修改的猫图。',
+      taskContract: ambiguousContract(),
+    },
+  });
+  const message = {
+    role: 'assistant', content: pending.clarificationText,
+    clarificationId: pending.id,
+  };
+  assert.strictEqual(clarification.matchesPendingClarificationMessage(pending, {
+    message, userText: '换一下猫的姿势',
+  }), true);
+  assert.strictEqual(clarification.matchesPendingClarificationMessage(pending, {
+    message: { ...message, clarificationId: 'another-pending' }, userText: '换一下猫的姿势',
+  }), false);
+
+  const replayRoute = clarification.pendingClarificationRouteInfo(pending);
+  assert.strictEqual(replayRoute.needClarification, true);
+  assert.strictEqual(replayRoute.clarificationQuestion, pending.clarificationText);
+  assert.deepStrictEqual(replayRoute.clarificationSlots, ambiguousContract().clarification.unresolved_resources);
+}
+
 module.exports = [
   testContinuationV5UsesOneStrictNonExecutingSchema,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
@@ -411,4 +438,5 @@ module.exports = [
   testModelContinuationSupportsPartialClarificationAnswers,
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
+  testPendingClarificationCanReplayItsPersistedContract,
 ];

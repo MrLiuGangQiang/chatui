@@ -79,6 +79,7 @@
 
   function compactRouteInfo(routeInfo = null) {
     if (!routeInfo || typeof routeInfo !== 'object' || Array.isArray(routeInfo)) return null;
+    const contractSlots = routeInfo.taskContract?.clarification?.unresolved_resources;
     return {
       mode: String(routeInfo.mode || ''),
       api: String(routeInfo.api || ''),
@@ -87,12 +88,44 @@
       readiness: String(routeInfo.readiness || ''),
       needClarification: routeInfo.needClarification === true,
       clarificationQuestion: String(routeInfo.clarificationQuestion || ''),
+      clarificationSlots: Array.isArray(routeInfo.clarificationSlots)
+        ? routeInfo.clarificationSlots
+        : Array.isArray(contractSlots) ? contractSlots : [],
       taskContract: routeInfo.taskContract && typeof routeInfo.taskContract === 'object'
         ? routeInfo.taskContract
         : null,
       clarificationDegraded: routeInfo.clarificationDegraded === true,
       requiresRerouteAfterClarification: routeInfo.requiresRerouteAfterClarification === true,
     };
+  }
+
+  function pendingClarificationRouteInfo(value = null) {
+    const pending = normalizePendingClarification(value);
+    if (!pending) return null;
+    const routeInfo = pending.routeInfo || {};
+    const contractSlots = routeInfo.taskContract?.clarification?.unresolved_resources;
+    return {
+      ...routeInfo,
+      needClarification: true,
+      clarificationQuestion: pending.clarificationText
+        || routeInfo.clarificationQuestion
+        || routeInfo.taskContract?.clarification?.question
+        || '',
+      clarificationSlots: Array.isArray(routeInfo.clarificationSlots) && routeInfo.clarificationSlots.length
+        ? routeInfo.clarificationSlots
+        : Array.isArray(contractSlots) ? contractSlots : [],
+    };
+  }
+
+  function matchesPendingClarificationMessage(value = null, { message = null, userText = '' } = {}) {
+    const pending = normalizePendingClarification(value);
+    if (!pending || !message || message.role !== 'assistant') return false;
+    const messageClarificationId = String(message.clarificationId || message.clarification_id || '').trim();
+    if (messageClarificationId) return messageClarificationId === pending.id;
+    const messageText = textOfMessage(message);
+    return !!messageText
+      && messageText === pending.clarificationText
+      && String(userText || '').trim() === pending.originalText;
   }
 
   function normalizePendingClarification(value = null) {
@@ -475,6 +508,8 @@
     parseContinuationClassifierResult,
     normalizePendingClarification,
     createPendingClarification,
+    pendingClarificationRouteInfo,
+    matchesPendingClarificationMessage,
     mergePendingInput,
     retainPendingAfterAssistance,
     buildClarificationRouteContext,

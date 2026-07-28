@@ -37,7 +37,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.4.3-continuation-repair'),
+    index.includes('submit-workflow.js?v=1.4.4-clarification-identity'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');

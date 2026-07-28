@@ -299,11 +299,13 @@
                 quotedImageContext:quotedImageContext||null,
               })||{rawText:e,html:"",hasImageChoices:!1};
               const clarificationHtml=String(presentation.html||""),displayContent=clarificationHtml||e;
-              const t={role:"assistant",content:e,rawText:e,responseIndex,...clarificationHtml?{html:clarificationHtml}:{}};
-              typeof updateMessage==="function"&&assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,displayContent,{html:!!clarificationHtml,rawText:e,responseIndex}));
-              liveItem&&(delete liveItem.jobId,typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",displayContent,{html:!!clarificationHtml,rawText:e,pending:!1,responseIndex}):(liveItem.content=e,liveItem.rawText=e,liveItem.html=clarificationHtml,liveItem.pending=!1,persistSessionDisplay(sessionId)));
-              if(isTargetActive()){state.messages.push(t);sessionForReply.messages=cloneMessageList(state.messages)}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),t]);
               const createdPending=pendingMerge?.merged?clarification.normalizePendingClarification?.({...pendingMerge.pending,originalText:effectivePromptText,clarificationText:e,routeInfo,updatedAt:Date.now()}):clarification.createPendingClarification?.({messages:sessionForReply.messages||targetSession.messages||state.messages||[],clarificationText:e,routeInfo,sourceImageContext:imageContext||null,sourceAttachmentContext:attachmentContext||null,sourceQuoteContext:quoteContext||null});
+              const clarificationId=!routeInfo.localClarification?String(createdPending?.id||""):"";
+              const t={role:"assistant",content:e,rawText:e,responseIndex,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{}};
+              typeof updateMessage==="function"&&assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,displayContent,{html:!!clarificationHtml,rawText:e,responseIndex}));
+              assistantNode?.isConnected&&clarificationId&&(assistantNode.dataset.clarificationId=clarificationId);
+              liveItem&&(delete liveItem.jobId,clarificationId&&(liveItem.clarificationId=clarificationId),typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",displayContent,{html:!!clarificationHtml,rawText:e,pending:!1,responseIndex,clarificationId}):(liveItem.content=e,liveItem.rawText=e,liveItem.html=clarificationHtml,liveItem.pending=!1,persistSessionDisplay(sessionId)));
+              if(isTargetActive()){state.messages.push(t);sessionForReply.messages=cloneMessageList(state.messages)}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),t]);
               if(createdPending&&!routeInfo.localClarification){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}
               await persistPendingTerminalMessages();emitTaskEvent(sessionId,taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return
             }

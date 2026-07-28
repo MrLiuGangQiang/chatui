@@ -155,12 +155,54 @@
       }catch(t){const failure=task.fail(t);failure.preserve||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }
 
+    function replayPendingClarification(node,{sessionId,userText,assistantIndex}={}){
+      const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
+      const session=state.sessions?.find(item=>item?.id===sessionId);
+      const pending=clarificationApi?.normalizePendingClarification?.(session?.pendingClarification)||null;
+      const assistantMessage=Array.isArray(state.messages)?state.messages[assistantIndex]:null;
+      if(!clarificationApi?.matchesPendingClarificationMessage?.(pending,{message:assistantMessage,userText}))return!1;
+      const routeInfo=clarificationApi.pendingClarificationRouteInfo?.(pending);
+      if(!routeInfo)return!1;
+      const presentationApi=root?.ChatUIApp?.appContext?.getWorkflowModule?.("clarificationPresentation");
+      let quotedImageContext=null;
+      try{
+        const quote="string"===typeof pending.sourceQuoteContext?JSON.parse(pending.sourceQuoteContext):pending.sourceQuoteContext;
+        quotedImageContext=quote?.imageContext||quote?.image_context||null
+      }catch{}
+      const question=String(routeInfo.clarificationQuestion||pending.clarificationText||"请补充完成当前任务所需的信息后继续。").trim();
+      const presentation=presentationApi?.buildClarificationPresentation?.(routeInfo,{
+        messages:state.messages||[],lastGeneratedImage:session?.lastGeneratedImage||null,
+        currentImageContext:pending.sourceImageContext||null,quotedImageContext,
+      })||{html:""};
+      const clarificationHtml=String(presentation.html||""),displayContent=clarificationHtml||question,clarificationId=String(pending.id||"");
+      resetMessageActionStates(node);
+      if(node?.isConnected){
+        if(typeof root?.updateMessage==="function")root.updateMessage(node,displayContent,{html:!!clarificationHtml,rawText:question,responseIndex:assistantIndex});
+        else if(node.querySelector?.(".content"))node.querySelector(".content").textContent=question;
+        clarificationId&&(node.dataset.clarificationId=clarificationId)
+      }
+      const assistant={...assistantMessage,role:"assistant",content:question,rawText:question,responseIndex:assistantIndex,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{}};
+      if(Array.isArray(state.messages))state.messages[assistantIndex]=assistant;
+      if(session){
+        session.pendingClarification=pending;
+        session.messages=Array.isArray(state.messages)?state.messages.slice():session.messages||[];
+        const liveItem=node?.__displayItem||((session.display||[]).find(item=>item?.id&&item.id===node?.dataset?.displayItemId)||null);
+        if(liveItem){liveItem.role="assistant";liveItem.content=displayContent;liveItem.rawText=question;liveItem.html=clarificationHtml;liveItem.pending=!1;liveItem.responseIndex=String(assistantIndex);clarificationId&&(liveItem.clarificationId=clarificationId)}
+        root?.persistSessionDisplay?.(sessionId);
+        root?.saveSessionMessages?.(sessionId,session.messages);
+        root?.saveSessionsMeta?.()
+      }
+      return!0
+    }
+
     async function regenerateAssistantMessage(e){
       if(isSessionBusy(state.activeSessionId))return;
       const t=findPreviousUserMessageNode(e),s=(t?.dataset.rawText||"").trim();
       if(!s)return void toast("找不到上一条提示词，无法重新生成");
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;
-      const a=turn.assistantIndex,l=state.activeSessionId,d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
+      const a=turn.assistantIndex,l=state.activeSessionId;
+      if(replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a}))return;
+      const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
       const c=prepareRegeneratedResponse(t,e,l,a,"正在执行：路由预检");e=c.node;let m=c.liveItem;
       const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t);
@@ -203,18 +245,22 @@
             m.content=clarificationHtml||question;m.rawText=question;m.html=clarificationHtml;m.pending=!1;m.responseIndex=a;
             root?.persistSessionDisplay?.(l);
           }
-          const assistant={role:"assistant",content:question,rawText:question,responseIndex:a,...clarificationHtml?{html:clarificationHtml}:{}};
+          const createdPending=!p.localClarification&&clarificationApi?.createPendingClarification?clarificationApi.createPendingClarification({
+            messages:state.messages.slice(0,n+1),clarificationText:question,routeInfo:p,
+            sourceImageContext:userMessage.imageContext||null,sourceAttachmentContext:userMessage.attachmentContext||u||null,sourceQuoteContext:userMessage.quoteContext||null,
+          }):null;
+          const clarificationId=String(createdPending?.id||"");
+          clarificationId&&e?.isConnected&&(e.dataset.clarificationId=clarificationId);
+          if(m&&clarificationId){m.clarificationId=clarificationId;root?.persistSessionDisplay?.(l)}
+          const assistant={role:"assistant",content:question,rawText:question,responseIndex:a,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{}};
           if(Array.isArray(state.messages)){
             if("assistant"===state.messages[a]?.role)state.messages[a]=assistant;
             else state.messages.splice(a,0,assistant);
           }
           if(session){
             session.messages=Array.isArray(state.messages)?state.messages.slice():session.messages||[];
-            if(!p.localClarification&&clarificationApi?.createPendingClarification){
-              session.pendingClarification=clarificationApi.createPendingClarification({
-                messages:state.messages.slice(0,n+1),clarificationText:question,routeInfo:p,
-                sourceImageContext:userMessage.imageContext||null,sourceAttachmentContext:userMessage.attachmentContext||u||null,sourceQuoteContext:userMessage.quoteContext||null,
-              });
+            if(createdPending){
+              session.pendingClarification=createdPending;
               root?.saveSessionsMeta?.();
             }
             root?.saveSessionMessages?.(l,session.messages);

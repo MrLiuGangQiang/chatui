@@ -647,8 +647,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a merged answer must be fully rerouted with current-turn attachments only');
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.4.3-continuation-repair'), 'submit workflow cache version should include the model continuation repair boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.4.0-partial-answer'), 'clarification service cache version should match the partial-answer protocol');
+  assert.ok(index.includes('submit-workflow.js?v=1.4.4-clarification-identity'), 'submit workflow cache version should include the clarification identity boundary');
+  assert.ok(index.includes('clarification-service.js?v=1.4.1-pending-replay'), 'clarification service cache version should include pending replay semantics');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -1686,7 +1686,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.3-continuation-repair') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -2599,7 +2599,7 @@ async function testRuntimeVersionUsesService() {
   const identifiedVersion = await runtimeService.requestAppVersion({
     fetchImpl: async () => ({ ok: true, json: async () => ({ version: '1.9.1', gitSha: 'abcdef1234567890', dirty: true }) }),
   });
-  assert.strictEqual(identifiedVersion, '1.9.1+abcdef12.dirty', 'the visible version must distinguish a dirty local workspace from a release image');
+  assert.strictEqual(identifiedVersion, '1.9.1', 'the visible version must remain the semantic application version');
 
   const runtime = fs.readFileSync(path.join(__dirname, '../../client/app/runtime.js'), 'utf8');
   const composition = fs.readFileSync(path.join(__dirname, '../../client/services/composition.js'), 'utf8');
@@ -2610,7 +2610,7 @@ async function testRuntimeVersionUsesService() {
   assert.ok(composition.includes('requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options))'), 'service composition should expose runtime version API');
   assert.ok(browser.includes('runtime: Object.freeze(runtime)'), 'browser service facade should expose runtime namespace');
   sourceAssertions.assertInOrder(index, './client/services/runtime-service.js', './client/services/composition.js', 'runtime service should load before service composition');
-  assert.ok(index.includes('runtime-service.js?v=1.1.0-build-identity'), 'the browser must load the build-identity-aware runtime service');
+  assert.ok(index.includes('runtime-service.js?v=1.1.1-semver-label'), 'the browser must load the semantic-version runtime service');
   sourceAssertions.assertInOrder(index, './client/services/browser.js', './client/app/runtime.js', 'service browser facade should load before runtime app workflow');
 }
 
@@ -2677,7 +2677,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.2.0-role-clarification') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.2.1-pending-replay') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2960,7 +2960,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(t)') && regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)') && regenerate.includes('await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract'), 'force-image action should send the current user message through a validated v5 contract and canonical resource projection');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('regenerate-workflow.js?v=1.2.0-role-clarification') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('assets/chatui.bundle.css?v=1.3.162-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('regenerate-workflow.js?v=1.2.1-pending-replay') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('assets/chatui.bundle.css?v=1.3.162-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3086,7 +3086,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.3-continuation-repair') && index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {

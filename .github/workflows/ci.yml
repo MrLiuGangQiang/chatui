@@ -91,7 +91,7 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:8765/vendor/manifest.json >/dev/null
           docker exec "$container" npm ls --omit=dev --all --silent
           docker exec "$container" node -e '
-            for (const name of ["jszip", "mammoth", "officeparser", "pdf-parse", "pg", "word-extractor"]) require.resolve(name);
+            for (const name of ["jszip", "mammoth", "officeparser", "pdf-parse", "pg", "undici", "word-extractor"]) require.resolve(name);
             for (const name of ["jsdom", "mermaid"]) {
               try { require.resolve(name); throw new Error(`${name} must not be installed in the production image`); }
               catch (error) { if (!String(error && error.code || "").includes("MODULE_NOT_FOUND")) throw error; }

@@ -16,6 +16,11 @@ function testProjectToolingChecksStaticAndPackageContracts() {
   assert.strictEqual(result.staticFiles, 5);
 }
 
+function testProductionDependenciesDeclareDirectServerImports() {
+  assert.strictEqual(packageJson.dependencies?.undici, '7.28.0', 'undici must be installed in the production image');
+  assert.ok(!packageJson.devDependencies?.undici, 'undici must not be development-only');
+}
+
 function testReleaseVerificationRequiresMatchingSemverTag() {
   const tag = `v${packageJson.version}`;
   assert.strictEqual(releaseVersion(tag), packageJson.version);
@@ -162,6 +167,7 @@ function testArchitectureCheckEnforcesExecutableLayerBoundaries() {
 
 module.exports = [
   testProjectToolingChecksStaticAndPackageContracts,
+  testProductionDependenciesDeclareDirectServerImports,
   testArchitectureCheckFreezesLegacyGrowth,
   testArchitectureCheckEnforcesExecutableLayerBoundaries,
   testSyntaxCheckCoversEveryProjectJavaScriptFileAndRejectsInvalidModules,

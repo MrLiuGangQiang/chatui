@@ -10,6 +10,7 @@
     const API_KEY_STORAGE_KEY = `${CONFIG_KEY}:api-key`;
     const sessionStorage = deps.sessionStorage || window?.sessionStorage;
     const isSessionBusy = deps.isSessionBusy || (() => false);
+    let backupControlsBound = false;
 
     function readJsonStorage(e,t){try{const s=localStorage.getItem(e);return s?JSON.parse(s):t}catch{try{localStorage.removeItem(e)}catch{}return t}}
 
@@ -52,6 +53,22 @@
     function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)}
 
     function closeConfigModal(){const e=getElement("configModal"),t=document?.activeElement;if(t&&e?.contains?.(t)){const e=getElement("sidebarConfigBtn")||getElement("railConfigBtn")||getElement("prompt");e&&!e.disabled?e.focus?.({preventScroll:!0}):t.blur?.()}document.body.classList.remove("modal-open"),e?.classList.remove("show"),e?.setAttribute("aria-hidden","true")}
+
+    function bindBackupControls(){
+      if(backupControlsBound)return;
+      const backupApi=root?.ChatUIAppBackupWorkflow;
+      const exportButton=getElement("exportBackupBtn"),fileInput=getElement("importBackupFile"),status=getElement("backupTransferStatus");
+      if(!backupApi?.createBackupWorkflow||!exportButton||!fileInput||typeof root?.getSessionDisplayWorkflow!=="function")return;
+      backupControlsBound=true;
+      const commitSession=session=>root.getSessionDisplayWorkflow().commitSession(session);
+      const backup=backupApi.createBackupWorkflow({state,localStorage,document,window,CONFIG_KEY,isSessionBusy,clearSessionSnapshots:root.clearSessionSnapshots,commitSession,flushSessionSnapshots:root.flushSessionSnapshots,collectIndexedDbKeys:root.collectIndexedDbKeys,getImageBlob:root.getImageBlob,putImageBlob:root.putImageBlob,clearImageDb:root.clearImageDb,dataUrlToBlob:root.dataUrlToBlob,saveSessionsMeta,toast});
+      const showStatus=(message,type="")=>{if(status){status.textContent=message;status.dataset.status=type}else toast?.(message)};
+      const reportError=error=>{const message=error?.message||"备份操作失败，请重试";showStatus(message,"error");toast?.(message)};
+      exportButton.addEventListener("click",()=>{showStatus("正在生成备份…","pending");return Promise.resolve(backup.downloadBackup()).then(archive=>{const count=Number(archive?.media?.length)||0;showStatus(count?`备份已导出，包含 ${count} 个附件或图片`:"备份已导出，请妥善保管文件","success")}).catch(reportError)});
+      fileInput.addEventListener("change",async event=>{try{showStatus("正在读取备份…","pending");const restored=await backup.importBackupFile(event.target?.files?.[0]);if(!restored)showStatus("已取消导入","neutral")}catch(error){reportError(error)}finally{event.target.value=""}});
+    }
+
+    setTimeout?.(bindBackupControls,0);
 
     return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, copyConfigField, readPersistedApiKey, writePersistedApiKey, loadPublicContext, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
   }

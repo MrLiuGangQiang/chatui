@@ -336,6 +336,24 @@
             </label>
           </div>
         </section>
+
+        <section class="config-card config-card-wide backup-config-card" aria-labelledby="backupConfigTitle">
+          <div class="config-section-title">
+            <span class="config-section-icon">⇄</span>
+            <div>
+              <h3 id="backupConfigTitle">数据备份</h3>
+              <p>将聊天记录、附件图片、Endpoint、模型与 API Key 导出为一个备份文件。</p>
+            </div>
+          </div>
+          <p class="backup-config-notice">备份文件会包含 API Key 明文，请仅保存在可信位置。导入会覆盖当前浏览器中的聊天记录和配置。</p>
+          <div class="backup-config-actions">
+            <button id="exportBackupBtn" type="button" class="backup-export-btn">导出备份</button>
+            <label for="importBackupFile" id="importBackupBtn" class="backup-import-btn backup-import-label">导入备份</label>
+            <input id="importBackupFile" class="backup-import-input" type="file" accept="application/json,.json" aria-describedby="backupConfigHint" />
+          </div>
+          <p id="backupConfigHint" class="backup-config-hint">备份会一并保存会话中已持久化的附件和图片；文件越多，备份生成和导入所需时间越长。</p>
+          <p id="backupTransferStatus" class="backup-transfer-status" role="status" aria-live="polite"></p>
+        </section>
       </div>
 
       <div class="dialog-actions">
@@ -509,6 +527,7 @@
   <script src="./client/app/message-records.js?v=2.0.1-message-order"></script>
   <script src="./client/app/session-store.js?v=2.0.2-resilient-transactions"></script>
   <script src="./client/app/session-display.js?v=2.1.10-resilient-snapshot-fallback"></script>
+  <script src="./client/app/backup-workflow.js?v=1.2.0-verified-media-restore"></script>
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>

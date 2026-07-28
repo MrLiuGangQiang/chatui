@@ -78,6 +78,12 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   assert.match(dockerfile, /CHATUI_SOURCE_REVISION=\$\{CHATUI_SOURCE_REVISION\}/);
   assert.match(dockerfile, /org\.opencontainers\.image\.revision/);
   assert.match(ci, /Verify exact container identity and assets/);
+  assert.ok(ci.includes(`VERSION="$(node -p "require('./package.json').version")"`),
+    'CI must resolve a non-empty package version without passing escaped quotes to Node');
+  assert.ok(ci.includes('test -n "$VERSION"'),
+    'CI must fail before building when the candidate version is empty');
+  assert.ok(!ci.includes('require(\\"./package.json\\")'),
+    'CI must not use a shell expression that silently writes an empty version output');
   assert.match(ci, /CHATUI_SOURCE_REVISION=\$\{\{ steps\.identity\.outputs\.source_revision \}\}/);
   assert.match(release, /Build once and push immutable candidates/);
   assert.match(release, /Pull and verify the exact candidate digest/);

@@ -61,7 +61,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+          VERSION="$(node -p "require('./package.json').version")"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "source_revision=$(node scripts/runtime-identity.js --source-only)" >> "$GITHUB_OUTPUT"
 
       - name: Build exact candidate image

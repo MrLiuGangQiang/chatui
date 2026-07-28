@@ -4801,3 +4801,131 @@ body.session-sidebar-collapsed{
     width:100%!important;
   }
 }
+
+/* Compact model configuration dialog. */
+#configModal .config-dialog{
+  min-height:auto!important;
+  max-height:calc(100dvh - 32px)!important;
+}
+#configModal .config-hero{
+  align-items:center!important;
+  padding:14px 18px!important;
+}
+#configModal .config-hero-copy{
+  display:flex!important;
+  align-items:center!important;
+}
+#configModal .config-hero h2{
+  font-size:19px!important;
+}
+#configModal .config-grid{
+  gap:8px!important;
+  padding:10px 12px!important;
+  overflow-y:auto!important;
+}
+#configModal .config-card{
+  padding:12px!important;
+  border-radius:10px!important;
+}
+#configModal .config-section-title{
+  gap:8px!important;
+  margin-bottom:9px!important;
+}
+#configModal .config-section-icon{
+  width:28px!important;
+  height:28px!important;
+  border-radius:7px!important;
+}
+#configModal .config-section-title h3{
+  font-size:13px!important;
+}
+#configModal .config-card label{
+  margin-bottom:8px!important;
+}
+#configModal .config-card label:last-child{
+  margin-bottom:0!important;
+}
+#configModal .config-card label>span{
+  margin-bottom:4px!important;
+}
+#configModal .config-dialog input,
+#configModal .config-dialog select{
+  min-height:36px!important;
+  padding-top:7px!important;
+  padding-bottom:7px!important;
+}
+#configModal .model-section-head{
+  min-height:32px!important;
+}
+#configModal .mini-status:empty{
+  display:none!important;
+}
+#configModal .model-config-layout{
+  gap:8px!important;
+}
+#configModal .model-config-group{
+  gap:7px!important;
+  padding:9px!important;
+  border-radius:9px!important;
+}
+#configModal .model-group-head{
+  padding-bottom:0!important;
+}
+#configModal .prompt-config-layout{
+  gap:8px!important;
+}
+#configModal .prompt-config-layout textarea{
+  min-height:92px!important;
+  padding:8px 10px!important;
+}
+#configModal .backup-config-card{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:8px 12px!important;
+}
+#configModal .backup-config-card .config-section-title,
+#configModal .backup-config-actions{
+  margin:0!important;
+}
+#configModal .backup-transfer-status{
+  grid-column:1/-1!important;
+  margin:0!important;
+}
+#configModal .config-dialog .dialog-actions{
+  margin:0!important;
+  padding:10px 12px!important;
+}
+#configModal #saveConfigBtn{
+  min-height:36px!important;
+  padding:0 16px!important;
+}
+@media (min-width:761px){
+  #configModal .config-grid{
+    grid-template-columns:minmax(0,.88fr) minmax(0,1.12fr)!important;
+  }
+  #configModal .config-card-wide{
+    grid-column:1/-1!important;
+  }
+}
+@media (max-width:760px){
+  #configModal .config-dialog{
+    max-height:90dvh!important;
+  }
+  #configModal .config-hero{
+    padding:12px 14px!important;
+  }
+  #configModal .config-grid{
+    padding:8px!important;
+  }
+  #configModal .backup-config-card{
+    grid-template-columns:1fr!important;
+  }
+  #configModal .backup-config-actions{
+    display:grid!important;
+    grid-template-columns:1fr 1fr!important;
+  }
+  #configModal .backup-transfer-status{
+    grid-column:1!important;
+  }
+}

@@ -85,6 +85,51 @@
     return source.map(sanitizeMediaItem).filter(Boolean);
   }
 
+  function stableImageResultPart(value = '') {
+    return String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96) || 'legacy';
+  }
+
+  // Image result identity is a durable record contract, not a rendering detail.
+  // Older sessions used the moving `imgref_latest` alias for every result. Keep
+  // them readable by deterministically upgrading that alias from the canonical
+  // message ID while every new result writes an explicit resultId.
+  function normalizeImageResultContext(value, { messageId: canonicalMessageId = '', sequence = 0 } = {}) {
+    const context = parseContext(value);
+    if (!context) return null;
+    const source = Array.isArray(context.attachments)
+      ? context.attachments
+      : Array.isArray(context.images)
+        ? context.images
+        : [];
+    const images = source.map(sanitizeMediaItem).filter(item => MEDIA_KEYS.some(key => !!durableMediaRef(item?.[key])));
+    if (!images.length) return context;
+
+    const existingResultId = String(context.resultId || context.result_id || '').trim();
+    const existingReferenceId = String(context.referenceId || context.reference_id || '').trim();
+    const legacyKey = stableImageResultPart(canonicalMessageId || `message_${sequence}_${context.updatedAt || context.updated_at || ''}`);
+    const resultId = existingResultId || (existingReferenceId && existingReferenceId !== 'imgref_latest'
+      ? existingReferenceId.replace(/^imgref_/, '')
+      : `legacy_${legacyKey}`);
+    const referenceId = existingReferenceId && existingReferenceId !== 'imgref_latest'
+      ? existingReferenceId
+      : `imgref_${stableImageResultPart(resultId)}`;
+    const attachments = images.map((item, index) => {
+      const ordinal = Number(item.ordinal || item.position || item.sourceIndex || item.source_index || index + 1) || index + 1;
+      const currentImageId = String(item.imageId || item.image_id || item.id || '').trim();
+      const legacyImageId = !currentImageId || /^img_imgref_latest_\d+$/.test(currentImageId);
+      const imageId = legacyImageId ? `img_${referenceId}_${ordinal}` : currentImageId;
+      return { ...item, id: imageId, imageId, referenceId, resultId, ordinal, sourceIndex: ordinal };
+    });
+    return {
+      ...context,
+      schema_version: 'image_result.v1',
+      resultId,
+      referenceId,
+      selectedReferenceId: referenceId,
+      attachments,
+    };
+  }
+
   function hasDurableMedia(value) {
     return attachmentList(value).some(item => MEDIA_KEYS.some(key => !!durableMediaRef(item?.[key])));
   }
@@ -184,9 +229,11 @@
         ? existing.displayText
         : derived;
     } else if (kind === 'image-result') {
-      const contextImages = attachmentList(imageContext);
+      const normalizedImageContext = normalizeImageResultContext(imageContext, { messageId: message.id, sequence: message.sequence });
+      const contextImages = attachmentList(normalizedImageContext);
       presentation.images = contextImages.length ? contextImages : existing.images || [];
-      presentation.displayText = imageCompletionText({ ...message, presentation: existing }, imageContext);
+      presentation.resultId = normalizedImageContext?.resultId || '';
+      presentation.displayText = imageCompletionText({ ...message, presentation: existing }, normalizedImageContext || imageContext);
     } else {
       const canonicalText = message.rawText || (typeof message.content === 'string' ? message.content : '');
       presentation.displayText = stripBase64Placeholder(canonicalText)
@@ -206,6 +253,8 @@
       sequence,
     };
     next.html = sanitizePresentationHtml(next.html || '');
+    const normalizedImageContext = normalizeImageResultContext(next.imageContext, { messageId: next.id, sequence });
+    if (normalizedImageContext) next.imageContext = stringifyContext(normalizedImageContext);
     next.presentation = buildPresentation(next);
     if (next.presentation.kind === 'image-result') {
       next.content = imageCompletionText(next, parseContext(next.imageContext));
@@ -245,6 +294,7 @@
     legacyOrderIndex,
     messageId,
     durableMediaRef,
+    normalizeImageResultContext,
     sanitizePresentationHtml,
     stripBase64Placeholder,
     extractMetricText,

@@ -3,6 +3,7 @@
 
   const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v5';
   const CLARIFICATION_CONTEXT_VERSION = 'clarification_context.v1';
+  const CLARIFICATION_REPLAY_VERSION = 'clarification_replay.v1';
   const CONTINUATION_RELATIONS = Object.freeze([
     'pending_answer',
     'partial_answer',
@@ -136,6 +137,7 @@
     return {
       id: String(value.id || `clarify-${Date.now().toString(36)}`),
       originalText,
+      baseTaskText: String(value.baseTaskText || value.base_task_text || originalText).trim(),
       clarificationText: String(value.clarificationText || value.clarification_text || '').trim(),
       routeInfo,
       sourceImageContext: value.sourceImageContext || value.source_image_context || null,
@@ -143,6 +145,9 @@
       sourceQuoteContext: value.sourceQuoteContext || value.source_quote_context || null,
       assistanceHistory: Array.isArray(value.assistanceHistory || value.assistance_history)
         ? (value.assistanceHistory || value.assistance_history).slice(-4)
+        : [],
+      supplements: Array.isArray(value.supplements)
+        ? value.supplements.map(item => String(item || '').trim()).filter(Boolean).slice(-8)
         : [],
       createdAt: Number(value.createdAt || value.created_at) || Date.now(),
       updatedAt: Number(value.updatedAt || value.updated_at) || Date.now(),
@@ -161,6 +166,7 @@
     const latestUser = latestUserMessage(messages);
     return normalizePendingClarification({
       originalText: latestUser?.text || '',
+      baseTaskText: latestUser?.text || '',
       clarificationText,
       routeInfo,
       sourceImageContext: sourceImageContext || latestUser?.message?.imageContext || latestUser?.message?.image_context || null,
@@ -348,10 +354,69 @@
       pending: normalizePendingClarification({
         ...normalized,
         originalText: resolved,
+        baseTaskText: normalized.baseTaskText || normalized.originalText,
+        supplements: [...normalized.supplements, String(promptText || '').trim()].filter(Boolean).slice(-8),
         updatedAt: Date.now(),
         rounds: normalized.rounds + 1,
       }),
     };
+  }
+
+  function normalizeClarificationReplay(value = null) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const resolvedInput = String(value.resolvedInput || value.resolved_input || '').trim();
+    if (!resolvedInput) return null;
+    return {
+      schemaVersion: CLARIFICATION_REPLAY_VERSION,
+      originalInput: String(value.originalInput || value.original_input || value.baseTaskText || value.base_task_text || resolvedInput).trim(),
+      resolvedInput,
+      supplements: Array.isArray(value.supplements)
+        ? value.supplements.map(item => String(item || '').trim()).filter(Boolean).slice(-8)
+        : [],
+      clarificationRouteContext: value.clarificationRouteContext || value.clarification_route_context || null,
+      taskContract: value.taskContract && typeof value.taskContract === 'object' ? value.taskContract : null,
+      routeMode: String(value.routeMode || value.route_mode || ''),
+      api: String(value.api || ''),
+      sourceImageContext: value.sourceImageContext || value.source_image_context || null,
+      sourceAttachmentContext: value.sourceAttachmentContext || value.source_attachment_context || null,
+      sourceQuoteContext: value.sourceQuoteContext || value.source_quote_context || null,
+      createdAt: Number(value.createdAt || value.created_at) || Date.now(),
+    };
+  }
+
+  function createClarificationReplay({ pending = null, merge = null, routeInfo = null, clarificationRouteContext = null } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    const resolvedInput = String(merge?.resolvedInput || merge?.promptText || '').trim();
+    if (!normalized || !resolvedInput) return null;
+    return normalizeClarificationReplay({
+      originalInput: normalized.baseTaskText || normalized.originalText,
+      resolvedInput,
+      supplements: merge?.pending?.supplements || normalized.supplements,
+      clarificationRouteContext,
+      taskContract: routeInfo?.taskContract || null,
+      routeMode: routeInfo?.mode || '',
+      api: routeInfo?.api || '',
+      sourceImageContext: normalized.sourceImageContext,
+      sourceAttachmentContext: normalized.sourceAttachmentContext,
+      sourceQuoteContext: normalized.sourceQuoteContext,
+      createdAt: Date.now(),
+    });
+  }
+
+  function reviseClarificationReplay(replay, replacement = '') {
+    const normalized = normalizeClarificationReplay(replay);
+    const next = String(replacement || '').trim();
+    if (!normalized || !next) return normalized;
+    const supplements = normalized.supplements.length
+      ? [...normalized.supplements.slice(0, -1), next]
+      : [next];
+    return normalizeClarificationReplay({
+      ...normalized,
+      supplements,
+      // This is deliberately plain user text. The complete router still decides execution.
+      resolvedInput: [normalized.originalInput, ...supplements].filter(Boolean).join('\n\n'),
+      createdAt: Date.now(),
+    });
   }
 
   function retainPendingAfterAssistance(pending, { promptText = '', assistantReply = '' } = {}) {
@@ -501,6 +566,7 @@
   const api = Object.freeze({
     CONTINUATION_SCHEMA_VERSION,
     CLARIFICATION_CONTEXT_VERSION,
+    CLARIFICATION_REPLAY_VERSION,
     CONTINUATION_SYSTEM_PROMPT,
     CONTINUATION_RESPONSE_FORMAT,
     buildContinuationClassifierPayload,
@@ -512,6 +578,9 @@
     matchesPendingClarificationMessage,
     mergePendingInput,
     retainPendingAfterAssistance,
+    normalizeClarificationReplay,
+    createClarificationReplay,
+    reviseClarificationReplay,
     buildClarificationRouteContext,
   });
 

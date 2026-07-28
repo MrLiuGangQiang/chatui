@@ -308,21 +308,19 @@
       const images = (presentation?.images || messageRecords.presentationImages?.(message) || [])
         .filter(item => durableMediaDescriptorRef(item));
       if (!images.length) return '';
+      const renderImageResultHtml = deps.imageResultRenderer
+        || root?.ChatUIAppImageResultWorkflow?.renderImageResultHtml;
+      if (typeof renderImageResultHtml !== 'function') return '';
       const transparent = root.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-      const items = images.map((item, index) => {
-        const width = Number(item.width) || 180;
-        const height = Number(item.height) || 120;
-        const scale = Math.min(180 / width, 120 / height, 1);
-        const thumbWidth = Math.max(1, Math.round(width * scale));
-        const thumbHeight = Math.max(1, Math.round(height * scale));
-        const src = durableMediaDescriptorRef(item);
-        const referenceId = item.referenceId || item.reference_id || 'imgref_latest';
-        const imageId = item.imageId || item.image_id || item.id || `img_latest_${index + 1}`;
-        return `<div class="generated-image-item" data-image-index="${index + 1}" aria-label="第 ${index + 1} 张图片"><img class="generated-thumb image-restoring" width="${thumbWidth}" height="${thumbHeight}" style="--thumb-w:${thumbWidth}px;--thumb-h:${thumbHeight}px;width:${thumbWidth}px;height:${thumbHeight}px;aspect-ratio:${thumbWidth}/${thumbHeight};object-fit:contain" src="${transparent}" data-persisted-src="${escapeHtml(src)}" data-original-src="${escapeHtml(src)}" data-filename="${escapeHtml(item.name || item.filename || `image-${index + 1}.png`)}" data-reference-id="${escapeHtml(referenceId)}" data-image-id="${escapeHtml(imageId)}" data-image-index="${index + 1}" data-thumb-width="${thumbWidth}" data-thumb-height="${thumbHeight}" data-original-width="${width}" data-original-height="${height}" alt="第 ${index + 1} 张生成图片" /></div>`;
-      }).join('');
-      const head = images.length > 1 ? `<div class="image-result-head"><span>（${images.length} 张）</span></div>` : '';
-      const actions = typeof deps.downloadAllImagesButtonHtml === 'function' ? deps.downloadAllImagesButtonHtml() : '';
-      return `${head}<div class="generated-image-grid" data-generated-images="1">${items}</div>${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
+      return renderImageResultHtml(images.map(item => ({
+        ...item,
+        src: durableMediaDescriptorRef(item),
+        displaySrc: '',
+      })), {
+        escapeHtml,
+        downloadAllImagesButtonHtml: deps.downloadAllImagesButtonHtml,
+        transparentPixel: transparent,
+      });
     }
 
     function attachmentPresentationHtml(message, presentation) {

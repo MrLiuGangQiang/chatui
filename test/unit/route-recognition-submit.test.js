@@ -180,7 +180,7 @@ function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
 
 function testForceImageUsesExplicitCanonicalContract() {
   const regenerate = fs.readFileSync(path.join(__dirname, '../../client/app/regenerate-workflow.js'), 'utf8');
-  assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(t)'), 'the force-image action must create an explicit v5 task contract');
+  assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(replayPrompt)'), 'the force-image action must create an explicit v5 task contract from the durable resolved task');
   assert.ok(regenerate.includes('routeUtils.isRouteDispatchable?.(routeInfo)!==!0'), 'the force-image action must pass the same execution gate as routed requests');
   assert.ok(regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the force-image action must use the canonical execution-resource projection');
   assert.ok(regenerate.includes('taskContract:routeInfo.taskContract'), 'the validated force-image contract must reach image dispatch');

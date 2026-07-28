@@ -430,6 +430,36 @@ function testPendingClarificationCanReplayItsPersistedContract() {
   assert.deepStrictEqual(replayRoute.clarificationSlots, ambiguousContract().clarification.unresolved_resources);
 }
 
+function testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsEdit() {
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: 'generate a product poster' }],
+    clarificationText: 'which color and layout?',
+    routeInfo: { mode: 'image', api: 'image_generation', taskContract: { schema_version: 'task_contract.v5' } },
+  });
+  const first = clarification.mergePendingInput(pending, {
+    promptText: 'use orange', resolvedInput: 'generate a product poster in orange',
+  });
+  const second = clarification.mergePendingInput(first.pending, {
+    promptText: 'use a vertical layout', resolvedInput: 'generate an orange product poster in a vertical layout',
+  });
+  const replay = clarification.createClarificationReplay({
+    pending: first.pending,
+    merge: second,
+    routeInfo: { mode: 'image', api: 'image_generation', taskContract: { schema_version: 'task_contract.v5', readiness: 'ready' } },
+    clarificationRouteContext: { clarification_context: { selected_choices: [] } },
+  });
+  assert.strictEqual(replay.schemaVersion, clarification.CLARIFICATION_REPLAY_VERSION);
+  assert.deepStrictEqual(replay.supplements, ['use orange', 'use a vertical layout']);
+  assert.strictEqual(replay.resolvedInput, 'generate an orange product poster in a vertical layout');
+  assert.deepStrictEqual(replay.clarificationRouteContext, { clarification_context: { selected_choices: [] } });
+
+  const revised = clarification.reviseClarificationReplay(replay, 'use a square layout');
+  assert.deepStrictEqual(revised.supplements, ['use orange', 'use a square layout']);
+  assert.match(revised.resolvedInput, /generate a product poster/);
+  assert.match(revised.resolvedInput, /use orange/);
+  assert.match(revised.resolvedInput, /use a square layout/);
+}
+
 module.exports = [
   testContinuationV5UsesOneStrictNonExecutingSchema,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
@@ -439,4 +469,5 @@ module.exports = [
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
   testPendingClarificationCanReplayItsPersistedContract,
+  testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsEdit,
 ];

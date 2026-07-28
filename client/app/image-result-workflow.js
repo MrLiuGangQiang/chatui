@@ -1,6 +1,39 @@
 (function initChatUIAppImageResultWorkflow(root) {
   'use strict';
 
+  const FALLBACK_TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
+  function makeImageResultId(options = {}, deps = {}) {
+    const existing = String(options.resultId || options.imageResultId || '').trim();
+    if (existing) return existing;
+    if (typeof deps.makeImageResultId === 'function') return String(deps.makeImageResultId(options) || '').trim();
+    return `imgres_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  // This is deliberately the only generated-image HTML constructor. The live
+  // result and a restored result receive the same descriptor list and therefore
+  // preserve the same stable ordinal rather than inferring a new position.
+  function renderImageResultHtml(images = [], { escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL } = {}) {
+    const visible = (Array.isArray(images) ? images : []).filter(item => String(item?.src || item?.persistedSrc || '').startsWith('indexeddb://'));
+    if (!visible.length) return '';
+    const items = visible.map((item, index) => {
+      const ordinal = Number(item.ordinal || item.position || item.sourceIndex || item.source_index || index + 1) || index + 1;
+      const width = Number(item.width) || 180;
+      const height = Number(item.height) || 120;
+      const scale = Math.min(180 / width, 120 / height, 1);
+      const thumbWidth = Math.max(1, Math.round(width * scale));
+      const thumbHeight = Math.max(1, Math.round(height * scale));
+      const persistedSrc = String(item.src || item.persistedSrc || '');
+      const displaySrc = String(item.displaySrc || '') || transparentPixel;
+      const referenceId = String(item.referenceId || item.reference_id || '');
+      const imageId = String(item.imageId || item.image_id || item.id || '');
+      return `<div class="generated-image-item" data-image-index="${ordinal}" data-image-result-id="${escapeHtml(item.resultId || '')}" aria-label="第 ${ordinal} 张图片"><img class="generated-thumb${displaySrc === transparentPixel ? ' image-restoring' : ''}" width="${thumbWidth}" height="${thumbHeight}" style="--thumb-w:${thumbWidth}px;--thumb-h:${thumbHeight}px;width:${thumbWidth}px;height:${thumbHeight}px;aspect-ratio:${thumbWidth}/${thumbHeight};object-fit:contain" src="${escapeHtml(displaySrc)}" data-persisted-src="${escapeHtml(persistedSrc)}" data-original-src="${escapeHtml(persistedSrc)}" data-filename="${escapeHtml(item.name || item.filename || `image-${ordinal}.png`)}" data-reference-id="${escapeHtml(referenceId)}" data-image-id="${escapeHtml(imageId)}" data-image-index="${ordinal}" data-image-result-id="${escapeHtml(item.resultId || '')}" data-thumb-width="${thumbWidth}" data-thumb-height="${thumbHeight}" data-original-width="${width}" data-original-height="${height}" alt="第 ${ordinal} 张生成图片" /></div>`;
+    }).join('');
+    const head = visible.length > 1 ? `<div class="image-result-head"><span>（${visible.length} 张）</span></div>` : '';
+    const actions = downloadAllImagesButtonHtml();
+    return `${head}<div class="generated-image-grid" data-generated-images="1">${items}</div>${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
+  }
+
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
     const extracted = deps.extractImageResult(result);
     const fileNames = root?.ChatUIFileNames || (typeof window !== 'undefined' ? window.ChatUIFileNames : null);
@@ -10,34 +43,36 @@
     if (!images.length) return { html: '没有返回图片数据', raw: JSON.stringify(result, null, 2), metaText: elapsedText ? `RT ${elapsedText}` : '' };
 
     const config = deps.getConfig();
+    const resultId = makeImageResultId(options, deps);
+    if (!resultId) throw new Error('图片结果缺少稳定标识，未保存为完成消息。');
+    const referenceId = deps.makeImageReferenceId ? deps.makeImageReferenceId(resultId) : `imgref_${resultId}`;
     const storedImages = [];
-    const itemsHtml = [];
-    const referenceId = deps.makeImageReferenceId ? deps.makeImageReferenceId('latest') : 'imgref_latest';
     for (let index = 0; index < images.length; index += 1) {
       const item = images[index];
+      const ordinal = index + 1;
       const filename = fileNames?.timestampedFilename ? fileNames.timestampedFilename({ ext: 'png' }) : `${Date.now()}.png`;
-      // A completed image message must never reference an inline base64 fallback.
-      // The display history deliberately strips large data URLs, so accepting that
-      // fallback here creates a successful-looking message which cannot survive a
-      // reload.  Do not publish a terminal result until IndexedDB has committed a
-      // durable reference for every returned image.
       const persisted = await deps.persistImageSrc(item.src, filename, { ...config, returnDisplayUrl: true });
       const persistedSrc = String(persisted?.persistedSrc || '');
       if (!persistedSrc.startsWith('indexeddb://')) {
-        throw new Error('图片已返回，但本地持久化失败；未保存为完成消息以避免刷新后丢失，请检查浏览器存储后重试');
+        throw new Error('图片已返回，但本地持久化失败；未保存为完成消息以避免刷新后丢失，请检查浏览器存储后重试。');
       }
-      // Blob URL is only an immediate-display optimization. data-persisted-src
-      // remains the sole durable reference used by session/display restoration.
-      const displaySrc = persisted?.displaySrc || window.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-      const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null) || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
-      const thumb = deps.fitImageThumb(size?.width, size?.height, 180, 120);
+      const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null)
+        || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
       const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];
       const labels = [...new Set([...subjectLabels, ...deps.imageCandidateLabels(`${item.raw || ''} ${filename}`)])];
       const description = String(item.revisedPrompt || item.prompt || options.routePrompt || options.prompt || '').trim();
+      const imageId = deps.makeImageItemId ? deps.makeImageItemId(referenceId, ordinal) : `img_${referenceId}_${ordinal}`;
       storedImages.push({
+        id: imageId,
+        imageId,
+        resultId,
+        ordinal,
+        sourceIndex: ordinal,
+        referenceId,
         src: persistedSrc,
-        displaySrc,
+        displaySrc: String(persisted?.displaySrc || ''),
         filename,
+        name: filename,
         prompt: description,
         description,
         semantic_text: [description, ...labels].filter(Boolean).join(' | '),
@@ -47,30 +82,35 @@
         raw: item.raw,
         url: item.url || '',
         labels,
-        thumb,
       });
-      itemsHtml.push(`<div class="generated-image-item" data-image-index="${index + 1}" aria-label="第 ${index + 1} 张图片"><img class="generated-thumb" width="${thumb.width}" height="${thumb.height}" style="--thumb-w:${thumb.width}px;--thumb-h:${thumb.height}px;width:${thumb.width}px;height:${thumb.height}px;aspect-ratio:${thumb.width}/${thumb.height};object-fit:contain" src="${deps.escapeHtml(displaySrc)}" data-persisted-src="${deps.escapeHtml(persistedSrc)}" data-original-src="${deps.escapeHtml(persistedSrc)}" data-filename="${deps.escapeHtml(filename)}" data-reference-id="${deps.escapeHtml(referenceId)}" data-image-id="${deps.escapeHtml(deps.makeImageItemId('latest', index + 1))}" data-image-index="${index + 1}" data-thumb-width="${thumb.width}" data-thumb-height="${thumb.height}" data-original-width="${size?.width || thumb.width}" data-original-height="${size?.height || thumb.height}" alt="第 ${index + 1} 张生成图片" /></div>`);
     }
 
     const first = storedImages[0];
     const latestImage = {
+      resultId,
+      referenceId,
       src: first.src,
       filename: first.filename,
       prompt: options.prompt || '',
       updatedAt: Date.now(),
       width: first.width || 0,
       height: first.height || 0,
-      images: storedImages.map(item => ({ src: item.src, filename: item.filename, prompt: item.prompt || options.prompt || '', description: item.description || '', semantic_text: item.semantic_text || '', updatedAt: item.updatedAt, width: item.width || 0, height: item.height || 0, labels: item.labels || [] })),
+      images: storedImages.map(item => ({ ...item, displaySrc: '' })),
     };
     deps.saveLatestGeneratedImage(options.sessionId, latestImage);
 
-    const countText = storedImages.length > 1 ? `（${storedImages.length} 张）` : '';
-    const raw = storedImages.map(item => item.raw).join('\n');
-    const downloadAllButton = deps.downloadAllImagesButtonHtml();
+    const attachments = storedImages.map(item => ({ ...item, displaySrc: '' }));
+    const html = renderImageResultHtml(storedImages, {
+      escapeHtml: deps.escapeHtml,
+      downloadAllImagesButtonHtml: deps.downloadAllImagesButtonHtml,
+      transparentPixel: root?.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || FALLBACK_TRANSPARENT_PIXEL,
+    });
     return {
-      raw,
+      raw: storedImages.map(item => item.raw).join('\n'),
       metaText: elapsedText ? `RT ${elapsedText}` : '',
       imageContext: {
+        schema_version: 'image_result.v1',
+        resultId,
         prompt: options.prompt || '',
         routePrompt: options.routePrompt || '',
         mode: 'image',
@@ -79,29 +119,13 @@
         selectedReferenceId: referenceId,
         usePreviousImage: true,
         updatedAt: Date.now(),
-        attachments: storedImages.map((item, index) => ({
-          id: deps.makeImageItemId ? deps.makeImageItemId('latest', index + 1) : `img_latest_${index + 1}`,
-          name: item.filename,
-          type: 'image/png',
-          size: 0,
-          src: item.src,
-          fromPrevious: true,
-          sourceIndex: index + 1,
-          imageId: deps.makeImageItemId ? deps.makeImageItemId('latest', index + 1) : `img_latest_${index + 1}`,
-          referenceId,
-          width: item.width || 0,
-          height: item.height || 0,
-          prompt: item.prompt || '',
-          description: item.description || '',
-          semantic_text: item.semantic_text || '',
-          labels: item.labels || [],
-        })),
+        attachments,
       },
-      html: `${countText ? `<div class="image-result-head"><span>${countText}</span></div>` : ''}<div class="generated-image-grid" data-generated-images="1">${itemsHtml.join('')}</div><div class="image-download-row">${downloadAllButton}</div>`,
+      html,
     };
   }
 
-  const api = Object.freeze({ imageResultToHtml });
+  const api = Object.freeze({ makeImageResultId, renderImageResultHtml, imageResultToHtml });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppImageResultWorkflow = api;
   if (root?.window) root.window.ChatUIAppImageResultWorkflow = api;

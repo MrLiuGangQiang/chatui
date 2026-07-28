@@ -134,23 +134,23 @@
       if(!t)return void toast("找不到这条消息内容，无法强制生图");
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,e?.dataset?.messageIndex,{rawText:t})||null,s=turn?.userIndex;
       if(!Number.isInteger(s)||s<0)return void toast("找不到这条消息上下文，无法强制生图");
-      turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;const n=turn.assistantIndex,a=state.activeSessionId,i=ensureActiveRun(a),o=e.nextElementSibling&&(e.nextElementSibling.classList?.contains("assistant")||e.nextElementSibling.classList?.contains("error"))?e.nextElementSibling:null,r=e.querySelector(".force-image-btn");
+      turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;const n=turn.assistantIndex,a=state.activeSessionId,i=ensureActiveRun(a),o=e.nextElementSibling&&(e.nextElementSibling.classList?.contains("assistant")||e.nextElementSibling.classList?.contains("error"))?e.nextElementSibling:null,r=e.querySelector(".force-image-btn"),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},replay=clarificationApi.normalizeClarificationReplay?.(state.messages?.[s]?.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages?.[n]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||t;
       resetMessageActionStates(o||e);r&&(r.classList.add("refreshing"),r.disabled=!0);
       const l=prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后"),startedAt=Date.now();
-      const task=createRegenerateTask({sessionId:a,run:i,readPending:()=>({promptText:t,rawPromptText:t,submitMode:"image",messageIndex:s,responseIndex:n,liveItemId:l.liveItem?.id||"",userDisplayItemId:e?.dataset?.displayItemId||e?.__displayItem?.id||"",imageContext:e?.dataset?.imageContext||e?.__displayItem?.imageContext||"",attachmentContext:e?.dataset?.attachmentContext||e?.__displayItem?.attachmentContext||"",requestBaseMessages:state.messages.slice(0,s),regenerate:!0,replaceAssistantIndex:n,startedAt})});
+      const task=createRegenerateTask({sessionId:a,run:i,readPending:()=>({promptText:replayPrompt,rawPromptText:t,submitMode:"image",messageIndex:s,responseIndex:n,liveItemId:l.liveItem?.id||"",userDisplayItemId:e?.dataset?.displayItemId||e?.__displayItem?.id||"",imageContext:e?.dataset?.imageContext||e?.__displayItem?.imageContext||"",attachmentContext:e?.dataset?.attachmentContext||e?.__displayItem?.attachmentContext||"",requestBaseMessages:state.messages.slice(0,s),regenerate:!0,replaceAssistantIndex:n,startedAt})});
       try{
         task.accept({capture:!0});
         if(i.stopped||i.abortController?.signal?.aborted)return;
         task.captured();task.routing();
-        const routeInfo=routeUtils.createExplicitTextToImageRoute?.(t);
+        const routeInfo=routeUtils.createExplicitTextToImageRoute?.(replayPrompt);
         if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0){const err=new Error("强制生图任务未能建立有效执行合同，已停止发送");err.code="ROUTE_NOT_READY";throw err}
         if(warnMissingModel(routeInfo.mode,!0)){task.fail(new Error("missing image model"));return void l.node?.remove()}
         const executionPools=submitHelpers.buildExecutionResourcePools({current:[],quoted:[],history:[],context:[]},{isImageFile});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools);
-        const imagePrompt=String(routeInfo.contextualImagePrompt||t).trim();
+        const imagePrompt=String(routeInfo.contextualImagePrompt||replayPrompt).trim();
         updateModeUi(routeInfo.mode,state.autoMode);
         const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
-        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract,routePrompt:imagePrompt,originalPrompt:t,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }
@@ -205,10 +205,10 @@
       const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
       const c=prepareRegeneratedResponse(t,e,l,a,"正在执行：路由预检");e=c.node;let m=c.liveItem;
-      const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t);
+      const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
-      const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:s,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
-      const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>s,signal:d.abortController?.signal});
+      const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
+      const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});
       try{
         task.accept({capture:!0});
         const h=u?await restoreUserAttachmentsFromContext(u):[];
@@ -226,8 +226,9 @@
         const buildQuotedRouteContext=()=>({quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""},recent_messages:[{index:1,role:quotedMessage?.role||"user",content:quotedRouteContent||"[quoted_message]"}],suggested_contextual_image_prompt:[quotedCleanText,s].filter(Boolean).join("\n\n"),latest_user_image_request:null,latest_assistant_image_result:hasQuotedImage&&quotedImageSource==="previous"?quotedReferenceSummary():null,image_candidates:hasQuotedImage?quotedImageCandidates():[],file_candidates:quotedFileCandidates,last_generated_image:null,latest_uploaded_image:hasQuotedImage&&quotedImageSource==="uploaded"?quotedReferenceSummary():null,latest_image_reference:hasQuotedImage?quotedReferenceSummary():null,recent_image_references:[],recent_uploaded_image_references:[]});
         task.captured();task.routing();
         let p,g;
-        try{if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),buildQuotedRouteContext()),g=p.mode}
-        else{p=await routeUi.getEffectiveRouteWithSlowNotice(s,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
+        try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),replay.clarificationRouteContext),g=p.mode}
+        else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),buildQuotedRouteContext()),g=p.mode}
+        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
         if(p.needClarification){
           const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
           const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
@@ -295,14 +296,14 @@
         const contextFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"context"});
         const executionPools=submitHelpers.buildExecutionResourcePools({current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]},{isImageFile});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(p,executionPools);
-         const q=String(p.contextualImagePrompt||p.editInstruction||s).trim(),chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
+         const q=String(p.contextualImagePrompt||p.editInstruction||replayPrompt).trim(),chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
          const originalImageIndex=submitHelpers.originalImageIndex;
          const imageAttachmentIndexGuide=submitHelpers.imageAttachmentIndexGuide?.(chatH,{isImageFile,originalIndex:originalImageIndex})||"";
          const comparisonGuide=executionMedia.chatImages.some(item=>["compare_a","compare_b"].includes(item.routeRole))
            ? executionMedia.chatImages.map((item,index)=>`随附图片${index+1} = ${item.routeRole}`).join("\n") : "";
-         const chatPrompt=[comparisonGuide,imageAttachmentIndexGuide,s].filter(Boolean).join("\n\n");
+         const chatPrompt=[comparisonGuide,imageAttachmentIndexGuide,replayPrompt].filter(Boolean).join("\n\n");
         const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
-         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:s,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,taskContract:p.taskContract,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,taskContract:p.taskContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }

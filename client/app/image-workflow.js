@@ -530,7 +530,8 @@
                   usePreviousImage: !0,
                 })
               : I,
-            resultImageContextText = JSON.stringify(resultImageContext);
+            resultImageContextText = JSON.stringify(resultImageContext),
+            clarificationReplay = t.clarificationReplay || null;
           if (n === state.activeSessionId) {
             const s = Number.isFinite(t.replaceAssistantIndex)
               ? t.replaceAssistantIndex
@@ -582,6 +583,7 @@
                     kind: I.mode,
                     imageJobId: p || "",
                     displayItemId: c?.id || "",
+                    ...(clarificationReplay ? { clarificationReplay } : {}),
                     metaText: b.metaText || `RT ${v}`,
                   })
                 : Number.isFinite(t.replaceAssistantIndex)
@@ -595,6 +597,7 @@
                       kind: I.mode,
                       imageJobId: p || "",
                       displayItemId: c?.id || "",
+                      ...(clarificationReplay ? { clarificationReplay } : {}),
                       metaText: b.metaText || `RT ${v}`,
                     })
                   : state.messages.push({
@@ -609,6 +612,7 @@
                       kind: I.mode,
                       imageJobId: p || "",
                       displayItemId: c?.id || "",
+                      ...(clarificationReplay ? { clarificationReplay } : {}),
                       metaText: b.metaText || `RT ${v}`,
                     }),
               (i.messages = cloneMessageList(state.messages)),
@@ -657,6 +661,7 @@
                   : o.length,
                 imageContext: resultImageContextText,
                 kind: I.mode,
+                ...(clarificationReplay ? { clarificationReplay } : {}),
                 metaText: b.metaText || `RT ${v}`,
               }),
               await saveSessionMessages(n, o),

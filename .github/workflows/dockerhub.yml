@@ -164,7 +164,7 @@ jobs:
             local output=""
             for attempt in $(seq 1 12); do
               if output="$(docker buildx imagetools inspect "$ref" 2>&1)" && \
-                 grep -Fq "Digest: ${DIGEST}" <<<"$output"; then
+                 awk -v expected="$DIGEST" '$1 == "Digest:" && $2 == expected { found=1 } END { exit(found ? 0 : 1) }' <<<"$output"; then
                 echo "Verified ${ref} -> ${DIGEST}"
                 return 0
               fi

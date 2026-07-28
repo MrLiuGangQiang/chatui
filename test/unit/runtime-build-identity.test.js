@@ -91,6 +91,8 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   assert.match(release, /imagetools create/);
   assert.match(release, /verify_digest\(\)/);
   assert.match(release, /for attempt in \$\(seq 1 12\)/);
+  assert.ok(release.includes(`$1 == "Digest:" && $2 == expected`),
+    'registry verification must parse the aligned digest field instead of assuming one space');
   assert.ok(!release.includes('imagetools inspect "$ref" | grep'),
     'registry verification must tolerate bounded propagation delay after promotion');
   assert.match(release, /verify-release-ref\.js/);

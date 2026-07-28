@@ -1,5 +1,10 @@
 'use strict';
 
+// jsdom 29 exposes the standardized Iterator global to each VM window. Node
+// 20 does not provide it yet, while these tests only need the global during
+// jsdom initialization.
+if (typeof globalThis.Iterator !== 'function') globalThis.Iterator = class Iterator {};
+
 const fs = require('fs');
 const path = require('path');
 

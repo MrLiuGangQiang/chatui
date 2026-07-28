@@ -281,6 +281,30 @@ async function testStaleTabSnapshotPreservesNewerMessages() {
     'a stale pagehide snapshot must not erase a message written by another tab');
 }
 
+async function testNewerResponseReplacesSameCanonicalSlot() {
+  const merged = sessionStore.mergeConcurrentSnapshot({
+    id: 'regenerate-session',
+    updatedAt: 20,
+    messages: [
+      { role: 'user', content: 'question', messageIndex: '0' },
+      { role: 'assistant', content: 'old answer', responseIndex: '1' },
+    ],
+    pendingDisplay: [],
+  }, {
+    id: 'regenerate-session',
+    updatedAt: 30,
+    baseUpdatedAt: 10,
+    messages: [
+      { role: 'user', content: 'question', messageIndex: '0' },
+      { role: 'assistant', content: 'new answer', responseIndex: '1' },
+    ],
+    pendingDisplay: [],
+  });
+
+  assert.deepStrictEqual(merged.messages.map(message => message.content), ['question', 'new answer'],
+    'a newer regenerated response must replace the old canonical slot');
+}
+
 module.exports = [
   testIndexedDbOpenTimeoutClosesLateConnection,
   testSnapshotReadTimeoutReopensConnection,
@@ -289,4 +313,5 @@ module.exports = [
   testFlushIsBoundedAndClearCancelsStalledQueue,
   testPermanentWriteErrorIsNotRetried,
   testStaleTabSnapshotPreservesNewerMessages,
+  testNewerResponseReplacesSameCanonicalSlot,
 ];

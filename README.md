@@ -935,7 +935,7 @@ GET, POST
 | `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | Compatible alias for the department statistics password. |
 | `MAX_USAGE_REFRESH_BUCKETS` | `4096` | 使用统计访问限流桶的内存上限 |
 
-当 ChatUI 部署在终止 TLS 的反向代理后，默认同源判断只能看到后端 socket 的 HTTP 协议。请把浏览器实际使用的 HTTPS Origin 显式加入 `CHATUI_ALLOWED_ORIGINS`；服务端不会盲目信任客户端提交的 `X-Forwarded-Proto`。
+当 ChatUI 部署在终止 TLS 的反向代理后，现代浏览器的同源请求会通过 Fetch Metadata 与 Host 联合识别，无需为每个 HTTPS 域名额外配置。若客户端不发送 Fetch Metadata，请把浏览器实际使用的 HTTPS Origin 显式加入 `CHATUI_ALLOWED_ORIGINS`；服务端不会盲目信任客户端提交的 `X-Forwarded-Proto`。
 
 Docker proxy example (the proxy URL must be reachable **from inside the container**):
 
@@ -1260,7 +1260,7 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 - 如果接入私有模型网关，请做好鉴权和访问控制。
 - 服务端默认阻止代理访问私有地址段以降低 SSRF 风险；不要在公开部署中设置 `CHATUI_ALLOW_PRIVATE_UPSTREAM=1`。
 - API 默认只接受同源浏览器请求；跨域部署应精确配置 `CHATUI_ALLOWED_ORIGINS`，不要在公开服务上启用 `CHATUI_ALLOW_ANY_ORIGIN=1`。
-- 若 HTTPS 在反向代理终止，请将浏览器实际 HTTPS Origin 显式加入 `CHATUI_ALLOWED_ORIGINS`；服务端不会盲目信任 `X-Forwarded-Proto`。
+- 若 HTTPS 在反向代理终止，现代浏览器会通过 Fetch Metadata 与 Host 被识别为同源；缺少该请求头的客户端需将实际 HTTPS Origin 加入 `CHATUI_ALLOWED_ORIGINS`。服务端不会盲目信任 `X-Forwarded-Proto`。
 - 使用统计与反馈会先校验本地统计用户及固定上游基址，再向固定上游验证模型，避免把 API Key 发送到调用方指定的任意地址。
 - 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/openai/image_edit`。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。

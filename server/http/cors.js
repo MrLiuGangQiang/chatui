@@ -21,6 +21,22 @@ function requestOrigin(req) {
   return normalizeOrigin(`${protocol}://${host}`);
 }
 
+function requestHostMatchesOrigin(req, origin) {
+  const host = String(req?.headers?.host || '').trim();
+  if (!host || /[\r\n]/.test(host)) return false;
+  try {
+    const originUrl = new URL(origin);
+    const requestUrl = new URL(`${originUrl.protocol}//${host}`);
+    return requestUrl.origin === originUrl.origin;
+  } catch {
+    return false;
+  }
+}
+
+function hasSameOriginFetchMetadata(req) {
+  return String(req?.headers?.['sec-fetch-site'] || '').trim().toLowerCase() === 'same-origin';
+}
+
 function evaluateCorsRequest(req, env = process.env) {
   const rawOrigin = String(req?.headers?.origin || '').trim();
   if (!rawOrigin) return { allowed: true, responseOrigin: '' };
@@ -31,6 +47,13 @@ function evaluateCorsRequest(req, env = process.env) {
   }
   if (configuredOrigins(env).has(origin)) return { allowed: true, responseOrigin: origin };
   if (origin === requestOrigin(req)) return { allowed: true, responseOrigin: origin };
+  // TLS commonly terminates before the Docker container, so its socket looks
+  // like HTTP even for an HTTPS browser request. Fetch Metadata is controlled
+  // by the browser (unlike X-Forwarded-Proto); still require the external
+  // authority to match Host before treating that request as same-origin.
+  if (hasSameOriginFetchMetadata(req) && requestHostMatchesOrigin(req, origin)) {
+    return { allowed: true, responseOrigin: origin };
+  }
   return { allowed: false, responseOrigin: '' };
 }
 
@@ -45,4 +68,12 @@ function applyCorsRequestContext(req, res, env = process.env) {
   return result;
 }
 
-module.exports = { normalizeOrigin, configuredOrigins, requestOrigin, evaluateCorsRequest, applyCorsRequestContext };
+module.exports = {
+  normalizeOrigin,
+  configuredOrigins,
+  requestOrigin,
+  requestHostMatchesOrigin,
+  hasSameOriginFetchMetadata,
+  evaluateCorsRequest,
+  applyCorsRequestContext,
+};

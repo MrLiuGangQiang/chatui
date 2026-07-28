@@ -140,6 +140,23 @@ async function testServerAuditCorsAndMalformedRoutesOverRealHttp() {
 
     const wrongScheme = await request(baseUrl, '/api/version', { headers: { Origin: baseUrl.replace('http:', 'https:') } });
     assert.strictEqual(wrongScheme.response.status, 403);
+    const tlsTerminatedSameOrigin = await request(baseUrl, '/api/version', {
+      headers: {
+        Origin: baseUrl.replace('http:', 'https:'),
+        'Sec-Fetch-Site': 'same-origin',
+      },
+    });
+    assert.strictEqual(tlsTerminatedSameOrigin.response.status, 200);
+    assert.strictEqual(tlsTerminatedSameOrigin.response.headers.get('access-control-allow-origin'), baseUrl.replace('http:', 'https:'));
+    assert.match(tlsTerminatedSameOrigin.response.headers.get('vary') || '', /Sec-Fetch-Site/i);
+
+    const tlsTerminatedCrossSite = await request(baseUrl, '/api/version', {
+      headers: {
+        Origin: baseUrl.replace('http:', 'https:'),
+        'Sec-Fetch-Site': 'cross-site',
+      },
+    });
+    assert.strictEqual(tlsTerminatedCrossSite.response.status, 403);
     const forbidden = await request(baseUrl, '/api/version', { headers: { Origin: 'https://attacker.example' } });
     assert.strictEqual(forbidden.response.status, 403);
 

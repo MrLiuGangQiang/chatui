@@ -28,12 +28,19 @@
   function mergeConcurrentSnapshot(existing, incoming) {
     if (!existing || Number(existing.updatedAt || 0) <= Number(incoming?.baseUpdatedAt || 0)) return incoming;
     const messages = Array.isArray(existing.messages) ? existing.messages.map(cloneSnapshot) : [];
-    const knownMessages = new Set(messages.map(messageIdentity));
+    const messageIndexes = new Map(messages.map((message, index) => [messageIdentity(message, index), index]));
     (Array.isArray(incoming.messages) ? incoming.messages : []).forEach((message, index) => {
       const identity = messageIdentity(message, index);
-      if (!knownMessages.has(identity)) {
+      const existingIndex = messageIndexes.get(identity);
+      if (existingIndex === undefined) {
         messages.push(cloneSnapshot(message));
-        knownMessages.add(identity);
+        messageIndexes.set(identity, messages.length - 1);
+      } else if (Number(incoming.updatedAt || 0) > Number(existing.updatedAt || 0) && messageHasDurableContent(message)) {
+        // A newer completed response must replace the old response at the same
+        // canonical slot (for example, edit-and-regenerate). Empty/stale
+        // snapshots are intentionally ignored so a background page cannot erase
+        // a response that another tab has already committed.
+        messages[existingIndex] = cloneSnapshot(message);
       }
     });
     const pendingDisplay = Array.isArray(existing.pendingDisplay) ? existing.pendingDisplay.map(cloneSnapshot) : [];
@@ -46,6 +53,13 @@
       }
     });
     return { ...incoming, messages, pendingDisplay, lastGeneratedImage: incoming.lastGeneratedImage || existing.lastGeneratedImage || null };
+  }
+
+  function messageHasDurableContent(message = {}) {
+    if (message?.role === 'user') return true;
+    if (message?.role !== 'assistant') return false;
+    const content = typeof message.content === 'string' ? message.content : message.rawText;
+    return Array.isArray(content) ? content.length > 0 : String(content || '').trim().length > 0;
   }
 
   function createSessionSnapshotStore({
@@ -511,6 +525,7 @@
     DEFAULT_RETRY_BASE_DELAY_MS,
     DEFAULT_RETRY_MAX_DELAY_MS,
     cloneSnapshot,
+    messageHasDurableContent,
     mergeConcurrentSnapshot,
     createSessionSnapshotStore,
     buildSessionSnapshot,

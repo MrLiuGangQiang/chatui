@@ -31,6 +31,7 @@ function applyResponseHeaders(res, headers = {}) {
     else {
       next['Access-Control-Allow-Origin'] = origin;
       if (origin !== '*') next.Vary = appendVary(next.Vary, 'Origin');
+      if (origin !== '*') next.Vary = appendVary(next.Vary, 'Sec-Fetch-Site');
     }
   }
   return next;

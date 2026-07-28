@@ -1,6 +1,16 @@
 (function initChatUIAppSessionUiWorkflow(root) {
   'use strict';
 
+  function isSessionActionTarget(target) {
+    return !!target?.closest?.('.session-delete-btn, .session-rename-btn, .session-title-input');
+  }
+
+  function shouldSwitchSessionOnPointerDown(event) {
+    if (!event || isSessionActionTarget(event.target)) return false;
+    if (event.pointerType === 'touch') return false;
+    return event.button === undefined || event.button === 0;
+  }
+
   function createSessionUiWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const $ = deps.getElement || (() => null);
@@ -51,7 +61,18 @@
         tab.classList.toggle('busy', isSessionBusy(session.id));
         tab.dataset.sessionId = session.id;
         tab.innerHTML = `<span class="session-title" title="${sessionTitleHtml(session)}">${sessionTitleHtml(session)}</span><small>${getSessionReturnCount(session)} 条</small><button class="session-rename-btn" type="button" title="重命名会话" aria-label="重命名会话">✎</button><button class="session-delete-btn" type="button" title="删除会话" aria-label="删除会话">×</button>`;
-        tab.addEventListener('click', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-rename-btn') && !event.target.closest('.session-title-input')) switchSession(session.id); });
+        // Running jobs can refresh the list between pointerdown and click. In
+        // that race the original tab is detached and the browser drops click,
+        // so switch immediately for mouse/pen. Touch and keyboard continue to
+        // use click to preserve scrolling and accessibility behavior.
+        tab.addEventListener('pointerdown', event => {
+          if (shouldSwitchSessionOnPointerDown(event)) switchSession(session.id);
+        });
+        tab.addEventListener('click', event => {
+          if (isSessionActionTarget(event.target)) return;
+          if (event.pointerType && event.pointerType !== 'touch') return;
+          switchSession(session.id);
+        });
         tab.addEventListener('dblclick', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-title-input')) beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-rename-btn')?.addEventListener('click', event => { event.stopPropagation(); beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-delete-btn')?.addEventListener('click', event => { event.stopPropagation(); deleteSession(session.id); });
@@ -230,7 +251,7 @@
     return Object.freeze({ renderSessionList, newSession, deleteSession, clearAllSessions, beginRenameSession, renderSessionModelArea, setSessionChatModel });
   }
 
-  const api = Object.freeze({ createSessionUiWorkflow });
+  const api = Object.freeze({ isSessionActionTarget, shouldSwitchSessionOnPointerDown, createSessionUiWorkflow });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionUiWorkflow = api;
   if (root?.window) root.window.ChatUIAppSessionUiWorkflow = api;

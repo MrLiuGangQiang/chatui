@@ -136,7 +136,7 @@ function testSwitchAvoidsDuplicateResumeForLiveRunAndPendingCleanupReconciles() 
   const resumeSource = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   const displaySource = fs.readFileSync(path.join(__dirname, '../../client/app/display-history-workflow.js'), 'utf8');
 
-  assert.ok(resumeSource.includes('activeRun=state.activeRuns?.get(e),hasLiveRun=!!(activeRun&&!activeRun.stopped&&activeRun.jobIds?.has(`chat:${s.id}`))'), 'returning to a switched session must bind its existing in-memory stream instead of opening a duplicate recovery stream');
+  assert.match(resumeSource, /activeRun\s*=\s*state\.activeRuns\?\.get\(e\),\s*hasLiveRun\s*=\s*!!\(\s*activeRun\s*&&\s*!activeRun\.stopped\s*&&\s*activeRun\.jobIds\?\.has\(`chat:\$\{s\.id\}`\)/, 'returning to a switched session must bind its existing in-memory stream instead of opening a duplicate recovery stream');
   assert.ok(displaySource.includes('if (hasCompletePair && !activeChatJob?.id) clearChatJob(session.id);'), 'message-count cleanup must not discard an explicitly persisted active chat job');
   assert.ok(displaySource.includes("if (item?.pending === '1' && matchesActiveChatJob(item)) item.jobId = activeChatJob.id;"), 'a lagging pending display snapshot must be re-linked to the durable job before stale cleanup');
 }

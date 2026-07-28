@@ -237,6 +237,18 @@ async function testImageJobStartEditValidationContracts() {
 
   result = await invokeStart({
     baseUrl: 'https://api.example.com/v1',
+    jobId: 'imgjob-multimask',
+    mode: 'edit_image',
+    payload: { model: 'gpt-image-1', prompt: 'edit' },
+    files: [imageFile({ name: 'target.png' })],
+    masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+  });
+  assert.strictEqual(result.res.status, 400);
+  assert.deepStrictEqual(result.json, { error: { message: '图片编辑任务最多支持一个 mask 附件' } });
+  assert.strictEqual(result.imageJobs.has('imgjob-multimask'), false);
+
+  result = await invokeStart({
+    baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-noprompt',
     payload: { model: 'gpt-image-1', images: [imageFile()] },
   });
@@ -380,7 +392,7 @@ function testImageUpstreamRequestEditMultipartContract() {
       images: [imageFile()],
     },
     files: [imageFile({ name: 'one.png' }), imageFile({ name: 'two.png' })],
-    masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+    masks: [imageFile({ name: 'mask-a.png' })],
   });
 
   assert.strictEqual(request.headers.Authorization, 'Bearer sk-edit');
@@ -413,6 +425,60 @@ function testImageJobPrepareRequestHelperContracts() {
   assert.strictEqual(edit.payload.prompt, '改色');
   assert.strictEqual(edit.files.length, 1);
   assert.strictEqual(edit.masks.length, 0);
+
+  const roleMap = JSON.stringify([
+    { position: 1, role: 'reference', resource_key: 'r1', id: 'ref-1', reference_id: 'refset-1' },
+    { position: 2, role: 'style_reference', resource_key: 'r2', id: 'style-2', reference_id: 'refset-2' },
+  ]);
+  const roleAware = prepareImageJobRequest({
+    payload: { model: 'gpt-image-1', prompt: '合并参考图', image_role_map: roleMap },
+    files: [
+      imageFile({ routeRole: 'reference', routeResourceKey: 'r1', routeId: 'ref-1', routeReferenceId: 'refset-1' }),
+      imageFile({ routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' }),
+    ],
+  });
+  assert.deepStrictEqual(roleAware.files.map(file => file.routeRole), ['reference', 'style_reference']);
+  assert.doesNotMatch(buildImageUpstreamRequest({ mode: 'edit_image', payload: roleAware.payload, files: roleAware.files, masks: [] }).body.toString('latin1'), /image_role_map/, 'internal role metadata must be validated then stripped before the upstream API');
+  assert.throws(
+    () => prepareImageJobRequest({
+      payload: { model: 'gpt-image-1', prompt: '合并参考图', image_role_map: roleMap },
+      files: [
+        imageFile({ routeRole: 'reference', routeResourceKey: 'r1', routeId: 'ref-1', routeReferenceId: 'refset-1' }),
+        imageFile({ routeRole: 'reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' }),
+      ],
+    }),
+    err => err.statusCode === 400 && err.message === '图片角色映射与稳定资源绑定不一致',
+  );
+  assert.throws(
+    () => prepareImageJobRequest({
+      payload: { model: 'gpt-image-1', prompt: '合并参考图' },
+      files: [
+        imageFile({ routeRole: 'target', routeResourceKey: 'r1', routeId: 'target-1' }),
+        imageFile({ routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2' }),
+      ],
+    }),
+    err => err.statusCode === 400 && err.message === '多图任务缺少图片角色映射',
+  );
+  assert.throws(
+    () => prepareImageJobRequest({
+      payload: { model: 'gpt-image-1', prompt: '合并参考图', image_role_map: roleMap.replace('"position":2', '"position":3') },
+      files: [
+        imageFile({ routeRole: 'reference', routeResourceKey: 'r1', routeId: 'ref-1', routeReferenceId: 'refset-1' }),
+        imageFile({ routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' }),
+      ],
+    }),
+    err => err.statusCode === 400 && err.message === '图片角色映射与稳定资源绑定不一致',
+  );
+
+  assert.throws(
+    () => prepareImageJobRequest({
+      mode: 'edit_image',
+      payload: { prompt: 'edit' },
+      files: [imageFile({ name: 'target.png' })],
+      masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
+    }),
+    err => err.statusCode === 400 && err.message === '图片编辑任务最多支持一个 mask 附件'
+  );
 
   assert.throws(
     () => prepareImageJobRequest({ mode: 'edit_image', payload: { prompt: '改一下' } }),

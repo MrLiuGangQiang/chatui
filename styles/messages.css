@@ -377,3 +377,125 @@
   .web-preview-dialog-header{gap:10px;padding:11px 12px;}
   .web-preview-dialog-actions{gap:6px;}
 }
+
+/* Compact numbered image clarification list. */
+.clarification-presentation{
+  display:grid;
+  gap:12px;
+  width:min(640px,calc(100vw - 112px));
+  max-width:100%;
+}
+.clarification-question,.clarification-choice-hint{margin:0!important;}
+.clarification-question{color:#0f172a;font-size:14px;line-height:1.65;}
+.clarification-choice-section{display:grid;gap:7px;}
+.clarification-choice-heading{margin:0 0 1px;color:#64748b;font-size:12px;font-weight:650;line-height:1.4;}
+.markdown-body .clarification-image-list{
+  --clarification-image-height:72px;
+  --clarification-image-width:96px;
+  display:grid!important;
+  grid-template-columns:repeat(3,max-content);
+  grid-auto-flow:row;
+  justify-content:start;
+  align-items:start;
+  gap:10px;
+  margin:0!important;
+  padding:0!important;
+  list-style:none!important;
+  counter-reset:none!important;
+  border-spacing:0!important;
+}
+.markdown-body .clarification-image-list>.clarification-choice-card{
+  display:inline-flex!important;
+  align-items:stretch;
+  justify-self:center;
+  width:max-content;
+  min-width:0;
+  max-width:none;
+  overflow:visible;
+  margin:0!important;
+  padding:0!important;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  counter-increment:none!important;
+}
+.markdown-body .clarification-image-list>.clarification-choice-card::before{content:none!important;display:none!important;}
+.clarification-choice-number{
+  display:grid;
+  position:static!important;
+  order:0;
+  align-self:stretch;
+  flex:0 0 22px;
+  place-items:center;
+  width:22px;
+  height:auto;
+  margin:0!important;
+  padding:0!important;
+  border:0;
+  border-radius:10px 0 0 10px;
+  background:#2563eb;
+  box-shadow:none;
+  color:#fff;
+  font-size:12px;
+  font-weight:800;
+  line-height:1;
+}
+/* The media group shrink-wraps its contents; it never supplies a fixed image
+   box. Child order also normalizes persisted legacy markup. */
+.clarification-choice-media{
+  display:inline-flex!important;
+  position:static!important;
+  order:1;
+  align-items:stretch;
+  gap:0!important;
+  column-gap:0!important;
+  width:max-content;
+  height:auto;
+  min-width:0;
+  max-width:none;
+  overflow:visible;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.clarification-choice-media[data-choice-number]::after{
+  content:none!important;
+  display:none!important;
+}
+.markdown-body img.clarification-choice-image,
+.markdown-body img.clarification-choice-image[data-markdown-media-bound="1"]{
+  display:block!important;
+  order:1;
+  flex:none;
+  width:var(--clarification-image-width)!important;
+  height:var(--clarification-image-height)!important;
+  min-width:var(--clarification-image-width)!important;
+  min-height:var(--clarification-image-height)!important;
+  max-width:var(--clarification-image-width)!important;
+  max-height:var(--clarification-image-height)!important;
+  aspect-ratio:4/3!important;
+  object-fit:cover!important;
+  margin:0!important;
+  border:0!important;
+  border-radius:0 10px 10px 0!important;
+  background:transparent!important;
+}
+.clarification-choice-placeholder{display:grid;order:1;place-items:center;min-width:96px;height:var(--clarification-image-height);padding:8px;border-radius:0 10px 10px 0;background:#f1f5f9;color:#64748b;font-size:11px;line-height:1.35;text-align:center;}
+.clarification-choice-hint{padding-top:1px;color:#64748b;font-size:12px;line-height:1.5;}
+@media (max-width:640px){
+  .clarification-presentation{width:min(100%,calc(100vw - 58px));gap:10px;}
+  .markdown-body .clarification-image-list{--clarification-image-height:60px;--clarification-image-width:80px;gap:7px;}
+  .markdown-body .clarification-image-list>.clarification-choice-card{padding:0!important;}
+  .clarification-choice-number{flex-basis:20px;width:20px;font-size:10px;}
+}
+
+/* Message images are the visual surface themselves. Do not put a generic
+   frame behind generated, uploaded, or clarification images. */
+.message .content img:not(.image-missing),
+.message .markdown-body img:not(.image-missing){
+  border:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+}

@@ -22,7 +22,7 @@
     }
 
     function summarizeIntentTrace(trace = {}) {
-      const route = trace.finalRoute || trace.reviewRoute || trace.firstRoute || {};
+      const route = trace.finalRoute || trace.firstRoute || {};
       const contract = route.taskContract || trace.finalTaskContract || null;
       return {
         timestamp: new Date().toISOString(),
@@ -31,9 +31,7 @@
         confidence: Number.isFinite(Number(route.confidence)) ? Number(route.confidence) : null,
         api: String(trace.finalApi || route.api || ''),
         model: String(trace.model || ''),
-        reviewed: !!trace.reviewed,
         fallbackAi: !!trace.fallbackAi,
-        reviewErrorCode: trace.reviewError ? String(trace.reviewError).slice(0, 120) : '',
       };
     }
 
@@ -49,15 +47,107 @@
       return routeSvc?.extractRouteText ? routeSvc.extractRouteText(response) : response?.choices?.[0]?.message?.content || response?.output_text || '';
     }
 
-    function shouldReviewRoute(routeSvc, route, context) {
-      if (!route) return false;
-      return !!routeSvc?.needsIntentReview?.(route, context);
+    function structuredOutputUnsupported(error) {
+      const text = String(error?.message || error || '').toLowerCase();
+      return /response_format|json_schema|structured.?output/.test(text)
+        && /unsupported|not support|unknown|invalid parameter|unrecognized/.test(text);
     }
 
     async function requestRouteDecision(payload, config, headers, signal) {
       with (deps) {
-        return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
+        try {
+          return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
+        } catch (error) {
+          // Strict JSON Schema is primary.  A gateway that lacks it may use
+          // JSON-object mode for the same compact semantic protocol, but route
+          // recognition never drops response_format and accepts arbitrary text.
+          if (!payload?.response_format || !structuredOutputUnsupported(error)) throw error;
+          const jsonPayload = { ...payload, response_format: { type: 'json_object' } };
+          return await requestJson(`${config.baseUrl}/chat/completions`, jsonPayload, config.apiKey, { headers, signal });
+        }
       }
+    }
+
+    function inspectRoute(routeSvc, raw, options) {
+      if (typeof routeSvc?.inspectRouteResult === 'function') return routeSvc.inspectRouteResult(raw, options);
+      const route = parseRouteResult(raw, options);
+      return { route, reason: route ? '' : 'contract_shape' };
+    }
+
+    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, currentMode = 'chat', autoMode = true, raw, config, headers, signal, requiredReadiness = '' }) {
+      const options = { input, attachments, context, currentMode, autoMode };
+      const mergeReadiness = (...values) => typeof routeSvc?.mergeRouteReadinessRequirement === 'function'
+        ? routeSvc.mergeRouteReadinessRequirement(...values)
+        : values.includes('needs_clarification') ? 'needs_clarification' : values.includes('ready') ? 'ready' : '';
+      const satisfiesReadiness = route => typeof routeSvc?.routeSatisfiesReadiness === 'function'
+        ? routeSvc.routeSatisfiesReadiness(route, readinessRequirement)
+        : readinessRequirement !== 'needs_clarification' || route?.needClarification === true;
+      // `inspectRouteResult` proves that the model output can be compiled, but
+      // the submission boundary additionally requires a consistent execution
+      // projection. Keep that stronger check here as well. Otherwise a route
+      // can be returned successfully and only fail later with an internal
+      // "resource confirmation" error.
+      const isDispatchable = route => route?.needClarification === true
+        || typeof routeSvc?.isRouteDispatchable !== 'function'
+        || routeSvc.isRouteDispatchable(route) === true;
+      const acceptsRoute = route => !!route && satisfiesReadiness(route) && isDispatchable(route);
+      let readinessRequirement = mergeReadiness(requiredReadiness, routeSvc?.readRouteReadiness?.(raw) || '');
+      const initial = inspectRoute(routeSvc, raw, options);
+      if (readinessRequirement === 'needs_clarification') {
+        const terminalRoute = initial.route
+          || routeSvc?.terminalClarificationRouteFromResult?.(raw, options)
+          || invalidContractClarificationRoute();
+        return {
+          route: terminalRoute,
+          reason: '',
+          repaired: false,
+          repairRaw: '',
+          requiredReadiness: readinessRequirement,
+          clarificationTerminal: true,
+        };
+      }
+      if (acceptsRoute(initial.route)) {
+        return { ...initial, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
+      const initialReason = initial.route
+        ? isDispatchable(initial.route) ? 'readiness_transition_forbidden' : 'execution_projection'
+        : initial.reason;
+      if (typeof routeSvc?.buildIntentRepairPayload !== 'function') {
+        return { route: null, reason: initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
+      const repairInvariants = routeSvc?.repairInvariantSnapshot?.(raw) || null;
+      if (!repairInvariants) {
+        return { route: null, reason: 'repair_invariants_unavailable', initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
+      }
+      const repairPayload = routeSvc.buildIntentRepairPayload({
+        model,
+        input,
+        attachments,
+        context,
+        currentMode,
+        autoMode,
+        previousOutput: raw,
+        validationReason: initialReason,
+        expectedReadiness: readinessRequirement,
+      });
+      const repairResponse = await requestRouteDecision(repairPayload, config, headers, signal);
+      const repairRaw = extractRouteText(routeSvc, repairResponse);
+      readinessRequirement = mergeReadiness(readinessRequirement, routeSvc?.readRouteReadiness?.(repairRaw) || '');
+      const repaired = inspectRoute(routeSvc, repairRaw, options);
+      if (repaired.route && routeSvc?.repairPreservesInvariants?.(repairInvariants, repaired.route) !== true) {
+        return { route: null, reason: 'repair_semantic_drift', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
+      }
+      if (repaired.route && !acceptsRoute(repaired.route)) {
+        return {
+          route: null,
+          reason: isDispatchable(repaired.route) ? 'readiness_transition_forbidden' : 'execution_projection',
+          repaired: true,
+          initialReason,
+          repairRaw,
+          requiredReadiness: readinessRequirement,
+        };
+      }
+      return { ...repaired, repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
     }
 
     function createRouteCancelledError() {
@@ -87,6 +177,54 @@
       };
     }
 
+    const DEFAULT_INTENT_DEADLINE_MS = 60000;
+
+    function createIntentDeadline(parentSignal = null, timeoutMs = DEFAULT_INTENT_DEADLINE_MS) {
+      const linked = createLinkedAbortController(parentSignal);
+      const duration = Math.max(1, Number(timeoutMs) || DEFAULT_INTENT_DEADLINE_MS);
+      const startedAt = Date.now();
+      let timedOut = false;
+      let disposed = false;
+      let rejectTerminal = null;
+      const timeoutError = () => {
+        const error = new Error('ROUTE_INTENT_TIMEOUT');
+        error.code = 'ROUTE_INTENT_TIMEOUT';
+        error.routeTimedOut = true;
+        error.timeoutMs = duration;
+        return error;
+      };
+      const terminal = new Promise((resolve, reject) => {
+        rejectTerminal = reject;
+      });
+      terminal.catch(() => {});
+      const cancel = () => {
+        if (!disposed) rejectTerminal?.(createRouteCancelledError());
+      };
+      if (parentSignal?.aborted) cancel();
+      else parentSignal?.addEventListener?.('abort', cancel, { once: true });
+      const timer = setTimeout(() => {
+        if (disposed) return;
+        timedOut = true;
+        linked.controller?.abort?.();
+        rejectTerminal?.(timeoutError());
+      }, duration);
+      return {
+        signal: linked.controller?.signal || parentSignal || null,
+        get timedOut() { return timedOut; },
+        get elapsedMs() { return Math.max(0, Date.now() - startedAt); },
+        get remainingMs() { return Math.max(0, duration - (Date.now() - startedAt)); },
+        race: promise => Promise.race([Promise.resolve(promise), terminal]),
+        timeoutError,
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          clearTimeout(timer);
+          parentSignal?.removeEventListener?.('abort', cancel);
+          linked.dispose();
+        },
+      };
+    }
+
     function invalidRouteError(stage = 'primary') {
       const error = new Error('ROUTE_INVALID_CONTRACT');
       error.code = 'ROUTE_INVALID_CONTRACT';
@@ -94,9 +232,27 @@
       return error;
     }
 
-    function requiresVerifiedReview(route = {}) {
-      const operation = String(route.operationType || route.taskContract?.operation || '');
-      return ['edit_image', 'image_reference_gen', 'image_compare'].includes(operation);
+    function invalidContractClarificationRoute() {
+      // This route is deliberately local and non-executing.  An invalid model
+      // response must never be repaired into a guessed operation or resource.
+      return {
+        mode: 'chat',
+        api: 'clarify',
+        target: 'none',
+        intent: 'clarify',
+        needClarification: true,
+        clarificationQuestion: '\u672c\u6b21\u672a\u6267\u884c\uff1a\u610f\u56fe\u6a21\u578b\u8fd4\u56de\u4e86\u65e0\u6548\u7684\u4efb\u52a1\u7ed3\u6784\u3002\u8bf7\u91cd\u8bd5\uff1b\u82e5\u6301\u7eed\u51fa\u73b0\uff0c\u8bf7\u66f4\u6362\u610f\u56fe\u6a21\u578b\u3002',
+        confidence: 0,
+        selectedIndexes: [],
+        selectedImageIndexes: [],
+        selectedFileIndexes: [],
+        selectedImageIds: [],
+        selectedReferenceId: '',
+        imageRefs: [],
+        fileRefs: [],
+        taskContract: null,
+        localClarification: true,
+      };
     }
 
     function resolveRouteModels(sessionId, config = {}) {
@@ -113,26 +269,33 @@
       with (deps) {
         const parentSignal = routeOptions?.signal || null;
         throwIfRouteCancelled(parentSignal);
-        await loadPublicContext?.();
-        throwIfRouteCancelled(parentSignal);
-        const config = getConfig();
-        const requestHeaders = headers || buildRequestHeaders('message', sessionId);
-        const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
-        const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
-        const attachmentMeta = buildRouteAttachmentMetadata(attachments);
-        const context = routeContextOverride || buildRouteContext(sessionId);
-        let primaryFailure = null;
-        let fallbackFailure = null;
+        const absoluteDeadlineAt = Number(routeOptions?.deadlineAt);
+        const remainingDeadlineMs = Number.isFinite(absoluteDeadlineAt) && absoluteDeadlineAt > 0
+          ? Math.max(1, absoluteDeadlineAt - Date.now())
+          : routeOptions?.deadlineMs || DEFAULT_INTENT_DEADLINE_MS;
+        const intentDeadline = createIntentDeadline(parentSignal, remainingDeadlineMs);
+        let slowNotified = false;
+        const slowTimer = setTimeout(() => {
+          slowNotified = true;
+          try { routeOptions?.onSlow?.('\u6b63\u5728\u6267\u884c\uff1a\u8def\u7531\u6a21\u578b\u610f\u56fe\u8bc6\u522b'); } catch (err) { console.warn('route slow callback failed:', err); }
+        }, 10000);
+        try {
+          await intentDeadline.race(loadPublicContext?.());
+          throwIfRouteCancelled(parentSignal);
+          const config = getConfig();
+          const requestHeaders = headers || buildRequestHeaders('message', sessionId);
+          const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
+          const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
+          const attachmentMeta = buildRouteAttachmentMetadata(attachments);
+          const context = routeContextOverride || buildRouteContext(sessionId);
+          let primaryFailure = null;
+          let fallbackFailure = null;
 
         if (config.baseUrl && primaryModel) {
           try {
             const firstPayload = routeSvc?.buildRoutePayload
               ? routeSvc.buildRoutePayload({ model: primaryModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode })
               : { model: primaryModel, temperature: 0, messages: [] };
-            const request = createLinkedAbortController(parentSignal);
-            const controller = request.controller;
-            let timedOut = false;
-            let slowNotified = false;
             const trace = {
               input,
               model: primaryModel,
@@ -140,90 +303,38 @@
               attachments: attachmentMeta,
               firstPayload: compactTraceValue(firstPayload),
             };
-            const slowTimer = setTimeout(() => {
-              slowNotified = true;
-              try { routeOptions?.onSlow?.('\u6b63\u5728\u6267\u884c\uff1a\u8def\u7531\u6a21\u578b\u610f\u56fe\u8bc6\u522b'); } catch (err) { console.warn('route slow callback failed:', err); }
-            }, 10000);
-            const timeout = setTimeout(() => {
-              timedOut = true;
-              controller?.abort?.();
-            }, 60000);
             let firstResponse;
             try {
               throwIfRouteCancelled(parentSignal);
-              firstResponse = await requestRouteDecision(firstPayload, config, requestHeaders, controller?.signal);
+              firstResponse = await intentDeadline.race(requestRouteDecision(firstPayload, config, requestHeaders, intentDeadline.signal));
               throwIfRouteCancelled(parentSignal);
             } catch (err) {
               if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-              if (timedOut || err?.name === 'AbortError') {
-                const timeoutError = new Error('ROUTE_INTENT_TIMEOUT');
-                timeoutError.code = 'ROUTE_INTENT_TIMEOUT';
-                timeoutError.routeTimedOut = true;
-                timeoutError.timeoutMs = 60000;
-                timeoutError.slowNotified = slowNotified;
-                throw timeoutError;
+              if (intentDeadline.timedOut || err?.code === 'ROUTE_INTENT_TIMEOUT' || err?.name === 'AbortError') {
+                const deadlineError = intentDeadline.timeoutError();
+                deadlineError.slowNotified = slowNotified;
+                throw deadlineError;
               }
               throw err;
-            } finally {
-              clearTimeout(slowTimer);
-              clearTimeout(timeout);
-              request.dispose();
             }
 
             trace.firstRaw = extractRouteText(routeSvc, firstResponse);
-            let route = parseRouteResult(trace.firstRaw, { input, attachments: attachmentMeta, context });
-            if (!route) throw invalidRouteError('primary');
-            trace.firstRoute = route;
-            let reviewed = false;
-            if (shouldReviewRoute(routeSvc, route, context, attachmentMeta) && routeSvc?.buildIntentReviewPayload) {
-              try {
-                try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1aAI \u590d\u5ba1\u8def\u7531\u5224\u65ad'); } catch (err) { console.warn('route stage callback failed:', err); }
-                const reviewPayload = routeSvc.buildIntentReviewPayload({ model: primaryModel, input, attachments: attachmentMeta, context, firstRoute: route });
-                trace.reviewPayload = compactTraceValue(reviewPayload);
-                const reviewRequest = createLinkedAbortController(parentSignal);
-                const reviewController = reviewRequest.controller;
-                let reviewTimedOut = false;
-                const reviewTimeout = setTimeout(() => {
-                  reviewTimedOut = true;
-                  reviewController?.abort?.();
-                }, 60000);
-                let reviewResponse;
-                try {
-                  throwIfRouteCancelled(parentSignal);
-                  reviewResponse = await requestRouteDecision(reviewPayload, config, requestHeaders, reviewController?.signal);
-                  throwIfRouteCancelled(parentSignal);
-                } catch (err) {
-                  if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-                  if (reviewTimedOut || err?.name === 'AbortError') {
-                    const timeoutError = new Error('ROUTE_REVIEW_TIMEOUT');
-                    timeoutError.code = 'ROUTE_REVIEW_TIMEOUT';
-                    throw timeoutError;
-                  }
-                  throw err;
-                } finally {
-                  clearTimeout(reviewTimeout);
-                  reviewRequest.dispose();
-                }
-                trace.reviewRaw = extractRouteText(routeSvc, reviewResponse);
-                const reviewRoute = parseRouteResult(trace.reviewRaw, { input, attachments: attachmentMeta, context });
-                if (!reviewRoute) throw invalidRouteError('review');
-                trace.reviewRoute = reviewRoute;
-                route = reviewRoute;
-                reviewed = true;
-              } catch (err) {
-                if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
-                trace.reviewError = String(err?.message || err);
-                if (requiresVerifiedReview(route)) {
-                  const reviewError = new Error('ROUTE_REVIEW_REQUIRED');
-                  reviewError.code = 'ROUTE_REVIEW_REQUIRED';
-                  reviewError.causeCode = err?.code || '';
-                  throw reviewError;
-                }
-                console.warn('intent review failed, keeping safe primary route:', err);
-              }
+            const primaryParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
+              model: primaryModel, input, attachments: attachmentMeta, context, raw: trace.firstRaw,
+              currentMode: state.mode, autoMode: state.autoMode,
+              config, headers: requestHeaders, signal: intentDeadline.signal,
+            }));
+            let route = primaryParsed.route;
+            trace.firstValidationReason = primaryParsed.initialReason || primaryParsed.reason || '';
+            trace.repairRaw = primaryParsed.repairRaw || '';
+            trace.repaired = !!primaryParsed.repaired;
+            if (!route) {
+              const invalid = invalidRouteError('primary');
+              invalid.validationReason = primaryParsed.reason || 'contract_shape';
+              throw invalid;
             }
+            trace.firstRoute = route;
             throwIfRouteCancelled(parentSignal);
-            trace.reviewed = reviewed;
             trace.finalRoute = route;
             trace.finalTaskContract = route.taskContract || null;
             trace.finalApi = route.api;
@@ -233,42 +344,39 @@
           } catch (err) {
             if (isRouteCancelled(err, parentSignal)) throw createRouteCancelledError();
             primaryFailure = err;
-            console.warn(err?.routeTimedOut ? 'route model timed out, trying chat model fallback' : 'route model failed, trying chat model fallback', err);
-            try { routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad'); } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
-            if (config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
+            const deadlineExpired = intentDeadline.timedOut || err?.code === 'ROUTE_INTENT_TIMEOUT';
+            console.warn(deadlineExpired ? 'intent recognition deadline exhausted' : 'route model failed, trying chat model fallback', err);
+            if (!deadlineExpired) try {
+              routeOptions?.onStage?.('\u6b63\u5728\u6267\u884c\uff1achat \u6a21\u578b\u5907\u7528\u8def\u7531\u5224\u65ad');
+            } catch (stageErr) { console.warn('route stage callback failed:', stageErr); }
+            if (!deadlineExpired && config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
                 const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
-                const fallbackRequest = createLinkedAbortController(parentSignal);
-                const fallbackController = fallbackRequest.controller;
-                let fallbackTimedOut = false;
-                const fallbackTimeout = setTimeout(() => {
-                  fallbackTimedOut = true;
-                  fallbackController?.abort?.();
-                }, 30000);
                 let fallbackResponse;
                 try {
-                  fallbackResponse = await requestRouteDecision(fallbackPayload, config, requestHeaders, fallbackController?.signal);
+                  fallbackResponse = await intentDeadline.race(requestRouteDecision(fallbackPayload, config, requestHeaders, intentDeadline.signal));
                   throwIfRouteCancelled(parentSignal);
                 } catch (fallbackErr) {
                   if (isRouteCancelled(fallbackErr, parentSignal)) throw createRouteCancelledError();
-                  if (fallbackTimedOut || fallbackErr?.name === 'AbortError') {
-                    const timeoutError = new Error('ROUTE_FALLBACK_TIMEOUT');
-                    timeoutError.code = 'ROUTE_FALLBACK_TIMEOUT';
-                    throw timeoutError;
+                  if (intentDeadline.timedOut || fallbackErr?.code === 'ROUTE_INTENT_TIMEOUT' || fallbackErr?.name === 'AbortError') {
+                    const deadlineError = intentDeadline.timeoutError();
+                    deadlineError.slowNotified = slowNotified;
+                    throw deadlineError;
                   }
                   throw fallbackErr;
-                } finally {
-                  clearTimeout(fallbackTimeout);
-                  fallbackRequest.dispose();
                 }
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
-                const fallbackRoute = parseRouteResult(fallbackRaw, { input, attachments: attachmentMeta, context });
-                if (!fallbackRoute) throw invalidRouteError('fallback');
-                if (requiresVerifiedReview(fallbackRoute) && shouldReviewRoute(routeSvc, fallbackRoute, context, attachmentMeta)) {
-                  const reviewError = new Error('ROUTE_FALLBACK_REVIEW_REQUIRED');
-                  reviewError.code = 'ROUTE_FALLBACK_REVIEW_REQUIRED';
-                  throw reviewError;
+                const fallbackParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
+                  model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
+                  currentMode: state.mode, autoMode: state.autoMode,
+                  config, headers: requestHeaders, signal: intentDeadline.signal,
+                }));
+                const fallbackRoute = fallbackParsed.route;
+                if (!fallbackRoute) {
+                  const invalid = invalidRouteError('fallback');
+                  invalid.validationReason = fallbackParsed.reason || 'contract_shape';
+                  throw invalid;
                 }
                 setIntentTrace({ input, model: sessionChatModel, context: compactTraceValue(context), attachments: attachmentMeta, finalRoute: fallbackRoute, finalApi: fallbackRoute.api, fallbackAi: true });
                 return fallbackRoute;
@@ -281,14 +389,37 @@
           }
         }
         throwIfRouteCancelled(parentSignal);
+        if (intentDeadline.timedOut || primaryFailure?.code === 'ROUTE_INTENT_TIMEOUT' || fallbackFailure?.code === 'ROUTE_INTENT_TIMEOUT') {
+          const deadlineError = intentDeadline.timeoutError();
+          deadlineError.slowNotified = slowNotified;
+          throw deadlineError;
+        }
         const invalidContract = primaryFailure?.code === 'ROUTE_INVALID_CONTRACT' || fallbackFailure?.code === 'ROUTE_INVALID_CONTRACT';
+        if (invalidContract) {
+          const clarificationRoute = invalidContractClarificationRoute();
+          setIntentTrace({
+            input,
+            model: primaryModel,
+            context: compactTraceValue(context),
+            attachments: attachmentMeta,
+            finalRoute: clarificationRoute,
+            finalApi: 'clarify',
+            fallbackAi: !!fallbackFailure,
+            invalidContractFallback: true,
+          });
+          return clarificationRoute;
+        }
         const routeError = new Error(invalidContract
           ? '\u610f\u56fe\u8bc6\u522b\u7ed3\u679c\u672a\u80fd\u901a\u8fc7\u5b89\u5168\u6821\u9a8c\uff0c\u8bf7\u66f4\u6362\u610f\u56fe\u6a21\u578b\u6216\u7a0d\u540e\u91cd\u8bd5'
           : '\u610f\u56fe\u8bc6\u522b\u5931\u8d25\uff1a\u8def\u7531\u6a21\u578b\u548c\u5907\u7528\u6a21\u578b\u5747\u4e0d\u53ef\u7528\uff0c\u8bf7\u68c0\u67e5\u6a21\u578b\u914d\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5');
-        routeError.code = invalidContract ? 'ROUTE_INVALID_CONTRACT' : 'ROUTE_COMPLETE_FAILURE';
+        routeError.code = 'ROUTE_COMPLETE_FAILURE';
         routeError.primaryCode = primaryFailure?.code || '';
         routeError.fallbackCode = fallbackFailure?.code || '';
         throw routeError;
+        } finally {
+          clearTimeout(slowTimer);
+          intentDeadline.dispose();
+        }
       }
     }
 

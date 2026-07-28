@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const staticBundle = require('../../server/services/static-bundle.service');
+const staticHttp = require('../../server/http/static');
 
 function withTempBundleRoot(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-static-bundle-'));
@@ -61,6 +62,19 @@ function testStaticBundleHelpersBuildExpectedBodyAndMetadata() {
     const jsBody = staticBundle.buildBundleBody(staticBundle.parseAssetManifest(root, rootWithSep, 'js'), 'js').toString('utf8');
     assert.ok(jsBody.includes(';\n/* /client/app.js */'));
     assert.ok(jsBody.includes('window.ChatUI={}'));
+
+    const rewritten = staticHttp.rewriteBundleUrls(
+      '<link rel="stylesheet" href="./assets/chatui.bundle.css?v=old"><script src="./assets/chatui.bundle.js?v=old"></script>',
+      root,
+      rootWithSep,
+    );
+    assert.match(rewritten, new RegExp(`chatui\\.bundle\\.css\\?v=${staticBundle.bundleRevision(root, rootWithSep, 'css')}`));
+    assert.match(rewritten, new RegExp(`chatui\\.bundle\\.js\\?v=${staticBundle.bundleRevision(root, rootWithSep, 'js')}`));
+
+    const firstRevision = staticBundle.bundleRevision(root, rootWithSep, 'js');
+    fs.appendFileSync(path.join(root, 'client/app.js'), 'window.ChatUIRevision=2;\n', 'utf8');
+    const secondRevision = staticBundle.bundleRevision(root, rootWithSep, 'js');
+    assert.notStrictEqual(secondRevision, firstRevision, 'changing a bundled source must automatically change its URL revision');
   });
 }
 

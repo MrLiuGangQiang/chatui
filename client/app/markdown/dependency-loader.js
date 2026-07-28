@@ -1,31 +1,31 @@
 (function initMarkdownDependencyLoader(global) {
   'use strict';
 
-  const VERSION = '2.0.3';
+  const VERSION = '2.1.0';
   const DEFAULT_TIMEOUT_MS = 2500;
   const LOCAL_FIRST = true;
   const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists', markdownItTexmath: 'texmath' });
   const resources = Object.freeze({
     styles: Object.freeze([
-      Object.freeze({ id: 'katex-css', cdn: 'https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.css', local: './vendor/katex.min.css' }),
-      Object.freeze({ id: 'highlight-css', cdn: 'https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css', local: './vendor/highlight-github.min.css' }),
+      Object.freeze({ id: 'katex-css', local: './vendor/katex.min.css' }),
+      Object.freeze({ id: 'highlight-css', local: './vendor/highlight-github.min.css' }),
     ]),
     scripts: Object.freeze([
-      Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.7/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
-      Object.freeze({ id: 'markdown-it', cdn: 'https://registry.npmmirror.com/markdown-it/14.2.0/files/dist/markdown-it.min.js', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
-      Object.freeze({ id: 'markdown-it-texmath', cdn: 'https://registry.npmmirror.com/markdown-it-texmath/1.0.0/files/texmath.js', local: './vendor/markdown-it-plugins/markdown-it-texmath.min.js', global: 'markdownItTexmath' }),
-      Object.freeze({ id: 'markdown-it-multimd-table', cdn: 'https://cdn.jsdelivr.net/npm/markdown-it-multimd-table@4.2.3/dist/markdown-it-multimd-table.min.js', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
-      Object.freeze({ id: 'markdown-it-task-lists', cdn: 'https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
-      Object.freeze({ id: 'markdown-it-emoji', cdn: 'https://registry.npmmirror.com/markdown-it-emoji/3.0.0/files/dist/markdown-it-emoji.min.js', local: './vendor/markdown-it-plugins/markdown-it-emoji.min.js', global: 'markdownitEmoji' }),
-      Object.freeze({ id: 'markdown-it-footnote', cdn: 'https://registry.npmmirror.com/markdown-it-footnote/4.0.0/files/dist/markdown-it-footnote.min.js', local: './vendor/markdown-it-plugins/markdown-it-footnote.min.js', global: 'markdownitFootnote' }),
-      Object.freeze({ id: 'markdown-it-deflist', cdn: 'https://registry.npmmirror.com/markdown-it-deflist/3.0.1/files/dist/markdown-it-deflist.min.js', local: './vendor/markdown-it-plugins/markdown-it-deflist.min.js', global: 'markdownitDeflist' }),
-      Object.freeze({ id: 'markdown-it-abbr', cdn: 'https://registry.npmmirror.com/markdown-it-abbr/2.0.0/files/dist/markdown-it-abbr.min.js', local: './vendor/markdown-it-plugins/markdown-it-abbr.min.js', global: 'markdownitAbbr' }),
-      Object.freeze({ id: 'markdown-it-mark', cdn: 'https://registry.npmmirror.com/markdown-it-mark/4.0.0/files/dist/markdown-it-mark.min.js', local: './vendor/markdown-it-plugins/markdown-it-mark.min.js', global: 'markdownitMark' }),
-      Object.freeze({ id: 'markdown-it-sub', cdn: 'https://registry.npmmirror.com/markdown-it-sub/2.0.0/files/dist/markdown-it-sub.min.js', local: './vendor/markdown-it-plugins/markdown-it-sub.min.js', global: 'markdownitSub' }),
-      Object.freeze({ id: 'markdown-it-sup', cdn: 'https://registry.npmmirror.com/markdown-it-sup/2.0.0/files/dist/markdown-it-sup.min.js', local: './vendor/markdown-it-plugins/markdown-it-sup.min.js', global: 'markdownitSup' }),
-      Object.freeze({ id: 'highlight-js', cdn: 'https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/highlight.min.js', local: './vendor/highlight-common.min.js', global: 'hljs' }),
-      Object.freeze({ id: 'katex', cdn: 'https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.js', local: './vendor/katex.min.js', global: 'katex' }),
-      Object.freeze({ id: 'mermaid', cdn: 'https://registry.npmmirror.com/mermaid/11.15.0/files/dist/mermaid.min.js', local: './vendor/mermaid.min.js', global: 'mermaid' }),
+      Object.freeze({ id: 'dompurify', local: './vendor/purify.min.js', global: 'DOMPurify' }),
+      Object.freeze({ id: 'markdown-it', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
+      Object.freeze({ id: 'markdown-it-texmath', local: './vendor/markdown-it-plugins/markdown-it-texmath.min.js', global: 'markdownItTexmath' }),
+      Object.freeze({ id: 'markdown-it-multimd-table', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
+      Object.freeze({ id: 'markdown-it-task-lists', local: './vendor/markdown-it-plugins/markdown-it-task-lists.min.js', global: 'markdownItTaskLists' }),
+      Object.freeze({ id: 'markdown-it-emoji', local: './vendor/markdown-it-plugins/markdown-it-emoji.min.js', global: 'markdownitEmoji' }),
+      Object.freeze({ id: 'markdown-it-footnote', local: './vendor/markdown-it-plugins/markdown-it-footnote.min.js', global: 'markdownitFootnote' }),
+      Object.freeze({ id: 'markdown-it-deflist', local: './vendor/markdown-it-plugins/markdown-it-deflist.min.js', global: 'markdownitDeflist' }),
+      Object.freeze({ id: 'markdown-it-abbr', local: './vendor/markdown-it-plugins/markdown-it-abbr.min.js', global: 'markdownitAbbr' }),
+      Object.freeze({ id: 'markdown-it-mark', local: './vendor/markdown-it-plugins/markdown-it-mark.min.js', global: 'markdownitMark' }),
+      Object.freeze({ id: 'markdown-it-sub', local: './vendor/markdown-it-plugins/markdown-it-sub.min.js', global: 'markdownitSub' }),
+      Object.freeze({ id: 'markdown-it-sup', local: './vendor/markdown-it-plugins/markdown-it-sup.min.js', global: 'markdownitSup' }),
+      Object.freeze({ id: 'highlight-js', local: './vendor/highlight-common.min.js', global: 'hljs' }),
+      Object.freeze({ id: 'katex', local: './vendor/katex.min.js', global: 'katex' }),
+      Object.freeze({ id: 'mermaid', local: './vendor/mermaid.min.js', global: 'mermaid' }),
     ]),
   });
 
@@ -44,7 +44,7 @@
     const appendNode = (node) => (node.tagName === 'LINK' ? doc.head : doc.body || doc.head).appendChild(node);
     const log = (level, message, detail) => { try { (root.console?.[level] || root.console?.log || (() => {})).call(root.console, message, detail || ''); } catch {} };
     function markExisting(resource) { const element = doc?.querySelector?.(`[data-markdown-dependency="${resource.id}"]`); if (element && !element.dataset.markdownDependencyLoaded) element.dataset.markdownDependencyLoaded = 'global'; }
-    function loadOrder(resource) { const local = resource.local ? [{ url: resource.local, from: 'local' }] : []; const cdn = resource.cdn ? [{ url: resource.cdn, from: 'cdn' }] : []; const list = root.ChatUIMarkdownPreferCdn === true ? cdn.concat(local) : local.concat(cdn); return list.filter((item, index, all) => item.url && all.findIndex(candidate => candidate.url === item.url) === index); }
+    function loadOrder(resource) { return resource.local ? [{ url: resource.local, from: 'local' }] : []; }
     function absoluteUrl(url = '') { try { return new URL(url, doc?.baseURI || root.location?.href).href; } catch { return String(url || ''); } }
     function findExistingStylesheet(resource) {
       if (!doc?.querySelectorAll) return null;

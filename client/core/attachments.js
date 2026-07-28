@@ -34,7 +34,37 @@ const {
   normalizeImageSelection,
 } = imageReferences;
 
+function normalizeStoredImageAttachment(item = {}, fallbackRole = '') {
+  return {
+    id: item.id || item.attachmentId || item.attachment_id || '',
+    name: item.name || '',
+    type: item.type || '',
+    size: Number(item.size) || 0,
+    src: item.persistedSrc || item.src || '',
+    text: item.text || '',
+    unsupportedReason: item.unsupportedReason || item.unsupported_reason || '',
+    compressionNote: item.compressionNote || item.compression_note || '',
+    imageId: item.imageId || item.image_id || '',
+    referenceId: item.referenceId || item.reference_id || '',
+    sourceIndex: Number(item.sourceIndex || item.source_index) || 0,
+    routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
+    routeRole: item.routeRole || item.route_role || item.role || fallbackRole,
+    routeSource: item.routeSource || item.route_source || item.source || '',
+  };
+}
+
+function normalizeStoredImageAttachments(items, fallbackRole = '') {
+  return (Array.isArray(items) ? items : [])
+    .map(item => normalizeStoredImageAttachment(item, fallbackRole))
+    .filter(item => item.src || item.name || item.text);
+}
+
 function normalizeImageContextForStorage(context = {}) {
+  const attachments = normalizeStoredImageAttachments(context.attachments);
+  const masks = normalizeStoredImageAttachments(
+    context.masks || context.maskAttachments || context.mask_attachments,
+    'mask',
+  );
   return {
     mode: context.mode || '',
     target: context.target || '',
@@ -42,26 +72,14 @@ function normalizeImageContextForStorage(context = {}) {
     content: context.content || '',
     usePreviousImage: !!context.usePreviousImage,
     updatedAt: context.updatedAt || context.updated_at || null,
-    imageCount: Number(context.imageCount || context.image_count) || (Array.isArray(context.attachments) ? context.attachments.length : 0),
+    imageCount: Number(context.imageCount || context.image_count) || attachments.length,
+    maskCount: Number(context.maskCount || context.mask_count) || masks.length,
     referenceId: context.referenceId || context.reference_id || '',
     selectedReferenceId: context.selectedReferenceId || context.selected_reference_id || '',
     selectedIndexes: normalizeImageSelection(context.selectedIndexes || context.selected_indexes || []) || [],
     selectedImageIds: normalizeSelectedImageIds(context.selectedImageIds || context.selected_image_ids || []),
-    attachments: Array.isArray(context.attachments)
-      ? context.attachments.map(item => ({
-        id: item.id || item.attachmentId || item.attachment_id || '',
-        name: item.name || '',
-        type: item.type || '',
-        size: Number(item.size) || 0,
-        src: item.persistedSrc || item.src || '',
-        text: item.text || '',
-        unsupportedReason: item.unsupportedReason || item.unsupported_reason || '',
-        compressionNote: item.compressionNote || item.compression_note || '',
-        imageId: item.imageId || item.image_id || '',
-        referenceId: item.referenceId || item.reference_id || '',
-        sourceIndex: Number(item.sourceIndex || item.source_index) || 0,
-      })).filter(item => item.src || item.name || item.text)
-      : [],
+    attachments,
+    masks,
   };
 }
 

@@ -41,6 +41,9 @@
     if (!deps.state) throw new Error('state is required');
 
     const documentRef = deps.document || root.document;
+    const sanitizerApi = root?.ChatUIMarkdownSanitizer
+      || (typeof require === 'function' ? require('./markdown/sanitizer') : {});
+    const sanitizeDisplayHtml = deps.sanitizeDisplayHtml || sanitizerApi.sanitizeDisplayHtml || (() => '');
     if (typeof documentRef?.addEventListener === 'function' && !documentRef.__chatuiUserRawCopyBound) {
       documentRef.__chatuiUserRawCopyBound = true;
       documentRef.addEventListener('copy', event => {
@@ -68,8 +71,9 @@
       return raw.length > 8000 || raw.split('\n').length > 180;
     }
 
-    const messageDomain = root.ChatUIFeaturesMessagesDomain || {};
-    const messageModel = root.ChatUIFeaturesMessagesModel || messageDomain;
+    const getWorkflowModule = name => root?.ChatUIApp?.appContext?.getWorkflowModule?.(name) || null;
+    const messageDomain = getWorkflowModule('messageDomain') || {};
+    const messageModel = getWorkflowModule('messageModel') || messageDomain;
     const messageRoleLabel = messageDomain.messageRoleLabel || (role => role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息');
     const messageRoleFromNode = messageDomain.messageRoleFromNode || (node => node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error');
     const normalizeQuoteText = messageDomain.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
@@ -77,7 +81,7 @@
     const readQuoteContext = messageDomain.readQuoteContext || (value => messageModel.normalizeQuoteContext?.(value, { normalizeQuoteText }) || null);
     const quoteContextJson = messageDomain.quoteContextJson || (value => messageModel.quoteContextJson?.(value, { normalizeQuoteText }) || '');
 
-    const quotePreview = (root.ChatUIFeaturesMessagesQuotePreview?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
+    const quotePreview = (getWorkflowModule('quotePreview')?.createQuotePreview || (() => ({ renderSentQuotePreview: () => '', withSentQuotePreview: html => String(html || '') })))({
       readQuoteContext,
       normalizeQuoteText,
       escapeHtml: escapeHtmlLocal,
@@ -296,8 +300,8 @@
 
     function getMarkdownFinalRenderer() {
       if (markdownFinalRenderer) return markdownFinalRenderer;
-      const factory = root.ChatUIFeaturesMessagesMarkdownFinalRenderer?.createMarkdownFinalRenderer;
-      if (!factory) throw new Error('ChatUIFeaturesMessagesMarkdownFinalRenderer 未加载');
+      const factory = getWorkflowModule('markdownFinalRenderer')?.createMarkdownFinalRenderer;
+      if (!factory) throw new Error('markdownFinalRenderer 未加载');
       markdownFinalRenderer = factory({
         state: deps.state,
         document: deps.document || root.document,
@@ -328,7 +332,7 @@
     function syncWebPreviews(messageNode, rawText = '') {
       if (!messageNode?.classList?.contains('assistant')) return 0;
       try {
-        const preview = deps.webPreview || root.ChatUIWebPreview;
+        const preview = deps.webPreview || root?.ChatUIApp?.appContext?.getWorkflowModule?.('webPreview');
         return preview?.syncMessagePreviews?.(messageNode, rawText) || 0;
       } catch (err) {
         console.warn('[chatui] web preview sync failed', err);
@@ -337,7 +341,7 @@
     }
 
     function createLiveMarkdownStream() {
-      const factory = root.ChatUIFeaturesMessagesMarkdownLiveStream?.createMarkdownLiveStream;
+      const factory = getWorkflowModule('markdownLiveStream')?.createMarkdownLiveStream;
       if (factory) return factory({
         renderMarkdown: deps.renderMarkdown,
         createStreamingRenderer: root.ChatUIApp?.markdown?.createStreamingRenderer,
@@ -350,7 +354,7 @@
 
     function renderMarkdownPreviewSnapshot(contentNode, rawValue = '') {
       if (!contentNode) return false;
-      const preview = root.ChatUIFeaturesMessagesMarkdownPreview?.renderMarkdownPreview;
+      const preview = getWorkflowModule('markdownPreview')?.renderMarkdownPreview;
       if (!preview) return renderPlainMarkdownSnapshot(contentNode, rawValue);
       contentNode.innerHTML = preview(String(rawValue || ''));
       contentNode.classList?.remove('markdown-stream-fallback-text');
@@ -417,7 +421,13 @@
         const largeAssistantMarkdown = !s.html && !e.classList?.contains("user") && shouldProgressiveRenderMarkdown(rawValue);
         if ((e.__markdownLiveStream?.final || e.__markdownStreamingRenderer?.final) && !s.html && !e.classList?.contains("user")) {
           try {
-            if (e.__markdownLiveStream?.final) {
+            if (largeAssistantMarkdown) {
+              e.__markdownLiveStream?.dispose?.();
+              e.__markdownStreamingRenderer?.dispose?.();
+              rendered = !!renderMarkdownProgressively(e, rawValue, rawHash);
+              e.dataset.markdownFinalMode = "progressive-canonical-final";
+              delete e.dataset.markdownFinalEnhanced;
+            } else if (e.__markdownLiveStream?.final) {
               const result = e.__markdownLiveStream.final(contentNode, rawValue);
               rendered = !!result;
               e.dataset.renderedHash = rawHash;
@@ -426,11 +436,6 @@
               e.dataset.markdownFinalMode = result?.mode || "incremental-final";
               if (result?.reason) e.dataset.markdownFinalReason = result.reason;
               if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
-            } else if (largeAssistantMarkdown) {
-              renderMarkdownProgressively(e, rawValue, rawHash);
-              rendered = true;
-              e.dataset.markdownFinalMode = "progressive-final";
-              delete e.dataset.markdownFinalEnhanced;
             } else {
               const result = e.__markdownStreamingRenderer.final(contentNode, rawValue);
               rendered = !!result;
@@ -469,7 +474,7 @@
 
         if (!rendered) {
           if (s.html) {
-            contentNode.innerHTML = s.preserveLiveMedia ? String(t || "") : stripTransientBlobUrlsFromHtml(t);
+            contentNode.innerHTML = sanitizeDisplayHtml(s.preserveLiveMedia ? String(t || "") : stripTransientBlobUrlsFromHtml(t));
             e.dataset.renderedHash = rawHash;
             delete e.dataset.enhancedHash;
           } else if (chatuiShouldLazyRender(e.classList?.contains("user") ? "user" : "assistant", rawValue, { ...s, final: true }) && !chatuiIsNearViewport(e)) {
@@ -595,7 +600,7 @@
             streamRenderer.set(rawValue, contentNode);
           } else if (contentNode.textContent !== rawValue) contentNode.textContent = rawValue;
         } else {
-          const html = s.html ? String(t || '') : e.classList?.contains('user') ? renderUserMessageContent(rawValue) : renderMarkdown(rawValue);
+          const html = s.html ? sanitizeDisplayHtml(String(t || '')) : e.classList?.contains('user') ? renderUserMessageContent(rawValue) : renderMarkdown(rawValue);
           if (contentNode.innerHTML !== html) {
             contentNode.innerHTML = html;
             e.dataset.renderedHash = rawHash;
@@ -623,7 +628,7 @@
 
     function addMessage(e, t, s = {}) {
       with (deps) {
-        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),syncWebPreviews(n,String(i||"")),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{autoRenderMermaid:!0,forceMermaid:!0,deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
+        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=sanitizeDisplayHtml("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),syncWebPreviews(n,String(i||"")),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{autoRenderMermaid:!0,forceMermaid:!0,deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
       }
     }
 
@@ -667,7 +672,7 @@
         const lazy = chatuiShouldLazyRender(role, rawText, options);
         const progressive = !options.html && role === "assistant" && shouldProgressiveRenderMarkdown(rawText) && !options.deferEnhance;
         if (options.deferEnhance && role === "assistant" && !options.html) content.innerHTML = "";
-        else if (options.html) content.innerHTML = role === "user" ? withSentQuotePreview(stripTransientBlobUrlsFromHtml(text), quote) : stripTransientBlobUrlsFromHtml(text);
+        else if (options.html) content.innerHTML = sanitizeDisplayHtml(role === "user" ? withSentQuotePreview(stripTransientBlobUrlsFromHtml(text), quote) : stripTransientBlobUrlsFromHtml(text));
         else if (progressive) renderMarkdownPreviewSnapshot(content, rawText);
         else if (lazy) content.innerHTML = chatuiPlainPreview(rawText);
         else content.innerHTML = role === "user" ? withSentQuotePreview(renderUserMessageContent(String(text || "")), quote) : renderMarkdown(String(text || ""));
@@ -728,8 +733,6 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) {
     root.ChatUIAppMessageWorkflow = api;
-    root.ChatUIFeaturesMessagesModel = root.ChatUIFeaturesMessagesModel || {};
-    try { if (typeof require === 'function') root.ChatUIFeaturesMessagesModel = require('../features/messages/message-model'); } catch {}
   }
   if (root?.window) root.window.ChatUIAppMessageWorkflow = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

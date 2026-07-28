@@ -130,6 +130,17 @@
       state.liveRuns?.delete?.(sessionId);
       state.stoppedSessions?.delete?.(sessionId);
       state.promptDrafts?.delete?.(sessionId);
+      state.attachmentDrafts?.delete?.(sessionId);
+      state.attachmentDraftVersions?.delete?.(sessionId);
+      state.uploadTaskDrafts?.delete?.(sessionId);
+      for (const [taskId, taskSessionId] of state.uploadTaskSessionIds || []) {
+        if (taskSessionId === sessionId) state.uploadTaskSessionIds.delete(taskId);
+      }
+      const uploadTimer = state.uploadProgressTimers?.get?.(sessionId);
+      if (uploadTimer !== undefined) {
+        try { (root.clearTimeout || clearTimeout)(uploadTimer); } catch {}
+        state.uploadProgressTimers?.delete?.(sessionId);
+      }
       state.resumingJobs?.delete?.(`chat:${sessionId}`);
       state.resumingJobs?.delete?.(`image:${sessionId}`);
       for (const job of manifest.managedJobs) {

@@ -31,6 +31,7 @@ function usage() {
     '  --limit <number>             Evaluate only the first N cases',
     '  --min-score <0-100>          Fail when average score is lower (default: 90)',
     '  --min-valid-contract <0-100> Fail when valid-contract rate is lower (default: 100)',
+    '  Safety-critical cases always require a 100% perfect-case rate.',
     '  --no-write                   Print results without writing a report',
     '  --help                       Show this help',
   ].join('\n');
@@ -164,12 +165,16 @@ function formatCaseResult(result = {}) {
 function qualityGate(summary = {}, options = {}) {
   const averageScore = Number(summary.average_score) || 0;
   const validContractRate = Number(summary.dimension_accuracy?.valid_contract) || 0;
+  const safetyCriticalPerfectRate = Number(summary.safety_critical?.perfect_case_rate);
+  const safetyCriticalPassed = Number.isFinite(safetyCriticalPerfectRate) && safetyCriticalPerfectRate === 100;
   return {
-    passed: averageScore >= options.minScore && validContractRate >= options.minValidContract,
+    passed: averageScore >= options.minScore && validContractRate >= options.minValidContract && safetyCriticalPassed,
     average_score: averageScore,
     valid_contract_rate: validContractRate,
     min_score: options.minScore,
     min_valid_contract: options.minValidContract,
+    safety_critical_perfect_rate: safetyCriticalPerfectRate,
+    min_safety_critical_perfect_rate: 100,
   };
 }
 
@@ -187,6 +192,8 @@ async function runEvaluation(options, { requestRoute = requestRouteModel, log = 
         input: caseDefinition.input,
         attachments: caseDefinition.attachments,
         context: caseDefinition.context,
+        currentMode: caseDefinition.current_mode || 'chat',
+        autoMode: caseDefinition.auto_mode !== false,
       });
       const rawText = await requestRoute({ endpoint, apiKey: options.apiKey, payload, timeoutMs: options.timeoutMs });
       result = evaluateRouteText(caseDefinition, rawText);
@@ -216,7 +223,7 @@ async function runEvaluation(options, { requestRoute = requestRouteModel, log = 
     fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     log(`Intent-routing evaluation report: ${output}`);
   }
-  log(`Intent-routing score: ${summary.average_score}/100; valid contracts: ${summary.dimension_accuracy.valid_contract}%; gate: ${gate.passed ? 'PASS' : 'FAIL'}.`);
+  log(`Intent-routing score: ${summary.average_score}/100; valid contracts: ${summary.dimension_accuracy.valid_contract}%; safety-critical perfect cases: ${summary.safety_critical.perfect_case_rate}%; gate: ${gate.passed ? 'PASS' : 'FAIL'}.`);
   return report;
 }
 

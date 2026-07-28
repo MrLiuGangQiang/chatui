@@ -2,6 +2,9 @@
   'use strict';
 
   let defaultController = null;
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../app/app-context') : null; } catch { return null; }
+  })();
 
   function resolveCore(deps = {}) {
     if (deps.core?.extractWebPreviewCandidates) return deps.core;
@@ -46,6 +49,39 @@
       link.remove();
       schedule(() => URLRef.revokeObjectURL?.(objectUrl), 0);
       return true;
+    }
+
+    function previewWindowDocument(candidate) {
+      const title = String(candidate?.title || '网页预览');
+      const source = core.buildPreviewDocument(candidate?.source || '');
+      // Serialize into a script literal rather than an HTML attribute so arbitrary page markup
+      // cannot break the preview shell. The page itself remains inside a sandboxed iframe.
+      const serialize = value => JSON.stringify(String(value || ''))
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e')
+        .replace(/&/g, '\\u0026')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</title><style>html,body{width:100%;height:100%;margin:0;background:#0f172a}iframe{display:block;width:100%;height:100%;border:0;background:#fff}</style></head><body><iframe id="preview" title="网页预览内容" sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock allow-presentation" referrerpolicy="no-referrer"></iframe><script>document.getElementById('preview').srcdoc=${serialize(source)};</script></body></html>`;
+    }
+
+    function openPreviewInNewWindow(candidate) {
+      const openWindow = deps.openWindow || documentRef.defaultView?.open || root?.open;
+      if (!candidate?.source || typeof openWindow !== 'function') return false;
+      // This call stays in the click handler, otherwise browsers will classify it as a popup.
+      const previewWindow = openWindow('', '_blank', 'popup=yes,width=1440,height=960');
+      if (!previewWindow) return false;
+      try {
+        previewWindow.opener = null;
+        previewWindow.document.open();
+        previewWindow.document.write(previewWindowDocument(candidate));
+        previewWindow.document.close();
+        previewWindow.focus?.();
+        return true;
+      } catch {
+        try { previewWindow.close?.(); } catch {}
+        return false;
+      }
     }
 
     function createActionIcon(kind) {
@@ -97,15 +133,15 @@
       open.type = 'button';
       open.className = 'web-preview-open-btn';
       open.dataset.webPreviewId = candidate.id || '';
-      open.title = '\u9884\u89c8\u7f51\u9875';
-      open.setAttribute('aria-label', `\u9884\u89c8\u7f51\u9875: ${candidate.title || 'HTML \u7f51\u9875'}`);
+      open.title = '\u5728\u65b0\u7a97\u53e3\u6253\u5f00\u7f51\u9875';
+      open.setAttribute('aria-label', `\u5728\u65b0\u7a97\u53e3\u6253\u5f00\u7f51\u9875: ${candidate.title || 'HTML \u7f51\u9875'}`);
       open.append(createActionIcon('open'));
       open.addEventListener('click', event => {
         // A streamed message can still be finishing its DOM work when the card becomes clickable.
         // Keep this action isolated from message/global click handlers so the first activation is not lost.
         event.preventDefault();
         event.stopPropagation();
-        openPreview(candidate, open);
+        if (!openPreviewInNewWindow(candidate)) openPreview(candidate, open);
       });
 
       const download = documentRef.createElement('button');
@@ -199,7 +235,7 @@
     // Bind static dialog controls as soon as the controller is created, rather than waiting for
     // the first card click. This removes first-use listener setup from the activation path.
     bindModalEvents();
-    return Object.freeze({ syncMessagePreviews, openPreview, closePreview, downloadPreview, bindModalEvents });
+    return Object.freeze({ syncMessagePreviews, openPreview, openPreviewInNewWindow, closePreview, downloadPreview, bindModalEvents });
   }
 
   function getDefaultController() {
@@ -215,6 +251,5 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIWebPreview = api;
-  if (root?.window) root.window.ChatUIWebPreview = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('webPreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

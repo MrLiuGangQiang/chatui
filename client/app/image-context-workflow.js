@@ -79,6 +79,9 @@
         sourceIndex: Number(item.sourceIndex) || 0,
         imageId: item.imageId || item.image_id || '',
         referenceId: item.referenceId || item.reference_id || '',
+        routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
+        routeRole: item.routeRole || item.route_role || item.role || '',
+        routeSource: item.routeSource || item.route_source || item.source || '',
       } : null;
     }
 
@@ -108,13 +111,22 @@
       return result;
     }
 
-    function normalizeImageContextForStorage(context = {}) {
-      const attachments = (context.attachments || []).map(serializeImageAttachment).filter(Boolean).map((item, index) => ({
+    function normalizeImageAttachmentList(list = [], fallbackRole = '', context = {}) {
+      return (Array.isArray(list) ? list : []).map(item => serializeImageAttachment({
         ...item,
+        routeRole: item?.routeRole || item?.route_role || item?.role || fallbackRole,
+      })).filter(Boolean).map((item, index) => ({
+        ...item,
+        routeRole: item.routeRole || fallbackRole,
         referenceId: item.referenceId || context.referenceId || context.selectedReferenceId || '',
         imageId: item.imageId || makeImageItemId(item.referenceId || context.referenceId || context.selectedReferenceId || 'latest', item.sourceIndex || index + 1),
         sourceIndex: Number(item.sourceIndex) || index + 1,
       }));
+    }
+
+    function normalizeImageContextForStorage(context = {}) {
+      const attachments = normalizeImageAttachmentList(context.attachments, '', context);
+      const masks = normalizeImageAttachmentList(context.masks || context.maskAttachments || context.mask_attachments, 'mask', context);
       return {
         prompt: context.prompt || '',
         mode: context.mode || 'image',
@@ -122,11 +134,13 @@
         usePreviousImage: !!context.usePreviousImage,
         updatedAt: context.updatedAt || context.updated_at || null,
         imageCount: attachments.length,
+        maskCount: masks.length,
         referenceId: context.referenceId || '',
         selectedReferenceId: context.selectedReferenceId || '',
         selectedIndexes: normalizeImageSelection(context.selectedIndexes || context.selected_indexes || []) || [],
         selectedImageIds: normalizeSelectedImageIds(context.selectedImageIds || context.selected_image_ids || []),
         attachments,
+        masks,
       };
     }
 
@@ -257,13 +271,16 @@
       return getUploadedImageContextByReference(sessionId, referenceId) || getLatestUploadedImageContext(sessionId);
     }
 
-    async function restoreImageAttachmentsFromContext(context) {
-      const attachments = Array.isArray(context?.attachments) ? context.attachments : [];
+    async function restoreImageAttachmentsFromContext(context, { role = 'target' } = {}) {
+      const sourceAttachments = role === 'mask'
+        ? (context?.masks || context?.maskAttachments || context?.mask_attachments || [])
+        : context?.attachments || [];
+      const attachments = Array.isArray(sourceAttachments) ? sourceAttachments : [];
       const result = [];
       for (const item of attachments) {
         if (!item?.src) continue;
         const file = await imageRefToFile(item.src, item.name || 'image.png');
-        result.push({ file, name: item.name || file.name, type: item.type || file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: !!item.fromPrevious, sourceIndex: Number(item.sourceIndex) || 0, imageId: item.imageId || '', referenceId: item.referenceId || '' });
+        result.push({ file, name: item.name || file.name, type: item.type || file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: !!item.fromPrevious, sourceIndex: Number(item.sourceIndex) || 0, imageId: item.imageId || '', referenceId: item.referenceId || '', routeResourceKey: item.routeResourceKey || '', routeRole: item.routeRole || (role === 'mask' ? 'mask' : ''), routeSource: item.routeSource || '' });
       }
       return result;
     }
@@ -295,6 +312,23 @@
       );
     }
 
+    function uploadedImageForReference(sessionId, referenceId = '') {
+      const context = getUploadedImageContextByReference(sessionId, referenceId);
+      if (!context?.attachments?.length) return null;
+      return {
+        images: context.attachments.map(item => ({
+          src: item.src,
+          filename: item.name || item.filename || 'previous-image.png',
+          label: item.label || item.subject || '',
+        })),
+      };
+    }
+
+    function historicalImageForReference(sessionId, referenceId = '') {
+      return uploadedImageForReference(sessionId, referenceId)
+        || generatedImageForReference(sessionId, referenceId);
+    }
+
     async function previousAttachmentFromImage(image, sourceIndex, referenceId, imageId = '') {
       const images = Array.isArray(image?.images) && image.images.length
         ? image.images
@@ -303,7 +337,7 @@
           : [];
       const item = images[sourceIndex - 1];
       if (!item?.src) return null;
-      const file = await imageRefToFile(item.src, item.filename || `previous-image-${sourceIndex}.png`);
+      const file = await imageRefToFile(item.src, item.filename || item.name || `previous-image-${sourceIndex}.png`);
       return {
         file,
         name: file.name,
@@ -328,7 +362,7 @@
           const parsed = parseImageItemId?.(imageId);
           if (!parsed) continue;
           if (!references.has(parsed.referenceId)) {
-            references.set(parsed.referenceId, generatedImageForReference(sessionId, parsed.referenceId));
+            references.set(parsed.referenceId, historicalImageForReference(sessionId, parsed.referenceId));
           }
           const attachment = await previousAttachmentFromImage(
             references.get(parsed.referenceId),
@@ -346,7 +380,7 @@
 
       const reference = parseImageReferenceId(referenceId);
       const normalizedReferenceId = makeImageReferenceId(reference || 'latest');
-      const image = generatedImageForReference(sessionId, normalizedReferenceId);
+      const image = historicalImageForReference(sessionId, normalizedReferenceId);
       const images = Array.isArray(image?.images) && image.images.length
         ? image.images
         : image?.src
@@ -397,6 +431,10 @@
 
     function getAssistantImageContext(node) {
       if (!node) return null;
+      // Numbered clarification cards only mirror existing image candidates.
+      // Quoting that assistant message must not turn the previews into a new
+      // multi-image attachment source.
+      if (node.matches?.('[data-clarification-image-choices="1"]') || node.querySelector?.('[data-clarification-image-choices="1"]')) return null;
       const candidates = [node.dataset.imageContext || '', node.__displayItem?.imageContext || ''];
       const session = getActiveSession();
       const displayItemId = node.dataset.displayItemId || node.__displayItem?.id || '';

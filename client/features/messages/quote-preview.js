@@ -1,10 +1,17 @@
 (function initChatUIFeaturesMessagesQuotePreview(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function createQuotePreview(deps = {}) {
-    const readQuoteContext = deps.readQuoteContext || root.ChatUIFeaturesMessagesDomain?.readQuoteContext || (() => null);
-    const normalizeQuoteText = deps.normalizeQuoteText || root.ChatUIFeaturesMessagesDomain?.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
-    const escapeHtml = deps.escapeHtml || root.ChatUIFeaturesMessagesDomain?.escapeHtmlLocal || (value => String(value ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
+    const messageDomain = appContext?.getWorkflowModule?.('messageDomain') || (() => {
+      try { return typeof require === 'function' ? require('./message-domain') : {}; } catch { return {}; }
+    })();
+    const readQuoteContext = deps.readQuoteContext || messageDomain.readQuoteContext || (() => null);
+    const normalizeQuoteText = deps.normalizeQuoteText || messageDomain.normalizeQuoteText || ((text = '', limit = 1200) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit));
+    const escapeHtml = deps.escapeHtml || messageDomain.escapeHtmlLocal || (value => String(value ?? '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
 
     function renderSentQuotePreview(value) {
       const quote = readQuoteContext(value);
@@ -25,6 +32,5 @@
 
   const api = Object.freeze({ createQuotePreview });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesQuotePreview = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesQuotePreview = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('quotePreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

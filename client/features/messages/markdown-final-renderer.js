@@ -1,31 +1,15 @@
 (function initChatUIFeaturesMessagesMarkdownFinalRenderer(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function splitMarkdownRenderChunks(text = '') {
     const src = String(text || '').replace(/\r\n?/g, '\n');
-    const chunks = [];
-    let buf = '', inFence = false, fenceChar = '', fenceLen = 0, inMath = false;
-    const flush = () => { if (buf) { chunks.push(buf); buf = ''; } };
-    for (const line of src.split(/(?<=\n)/)) {
-      const rawLine = line.replace(/\n$/, '');
-      const fence = rawLine.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
-      if (!inMath && fence) {
-        const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim();
-        if (inFence && ch === fenceChar && marker.length >= fenceLen && !info) {
-          inFence = false; fenceChar = ''; fenceLen = 0; buf += line; flush(); continue;
-        }
-        if (!inFence) { inFence = true; fenceChar = ch; fenceLen = marker.length; }
-        buf += line; continue;
-      }
-      if (!inFence && /^\s*\$\$\s*$/.test(rawLine)) {
-        inMath = !inMath; buf += line; if (!inMath) flush(); continue;
-      }
-      buf += line;
-      if (!inFence && !inMath && /^\s*$/.test(rawLine)) flush();
-      if (!inFence && !inMath && buf.length > 8000) flush();
-    }
-    flush();
-    return chunks.length ? chunks : [src];
+    // Markdown parsing is context-sensitive. Keep one canonical parse unit and
+    // batch only the already-parsed top-level DOM nodes below.
+    return [src];
   }
 
   function createMarkdownFinalRenderer(deps = {}) {
@@ -211,6 +195,5 @@
 
   const api = Object.freeze({ createMarkdownFinalRenderer, splitMarkdownRenderChunks });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesMarkdownFinalRenderer = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesMarkdownFinalRenderer = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('markdownFinalRenderer', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

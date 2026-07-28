@@ -123,7 +123,7 @@ function testBootstrapUsesImeAwarePromptEnterGuard() {
   assert.ok(bootstrap.includes('bindPromptInputGuards(),bindPromptEnterSubmitGuard($("prompt"),$("composer"))'));
   assert.ok(!bootstrap.includes('$("prompt").addEventListener("keydown",e=>{"Enter"!==e.key'));
   assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 
 function testBoundGuardUsesPlatformSpecificCompositionEndPolicy() {

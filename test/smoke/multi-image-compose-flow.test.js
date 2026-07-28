@@ -4,7 +4,9 @@ const http = require('http');
 const imageReferences = require('../../client/core/image-references');
 const routeContext = require('../../client/core/image-route-context');
 const routeService = require('../../client/services/route-service');
+const clarificationService = require('../../client/services/clarification-service');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
+const imageWorkflow = require('../../client/app/image-workflow');
 const imageService = require('../../client/services/image-service');
 const imageJobs = require('../../server/jobs/image');
 
@@ -39,53 +41,105 @@ function close(server) {
   return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 
-function imageReferenceContract(candidates) {
-  const resources = candidates.map((candidate, index) => ({
-    key: `r${index + 1}`,
+function imageReferenceClarificationContract(knownCandidate, choices) {
+  const resources = [{
+    key: 'r1',
     type: 'image',
-    source: candidate.source,
+    source: knownCandidate.source,
     role: 'reference',
-    index: candidate.index,
-    id: candidate.image_id,
-    reference_id: candidate.reference_id,
+    index: knownCandidate.index + 100,
+    id: knownCandidate.image_id,
+    reference_id: knownCandidate.reference_id,
     missing: false,
-  }));
+  }];
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'image_reference_gen',
     relation: 'followup',
     resources,
     directive: {
       mode: 'patch',
-      base_resource_keys: resources.map(resource => resource.key),
+      base_resource_keys: ['r1'],
       unmentioned_policy: 'allow_change',
       operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: {
+      question: '请选择要与猫合并的鱼图。',
+      resume_operation: 'image_reference_gen',
+      unresolved_resources: [{
+        key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous',
+        choices: choices.map((candidate, index) => ({
+          key: `c${index + 1}`,
+          source: candidate.source,
+          index: candidate.index + 100,
+          id: candidate.image_id,
+          reference_id: candidate.reference_id,
+          label: candidate.prompt,
+        })),
+      }],
+    },
     confidence: 0.95,
-    review_reasons: [],
-    rationale: 'model selected the referenced images',
+    review_reasons: ['ambiguous_reference'],
+    rationale: 'the cat is unique but two fish candidates remain',
   };
 }
 
-async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages() {
+async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelectedImages() {
   const messages = [
     { role: 'user', content: '画一只猫' }, completedImage('cat-result', '一只猫'),
-    { role: 'user', content: '画一头牛' }, completedImage('cow-result', '一头牛'),
-    { role: 'user', content: '画一只狗' }, completedImage('dog-result', '一只狗'),
+    { role: 'user', content: '手绘一条鱼' }, completedImage('fish-sketch-result', '手绘一条鱼'),
+    { role: 'user', content: '画一条彩色鱼' }, completedImage('fish-color-result', '画一条彩色鱼'),
     { role: 'user', content: '画一辆汽车' }, completedImage('car-result', '一辆汽车'),
   ];
   const references = routeContext.collectRecentImageReferences({ messages, limit: 10 });
   const context = routeContext.buildRouteContext({ messages, recentImageReferences: references });
-  const input = '把猫和狗合并成一张图';
-  const selectedCandidates = context.image_candidates.filter(candidate => ['一只猫', '一只狗'].includes(candidate.prompt));
-  const route = routeService.parseRouteResult(JSON.stringify(imageReferenceContract(selectedCandidates)), { input, context, attachments: [] });
+  const input = '把猫和鱼合并成一张图，场景要自然协调';
+  const catCandidate = context.image_candidates.find(candidate => candidate.prompt === '一只猫');
+  const fishCandidates = context.image_candidates.filter(candidate => ['手绘一条鱼', '画一条彩色鱼'].includes(candidate.prompt));
+  const clarificationRoute = routeService.parseRouteResult(JSON.stringify(imageReferenceClarificationContract(catCandidate, fishCandidates)), { input, context, attachments: [] });
+
+  assert.strictEqual(clarificationRoute.needClarification, true);
+  assert.strictEqual(clarificationRoute.api, 'clarify');
+  assert.strictEqual(clarificationRoute.dispatchAuthorized, false);
+  assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
+  assert.deepStrictEqual(clarificationRoute.taskContract.directive.base_resource_keys, ['r1', 'r2']);
+  const colorFishChoice = clarificationRoute.taskContract.clarification.unresolved_resources[0].choices.find(choice => choice.label === '画一条彩色鱼');
+  const pending = clarificationService.createPendingClarification({
+    messages: [...messages, { role: 'user', content: input }],
+    clarificationText: clarificationRoute.clarificationQuestion,
+    routeInfo: clarificationRoute,
+  });
+  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer', confidence: 0.99, resolved_input: input,
+    selections: [{ resource_key: 'r2', choice_key: colorFishChoice.key }],
+    should_merge: true, should_clear_pending: true, assistant_reply: '', reason: 'selected the colorful fish',
+  }), { pending });
+  const rerouteContext = clarificationService.buildClarificationRouteContext({
+    baseContext: context, pending, currentInput: '彩色鱼', resolvedInput: decision.resolvedInput,
+    selections: decision.selections, attachments: [],
+  });
+  const readyContract = {
+    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'image_reference_gen', relation: 'followup',
+    resources: [
+      { ...clarificationRoute.taskContract.resources[0], key: 'r1' },
+      { key: 'r2', type: 'image', source: colorFishChoice.source, role: 'reference', index: colorFishChoice.index, id: colorFishChoice.id, reference_id: colorFishChoice.reference_id, missing: false },
+    ],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }], constraints: [] },
+    clarification: { question: '', unresolved_resources: [] },
+    confidence: 0.99, review_reasons: [], rationale: 'the user explicitly selected the colorful fish',
+  };
+  const route = routeService.parseRouteResult(JSON.stringify(readyContract), { input: decision.resolvedInput, context: rerouteContext, attachments: [] });
 
   assert.strictEqual(route.operationType, 'image_reference_gen');
+  assert.strictEqual(route.mode, 'image');
+  assert.strictEqual(route.api, 'image_edit');
+  assert.strictEqual(route.dispatchAuthorized, true);
+  assert.strictEqual(routeService.isRouteDispatchable(route), true);
   assert.strictEqual(route.selectedImageIds.length, 2);
   const routedCandidates = context.image_candidates.filter(candidate => route.selectedImageIds.includes(candidate.image_id));
-  assert.deepStrictEqual(new Set(routedCandidates.map(candidate => candidate.prompt)), new Set(['一只猫', '一只狗']));
+  assert.deepStrictEqual(new Set(routedCandidates.map(candidate => candidate.prompt)), new Set(['一只猫', '画一条彩色鱼']));
 
   const state = { activeSessionId: 'smoke-session', lastGeneratedImage: null, sessions: [{ id: 'smoke-session', messages }] };
   const workflow = imageContextWorkflow.createImageContextWorkflow({
@@ -103,9 +157,24 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
     normalizeSelectedImageIds: imageReferences.normalizeSelectedImageIds,
   });
   const attachments = await workflow.getPreviousImageAttachments('smoke-session', null, route.selectedReferenceId, route.selectedImageIds);
-  const files = await imageService.imageFilesToJobPayload(attachments, file => file.dataUrl);
+  const roleBoundAttachments = route.executionResources.images.map(resource => {
+    const attachment = attachments.find(item => item.imageId === resource.id);
+    assert.ok(attachment, `selected image ${resource.id} must restore before dispatch`);
+    return {
+      ...attachment,
+      routeRole: resource.role,
+      routeResourceKey: resource.key,
+      routeSource: resource.source,
+      routeId: resource.id,
+      routeReferenceId: resource.reference_id,
+    };
+  });
+  const files = await imageService.imageFilesToJobPayload(roleBoundAttachments, file => file.dataUrl);
   assert.strictEqual(files.length, 2);
-  assert.deepStrictEqual(new Set(files.map(file => file.name)), new Set(['cat-result.png', 'dog-result.png']));
+  assert.deepStrictEqual(new Set(files.map(file => file.name)), new Set(['cat-result.png', 'fish-color-result.png']));
+  assert.deepStrictEqual(files.map(file => file.routeResourceKey), ['r1', 'r2']);
+  const imageRoleMap = imageWorkflow.buildImageRoleMap(roleBoundAttachments);
+  const roleAwarePrompt = [route.editInstruction, imageWorkflow.buildImageRoleGuide(roleBoundAttachments)].filter(Boolean).join('\n\n');
 
   let captured = null;
   const upstreamServer = http.createServer((req, res) => {
@@ -123,7 +192,7 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
   try {
     const job = imageJobs.createImageJobFromRequestBody('imgjob-semantic-smoke', {
       mode: 'edit_image',
-      payload: { model: 'gpt-image-1', prompt: route.contextualImagePrompt },
+      payload: { model: 'gpt-image-1', prompt: roleAwarePrompt, image_role_map: JSON.stringify(imageRoleMap) },
       files,
     }, { baseUrl, apiKey: 'test-key', extraHeaders: {} });
     await imageJobs.runImageJob(job, { upstreamTimeoutMs: 5000 });
@@ -134,12 +203,15 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
     const multipartUtf8 = captured.body.toString('utf8');
     assert.strictEqual((multipart.match(/name="image\[\]"; filename=/g) || []).length, 2);
     assert.ok(multipart.includes('filename="cat-result.png"'));
-    assert.ok(multipart.includes('filename="dog-result.png"'));
-    assert.ok(!multipart.includes('filename="cow-result.png"'));
+    assert.ok(multipart.includes('filename="fish-color-result.png"'));
+    assert.ok(!multipart.includes('filename="fish-sketch-result.png"'));
     assert.ok(!multipart.includes('filename="car-result.png"'));
+    assert.ok(!multipart.includes('image_role_map'), 'internal role metadata must be validated and stripped before the upstream boundary');
     const promptPart = multipartUtf8.match(/name="prompt"\r\n\r\n([\s\S]*?)\r\n--/);
     assert.ok(promptPart, 'multipart request should contain a prompt field');
-    assert.strictEqual(promptPart[1], input, 'multi-image composition must send the user prompt unchanged');
+    assert.ok(promptPart[1].startsWith(input), 'multi-image composition must preserve the complete original request at the prompt boundary');
+    assert.match(promptPart[1], /图片1：作为内容参考/);
+    assert.match(promptPart[1], /图片2：作为内容参考/);
   } finally {
     if (previousPrivateUpstream === undefined) delete process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
     else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = previousPrivateUpstream;
@@ -147,4 +219,4 @@ async function testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages
   }
 }
 
-module.exports = [testModelContractMultiImageFlowReachesUpstreamWithBothNamedImages];
+module.exports = [testClarifiedMultiImageCompositionReachesImageEditsWithBothSelectedImages];

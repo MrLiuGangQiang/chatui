@@ -1,7 +1,10 @@
 (function initChatUIFeaturesMessagesDomain(root) {
   'use strict';
 
-  const messageModel = root.ChatUIFeaturesMessagesModel || (() => {
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+  const messageModel = appContext?.getWorkflowModule?.('messageModel') || (() => {
     try { return typeof require === 'function' ? require('./message-model') : {}; } catch { return {}; }
   })();
 
@@ -72,6 +75,5 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesDomain = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesDomain = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('messageDomain', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

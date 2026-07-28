@@ -107,16 +107,23 @@
     }
 
     function attach(root, cb = {}) {
+      // Tear down the previous container before replacing the reference.  If
+      // the order is reversed, disconnect() searches the new container and
+      // leaves data-virtual-observed markers on the old one; re-attaching that
+      // session later then silently skips observation.
+      disconnect(true);
       callbacks = cb;
       container = root;
-      generation += 1;
-      disconnect(false);
       if (!cfg.enabled || !container || !('IntersectionObserver' in global)) return { enabled: false };
+      const attachGeneration = generation;
       observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
+          if (attachGeneration !== generation) return;
           const node = entry.target;
           if (entry.isIntersecting || entry.intersectionRatio > 0) hydrate(node, true);
-          else setTimeout(() => maybeUnload(node), 80);
+          else setTimeout(() => {
+            if (attachGeneration === generation) maybeUnload(node);
+          }, 80);
         });
       }, { root: cfg.root || container || null, rootMargin: cfg.rootMargin, threshold: 0.01 });
       refresh();

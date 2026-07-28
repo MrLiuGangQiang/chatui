@@ -689,7 +689,7 @@
         const node = getActiveOutputForSession(state.activeSessionId);
         if (!node?.isConnected) return;
         const margin = 72;
-        try { window.ChatUIHistoryAnchorNav?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
+        try { root?.ChatUIApp?.appContext?.getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
         state.resumeButtonSuppressUntil = now() + 900;
         state.outputPinSuppressUntil = 0;
         $("resumeStreamBtn")?.classList.remove("show");

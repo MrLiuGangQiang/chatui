@@ -65,12 +65,9 @@
 
   const route = Object.freeze({
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
-    INTENT_REVIEW_SYSTEM_PROMPT: routeService.INTENT_REVIEW_SYSTEM_PROMPT,
     stripJsonFence: text => routeService.stripJsonFence(text),
-    needsIntentReview: (routeInfo, context) => routeService.needsIntentReview(routeInfo, context),
     parseRouteResult: (text, options) => routeService.parseRouteResult(text, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
-    buildIntentReviewPayload: options => routeService.buildIntentReviewPayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
   });
 

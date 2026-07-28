@@ -37,6 +37,19 @@ async function withSmokeServer(run) {
 
 async function testServerSmokeCoreEndpoints() {
   await withSmokeServer(async baseUrl => {
+    const home = await request(baseUrl, '/');
+    assert.strictEqual(home.res.status, 200);
+    assert.match(home.res.headers.get('content-type') || '', /text\/html/);
+    assert.ok(home.text.includes('<title>ChatUI</title>'));
+    const jsMatch = home.text.match(/\.\/assets\/chatui\.bundle\.js\?v=([a-f0-9]{32})/);
+    const cssMatch = home.text.match(/\.\/assets\/chatui\.bundle\.css\?v=([a-f0-9]{32})/);
+    assert.ok(jsMatch && cssMatch, 'index must expose content-addressed bundle URLs');
+
+    const js = await request(baseUrl, `/assets/chatui.bundle.js?v=${jsMatch[1]}`);
+    const css = await request(baseUrl, `/assets/chatui.bundle.css?v=${cssMatch[1]}`);
+    assert.strictEqual(js.res.headers.get('etag')?.replace(/"/g, ''), jsMatch[1], 'the JS URL revision must match its bundle ETag');
+    assert.strictEqual(css.res.headers.get('etag')?.replace(/"/g, ''), cssMatch[1], 'the CSS URL revision must match its bundle ETag');
+
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
     assert.match(version.res.headers.get('content-type') || '', /application\/json/);
@@ -49,10 +62,6 @@ async function testServerSmokeCoreEndpoints() {
     assert.ok(config.version, 'public config should expose app version');
     assert.ok(config.config && typeof config.config === 'object', 'public config should expose config object');
 
-    const home = await request(baseUrl, '/');
-    assert.strictEqual(home.res.status, 200);
-    assert.match(home.res.headers.get('content-type') || '', /text\/html/);
-    assert.ok(home.text.includes('<title>ChatUI</title>'));
   });
 }
 

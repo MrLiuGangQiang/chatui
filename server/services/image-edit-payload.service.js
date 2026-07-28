@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 function isDataUrlLike(value) {
   return typeof value === 'string' && /^data:[^,]+;base64,/i.test(value.trim());
 }
@@ -185,7 +187,7 @@ function imageFileToDataUrl(file = {}) {
   const rawData = String(file.data || '').trim();
   const base64 = normalizeImageBase64Data(file);
   const dataUrlType = isDataUrlLike(rawData) ? rawData.match(/^data:([^;,]+)/i)?.[1] : '';
-  const contentType = dataUrlType || safeMultipartContentType(file.type);
+  const contentType = safeMultipartContentType(dataUrlType || file.type);
   return `data:${contentType};base64,${base64}`;
 }
 
@@ -198,7 +200,7 @@ function normalizeImageEditFieldValue(key, value) {
 }
 
 function multipartBoundary() {
-  return `chatui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `chatui-${crypto.randomBytes(18).toString('hex')}`;
 }
 
 function multipartHeaderValue(value = '') {
@@ -277,6 +279,7 @@ function stripImageEditFileFields(payload = {}) {
   if (hasFilePayloadData(next.image) || hasEmbeddedBinaryData(next.image)) delete next.image;
   if (hasFilePayloadData(next.mask) || hasEmbeddedBinaryData(next.mask)) delete next.mask;
   if (hasFilePayloadData(next.masks) || hasEmbeddedBinaryData(next.masks)) delete next.masks;
+  delete next.image_role_map;
   return next;
 }
 

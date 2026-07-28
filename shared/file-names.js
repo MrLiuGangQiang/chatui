@@ -79,6 +79,8 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIFileNames = api;
-  if (root?.window) root.window.ChatUIFileNames = api;
+  else if (root) {
+    root.ChatUIFileNames = api;
+    if (root.window) root.window.ChatUIFileNames = api;
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

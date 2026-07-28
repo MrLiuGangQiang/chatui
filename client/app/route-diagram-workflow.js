@@ -63,8 +63,10 @@
 
   const api = Object.freeze({ createRouteDiagramWorkflow });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIRouteDiagramWorkflow = api;
-  if (root?.window) root.window.ChatUIRouteDiagramWorkflow = api;
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('./app-context') : null; } catch { return null; }
+  })();
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('routeDiagram', api);
   if (root?.document) {
     const controller = createRouteDiagramWorkflow();
     if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', () => controller.init(), { once: true });

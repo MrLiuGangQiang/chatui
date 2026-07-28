@@ -54,7 +54,7 @@ function testWebPreviewDialogHasNoVisualBorder() {
   assert.match(index, /<iframe id="webPreviewFrame"[^>]*frameborder="0"/, 'the preview iframe should disable legacy frame borders too');
 }
 
-function createDownloadTestEnvironment() {
+function createDownloadTestEnvironment({ openWindow = () => null } = {}) {
   const dom = new JSDOM(`<!doctype html><body>
     <article class="message assistant"><div class="content"></div></article>
     <div id="webPreview" aria-hidden="true"><div><strong id="webPreviewTitle"></strong><div><button id="webPreviewDownload" type="button" disabled>Download</button><button id="webPreviewClose" type="button">Close</button></div><iframe id="webPreviewFrame" sandbox="allow-scripts allow-forms allow-popups allow-downloads" referrerpolicy="no-referrer"></iframe></div></div>
@@ -87,9 +87,42 @@ function createDownloadTestEnvironment() {
     core,
     Blob: TestBlob,
     URL: urlApi,
+    openWindow,
     setTimeout(fn) { fn(); return 0; },
   });
   return { dom, controller, blobs, urls, revoked, clicks, restore() { dom.window.HTMLAnchorElement.prototype.click = originalClick; } };
+}
+
+function testWebPreviewOpensInNewWindowAndKeepsThePageSandboxed() {
+  const opened = [];
+  const { dom, controller, restore } = createDownloadTestEnvironment({
+    openWindow(...args) {
+      const popup = new JSDOM('<!doctype html><title>Loading</title>', {
+        pretendToBeVisual: true,
+        runScripts: 'dangerously',
+      }).window;
+      popup.focus = () => {};
+      opened.push({ args, popup });
+      return popup;
+    },
+  });
+  try {
+    const message = dom.window.document.querySelector('.message');
+    const source = '<html><head><title>Example</title><script>window.ready = true</script></head><body><form><button>Go</button></form><h1>Hello</h1></body></html>';
+    controller.syncMessagePreviews(message, `\`\`\`html\n${source}\n\`\`\``);
+
+    message.querySelector('.web-preview-open-btn').click();
+    assert.strictEqual(opened.length, 1, 'the preview action should create a separate window');
+    assert.deepStrictEqual(opened[0].args, ['', '_blank', 'popup=yes,width=1440,height=960']);
+    assert.strictEqual(opened[0].popup.opener, null, 'the generated page must not retain an opener reference');
+    assert.strictEqual(opened[0].popup.document.title, 'Example');
+    const frame = opened[0].popup.document.getElementById('preview');
+    assert.match(frame.getAttribute('sandbox'), /allow-scripts/);
+    assert.match(frame.getAttribute('srcdoc'), /window\.ready = true/);
+    assert.strictEqual(dom.window.document.getElementById('webPreview').classList.contains('show'), false, 'a successful popup should not also open the in-page dialog');
+  } finally {
+    restore();
+  }
 }
 
 function testWebPreviewUiRendersInteractiveSandboxedIframe() {
@@ -220,6 +253,7 @@ module.exports = [
   testWebPreviewKeepsInteractiveDocumentContent,
   testWebPreviewDetectsEachCompletePageInOneResponse,
   testWebPreviewDialogHasNoVisualBorder,
+  testWebPreviewOpensInNewWindowAndKeepsThePageSandboxed,
   testWebPreviewUiRendersInteractiveSandboxedIframe,
   testWebPreviewDownloadsTheActivePageFromCardAndModal,
   testWebPreviewCardsKeepMultiplePagesIndependent,

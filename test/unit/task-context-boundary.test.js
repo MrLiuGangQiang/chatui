@@ -15,7 +15,7 @@ function resource(overrides = {}, index = 0) {
 function imageContract({ relation = 'new', operation = 'text_to_image', resources = [], directive = null, confidence = 0.95 } = {}) {
   const patch = relation !== 'new' || operation === 'image_reference_gen';
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation,
     resources: resources.map(resource),
@@ -26,7 +26,7 @@ function imageContract({ relation = 'new', operation = 'text_to_image', resource
       operations: patch ? [{ op: 'add', target: 'current request', value: 'apply the current request' }] : [],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence,
     review_reasons: [],
     rationale: relation === 'new' ? 'fresh image task' : 'related image task',
@@ -42,6 +42,22 @@ function testNewImageTaskUsesOnlyCurrentUserInput() {
   assert.strictEqual(task.relation, 'new');
   assert.strictEqual(task.directive.mode, 'standalone');
   assert.strictEqual(promptComposer.composeExecutionPrompt(FISH), FISH);
+}
+
+function testExecutionPromptPreservesFullInputAndUsesUnifiedLimit() {
+  const longPrompt = `开头-${'图像细节'.repeat(1200)}-结尾`;
+  assert.strictEqual(promptComposer.composeExecutionPrompt(longPrompt), longPrompt, 'execution prompts must never be silently truncated');
+  const overLimit = 'x'.repeat(120001);
+  assert.throws(
+    () => promptComposer.composeExecutionPrompt(overLimit),
+    error => error?.code === 'message_too_many_characters' && error?.maxChars === 120000,
+    'the same explicit user-message limit must protect execution prompt composition',
+  );
+  assert.throws(
+    () => routeService.buildRoutePayload({ model: 'router', input: overLimit }),
+    error => error?.code === 'message_too_many_characters',
+    'direct route payload construction must enforce the unified input limit too',
+  );
 }
 
 function testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt() {
@@ -71,9 +87,9 @@ function testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate() {
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'style', value: 'watercolor' }], constraints: [] },
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input: shortRequest, attachments: [], context });
-  assert.strictEqual(parsed.contextualImagePrompt, shortRequest);
-  assert.ok(!parsed.contextualImagePrompt.includes('补丁基线'));
-  assert.ok(!parsed.contextualImagePrompt.includes(quotedDescription));
+  assert.strictEqual(parsed.editInstruction, shortRequest);
+  assert.ok(!parsed.editInstruction.includes('补丁基线'));
+  assert.ok(!parsed.editInstruction.includes(quotedDescription));
 }
 
 function testMultiReferenceGenerationKeepsNaturalUserPrompt() {
@@ -94,21 +110,22 @@ function testMultiReferenceGenerationKeepsNaturalUserPrompt() {
     ],
   };
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context });
-  assert.strictEqual(parsed.contextualImagePrompt, input);
-  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.contextualImagePrompt));
+  assert.strictEqual(parsed.editInstruction, input);
+  assert.ok(!/补丁基线|用户当前请求|修改边界/.test(parsed.editInstruction));
 }
 
 function testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest() {
   const input = '\u8fd9\u5f20\u56fe\u4e0d\u5bf9\uff0c\u91cd\u65b0\u751f\u6210';
   const raw = imageContract({
     relation: 'correction',
+    operation: 'image_reference_gen',
     resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }],
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'incorrect result', value: 'regenerate correctly' }], constraints: [] },
   });
   const parsed = routeService.parseRouteResult(JSON.stringify(raw), { input, attachments: [], context: historyContext() });
   assert.strictEqual(parsed.taskContract.relation, 'correction');
-  assert.strictEqual(parsed.contextualImagePrompt, input);
-  assert.ok(!parsed.contextualImagePrompt.includes(CAT));
+  assert.strictEqual(parsed.editInstruction, input);
+  assert.ok(!parsed.editInstruction.includes(CAT));
 }
 
 function testImageEditKeepsOnlyTheCurrentExecutionRequest() {
@@ -125,7 +142,7 @@ function testImageEditKeepsOnlyTheCurrentExecutionRequest() {
 }
 
 function testRelationSurvivesCanonicalExecutionPlan() {
-  const task = imageContract({ relation: 'followup', resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }] });
+  const task = imageContract({ operation: 'image_reference_gen', relation: 'followup', resources: [{ source: 'history', role: 'reference', id: 'img_1', reference_id: 'imgref_latest' }] });
   const executionPlan = intentContract.taskContractToExecutionPlan(task);
   assert.strictEqual(executionPlan.relation, 'followup');
   assert.ok(!('taskType' in executionPlan));
@@ -135,15 +152,15 @@ function testRelationSurvivesCanonicalExecutionPlan() {
 }
 
 function testRoutePromptsDeclarePatchAndContextBoundary() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v3'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation=new'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史覆盖一个完整的新请求'));
-  assert.ok(routeService.INTENT_REVIEW_SYSTEM_PROMPT.includes('完整 task_contract.v3'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 只描述对话关系'));
+  assert.ok(!routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'), 'mechanical directive fields must not be model output');
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('完整独立的新请求') && routeService.ROUTE_SYSTEM_PROMPT.includes('不得继承历史'));
 }
 
 module.exports = [
   testNewImageTaskUsesOnlyCurrentUserInput,
+  testExecutionPromptPreservesFullInputAndUsesUnifiedLimit,
   testNewTaskRouteDoesNotFallbackToLastGeneratedPrompt,
   testNewTaskContractRejectsHistoricalPatchContamination,
   testQuotedImageGenerationUsesBoundImageWithoutPatchTemplate,

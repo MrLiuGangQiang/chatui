@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 require('../../client/app/app-context');
 const taskState = require('../../client/core/task-state');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
@@ -84,11 +86,15 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   assert.strictEqual(fixture.pending[0].submissionId, 'submit-regenerate-a');
   assert.strictEqual(fixture.pending.at(-1).stage, 'handoff');
   assert.strictEqual(fixture.pending.at(-1).jobId, 'imgjob-regenerate-a');
-  assert.ok(fixture.calls.findIndex(call => call[0] === 'save' && call[1] === 'accepted') < fixture.calls.findIndex(call => call[0] === 'restore'),
-    'accepted pending ownership must persist before attachment restoration');
+  assert.strictEqual(fixture.calls.some(call => call[0] === 'restore'), false,
+    'explicit text-to-image must not restore or leak attachments from the historical message');
   const options = fixture.getSentOptions();
   assert.strictEqual(options.submissionId, 'submit-regenerate-a');
   assert.strictEqual(options.clientJobId, 'imgjob-regenerate-a');
+  assert.strictEqual(options.taskContract.schema_version, 'task_contract.v5');
+  assert.strictEqual(options.taskContract.operation, 'text_to_image');
+  assert.strictEqual(options.executionMedia.version, 'execution_resources.v1');
+  assert.deepStrictEqual(options.attachments, []);
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
 }
 
@@ -114,8 +120,19 @@ function testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal() {
   assert.strictEqual(typeof registered.createRegenerateWorkflow, 'function');
 }
 
+function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
+  assert.ok(source.includes('clarificationApi.createPendingClarification'), 'a regenerate clarification must become persisted pending state instead of an exception');
+  assert.ok(source.includes('task.completePreflight()'), 'clarification must finish as a terminal preflight without inventing a managed job handoff');
+  assert.ok(source.includes('["compare_a","compare_b"].includes(item.routeRole)'), 'regenerate must preserve compare_a/compare_b roles in the chat prompt');
+  assert.ok(source.includes('submitHelpers.imageAttachmentIndexGuide?.(chatH'), 'regenerate must preserve the original image numbering map');
+  assert.ok(source.includes('await sendChat(chatPrompt,chatH'), 'regenerate must send the same role-aware prompt shape as ordinary submit');
+  assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
+}
+
 module.exports = [
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
   testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal,
+  testRegenerateReusesSubmitResourceAndClarificationSemantics,
 ];

@@ -2,16 +2,16 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { HOST, PORT } = require('./server/config');
+const { HOST, PORT, MAX_CONNECTIONS } = require('./server/config');
 const { createApp } = require('./server/app');
 
-const { server } = createApp();
+const { server, closeResources } = createApp();
 
 // HTTP server tuning: prevent socket exhaustion under high traffic
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 server.requestTimeout = 120000;
-server.maxConnections = process.env.MAX_CONNECTIONS ? Number(process.env.MAX_CONNECTIONS) : Infinity;
+server.maxConnections = MAX_CONNECTIONS;
 function resolvePidDir() {
   if (process.env.CHATUI_DISABLE_PID_FILE === '1') return '';
   const candidates = [
@@ -50,12 +50,17 @@ function removeOwnPidFiles() {
   }
 }
 
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  void closeResources();
   server.close(() => {
     removeOwnPidFiles();
     process.exit(0);
   });
   setTimeout(() => {
+    server.closeAllConnections?.();
     removeOwnPidFiles();
     process.exit(0);
   }, 3000).unref();

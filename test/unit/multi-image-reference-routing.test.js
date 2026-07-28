@@ -23,12 +23,12 @@ function assistantImageMessage(displayItemId, prompt, src) {
 
 function plainChatContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.92,
     review_reasons: [],
     rationale: 'current request is a standalone text request',
@@ -47,7 +47,7 @@ function imageReferenceContract(candidates) {
     missing: false,
   }));
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'image_reference_gen',
     relation: 'followup',
     resources,
@@ -58,7 +58,7 @@ function imageReferenceContract(candidates) {
       operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
       constraints: [],
     },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'model selected the referenced images from route context',
@@ -122,7 +122,7 @@ function testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics(
   assert.strictEqual(parsed.operationType, 'plain_chat');
   assert.strictEqual(parsed.needClarification, false);
   assert.strictEqual(parsed.clarificationQuestion, '');
-  assert.deepStrictEqual(parsed.taskContract, plainChatContract());
+  assert.deepStrictEqual(parsed.taskContract, routeService.decodeTaskContract(plainChatContract()));
 }
 
 function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
@@ -142,7 +142,7 @@ function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
   assert.strictEqual(parsed.needClarification, false);
   assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(selected.map(item => item.image_id)));
   assert.deepStrictEqual(new Set(parsed.taskContract.directive.base_resource_keys), new Set(['r1', 'r2']));
-  assert.strictEqual(parsed.contextualImagePrompt, input);
+  assert.strictEqual(parsed.editInstruction, input);
 }
 
 function createWorkflow(messages) {
@@ -160,6 +160,7 @@ function createWorkflow(messages) {
     parseImageItemId: imageReferences.parseImageItemId,
     normalizeImageSelection: imageReferences.normalizeImageSelection,
     normalizeSelectedImageIds: imageReferences.normalizeSelectedImageIds,
+    parseImageContext: value => typeof value === 'string' ? JSON.parse(value) : value,
   });
 }
 
@@ -186,6 +187,30 @@ async function testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneI
   );
 }
 
+async function testSelectedHistoricalUploadedImageRestoresByItsExactRouteId() {
+  const uploadedReferenceId = routeContext.uploadedReferenceIdForMessageIndex(0);
+  const messages = [{
+    role: 'user',
+    content: 'Please use this uploaded image later.',
+    imageContext: JSON.stringify({
+      target: 'uploaded',
+      mode: 'edit_image',
+      attachments: [
+        { id: 'upload-one', name: 'one.png', type: 'image/png', src: 'indexeddb://one' },
+        { id: 'upload-two', name: 'two.png', type: 'image/png', src: 'indexeddb://two' },
+      ],
+    }),
+  }];
+  const workflow = createWorkflow(messages);
+  const selectedId = imageReferences.makeImageItemId(uploadedReferenceId, 2);
+  const attachments = await workflow.getPreviousImageAttachments('s1', null, uploadedReferenceId, [selectedId]);
+
+  assert.strictEqual(attachments.length, 1);
+  assert.strictEqual(attachments[0].imageId, selectedId);
+  assert.strictEqual(attachments[0].referenceId, uploadedReferenceId);
+  assert.strictEqual(attachments[0].dataUrl, 'indexeddb://two');
+}
+
 module.exports = [
   testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs,
   testCanonicalHistoryExposesEveryCompletedImageWithStableIds,
@@ -193,4 +218,5 @@ module.exports = [
   testModelDeclaredCompositionSelectsOnlyItsContractResources,
   testSelectedImageIdsRestoreAcrossMultipleHistoricalReferences,
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,
+  testSelectedHistoricalUploadedImageRestoresByItsExactRouteId,
 ];

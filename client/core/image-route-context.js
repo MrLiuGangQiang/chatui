@@ -19,6 +19,7 @@ function routeContextSize(value) {
 function compactRouteMessage(message = {}, index = 0) {
   return {
     index,
+    id: String(message.displayItemId || message.id || ''),
     role: message.role || '',
     content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 600),
   };
@@ -140,17 +141,29 @@ function trimRouteContextToTokenWindow(context = {}, contextWindowTokens) {
   const budget = root?.ChatUISharedContextBudget || (typeof module !== 'undefined' && module.exports ? require('../../shared/config/context-budget') : null);
   if (!budget?.estimateTextTokens || !budget?.inputBudgetForContextWindow) return context;
   const limit = budget.inputBudgetForContextWindow(contextWindowTokens);
-  const next = { ...context, recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [] };
-  while (next.recent_messages.length && budget.estimateTextTokens(JSON.stringify(next)) > limit) next.recent_messages.shift();
-  return next;
+  let next = { ...context, recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [] };
+  const estimate = value => budget.estimateTextTokens(JSON.stringify(value));
+  while (next.recent_messages.length && estimate(next) > limit) next.recent_messages.shift();
+  let charLimit = routeContextSize(next);
+  while (estimate(next) > limit && charLimit > 2) {
+    const ratio = limit / Math.max(1, estimate(next));
+    const reducedLimit = Math.max(2, Math.min(charLimit - 1, Math.floor(charLimit * Math.max(0.1, ratio * 0.9))));
+    next = trimRouteContextToSize(next, reducedLimit);
+    charLimit = routeContextSize(next);
+  }
+  return estimate(next) <= limit ? next : {};
 }
 
 function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
-  const limit = Number(maxChars) || DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
+  const requestedLimit = Number(maxChars);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit >= 2
+    ? Math.floor(requestedLimit)
+    : DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
   const next = {
     ...context,
     recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
     image_candidates: Array.isArray(context.image_candidates) ? [...context.image_candidates] : [],
+    file_candidates: Array.isArray(context.file_candidates) ? [...context.file_candidates] : [],
     recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [],
     recent_uploaded_image_references: Array.isArray(context.recent_uploaded_image_references) ? [...context.recent_uploaded_image_references] : [],
   };
@@ -175,7 +188,43 @@ function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_M
     next.recent_image_references = next.recent_image_references.map(shrinkPrompt);
     next.recent_uploaded_image_references = next.recent_uploaded_image_references.map(shrinkPrompt);
   }
-  return next;
+  if (routeContextSize(next) <= limit) return next;
+  next.image_candidates = next.image_candidates.map(candidate => ({
+    index: Number(candidate?.index) || 0,
+    source_index: Number(candidate?.source_index) || 0,
+    message_index: Number(candidate?.message_index) || 0,
+    image_id: String(candidate?.image_id || ''),
+    reference_id: String(candidate?.reference_id || ''),
+    target: String(candidate?.target || ''),
+    source: String(candidate?.source || ''),
+    filename: String(candidate?.filename || '').slice(0, 120),
+    labels: Array.isArray(candidate?.labels) ? candidate.labels.slice(0, 6).map(label => String(label).slice(0, 60)) : [],
+    description: String(candidate?.description || '').slice(0, 100),
+    prompt: String(candidate?.prompt || '').slice(0, 100),
+    semantic_text: String(candidate?.semantic_text || '').slice(0, 240),
+  }));
+  next.file_candidates = next.file_candidates.map(candidate => ({
+    index: Number(candidate?.index) || 0,
+    source: String(candidate?.source || ''),
+    file_id: String(candidate?.file_id || ''),
+    name: String(candidate?.name || '').slice(0, 160),
+    type: String(candidate?.type || '').slice(0, 120),
+    size: Number(candidate?.size) || 0,
+    has_extracted_text: candidate?.has_extracted_text === true,
+    unsupported_reason: String(candidate?.unsupported_reason || '').slice(0, 160),
+    message_index: Number(candidate?.message_index) || 0,
+  }));
+  while (next.file_candidates.length > 12 && routeContextSize(next) > limit) next.file_candidates.pop();
+  while (next.image_candidates.length > 12 && routeContextSize(next) > limit) next.image_candidates.pop();
+  for (const key of ['latest_user_image_request', 'latest_assistant_image_result', 'last_generated_image', 'latest_uploaded_image', 'latest_image_reference']) {
+    if (routeContextSize(next) <= limit) break;
+    next[key] = null;
+  }
+  while (next.recent_image_references.length && routeContextSize(next) > limit) next.recent_image_references.pop();
+  while (next.recent_uploaded_image_references.length && routeContextSize(next) > limit) next.recent_uploaded_image_references.pop();
+  while (next.file_candidates.length && routeContextSize(next) > limit) next.file_candidates.pop();
+  while (next.image_candidates.length && routeContextSize(next) > limit) next.image_candidates.pop();
+  return routeContextSize(next) <= limit ? next : {};
 }
 
 function compactCandidateSemanticText(values = [], max = 720) {
@@ -419,6 +468,9 @@ function canonicalImageReferenceId(message = {}, messageIndex = 0) {
 
 function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []) {
   if (message?.role !== 'assistant') return null;
+  // Clarification thumbnails preview existing candidates; they are not a new
+  // assistant image result and must never be re-added to the route catalog.
+  if (/data-clarification-image-choices=["']1["']/i.test(String(message.html || ''))) return null;
   const imageContext = parseJsonObject(message.imageContext);
   const contextAttachments = Array.isArray(imageContext?.attachments)
     ? imageContext.attachments.filter(item => item?.src)
@@ -572,19 +624,20 @@ function normalizeImagePlan(route = {}) {
 }
 
 function modeFromImageIntent(intent, fallbackMode = 'chat') {
-  // OpenAI-compatible image routing: plain generation/reference generation use /images/generations;
-  // edits/composition with input images use /images/edits.
-  if (intent === 'text_to_image' || intent === 'image_reference_gen') return 'image';
+  // Only text-only generation uses /images/generations. Every operation that
+  // consumes image inputs uses the multipart /images/edits transport.
+  if (intent === 'text_to_image') return 'image';
+  if (intent === 'image_reference_gen') return 'image';
   if (intent === 'image_edit' || intent === 'image_edit_single' || intent === 'image_edit_batch' || intent === 'image_compose') return 'edit_image';
   return fallbackMode;
 }
 
 function canonicalRouteAction(route = {}) {
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
-  const operationType = String(route?.operation?.type || '').trim();
+  const operationType = String(route?.taskContract?.operation || route?.operationType || route?.operation?.type || '').trim();
   if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'clarify', 'refuse'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
-  if (operationType === 'image_edit') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
+  if (operationType === 'image_edit' || operationType === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
   if (operationType === 'image_reference_gen') return { mode: 'image', intent: 'image_reference_gen', type: operationType, source: 'operation' };
   if (explicitMode === 'chat') return { mode: 'chat', intent: 'unknown', type: 'plain_chat', source: 'mode' };
   if (explicitMode === 'image') return { mode: 'image', intent: 'text_to_image', type: 'text_to_image', source: 'mode' };
@@ -724,6 +777,19 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     imageRefs: plan.needClarification ? [] : imageRefs,
     fileRefs: plan.needClarification ? [] : fileRefs,
     confidence,
+    ...(route?.taskContract ? {
+      api: String(route.api || ''),
+      operationType: String(route.operationType || route.taskContract.operation || ''),
+      operationApi: String(route.operationApi || ''),
+      relation: String(route.relation || route.taskContract.relation || ''),
+      readiness: String(route.readiness || route.taskContract.readiness || ''),
+      dispatchAuthorized: route.dispatchAuthorized === true,
+      resumeApi: String(route.resumeApi || ''),
+      taskContract: route.taskContract,
+      executionResources: route.executionResources || null,
+      directiveAudit: route.directiveAudit,
+      messageRefs: Array.isArray(route.messageRefs) ? route.messageRefs : [],
+    } : {}),
   };
 }
 

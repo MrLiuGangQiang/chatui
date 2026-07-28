@@ -2,10 +2,35 @@
   // Intentionally not strict: migrated current-session prompt/model panel glue from legacy app.js.
 
   function createSessionPanelWorkflow(deps = {}) {
-    with (deps) {
-      function renderSessionModelArea(){return getSessionUiWorkflow().renderSessionModelArea()}function saveSessionPrompt(){const e=$("sessionPromptInput");if(!e)return;const t=getActiveSession();t&&(t.systemPrompt=e.value.trim(),t.hasSystemPromptOverride=!0,saveSessionsMeta(),renderSessionPromptArea(),closeSessionPromptPanel())}function saveSessionImageStyle(){const e=$("sessionImageStyleInput");if(!e)return;const t=getActiveSession();t&&(t.imageStylePrompt=e.value.trim(),t.hasImageStylePromptOverride=!0,saveSessionsMeta(),renderSessionPromptArea(),closeSessionImageStylePanel())}function saveSessionModel(){setSessionChatModel("")}function loadGlobalPromptToSessionInput(){const e=$("sessionPromptInput");if(!e)return;const t=getConfig();e.value=t.systemPrompt||"",e.focus()}function loadGlobalImageStyleToSessionInput(){const e=$("sessionImageStyleInput");if(!e)return;const t=getConfig();e.value=t.imageStylePrompt||"",e.focus()}function clearSessionPromptInput(){const e=$("sessionPromptInput");e&&(e.value="",e.focus())}function clearSessionImageStyleInput(){const e=$("sessionImageStyleInput");e&&(e.value="",e.focus())}function openPanel(e,t,s,n,a){t();if(!e)return;s(),e.classList.add("show"),e.setAttribute("aria-hidden","false"),n&&window.setTimeout.call(window,()=>n.focus(),a||60)}function closePanel(e,t){e&&(e.classList.remove("show"),e.setAttribute("aria-hidden","true"),t())}function openSessionPromptPanel(){openPanel($("sessionPromptPanel"),()=>{closeSessionModelPanel(),closeSessionImageStylePanel()},renderSessionPromptArea,$("sessionPromptInput"),60)}function openSessionImageStylePanel(){openPanel($("sessionImageStylePanel"),()=>{closeSessionModelPanel(),closeSessionPromptPanel()},renderSessionPromptArea,$("sessionImageStyleInput"),60)}function openSessionModelPanel(){openPanel($("sessionModelPanel"),()=>{closeSessionPromptPanel(),closeSessionImageStylePanel()},renderSessionModelArea,null,0);const e=$("sessionModelBtn");e?.setAttribute("aria-expanded","true")}function closeSessionModelPanel(){closePanel($("sessionModelPanel"),renderSessionModelArea);const e=$("sessionModelBtn");e?.setAttribute("aria-expanded","false")}function closeSessionPromptPanel(){closePanel($("sessionPromptPanel"),renderSessionPromptArea)}function closeSessionImageStylePanel(){closePanel($("sessionImageStylePanel"),renderSessionPromptArea)}
-      return Object.freeze({ renderSessionModelArea, saveSessionPrompt, saveSessionImageStyle, saveSessionModel, loadGlobalPromptToSessionInput, loadGlobalImageStyleToSessionInput, clearSessionPromptInput, clearSessionImageStyleInput, openSessionPromptPanel, openSessionImageStylePanel, openSessionModelPanel, closeSessionModelPanel, closeSessionPromptPanel, closeSessionImageStylePanel });
-    }
+    const {
+      $,
+      getActiveSession,
+      getConfig,
+      getSessionUiWorkflow,
+      renderSessionPromptArea,
+      saveSessionsMeta,
+      setSessionChatModel,
+      window,
+    } = deps;
+
+    function renderSessionModelArea() { return getSessionUiWorkflow().renderSessionModelArea(); }
+    function saveSessionPrompt() { const element = $("sessionPromptInput"); if (!element) return; const session = getActiveSession(); session && (session.systemPrompt = element.value.trim(), session.hasSystemPromptOverride = true, saveSessionsMeta(), renderSessionPromptArea(), closeSessionPromptPanel()); }
+    function saveSessionImageStyle() { const element = $("sessionImageStyleInput"); if (!element) return; const session = getActiveSession(); session && (session.imageStylePrompt = element.value.trim(), session.hasImageStylePromptOverride = true, saveSessionsMeta(), renderSessionPromptArea(), closeSessionImageStylePanel()); }
+    function saveSessionModel() { setSessionChatModel(""); }
+    function loadGlobalPromptToSessionInput() { const element = $("sessionPromptInput"); if (!element) return; const config = getConfig(); element.value = config.systemPrompt || ""; element.focus(); }
+    function loadGlobalImageStyleToSessionInput() { const element = $("sessionImageStyleInput"); if (!element) return; const config = getConfig(); element.value = config.imageStylePrompt || ""; element.focus(); }
+    function clearSessionPromptInput() { const element = $("sessionPromptInput"); element && (element.value = "", element.focus()); }
+    function clearSessionImageStyleInput() { const element = $("sessionImageStyleInput"); element && (element.value = "", element.focus()); }
+    function openPanel(panel, closeOtherPanels, render, focusElement, delay) { closeOtherPanels(); if (!panel) return; render(); panel.classList.add("show"); panel.setAttribute("aria-hidden", "false"); focusElement && window.setTimeout.call(window, () => focusElement.focus(), delay || 60); }
+    function closePanel(panel, render) { panel && (panel.classList.remove("show"), panel.setAttribute("aria-hidden", "true"), render()); }
+    function openSessionPromptPanel() { openPanel($("sessionPromptPanel"), () => { closeSessionModelPanel(), closeSessionImageStylePanel(); }, renderSessionPromptArea, $("sessionPromptInput"), 60); }
+    function openSessionImageStylePanel() { openPanel($("sessionImageStylePanel"), () => { closeSessionModelPanel(), closeSessionPromptPanel(); }, renderSessionPromptArea, $("sessionImageStyleInput"), 60); }
+    function openSessionModelPanel() { openPanel($("sessionModelPanel"), () => { closeSessionPromptPanel(), closeSessionImageStylePanel(); }, renderSessionModelArea, null, 0); const element = $("sessionModelBtn"); element?.setAttribute("aria-expanded", "true"); }
+    function closeSessionModelPanel() { closePanel($("sessionModelPanel"), renderSessionModelArea); const element = $("sessionModelBtn"); element?.setAttribute("aria-expanded", "false"); }
+    function closeSessionPromptPanel() { closePanel($("sessionPromptPanel"), renderSessionPromptArea); }
+    function closeSessionImageStylePanel() { closePanel($("sessionImageStylePanel"), renderSessionPromptArea); }
+
+    return Object.freeze({ renderSessionModelArea, saveSessionPrompt, saveSessionImageStyle, saveSessionModel, loadGlobalPromptToSessionInput, loadGlobalImageStyleToSessionInput, clearSessionPromptInput, clearSessionImageStyleInput, openSessionPromptPanel, openSessionImageStylePanel, openSessionModelPanel, closeSessionModelPanel, closeSessionPromptPanel, closeSessionImageStylePanel });
   }
 
   const api = Object.freeze({ createSessionPanelWorkflow });

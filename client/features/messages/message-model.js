@@ -1,6 +1,10 @@
 (function initChatUIFeaturesMessagesModel(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function normalizeRole(role = '', fallback = 'user') {
     return role === 'assistant' ? 'assistant' : role === 'user' ? 'user' : fallback;
   }
@@ -71,6 +75,5 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesModel = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesModel = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('messageModel', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

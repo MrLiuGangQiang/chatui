@@ -18,6 +18,7 @@ For a hotfix that only repairs packaging or deployment, still follow the complet
 
 ## Engineering standards
 
+- Do not use patchwork fixes that merely mask symptoms. Identify and verify the root cause, then implement a complete fix at the appropriate architectural layer, including regression coverage where applicable.
 - Keep browser, server, and shared-code boundaries described in `docs/architecture.md`.
 - Preserve root static-entry assets unless the static server, Docker image, tests, and documentation are updated together.
 - Add new tests to `test/unit/` or `test/smoke/`; do not expand `test/legacy/` unless preserving an existing regression.

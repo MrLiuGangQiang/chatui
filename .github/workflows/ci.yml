@@ -56,6 +56,48 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           platforms: linux/amd64
+          tags: chatui:ci
           cache-from: type=gha,scope=chatui-ci
           cache-to: type=gha,scope=chatui-ci,mode=max
+
+      - name: Smoke-test production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=chatui-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          cleanup() {
+            docker logs "$container" || true
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --name "$container" --publish 127.0.0.1:8765:8765 chatui:ci
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8765/api/version >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then
+            echo "Container did not become ready within 30 seconds." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error http://127.0.0.1:8765/ >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8765/route.html >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8765/vendor/markdown-it.min.js >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8765/vendor/manifest.json >/dev/null
+          docker exec "$container" npm ls --omit=dev --all --silent
+          docker exec "$container" node -e '
+            for (const name of ["jszip", "mammoth", "officeparser", "pdf-parse", "pg", "undici", "word-extractor"]) require.resolve(name);
+            for (const name of ["jsdom", "mermaid"]) {
+              try { require.resolve(name); throw new Error(`${name} must not be installed in the production image`); }
+              catch (error) { if (!String(error && error.code || "").includes("MODULE_NOT_FOUND")) throw error; }
+            }
+            require("./server/extract/office");
+            require("./server/extract/pdf");
+            require("./server/usage/export-xlsx");
+            require("./server/db/postgres");
+          '

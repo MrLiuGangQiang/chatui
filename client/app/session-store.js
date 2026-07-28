@@ -17,6 +17,51 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function messageIdentity(message = {}, index = 0) {
+    const role = String(message?.role || '');
+    const sequence = role === 'user' ? message.messageIndex : message.responseIndex;
+    if (sequence !== undefined && sequence !== null && sequence !== '') return `${role}:${sequence}`;
+    if (message.id) return `${role}:id:${message.id}`;
+    return `${role}:position:${index}`;
+  }
+
+  function mergeConcurrentSnapshot(existing, incoming) {
+    if (!existing || Number(existing.updatedAt || 0) <= Number(incoming?.baseUpdatedAt || 0)) return incoming;
+    const messages = Array.isArray(existing.messages) ? existing.messages.map(cloneSnapshot) : [];
+    const messageIndexes = new Map(messages.map((message, index) => [messageIdentity(message, index), index]));
+    (Array.isArray(incoming.messages) ? incoming.messages : []).forEach((message, index) => {
+      const identity = messageIdentity(message, index);
+      const existingIndex = messageIndexes.get(identity);
+      if (existingIndex === undefined) {
+        messages.push(cloneSnapshot(message));
+        messageIndexes.set(identity, messages.length - 1);
+      } else if (Number(incoming.updatedAt || 0) > Number(existing.updatedAt || 0) && messageHasDurableContent(message)) {
+        // A newer completed response must replace the old response at the same
+        // canonical slot (for example, edit-and-regenerate). Empty/stale
+        // snapshots are intentionally ignored so a background page cannot erase
+        // a response that another tab has already committed.
+        messages[existingIndex] = cloneSnapshot(message);
+      }
+    });
+    const pendingDisplay = Array.isArray(existing.pendingDisplay) ? existing.pendingDisplay.map(cloneSnapshot) : [];
+    const knownPending = new Set(pendingDisplay.map((item, index) => String(item?.id || item?.jobId || `position:${index}`)));
+    (Array.isArray(incoming.pendingDisplay) ? incoming.pendingDisplay : []).forEach((item, index) => {
+      const identity = String(item?.id || item?.jobId || `position:${index}`);
+      if (!knownPending.has(identity)) {
+        pendingDisplay.push(cloneSnapshot(item));
+        knownPending.add(identity);
+      }
+    });
+    return { ...incoming, messages, pendingDisplay, lastGeneratedImage: incoming.lastGeneratedImage || existing.lastGeneratedImage || null };
+  }
+
+  function messageHasDurableContent(message = {}) {
+    if (message?.role === 'user') return true;
+    if (message?.role !== 'assistant') return false;
+    const content = typeof message.content === 'string' ? message.content : message.rawText;
+    return Array.isArray(content) ? content.length > 0 : String(content || '').trim().length > 0;
+  }
+
   function createSessionSnapshotStore({
     indexedDBImpl = root?.indexedDB,
     dbName = DB_NAME,
@@ -256,12 +301,18 @@
 
     async function putSnapshot(snapshot) {
       if (!snapshot?.id || !supported || deletedSessionIds.has(snapshot.id)) return snapshot || null;
-      const durable = cloneSnapshot({ ...snapshot, snapshotVersion: SNAPSHOT_VERSION, persistedAt: Date.now() });
+      // Older callers that do not provide a base revision retain the simple
+      // write path (including maintenance operations and compatibility tests).
+      const existing = Object.prototype.hasOwnProperty.call(snapshot, 'baseUpdatedAt')
+        ? await getSnapshot(snapshot.id)
+        : null;
+      const merged = mergeConcurrentSnapshot(existing, snapshot);
+      const durable = cloneSnapshot({ ...merged, snapshotVersion: SNAPSHOT_VERSION, persistedAt: Date.now() });
       await transact('readwrite', store => store.put(durable, durable.id), {
         operationName: 'snapshot write',
         sessionId: snapshot.id,
       });
-      return snapshot;
+      return merged;
     }
 
     function snapshotRevision(snapshot) {
@@ -474,6 +525,8 @@
     DEFAULT_RETRY_BASE_DELAY_MS,
     DEFAULT_RETRY_MAX_DELAY_MS,
     cloneSnapshot,
+    messageHasDurableContent,
+    mergeConcurrentSnapshot,
     createSessionSnapshotStore,
     buildSessionSnapshot,
   });

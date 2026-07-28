@@ -28,7 +28,7 @@ function createCoreRoutes({ appVersion, readPublicConfig, sendJson, sendMethodNo
   ];
 
   function routeCoreApi(req, res) {
-    const route = routes.find(item => item.path === req.url);
+    const route = routes.find(item => item.path === (req.pathname || req.url));
     if (!route) return false;
     if (req.method !== route.method) return sendMethodNotAllowed(res);
     return route.handler(req, res);

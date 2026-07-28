@@ -57,8 +57,21 @@ function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
   });
 }
 
-function createImageContext({ prompt = '', routePrompt = '', attachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
+function createImageContext({ prompt = '', routePrompt = '', attachments = [], masks = [], maskAttachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
   const makeId = typeof makeImageItemId === 'function' ? makeImageItemId : ((reference, index) => `img_${reference || 'latest'}_${index || 1}`);
+  const targetImages = Array.isArray(attachments) ? attachments : [];
+  const maskImages = Array.isArray(masks) && masks.length
+    ? masks
+    : Array.isArray(maskAttachments)
+      ? maskAttachments
+      : [];
+  const normalizeImage = (item, index, role = '') => ({
+    ...item,
+    routeRole: item.routeRole || item.route_role || item.role || role,
+    referenceId: item.referenceId || selectedReferenceId || '',
+    imageId: item.imageId || makeId(selectedReferenceId || 'latest', item.sourceIndex || index + 1),
+    sourceIndex: item.sourceIndex || index + 1,
+  });
   return {
     prompt,
     routePrompt,
@@ -68,12 +81,8 @@ function createImageContext({ prompt = '', routePrompt = '', attachments = [], m
     selectedReferenceId: selectedReferenceId || '',
     selectedIndexes: Array.isArray(selectedIndexes) ? selectedIndexes : [],
     selectedImageIds: Array.isArray(selectedImageIds) ? selectedImageIds : [],
-    attachments: (attachments || []).map((item, index) => ({
-      ...item,
-      referenceId: item.referenceId || selectedReferenceId || '',
-      imageId: item.imageId || makeId(selectedReferenceId || 'latest', item.sourceIndex || index + 1),
-      sourceIndex: item.sourceIndex || index + 1,
-    })),
+    attachments: targetImages.map((item, index) => normalizeImage(item, index)),
+    masks: maskImages.map((item, index) => normalizeImage(item, index, 'mask')),
   };
 }
 

@@ -7,20 +7,43 @@ const path = require('path');
 const configWorkflow = require('../../client/app/config-workflow');
 const sessionConfig = require('../../client/app/session-config');
 const routeService = require('../../client/services/route-service');
+const clarificationService = require('../../client/services/clarification-service');
 const routeDecisionWorkflow = require('../../client/app/route-decision-workflow');
 const sessionUiWorkflow = require('../../client/app/session-ui-workflow');
 
 function plainChatContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.95,
     review_reasons: [],
     rationale: 'route model follow-session test',
+  };
+}
+
+function conversationalFollowupContract() {
+  return {
+    ...plainChatContract(),
+    relation: 'followup',
+    rationale: 'the short acknowledgement responds to the preceding conversation without selecting a resource',
+  };
+}
+
+function quotedFollowupWithoutBindingContract() {
+  return {
+    schema_version: 'task_contract.v4',
+    operation: 'plain_chat',
+    relation: 'followup',
+    resources: [],
+    directive: { mode: 'patch', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
+    confidence: 0.95,
+    review_reasons: [],
+    rationale: 'follow up on the visible quoted message',
   };
 }
 
@@ -28,17 +51,63 @@ function responseFor(contract = plainChatContract()) {
   return { choices: [{ message: { content: JSON.stringify(contract) } }] };
 }
 
+function currentTextToImageDecision() {
+  return {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'text_to_image',
+    relation: 'new',
+    bindings: [],
+    changes: [],
+    constraints: ['16:9'],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.99,
+    rationale: 'the current text completely describes the image to generate',
+  };
+}
+
 function reviewedImageEditContract() {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'edit_image',
     relation: 'followup',
     resources: [{ key: 'r1', type: 'image', source: 'history', role: 'target', index: 1, id: 'img-product', reference_id: 'imgref-product', missing: false }],
     directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'white' }], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.6,
     review_reasons: ['ambiguous target'],
     rationale: 'review is required before editing',
+  };
+}
+
+function structuredCompositionClarificationContract() {
+  return {
+    schema_version: 'task_contract.v5',
+    readiness: 'needs_clarification',
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'reference', index: 4, id: 'img-cat', reference_id: 'imgref-cat', missing: false }],
+    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'add', target: 'composition', value: 'combine cat and fish' }], constraints: [] },
+    clarification: {
+      question: 'Which fish should be used?',
+      unresolved_resources: [{ key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'img-fish-a', reference_id: 'imgref-fish-a', label: 'sketched fish' },
+        { key: 'c2', source: 'history', index: 2, id: 'img-fish-b', reference_id: 'imgref-fish-b', label: 'colorful fish' },
+      ] }],
+    },
+    confidence: 0.9,
+    review_reasons: [],
+    rationale: 'two fish candidates remain',
+  };
+}
+
+function operationPreservingClarificationContract() {
+  const current = structuredCompositionClarificationContract();
+  const { readiness: _readiness, ...legacy } = current;
+  return {
+    ...legacy,
+    schema_version: 'task_contract.v4',
+    clarification: { ...current.clarification, resume_operation: current.operation },
   };
 }
 
@@ -300,7 +369,7 @@ async function testFollowRouteDoesNotRetrySameSessionModelAfterFailure() {
   }
 }
 
-async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract() {
+async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification() {
   const models = ['deepseek-v4-flash', 'gpt-session', 'router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'gpt-session', messages: [] }];
   const requestedModels = [];
@@ -315,13 +384,441 @@ async function testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInval
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    await assert.rejects(
-      () => harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {}),
-      err => err?.code === 'ROUTE_INVALID_CONTRACT',
-    );
-    assert.deepStrictEqual(requestedModels, ['router-special', 'gpt-session'], 'an invalid primary contract should retry only the distinct session fallback model');
+    const route = await harness.workflow.getEffectiveRoute('question', [], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['router-special', 'gpt-session'], 'output without a complete semantic invariant snapshot must skip repair and fail over without asking a model to invent missing intent');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.intent, 'clarify');
+    assert.strictEqual(route.taskContract, null);
+    assert.strictEqual(route.localClarification, true);
+    assert.match(route.clarificationQuestion, /意图模型返回了无效的任务结构/);
+    assert.doesNotMatch(route.clarificationQuestion, /我需要确认你的目标/);
+    assert.strictEqual(route.selectedIndexes.length, 0, 'invalid contracts must not select resources locally');
   } finally {
     console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(currentTextToImageDecision());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Generate a 16:9 presentation image.', [], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid current-text image contract must execute from the primary route result without a second recognition request');
+    assert.strictEqual(route.mode, 'image');
+    assert.strictEqual(route.api, 'image_generation');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testSelfContainedImageFollowupIsPrimarySingleFlight() {
+  const requestedModels = [];
+  const context = {
+    recent_messages: [{ index: 1, id: 'prior-dog-prompt', role: 'user', content: '画一只狗' }],
+  };
+  const semantic = {
+    ...currentTextToImageDecision(),
+    relation: 'followup',
+    bindings: [],
+    constraints: [],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('self-contained image followup must not trigger repair or fallback');
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const input = '再画一只狗，换个品种';
+    const route = await harness.workflow.getEffectiveRoute(input, [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model']);
+    assert.strictEqual(route.relation, 'followup');
+    assert.deepStrictEqual(route.taskContract.resources, []);
+    assert.strictEqual(route.contextualImagePrompt, input);
+    assert.deepStrictEqual(route.taskContract.review_reasons, []);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testValidQuotedTextImageDecisionIsPrimarySingleFlight() {
+  const requestedModels = [];
+  let firstUserPayload = null;
+  const context = {
+    quoted_message: { index: 1, id: 'quoted-cat', role: 'assistant', content: '银白色带灰色条纹的小猫坐在木地板上。' },
+    recent_messages: [{ index: 1, id: 'quoted-cat', role: 'assistant', content: '银白色带灰色条纹的小猫坐在木地板上。' }],
+  };
+  const semantic = {
+    ...currentTextToImageDecision(),
+    relation: 'followup',
+    bindings: [{ candidate_key: 'm1', role: 'context' }],
+    constraints: [],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      firstUserPayload = JSON.parse(payload.messages[1].content);
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('基于这个描述再生成一张图片', [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid quoted-text decision must not trigger format repair or fallback recognition');
+    assert.deepStrictEqual(firstUserPayload.resource_candidates, [{ candidate_key: 'm1', type: 'message', source: 'quoted', label: '银白色带灰色条纹的小猫坐在木地板上。' }]);
+    assert.strictEqual(route.taskContract.resources[0].id, 'quoted-cat');
+    assert.ok(route.contextualImagePrompt.includes('银白色带灰色条纹的小猫坐在木地板上。'));
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testAmbiguousEditIsClarifiedByFirstRoute() {
+  const requestedModels = [];
+  const semantic = {
+    schema_version: 'route_decision.v1',
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'followup',
+    bindings: [],
+    changes: [],
+    constraints: [],
+    clarification: {
+      question: '检测到两张狗的图片，请选择要修改的一张，并补充目标颜色。',
+      unresolved: [
+        { type: 'image', role: 'target', reason: 'ambiguous', candidate_keys: ['i1', 'i2'] },
+        { type: 'text', role: 'source', reason: 'missing', candidate_keys: [] },
+      ],
+    },
+    confidence: 0.95,
+    rationale: 'the target image and destination color both need clarification',
+  };
+  const context = {
+    image_candidates: [
+      { index: 1, source_index: 1, source: 'history', target: 'previous', image_id: 'dog-a', reference_id: 'dog-a-ref', description: '草地上的金毛犬', labels: ['dog'] },
+      { index: 2, source_index: 1, source: 'history', target: 'previous', image_id: 'dog-b', reference_id: 'dog-b-ref', description: '客厅里的拉布拉多犬', labels: ['dog'] },
+    ],
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(semantic);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('把狗的颜色换一下', [], 'session-a', {}, context);
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'the first route must return the final clarification without repair or fallback routing');
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id), ['dog-a', 'dog-b']);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testMissingEditDetailIsClarifiedByFirstRoute() {
+  const requestedModels = [];
+  const clarificationDecision = {
+    schema_version: 'route_decision.v1',
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'correction',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [],
+    constraints: [],
+    clarification: {
+      question: '请补充目标颜色或具体效果。',
+      unresolved: [{ type: 'text', role: 'source', reason: 'missing', candidate_keys: [] }],
+    },
+    confidence: 0.95,
+    rationale: 'the target image is clear but the destination color is missing',
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('missing edit detail must not invoke repair or fallback');
+      return responseFor(clarificationDecision);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('change the cat color', [], 'session-a', {}, {
+      image_candidates: [{
+        index: 1, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat',
+        description: 'cat', labels: ['cat'],
+      }],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'the primary response must terminate routing without repair or chat-model fallback');
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.taskContract.operation, 'edit_image');
+    assert.strictEqual(route.taskContract.relation, 'correction');
+    assert.deepStrictEqual(route.taskContract.directive.operations, []);
+    assert.deepStrictEqual(route.taskContract.review_reasons, []);
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testValidStructuredClarificationDoesNotTriggerRepairOrFallback() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(structuredCompositionClarificationContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid clarification is a successful primary route and must not be repaired or sent to a fallback recognizer');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.resumeOperation, 'image_reference_gen');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testOperationPreservingClarificationIsPrimaryTerminalOutcome() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('a declared clarification must not reach repair or fallback');
+      return responseFor(operationPreservingClarificationContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model']);
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.operationType, 'image_reference_gen');
+    assert.strictEqual(route.taskContract.readiness, 'needs_clarification');
+    assert.strictEqual(route.taskContract.schema_version, 'task_contract.v5');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser() {
+  const staleIndexes = operationPreservingClarificationContract();
+  staleIndexes.resources[0].index = 10;
+  staleIndexes.clarification.unresolved_resources[0].choices[0].index = 20;
+  staleIndexes.clarification.unresolved_resources[0].choices[1].index = 18;
+  const guessedExecutable = structuredClone(routeService.decodeTaskContract(staleIndexes));
+  guessedExecutable.readiness = 'ready';
+  guessedExecutable.resources.push({
+    key: 'r2', type: 'image', source: 'history', role: 'reference', index: 2,
+    id: 'img-fish-b', reference_id: 'imgref-fish-b', missing: false,
+  });
+  guessedExecutable.clarification = { question: '', unresolved_resources: [] };
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      return responseFor(requests.length === 1 ? staleIndexes : guessedExecutable);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model'], 'a stable-id clarification must terminate primary routing even when its display indexes are stale');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.taskContract.resources[0].index, 4);
+    assert.deepStrictEqual(route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.index), [1, 2]);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testDerivedClarificationMetadataCannotTriggerRepairOrFallback() {
+  const incompleteDirective = structuredCompositionClarificationContract();
+  incompleteDirective.directive.base_resource_keys = ['r1'];
+  incompleteDirective.directive.operations = [];
+  incompleteDirective.directive.unmentioned_policy = 'allow_change';
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      if (requests.length > 1) throw new Error('declared clarification must be terminal');
+      return responseFor(incompleteDirective);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model'], 'derived execution metadata must never cause a second model to reinterpret a declared clarification');
+    assert.deepStrictEqual(route.taskContract.directive.base_resource_keys, ['r1', 'r2'], 'the runtime must derive every declared resource-slot baseline without choosing a candidate');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    const pending = clarificationService.createPendingClarification({
+      messages: [{ role: 'user', content: 'combine the cat and fish' }],
+      clarificationText: route.clarificationQuestion,
+      routeInfo: route,
+    });
+    const rerouteContext = clarificationService.buildClarificationRouteContext({
+      baseContext: {
+        image_candidates: [
+          { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat' },
+          { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a' },
+          { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b' },
+        ],
+      },
+      pending,
+      currentInput: 'the second fish',
+      resolvedInput: 'combine the cat and the second fish',
+      selections: [{ resource_key: 'r2', choice_key: 'c2' }],
+    });
+    assert.ok(rerouteContext);
+    assert.strictEqual(rerouteContext.clarification_context.selected_choices[0].id, 'img-fish-b');
+    assert.strictEqual(route.dispatchAuthorized, false, 'choice metadata must not mutate the prior route into an executable route');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testMalformedClarificationIsTerminalWithoutRepairOrFallback() {
+  const valid = structuredCompositionClarificationContract();
+  const malformed = structuredClone(valid);
+  malformed.clarification.unresolved_resources[0].choices = [malformed.clarification.unresolved_resources[0].choices[0]];
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      if (requests.length > 1) throw new Error('a declared clarification must not be repaired or rerouted');
+      return responseFor(malformed);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('combine the cat and fish', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
+        { index: 1, source: 'history', image_id: 'img-fish-a', reference_id: 'imgref-fish-a', target: 'previous' },
+        { index: 2, source: 'history', image_id: 'img-fish-b', reference_id: 'imgref-fish-b', target: 'previous' },
+      ],
+    });
+    assert.deepStrictEqual(requests.map(payload => payload.model), ['route-model']);
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.operationType, 'image_reference_gen');
+    assert.strictEqual(route.resumeOperation, 'image_reference_gen');
+    assert.strictEqual(route.taskContract, null, 'unsafe structured choices must not be persisted as an executable contract');
+    assert.strictEqual(route.clarificationDegraded, true);
+    assert.strictEqual(route.requiresRerouteAfterClarification, true, 'the customer answer must return to normal routing instead of local execution');
+    assert.strictEqual(route.clarificationQuestion, malformed.clarification.question, 'the original clarification content must be shown to the customer');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testResourceFreePlainChatFollowupIsSingleFlight() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(conversationalFollowupContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('可以啊', [], 'session-a', {}, {
+      recent_messages: [{ index: 1, role: 'assistant', content: 'Would you like me to continue?' }],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'resource-free conversational followup must not trigger contract repair or fallback routing');
+    assert.strictEqual(route.relation, 'followup');
+    assert.strictEqual(route.taskContract.directive.mode, 'standalone');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight() {
+  const requestedModels = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      return responseFor(quotedFollowupWithoutBindingContract());
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Can this be improved?', [], 'session-a', {}, {
+      quoted_message: { index: 1, role: 'assistant', id: 'quoted-answer-1' },
+      recent_messages: [{ index: 1, role: 'assistant', content: 'The quoted answer.' }],
+    });
+    assert.deepStrictEqual(requestedModels, ['route-model'], 'a visible quote must complete the primary plain-chat route instead of falling back to a second recognizer');
+    assert.strictEqual(route.relation, 'followup');
+    assert.deepStrictEqual(route.taskContract.directive.base_resource_keys, ['r1']);
+  } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
   }
@@ -364,7 +861,7 @@ async function testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback(
   }
 }
 
-async function testHighRiskRouteFailsClosedWhenItsReviewFails() {
+async function testValidHighRiskRouteExecutesWithoutIndependentReview() {
   const models = ['router-special'];
   const sessions = [{ id: 'session-a', chatModel: 'router-special', messages: [] }];
   let requestCount = 0;
@@ -374,21 +871,53 @@ async function testHighRiskRouteFailsClosedWhenItsReviewFails() {
     requestJson: async () => {
       requestCount += 1;
       if (requestCount === 1) return responseFor(reviewedImageEditContract());
-      throw new Error('review unavailable');
+      throw new Error('a valid first route must not make another route request');
     },
   });
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
-    await assert.rejects(
-      () => harness.workflow.getEffectiveRoute('change the product background', [], 'session-a', {}, {
-        image_candidates: [{ index: 1, source: 'history', image_id: 'img-product', reference_id: 'imgref-product', target: 'previous' }],
-      }),
-      error => error?.code === 'ROUTE_COMPLETE_FAILURE' && error?.primaryCode === 'ROUTE_REVIEW_REQUIRED',
-    );
-    assert.strictEqual(requestCount, 2, 'the primary decision must not execute after its required review fails');
+    const route = await harness.workflow.getEffectiveRoute('change the product background', [], 'session-a', {}, {
+      image_candidates: [{ index: 1, source: 'history', image_id: 'img-product', reference_id: 'imgref-product', target: 'previous' }],
+    });
+    assert.strictEqual(requestCount, 1, 'a valid first route must execute without an independent review request');
+    assert.strictEqual(route.operationType, 'edit_image');
   } finally {
     console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testInvalidPrimaryContractUsesSameModelRepairBeforeFallback() {
+  const models = ['router-special', 'chat-model'];
+  const sessions = [{ id: 'session-a', chatModel: 'chat-model', messages: [] }];
+  const requested = [];
+  const valid = {
+    ...plainChatContract(),
+    schema_version: 'task_contract.v5',
+    readiness: 'ready',
+    clarification: { question: '', unresolved_resources: [] },
+  };
+  const invalid = { ...valid, accidental_field: 'must be rejected' };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'router-special', models },
+    sessions,
+    requestJson: async (_url, payload) => {
+      requested.push(payload);
+      return requested.length === 1 ? responseFor(invalid) : responseFor(valid);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Explain this request.', [], 'session-a', {}, {});
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.deepStrictEqual(requested.map(payload => payload.model), ['router-special', 'router-special']);
+    assert.ok(requested[1].messages[0].content.startsWith(routeService.INTENT_REPAIR_SYSTEM_PROMPT), 'repair must keep the same model and explicitly repair only the rejected contract');
+    assert.ok(requested[1].messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'repair must receive the complete current contract instead of relying on an obsolete schema memory');
+    assert.strictEqual(requested[1].response_format?.json_schema?.strict, true);
+    const repairInput = JSON.parse(requested[1].messages[1].content);
+    assert.deepStrictEqual(repairInput.repair_invariants, routeService.repairInvariantSnapshot(invalid));
+  } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
   }
@@ -474,10 +1003,10 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
-  assert.ok(index.includes('submit-workflow.js?v=1.2.93-single-route-selectors'));
-  assert.ok(index.includes('route-decision-workflow.js?v=2.0.4-verified-routing'));
-  assert.ok(index.includes('app.js?v=2.1.52-single-submit-workflow'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.154-intent-route-map'));
+  assert.ok(index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'));
+  assert.ok(index.includes('route-decision-workflow.js?v=3.4.1-dispatchable-route-gate'));
+  assert.ok(index.includes('app.js?v=2.1.56-encoding-integrity'));
+  assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 
 module.exports = [
@@ -489,9 +1018,22 @@ module.exports = [
   testExplicitRouteModelSwitchUsesLatestSelection,
   testExplicitRouteFallbackUsesSessionsChatModelNotGlobalChatModel,
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
-  testInvalidPrimaryRouteRetriesDistinctSessionModelAndReportsInvalidContract,
+  testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
+  testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
+  testSelfContainedImageFollowupIsPrimarySingleFlight,
+  testValidQuotedTextImageDecisionIsPrimarySingleFlight,
+  testAmbiguousEditIsClarifiedByFirstRoute,
+  testMissingEditDetailIsClarifiedByFirstRoute,
+  testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
+  testOperationPreservingClarificationIsPrimaryTerminalOutcome,
+  testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,
+  testDerivedClarificationMetadataCannotTriggerRepairOrFallback,
+  testMalformedClarificationIsTerminalWithoutRepairOrFallback,
+  testResourceFreePlainChatFollowupIsSingleFlight,
+  testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
-  testHighRiskRouteFailsClosedWhenItsReviewFails,
+  testValidHighRiskRouteExecutesWithoutIndependentReview,
+  testInvalidPrimaryContractUsesSameModelRepairBeforeFallback,
   testBusyTaskCannotSwitchGlobalRouteModel,
   testBusySessionCannotSwitchModelMidSubmission,
   testSubmitPreflightUsesEffectiveSessionRouteModel,

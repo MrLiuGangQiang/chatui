@@ -1,0 +1,260 @@
+{
+  "schema_version": "chatui-vendor-manifest.v1",
+  "assets": [
+    {
+      "target": "vendor/purify.min.js",
+      "package": "dompurify",
+      "version": "3.4.12",
+      "license": "MPL-2.0 OR Apache-2.0",
+      "source": "dist/purify.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/highlight-common.min.js",
+      "package": "highlight.js",
+      "version": "11.11.1",
+      "license": "BSD-3-Clause",
+      "source": "@highlightjs/cdn-assets/11.11.1/highlight.min.js (newline-normalized)",
+      "mode": "sha256",
+      "sha256": "3c0521aaca7010923d45e583c634c7d0a47e1535e598ece8fd0090deda4fcef1"
+    },
+    {
+      "target": "vendor/highlight-github.min.css",
+      "package": "highlight.js",
+      "version": "11.11.1",
+      "license": "BSD-3-Clause",
+      "source": "styles/github.min.css",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/katex.min.js",
+      "package": "katex",
+      "version": "0.16.47",
+      "license": "MIT",
+      "source": "dist/katex.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/katex.min.css",
+      "package": "katex",
+      "version": "0.16.47",
+      "license": "MIT",
+      "source": "dist/katex.min.css",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it.min.js",
+      "package": "markdown-it",
+      "version": "14.2.0",
+      "license": "MIT",
+      "source": "dist/markdown-it.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/mermaid.min.js",
+      "package": "mermaid",
+      "version": "11.15.0",
+      "license": "MIT",
+      "source": "dist/mermaid.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-abbr.min.js",
+      "package": "markdown-it-abbr",
+      "version": "2.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-abbr.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-deflist.min.js",
+      "package": "markdown-it-deflist",
+      "version": "3.0.1",
+      "license": "MIT",
+      "source": "dist/markdown-it-deflist.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-emoji.min.js",
+      "package": "markdown-it-emoji",
+      "version": "3.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-emoji.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-footnote.min.js",
+      "package": "markdown-it-footnote",
+      "version": "4.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-footnote.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-mark.min.js",
+      "package": "markdown-it-mark",
+      "version": "4.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-mark.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-multimd-table.min.js",
+      "package": "markdown-it-multimd-table",
+      "version": "4.2.3",
+      "license": "MIT",
+      "source": "dist/markdown-it-multimd-table.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-sub.min.js",
+      "package": "markdown-it-sub",
+      "version": "2.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-sub.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-sup.min.js",
+      "package": "markdown-it-sup",
+      "version": "2.0.0",
+      "license": "MIT",
+      "source": "dist/markdown-it-sup.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-task-lists.min.js",
+      "package": "markdown-it-task-lists",
+      "version": "2.1.1",
+      "license": "ISC",
+      "source": "dist/markdown-it-task-lists.min.js",
+      "mode": "exact"
+    },
+    {
+      "target": "vendor/markdown-it-plugins/markdown-it-texmath.min.js",
+      "package": "markdown-it-texmath",
+      "version": "1.0.0",
+      "license": "MIT",
+      "source": "texmath.js (repository-minified browser build)",
+      "mode": "sha256",
+      "sha256": "1de5f57e8e8533d2ba640c497261b3adbccb0f896e1667e6a34f66bd4ee65ec4"
+    }
+  ],
+  "directories": [
+    {
+      "target": "vendor/fonts",
+      "package": "katex",
+      "version": "0.16.47",
+      "license": "MIT",
+      "source": "dist/fonts",
+      "mode": "exact"
+    }
+  ],
+  "licenses": [
+    {
+      "package": "dompurify",
+      "version": "3.4.12",
+      "license": "MPL-2.0 OR Apache-2.0",
+      "sources": ["LICENSE", "LICENSE-MPL"],
+      "targets": ["vendor/licenses/dompurify-APACHE-2.0.txt", "vendor/licenses/dompurify-MPL-2.0.txt"]
+    },
+    {
+      "package": "highlight.js",
+      "version": "11.11.1",
+      "license": "BSD-3-Clause",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/highlight.js-BSD-3-Clause.txt"]
+    },
+    {
+      "package": "katex",
+      "version": "0.16.47",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/katex-MIT.txt"]
+    },
+    {
+      "package": "markdown-it",
+      "version": "14.2.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-MIT.txt"]
+    },
+    {
+      "package": "mermaid",
+      "version": "11.15.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/mermaid-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-abbr",
+      "version": "2.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-abbr-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-deflist",
+      "version": "3.0.1",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-deflist-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-emoji",
+      "version": "3.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-emoji-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-footnote",
+      "version": "4.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-footnote-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-mark",
+      "version": "4.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-mark-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-multimd-table",
+      "version": "4.2.3",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-multimd-table-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-sub",
+      "version": "2.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-sub-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-sup",
+      "version": "2.0.0",
+      "license": "MIT",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-sup-MIT.txt"]
+    },
+    {
+      "package": "markdown-it-task-lists",
+      "version": "2.1.1",
+      "license": "ISC",
+      "sources": ["LICENSE"],
+      "targets": ["vendor/licenses/markdown-it-task-lists-ISC.txt"]
+    },
+    {
+      "package": "markdown-it-texmath",
+      "version": "1.0.0",
+      "license": "MIT",
+      "sources": ["license.txt"],
+      "targets": ["vendor/licenses/markdown-it-texmath-MIT.txt"]
+    }
+  ]
+}

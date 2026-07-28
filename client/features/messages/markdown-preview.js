@@ -1,6 +1,10 @@
 (function initChatUIFeaturesMessagesMarkdownPreview(root) {
   'use strict';
 
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
+  })();
+
   function escapeHtml(value = '') {
     return String(value ?? '').replace(/[&<>"'`]/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;',
@@ -20,16 +24,39 @@
   }
 
   function splitTableRow(line = '') {
-    return String(line || '')
-      .trim()
-      .replace(/^\|/, '')
-      .replace(/\|$/, '')
-      .split('|')
-      .map(cell => cell.trim());
+    const source = String(line || '').trim();
+    let start = source.startsWith('|') ? 1 : 0;
+    let end = source.length;
+    if (end > start && source.endsWith('|') && source[end - 2] !== '\\') end -= 1;
+    const cells = [];
+    let cell = '';
+    for (let index = start; index < end; index += 1) {
+      const character = source[index];
+      const next = source[index + 1];
+      if (character === '\\' && (next === '|' || next === '\\')) { cell += next; index += 1; continue; }
+      if (character === '|') { cells.push(cell.trim()); cell = ''; continue; }
+      cell += character;
+    }
+    cells.push(cell.trim());
+    return cells;
   }
 
   function isTableSeparator(line = '') {
     return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || ''));
+  }
+
+  function tableAlignments(line = '') {
+    return splitTableRow(line).map(value => {
+      if (/^:\s*-{3,}\s*:$/.test(value)) return 'center';
+      if (/^:\s*-{3,}\s*$/.test(value)) return 'left';
+      if (/^-{3,}\s*:$/.test(value)) return 'right';
+      return 'left';
+    });
+  }
+
+  function alignedCell(tag, value, alignment = '') {
+    const className = alignment ? ` class="md-align-${alignment}"` : '';
+    return `<${tag}${className}>${renderInline(value)}</${tag}>`;
   }
 
   function renderMarkdownPreview(source = '') {
@@ -98,6 +125,7 @@
         closeParagraph();
         closeList();
         const headers = splitTableRow(trimmed);
+        const alignments = tableAlignments(lines[i + 1]);
         const body = [];
         i += 2;
         while (i < lines.length && lines[i].trim().includes('|') && lines[i].trim()) {
@@ -105,7 +133,7 @@
           i += 1;
         }
         i -= 1;
-        html.push('<div class="markdown-preview-table-wrap"><table><thead><tr>' + headers.map(cell => `<th>${renderInline(cell)}</th>`).join('') + '</tr></thead><tbody>' + body.map(row => '<tr>' + row.map(cell => `<td>${renderInline(cell)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>');
+        html.push('<div class="markdown-preview-table-wrap table-wrap"><table><thead><tr>' + headers.map((cell, index) => alignedCell('th', cell, alignments[index])).join('') + '</tr></thead><tbody>' + body.map(row => '<tr>' + row.map((cell, index) => alignedCell('td', cell, alignments[index])).join('') + '</tr>').join('') + '</tbody></table></div>');
         continue;
       }
 
@@ -139,6 +167,5 @@
 
   const api = Object.freeze({ renderMarkdownPreview, escapeHtml });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  root.ChatUIFeaturesMessagesMarkdownPreview = api;
-  if (root?.window) root.window.ChatUIFeaturesMessagesMarkdownPreview = api;
+  if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('markdownPreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

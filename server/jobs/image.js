@@ -1,5 +1,5 @@
 const { sendJson } = require('../http/response');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, readUpstreamTextWithLimit, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 
@@ -27,11 +27,54 @@ function createImageJobValidationError(message) {
   return err;
 }
 
+function validateImageRoleMap(payload = {}, imageFiles = []) {
+  const encoded = payload?.image_role_map;
+  const taggedFiles = imageFiles.filter(file => String(file?.routeRole || '').trim());
+  if (encoded === undefined || encoded === null || encoded === '') {
+    if (imageFiles.length > 1 && taggedFiles.length) {
+      throw createImageJobValidationError('多图任务缺少图片角色映射');
+    }
+    return;
+  }
+  let entries;
+  try {
+    entries = typeof encoded === 'string' ? JSON.parse(encoded) : encoded;
+  } catch {
+    throw createImageJobValidationError('图片参考图角色映射无效');
+  }
+  if (!Array.isArray(entries) || entries.length !== imageFiles.length) {
+    throw createImageJobValidationError('图片参考图角色映射与附件数量不一致');
+  }
+  const allowedRoles = new Set(['target', 'reference', 'style_reference']);
+  const resourceKeys = new Set();
+  entries.forEach((entry, index) => {
+    const file = imageFiles[index] || {};
+    const role = String(entry?.role || '').trim();
+    const resourceKey = String(entry?.resource_key || '').trim();
+    if (!entry || typeof entry !== 'object'
+        || Number(entry.position) !== index + 1
+        || !allowedRoles.has(role)
+        || role !== String(file.routeRole || '')
+        || !resourceKey
+        || resourceKeys.has(resourceKey)
+        || resourceKey !== String(file.routeResourceKey || '')
+        || String(entry.id || '') !== String(file.routeId || '')
+        || String(entry.reference_id || '') !== String(file.routeReferenceId || '')) {
+      throw createImageJobValidationError('图片角色映射与稳定资源绑定不一致');
+    }
+    resourceKeys.add(resourceKey);
+  });
+}
+
 function prepareImageJobRequest(body = {}) {
   let payload = body.payload || {};
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
   const masks = extractImageEditMasks(body);
+  validateImageRoleMap(payload, imageFiles);
+  if (masks.length > 1) {
+    throw createImageJobValidationError('图片编辑任务最多支持一个 mask 附件');
+  }
   validateImageFilePayloads([...imageFiles, ...masks]);
   const mode = resolveImageJobMode(body, imageFiles);
   if (mode === 'edit_image') payload = ensureImageEditPrompt(payload, body);
@@ -115,6 +158,7 @@ function markImageJobFailed(job = {}, err) {
 }
 
 async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
+  if (job.status !== 'running') return;
   const { headers, body } = buildImageUpstreamRequest(job);
   const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
     method: 'POST',
@@ -126,11 +170,11 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
   try {
     job.serverStartAt = Date.now();
     const upstream = await upstreamResponse;
-    const text = await upstream.text();
+    const text = await readUpstreamTextWithLimit(upstream);
     const data = parseImageUpstreamResponse(upstream, text);
-    markImageJobDone(job, data);
+    if (job.status === 'running' && !controller.signal.aborted) markImageJobDone(job, data);
   } catch (err) {
-    markImageJobFailed(job, err);
+    if (job.status === 'running') markImageJobFailed(job, err);
   } finally {
     clearTimeout(timer);
     delete job.controller;
@@ -150,9 +194,12 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
       const job = createImageJobFromRequestBody(jobId, body, { baseUrl, apiKey, extraHeaders });
       imageJobs.set(job.id, job);
       withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs })).catch(err => {
-        job.status = 'error';
-        job.error = err.message || String(err);
-        job.updatedAt = Date.now();
+        if (job.status === 'running') {
+          job.status = 'error';
+          job.error = err.message || String(err);
+          job.updatedAt = Date.now();
+          if (typeof notifyJob === 'function') notifyJob(job);
+        }
       });
       sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
@@ -161,7 +208,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
   }
 
   function getImageJob(req, res) {
-    const id = getJobIdFromUrl(req);
+    const id = req.jobId || getJobIdFromUrl(req);
     const job = findJobOr404(imageJobs, id, res);
     if (!job) return;
     sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
@@ -182,6 +229,7 @@ module.exports = {
   markImageJobFailed,
   parseImageUpstreamResponse,
   prepareImageJobRequest,
+  validateImageRoleMap,
   resolveImageJobMode,
   runImageJob,
   buildImageEditMultipartBody,

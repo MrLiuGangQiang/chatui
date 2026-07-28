@@ -256,7 +256,9 @@ function testImageBase64ValidationContract() {
   assert.strictEqual(imageEditPayload.normalizeImageBase64Data({ data: ' QUJD\nRA== ' }), 'QUJDRA==');
   assert.strictEqual(imageEditPayload.imageFileToBuffer({ data: 'QUJDRA==' }).toString('utf8'), 'ABCD');
   assert.strictEqual(imageEditPayload.imageFileToDataUrl({ type: 'image/png', data: 'QUJDRA==' }), 'data:image/png;base64,QUJDRA==');
-  assert.strictEqual(imageEditPayload.imageFileToDataUrl({ type: 'image/png', data: 'data:text/html;base64,QUJDRA==' }), 'data:text/html;base64,QUJDRA==');
+  const sanitizedDataUrl = imageEditPayload.imageFileToDataUrl({ type: 'image/png', data: 'data:text/html;base64,QUJDRA==' });
+  assert.strictEqual(sanitizedDataUrl, 'data:application/octet-stream;base64,QUJDRA==');
+  assert.ok(!sanitizedDataUrl.startsWith('data:text/html'), 'an attacker-controlled data URL MIME type must not survive normalization');
   assert.throws(() => imageEditPayload.normalizeImageBase64Data({ data: 'QUJD====' }), /图片附件数据无效/);
   assert.throws(() => imageEditPayload.normalizeImageBase64Data({ data: 'QUJD-RA==' }), /图片附件数据无效/);
   assert.throws(() => imageEditPayload.normalizeImageBase64Data({ data: 'abcde' }), /图片附件数据无效/);

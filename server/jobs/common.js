@@ -1,15 +1,19 @@
 const { sendJson } = require('../http/response');
 const { readBody, parseJson } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
+const { DEFAULT_UPSTREAM_BASE_URL, UPSTREAM_TIMEOUT_MS } = require('../config');
+const crypto = require('crypto');
 const { Agent, ProxyAgent } = require('undici');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
+const { nonNegativeInteger, positiveInteger, timeoutMilliseconds } = require('../config/numbers');
 
 const CHAT_BODY_BYTES = 2 * 1024 * 1024;
 const CHAT_VISUAL_BODY_BYTES = 12 * 1024 * 1024;
 const IMAGE_BODY_BYTES = 50 * 1024 * 1024;
+const DEFAULT_UPSTREAM_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_UPSTREAM_RESPONSE_BYTES = positiveInteger(process.env.MAX_UPSTREAM_RESPONSE_BYTES, DEFAULT_UPSTREAM_RESPONSE_BYTES, { max: 512 * 1024 * 1024 });
 const PUBLIC_UPSTREAM_DISPATCHER = new Agent({ connect: { lookup: createPublicLookup({ allowPrivate: false }) } });
 let proxyDispatcher = null;
 let proxyDispatcherUrl = '';
@@ -45,7 +49,11 @@ function upstreamDispatcher({ allowPrivate = false } = {}) {
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
   if (/^(imgjob|chatjob)-[a-z0-9-]{8,80}$/i.test(supplied)) return supplied;
-  return `imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `imgjob-${crypto.randomUUID()}`;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function hasVisualChatAttachment(value, seen = new Set()) {
@@ -65,6 +73,26 @@ async function extractProxyRequest(req, res) {
     // Read visual chat requests with a bounded larger ceiling, then reject oversized plain chat below.
     // This lets upload and quoted-image requests use the identical chat payload contract.
     body = parseJson(await readBody(req, { maxBytes: isImageJob ? IMAGE_BODY_BYTES : CHAT_VISUAL_BODY_BYTES }));
+    if (!isPlainObject(body)) {
+      const err = new Error('请求体必须是 JSON 对象');
+      err.statusCode = 400;
+      err.code = 'INVALID_REQUEST_BODY';
+      throw err;
+    }
+    if (body.payload !== undefined && body.payload !== null && !isPlainObject(body.payload)) {
+      const err = new Error('payload 必须是 JSON 对象');
+      err.statusCode = 400;
+      err.code = 'INVALID_PAYLOAD';
+      throw err;
+    }
+    for (const field of ['headers', 'extraHeaders', 'query']) {
+      if (body[field] !== undefined && body[field] !== null && !isPlainObject(body[field])) {
+        const err = new Error(`${field} 必须是 JSON 对象`);
+        err.statusCode = 400;
+        err.code = 'INVALID_REQUEST_FIELD';
+        throw err;
+      }
+    }
     if (!isImageJob && !hasVisualChatAttachment(body) && Buffer.byteLength(JSON.stringify(body), 'utf8') > CHAT_BODY_BYTES) {
       const err = new Error('请求体过大');
       err.statusCode = 413;
@@ -79,11 +107,16 @@ async function extractProxyRequest(req, res) {
   // server-side default only for legacy clients that do not send baseUrl.
   // Previously this was overwritten with a fixed gateway, which made image
   // jobs use a different upstream from the one configured by the user.
-  const baseUrl = normalizeBaseUrl(body.baseUrl || DEFAULT_UPSTREAM_BASE_URL);
+  const rawBaseUrl = String(body.baseUrl || DEFAULT_UPSTREAM_BASE_URL).trim();
+  const baseUrl = rawBaseUrl.length <= 4096 ? normalizeBaseUrl(rawBaseUrl) : '';
   const apiKey = String(body.apiKey || '').trim();
   const extraHeaders = normalizeExtraHeaders(body.headers || body.extraHeaders);
   if (!baseUrl) {
     sendJson(res, 400, { error: { message: '缺少或非法 baseUrl', code: 'INVALID_BASE_URL' } });
+    return null;
+  }
+  if (apiKey.length > 4096 || /[\r\n\u0000]/.test(apiKey)) {
+    sendJson(res, 400, { error: { message: 'API Key 格式无效', code: 'INVALID_API_KEY' } });
     return null;
   }
   return { body, baseUrl, apiKey, extraHeaders };
@@ -91,7 +124,9 @@ async function extractProxyRequest(req, res) {
 
 async function fetchWithValidatedRedirects(url, options, { allowPrivate = privateUpstreamAllowed(), maxRedirects = 5, fetchImpl = fetch } = {}) {
   let currentUrl = new URL(String(url));
-  for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
+  const initialOrigin = currentUrl.origin;
+  const redirectLimit = nonNegativeInteger(maxRedirects, 5, { max: 20 });
+  for (let redirects = 0; redirects <= redirectLimit; redirects += 1) {
     if (!await assertResolvedUpstreamUrl(currentUrl, { allowPrivate })) {
       const err = new Error('上游地址解析到非公网网络或无法解析');
       err.statusCode = 400;
@@ -104,8 +139,22 @@ async function fetchWithValidatedRedirects(url, options, { allowPrivate = privat
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.get('location');
     if (!location) return response;
-    if (redirects === maxRedirects) throw new Error('上游重定向次数过多');
-    currentUrl = new URL(location, currentUrl);
+    if (redirects === redirectLimit) {
+      try { await response.body?.cancel?.(); } catch {}
+      throw new Error('上游重定向次数过多');
+    }
+    const nextUrl = new URL(location, currentUrl);
+    try { await response.body?.cancel?.(); } catch {}
+    if (nextUrl.origin !== initialOrigin) {
+      // The request carries a caller-provided API key. Following a redirect
+      // to another origin would disclose that credential to the redirect
+      // target, so redirects are intentionally same-origin only.
+      const err = new Error('上游重定向到不同域名');
+      err.statusCode = 502;
+      err.code = 'CROSS_ORIGIN_REDIRECT_BLOCKED';
+      throw err;
+    }
+    currentUrl = nextUrl;
   }
   throw new Error('上游重定向次数过多');
 }
@@ -148,7 +197,8 @@ function summarizeUpstreamRequest(url, { method, body, job } = {}) {
 function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs }) {
   const controller = new AbortController();
   if (job) job.controller = controller;
-  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  const timeoutMs = timeoutMilliseconds(upstreamTimeoutMs, UPSTREAM_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const request = summarizeUpstreamRequest(url, { method, body, job });
   const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
     .catch(err => {
@@ -161,6 +211,60 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
 function safeParseJson(text) {
   if (!text) return null;
   try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
+async function readUpstreamTextWithLimit(response, maxBytes = MAX_UPSTREAM_RESPONSE_BYTES) {
+  const limit = Number.isFinite(Number(maxBytes)) && Number(maxBytes) > 0 ? Math.floor(Number(maxBytes)) : MAX_UPSTREAM_RESPONSE_BYTES;
+  const declared = Number(response?.headers?.get?.('content-length') || 0);
+  if (Number.isFinite(declared) && declared > limit) {
+    try { await response?.body?.cancel?.(); } catch {}
+    const err = new Error('上游响应过大');
+    err.statusCode = 502;
+    err.code = 'UPSTREAM_RESPONSE_TOO_LARGE';
+    throw err;
+  }
+  if (!response?.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(String(text || ''), 'utf8') > limit) {
+      const err = new Error('上游响应过大');
+      err.statusCode = 502;
+      err.code = 'UPSTREAM_RESPONSE_TOO_LARGE';
+      throw err;
+    }
+    return String(text || '');
+  }
+  const chunks = [];
+  const counter = createUpstreamByteCounter(limit);
+  for await (const chunk of response.body) {
+    const buffer = Buffer.from(chunk);
+    try { counter.add(buffer); }
+    catch (err) {
+      try { await response.body.cancel?.(); } catch {}
+      throw err;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, counter.size).toString('utf8');
+}
+
+function upstreamResponseTooLargeError() {
+  const err = new Error('上游响应过大');
+  err.statusCode = 502;
+  err.code = 'UPSTREAM_RESPONSE_TOO_LARGE';
+  return err;
+}
+
+function createUpstreamByteCounter(maxBytes = MAX_UPSTREAM_RESPONSE_BYTES) {
+  const limit = Number.isFinite(Number(maxBytes)) && Number(maxBytes) > 0 ? Math.floor(Number(maxBytes)) : MAX_UPSTREAM_RESPONSE_BYTES;
+  let size = 0;
+  return {
+    get size() { return size; },
+    add(chunk) {
+      size += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk || ''), 'utf8');
+      if (size > limit) throw upstreamResponseTooLargeError();
+      return size;
+    },
+  };
 }
 
 function respondJobError(res, err) {
@@ -204,4 +308,4 @@ function findJobOr404(store, id, res) {
   return job;
 }
 
-module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };
+module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, IMAGE_BODY_BYTES, DEFAULT_UPSTREAM_RESPONSE_BYTES, MAX_UPSTREAM_RESPONSE_BYTES, hasVisualChatAttachment, isPlainObject, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, readUpstreamTextWithLimit, upstreamResponseTooLargeError, createUpstreamByteCounter, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };

@@ -10,12 +10,12 @@ const FIXTURE_PATH = path.join(__dirname, '../fixtures/intent-routing-eval.v1.js
 
 function imageQaContract(operation = 'image_qa') {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation,
     relation: 'new',
     resources: [{ key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'img-current-product', reference_id: 'imgref-current-product', missing: false }],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.98,
     review_reasons: [],
     rationale: 'The request asks to understand the attached image.',
@@ -24,12 +24,12 @@ function imageQaContract(operation = 'image_qa') {
 
 function plainChatContract(rationale = 'The request is an independent text task.') {
   return {
-    schema_version: 'task_contract.v3',
+    schema_version: 'task_contract.v4',
     operation: 'plain_chat',
     relation: 'new',
     resources: [],
     directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', missing_resource_keys: [] },
+    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
     confidence: 0.98,
     review_reasons: [],
     rationale,
@@ -46,11 +46,19 @@ function testIntentRoutingEvaluationFixtureCoversEverySupportedOperation() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
   assert.ok(suite.cases.length >= 12, 'the starter benchmark must cover a meaningful set of customer requests');
   const operations = new Set(suite.cases.map(item => item.expected.operation));
-  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image', 'clarify']) {
+  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']) {
     assert.ok(operations.has(operation), `benchmark must cover ${operation}`);
   }
   assert.ok(suite.cases.some(item => item.category === 'context-boundary'), 'benchmark must retain context-boundary regressions');
   assert.ok(suite.cases.some(item => item.category === 'clarification'), 'benchmark must measure appropriate clarification');
+  assert.ok(suite.cases.some(item => item.safety_critical), 'benchmark must identify cases that can never be traded away by an average score');
+  assert.ok(suite.cases.some(item => !item.input && item.attachments.length), 'benchmark must cover attachment-only turns');
+  assert.ok(suite.cases.some(item => item.attachments.some(attachment => attachment.has_extracted_text === false)), 'benchmark must cover explicitly unusable files');
+  assert.ok(suite.cases.some(item => item.current_mode && item.auto_mode === false), 'benchmark must cover fixed manual mode semantics');
+  assert.throws(() => evaluation.validateFixtureSuite({
+    schema_version: evaluation.SCHEMA_VERSION,
+    cases: [{ ...suite.cases[0], id: 'non-critical-only', safety_critical: false }],
+  }), /at least one safety-critical case/);
 }
 
 function testIntentRoutingEvaluationScoresAValidRouteEndToEnd() {
@@ -69,7 +77,7 @@ function testIntentRoutingEvaluationSeparatesOperationAndResourceFailures() {
   const wrongOperation = evaluation.evaluateRouteText(fixture, JSON.stringify(imageQaContract('ocr')));
   assert.strictEqual(wrongOperation.checks.valid_contract, true, 'a different but valid route contract must remain distinguishable from parser failure');
   assert.strictEqual(wrongOperation.checks.operation, false);
-  assert.strictEqual(wrongOperation.score, 75, 'operation mismatch must lower only its weighted dimension');
+  assert.strictEqual(wrongOperation.score, 80, 'operation mismatch must lower only its weighted dimension');
 
   const wrongResource = imageQaContract();
   wrongResource.resources[0].id = 'img-not-in-fixture';
@@ -82,16 +90,21 @@ function testIntentRoutingEvaluationSeparatesOperationAndResourceFailures() {
 }
 
 function testIntentRoutingEvaluationSummarizesScoresAndQualityGates() {
-  const perfect = { id: 'a', category: 'chat', score: 100, perfect: true, checks: { valid_contract: true, operation: true, relation: true, resources: true, clarification: true, directive: true } };
-  const partial = { id: 'b', category: 'chat', score: 75, perfect: false, checks: { valid_contract: true, operation: false, relation: true, resources: true, clarification: true, directive: true } };
+  const perfect = { id: 'a', category: 'chat', safety_critical: true, score: 100, perfect: true, checks: { valid_contract: true, operation: true, readiness: true, relation: true, resources: true, clarification: true, directive: true } };
+  const partial = { id: 'b', category: 'chat', safety_critical: false, score: 80, perfect: false, checks: { valid_contract: true, operation: false, readiness: true, relation: true, resources: true, clarification: true, directive: true } };
   const summary = evaluation.summarizeCaseScores([perfect, partial]);
-  assert.strictEqual(summary.average_score, 87.5);
+  assert.strictEqual(summary.average_score, 90);
   assert.strictEqual(summary.dimension_accuracy.operation, 50);
   assert.strictEqual(summary.dimension_accuracy.valid_contract, 100);
   assert.strictEqual(summary.by_category.chat.perfect_case_rate, 50);
+  assert.strictEqual(summary.safety_critical.perfect_case_rate, 100);
 
   assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 85, minValidContract: 100 }).passed, true);
-  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 90, minValidContract: 100 }).passed, false);
+  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 95, minValidContract: 100 }).passed, false);
+
+  const criticalFailure = evaluation.summarizeCaseScores([{ ...partial, id: 'critical-b', safety_critical: true }]);
+  assert.strictEqual(evaluationCli.qualityGate(criticalFailure, { minScore: 0, minValidContract: 0 }).passed, false, 'a safety-critical regression must fail even permissive aggregate thresholds');
+  assert.deepStrictEqual(criticalFailure.safety_critical.failed_case_ids, ['critical-b']);
 }
 
 function testIntentRoutingEvaluationCliUsesExplicitCredentialsAndSafeDefaults() {
@@ -165,6 +178,7 @@ async function testIntentRoutingEvaluationRunnerRedactsCredentialsFromTransportE
   assert.ok(!serializedReport.includes(apiKey));
   assert.ok(!serializedReport.includes('user:password'));
   assert.ok(serializedReport.includes('[redacted]'));
+  assert.strictEqual(report.quality_gate.passed, false, 'a transport failure must fail the quality gate even when credentials are redacted');
 }
 
 module.exports = [

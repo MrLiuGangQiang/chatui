@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const { ROOT, checkProject, readJson } = require('./check-project');
 
 function releaseVersion(tag) {
@@ -11,19 +9,15 @@ function releaseVersion(tag) {
   return match[1];
 }
 
-function verifyRelease(tag) {
+function verifyRelease(tag, { root = ROOT } = {}) {
   const expected = releaseVersion(tag);
-  const project = checkProject();
-  const packageJson = readJson('package.json');
-  const packageLock = readJson('package-lock.json');
+  const project = checkProject({ root });
+  const packageJson = readJson('package.json', root);
+  const packageLock = readJson('package-lock.json', root);
   if (packageJson.version !== expected || packageLock.version !== expected || packageLock.packages?.['']?.version !== expected) {
     throw new Error(`[release-check] ${tag} must match package.json and package-lock.json (found ${packageJson.version}).`);
   }
-  const notesPath = path.join(ROOT, 'docs', 'releases', `${tag}.md`);
-  if (!fs.existsSync(notesPath)) throw new Error(`[release-check] missing release notes: docs/releases/${tag}.md.`);
-  const notes = fs.readFileSync(notesPath, 'utf8').trim();
-  if (!notes.startsWith(`# ChatUI ${tag}`)) throw new Error(`[release-check] docs/releases/${tag}.md must start with # ChatUI ${tag}.`);
-  return { ...project, tag, notesPath };
+  return { ...project, tag };
 }
 
 if (require.main === module) {

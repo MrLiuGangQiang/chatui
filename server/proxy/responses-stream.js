@@ -91,6 +91,7 @@ function createResponsesCompactStreamNormalizer({ now = () => performance.now(),
       }
       let event;
       try { event = JSON.parse(parsed.data); } catch { continue; }
+      if (!event || typeof event !== 'object') continue;
       if (parsed.event && !event.type) event.type = parsed.event;
       const delta = extractResponsesStreamDelta(event);
       const payload = {};

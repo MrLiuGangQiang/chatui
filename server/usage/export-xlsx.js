@@ -1,7 +1,15 @@
 const JSZip = require('jszip');
+const { USAGE_TIME_ZONE } = require('./ranges');
 
 function safeXml(value) {
-  return String(value ?? '').replace(/[<>&"']/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[ch]));
+  const valid = Array.from(String(value ?? '')).filter(char => {
+    const code = char.codePointAt(0);
+    return code === 0x09 || code === 0x0a || code === 0x0d
+      || (code >= 0x20 && code <= 0xd7ff)
+      || (code >= 0xe000 && code <= 0xfffd)
+      || (code >= 0x10000 && code <= 0x10ffff);
+  }).join('');
+  return valid.replace(/[<>&"']/g, ch => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[ch]));
 }
 
 function safeSheetName(value) {
@@ -9,12 +17,12 @@ function safeSheetName(value) {
   return cleaned || '统计';
 }
 
-function formatDateTime(value) {
+function formatDateTime(value, timeZone = USAGE_TIME_ZONE) {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const parts = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -30,14 +38,18 @@ function formatDateTime(value) {
 }
 
 function uniqueSheetNames(names = []) {
-  const used = new Map();
+  const used = new Set();
   return names.map(name => {
     const base = safeSheetName(name);
-    const count = (used.get(base) || 0) + 1;
-    used.set(base, count);
-    if (count === 1) return base;
-    const suffix = `_${count}`;
-    return `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    let candidate = base;
+    let count = 1;
+    while (used.has(candidate.toLocaleLowerCase('en-US'))) {
+      count += 1;
+      const suffix = `_${count}`;
+      candidate = `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    }
+    used.add(candidate.toLocaleLowerCase('en-US'));
+    return candidate;
   });
 }
 
@@ -57,7 +69,7 @@ function xlsxCell(value, columnIndex, rowIndex) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return `<c r="${ref}"><v>${value}</v></c>`;
   }
-  return `<c r="${ref}" t="inlineStr"><is><t>${safeXml(value)}</t></is></c>`;
+  return `<c r="${ref}" t="inlineStr"><is><t>${safeXml(String(value ?? '').slice(0, 32767))}</t></is></c>`;
 }
 
 function xlsxWorksheet(headers, rows) {
@@ -66,7 +78,7 @@ function xlsxWorksheet(headers, rows) {
     const excelRow = rowIndex + 1;
     return `<row r="${excelRow}">${row.map((value, columnIndex) => xlsxCell(value, columnIndex, excelRow)).join('')}</row>`;
   }).join('');
-  const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
+  const columnCount = rows.reduce((max, row) => Math.max(max, row.length), headers.length);
   const dimension = columnCount > 0 ? `A1:${columnName(columnCount - 1)}${Math.max(1, allRows.length)}` : 'A1';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -85,7 +97,9 @@ async function buildDepartmentExportWorkbook(rangeLabel, departments = [], users
   const departmentRows = departments.map((row, index) => [index + 1, row.department_name, startTime, endTime, row.total_tokens, row.prompt_tokens, row.completion_tokens, row.prompt_cached_tokens, row.completion_reasoning_tokens]);
   const sheetDefs = [{ name: `部门${rangeLabel}统计`, headers, rows: departmentRows }];
   departments.forEach(row => {
-    const userRows = (usersByDepartment[row.department_id] || []).map((user, index) => [index + 1, user.username, startTime, endTime, user.total_tokens, user.prompt_tokens, user.completion_tokens, user.prompt_cached_tokens, user.completion_reasoning_tokens]);
+    const users = Object.prototype.hasOwnProperty.call(usersByDepartment || {}, row.department_id)
+      && Array.isArray(usersByDepartment[row.department_id]) ? usersByDepartment[row.department_id] : [];
+    const userRows = users.map((user, index) => [index + 1, user.username, startTime, endTime, user.total_tokens, user.prompt_tokens, user.completion_tokens, user.prompt_cached_tokens, user.completion_reasoning_tokens]);
     sheetDefs.push({ name: `${row.department_name || row.department_id}${rangeLabel}统计`, headers: userHeaders, rows: userRows });
   });
   const sheetNames = uniqueSheetNames(sheetDefs.map(sheet => sheet.name));

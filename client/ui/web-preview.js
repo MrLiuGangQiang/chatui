@@ -2,6 +2,9 @@
   'use strict';
 
   let defaultController = null;
+  const appContext = root?.ChatUIApp?.appContext || (() => {
+    try { return typeof require === 'function' ? require('../app/app-context') : null; } catch { return null; }
+  })();
 
   function resolveCore(deps = {}) {
     if (deps.core?.extractWebPreviewCandidates) return deps.core;
@@ -59,7 +62,7 @@
         .replace(/&/g, '\\u0026')
         .replace(/\u2028/g, '\\u2028')
         .replace(/\u2029/g, '\\u2029');
-      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</title><style>html,body{width:100%;height:100%;margin:0;background:#0f172a}iframe{display:block;width:100%;height:100%;border:0;background:#fff}</style></head><body><iframe id="preview" title="网页预览内容" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads allow-pointer-lock allow-presentation" referrerpolicy="no-referrer"></iframe><script>document.getElementById('preview').srcdoc=${serialize(source)};</script></body></html>`;
+      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</title><style>html,body{width:100%;height:100%;margin:0;background:#0f172a}iframe{display:block;width:100%;height:100%;border:0;background:#fff}</style></head><body><iframe id="preview" title="网页预览内容" sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock allow-presentation" referrerpolicy="no-referrer"></iframe><script>document.getElementById('preview').srcdoc=${serialize(source)};</script></body></html>`;
     }
 
     function openPreviewInNewWindow(candidate) {
@@ -248,6 +251,5 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  const appContext = root?.ChatUIApp?.appContext;
   if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('webPreview', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

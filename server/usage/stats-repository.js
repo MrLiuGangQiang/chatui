@@ -93,7 +93,8 @@ function createUsageStatsRepository(pool, options = {}) {
 
   async function getUserByApiKey(apiKey) {
     const result = await pool.query('SELECT COALESCE(name, \'\') AS username FROM api_keys WHERE "key" = $1 LIMIT 1', [apiKey]);
-    return { username: String(result.rows[0]?.username || '').trim() };
+    if (!result.rows[0]) return null;
+    return { username: String(result.rows[0].username || '').trim() };
   }
 
   async function getDepartmentRanking(range) {

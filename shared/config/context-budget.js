@@ -213,11 +213,16 @@ function applyContextBudget(messages = [], options = {}) {
   }
 
   const retainedIndexes = new Set(retainedGroups.flat().map(entry => entry.index));
-  const systemMessages = indexed.filter(entry => systemIndexes.has(entry.index)).map(entry => entry.message);
-  const retainedMessages = indexed
+  const retainedEntries = indexed
     .filter(entry => !systemIndexes.has(entry.index) && (requiredIndexes.has(entry.index) || retainedIndexes.has(entry.index)))
-    .map(entry => entry.message);
-  const result = [...systemMessages, ...(summaryInserted ? [summary] : []), ...retainedMessages];
+    .concat(indexed.filter(entry => systemIndexes.has(entry.index)))
+    .sort((left, right) => left.index - right.index);
+  if (summaryInserted) {
+    const firstOmittedIndex = omittedEntries.reduce((min, entry) => Math.min(min, entry.index), Infinity);
+    const insertionIndex = retainedEntries.findIndex(entry => entry.index > firstOmittedIndex);
+    retainedEntries.splice(insertionIndex < 0 ? retainedEntries.length : insertionIndex, 0, { index: firstOmittedIndex, message: summary });
+  }
+  const result = retainedEntries.map(entry => entry.message);
 
   return {
     messages: result,

@@ -17,6 +17,37 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function messageIdentity(message = {}, index = 0) {
+    const role = String(message?.role || '');
+    const sequence = role === 'user' ? message.messageIndex : message.responseIndex;
+    if (sequence !== undefined && sequence !== null && sequence !== '') return `${role}:${sequence}`;
+    if (message.id) return `${role}:id:${message.id}`;
+    return `${role}:position:${index}`;
+  }
+
+  function mergeConcurrentSnapshot(existing, incoming) {
+    if (!existing || Number(existing.updatedAt || 0) <= Number(incoming?.baseUpdatedAt || 0)) return incoming;
+    const messages = Array.isArray(existing.messages) ? existing.messages.map(cloneSnapshot) : [];
+    const knownMessages = new Set(messages.map(messageIdentity));
+    (Array.isArray(incoming.messages) ? incoming.messages : []).forEach((message, index) => {
+      const identity = messageIdentity(message, index);
+      if (!knownMessages.has(identity)) {
+        messages.push(cloneSnapshot(message));
+        knownMessages.add(identity);
+      }
+    });
+    const pendingDisplay = Array.isArray(existing.pendingDisplay) ? existing.pendingDisplay.map(cloneSnapshot) : [];
+    const knownPending = new Set(pendingDisplay.map((item, index) => String(item?.id || item?.jobId || `position:${index}`)));
+    (Array.isArray(incoming.pendingDisplay) ? incoming.pendingDisplay : []).forEach((item, index) => {
+      const identity = String(item?.id || item?.jobId || `position:${index}`);
+      if (!knownPending.has(identity)) {
+        pendingDisplay.push(cloneSnapshot(item));
+        knownPending.add(identity);
+      }
+    });
+    return { ...incoming, messages, pendingDisplay, lastGeneratedImage: incoming.lastGeneratedImage || existing.lastGeneratedImage || null };
+  }
+
   function createSessionSnapshotStore({
     indexedDBImpl = root?.indexedDB,
     dbName = DB_NAME,
@@ -256,12 +287,18 @@
 
     async function putSnapshot(snapshot) {
       if (!snapshot?.id || !supported || deletedSessionIds.has(snapshot.id)) return snapshot || null;
-      const durable = cloneSnapshot({ ...snapshot, snapshotVersion: SNAPSHOT_VERSION, persistedAt: Date.now() });
+      // Older callers that do not provide a base revision retain the simple
+      // write path (including maintenance operations and compatibility tests).
+      const existing = Object.prototype.hasOwnProperty.call(snapshot, 'baseUpdatedAt')
+        ? await getSnapshot(snapshot.id)
+        : null;
+      const merged = mergeConcurrentSnapshot(existing, snapshot);
+      const durable = cloneSnapshot({ ...merged, snapshotVersion: SNAPSHOT_VERSION, persistedAt: Date.now() });
       await transact('readwrite', store => store.put(durable, durable.id), {
         operationName: 'snapshot write',
         sessionId: snapshot.id,
       });
-      return snapshot;
+      return merged;
     }
 
     function snapshotRevision(snapshot) {
@@ -474,6 +511,7 @@
     DEFAULT_RETRY_BASE_DELAY_MS,
     DEFAULT_RETRY_MAX_DELAY_MS,
     cloneSnapshot,
+    mergeConcurrentSnapshot,
     createSessionSnapshotStore,
     buildSessionSnapshot,
   });

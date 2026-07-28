@@ -238,7 +238,20 @@
     const value = String(text || '').trim();
     if (!value) return null;
     try {
-      const raw = JSON.parse(value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+      const normalized = value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      // Some OpenAI-compatible gateways ignore response_format and wrap an
+      // otherwise valid JSON object in a short explanation. Keep the schema
+      // validation below strict, but recover that object instead of treating
+      // every such reply as an unavailable continuation classifier.
+      let raw;
+      try {
+        raw = JSON.parse(normalized);
+      } catch {
+        const start = normalized.indexOf('{');
+        const end = normalized.lastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+        raw = JSON.parse(normalized.slice(start, end + 1));
+      }
       const fields = [
         'schema_version', 'relation', 'confidence', 'resolved_input', 'selections',
         'should_merge', 'should_clear_pending', 'assistant_reply', 'reason',

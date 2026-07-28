@@ -5,19 +5,39 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net 'unsafe-inline' blob:",
-    "style-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net 'unsafe-inline'",
-    "font-src 'self' https://registry.npmmirror.com https://cdn.jsdelivr.net data:",
+    "script-src 'self' 'unsafe-inline' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
     "img-src 'self' data: blob: http: https:",
     "connect-src 'self' http: https: data: blob:",
     "media-src 'self' data: blob:",
     "object-src 'none'",
     "base-uri 'self'",
+    "frame-ancestors 'self'",
   ].join('; '),
 };
 
+function appendVary(value, field) {
+  const fields = String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+  if (!fields.some(item => item.toLowerCase() === field.toLowerCase())) fields.push(field);
+  return fields.join(', ');
+}
+
+function applyResponseHeaders(res, headers = {}) {
+  const next = { ...headers };
+  if (Object.prototype.hasOwnProperty.call(res || {}, 'chatuiCorsOrigin')) {
+    const origin = String(res.chatuiCorsOrigin || '');
+    if (!origin) delete next['Access-Control-Allow-Origin'];
+    else {
+      next['Access-Control-Allow-Origin'] = origin;
+      if (origin !== '*') next.Vary = appendVary(next.Vary, 'Origin');
+    }
+  }
+  return next;
+}
+
 function send(res, status, body, headers = {}) {
-  res.writeHead(status, { ...SECURITY_HEADERS, ...headers });
+  res.writeHead(status, applyResponseHeaders(res, { ...SECURITY_HEADERS, ...headers }));
   res.end(body);
 }
 
@@ -44,4 +64,4 @@ function sendMethodNotAllowed(res) {
   return sendError(res, 405, 'Method Not Allowed', 'METHOD_NOT_ALLOWED');
 }
 
-module.exports = { SECURITY_HEADERS, send, sendJson, sendError, sendMethodNotAllowed };
+module.exports = { SECURITY_HEADERS, appendVary, applyResponseHeaders, send, sendJson, sendError, sendMethodNotAllowed };

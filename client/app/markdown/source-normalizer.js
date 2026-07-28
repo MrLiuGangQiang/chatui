@@ -12,19 +12,14 @@
   }
 
   function normalizeMultilineMarkdownImageDataUris(markdown = '') {
-    return String(markdown || '').replace(/!\[([^\]\n]*)\]\s*\n+\s*\(\s*(data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,[A-Za-z0-9+/=\s]+)\s*\)/gi, (_all, alt, uri) => {
+    return String(markdown || '').replace(/!\[([^\]\n]*)\]\s*\n+\s*\(\s*(data:image\/(?:png|gif|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+)\s*\)/gi, (_all, alt, uri) => {
       const compact = String(uri || '').replace(/\s+/g, '');
       return `![${alt}](${compact})`;
     });
   }
 
   function normalizeMarkdownImageDataUris(markdown = '') {
-    const src = String(markdown || '');
-    const pattern = /(!\[[^\]\n]*\]\()data:image\/svg\+xml;(?:charset=)?utf-?8,([\s\S]*?<\/svg>)\)/gi;
-    return src.replace(pattern, (all, prefix, svg) => {
-      const encoded = encodeUtf8Base64(String(svg || '').trim());
-      return encoded ? `${prefix}data:image/svg+xml;base64,${encoded})` : all;
-    });
+    return String(markdown || '');
   }
 
   function escapeHtml(value = '') {

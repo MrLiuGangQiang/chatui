@@ -21,10 +21,13 @@ function createMockResponse() {
     body: '',
     ended: false,
     flushed: 0,
+    listeners: {},
     writeHead(status, headers) { this.status = status; this.headers = headers; },
-    write(chunk = '') { this.body += String(chunk); },
+    write(chunk = '') { this.body += String(chunk); return true; },
     flushHeaders() { this.flushed += 1; },
     end(body = '') { this.body += String(body || ''); this.ended = true; },
+    once(name, fn) { this.listeners[name] = fn; return this; },
+    removeListener(name, fn) { if (this.listeners[name] === fn) delete this.listeners[name]; return this; },
   };
 }
 
@@ -33,6 +36,8 @@ function createMockRequest(url) {
     url,
     listeners: {},
     on(name, fn) { this.listeners[name] = fn; return this; },
+    once(name, fn) { this.listeners[name] = fn; return this; },
+    removeListener(name, fn) { if (this.listeners[name] === fn) delete this.listeners[name]; return this; },
     close() { this.listeners.close?.(); },
   };
 }
@@ -75,13 +80,15 @@ function testJobEventsPreserveCompactPublicContract() {
   assert.deepStrictEqual(jobEvents.publicJob(job, { resumeUrl: '/api/chat-jobs/chatjob-abc12345/events?contentLength=2&reasoningLength=3' }), { d: 'cdef', r: 'xyz', rt: 34, done: 1 });
 }
 
-function testJobEventsSubscribeAndAbortContracts() {
+async function testJobEventsSubscribeAndAbortContracts() {
+  const settleSseWrite = () => new Promise(resolve => setImmediate(resolve));
   const subscribers = new Map();
   const { subscribeJob, abortJob, notifyJob } = jobEvents.createJobEvents({ jobSubscribers: subscribers });
 
   const missingReq = createMockRequest('/api/chat-jobs/missing-job/events');
   const missingRes = createMockResponse();
   subscribeJob(missingReq, missingRes, new Map());
+  await settleSseWrite();
   assert.strictEqual(missingRes.status, 200);
   assert.strictEqual(missingRes.headers['Content-Type'], 'text/event-stream; charset=utf-8');
   assert.strictEqual(missingRes.headers['Access-Control-Allow-Origin'], '*');
@@ -99,6 +106,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   const doneReq = createMockRequest('/api/chat-jobs/chatjob-done12345/events?contentLength=6&reasoningLength=1');
   const doneRes = createMockResponse();
   subscribeJob(doneReq, doneRes, doneStore);
+  await settleSseWrite();
   assert.strictEqual(doneRes.status, 200);
   assert.strictEqual(doneRes.ended, true);
   assert.deepStrictEqual(parseSseJson(doneRes.body), { d: 'world', r: 'hink', done: 1 });
@@ -117,8 +125,10 @@ function testJobEventsSubscribeAndAbortContracts() {
   const runningReq = createMockRequest('/api/chat-jobs/chatjob-run12345/events');
   const runningRes = createMockResponse();
   subscribeJob(runningReq, runningRes, runningStore);
+  await settleSseWrite();
   assert.strictEqual(subscribers.get('chatjob-run12345').has(runningRes), true);
   const abortedJob = abortJob(runningStore, 'chatjob-run12345');
+  await settleSseWrite();
   assert.strictEqual(aborted, true);
   assert.strictEqual(abortedJob.status, 'error');
   assert.strictEqual(runningRes.ended, true);
@@ -129,6 +139,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   const ftRes = createMockResponse();
   subscribers.set(firstTokenJob.id, new Set([ftRes]));
   notifyJob(firstTokenJob);
+  await settleSseWrite();
   assert.strictEqual(firstTokenJob.firstTokenNotified, true);
   assert.strictEqual(firstTokenJob.streamDelta, undefined);
   assert.deepStrictEqual(parseSseJson(ftRes.body), { d: 'a', ft: 0 });
@@ -231,12 +242,15 @@ async function testConnectionLookupRejectsMixedOrReboundPrivateAddresses() {
 
 function testUpstreamErrorDiagnosticsAreSafeAndActionable() {
   const original = { CHATUI_UPSTREAM_PROXY: process.env.CHATUI_UPSTREAM_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, HTTP_PROXY: process.env.HTTP_PROXY };
-  process.env.CHATUI_UPSTREAM_PROXY = 'http://explicit-proxy.example:8080';
-  assert.strictEqual(configuredUpstreamProxyUrl(), 'http://explicit-proxy.example:8080');
-  delete process.env.CHATUI_UPSTREAM_PROXY;
-  process.env.HTTPS_PROXY = 'http://https-proxy.example:8080';
-  assert.strictEqual(configuredUpstreamProxyUrl(), 'http://https-proxy.example:8080');
-  for (const [key, value] of Object.entries(original)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  try {
+    process.env.CHATUI_UPSTREAM_PROXY = 'http://explicit-proxy.example:8080';
+    assert.strictEqual(configuredUpstreamProxyUrl(), 'http://explicit-proxy.example:8080');
+    delete process.env.CHATUI_UPSTREAM_PROXY;
+    process.env.HTTPS_PROXY = 'http://https-proxy.example:8080';
+    assert.strictEqual(configuredUpstreamProxyUrl(), 'http://https-proxy.example:8080');
+  } finally {
+    for (const [key, value] of Object.entries(original)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
 
   const networkError = Object.assign(new TypeError('fetch failed'), {
     cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),

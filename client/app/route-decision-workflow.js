@@ -82,6 +82,15 @@
       const satisfiesReadiness = route => typeof routeSvc?.routeSatisfiesReadiness === 'function'
         ? routeSvc.routeSatisfiesReadiness(route, readinessRequirement)
         : readinessRequirement !== 'needs_clarification' || route?.needClarification === true;
+      // `inspectRouteResult` proves that the model output can be compiled, but
+      // the submission boundary additionally requires a consistent execution
+      // projection. Keep that stronger check here as well. Otherwise a route
+      // can be returned successfully and only fail later with an internal
+      // "resource confirmation" error.
+      const isDispatchable = route => route?.needClarification === true
+        || typeof routeSvc?.isRouteDispatchable !== 'function'
+        || routeSvc.isRouteDispatchable(route) === true;
+      const acceptsRoute = route => !!route && satisfiesReadiness(route) && isDispatchable(route);
       let readinessRequirement = mergeReadiness(requiredReadiness, routeSvc?.readRouteReadiness?.(raw) || '');
       const initial = inspectRoute(routeSvc, raw, options);
       if (readinessRequirement === 'needs_clarification') {
@@ -97,10 +106,12 @@
           clarificationTerminal: true,
         };
       }
-      if (initial.route && satisfiesReadiness(initial.route)) {
+      if (acceptsRoute(initial.route)) {
         return { ...initial, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }
-      const initialReason = initial.route ? 'readiness_transition_forbidden' : initial.reason;
+      const initialReason = initial.route
+        ? isDispatchable(initial.route) ? 'readiness_transition_forbidden' : 'execution_projection'
+        : initial.reason;
       if (typeof routeSvc?.buildIntentRepairPayload !== 'function') {
         return { route: null, reason: initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }
@@ -126,8 +137,15 @@
       if (repaired.route && routeSvc?.repairPreservesInvariants?.(repairInvariants, repaired.route) !== true) {
         return { route: null, reason: 'repair_semantic_drift', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
       }
-      if (repaired.route && !satisfiesReadiness(repaired.route)) {
-        return { route: null, reason: 'readiness_transition_forbidden', repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
+      if (repaired.route && !acceptsRoute(repaired.route)) {
+        return {
+          route: null,
+          reason: isDispatchable(repaired.route) ? 'readiness_transition_forbidden' : 'execution_projection',
+          repaired: true,
+          initialReason,
+          repairRaw,
+          requiredReadiness: readinessRequirement,
+        };
       }
       return { ...repaired, repaired: true, initialReason, repairRaw, requiredReadiness: readinessRequirement };
     }

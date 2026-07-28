@@ -1,6 +1,7 @@
 const { createCoreRoutes } = require('./routes/core');
 const { createJobRoutes } = require('./routes/jobs');
 const { createUsageRoutes } = require('./routes/usage');
+const { applyCorsRequestContext } = require('../http/cors');
 
 function createRouter(deps) {
   const {
@@ -65,11 +66,13 @@ function createRouter(deps) {
     feedbackSender,
   });
 
-  return async function route(req, res) {
+  async function dispatch(req, res) {
     let pathname;
     try { pathname = new URL(req.url, 'http://chatui.local').pathname; }
     catch { return send(res, 400, 'Bad Request'); }
     req.pathname = pathname;
+    const cors = applyCorsRequestContext(req, res);
+    if (!cors.allowed) return sendJson(res, 403, { error: { message: 'Origin is not allowed', code: 'ORIGIN_FORBIDDEN' } });
     if (req.method === 'OPTIONS') {
       return send(res, 204, '', {
         'Access-Control-Allow-Origin': '*',
@@ -101,6 +104,17 @@ function createRouter(deps) {
     if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, 'Method Not Allowed');
 
     return serveStatic(req, res, { root, rootWithSep });
+  }
+
+  return async function route(req, res) {
+    try {
+      return await dispatch(req, res);
+    } catch (err) {
+      console.error('[http] unhandled request failure:', err?.message || err);
+      if (res.destroyed || res.writableEnded) return;
+      if (!res.headersSent) return sendJson(res, 500, { error: { message: 'Internal Server Error', code: 'INTERNAL_ERROR' } });
+      try { res.end(); } catch { res.destroy(); }
+    }
   };
 }
 

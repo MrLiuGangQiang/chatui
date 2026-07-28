@@ -10,6 +10,7 @@ const usageStatsAuth = require('../../client/ui/usage-stats-auth');
 const usageStatsView = require('../../client/features/usage-stats/view-helpers');
 const { createPublicConfigReader } = require('../../server/config/public-config');
 const dingTalkFeedback = require('../../server/services/dingtalk-feedback.service');
+const { createUsageAccessValidator, validateUsageBaseUrl } = require('../../server/services/usage-access.service');
 
 function decodeXmlEntities(value = '') {
   return String(value || '')
@@ -120,16 +121,21 @@ async function testDingTalkFeedbackSenderContracts() {
   const accessToken = 'A'.repeat(32);
   assert.strictEqual(dingTalkFeedback.normalizeAccessToken(accessToken), accessToken);
   assert.strictEqual(dingTalkFeedback.normalizeWebhook(accessToken).includes(`access_token=${accessToken}`), true);
-  assert.strictEqual(dingTalkFeedback.normalizeWebhook('https://oapi.dingtalk.com/robot/send?access_token=abc').includes('access_token=abc'), true);
-  assert.strictEqual(dingTalkFeedback.normalizeWebhook('http://oapi.dingtalk.com/robot/send?access_token=abc'), '');
-  assert.strictEqual(dingTalkFeedback.normalizeWebhook('https://example.com/robot/send?access_token=abc'), '');
-  const signed = new URL(dingTalkFeedback.signedWebhookUrl('https://oapi.dingtalk.com/robot/send?access_token=abc', 'secret', 123));
+  const webhook = `https://oapi.dingtalk.com/robot/send?access_token=${accessToken}`;
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook(webhook), webhook);
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook('https://oapi.dingtalk.com/robot/send?access_token=short'), '');
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook(`http://oapi.dingtalk.com/robot/send?access_token=${accessToken}`), '');
+  assert.strictEqual(dingTalkFeedback.normalizeWebhook(`https://example.com/robot/send?access_token=${accessToken}`), '');
+  const signed = new URL(dingTalkFeedback.signedWebhookUrl(webhook, 'secret', 123));
   assert.strictEqual(signed.searchParams.get('timestamp'), '123');
   assert.ok(signed.searchParams.get('sign'));
   const calls = [];
   const sender = dingTalkFeedback.createDingTalkFeedbackSender({
     accessToken,
-    fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true, json: async () => ({ errcode: 0 }) }; },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ errcode: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
     now: () => 0,
   });
   assert.strictEqual(await sender.send('  页面打不开  '), true);
@@ -169,17 +175,45 @@ function testUsageValidatorRateLimitPreservesContract() {
   const req = { headers: { 'x-forwarded-for': ' 1.2.3.4, 5.6.7.8 ' }, socket: { remoteAddress: 'fallback' } };
   assert.strictEqual(usageValidator.getClientKey(req), 'fallback');
   const first = usageValidator.checkUsageRefreshLimit(req, 'rankings', { buckets, limit: 2, windowMs: 1000, now: 100 });
-  assert.deepStrictEqual(first, { allowed: true, remaining: 1, resetMs: 1000 });
+  assert.deepStrictEqual(first, { allowed: true, limit: 2, remaining: 1, resetMs: 1000 });
   const second = usageValidator.checkUsageRefreshLimit(req, 'rankings', { buckets, limit: 2, windowMs: 1000, now: 101 });
-  assert.deepStrictEqual(second, { allowed: true, remaining: 0, resetMs: 999 });
+  assert.deepStrictEqual(second, { allowed: true, limit: 2, remaining: 0, resetMs: 999 });
   const third = usageValidator.checkUsageRefreshLimit(req, 'rankings', { buckets, limit: 2, windowMs: 1000, now: 102 });
-  assert.deepStrictEqual(third, { allowed: false, resetMs: 998 });
+  assert.deepStrictEqual(third, { allowed: false, limit: 2, remaining: 0, resetMs: 998 });
   assert.deepStrictEqual(usageValidator.usageRateLimitHeaders(third), {
     'Access-Control-Allow-Origin': '*',
-    'X-RateLimit-Limit': '12',
+    'X-RateLimit-Limit': '2',
     'X-RateLimit-Remaining': '0',
     'Retry-After': '1',
   });
+}
+
+async function testUsageAccessValidatorPinsBaseUrlAndCachesValidatedModel() {
+  const trustedBaseUrl = 'https://93.184.216.34/v1';
+  const fetchCalls = [];
+  const validator = createUsageAccessValidator({
+    trustedBaseUrl,
+    now: () => 1000,
+    fetchImpl: async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
+      return new Response(JSON.stringify({ data: [{ id: 'gpt-test' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+  });
+
+  assert.strictEqual(validateUsageBaseUrl('', trustedBaseUrl).code, 'UPSTREAM_BASE_URL_REQUIRED');
+  assert.strictEqual(validateUsageBaseUrl('https://example.com/v1', trustedBaseUrl).code, 'UPSTREAM_BASE_URL_MISMATCH');
+  assert.strictEqual(fetchCalls.length, 0);
+
+  assert.deepStrictEqual(await validator.validate('sk-test', 'gpt-test', { baseUrl: `${trustedBaseUrl}/` }), { ok: true });
+  assert.strictEqual(fetchCalls.length, 1);
+  assert.strictEqual(fetchCalls[0].url, `${trustedBaseUrl}/models`);
+  assert.strictEqual(fetchCalls[0].options.headers.Authorization, 'Bearer sk-test');
+
+  assert.deepStrictEqual(await validator.validate('sk-test', 'gpt-test', { baseUrl: trustedBaseUrl }), { ok: true });
+  assert.strictEqual(fetchCalls.length, 1, 'a validated API key/model/base tuple should use the bounded cache');
 }
 
 async function testUsageServiceBuildsDepartmentExportWorkbookFromRepository() {
@@ -268,6 +302,7 @@ module.exports = [
   testUsageStatsScriptsLoadInExpectedOrder,
   testUsageValidatorNormalizesInputs,
   testUsageValidatorRateLimitPreservesContract,
+  testUsageAccessValidatorPinsBaseUrlAndCachesValidatedModel,
   testUsageServiceBuildsDepartmentExportWorkbookFromRepository,
   testUsageServiceOptimizesDepartmentExportWithBulkUsers,
   testUsageServiceOverviewCombinesPersonalAndRanking,

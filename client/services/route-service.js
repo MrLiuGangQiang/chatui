@@ -332,19 +332,17 @@ function hasExactRouteDecision(value = {}) {
 }
 
 function selectedChoiceCandidateMatches(candidate = {}, selected = {}) {
-  if (!candidate || !selected || String(candidate.type || '') !== String(selected.type || '')) return false;
+  if (!candidate || !selected
+      || String(candidate.type || '') !== String(selected.type || '')
+      || String(candidate.source || '') !== String(selected.source || '')) return false;
   const candidateId = String(candidate.id || '');
   const selectedId = String(selected.id || '');
   const candidateReference = String(candidate.reference_id || '');
   const selectedReference = String(selected.reference_id || '');
-  if (selectedId && candidateId) return selectedId === candidateId;
-  if (selectedReference && candidateReference) {
-    return selectedReference === candidateReference && Number(candidate.index) === Number(selected.index);
-  }
-  if ((selectedId || selectedReference) && (candidateId || candidateReference)) return false;
-  const sameSourceIndex = String(candidate.source || '') === String(selected.source || '')
-    && Number(candidate.index) === Number(selected.index);
-  return sameSourceIndex;
+  if ((selectedId || candidateId) && selectedId !== candidateId) return false;
+  if ((selectedReference || candidateReference) && selectedReference !== candidateReference) return false;
+  if (selectedId) return true;
+  return Number(candidate.index) === Number(selected.index);
 }
 
 function assertSelectedChoicesAreBound(decision = {}, catalog = [], context = {}) {

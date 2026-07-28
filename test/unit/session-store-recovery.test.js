@@ -263,6 +263,24 @@ async function testPermanentWriteErrorIsNotRetried() {
   assert.strictEqual(writeAttempts, 1, 'permanent serialization errors must not enter an endless retry loop');
 }
 
+async function testStaleTabSnapshotPreservesNewerMessages() {
+  const merged = sessionStore.mergeConcurrentSnapshot({
+    id: 'shared-session',
+    updatedAt: 20,
+    messages: [{ role: 'user', content: 'sent in the foreground tab', messageIndex: '0' }],
+    pendingDisplay: [],
+  }, {
+    id: 'shared-session',
+    updatedAt: 21,
+    baseUpdatedAt: 10,
+    messages: [],
+    pendingDisplay: [],
+  });
+
+  assert.deepStrictEqual(merged.messages.map(message => message.content), ['sent in the foreground tab'],
+    'a stale pagehide snapshot must not erase a message written by another tab');
+}
+
 module.exports = [
   testIndexedDbOpenTimeoutClosesLateConnection,
   testSnapshotReadTimeoutReopensConnection,
@@ -270,4 +288,5 @@ module.exports = [
   testDeleteCancelsScheduledRetryAndSettlesQueue,
   testFlushIsBoundedAndClearCancelsStalledQueue,
   testPermanentWriteErrorIsNotRetried,
+  testStaleTabSnapshotPreservesNewerMessages,
 ];

@@ -133,6 +133,9 @@ function validateFixtureSuite(suite = {}) {
   if (!Array.isArray(suite.cases) || !suite.cases.length) fail('Fixture suite must contain at least one case.');
   const seenIds = new Set();
   suite.cases.forEach(caseDefinition => validateFixtureCase(caseDefinition, seenIds));
+  if (!suite.cases.some(caseDefinition => caseDefinition.safety_critical === true)) {
+    fail('Fixture suite must contain at least one safety-critical case.');
+  }
   return suite;
 }
 

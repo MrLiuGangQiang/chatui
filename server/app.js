@@ -20,7 +20,6 @@ function createApp() {
   const usageAccessValidator = createUsageAccessValidator();
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
-  const sweeper = startJobSweeper([imageJobs, chatJobs]);
   const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS });
   const {
     makeChatJob,
@@ -36,6 +35,9 @@ function createApp() {
     getChatJob,
     updateChatJobFromStreamChunk,
   } = jobHandlers;
+  imageJobs.setTransitionHandler(notifyJob);
+  chatJobs.setTransitionHandler(notifyJob);
+  const sweeper = startJobSweeper([imageJobs, chatJobs]);
   const { proxy, proxyImage } = createOpenAiProxy({
     chatJobs,
     makeChatJob,
@@ -74,11 +76,33 @@ function createApp() {
     feedbackSender,
   });
   const server = http.createServer(route);
-  server.on('close', () => {
+  let resourcesClosed = false;
+  async function closeResources() {
+    if (resourcesClosed) return;
+    resourcesClosed = true;
     clearInterval(sweeper);
-    postgresPool?.end?.().catch(err => console.error('[postgres] failed to close pool:', err));
-  });
-  return { server, stores: { imageJobs, chatJobs }, sweeper };
+    for (const store of [imageJobs, chatJobs]) {
+      for (const job of store.values()) {
+        if (job.status === 'running') {
+          job.status = 'error';
+          job.error = job.error || '服务正在关闭，任务已停止';
+          job.updatedAt = Date.now();
+          try { job.controller?.abort(); } catch {}
+          notifyJob(job);
+        }
+      }
+    }
+    for (const subscribers of jobSubscribers.values()) {
+      for (const response of subscribers) {
+        try { response.end(); } catch {}
+      }
+    }
+    jobSubscribers.clear();
+    try { await postgresPool?.end?.(); }
+    catch (err) { console.error('[postgres] failed to close pool:', err?.message || err); }
+  }
+  server.on('close', () => { void closeResources(); });
+  return { server, stores: { imageJobs, chatJobs }, sweeper, closeResources };
 }
 
 module.exports = { createApp };

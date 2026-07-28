@@ -1,8 +1,12 @@
+const { nonNegativeInteger, positiveInteger } = require('./config/numbers');
+
 // Simple concurrency limiter — prevents upstream request floods
 class ConcurrencyLimiter {
   constructor(max, { maxQueue = Infinity } = {}) {
-    this.max = Math.max(1, Number(max) || 50);
-    this.maxQueue = Number.isFinite(Number(maxQueue)) ? Math.max(0, Number(maxQueue)) : Infinity;
+    this.max = positiveInteger(max, 50, { max: 10_000 });
+    this.maxQueue = maxQueue === Infinity
+      ? Infinity
+      : nonNegativeInteger(maxQueue, 100, { max: 1_000_000 });
     this.running = 0;
     this.queue = [];
   }
@@ -36,10 +40,10 @@ class ConcurrencyLimiter {
   get active() { return this.running; }
 }
 
-const MAX_UPSTREAM_CONCURRENCY = Number(process.env.MAX_UPSTREAM_CONCURRENCY || 30);
-const MAX_UPSTREAM_QUEUE = Number(process.env.MAX_UPSTREAM_QUEUE || 100);
-const MAX_EXTRACT_CONCURRENCY = Number(process.env.MAX_EXTRACT_CONCURRENCY || 3);
-const MAX_EXTRACT_QUEUE = Number(process.env.MAX_EXTRACT_QUEUE || 20);
+const MAX_UPSTREAM_CONCURRENCY = positiveInteger(process.env.MAX_UPSTREAM_CONCURRENCY, 30, { max: 10_000 });
+const MAX_UPSTREAM_QUEUE = nonNegativeInteger(process.env.MAX_UPSTREAM_QUEUE, 100, { max: 1_000_000 });
+const MAX_EXTRACT_CONCURRENCY = positiveInteger(process.env.MAX_EXTRACT_CONCURRENCY, 3, { max: 10_000 });
+const MAX_EXTRACT_QUEUE = nonNegativeInteger(process.env.MAX_EXTRACT_QUEUE, 20, { max: 1_000_000 });
 const limiter = new ConcurrencyLimiter(MAX_UPSTREAM_CONCURRENCY, { maxQueue: MAX_UPSTREAM_QUEUE });
 const extractLimiter = new ConcurrencyLimiter(MAX_EXTRACT_CONCURRENCY, { maxQueue: MAX_EXTRACT_QUEUE });
 

@@ -115,6 +115,11 @@ function normalizeBaseUrl(value, options = {}) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
+    // A base URL is a path prefix, not a URL with caller-controlled query,
+    // fragment, or embedded credentials. Rejecting these avoids ambiguous
+    // target construction and prevents credentials from being logged or
+    // accidentally forwarded by redirect handling.
+    if (url.username || url.password || url.search || url.hash) return '';
     if (!assertAllowedUpstreamUrl(url, options)) return '';
     return url.toString().replace(/\/+$/, '');
   } catch {

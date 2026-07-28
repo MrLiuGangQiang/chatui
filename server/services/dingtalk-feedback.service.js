@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { readUpstreamTextWithLimit, safeParseJson } = require('../jobs/common');
 
 const DINGTALK_WEBHOOK_HOSTS = new Set(['oapi.dingtalk.com', 'api.dingtalk.com']);
 
@@ -12,8 +13,11 @@ function normalizeWebhook(value = process.env.DINGTALK_FEEDBACK_ACCESS_TOKEN) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'https:' || !DINGTALK_WEBHOOK_HOSTS.has(url.hostname) || !url.pathname.startsWith('/robot/send')) return '';
-    return url.toString();
+    if (url.protocol !== 'https:' || url.port || url.username || url.password || url.hash
+      || !DINGTALK_WEBHOOK_HOSTS.has(url.hostname) || url.pathname !== '/robot/send') return '';
+    const token = normalizeAccessToken(url.searchParams.get('access_token'));
+    if (!token) return '';
+    return `https://${url.hostname}/robot/send?access_token=${encodeURIComponent(token)}`;
   } catch {
     const token = normalizeAccessToken(raw);
     return token ? `https://oapi.dingtalk.com/robot/send?access_token=${encodeURIComponent(token)}` : '';
@@ -82,8 +86,8 @@ function createDingTalkFeedbackSender({ accessToken = process.env.DINGTALK_FEEDB
         throw err;
       }
       let payload = null;
-      try { payload = await response.json(); } catch {}
-      if (!response.ok || Number(payload?.errcode || 0) !== 0) {
+      try { payload = safeParseJson(await readUpstreamTextWithLimit(response, 1024 * 1024)); } catch {}
+      if (!response.ok || !payload || typeof payload !== 'object' || !Object.prototype.hasOwnProperty.call(payload, 'errcode') || Number(payload.errcode) !== 0) {
         const err = new Error('反馈发送失败，请稍后重试');
         err.code = 'FEEDBACK_DELIVERY_FAILED';
         err.statusCode = 502;

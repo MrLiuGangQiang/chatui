@@ -10,6 +10,8 @@ const {
   buildBundleBody,
   bundleRevision,
   contentTypeForBundle,
+  canonicalRootPath,
+  resolvePathWithinRoot,
 } = require('../services/static-bundle.service');
 
 const MIME = {
@@ -136,12 +138,12 @@ function cacheControlFor(filePath, url, options = {}) {
   return SHORT_CACHE;
 }
 
-function buildBundle(root, rootWithSep, kind) {
-  const meta = bundleMetadata(root, rootWithSep, kind);
+function buildBundle(root, rootWithSep, kind, canonicalRoot = canonicalRootPath(root)) {
+  const meta = bundleMetadata(root, rootWithSep, kind, { canonicalRoot });
   const cacheKey = bundleCacheKey(kind, meta.signature);
   const cached = bundleCache.get(cacheKey);
   if (cached) return cached;
-  const body = buildBundleBody(meta.entries, kind);
+  const body = buildBundleBody(meta.entries, kind, { canonicalRoot });
   const result = { body, etag: meta.etag, cacheKey };
   bundleCache.set(cacheKey, result);
   trimCache(bundleCache, 12);
@@ -160,13 +162,15 @@ function rewriteBundleUrls(html, root, rootWithSep) {
 }
 
 function serveIndex(req, res, context) {
-  const filePath = path.join(context.root, 'index.html');
+  let filePath;
+  try { filePath = resolvePathWithinRoot(path.join(context.root, 'index.html'), context.canonicalRoot); }
+  catch (err) { return send(res, err?.statusCode || 404, err?.statusCode === 403 ? 'Forbidden' : 'Not Found'); }
   let body;
   try {
     body = rewriteBundleUrls(fs.readFileSync(filePath, 'utf8'), context.root, context.rootWithSep);
   } catch (err) {
     console.error('[static] failed to render index bundle URLs:', err);
-    return send(res, 500, 'Failed to render index');
+    return send(res, err?.statusCode || 500, err?.statusCode === 403 ? 'Forbidden' : 'Failed to render index');
   }
   const etag = `"${sha1(body).slice(0, 32)}"`;
   const headers = {
@@ -183,10 +187,10 @@ function serveBundle(req, res, context, kind) {
   const mime = contentTypeForBundle(kind);
   let bundle;
   try {
-    bundle = buildBundle(context.root, context.rootWithSep, kind);
+    bundle = buildBundle(context.root, context.rootWithSep, kind, context.canonicalRoot);
   } catch (err) {
     console.error('[static] failed to build asset bundle:', err);
-    return send(res, 500, 'Failed to build asset bundle');
+    return send(res, err?.statusCode || 500, err?.statusCode === 403 ? 'Forbidden' : 'Failed to build asset bundle');
   }
   const headers = {
     'Content-Type': mime,
@@ -208,24 +212,35 @@ function staticEtag(filePath, stat, encoding = '') {
 function serveStatic(req, res, { root, rootWithSep }) {
   const url = parseRequestUrl(req);
   if (!url) return send(res, 400, 'Bad Request');
+  let canonicalRoot;
+  try { canonicalRoot = canonicalRootPath(root); }
+  catch { return send(res, 500, 'Static root is unavailable'); }
   const bundleKind = BUNDLE_PATHS[url.pathname];
-  if (bundleKind) return serveBundle(req, res, { root, rootWithSep }, bundleKind);
-  if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep });
+  if (bundleKind) return serveBundle(req, res, { root, rootWithSep, canonicalRoot }, bundleKind);
+  if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep, canonicalRoot });
   if (!isPublicStaticPath(url.pathname)) return send(res, 404, 'Not Found');
 
   const filePath = safeJoin(root, rootWithSep, url.pathname);
   if (!filePath) return send(res, 403, 'Forbidden');
+  let canonicalFilePath;
+  try { canonicalFilePath = resolvePathWithinRoot(filePath, canonicalRoot); }
+  catch (err) { return send(res, err?.statusCode || 404, err?.statusCode === 403 ? 'Forbidden' : 'Not Found'); }
 
-  fs.stat(filePath, (statErr, stat) => {
+  fs.stat(canonicalFilePath, (statErr, stat) => {
     if (statErr || !stat.isFile()) return send(res, 404, 'Not Found');
     let picked;
+    let pickedStat = stat;
     try {
-      picked = pickCompressedStaticFile(req, filePath);
+      picked = pickCompressedStaticFile(req, canonicalFilePath);
+      picked.filePath = resolvePathWithinRoot(picked.filePath, canonicalRoot);
+      pickedStat = fs.statSync(picked.filePath);
+      if (!pickedStat.isFile()) throw new Error('compressed static variant is not a file');
     } catch {
-      picked = { filePath, encoding: '' };
+      picked = { filePath: canonicalFilePath, encoding: '' };
+      pickedStat = stat;
     }
     const mime = MIME[path.extname(filePath)] || 'application/octet-stream';
-    const etag = staticEtag(filePath, stat, picked.encoding || preferredEncoding(req));
+    const etag = staticEtag(picked.filePath, pickedStat, picked.encoding || preferredEncoding(req));
     const headers = {
       'Content-Type': mime,
       'Cache-Control': cacheControlFor(filePath, url),
@@ -238,7 +253,7 @@ function serveStatic(req, res, { root, rootWithSep }) {
 
     fs.readFile(picked.filePath, (err, data) => {
       if (err) return send(res, 404, 'Not Found');
-      const cacheKey = `${filePath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+      const cacheKey = `${canonicalFilePath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
       const encoded = picked.encoding ? { body: data, encoding: picked.encoding } : encodeBody(data, preferredEncoding(req), cacheKey, mime);
       if (encoded.encoding) headers['Content-Encoding'] = encoded.encoding;
       send(res, 200, encoded.body, headers);

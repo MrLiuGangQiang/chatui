@@ -269,8 +269,9 @@ http://127.0.0.1:8765
 | --- | --- |
 | `latest` | 最新正式 Release 镜像 |
 | `MAJOR.MINOR.PATCH` | 与 GitHub Release 对应的版本号，例如 `1.1.76` |
+| `vMAJOR.MINOR.PATCH` | 与 Git tag 完全一致的版本号，例如 `v1.1.76` |
 
-> GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`，镜像标签使用去掉 `v` 的 `MAJOR.MINOR.PATCH`。例如 Release `v1.1.76` 对应镜像 `liugangqiang/chatui:1.1.76`。
+> GitHub Release tag 使用 `vMAJOR.MINOR.PATCH`；镜像同时发布 `MAJOR.MINOR.PATCH` 和 `vMAJOR.MINOR.PATCH`，并在发布成功后更新 `latest`。
 
 ### 使用 Docker Hub 镜像
 
@@ -666,9 +667,10 @@ vendor/katex.min.js
 vendor/katex.min.css
 vendor/fonts/*
 vendor/mermaid.min.js
+vendor/manifest.json
 ```
 
-部署时必须包含 `vendor/`，否则 Markdown、公式或 Mermaid 可能无法渲染。
+部署时必须包含 `vendor/`，否则 Markdown、公式或 Mermaid 可能无法渲染。`vendor/manifest.json` 记录锁定版本、许可证、上游来源和校验方式；更新第三方浏览器资源后必须运行 `npm run check:vendor`，禁止手工修改压缩文件。
 
 ### Markdown 示例
 
@@ -787,6 +789,8 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 - 切换个人统计范围时，只查询目标范围个人统计。
 - 已加载过的数据会在当前页面生命周期内缓存，重复切换不重复查询。
 - 点击刷新按钮只刷新当前展示的个人统计范围和当前排行榜范围。
+- 所有统计和反馈请求都必须提交当前 `api_key`、聊天 `model` 与 `base_url`。服务端先确认数据库已启用且 API Key 对应本地统计用户，再要求规范化后的 `base_url` 与服务端 `DEFAULT_UPSTREAM_BASE_URL` 完全一致，最后才向该固定上游的 `/models` 验证模型；本地前置校验失败时不会把凭据发送到任何上游。
+- “今日/本周/本月”等边界和部门导出的时间均使用 `USAGE_TIME_ZONE`（默认 `Asia/Shanghai`），不依赖 PostgreSQL 会话时区；请使用有效的 IANA 时区名称。
 
 #### 数据库连接
 
@@ -812,12 +816,17 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
 | `/api/extract-file` | POST | 附件文本提取：PDF / Office 等 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
-| `/api/usage/rankings?range=today|yesterday|total` | GET | 查询指定范围排行榜，懒加载按需查询 |
-| `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key` 与 `range` |
-| `/api/usage/department/verify` | POST | 校验部门统计访问密码，body 包含 `password` |
-| `/api/usage/department/rankings` | POST | 查询部门排行，body 包含 `password` 与 `range=today|yesterday|month|last_month|total` |
-| `/api/usage/department/users` | POST | 查询部门人员统计，body 包含 `password`、`department_id` 与 `range` |
-| `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx`，body 包含 `password` 与 `range` |
+| `/api/usage/overview` | POST | 合并查询排行与个人统计；body 需包含公共鉴权字段及 `ranking_range`、`personal_range` |
+| `/api/usage/rankings` | POST | 查询指定范围排行榜；body 需包含公共鉴权字段及 `range` |
+| `/api/usage/personal` | POST | 查询指定范围个人统计；body 需包含公共鉴权字段及 `range` |
+| `/api/usage/department/verify` | POST | 校验部门统计密码；body 另含 `password` |
+| `/api/usage/department/summary` | POST | 合并查询部门排行；body 另含 `password` 与 `range` |
+| `/api/usage/department/rankings` | POST | 查询部门排行；body 另含 `password` 与 `range` |
+| `/api/usage/department/users` | POST | 查询部门人员统计；body 另含 `password`、`department_id` 与 `range` |
+| `/api/usage/department/export` | POST | 导出部门统计 `.xlsx`；body 另含 `password` 与 `range` |
+| `/api/usage/feedback` | POST | 发送问题反馈；body 另含 `content` |
+
+上述接口的公共鉴权字段为 `api_key`、`model`、`base_url`；支持的统计范围以界面当前提供的今日、昨日、本周、上周、本月、上月和总计为准。
 
 ### Job API
 
@@ -881,13 +890,29 @@ GET, POST
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `8765` | HTTP 监听端口 |
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游 API 超时，默认 10 分钟 |
+| `DEFAULT_UPSTREAM_BASE_URL` | `https://ingress.lfans.cn/v1` | 默认且受信任的 OpenAI 兼容上游基址；统计/反馈的 `base_url` 必须与其规范化后完全一致 |
+| `MAX_CONNECTIONS` | `10000` | HTTP 服务最大并发连接数 |
+| `CHATUI_ALLOWED_ORIGINS` | 未设置 | 允许的跨域 Origin，逗号或空白分隔；默认只接受同源请求 |
+| `CHATUI_ALLOW_ANY_ORIGIN` | 未设置 | 设为 `1` 才允许任意跨域 Origin；公开部署不建议启用 |
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image Base64 payloads are never logged. |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
+| `MAX_UPSTREAM_CONCURRENCY` / `MAX_UPSTREAM_QUEUE` | `30` / `100` | 上游请求并发数与等待队列上限 |
+| `MAX_UPSTREAM_RESPONSE_BYTES` | `33554432` | 聊天、模型列表和上游错误响应读取上限 |
+| `MAX_IMAGE_PROXY_BYTES` | `26214400` | 同源图片代理响应读取上限 |
+| `MAX_JOB_SUBSCRIBERS` | `32` | 单个任务允许的 SSE 订阅者上限 |
+| `MAX_TOTAL_JOB_SUBSCRIBERS` | `2048` | 全部任务共享的 SSE 订阅者上限 |
+| `MAX_JOB_SUBSCRIBER_BUFFER_BYTES` | `1048576` | 单个慢订阅者允许积压的响应字节上限 |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
-| `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
+| `RUNNING_JOB_TTL_MS` | `UPSTREAM_TIMEOUT_MS + 60000` | 运行中任务的最终保留时长；显式配置时直接采用该值 |
+| `MAX_JOBS_PER_STORE` / `JOB_SWEEP_INTERVAL_MS` | `200` / `300000` | 每类任务数量上限与清理周期 |
+| `MAX_BODY_BYTES` | `1048576` | 未指定路由级限制时的 JSON 请求体默认上限 |
+| `MAX_EXTRACT_CONCURRENCY` / `MAX_EXTRACT_QUEUE` | `3` / `20` | 附件解析并发数与等待队列上限 |
+| `EXTRACT_TIMEOUT_MS` | `120000` | 单次附件解析超时 |
+| `MAX_EXTRACT_TEXT_BYTES` | `5242880` | 文本附件输入上限 |
+| `MAX_EXTRACT_PDF_BYTES` / `MAX_EXTRACT_OFFICE_BYTES` | `26214400` / `26214400` | PDF 与 Office 附件输入上限 |
 | `NODE_ENV` | Docker 中为 `production` | Node 运行环境 |
 | `POSTGRES_URL` | 未设置 | PostgreSQL 单变量连接串，推荐生产部署使用，例如 `postgres://user:password@host:5432/database?sslmode=disable` |
 | `POSTGRESQL_URL` | 未设置 | PostgreSQL 连接串别名 |
@@ -902,11 +927,15 @@ GET, POST
 | `PG_POOL_MAX` / `POSTGRES_POOL_MAX` | `10` | PostgreSQL 连接池最大连接数 |
 | `PG_IDLE_TIMEOUT_MS` / `POSTGRES_IDLE_TIMEOUT_MS` | `30000` | PostgreSQL 连接池空闲连接回收时间 |
 | `PG_CONNECTION_TIMEOUT_MS` / `POSTGRES_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL 建连超时时间 |
-| `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
+| `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 模式：`disable` / `false` 关闭；`require` / `true` 加密但不校验证书；`verify-ca` / `verify-full` 启用证书校验；未知值会拒绝启动 |
+| `USAGE_TIME_ZONE` | `Asia/Shanghai` | 使用统计日/周/月边界及 XLSX 时间显示所用的 IANA 时区 |
 | `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
 | `USAGE_DEPARTMENT_PASSWORD` | `not set` | Password for department statistics; disabled when unset. |
 | `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | Compatible alias for the department statistics password. |
+| `MAX_USAGE_REFRESH_BUCKETS` | `4096` | 使用统计访问限流桶的内存上限 |
+
+当 ChatUI 部署在终止 TLS 的反向代理后，默认同源判断只能看到后端 socket 的 HTTP 协议。请把浏览器实际使用的 HTTPS Origin 显式加入 `CHATUI_ALLOWED_ORIGINS`；服务端不会盲目信任客户端提交的 `X-Forwarded-Proto`。
 
 Docker proxy example (the proxy URL must be reachable **from inside the container**):
 
@@ -1021,7 +1050,8 @@ git diff --check
 
 当前测试覆盖：
 
-- `server.js`、`app.js`、前端模块、服务端测试文件语法检查。
+- 所有项目自有 JavaScript 的语法检查，以及 client/server/shared 的依赖方向与 Node 内建模块边界。
+- vendor 浏览器资源与 lockfile 版本、上游分发文件、字体集合和已审核构建哈希的一致性。
 - 前端 core：消息、模型、附件、图片引用、路由上下文、reasoning、storage。
 - 前端 services：模型、Job、聊天、路由、生图、图片解析。
 - 前端 UI：文件动作、实时渲染、滚动、消息渲染、消息操作、图片操作。
@@ -1033,12 +1063,14 @@ git diff --check
 ### 常用单项检查
 
 ```bash
-node --check app.js
-node --check server.js
-node test/run-tests.js
-node test/unit/server-hardening.test.js
-node test/smoke/server-smoke.test.js
+npm run check:syntax
+npm run check:vendor
+npm test
+npm test -- unit/server-hardening.test.js
+npm test -- smoke/server-smoke.test.js
 ```
+
+测试文件导出给统一 runner，本身不是可执行入口；直接运行 `node test/unit/*.test.js` 不会执行其中的测试。runner 会递归发现 `unit/`、`smoke/`、`legacy/` 下的 `*.test.js`，目标文件拼错时会明确失败。
 
 ### 启动检查
 
@@ -1051,6 +1083,7 @@ curl -fsS http://127.0.0.1:8765/ >/dev/null
 ### 检查 vendor 资源
 
 ```bash
+npm run check:vendor
 curl -I http://127.0.0.1:8765/vendor/markdown-it.min.js
 curl -I http://127.0.0.1:8765/vendor/katex.min.js
 curl -I http://127.0.0.1:8765/vendor/katex.min.css
@@ -1067,7 +1100,7 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 
 ## 发布与镜像仓库
 
-项目不设日常 CI 检查流程。仅推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 时，GitHub Actions 才会校验版本、构建并推送多架构 Docker 镜像，然后发布对应的 GitHub Release。
+推送或合并到 `main`、以及 Pull Request，都会运行完整检查并构建后实际启动生产 Docker 镜像做冒烟验证。推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 时，独立 workflow 会校验版本并推送多架构 Docker 镜像；GitHub Release 由发布操作者显式创建。
 
 ### 固定镜像地址
 
@@ -1080,12 +1113,10 @@ Docker Hub: liugangqiang/chatui
 
 ### Release 流程
 
-1. 提交并推送 `main` 分支。
-2. 创建并推送符合 `vMAJOR.MINOR.PATCH` 格式的 annotated Git tag，例如 `v1.2.3`。
-3. GitHub Actions 读取 tag，校验 `package.json` 与 `package-lock.json` 版本，并运行 `npm run check`。
-4. 构建 `linux/amd64` 与 `linux/arm64` 多架构镜像。
-5. 将同一构建结果推送到 Docker Hub 与阿里云 ACR。
-6. 镜像发布成功后，workflow 为同一 tag 创建或更新已发布的 GitHub Release。
+1. 确定下一个语义化版本，同步 `package.json` 与 `package-lock.json`，运行 `npm run check`，提交 release commit 并推送到 `main`。
+2. 从该 release commit 创建并推送符合 `vMAJOR.MINOR.PATCH` 格式的 annotated Git tag，例如 `v1.2.3`；tag workflow 校验版本和全量检查后构建、推送 `linux/amd64` 与 `linux/arm64` 镜像。
+3. 推送 tag 后，在 `main` 添加 `docs/releases/vMAJOR.MINOR.PATCH.md`，并以该文件为正文为同一 tag 创建已发布（非 draft）的 GitHub Release。
+4. 分别确认 GitHub Release 已发布、tag 触发的 Docker workflow 已成功；任一仍在运行时，发布仍处于进行中。
 
 ### 镜像标签规则
 
@@ -1093,6 +1124,7 @@ Docker Hub: liugangqiang/chatui
 | --- | --- | --- |
 | `latest` | `liugangqiang/chatui:latest` | 最新正式版本 |
 | `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.2.3` | 精确版本标签 |
+| `vMAJOR.MINOR.PATCH` | `liugangqiang/chatui:v1.2.3` | 与 Git tag 一致的精确版本标签 |
 
 ### Release Notes 规范
 
@@ -1227,6 +1259,9 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 - 如果使用反向代理，请限制管理入口访问范围。
 - 如果接入私有模型网关，请做好鉴权和访问控制。
 - 服务端默认阻止代理访问私有地址段以降低 SSRF 风险；不要在公开部署中设置 `CHATUI_ALLOW_PRIVATE_UPSTREAM=1`。
+- API 默认只接受同源浏览器请求；跨域部署应精确配置 `CHATUI_ALLOWED_ORIGINS`，不要在公开服务上启用 `CHATUI_ALLOW_ANY_ORIGIN=1`。
+- 若 HTTPS 在反向代理终止，请将浏览器实际 HTTPS Origin 显式加入 `CHATUI_ALLOWED_ORIGINS`；服务端不会盲目信任 `X-Forwarded-Proto`。
+- 使用统计与反馈会先校验本地统计用户及固定上游基址，再向固定上游验证模型，避免把 API Key 发送到调用方指定的任意地址。
 - 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/openai/image_edit`。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。
 - `vendor/` 是前端公开资源，不要放任何密钥。

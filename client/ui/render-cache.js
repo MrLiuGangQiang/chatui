@@ -11,6 +11,23 @@
     return `${text.length}:${(hash >>> 0).toString(36)}`;
   }
 
+  // Cache entries are often small records ({ raw, value }) rather than plain
+  // strings.  String(record) produces "[object Object]" and makes the
+  // maxChars guard effectively useless for rendered HTML.  Count the actual
+  // textual payload while retaining a safe fallback for arbitrary/circular
+  // values.
+  function estimateValueSize(value) {
+    if (value == null) return 0;
+    if (typeof value === 'string') return value.length;
+    if (typeof value === 'object') {
+      if (typeof value.raw === 'string' || typeof value.value === 'string') {
+        return String(value.raw || '').length + String(value.value || '').length;
+      }
+      try { return JSON.stringify(value).length; } catch {}
+    }
+    return String(value).length;
+  }
+
   function createLRUCache(maxEntries = 180, maxChars = 3_000_000) {
     const limit = Math.max(20, Number(maxEntries) || 180);
     const charLimit = Math.max(100_000, Number(maxChars) || 3_000_000);
@@ -40,7 +57,7 @@
           chars -= old?.size || 0;
           map.delete(key);
         }
-        const item = { value, size: String(value || '').length, at: Date.now() };
+        const item = { value, size: estimateValueSize(value), at: Date.now() };
         chars += item.size;
         map.set(key, item);
         trim();
@@ -92,7 +109,7 @@
   }
 
   const renderCache = createRenderCache(global.CHATUI_RENDER_CACHE_OPTIONS || {});
-  const api = Object.freeze({ createLRUCache, createRenderCache, renderCache, fnv1a });
+  const api = Object.freeze({ createLRUCache, createRenderCache, renderCache, fnv1a, estimateValueSize });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (global) {

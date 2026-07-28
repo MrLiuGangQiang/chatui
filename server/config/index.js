@@ -1,13 +1,15 @@
 const path = require('path');
 const { createPublicConfigReader } = require('./public-config');
+const { portNumber, positiveInteger, timeoutMilliseconds } = require('./numbers');
 
-const PORT = Number(process.env.PORT || 8765);
+const PORT = portNumber(process.env.PORT, 8765);
 const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_UPSTREAM_BASE_URL = String(process.env.DEFAULT_UPSTREAM_BASE_URL || 'https://ingress.lfans.cn/v1').trim().replace(/\/+$/, '');
 const ROOT = path.resolve(__dirname, '../..');
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
-const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_UPSTREAM_TIMEOUT_MS);
+const UPSTREAM_TIMEOUT_MS = timeoutMilliseconds(process.env.UPSTREAM_TIMEOUT_MS, DEFAULT_UPSTREAM_TIMEOUT_MS);
+const MAX_CONNECTIONS = positiveInteger(process.env.MAX_CONNECTIONS, 10_000, { max: 10_000_000 });
 const ALLOWED_PROXY_METHODS = new Set(['GET', 'POST']);
 const ALLOWED_PROXY_PATHS = [/^\/models\/?$/, /^\/chat\/completions\/?$/, /^\/responses\/?$/, /^\/images\/generations\/?$/, /^\/images\/edits\/?$/, /^\/openai\/image_edit\/?$/];
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, normalizeContextWindowTokens } = require('../../shared/config/context-budget');
@@ -23,6 +25,7 @@ module.exports = {
   ROOT,
   ROOT_WITH_SEP,
   UPSTREAM_TIMEOUT_MS,
+  MAX_CONNECTIONS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   CONTEXT_WINDOW_TOKENS,
   ALLOWED_PROXY_METHODS,

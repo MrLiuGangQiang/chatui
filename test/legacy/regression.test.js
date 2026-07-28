@@ -37,7 +37,7 @@ const formatting = require('../../client/app/formatting');
 const routeDiagramWorkflow = require('../../client/app/route-diagram-workflow');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../../client/app/markdown/source-normalizer');
-const sourceAssertions = require('../../client/testing/source-assertions');
+const sourceAssertions = require('../helpers/source-assertions');
 const staticHttp = require('../../server/http/static');
 
 function stripLargeDataUrlsFromText(text = '') {
@@ -648,7 +648,7 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'), 'submit workflow cache version should include the fail-closed clarification boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.3.0-original-task-authority'), 'clarification service cache version should match the strict continuation protocol');
+  assert.ok(index.includes('clarification-service.js?v=1.3.1-continuation-json-compat'), 'clarification service cache version should match the strict continuation protocol');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -1704,7 +1704,7 @@ function testHistoryAnchorNavFeature() {
   assert.ok(index.includes('id="historyAnchorNav"'), 'history anchor nav container should be present in the main chat area');
   assert.ok(index.includes('history-anchor-nav is-empty'), 'history anchor nav should not reuse the legacy .empty placeholder class');
   assert.ok(index.indexOf('client/features/history-anchor-nav.js') < index.indexOf('client/app/bootstrap-workflow.js'), 'history anchor feature should load before bootstrap starts');
-  assert.ok(bootstrap.includes("getWorkflowModule?.('historyAnchorNav')?.init?.({messages:$(\'messages\'),nav:$(\'historyAnchorNav\')"), 'bootstrap should initialize the history anchor nav with the messages scroller');
+  assert.ok(bootstrap.includes('const historyAnchorNav = deps.historyAnchorNav') && bootstrap.includes("getWorkflowModule?.('historyAnchorNav')") && bootstrap.includes("historyAnchorNav?.init?.({messages:$(\'messages\'),nav:$(\'historyAnchorNav\')"), 'bootstrap should prefer an injected history anchor and retain the browser registry fallback');
   assert.ok(bootstrap.includes('getItems:()=>historyAnchorItemsFromState()') && bootstrap.includes('ensureItemNode:item=>ensureHistoryAnchorNode(item)'), 'history anchor nav should receive full session history items and a way to render missing nodes before jumping');
   assert.ok(bootstrap.includes('revealNode:revealNodeAboveComposer'), 'history anchor clicks should use the existing composer-aware reveal helper');
   assert.ok(featureSource.includes('const getItems = typeof options.getItems') && featureSource.includes('ensureItemNode') && featureSource.includes('fullItems.map'), 'history anchor nav should build the popup from full session history, not only currently rendered DOM nodes');
@@ -2767,17 +2767,14 @@ function testCodeActionHoverAndHistoryAnchorActivePolish() {
 function testArchitectureBoundaryScaffolding() {
   const storageKeys = require('../../client/config/storage-keys');
   const featureFlags = require('../../client/config/feature-flags');
-  const domainTypes = require('../../client/domain/types');
   assert.strictEqual(storageKeys.storageKeys.CONFIG_KEY, 'openapi-chat-image-config-v2');
   assert.strictEqual(storageKeys.storageKeys.CHAT_JOB_KEY, 'openapi-chat-image-chat-job-v1');
   assert.strictEqual(featureFlags.featureFlags.virtualMessages, false);
   assert.ok(featureFlags.featureFlags.offscreenMarkdownFinalRender, 'offscreen Markdown final render should be an explicit architecture flag');
-  assert.ok(domainTypes.typeNames.includes('ChatSession') && domainTypes.typeNames.includes('DisplayItem') && domainTypes.typeNames.includes('ChatJob'), 'domain typedef registry should document core client state shapes');
 
   const index = sourceAssertions.readSource('index.html');
   sourceAssertions.assertInOrder(index, './client/core/browser.js', './client/config/storage-keys.js', 'config should load after core browser primitives');
   sourceAssertions.assertInOrder(index, './client/config/storage-keys.js', './client/app/state.js', 'config should load before app state and app bootstrap');
-  sourceAssertions.assertInOrder(index, './client/domain/types.js', './client/app/state.js', 'domain typedefs should load before app state and app bootstrap');
 
   const app = sourceAssertions.readSource('app.js');
   sourceAssertions.assertIncludes(app, 'storageKeys=window.ChatUIConfig?.storageKeys||{}', 'app should read storage keys through the config boundary with fallbacks');
@@ -3081,7 +3078,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed') && index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed') && index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('route-decision-workflow.js?v=3.4.1-dispatchable-route-gate') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3179,7 +3176,8 @@ function testDockerfileIncludesSharedRuntimeModules() {
   const dockerfile = fs.readFileSync(path.join(__dirname, '../../Dockerfile'), 'utf8');
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
   assert.ok(dockerfile.includes('COPY server.js index.html route.html app.js styles.css favicon.svg ./'), 'Docker image must include route.html required by the route-diagram modal');
-  assert.ok(dockerfile.includes('npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund'), 'Docker release build should omit optional native packages to avoid arm64 QEMU npm install crashes');
+  assert.ok(dockerfile.includes('npm ci --omit=dev --ignore-scripts --no-audit --no-fund'), 'Docker release build must install only the production dependency tree');
+  assert.ok(!dockerfile.includes('--omit=optional'), 'Docker release build must preserve platform packages required by PDF and Office parsing');
 }
 
 function testSessionPersistenceKeepsNewestEditedImageAtSameResponseIndex() {

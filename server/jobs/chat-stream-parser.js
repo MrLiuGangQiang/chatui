@@ -24,6 +24,13 @@ function extractStreamDelta(data = {}) {
   };
 }
 
+function streamErrorMessage(data = {}) {
+  const type = String(data?.type || '').toLowerCase();
+  const error = data?.error || data?.response?.error;
+  if (!error && !/(?:^|\.)(?:failed|error)$/.test(type)) return '';
+  return String(error?.message || error?.code || error || data?.message || '上游流式响应失败').slice(0, 1000);
+}
+
 function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStreamJob = () => {}, elapsedSince = () => 1, extractDelta = extractStreamDelta } = {}) {
   job.buffer = (job.buffer || '') + text;
   const events = job.buffer.split(/\r?\n\r?\n/);
@@ -35,7 +42,13 @@ function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStre
     const dataText = dataTextFromSseEvent(eventText);
     if (!dataText || dataText === '[DONE]') continue;
     try {
-      const { content, reasoning } = extractDelta(JSON.parse(dataText));
+      const parsed = JSON.parse(dataText);
+      const streamError = streamErrorMessage(parsed);
+      if (streamError) {
+        job.streamError = streamError;
+        continue;
+      }
+      const { content, reasoning } = extractDelta(parsed);
       if (content || reasoning) markFirstToken(job, elapsedSince);
       if (content) { message.content += content; chunkContent += content; }
       if (reasoning) { message.reasoning_content += reasoning; chunkReasoning += reasoning; }
@@ -51,4 +64,4 @@ function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStre
   return false;
 }
 
-module.exports = { dataTextFromSseEvent, extractStreamDelta, markFirstToken, updateChatJobFromStreamChunk };
+module.exports = { dataTextFromSseEvent, extractStreamDelta, streamErrorMessage, markFirstToken, updateChatJobFromStreamChunk };

@@ -3,7 +3,21 @@
 // jsdom 29 exposes the standardized Iterator global to each VM window. Node
 // 20 does not provide it yet, while these tests only need the global during
 // jsdom initialization.
-if (typeof globalThis.Iterator !== 'function') globalThis.Iterator = class Iterator {};
+if (typeof globalThis.Iterator !== 'function') {
+  globalThis.Iterator = class Iterator {};
+  const vm = require('node:vm');
+  const createContext = vm.createContext;
+  vm.createContext = function createContextWithIterator(...args) {
+    const context = createContext.apply(this, args);
+    try { Object.defineProperty(context, 'Iterator', { value: globalThis.Iterator, writable: true, configurable: true }); } catch {}
+    return context;
+  };
+  const runInContext = vm.runInContext;
+  vm.runInContext = function runInContextWithIterator(source, ...args) {
+    if (String(source).trim() === 'Iterator') return globalThis.Iterator;
+    return runInContext.call(this, source, ...args);
+  };
+}
 
 const fs = require('fs');
 const path = require('path');

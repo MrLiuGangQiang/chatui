@@ -219,6 +219,9 @@ async function testFlushIsBoundedAndClearCancelsStalledQueue() {
     if (operation === 'put') {
       writeAttempts += 1;
       writeStarted();
+      if (clearAttempts > 0) {
+        setTimeout(() => tx.oncomplete?.(), 0);
+      }
       return;
     }
     if (operation === 'clear') {
@@ -246,6 +249,15 @@ async function testFlushIsBoundedAndClearCancelsStalledQueue() {
   await delay(130);
   assert.strictEqual(writeAttempts, 1, 'clear must cancel retries for all queued sessions');
   assert.strictEqual(clearAttempts, 1, 'clear should still remove already durable snapshots');
+
+  const restored = await within(store.schedulePut({
+    id: 'clear-session',
+    snapshotVersion: 2,
+    updatedAt: 2,
+    messages: [{ role: 'user', content: 'restored after import' }],
+  }));
+  assert.strictEqual(restored.updatedAt, 2, 'a session ID must be writable again after a full snapshot clear');
+  assert.strictEqual(writeAttempts, 2, 'the restored snapshot must reach IndexedDB instead of being blocked by the old tombstone');
 }
 
 async function testPermanentWriteErrorIsNotRetried() {

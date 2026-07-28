@@ -2,10 +2,9 @@
   'use strict';
 
   const BACKUP_FORMAT = 'chatui-backup';
-  const BACKUP_VERSION = 4;
+  const BACKUP_VERSION = 5;
   const PORTABLE_MEDIA_VERSION = 2;
-  const SECRETS_OPT_IN_VERSION = 3;
-  const SUPPORTED_BACKUP_VERSIONS = new Set([1, PORTABLE_MEDIA_VERSION, SECRETS_OPT_IN_VERSION, BACKUP_VERSION]);
+  const SUPPORTED_BACKUP_VERSIONS = new Set([1, PORTABLE_MEDIA_VERSION, 3, 4, BACKUP_VERSION]);
   // Media is encoded in the JSON archive, so allow normal image/file backups
   // while still bounding a malformed import before it is read into memory.
   const MAX_BACKUP_FILE_BYTES = 200 * 1024 * 1024;
@@ -30,18 +29,6 @@
 
   function backupFileName(now = new Date()) {
     return `chatui-backup-${now.getFullYear()}${safeDatePart(now.getMonth() + 1)}${safeDatePart(now.getDate())}-${safeDatePart(now.getHours())}${safeDatePart(now.getMinutes())}${safeDatePart(now.getSeconds())}.json`;
-  }
-
-  function normalizeBackupConfig(value) {
-    if (!isRecord(value)) return {};
-    const config = cloneJson(value, {});
-    if (!isRecord(config)) return {};
-    delete config.apiKey;
-    delete config.context;
-    if (Array.isArray(config.headerParams)) {
-      config.headerParams = config.headerParams.map(item => isRecord(item) ? { ...item, value: '' } : item);
-    }
-    return config;
   }
 
   function normalizeMediaKey(value, index = 0) {
@@ -77,7 +64,7 @@
     const id = asText(value.id).trim();
     if (!id || id.length > 200) throw new Error(`第 ${index + 1} 个会话缺少有效 ID`);
     if (!Array.isArray(value.messages)) throw new Error(`第 ${index + 1} 个会话缺少消息记录`);
-    const messages = cloneJson(value.messages, null);
+    const messages = repairImportedMediaMarkup(cloneJson(value.messages, null));
     if (!Array.isArray(messages)) throw new Error(`第 ${index + 1} 个会话消息无法读取`);
     return {
       id,
@@ -87,12 +74,10 @@
       hasSystemPromptOverride: !!value.hasSystemPromptOverride,
       imageStylePrompt: asText(value.imageStylePrompt),
       hasImageStylePromptOverride: !!value.hasImageStylePromptOverride,
-      chatModel: asText(value.chatModel),
-      headerValues: {},
       promptDraft: asText(value.promptDraft).slice(0, 20000),
       reasoningMode: value.reasoningMode === undefined || value.reasoningMode === null ? undefined : !!value.reasoningMode,
       reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(value.reasoningType) ? value.reasoningType : '',
-      pendingClarification: isRecord(value.pendingClarification) ? cloneJson(value.pendingClarification, null) : null,
+      pendingClarification: isRecord(value.pendingClarification) ? repairImportedMediaMarkup(cloneJson(value.pendingClarification, null)) : null,
       createdAt: Number(value.createdAt) || Date.now(),
       updatedAt: Number(value.updatedAt) || Date.now(),
       snapshotUpdatedAt: 0,
@@ -100,34 +85,70 @@
       messages,
       // Running jobs cannot safely continue after an export/import boundary.
       display: [],
-      lastGeneratedImage: cloneJson(value.lastGeneratedImage, null),
+      lastGeneratedImage: repairImportedMediaMarkup(cloneJson(value.lastGeneratedImage, null)),
       busy: false,
     };
   }
 
-  function normalizeImportedConfiguration(backup, legacy = false) {
-    const configured = isRecord(backup.configuration) ? backup.configuration : {};
-    const values = legacy
-      ? (isRecord(backup.config) ? backup.config : isRecord(backup.settings) ? backup.settings : configured.values)
-      : configured.values;
-    return {
-      values: normalizeBackupConfig(values),
-    };
+  function backupShapeText(value) {
+    if (!isRecord(value)) return Array.isArray(value) ? 'array' : typeof value;
+    const keys = Object.keys(value).slice(0, 8);
+    return keys.length ? keys.join(', ').slice(0, 160) : 'empty object';
+  }
+
+  function unsupportedBackupError(backup) {
+    const format = isRecord(backup) && backup.format !== undefined ? String(backup.format).slice(0, 80) : 'missing';
+    const version = isRecord(backup) && backup.version !== undefined ? String(backup.version).slice(0, 40) : 'missing';
+    return new Error(`这不是受支持的 ChatUI 备份文件（检测到 format=${format}、version=${version}，字段：${backupShapeText(backup)}）`);
+  }
+
+  function unwrapBackup(backup) {
+    if (!isRecord(backup)) return backup;
+    // A few local builds and download helpers wrapped the archive in a named
+    // property. Unwrap only objects that still contain a session list so an
+    // arbitrary configuration object can never be mistaken for a backup.
+    for (const key of ['backup', 'archive', 'data']) {
+      if (isRecord(backup[key]) && Array.isArray(backup[key].sessions)) return backup[key];
+    }
+    return backup;
+  }
+
+  function normalizeBackupVersion(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const text = asText(value).trim().replace(/^v/i, '');
+    return /^\d+(?:\.0+)?$/.test(text) ? Number(text) : NaN;
+  }
+
+  function repairImportedMediaMarkup(value) {
+    if (typeof value === 'string') {
+      // Older snapshots sometimes stored an HTML string after JSON escaping
+      // it twice. The stray backslash becomes part of the IndexedDB key.
+      return value.includes('indexeddb://') && value.includes('\\"')
+        ? value.replace(/\\"/g, '"')
+        : value;
+    }
+    if (Array.isArray(value)) return value.map(item => repairImportedMediaMarkup(item));
+    if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, repairImportedMediaMarkup(item)]));
+    return value;
   }
 
   function normalizeBackup(backup) {
+    backup = unwrapBackup(backup);
     if (!isRecord(backup)) {
-      throw new Error('这不是受支持的 ChatUI 备份文件');
+      throw unsupportedBackupError(backup);
     }
-    const version = Number(backup.version);
+    const version = normalizeBackupVersion(backup.version);
     const currentFormat = backup.format === BACKUP_FORMAT && SUPPORTED_BACKUP_VERSIONS.has(version);
     // Early local builds exported the same session/config body before a format
     // marker was added. Keep those backups importable, but never accept a
     // differently marked schema that may require a newer migration path.
     const legacyFormat = !backup.format
       && Array.isArray(backup.sessions)
-      && (isRecord(backup.configuration) || isRecord(backup.config) || isRecord(backup.settings));
-    if (!currentFormat && !legacyFormat) throw new Error('这不是受支持的 ChatUI 备份文件');
+      && (isRecord(backup.configuration) || isRecord(backup.config) || isRecord(backup.settings)
+        // The session-only format was briefly emitted without a format marker.
+        // It is safe to accept because it contains no configuration payload.
+        || backup.sessions.length > 0);
+    if (!currentFormat && !legacyFormat) throw unsupportedBackupError(backup);
     if (!Array.isArray(backup.sessions)) {
       throw new Error('备份文件缺少配置或会话数据');
     }
@@ -150,27 +171,23 @@
         throw new Error(`备份文件缺少 ${missingKeys.length} 个附件或图片数据，请在原浏览器重新导出`);
       }
     }
-    const configuration = normalizeImportedConfiguration(backup, legacyFormat);
     return {
-      configuration,
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
       sessions,
       activeSessionId: sessionIds.has(requestedActiveId) ? requestedActiveId : sessions[0].id,
       media,
     };
   }
 
-  function createBackupArchive({ config = {}, sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [] } = {}) {
+  function createBackupArchive({ sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [] } = {}) {
     const normalizedSessions = sessions.map((session, index) => normalizeImportedSession(session, index));
     if (!normalizedSessions.length) throw new Error('当前没有可导出的会话');
     const activeId = normalizedSessions.some(session => session.id === activeSessionId) ? activeSessionId : normalizedSessions[0].id;
-    const configuration = {
-      values: normalizeBackupConfig(config),
-    };
     return {
       format: BACKUP_FORMAT,
       version: BACKUP_VERSION,
       exportedAt,
-      configuration,
       sessions: normalizedSessions,
       activeSessionId: activeId,
       media: normalizeBackupMedia(media),
@@ -180,16 +197,14 @@
   function parseBackupText(text) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('备份文件为空');
     let parsed;
-    try { parsed = JSON.parse(text); } catch { throw new Error('备份文件不是有效的 JSON'); }
+    try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')); } catch { throw new Error('备份文件不是有效的 JSON'); }
     return normalizeBackup(parsed);
   }
 
   function createBackupWorkflow(deps = {}) {
     const state = deps.state || {};
-    const storage = deps.localStorage || root?.localStorage;
     const windowRef = deps.window || root?.window || root;
     const documentRef = deps.document || root?.document;
-    const configKey = deps.CONFIG_KEY || 'openapi-chat-image-config-v2';
     const isSessionBusy = deps.isSessionBusy || (() => false);
     const clearSessionSnapshots = deps.clearSessionSnapshots || (async () => {});
     const commitSession = deps.commitSession || (async () => {});
@@ -207,16 +222,6 @@
     const makeBlob = deps.makeBlob || (parts => new Blob(parts, { type: 'application/json;charset=utf-8' }));
     const createObjectUrl = deps.createObjectUrl || (blob => windowRef?.URL?.createObjectURL?.(blob));
     const revokeObjectUrl = deps.revokeObjectUrl || (url => windowRef?.URL?.revokeObjectURL?.(url));
-
-    function readStoredConfig() {
-      let stored = {};
-      try {
-        const raw = storage?.getItem?.(configKey);
-        const parsed = raw ? JSON.parse(raw) : {};
-        stored = isRecord(parsed) ? parsed : {};
-      } catch {}
-      return stored;
-    }
 
     function assertNoRunningTasks() {
       if ((state.sessions || []).some(session => isSessionBusy(session?.id))) {
@@ -252,7 +257,6 @@
       await flushSessionSnapshots();
       const sessions = state.sessions || [];
       return createBackupArchive({
-        config: readStoredConfig(),
         sessions,
         activeSessionId: state.activeSessionId,
         media: await buildBackupMedia(sessions),
@@ -280,22 +284,6 @@
       return archive;
     }
 
-    function writeImportedConfig(configuration) {
-      const currentValues = readStoredConfig();
-      const localHeaderValues = new Map((Array.isArray(currentValues.headerParams) ? currentValues.headerParams : [])
-        .filter(isRecord)
-        .map(item => [`${asText(item.name).trim()}\u0000${asText(item.mode).trim()}`, asText(item.value)]));
-      const importedValues = normalizeBackupConfig(configuration.values);
-      if (Array.isArray(importedValues.headerParams)) {
-        importedValues.headerParams = importedValues.headerParams.map(item => {
-          if (!isRecord(item)) return item;
-          const key = `${asText(item.name).trim()}\u0000${asText(item.mode).trim()}`;
-          return { ...item, value: localHeaderValues.get(key) || '' };
-        });
-      }
-      storage?.setItem?.(configKey, JSON.stringify(importedValues));
-    }
-
     async function restoreBackup(backup) {
       assertNoRunningTasks();
       const normalized = normalizeBackup(backup);
@@ -310,8 +298,10 @@
       state.messages = activeSession?.messages || [];
       state.lastGeneratedImage = activeSession?.lastGeneratedImage || null;
       state.attachments = [];
-      writeImportedConfig(normalized.configuration);
-      await Promise.all(state.sessions.map(session => commitSession(session)));
+      const committed = await Promise.all(state.sessions.map(session => commitSession(session)));
+      if (committed.some(result => result === null)) {
+        throw new Error('导入的会话内容未能保存，请重试');
+      }
       saveSessionsMeta();
       await flushSessionSnapshots();
       return { ...normalized, restoredMediaCount: media.length };
@@ -360,7 +350,7 @@
 
     async function importBackupFile(file) {
       const backup = await readImportFile(file);
-      const accepted = windowRef?.confirm?.('导入会覆盖当前浏览器中的所有聊天记录和模型配置，但会保留本机 API Key 和同名自定义 Header 值。确认继续吗？');
+      const accepted = windowRef?.confirm?.('导入会覆盖当前浏览器中的所有会话，并恢复会话中的图片和附件。当前 API 配置、模型配置及自定义 Header 不会改变。确认继续吗？');
       if (!accepted) return false;
       const restored = await restoreBackup(backup);
       const mediaText = restored.restoredMediaCount ? `，已恢复 ${restored.restoredMediaCount} 个附件或图片` : '';
@@ -369,13 +359,13 @@
       return restored;
     }
 
-    return Object.freeze({ buildBackup, downloadBackup, readImportFile, restoreBackup, importBackupFile, readStoredConfig, referencedMediaKeys });
+    return Object.freeze({ buildBackup, downloadBackup, readImportFile, restoreBackup, importBackupFile, referencedMediaKeys });
   }
 
   function defaultCollectIndexedDbKeys(value, keys = new Set(), seen = new WeakSet()) {
     if (!value) return keys;
     if (typeof value === 'string') {
-      const pattern = /indexeddb:\/\/([^"'<>`\s]+)/g;
+      const pattern = /indexeddb:\/\/([^"'<>`\\\s]+)/g;
       let match;
       while ((match = pattern.exec(value))) keys.add(match[1]);
       return keys;

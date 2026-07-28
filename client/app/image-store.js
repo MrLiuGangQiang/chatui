@@ -81,7 +81,7 @@
   function collectIndexedDbKeys(value, keys = new Set(), seen = new WeakSet()) {
     if (!value) return keys;
     if (typeof value === 'string') {
-      const re = /indexeddb:\/\/([^"'<>`\s]+)/g;
+      const re = /indexeddb:\/\/([^"'<>`\\\s]+)/g;
       let match;
       while ((match = re.exec(value))) keys.add(match[1]);
       return keys;

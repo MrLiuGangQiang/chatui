@@ -447,8 +447,15 @@
         if (queue) settleQueue(sessionId, queue, null, null);
       });
       abortTransactions(entry => entry.mode === 'readwrite');
-      if (!supported) return;
-      await transact('readwrite', store => store.clear(), { operationName: 'snapshot clear' });
+      try {
+        if (!supported) return;
+        await transact('readwrite', store => store.clear(), { operationName: 'snapshot clear' });
+      } finally {
+        // A full clear starts a new snapshot generation. IDs that were blocked
+        // by an old delete or cancelled write must be writable again so import
+        // can restore a backup using the original session IDs.
+        deletedSessionIds.clear();
+      }
     }
 
     return Object.freeze({ supported, openDb, getSnapshot, putSnapshot, schedulePut, flush, deleteSnapshot, clear });

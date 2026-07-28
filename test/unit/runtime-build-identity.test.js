@@ -89,6 +89,10 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   assert.match(release, /Pull and verify the exact candidate digest/);
   assert.match(release, /Promote the verified digest without rebuilding/);
   assert.match(release, /imagetools create/);
+  assert.match(release, /verify_digest\(\)/);
+  assert.match(release, /for attempt in \$\(seq 1 12\)/);
+  assert.ok(!release.includes('imagetools inspect "$ref" | grep'),
+    'registry verification must tolerate bounded propagation delay after promotion');
   assert.match(release, /verify-release-ref\.js/);
   assert.match(preview, /release preview requires a clean committed worktree/);
 }

@@ -159,10 +159,28 @@ jobs:
             --tag "${ACR_IMAGE}:${VERSION}" \
             --tag "${ACR_IMAGE}:latest" \
             "${ACR_IMAGE}@${DIGEST}"
+          verify_digest() {
+            local ref="$1"
+            local output=""
+            for attempt in $(seq 1 12); do
+              if output="$(docker buildx imagetools inspect "$ref" 2>&1)" && \
+                 grep -Fq "Digest: ${DIGEST}" <<<"$output"; then
+                echo "Verified ${ref} -> ${DIGEST}"
+                return 0
+              fi
+              if [[ "$attempt" -lt 12 ]]; then
+                echo "Waiting for ${ref} to expose ${DIGEST} (${attempt}/12)"
+                sleep 5
+              fi
+            done
+            echo "$output" >&2
+            echo "${ref} did not resolve to ${DIGEST} after registry propagation retries" >&2
+            return 1
+          }
           for ref in \
             "${DH_IMAGE}:${SEMVER}" "${DH_IMAGE}:${VERSION}" "${DH_IMAGE}:latest" \
             "${ACR_IMAGE}:${SEMVER}" "${ACR_IMAGE}:${VERSION}" "${ACR_IMAGE}:latest"; do
-            docker buildx imagetools inspect "$ref" | grep -F "Digest: ${DIGEST}"
+            verify_digest "$ref"
           done
 
   github-release:

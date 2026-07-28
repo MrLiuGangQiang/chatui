@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const appContext = require('../../client/app/app-context');
 const backup = require('../../client/app/backup-workflow');
 const configWorkflow = require('../../client/app/config-workflow');
 
@@ -43,7 +44,13 @@ function sampleSession(id = 'session-1') {
 
 function testArchiveContainsSettingsAndDurableConversationOnly() {
   const archive = backup.createBackupArchive({
-    config: { baseUrl: 'https://example.test/v1', apiKey: 'secret-key', context: { tenant: 'server-only' }, models: ['gpt-test'] },
+    config: {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret-key',
+      context: { tenant: 'server-only' },
+      models: ['gpt-test'],
+      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'header-secret' }],
+    },
     sessions: [sampleSession()],
     activeSessionId: 'session-1',
     exportedAt: '2026-07-28T00:00:00.000Z',
@@ -51,12 +58,33 @@ function testArchiveContainsSettingsAndDurableConversationOnly() {
 
   assert.strictEqual(archive.format, 'chatui-backup');
   assert.strictEqual(archive.version, 3);
-  assert.strictEqual(archive.configuration.apiKey, 'secret-key');
+  assert.strictEqual(archive.includesSecrets, false);
+  assert.strictEqual(archive.configuration.apiKey, '');
+  assert.strictEqual(archive.configuration.values.headerParams[0].value, '');
+  assert.deepStrictEqual(archive.sessions[0].headerValues, {});
   assert.strictEqual(archive.configuration.values.context, undefined, 'public server context must not be copied into a browser backup');
   assert.deepStrictEqual(archive.sessions[0].messages.map(message => message.content), ['你好', '你好，有什么可以帮你？']);
   assert.deepStrictEqual(archive.sessions[0].display, [], 'in-progress display jobs must not be exported as resumable work');
   assert.strictEqual(archive.sessions[0].busy, false);
   assert.deepStrictEqual(archive.media, []);
+}
+
+function testArchiveIncludesSecretsOnlyAfterExplicitOptIn() {
+  const archive = backup.createBackupArchive({
+    config: {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret-key',
+      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'header-secret' }],
+    },
+    sessions: [sampleSession()],
+    activeSessionId: 'session-1',
+    includeSecrets: true,
+  });
+
+  assert.strictEqual(archive.includesSecrets, true);
+  assert.strictEqual(archive.configuration.apiKey, 'secret-key');
+  assert.strictEqual(archive.configuration.values.headerParams[0].value, 'header-secret');
+  assert.deepStrictEqual(archive.sessions[0].headerValues, { 'X-Session': 'abc' });
 }
 
 function testParseRejectsUnsupportedAndDuplicateSessions() {
@@ -71,6 +99,7 @@ function testParseAcceptsLegacyUnmarkedBackupBody() {
     config: { baseUrl: 'https://example.test/v1', apiKey: 'legacy-key' },
     sessions: [sampleSession()],
     activeSessionId: 'session-1',
+    includeSecrets: true,
   });
   const legacy = {
     config: { ...archive.configuration.values, apiKey: archive.configuration.apiKey },
@@ -213,6 +242,7 @@ async function testRestoreReplacesSnapshotsConfigAndActiveSession() {
     config: { baseUrl: 'https://new.test/v1', apiKey: 'new-key', models: ['gpt-test'] },
     sessions: [sampleSession('session-1')],
     activeSessionId: 'session-1',
+    includeSecrets: true,
   });
 
   await workflow.restoreBackup(archive);
@@ -255,6 +285,33 @@ async function testImportRequiresConfirmationAndRejectsBusyState() {
   await assert.rejects(() => busyWorkflow.restoreBackup(archive), /正在生成内容/);
 }
 
+async function testImportWarnsAboutSecretsOnlyWhenTheyArePresent() {
+  const session = sampleSession();
+  const prompts = [];
+  const workflow = backup.createBackupWorkflow({
+    window: { confirm: prompt => { prompts.push(prompt); return false; } },
+  });
+  const importArchive = archive => workflow.importBackupFile({
+    size: 10,
+    text: async () => JSON.stringify(archive),
+  });
+
+  await importArchive(backup.createBackupArchive({ sessions: [session], activeSessionId: session.id }));
+  assert.strictEqual(prompts[0].includes('API Key'), false);
+  await importArchive(backup.createBackupArchive({
+    config: { apiKey: 'secret-key' },
+    sessions: [session],
+    activeSessionId: session.id,
+    includeSecrets: true,
+  }));
+  assert.strictEqual(prompts[1].includes('API Key 或自定义 Header'), true);
+}
+
+function testBackupWorkflowUsesApplicationRegistryInsteadOfBrowserGlobal() {
+  assert.strictEqual(appContext.getWorkflowModule('backup'), backup);
+  assert.strictEqual(globalThis.ChatUIAppBackupWorkflow, undefined);
+}
+
 async function testReadImportFileFallsBackToFileReader() {
   const session = sampleSession();
   const archive = backup.createBackupArchive({ sessions: [session], activeSessionId: session.id });
@@ -270,7 +327,7 @@ async function testReadImportFileFallsBackToFileReader() {
 }
 
 async function testSettingsWorkflowBindsBackupControlsToSessionPersistence() {
-  const originalGlobals = new Map(['ChatUIAppBackupWorkflow', 'getSessionDisplayWorkflow', 'clearSessionSnapshots', 'flushSessionSnapshots', 'collectIndexedDbKeys', 'getImageBlob', 'putImageBlob', 'clearImageDb', 'dataUrlToBlob']
+  const originalGlobals = new Map(['ChatUIApp', 'getSessionDisplayWorkflow', 'clearSessionSnapshots', 'flushSessionSnapshots', 'collectIndexedDbKeys', 'getImageBlob', 'putImageBlob', 'clearImageDb', 'dataUrlToBlob']
     .map(key => [key, { exists: Object.prototype.hasOwnProperty.call(globalThis, key), value: globalThis[key] }]));
   const listeners = new Map();
   const createElement = id => ({
@@ -280,10 +337,10 @@ async function testSettingsWorkflowBindsBackupControlsToSessionPersistence() {
     textContent: '',
   });
   const elements = new Map();
-  ['exportBackupBtn', 'importBackupFile', 'backupTransferStatus'].forEach(id => {
+  ['exportBackupBtn', 'importBackupFile', 'includeBackupSecrets', 'backupTransferStatus'].forEach(id => {
     elements.set(id, createElement(id));
   });
-  let exported = 0;
+  const exportOptions = [];
   let imported = null;
   let committed = null;
   let receivedDeps = null;
@@ -297,13 +354,18 @@ async function testSettingsWorkflowBindsBackupControlsToSessionPersistence() {
     globalThis.putImageBlob = async () => {};
     globalThis.clearImageDb = async () => {};
     globalThis.dataUrlToBlob = async () => new Blob();
-    globalThis.ChatUIAppBackupWorkflow = {
+    const fakeBackupApi = {
       createBackupWorkflow: deps => {
         receivedDeps = deps;
         return {
-          downloadBackup: async () => { exported += 1; },
+          downloadBackup: async options => { exportOptions.push(options); },
           importBackupFile: async file => { imported = file; },
         };
+      },
+    };
+    globalThis.ChatUIApp = {
+      appContext: {
+        getWorkflowModule: name => name === 'backup' ? fakeBackupApi : null,
       },
     };
     const workflow = configWorkflow.createConfigWorkflow({
@@ -329,7 +391,10 @@ async function testSettingsWorkflowBindsBackupControlsToSessionPersistence() {
     assert.strictEqual(receivedDeps.putImageBlob, globalThis.putImageBlob);
     assert.strictEqual(receivedDeps.clearImageDb, globalThis.clearImageDb);
     await listeners.get('exportBackupBtn:click')();
-    assert.strictEqual(exported, 1);
+    assert.deepStrictEqual(exportOptions, [{ includeSecrets: false }]);
+    elements.get('includeBackupSecrets').checked = true;
+    await listeners.get('exportBackupBtn:click')();
+    assert.deepStrictEqual(exportOptions, [{ includeSecrets: false }, { includeSecrets: true }]);
     assert.strictEqual(elements.get('backupTransferStatus').dataset.status, 'success');
     const file = { name: 'backup.json' };
     await listeners.get('importBackupFile:change')({ target: { files: [file], value: 'chosen' } });
@@ -345,6 +410,7 @@ async function testSettingsWorkflowBindsBackupControlsToSessionPersistence() {
 
 module.exports = [
   testArchiveContainsSettingsAndDurableConversationOnly,
+  testArchiveIncludesSecretsOnlyAfterExplicitOptIn,
   testParseRejectsUnsupportedAndDuplicateSessions,
   testParseAcceptsLegacyUnmarkedBackupBody,
   testParseAcceptsVersionOneBackupWithoutPortableMedia,
@@ -352,6 +418,8 @@ module.exports = [
   testPortableMediaBackupRestoresAttachmentAndImageBlobs,
   testRestoreReplacesSnapshotsConfigAndActiveSession,
   testImportRequiresConfirmationAndRejectsBusyState,
+  testImportWarnsAboutSecretsOnlyWhenTheyArePresent,
+  testBackupWorkflowUsesApplicationRegistryInsteadOfBrowserGlobal,
   testReadImportFileFallsBackToFileReader,
   testSettingsWorkflowBindsBackupControlsToSessionPersistence,
 ];

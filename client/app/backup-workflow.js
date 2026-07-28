@@ -31,12 +31,15 @@
     return `chatui-backup-${now.getFullYear()}${safeDatePart(now.getMonth() + 1)}${safeDatePart(now.getDate())}-${safeDatePart(now.getHours())}${safeDatePart(now.getMinutes())}${safeDatePart(now.getSeconds())}.json`;
   }
 
-  function normalizeBackupConfig(value) {
+  function normalizeBackupConfig(value, { includeSecrets = true } = {}) {
     if (!isRecord(value)) return {};
     const config = cloneJson(value, {});
     if (!isRecord(config)) return {};
     delete config.apiKey;
     delete config.context;
+    if (!includeSecrets && Array.isArray(config.headerParams)) {
+      config.headerParams = config.headerParams.map(item => isRecord(item) ? { ...item, value: '' } : item);
+    }
     return config;
   }
 
@@ -72,7 +75,7 @@
     });
   }
 
-  function normalizeImportedSession(value, index = 0) {
+  function normalizeImportedSession(value, index = 0, { includeHeaderValues = true } = {}) {
     if (!isRecord(value)) throw new Error(`第 ${index + 1} 个会话格式不正确`);
     const id = asText(value.id).trim();
     if (!id || id.length > 200) throw new Error(`第 ${index + 1} 个会话缺少有效 ID`);
@@ -88,7 +91,7 @@
       imageStylePrompt: asText(value.imageStylePrompt),
       hasImageStylePromptOverride: !!value.hasImageStylePromptOverride,
       chatModel: asText(value.chatModel),
-      headerValues: normalizeHeaderValues(value.headerValues),
+      headerValues: includeHeaderValues ? normalizeHeaderValues(value.headerValues) : {},
       promptDraft: asText(value.promptDraft).slice(0, 20000),
       reasoningMode: value.reasoningMode === undefined || value.reasoningMode === null ? undefined : !!value.reasoningMode,
       reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(value.reasoningType) ? value.reasoningType : '',
@@ -115,6 +118,17 @@
       values: normalizeBackupConfig(values),
       apiKey: asText(apiKey).trim(),
     };
+  }
+
+  function configurationContainsSecrets(configuration = {}) {
+    if (asText(configuration.apiKey).trim()) return true;
+    const headerParams = configuration.values?.headerParams;
+    return Array.isArray(headerParams) && headerParams.some(item => isRecord(item) && asText(item.value).trim());
+  }
+
+  function sessionsContainHeaderValues(sessions = []) {
+    return sessions.some(session => isRecord(session?.headerValues)
+      && Object.values(session.headerValues).some(value => asText(value).trim()));
   }
 
   function normalizeBackup(backup) {
@@ -152,26 +166,32 @@
         throw new Error(`备份文件缺少 ${missingKeys.length} 个附件或图片数据，请在原浏览器重新导出`);
       }
     }
+    const configuration = normalizeImportedConfiguration(backup, legacyFormat);
     return {
-      configuration: normalizeImportedConfiguration(backup, legacyFormat),
+      configuration,
       sessions,
       activeSessionId: sessionIds.has(requestedActiveId) ? requestedActiveId : sessions[0].id,
       media,
+      includesSecrets: backup.includesSecrets === true
+        || configurationContainsSecrets(configuration)
+        || sessionsContainHeaderValues(sessions),
     };
   }
 
-  function createBackupArchive({ config = {}, sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [] } = {}) {
-    const normalizedSessions = sessions.map((session, index) => normalizeImportedSession(session, index));
+  function createBackupArchive({ config = {}, sessions = [], activeSessionId = '', exportedAt = new Date().toISOString(), media = [], includeSecrets = false } = {}) {
+    const normalizedSessions = sessions.map((session, index) => normalizeImportedSession(session, index, { includeHeaderValues: includeSecrets }));
     if (!normalizedSessions.length) throw new Error('当前没有可导出的会话');
     const activeId = normalizedSessions.some(session => session.id === activeSessionId) ? activeSessionId : normalizedSessions[0].id;
+    const configuration = {
+      values: normalizeBackupConfig(config, { includeSecrets }),
+      apiKey: includeSecrets ? asText(config.apiKey).trim() : '',
+    };
     return {
       format: BACKUP_FORMAT,
       version: BACKUP_VERSION,
       exportedAt,
-      configuration: {
-        values: normalizeBackupConfig(config),
-        apiKey: asText(config.apiKey).trim(),
-      },
+      includesSecrets: configurationContainsSecrets(configuration) || sessionsContainHeaderValues(normalizedSessions),
+      configuration,
       sessions: normalizedSessions,
       activeSessionId: activeId,
       media: normalizeBackupMedia(media),
@@ -252,7 +272,7 @@
       return media;
     }
 
-    async function buildBackup() {
+    async function buildBackup({ includeSecrets = false } = {}) {
       await flushSessionSnapshots();
       const sessions = state.sessions || [];
       return createBackupArchive({
@@ -260,11 +280,12 @@
         sessions,
         activeSessionId: state.activeSessionId,
         media: await buildBackupMedia(sessions),
+        includeSecrets,
       });
     }
 
-    async function downloadBackup() {
-      const archive = await buildBackup();
+    async function downloadBackup({ includeSecrets = false } = {}) {
+      const archive = await buildBackup({ includeSecrets });
       const contents = `${JSON.stringify(archive, null, 2)}\n`;
       if (utf8ByteLength(contents) > MAX_BACKUP_FILE_BYTES) {
         throw new Error('备份文件超过 200 MB，请减少附件或图片后再导出');
@@ -354,7 +375,8 @@
 
     async function importBackupFile(file) {
       const backup = await readImportFile(file);
-      const accepted = windowRef?.confirm?.('导入会覆盖当前浏览器中的所有聊天记录和模型配置，且备份文件包含 API Key 明文。确认继续吗？');
+      const secretNotice = backup.includesSecrets ? '，且备份文件包含 API Key 或自定义 Header 明文' : '';
+      const accepted = windowRef?.confirm?.(`导入会覆盖当前浏览器中的所有聊天记录和模型配置${secretNotice}。确认继续吗？`);
       if (!accepted) return false;
       const restored = await restoreBackup(backup);
       const mediaText = restored.restoredMediaCount ? `，已恢复 ${restored.restoredMediaCount} 个附件或图片` : '';
@@ -424,5 +446,5 @@
     createBackupWorkflow,
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (root) root.ChatUIAppBackupWorkflow = api;
+  root?.ChatUIApp?.appContext?.registerWorkflowModule?.('backup', api);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

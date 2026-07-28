@@ -1002,7 +1002,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(chatWorkflowSource.includes('const sessionChatModel=getSessionChatModel(n.sessionId||state.activeSessionId,a)') && chatWorkflowSource.includes('buildChatPayload(sessionChatModel') && chatWorkflowSource.includes('buildResponsesPayload(sessionChatModel'), 'final chat dispatch must use the target session model for both Chat Completions and Responses APIs');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
-  assert.ok(index.includes('config-workflow.js?v=1.2.76-busy-route-model-guard'));
+  assert.ok(index.includes('config-workflow.js?v=1.2.77-backup-secrets-opt-in'));
   assert.ok(index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'));
   assert.ok(index.includes('route-decision-workflow.js?v=3.4.1-dispatchable-route-gate'));
   assert.ok(index.includes('app.js?v=2.1.56-encoding-integrity'));

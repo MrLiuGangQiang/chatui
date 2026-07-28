@@ -53,6 +53,9 @@ function testVendorCheckRejectsDriftUntrackedAssetsAndVersionMismatch() {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
     assert.deepStrictEqual(checkVendor({ root, manifestPath }), { assets: 1, packages: 1, licenses: 1 });
 
+    fs.writeFileSync(path.join(root, 'vendor', 'licenses', 'fixture.txt'), 'Fixture license\r\n', 'utf8');
+    assert.deepStrictEqual(checkVendor({ root, manifestPath }), { assets: 1, packages: 1, licenses: 1 }, 'license line endings are platform-neutral');
+
     fs.writeFileSync(path.join(root, 'vendor', 'fixture.js'), 'window.fixture = false;\n', 'utf8');
     assert.throws(() => checkVendor({ root, manifestPath }), /differs from its locked package source/);
 

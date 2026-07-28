@@ -67,12 +67,14 @@ function packageMetadata(packageJson, packageLock, entry) {
   return { packageName, version };
 }
 
-function assertExactFile(targetPath, sourcePath, targetLabel) {
+function assertExactFile(targetPath, sourcePath, targetLabel, { normalizeText = false } = {}) {
   if (!fs.statSync(targetPath, { throwIfNoEntry: false })?.isFile()) fail(`asset is missing: ${targetLabel}.`);
   if (!fs.statSync(sourcePath, { throwIfNoEntry: false })?.isFile()) fail(`package source is missing for ${targetLabel}: ${sourcePath}.`);
   const target = fs.readFileSync(targetPath);
   const source = fs.readFileSync(sourcePath);
-  if (!target.equals(source)) fail(`${targetLabel} differs from its locked package source.`);
+  const comparableTarget = normalizeText ? Buffer.from(target.toString('utf8').replace(/\r\n?/g, '\n')) : target;
+  const comparableSource = normalizeText ? Buffer.from(source.toString('utf8').replace(/\r\n?/g, '\n')) : source;
+  if (!comparableTarget.equals(comparableSource)) fail(`${targetLabel} differs from its locked package source.`);
 }
 
 function checkVendor({ root = ROOT, manifestPath = path.join(root, 'vendor', 'manifest.json') } = {}) {
@@ -149,7 +151,7 @@ function checkVendor({ root = ROOT, manifestPath = path.join(root, 'vendor', 'ma
       const sourcePath = resolveInside(packageRoot, sources[index], 'package license source');
       const targetPath = resolveInside(path.join(vendorRoot, 'licenses'), path.relative('vendor/licenses', targets[index]), 'license target');
       const targetLabel = relativePath(root, targetPath);
-      assertExactFile(targetPath, sourcePath, targetLabel);
+      assertExactFile(targetPath, sourcePath, targetLabel, { normalizeText: true });
       if (accountedLicenses.has(targetLabel)) fail(`duplicate license target: ${targetLabel}.`);
       accountedLicenses.add(targetLabel);
     }

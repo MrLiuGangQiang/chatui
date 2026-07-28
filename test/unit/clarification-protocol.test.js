@@ -63,12 +63,12 @@ function continuationJson(overrides = {}) {
   });
 }
 
-function testContinuationV4UsesOneStrictNonExecutingSchema() {
+function testContinuationV5UsesOneStrictNonExecutingSchema() {
   const pending = makePending();
   const payload = clarification.buildContinuationClassifierPayload({
     model: 'route-model', pending, currentInput: '彩色鱼', attachments: [],
   });
-  assert.strictEqual(clarification.CONTINUATION_SCHEMA_VERSION, 'pending_continuation.v4');
+  assert.strictEqual(clarification.CONTINUATION_SCHEMA_VERSION, 'pending_continuation.v5');
   assert.strictEqual(payload.response_format.type, 'json_schema');
   assert.strictEqual(payload.response_format.json_schema.strict, true);
   assert.strictEqual(payload.response_format.json_schema.schema.additionalProperties, false);
@@ -77,9 +77,85 @@ function testContinuationV4UsesOneStrictNonExecutingSchema() {
   assert.ok(payload.messages[0].content.includes('无权决定或暗示这些字段'));
   assert.ok(!payload.messages[0].content.includes('final_task_mode'));
 
-  assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.v3' }), { pending }), null);
+  assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.v4' }), { pending }), null);
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ final_task_mode: 'image' }), { pending }), null, 'extra execution controls must invalidate the whole response');
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ confidence: 0.84 }), { pending }), null, 'low confidence must fail closed');
+}
+
+function testModelContinuationSupportsPartialClarificationAnswers() {
+  const contract = ambiguousContract();
+  contract.operation = 'edit_image';
+  contract.directive.operations = [];
+  contract.clarification.question = '请指定要修改哪一张猫的图片，并说明希望改成什么姿势。';
+  contract.clarification.unresolved_resources = [
+    {
+      key: 'r1', type: 'image', role: 'target', reason: 'ambiguous',
+      choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'cat-a', reference_id: 'cat-a-ref', label: '候选图片 1' },
+        { key: 'c2', source: 'history', index: 2, id: 'cat-b', reference_id: 'cat-b-ref', label: '候选图片 2' },
+      ],
+    },
+    { key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [] },
+  ];
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '猫的姿势换一下' }],
+    clarificationText: contract.clarification.question,
+    routeInfo: {
+      mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      clarificationQuestion: contract.clarification.question, taskContract: contract,
+    },
+  });
+
+  const payload = clarification.buildContinuationClassifierPayload({
+    model: 'route-model', pending, currentInput: '我选右边那只猫', attachments: [],
+  });
+  assert.match(payload.messages[0].content, /partial_answer/);
+  assert.match(payload.messages[0].content, /"2"、"第二张"、"右边那只猫"或"选候选图二"/);
+  assert.match(payload.response_format.json_schema.schema.properties.resolved_input.description, /partial_answer 可以保留尚未补齐的信息/);
+  assert.strictEqual(JSON.parse(payload.messages[1].content).current_input, '我选右边那只猫');
+
+  const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'partial_answer',
+    confidence: 0.99,
+    resolved_input: '猫的姿势换一下',
+    selections: [{ resource_key: 'r1', choice_key: 'c2' }],
+    should_merge: true,
+    should_clear_pending: true,
+    assistant_reply: '',
+    reason: 'the user selected the second cat but did not provide the pose',
+  }), { pending });
+  assert.ok(decision, 'the model may preserve a valid partial answer for a combined clarification');
+  assert.strictEqual(decision.resolvedInput, '猫的姿势换一下');
+  assert.deepStrictEqual(decision.selections, [{ resource_key: 'r1', choice_key: 'c2' }]);
+
+  const context = clarification.buildClarificationRouteContext({
+    baseContext: {
+      image_candidates: [
+        { index: 1, source: 'history', image_id: 'cat-a', reference_id: 'cat-a-ref' },
+        { index: 2, source: 'history', image_id: 'cat-b', reference_id: 'cat-b-ref' },
+      ],
+    },
+    pending,
+    currentInput: '我选右边那只猫',
+    resolvedInput: decision.resolvedInput,
+    continuationRelation: decision.relation,
+    selections: decision.selections,
+  });
+  assert.strictEqual(context.clarification_context.base_task, '猫的姿势换一下');
+  assert.strictEqual(context.clarification_context.selected_choices[0].id, 'cat-b', 'the second image must remain selected while the router asks for the missing pose');
+
+  assert.strictEqual(clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'partial_answer', confidence: 0.99, resolved_input: '猫的姿势换一下',
+    selections: [{ resource_key: 'r1', choice_key: 'c9' }], should_merge: true,
+    should_clear_pending: true, assistant_reply: '', reason: 'invented choice',
+  }), { pending }), null, 'model recognition must still fail closed for an unknown choice');
+
+  const repairPayload = clarification.buildContinuationRepairPayload(payload, '{"relation":"partial_answer"}');
+  assert.strictEqual(repairPayload.messages.at(-2).role, 'assistant');
+  assert.match(repairPayload.messages.at(-1).content, /未通过 pending_continuation\.v5 严格校验/);
+  assert.match(repairPayload.messages.at(-1).content, /partial_answer/);
 }
 
 function testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext() {
@@ -328,10 +404,11 @@ function testClarificationContextPreservesCurrentQuotedAndPriorSources() {
 }
 
 module.exports = [
-  testContinuationV4UsesOneStrictNonExecutingSchema,
+  testContinuationV5UsesOneStrictNonExecutingSchema,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
   testResolvedInputIsRequiredAndNeverSynthesizedLocally,
   testImageChoiceOrdinalDoesNotReachTheExecutionPrompt,
+  testModelContinuationSupportsPartialClarificationAnswers,
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
 ];

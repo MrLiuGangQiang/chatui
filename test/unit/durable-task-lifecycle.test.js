@@ -18,6 +18,9 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   const state = { sessions: [session], activeSessionId: session.id, messages: session.messages, reasoningMode: true, reasoningType: 'high' };
   const run = { token: 'run-a', stopped: false, abortController: new AbortController() };
   const liveItem = { id: 'display-a', role: 'assistant', pending: '1', responseIndex: '1' };
+  const dom = new JSDOM('<main><article class="message assistant"><div class="content"></div></article></main>');
+  const assistantNode = dom.window.document.querySelector('.message');
+  assistantNode.__displayItem = { id: 'stale-display', role: 'assistant', pending: '1', responseIndex: '1' };
   const completionCommit = deferred();
   const events = [];
   let saveCount = 0;
@@ -60,7 +63,9 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     },
     createRealtimeRenderer: callback => ({ set: callback, final: callback }),
     shouldSuppressRunUi: () => false,
-    updateLiveDisplay: () => {},
+    updateLiveDisplay: (sessionId, item, role, content, options = {}) => {
+      if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
+    },
     shouldFollowScroll: () => false,
     streamManagedChatCompletions: async (payload, config, jobId, onChunk, options) => {
       events.push('managed-stream-started');
@@ -74,14 +79,30 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     compactAdjacentDuplicateMessages: items => items,
     cloneMessageList: items => items.map(item => ({ ...item })),
     clearPendingFeedback: () => {},
+    clearReasoning: () => {},
+    updateReasoning: () => {},
+    showReasoningUnavailable: () => {},
+    setPendingFeedback: () => {},
+    updateMessageContentLight: () => {},
+    updateMessage: () => {},
+    settleActiveOutput: () => {},
+    finishReasoning: () => {},
+    firstTokenTimeText: () => '',
+    setMessageMetaText: () => {},
     playDoneSound: () => events.push('done-sound'),
-    clearChatJob: () => { cleared = true; events.push('job-cleared'); },
+    clearChatJob: () => {
+      assert.strictEqual(assistantNode.__displayItem, liveItem,
+        'the live node must be rebound from a stale pending projection before cleanup');
+      assert.strictEqual(liveItem.pending, '', 'the rebound live projection must be completed before cleanup');
+      cleared = true;
+      events.push('job-cleared');
+    },
     isRunStopped: () => false,
     isAbortLikeError: () => false,
     formatElapsed: value => String(value),
   });
 
-  const sendPromise = workflow.sendChat('Question', [], null, {
+  const sendPromise = workflow.sendChat('Question', [], assistantNode, {
     sessionId: session.id,
     submissionId: 'submit-a',
     onDurableHandoff: () => events.push('pending-submit-cleared'),
@@ -91,7 +112,7 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     },
   });
 
-  for (let index = 0; index < 8 && !events.includes('assistant-commit-started'); index += 1) await Promise.resolve();
+  for (let index = 0; index < 32 && !events.includes('assistant-commit-started'); index += 1) await Promise.resolve();
   assert.strictEqual(cleared, false, 'the durable job must remain until the completed canonical message commits');
   assert.ok(persistedJob, 'a durable local job snapshot must exist before streaming starts');
   assert.strictEqual(persistedJob.api, 'responses');
@@ -118,7 +139,6 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   assert.strictEqual(session.messages.at(-1).content, 'durable answer');
   assert.strictEqual(session.messages.at(-1).reasoning_content, 'durable reasoning');
 }
-
 
 async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
   const session = { id: 'session-a', messages: [], display: [] };
@@ -177,6 +197,7 @@ async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
 function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
   const dom = new JSDOM('<article class="message assistant" data-streaming="1" data-stream-kind="chat" data-stream-run-token="run" data-pending-feedback="1" data-job-id="chatjob-a"><div class="msg-actions" aria-hidden="true" hidden></div></article>');
   const node = dom.window.document.querySelector('.message');
+  node.__displayItem = { id: 'stale-display', pending: '1', jobId: 'chatjob-a' };
   let resetCalls = 0;
   messageWorkflow.reconcileCompletedMessageUi(node, () => { resetCalls += 1; });
   assert.strictEqual(node.dataset.streaming, undefined);
@@ -184,6 +205,8 @@ function testCompletedMessageActionsReconcileWithoutAnimationFrame() {
   assert.strictEqual(node.dataset.streamRunToken, undefined);
   assert.strictEqual(node.dataset.pendingFeedback, undefined);
   assert.strictEqual(node.dataset.jobId, undefined);
+  assert.strictEqual(node.__displayItem.pending, '', 'completion must synchronously clear stale projection ownership');
+  assert.strictEqual(node.__displayItem.jobId, '', 'completion must synchronously clear stale job ownership');
   assert.strictEqual(node.querySelector('.msg-actions').hidden, false);
   assert.strictEqual(node.querySelector('.msg-actions').hasAttribute('aria-hidden'), false);
   assert.strictEqual(resetCalls, 1);

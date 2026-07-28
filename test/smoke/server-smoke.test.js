@@ -53,7 +53,10 @@ async function testServerSmokeCoreEndpoints() {
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
     assert.match(version.res.headers.get('content-type') || '', /application\/json/);
-    assert.ok(JSON.parse(version.text).version, 'version endpoint should expose app version');
+    const versionIdentity = JSON.parse(version.text);
+    assert.ok(versionIdentity.version, 'version endpoint should expose app version');
+    assert.ok(versionIdentity.gitSha, 'version endpoint should expose the exact source commit');
+    assert.match(versionIdentity.sourceRevision, /^sha256:[a-f0-9]{64}$/, 'version endpoint should expose the exact runtime source fingerprint');
 
     const publicConfig = await request(baseUrl, '/api/config/public');
     assert.strictEqual(publicConfig.res.status, 200);

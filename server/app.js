@@ -1,5 +1,5 @@
 const http = require('http');
-const { APP_VERSION, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
+const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
 const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { extractFileText } = require('./extract');
 const { serveStatic } = require('./http/static');
@@ -48,6 +48,7 @@ function createApp() {
   });
   const route = createRouter({
     appVersion: APP_VERSION,
+    buildIdentity: BUILD_IDENTITY,
     readPublicConfig,
     send,
     sendJson,

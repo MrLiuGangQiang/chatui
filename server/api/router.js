@@ -5,6 +5,7 @@ const { createUsageRoutes } = require('./routes/usage');
 function createRouter(deps) {
   const {
     appVersion,
+    buildIdentity,
     readPublicConfig,
     send,
     sendJson,
@@ -33,6 +34,7 @@ function createRouter(deps) {
 
   const { routeCoreApi } = createCoreRoutes({
     appVersion,
+    buildIdentity,
     readPublicConfig,
     sendJson,
     sendMethodNotAllowed,

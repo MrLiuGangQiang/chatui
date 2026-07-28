@@ -7,7 +7,10 @@
     const response = await fetchImpl('/api/version', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
-    return String(payload?.version || '').trim();
+    const version = String(payload?.version || '').trim();
+    const gitSha = String(payload?.gitSha || '').trim();
+    if (!version || !gitSha || gitSha === 'unknown') return version;
+    return `${version}+${gitSha.slice(0, 8)}${payload?.dirty ? '.dirty' : ''}`;
   }
 
   const api = Object.freeze({ requestAppVersion });

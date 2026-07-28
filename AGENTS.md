@@ -4,15 +4,20 @@
 
 When the user asks to **commit and release** (for example, "commit and release"), complete the entire release process; pushing a Git tag by itself is not a completed release.
 
-1. Determine the next semantic version, update `package.json` and every matching version in `package-lock.json`, and ensure they match the planned `vMAJOR.MINOR.PATCH` tag.
-2. Run the project test suite and do not release if it fails.
-3. Commit the release changes and push the release commit to `main`.
-4. Create an **annotated** `vMAJOR.MINOR.PATCH` Git tag and push it. This triggers the Docker publishing workflow.
-5. Add `docs/releases/vMAJOR.MINOR.PATCH.md` with a clear title and concise user-facing notes, then create a published (not draft) **GitHub Release** for the same tag from that file. Do not treat a tag as a substitute for a GitHub Release.
-6. Verify both conditions before reporting the release as complete:
+1. Work from one clean committed candidate based on current `origin/main`. Never use results from a dirty workspace or a different worktree as release evidence.
+2. Determine the next semantic version, update `package.json` and every matching version in `package-lock.json`, and ensure they match the planned `vMAJOR.MINOR.PATCH` tag.
+3. Add `docs/releases/vMAJOR.MINOR.PATCH.md` to the same candidate commit, with a clear title and concise user-facing notes. Release notes must exist in the tagged commit.
+4. Run `npm run check`. When Docker is available locally, also run `npm run preview:release`; otherwise the exact-container CI check on the pushed commit must succeed before tagging. Do not release if either check fails.
+5. Commit the release changes and push the release commit to `main`. Wait for required main CI checks, including `Exact Docker runtime`, to succeed.
+6. Create an **annotated** `vMAJOR.MINOR.PATCH` Git tag on that exact verified main commit and push it. This triggers the Docker publishing workflow.
+7. The workflow must build immutable candidate images with the commit SHA and runtime source fingerprint, start and verify the candidate by digest, and only then promote that same digest to the semantic-version, `v`-prefixed, and `latest` tags. Never rebuild between verification and promotion.
+8. Create or verify a published (not draft) **GitHub Release** for the same tag from the release-notes file. Do not treat a tag as a substitute for a GitHub Release.
+9. Verify all conditions before reporting the release as complete:
    - the GitHub Release exists and is published;
    - the tag-triggered Docker publishing workflow completed successfully.
-7. Report the exact version, commit, tag, GitHub Release status, Docker workflow result, and any remaining deployment action. If verification is still running, explicitly say the release is in progress rather than complete.
+   - Docker Hub and ACR version tags resolve to the verified candidate digest;
+   - the workflow's `/api/version` check matched version, Git SHA, and runtime source fingerprint.
+10. Report the exact version, commit, tag, GitHub Release status, verified image digest, Docker workflow result, and any remaining deployment action. If verification is still running, explicitly say the release is in progress rather than complete.
 
 For a hotfix that only repairs packaging or deployment, still follow the complete procedure above, including the GitHub Release and Docker workflow verification.
 

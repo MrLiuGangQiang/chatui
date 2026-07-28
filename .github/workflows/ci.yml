@@ -41,7 +41,7 @@ jobs:
         run: npm run check
 
   docker-build:
-    name: Docker build
+    name: Exact Docker runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -51,11 +51,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build image without publishing
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve candidate identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+          echo "source_revision=$(node scripts/runtime-identity.js --source-only)" >> "$GITHUB_OUTPUT"
+
+      - name: Build exact candidate image
         uses: docker/build-push-action@v7
         with:
           context: .
           push: false
+          load: true
           platforms: linux/amd64
+          tags: chatui-ci:${{ github.sha }}
+          build-args: |
+            CHATUI_VERSION=${{ steps.identity.outputs.version }}
+            CHATUI_BUILD_SHA=${{ github.sha }}
+            CHATUI_SOURCE_REVISION=${{ steps.identity.outputs.source_revision }}
           cache-from: type=gha,scope=chatui-ci
           cache-to: type=gha,scope=chatui-ci,mode=max
+
+      - name: Verify exact container identity and assets
+        run: >-
+          node scripts/verify-image-runtime.js
+          --image chatui-ci:${{ github.sha }}
+          --version ${{ steps.identity.outputs.version }}
+          --git-sha ${{ github.sha }}
+          --source-revision ${{ steps.identity.outputs.source_revision }}

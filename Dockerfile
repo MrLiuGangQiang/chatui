@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-alpine
 
+ARG CHATUI_VERSION=0.0.0
+ARG CHATUI_BUILD_SHA=unknown
+ARG CHATUI_SOURCE_REVISION=unknown
+
+LABEL org.opencontainers.image.title="ChatUI" \
+    org.opencontainers.image.source="https://github.com/MrLiuGangQiang/chatui" \
+    org.opencontainers.image.version="${CHATUI_VERSION}" \
+    org.opencontainers.image.revision="${CHATUI_BUILD_SHA}"
+
 # Runtime-only dependencies:
 # - poppler-utils: PDF text extraction / PDF-to-image fallback
 # - tesseract + eng/chi_sim: OCR fallback used by server.js (`chi_sim+eng`)
@@ -26,6 +35,8 @@ ENV NODE_ENV=production \
     PG_POOL_MAX=10 \
     PG_IDLE_TIMEOUT_MS=30000 \
     PG_CONNECTION_TIMEOUT_MS=5000 \
+    CHATUI_BUILD_SHA=${CHATUI_BUILD_SHA} \
+    CHATUI_SOURCE_REVISION=${CHATUI_SOURCE_REVISION} \
     PATH=/usr/local/bin:/usr/bin:/bin
 
 COPY package.json package-lock.json ./

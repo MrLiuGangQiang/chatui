@@ -14,6 +14,8 @@ const { DEFAULT_CONTEXT_WINDOW_TOKENS, normalizeContextWindowTokens } = require(
 const CONTEXT_WINDOW_TOKENS = normalizeContextWindowTokens(process.env.CHATUI_CONTEXT_WINDOW_TOKENS, DEFAULT_CONTEXT_WINDOW_TOKENS);
 const pkg = require('../../package.json');
 const APP_VERSION = String(pkg.version || '0.0.0');
+const { createBuildIdentity } = require('../build-identity');
+const BUILD_IDENTITY = createBuildIdentity({ root: ROOT, version: APP_VERSION });
 const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS });
 
 module.exports = {
@@ -28,5 +30,6 @@ module.exports = {
   ALLOWED_PROXY_METHODS,
   ALLOWED_PROXY_PATHS,
   APP_VERSION,
+  BUILD_IDENTITY,
   readPublicConfig,
 };

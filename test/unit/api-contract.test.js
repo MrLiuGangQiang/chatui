@@ -82,8 +82,12 @@ async function testApiContractCoreEndpointsKeepShape() {
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
     assertCorsJson(version);
-    assert.deepStrictEqual(Object.keys(version.json).sort(), ['version']);
+    assert.deepStrictEqual(Object.keys(version.json).sort(), ['dirty', 'gitSha', 'mode', 'sourceRevision', 'version']);
     assert.strictEqual(typeof version.json.version, 'string');
+    assert.strictEqual(typeof version.json.gitSha, 'string');
+    assert.match(version.json.sourceRevision, /^sha256:[a-f0-9]{64}$/);
+    assert.strictEqual(typeof version.json.dirty, 'boolean');
+    assert.ok(['workspace', 'image'].includes(version.json.mode));
 
     const publicConfig = await request(baseUrl, '/api/config/public');
     assert.strictEqual(publicConfig.res.status, 200);

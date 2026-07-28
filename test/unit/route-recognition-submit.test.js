@@ -37,7 +37,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'),
+    index.includes('submit-workflow.js?v=1.4.3-continuation-repair'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
@@ -143,7 +143,10 @@ function testPendingContinuationRequiresStrictModelContract() {
 
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
-  assert.ok(submit.includes('shouldMergePending=["pending_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a valid continuation model decision may merge pending state');
+  assert.ok(submit.includes('if(storedPending&&clarification.buildContinuationClassifierPayload'), 'every pending clarification reply must use the continuation model');
+  assert.ok(!submit.includes('resolveExplicitImageChoiceAnswer'), 'numbered choices must not bypass model recognition');
+  assert.ok(submit.includes('clarification.buildContinuationRepairPayload(payload,classifierText)'), 'an invalid first model contract must receive one bounded model repair');
+  assert.ok(submit.includes('shouldMergePending=["pending_answer","partial_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a validated continuation decision may merge pending state');
   assert.ok(submit.includes('const pendingAssistance=pendingDecision?.relation==="pending_assistance"'), 'pending assistance must answer within the active task before route dispatch');
   assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'an invalid or unavailable continuation classifier must fail closed');
   assert.ok(submit.includes('原任务已保留，请重试'), 'the fail-closed response must tell the user that pending state was retained');

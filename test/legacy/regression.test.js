@@ -495,7 +495,7 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     currentInput: '山巅的',
   });
   assert.strictEqual(payload.temperature, 0);
-  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v4');
+  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v5');
   assert.ok(payload.messages[0].content.includes('无权决定'));
   assert.ok(payload.messages[0].content.includes('最小语义补全'));
   assert.ok(payload.messages[0].content.includes('operation、API、mode'));
@@ -647,8 +647,8 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a merged answer must be fully rerouted with current-turn attachments only');
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed'), 'submit workflow cache version should include the fail-closed clarification boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.3.0-original-task-authority'), 'clarification service cache version should match the strict continuation protocol');
+  assert.ok(index.includes('submit-workflow.js?v=1.4.3-continuation-repair'), 'submit workflow cache version should include the model continuation repair boundary');
+  assert.ok(index.includes('clarification-service.js?v=1.4.0-partial-answer'), 'clarification service cache version should match the partial-answer protocol');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -1183,7 +1183,7 @@ function testChatAnswerStreamingFlushesQuickly() {
   assert.strictEqual(workflow.canShowChatWaiting(true), false, 'waiting feedback must be permanently disabled after answer output starts');
   assert.ok(source.includes('if(!canShowChatWaiting(answerStarted))return') && source.includes('canShowChatWaiting(answerStarted)&&setPendingFeedback'), 'accepted callbacks and non-stream fallback must not restore waiting feedback after answer output starts');
   assert.ok(source.includes('const responseStartedAt=metricNow();let answerStarted=!1,streamRequestAccepted=!1;try{let t="",s=!1,c=null,answerText="",reasoningText="",firstTokenMs=null;'), 'answer-start state must remain in scope for the streaming fallback catch');
-  assert.ok(index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && bundle.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'cache-busting versions should be bumped for streaming performance fixes');
+  assert.ok(index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && bundle.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'cache-busting versions should be bumped for streaming performance fixes');
 }
 
 function testStreamingTailRendersWithoutCursor() {
@@ -1201,7 +1201,7 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
   assert.ok(message.includes('streamRenderer.set(rawValue, contentNode)') && !message.includes('const deltaText = s.delta'), 'chat streaming renderer should reconcile from cumulative rawValue instead of appending realtime cumulative chunks as deltas');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.99-large-dispose') && index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache-busting versions should be bumped after removing the streaming cursor');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.99-large-dispose') && index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache-busting versions should be bumped after removing the streaming cursor');
 }
 
 
@@ -1472,7 +1472,7 @@ function testQuotePreviewIsFeatureModule() {
   assert.ok(!messageCss.includes('quote-target-ring') && !messageCss.includes('outline:2px solid'), 'quote jump target should avoid heavy ring/outline effects');
   assert.ok(workflow.includes('function quoteContentTextFromNode') && workflow.includes("'.reasoning-panel,.reasoning-head,.reasoning-content'") && workflow.includes("node?.querySelector?.('.content')"), 'quote content should be resolved from message body and exclude reasoning panels');
   assert.ok(domain.normalizeQuoteText('思考中 推理内容 思考完成 正文', 1200) === '推理内容 正文', 'quote text normalization should remove reasoning status labels');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.44-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'quote filtering and jump flash changes should bump cache versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('message-model.js?v=1.0.1') && index.includes('message-domain.js?v=1.0.1') && index.includes('styles/messages.css?v=1.3.44-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'quote filtering and jump flash changes should bump cache versions');
   assert.ok(index.indexOf('client/features/messages/message-domain.js') < index.indexOf('client/features/messages/quote-preview.js'), 'quote preview should load after message domain');  assert.ok(index.indexOf('client/features/messages/quote-preview.js') < index.indexOf('client/app/message-workflow.js'), 'quote preview should load before message workflow');
 }
 
@@ -1528,7 +1528,7 @@ function testMarkdownLiveStreamIsFeatureModule() {
   assert.ok(browserStreaming.includes('activeTableBlockStart') && browserStreaming.includes('isMarkdownTableDivider') && browserStreaming.includes('tableStart >= 0'), 'streaming Markdown should keep table blocks unstable until final render so tables are not split into paragraphs');
   assert.ok(browserStreaming.includes('tailTextNode.appendData') && browserStreaming.includes('STREAMING_TAIL_SCAN_LIMIT'), 'streaming Markdown should append cumulative tail deltas and bound expensive tail scans for huge unstable blocks');
   assert.ok(index.indexOf('client/features/messages/markdown-live-stream.js') < index.indexOf('client/app/message-workflow.js'), 'live stream feature should load before message workflow');
-  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.99-large-dispose') && index.includes('markdown-live-stream.js?v=1.0.4-large-dispose') && index.includes('message-workflow.js?v=1.3.40-canonical-large'), 'streaming table/smoothness fixes should bump browser cache versions');
+  assert.ok(index.includes('browser-streaming-renderer.js?v=1.2.99-large-dispose') && index.includes('markdown-live-stream.js?v=1.0.4-large-dispose') && index.includes('message-workflow.js?v=1.3.41-stream-settle-binding'), 'streaming table/smoothness fixes should bump browser cache versions');
 }
 
 function testStreamingMarkdownTablesRemainAtomicUntilFinal() {
@@ -1686,7 +1686,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.3-continuation-repair') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -2596,6 +2596,10 @@ async function testRuntimeVersionUsesService() {
   assert.strictEqual(version, '1.2.3');
   assert.strictEqual(calls[0][0], '/api/version');
   assert.deepStrictEqual(calls[0][1], { cache: 'no-store' });
+  const identifiedVersion = await runtimeService.requestAppVersion({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ version: '1.9.1', gitSha: 'abcdef1234567890', dirty: true }) }),
+  });
+  assert.strictEqual(identifiedVersion, '1.9.1+abcdef12.dirty', 'the visible version must distinguish a dirty local workspace from a release image');
 
   const runtime = fs.readFileSync(path.join(__dirname, '../../client/app/runtime.js'), 'utf8');
   const composition = fs.readFileSync(path.join(__dirname, '../../client/services/composition.js'), 'utf8');
@@ -2606,6 +2610,7 @@ async function testRuntimeVersionUsesService() {
   assert.ok(composition.includes('requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options))'), 'service composition should expose runtime version API');
   assert.ok(browser.includes('runtime: Object.freeze(runtime)'), 'browser service facade should expose runtime namespace');
   sourceAssertions.assertInOrder(index, './client/services/runtime-service.js', './client/services/composition.js', 'runtime service should load before service composition');
+  assert.ok(index.includes('runtime-service.js?v=1.1.0-build-identity'), 'the browser must load the build-identity-aware runtime service');
   sourceAssertions.assertInOrder(index, './client/services/browser.js', './client/app/runtime.js', 'service browser facade should load before runtime app workflow');
 }
 
@@ -2716,7 +2721,7 @@ function testReasoningCompletesBeforeAnswerStreaming() {
   assert.ok(chatSource.includes('updateReasoning(g,reasoningText,{done:!0'), 'answer streaming should update existing reasoning title to done before rendering answer text');
   assert.ok(chatSource.includes('S.set(mergeReasoning(e.reasoning||"")),I.set(mergeAnswer'), 'stream callbacks should process reasoning before answer content in the same chunk');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'chat stream reasoning-state fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'chat stream reasoning-state fix should bump cache versions');
 }
 
 function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
@@ -2725,7 +2730,7 @@ function testReasoningUnavailableWhenAnswerStartsWithoutReasoning() {
   assert.ok(chatSource.includes('showReasoningUnavailable(g)'), 'answer streaming without reasoning should immediately mark reasoning as unavailable');
   assert.ok(chatSource.includes('s=!!answerStarted'), 'late reasoning after answer start should render as completed, not thinking');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'empty-reasoning stream fix should bump cache versions');
+  assert.ok(index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'empty-reasoning stream fix should bump cache versions');
 }
 
 function testReasoningMenuCloseReleasesFocusBeforeAriaHidden() {
@@ -2955,7 +2960,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(t)') && regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)') && regenerate.includes('await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract'), 'force-image action should send the current user message through a validated v5 contract and canonical resource projection');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.40-canonical-large') && index.includes('regenerate-workflow.js?v=1.2.0-role-clarification') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('assets/chatui.bundle.css?v=1.3.162-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('regenerate-workflow.js?v=1.2.0-role-clarification') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('assets/chatui.bundle.css?v=1.3.162-stable-clarification-height') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3081,7 +3086,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.2-pending-fail-closed') && index.includes('chat-workflow.js?v=1.4.0-context-boundary') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.3-continuation-repair') && index.includes('chat-workflow.js?v=1.4.1-stream-settle-binding') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.1.56-encoding-integrity') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3180,6 +3185,7 @@ function testDockerfileIncludesSharedRuntimeModules() {
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
   assert.ok(dockerfile.includes('COPY server.js index.html route.html app.js styles.css favicon.svg ./'), 'Docker image must include route.html required by the route-diagram modal');
   assert.ok(dockerfile.includes('npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund'), 'Docker release build should omit optional native packages to avoid arm64 QEMU npm install crashes');
+  assert.ok(dockerfile.includes('CHATUI_BUILD_SHA=${CHATUI_BUILD_SHA}') && dockerfile.includes('CHATUI_SOURCE_REVISION=${CHATUI_SOURCE_REVISION}'), 'Docker image must carry the exact commit and runtime source fingerprint verified by CI');
 }
 
 function testSessionPersistenceKeepsNewestEditedImageAtSameResponseIndex() {

@@ -4748,3 +4748,56 @@ body.session-sidebar-collapsed{
     transition:none!important;
   }
 }
+
+/* Backup actions use the same compact control system as the rest of the config dialog. */
+#configModal .backup-config-actions{
+  align-items:stretch!important;
+}
+#configModal .backup-config-actions .backup-export-btn,
+#configModal .backup-config-actions .backup-import-label{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-width:118px!important;
+  height:38px!important;
+  min-height:38px!important;
+  padding:0 14px!important;
+  border-radius:8px!important;
+  box-sizing:border-box!important;
+  font:inherit!important;
+  font-size:13px!important;
+  font-weight:700!important;
+  line-height:1!important;
+  text-decoration:none!important;
+  box-shadow:none!important;
+  transition:background .15s,border-color .15s,color .15s!important;
+}
+#configModal .backup-config-actions .backup-export-btn{
+  border:1px solid var(--accent)!important;
+  background:var(--accent)!important;
+  color:#fff!important;
+}
+#configModal .backup-config-actions .backup-import-label{
+  border:1px solid var(--border)!important;
+  background:var(--surface)!important;
+  color:var(--text)!important;
+}
+#configModal .backup-config-actions .backup-export-btn:hover{
+  background:var(--accent-hover)!important;
+  border-color:var(--accent-hover)!important;
+}
+#configModal .backup-config-actions .backup-import-label:hover{
+  background:#f1f5f9!important;
+  border-color:#94a3b8!important;
+  color:var(--text)!important;
+}
+#configModal .backup-config-actions .backup-import-label:focus-visible{
+  outline:3px solid rgba(37,99,235,.22)!important;
+  outline-offset:2px!important;
+}
+@media (max-width:640px){
+  #configModal .backup-config-actions .backup-export-btn,
+  #configModal .backup-config-actions .backup-import-label{
+    width:100%!important;
+  }
+}

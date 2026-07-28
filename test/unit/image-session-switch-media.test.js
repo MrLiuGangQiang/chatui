@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const mediaWorkflow = require('../../client/app/media-workflow');
 const path = require('path');
+const { JSDOM } = require('jsdom');
 
 function testMediaWorkflowUsesExplicitDependencies() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'media-workflow.js'), 'utf8');
@@ -148,11 +149,26 @@ async function testLiveBlobHydrationDoesNotHideCompletedImage() {
   assert.strictEqual(getCalls(), 0, 'a live Blob URL already paired with its durable key does not need rehydration');
 }
 
+async function testImportedBlobHydratesRenderedHistoryImage() {
+  const restoredBlob = new Blob(['restored image'], { type: 'image/png' });
+  const { workflow } = createWorkflow({
+    getImageBlob: async key => key === 'restored-image' ? restoredBlob : null,
+  });
+  const dom = new JSDOM('<img class="generated-thumb image-restoring" src="data:image/gif;base64,transparent" data-persisted-src="indexeddb://restored-image" data-thumb-width="180" data-thumb-height="120" alt="已恢复图片">');
+  const image = dom.window.document.querySelector('img');
+
+  await workflow.resolvePersistedImages(dom.window.document);
+
+  assert.strictEqual(image.getAttribute('src'), 'blob:cached-1', 'a history image must be rehydrated from the imported IndexedDB Blob');
+  assert.strictEqual(image.dataset.persistedSrc, 'indexeddb://restored-image');
+  assert.strictEqual(image.classList.contains('image-missing'), false);
+}
+
 module.exports = [
   testMediaWorkflowUsesExplicitDependencies,
   testClarificationImagesBypassGenericStableMediaBox,
   testMediaWorkflowUsesInjectedTimerDependencies,
   testGeneratedObjectUrlSurvivesImmediateSessionSwitch,
   testLiveBlobHydrationDoesNotHideCompletedImage,
+  testImportedBlobHydratesRenderedHistoryImage,
 ];
-

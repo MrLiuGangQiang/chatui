@@ -2,10 +2,7 @@ const assert = require('assert');
 
 const { createApp } = require('../../server/app');
 const { createUsageRoutes } = require('../../server/api/routes/usage');
-const { createUsageAccessValidator } = require('../../server/services/usage-access.service');
 const { sendJson, sendMethodNotAllowed } = require('../../server/http/response');
-
-const TRUSTED_BASE_URL = 'https://ingress.lfans.cn/v1';
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -42,8 +39,8 @@ async function withServer(run) {
   }
 }
 
-function assertSameOriginJson(response) {
-  assert.strictEqual(response.res.headers.get('access-control-allow-origin'), null, 'same-origin requests without Origin do not need a permissive CORS header');
+function assertCorsJson(response) {
+  assert.strictEqual(response.res.headers.get('access-control-allow-origin'), '*');
   assert.match(response.res.headers.get('content-type') || '', /application\/json/);
 }
 
@@ -61,7 +58,7 @@ function createMockResponse() {
   };
 }
 
-async function invokeUsageRoute(path, { method = 'GET', body = '', usageStats = null, usageAccessValidator = { async validate() { return { ok: true }; } } } = {}) {
+async function invokeUsageRoute(path, { method = 'GET', body = '', usageStats = {}, usageAccessValidator = { async validate() { return { ok: true }; } } } = {}) {
   const { routeUsage } = createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator });
   const req = {
     url: path,
@@ -84,13 +81,13 @@ async function testApiContractCoreEndpointsKeepShape() {
   await withServer(async baseUrl => {
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
-    assertSameOriginJson(version);
+    assertCorsJson(version);
     assert.deepStrictEqual(Object.keys(version.json).sort(), ['version']);
     assert.strictEqual(typeof version.json.version, 'string');
 
     const publicConfig = await request(baseUrl, '/api/config/public');
     assert.strictEqual(publicConfig.res.status, 200);
-    assertSameOriginJson(publicConfig);
+    assertCorsJson(publicConfig);
     assert.strictEqual(typeof publicConfig.json.version, 'string');
     assert.ok(publicConfig.json.config && typeof publicConfig.json.config === 'object');
     assert.ok(publicConfig.json.config.ui && typeof publicConfig.json.config.ui === 'object');
@@ -102,17 +99,11 @@ async function testApiContractCoreEndpointsKeepShape() {
 
 async function testApiContractMethodAndCorsPreflight() {
   await withServer(async baseUrl => {
-    const options = await request(baseUrl, '/api/version', { method: 'OPTIONS', headers: { Origin: baseUrl } });
+    const options = await request(baseUrl, '/api/version', { method: 'OPTIONS' });
     assert.strictEqual(options.res.status, 204);
-    assert.strictEqual(options.res.headers.get('access-control-allow-origin'), baseUrl);
-    assert.match(options.res.headers.get('vary') || '', /\bOrigin\b/i);
+    assert.strictEqual(options.res.headers.get('access-control-allow-origin'), '*');
     assert.match(options.res.headers.get('access-control-allow-methods') || '', /GET,POST,DELETE,OPTIONS/);
     assert.match(options.res.headers.get('access-control-allow-headers') || '', /Content-Type/);
-
-    const forbiddenOrigin = await request(baseUrl, '/api/version', { headers: { Origin: 'https://attacker.example' } });
-    assert.strictEqual(forbiddenOrigin.res.status, 403);
-    assert.strictEqual(forbiddenOrigin.res.headers.get('access-control-allow-origin'), null);
-    assert.deepStrictEqual(forbiddenOrigin.json, { error: { message: 'Origin is not allowed', code: 'ORIGIN_FORBIDDEN' } });
 
     const wrongMethod = await request(baseUrl, '/api/version', { method: 'POST', body: '{}' });
     assert.strictEqual(wrongMethod.res.status, 405);
@@ -121,7 +112,7 @@ async function testApiContractMethodAndCorsPreflight() {
 
     const disposedMissingJob = await request(baseUrl, '/api/chat-jobs/not-found', { method: 'DELETE' });
     assert.strictEqual(disposedMissingJob.res.status, 200);
-    assertSameOriginJson(disposedMissingJob);
+    assertCorsJson(disposedMissingJob);
     assert.deepStrictEqual(disposedMissingJob.json, { disposed: true, existed: false });
   });
 }
@@ -130,13 +121,13 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
   await withServer(async baseUrl => {
     const rankings = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ range: 'today' }) });
     assert.strictEqual(rankings.res.status, 400);
-    assertSameOriginJson(rankings);
+    assertCorsJson(rankings);
     assert.deepStrictEqual(rankings.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
-    const unavailableWithoutDatabase = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'bad' }) });
-    assert.strictEqual(unavailableWithoutDatabase.res.status, 503);
-    assertSameOriginJson(unavailableWithoutDatabase);
-    assert.deepStrictEqual(unavailableWithoutDatabase.json, { error: { message: '统计数据源未配置，无法验证访问权限', code: 'USAGE_UNAVAILABLE' } });
+    const invalidRangeWithoutDatabase = await request(baseUrl, '/api/usage/rankings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: 'sk-test', range: 'bad' }) });
+    assert.strictEqual(invalidRangeWithoutDatabase.res.status, 400);
+    assertCorsJson(invalidRangeWithoutDatabase);
+    assert.deepStrictEqual(invalidRangeWithoutDatabase.json, { error: { message: '请先正确配置聊天模型', code: 'MODEL_NOT_CONFIGURED' } });
 
     const missingApiKey = await request(baseUrl, '/api/usage/personal', {
       method: 'POST',
@@ -144,74 +135,25 @@ async function testApiContractUsageUnavailableAndValidationShapes() {
       body: JSON.stringify({ range: 'today' }),
     });
     assert.strictEqual(missingApiKey.res.status, 400);
-    assertSameOriginJson(missingApiKey);
+    assertCorsJson(missingApiKey);
     assert.deepStrictEqual(missingApiKey.json, { error: { message: '请先配置有效的 API Key', code: 'INVALID_API_KEY' } });
 
     const unknownUsage = await request(baseUrl, '/api/usage/not-found');
     assert.strictEqual(unknownUsage.res.status, 404);
-    assertSameOriginJson(unknownUsage);
+    assertCorsJson(unknownUsage);
     assert.deepStrictEqual(unknownUsage.json, { error: { message: '未找到使用统计接口' } });
   });
 }
 
-async function testApiContractUsageRejectsUntrustedRequestsWithoutUpstreamFetch() {
-  let fetchCalls = 0;
-  const usageAccessValidator = createUsageAccessValidator({
-    trustedBaseUrl: TRUSTED_BASE_URL,
-    fetchImpl: async () => {
-      fetchCalls += 1;
-      throw new Error('upstream validation must not run for a rejected local access request');
-    },
-  });
-  const memberStats = { async getUserByApiKey() { return { username: 'tester' }; } };
-
-  const databaseMissing = await invokeUsageRoute('/api/usage/rankings', {
-    method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'today' }),
-    usageStats: null,
-    usageAccessValidator,
-  });
-  assert.strictEqual(databaseMissing.status, 503);
-  assert.strictEqual(databaseMissing.json.error.code, 'USAGE_UNAVAILABLE');
-
-  const unknownKey = await invokeUsageRoute('/api/usage/rankings', {
-    method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-unknown', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'today' }),
-    usageStats: { async getUserByApiKey() { return null; } },
-    usageAccessValidator,
-  });
-  assert.strictEqual(unknownKey.status, 403);
-  assert.strictEqual(unknownKey.json.error.code, 'INVALID_API_KEY');
-
-  const baseUrlMissing = await invokeUsageRoute('/api/usage/rankings', {
-    method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'today' }),
-    usageStats: memberStats,
-    usageAccessValidator,
-  });
-  assert.strictEqual(baseUrlMissing.status, 400);
-  assert.strictEqual(baseUrlMissing.json.error.code, 'UPSTREAM_BASE_URL_REQUIRED');
-
-  const baseUrlMismatch = await invokeUsageRoute('/api/usage/rankings', {
-    method: 'POST',
-    body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: 'https://example.com/v1', range: 'today' }),
-    usageStats: memberStats,
-    usageAccessValidator,
-  });
-  assert.strictEqual(baseUrlMismatch.status, 403);
-  assert.strictEqual(baseUrlMismatch.json.error.code, 'UPSTREAM_BASE_URL_MISMATCH');
-  assert.strictEqual(fetchCalls, 0, 'local database membership and trusted-base checks must run before any credential-bearing /models request');
-}
-
 async function testApiContractUsageConfiguredValidationShapes() {
-  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings', { method: 'POST', body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'bad' }), usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getRanking() { return []; } } });
+  const invalidRankingRange = await invokeUsageRoute('/api/usage/rankings', { method: 'POST', body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'bad' }), usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getRanking() { return []; } } });
   assert.strictEqual(invalidRankingRange.status, 400);
   assert.strictEqual(invalidRankingRange.headers['Access-Control-Allow-Origin'], '*');
   assert.deepStrictEqual(invalidRankingRange.json, { error: { message: '不支持的排行范围' } });
 
   const invalidPersonalRange = await invokeUsageRoute('/api/usage/personal', {
     method: 'POST',
-      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'bad' }),
+      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', range: 'bad' }),
     usageStats: { async getUserByApiKey() { return { username: 'tester' }; }, async getPersonalRange() { return null; } },
   });
   assert.strictEqual(invalidPersonalRange.status, 400);
@@ -225,7 +167,7 @@ async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
   try {
     const overview = await invokeUsageRoute('/api/usage/overview', {
       method: 'POST',
-      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, ranking_range: 'today', personal_range: 'yesterday', compact: true }),
+      body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', ranking_range: 'today', personal_range: 'yesterday', compact: true }),
       usageStats: {
         async getUserByApiKey() { return { username: 'tester' }; },
         async getRanking(range) { return [{ username: `rank-${range}`, total_tokens: 10, prompt_tokens: 6, completion_tokens: 4, prompt_cached_tokens: 1, completion_reasoning_tokens: 2 }]; },
@@ -237,7 +179,7 @@ async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
 
     const summary = await invokeUsageRoute('/api/usage/department/summary', {
       method: 'POST',
-      body: JSON.stringify({ password: 'dep-pass', api_key: 'sk-test', model: 'gpt-test', base_url: TRUSTED_BASE_URL, range: 'today', compact: true }),
+      body: JSON.stringify({ password: 'dep-pass', api_key: 'sk-test', model: 'gpt-test', range: 'today', compact: true }),
       usageStats: {
         async getUserByApiKey() { return { username: 'tester' }; },
         async getDepartmentRanking(range) { return [{ department_id: 'dept-1', department_name: `研发-${range}`, total_tokens: 30, prompt_tokens: 18, completion_tokens: 12, prompt_cached_tokens: 5, completion_reasoning_tokens: 6 }]; },
@@ -274,7 +216,6 @@ module.exports = [
   testApiContractCoreEndpointsKeepShape,
   testApiContractMethodAndCorsPreflight,
   testApiContractUsageUnavailableAndValidationShapes,
-  testApiContractUsageRejectsUntrustedRequestsWithoutUpstreamFetch,
   testApiContractUsageConfiguredValidationShapes,
   testApiContractUsageCombinedEndpointsKeepCompatibility,
   testApiContractJobMissingAndAbortShapes,

@@ -263,17 +263,7 @@
         if (event.status === 'done') {
           const data = event.data && typeof event.data === 'object' ? { ...event.data, metrics: event.metrics || event.data.metrics || {} } : event.data;
           finish(resolve, data);
-        } else if (event.status === 'error') {
-          const message = String(event.error?.message || '');
-          // Image results can exceed the SSE subscriber buffer because the
-          // completed event contains base64 data. The server deliberately
-          // asks clients to use the query endpoint; do that here instead of
-          // surfacing a false terminal failure to the user.
-          if (pollJob && /任务事件过大，请改用任务查询接口获取结果/.test(message)) {
-            try { source?.close(); } catch {}
-            poll();
-          } else finish(reject, makeTerminalJobError(message));
-        }
+        } else if (event.status === 'error') finish(reject, makeTerminalJobError(event.error?.message));
       };
       const poll = async () => {
         if (done || !pollJob || isPageUnloading()) return;

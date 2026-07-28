@@ -1,13 +1,8 @@
 const { Pool } = require('pg');
-const { nonNegativeInteger, portNumber, positiveInteger, timeoutMilliseconds } = require('../config/numbers');
 
-function parsePostgresSsl(value) {
-  const mode = String(value ?? '').trim().toLowerCase();
-  if (!mode) return undefined;
-  if (['0', 'false', 'no', 'off', 'disable'].includes(mode)) return false;
-  if (['1', 'true', 'yes', 'on', 'require'].includes(mode)) return { rejectUnauthorized: false };
-  if (['verify-ca', 'verify-full'].includes(mode)) return { rejectUnauthorized: true };
-  throw new TypeError(`Unsupported PostgreSQL SSL mode: ${mode}`);
+function normalizeBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 
 function createPostgresConfig(env = process.env) {
@@ -16,12 +11,13 @@ function createPostgresConfig(env = process.env) {
   const database = String(env.PGDATABASE || env.POSTGRES_DATABASE || '').trim();
   const user = String(env.PGUSER || env.POSTGRES_USER || '').trim();
   const password = String(env.PGPASSWORD || env.POSTGRES_PASSWORD || '').trim();
-  const port = portNumber(env.PGPORT || env.POSTGRES_PORT, 5432);
-  const max = positiveInteger(env.PG_POOL_MAX || env.POSTGRES_POOL_MAX, 10, { max: 10_000 });
-  const min = Math.min(nonNegativeInteger(env.PG_POOL_MIN || env.POSTGRES_POOL_MIN, 0, { max: 10_000 }), max);
-  const idleTimeoutMillis = timeoutMilliseconds(env.PG_IDLE_TIMEOUT_MS || env.POSTGRES_IDLE_TIMEOUT_MS, 30000);
-  const connectionTimeoutMillis = timeoutMilliseconds(env.PG_CONNECTION_TIMEOUT_MS || env.POSTGRES_CONNECTION_TIMEOUT_MS, 5000);
-  const ssl = parsePostgresSsl(String(env.PGSSL || '').trim() ? env.PGSSL : env.POSTGRES_SSL);
+  const port = Number(env.PGPORT || env.POSTGRES_PORT || 5432);
+  const min = Number(env.PG_POOL_MIN || env.POSTGRES_POOL_MIN || 0);
+  const max = Number(env.PG_POOL_MAX || env.POSTGRES_POOL_MAX || 10);
+  const idleTimeoutMillis = Number(env.PG_IDLE_TIMEOUT_MS || env.POSTGRES_IDLE_TIMEOUT_MS || 30000);
+  const connectionTimeoutMillis = Number(env.PG_CONNECTION_TIMEOUT_MS || env.POSTGRES_CONNECTION_TIMEOUT_MS || 5000);
+  const sslMode = String(env.PGSSL || env.POSTGRES_SSL || '').trim().toLowerCase();
+  const ssl = sslMode ? normalizeBoolean(sslMode) || sslMode === 'require' ? { rejectUnauthorized: false } : false : undefined;
 
   const enabled = !!connectionString || !!(host && database && user);
   if (!enabled) return { enabled: false };
@@ -41,9 +37,7 @@ function createPostgresConfig(env = process.env) {
 
 function createPostgresPool(config = createPostgresConfig()) {
   if (!config.enabled) return null;
-  const pool = new Pool(config.pool);
-  pool.on('error', err => console.error('[postgres] idle client error:', err?.message || 'database connection error'));
-  return pool;
+  return new Pool(config.pool);
 }
 
-module.exports = { createPostgresConfig, createPostgresPool, parsePostgresSsl };
+module.exports = { createPostgresConfig, createPostgresPool };

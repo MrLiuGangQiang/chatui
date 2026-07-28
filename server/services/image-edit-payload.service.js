@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-
 function isDataUrlLike(value) {
   return typeof value === 'string' && /^data:[^,]+;base64,/i.test(value.trim());
 }
@@ -187,7 +185,7 @@ function imageFileToDataUrl(file = {}) {
   const rawData = String(file.data || '').trim();
   const base64 = normalizeImageBase64Data(file);
   const dataUrlType = isDataUrlLike(rawData) ? rawData.match(/^data:([^;,]+)/i)?.[1] : '';
-  const contentType = safeMultipartContentType(dataUrlType || file.type);
+  const contentType = dataUrlType || safeMultipartContentType(file.type);
   return `data:${contentType};base64,${base64}`;
 }
 
@@ -200,7 +198,7 @@ function normalizeImageEditFieldValue(key, value) {
 }
 
 function multipartBoundary() {
-  return `chatui-${crypto.randomBytes(18).toString('hex')}`;
+  return `chatui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function multipartHeaderValue(value = '') {

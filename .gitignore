@@ -4,7 +4,6 @@ node_modules/
 *.pid
 .env
 .env.*
-!.env.example
 business/
 temp/
 coverage/

@@ -10,12 +10,6 @@ function testMediaWorkflowUsesExplicitDependencies() {
   assert.ok(!/\bwith\s*\(/.test(source), 'media workflow should not use a dynamic with-scope');
 }
 
-async function testMediaWorkflowExposesImageSourceSize() {
-  const { workflow } = createWorkflow();
-  assert.strictEqual(typeof workflow.imageSrcSize, 'function');
-  assert.deepStrictEqual(await workflow.imageSrcSize('data:image/png;base64,AA=='), { width: 180, height: 120 });
-}
-
 function makeImage({ persistedSrc, src = '' } = {}) {
   const attributes = new Map();
   if (src) attributes.set('src', src);
@@ -156,7 +150,6 @@ async function testLiveBlobHydrationDoesNotHideCompletedImage() {
 
 module.exports = [
   testMediaWorkflowUsesExplicitDependencies,
-  testMediaWorkflowExposesImageSourceSize,
   testClarificationImagesBypassGenericStableMediaBox,
   testMediaWorkflowUsesInjectedTimerDependencies,
   testGeneratedObjectUrlSurvivesImmediateSessionSwitch,

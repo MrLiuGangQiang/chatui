@@ -18,7 +18,6 @@
   } = format;
   const {
     currentApiKey: readCurrentApiKey,
-    currentBaseUrl: readCurrentBaseUrl,
     shouldLoadRanking,
     getDepartmentPassword,
     setDepartmentPassword,
@@ -27,10 +26,6 @@
 
   function currentApiKey() {
     return readCurrentApiKey({ getElement: $ });
-  }
-
-  function currentBaseUrl() {
-    return readCurrentBaseUrl({ getElement: $ });
   }
 
   function currentModel() {
@@ -237,77 +232,18 @@
     cache.fetchedAt[key] = Date.now();
   }
 
-  function accessContext({ apiKey = currentApiKey(), model = currentModel(), baseUrl = currentBaseUrl(), password = '' } = {}) {
-    const normalized = {
-      apiKey: String(apiKey || '').trim(),
-      model: String(model || '').trim(),
-      baseUrl: String(baseUrl || '').trim(),
-      password: String(password || '').trim(),
-    };
-    // This cache is in-memory only. Keep an exact, unambiguous identity instead
-    // of a short hash so distinct credentials can never share cached results.
-    return { ...normalized, key: JSON.stringify([normalized.apiKey, normalized.model, normalized.baseUrl, normalized.password]) };
-  }
-
-  function rankingCacheKey(range, context = accessContext()) {
-    return `ranking:${context.key}:${range}`;
-  }
-
-  function personalCacheKey(range, apiKey = currentApiKey(), baseUrl = currentBaseUrl(), model = currentModel()) {
-    return `personal:${accessContext({ apiKey, baseUrl, model }).key}:${range}`;
-  }
-
-  function departmentRankingCacheKey(range, context = accessContext()) {
-    return `department:ranking:${context.key}:${range}`;
-  }
-
-  function departmentUsersCacheKey(range, departmentId, context = accessContext()) {
-    return `department:users:${context.key}:${range}:${String(departmentId || '')}`;
-  }
-
-  let usageRequestSequence = 0;
-  const latestUsageRequests = new Map();
-  const STALE_USAGE_REQUEST = Symbol('stale-usage-request');
-
-  function beginUsageRequest(channel) {
-    const token = ++usageRequestSequence;
-    latestUsageRequests.set(channel, token);
-    return token;
-  }
-
-  function invalidateUsageRequest(channel) {
-    const token = ++usageRequestSequence;
-    latestUsageRequests.set(channel, token);
-    return token;
-  }
-
-  function isLatestUsageRequest(channel, token) {
-    return latestUsageRequests.get(channel) === token;
-  }
-
-  function invalidateAllUsageRequests() {
-    ['overview', 'ranking', 'personal', 'department-access', 'department-ranking', 'department-users', 'department-export', 'refresh', 'mode'].forEach(invalidateUsageRequest);
-  }
-
-  function currentUsageContextKey(password = '') {
-    return accessContext({ password }).key;
-  }
-
-  function requestViewIsCurrent(channel, token, { mode, range, personalRange, password = '', contextKey } = {}) {
-    if (!isLatestUsageRequest(channel, token) || currentUsageContextKey(password) !== contextKey) return false;
-    if (activeMode !== mode) return false;
-    if (mode === 'department') return activeDepartmentRange === range;
-    return activeRange === range && activePersonalRange === personalRange;
-  }
-
-  async function awaitUsageRequest(request, isCurrent) {
-    try {
-      const result = await request();
-      return isCurrent() ? result : STALE_USAGE_REQUEST;
-    } catch (error) {
-      if (!isCurrent()) return STALE_USAGE_REQUEST;
-      throw error;
+  function shortHash(value = '') {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
     }
+    return (hash >>> 0).toString(36);
+  }
+
+  function personalCacheKey(range, apiKey = currentApiKey()) {
+    return `personal:${shortHash(apiKey)}:${range}`;
   }
 
   function usageService() {
@@ -365,7 +301,7 @@
     submit && (submit.disabled = true);
     setFeedbackStatus('正在发送…');
     try {
-      await usageService()?.submitFeedback(content, currentApiKey(), currentModel(), currentBaseUrl());
+      await usageService()?.submitFeedback(content, currentApiKey(), currentModel());
       $('usageFeedbackContent').value = '';
       updateFeedbackCount();
       setFeedbackStatus('反馈已发送，感谢你的反馈。');
@@ -381,15 +317,10 @@
     return viewHelpers.modeToggleIcon(activeMode);
   }
 
-  async function promptAndVerifyDepartmentPassword(isCurrent = () => true) {
+  async function promptAndVerifyDepartmentPassword() {
     const password = String(window.prompt('请输入部门统计访问密码') || '').trim();
-    if (!password || !isCurrent()) return false;
-    const context = accessContext();
-    const payload = await awaitUsageRequest(
-      () => usageService().verifyDepartmentPassword(password, context.apiKey, context.model, context.baseUrl),
-      isCurrent,
-    );
-    if (payload === STALE_USAGE_REQUEST || !isCurrent()) return false;
+    if (!password) return false;
+    const payload = await usageService().verifyDepartmentPassword(password, currentApiKey(), currentModel());
     if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
     if (!payload?.authorized) throw new Error('密码错误，无权限访问');
     setDepartmentPassword(password);
@@ -397,270 +328,177 @@
     return true;
   }
 
-  async function ensureDepartmentAccess(isCurrent = () => true) {
+  async function ensureDepartmentAccess() {
     const savedPassword = getDepartmentPassword();
     if (savedPassword) {
-      const context = accessContext({ password: savedPassword });
-      const payload = await awaitUsageRequest(
-        () => usageService().verifyDepartmentPassword(savedPassword, context.apiKey, context.model, context.baseUrl),
-        isCurrent,
-      );
-      if (payload === STALE_USAGE_REQUEST || !isCurrent()) return false;
-      if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
-      if (payload?.authorized) return true;
+      try {
+        const payload = await usageService().verifyDepartmentPassword(savedPassword, currentApiKey(), currentModel());
+        if (!payload?.available) throw new Error(payload?.reason || '部门统计未启用');
+        if (payload?.authorized) return true;
+      } catch (err) {
+        if (!String(err.message || '').includes('密码错误')) throw err;
+      }
       clearDepartmentPassword();
       clearDepartmentCache();
-      if (isCurrent()) showUsageLimit('已保存的部门统计密码无效，请重新输入');
+      showUsageLimit('已保存的部门统计密码无效，请重新输入');
     }
-    return promptAndVerifyDepartmentPassword(isCurrent);
+    return promptAndVerifyDepartmentPassword();
   }
 
-  // Scope every view request to its current UI context so an older response cannot mutate
-  // either the active DOM or its cache after a range, mode, or endpoint change.
   async function loadRanking(range, options = {}) {
-    const context = accessContext();
-    const token = beginUsageRequest('ranking');
-    const isCurrent = () => requestViewIsCurrent('ranking', token, {
-      mode: 'personal', range, personalRange: activePersonalRange, contextKey: context.key,
-    });
-    const cacheKey = rankingCacheKey(range, context);
-    if (!shouldLoadRanking(context.apiKey)) {
-      if (isCurrent()) {
-        cache.rankings[cacheKey] = [];
-        renderRanking([], range);
-      }
-      return;
-    }
-    if (!options.force && cacheFresh(cacheKey) && cache.rankings[cacheKey]) {
-      if (isCurrent()) renderRanking(cache.rankings[cacheKey], range);
-      return;
-    }
-    const payload = await awaitUsageRequest(
-      () => usageService().requestRanking(context.apiKey, context.model, range, context.baseUrl),
-      isCurrent,
-    );
-    if (payload === STALE_USAGE_REQUEST) return;
-    if (payload.limited) {
-      if (!isCurrent()) return;
-      showUsageLimit(payload.message);
-      renderRanking(cache.rankings[cacheKey] || [], range);
-      return;
-    }
-    if (!payload.available) {
-      if (!isCurrent()) return;
-      cache.rankings[cacheKey] = [];
+    if (!shouldLoadRanking(currentApiKey())) {
+      cache.rankings[range] = [];
       renderRanking([], range);
       return;
     }
-    if (!isCurrent()) return;
-    cache.rankings[cacheKey] = payload.ranking || [];
+    const cacheKey = `ranking:${range}`;
+    if (!options.force && cacheFresh(cacheKey) && cache.rankings[range]) {
+      renderRanking(cache.rankings[range], range);
+      return;
+    }
+    const payload = await usageService().requestRanking(currentApiKey(), currentModel(), range);
+    if (payload.limited) {
+      showUsageLimit(payload.message);
+      renderRanking(cache.rankings[range] || [], range);
+      return;
+    }
+    if (!payload.available) {
+      cache.rankings[range] = [];
+      renderRanking([], range);
+      return;
+    }
+    cache.rankings[range] = payload.ranking || [];
     markFetched(cacheKey);
-    renderRanking(cache.rankings[cacheKey], range);
+    renderRanking(cache.rankings[range], range);
   }
 
   async function loadPersonal(range, options = {}) {
-    const context = accessContext();
-    const token = beginUsageRequest('personal');
-    const isCurrent = () => requestViewIsCurrent('personal', token, {
-      mode: 'personal', range: activeRange, personalRange: range, contextKey: context.key,
-    });
-    if (!context.apiKey) {
-      if (isCurrent()) renderPersonal(null, false);
+    const apiKey = currentApiKey();
+    if (!apiKey) {
+      renderPersonal(null, false);
       return;
     }
-    const cacheKey = personalCacheKey(range, context.apiKey, context.baseUrl, context.model);
+    const cacheKey = personalCacheKey(range, apiKey);
     if (!options.force && cacheFresh(cacheKey) && Object.prototype.hasOwnProperty.call(cache.personal, cacheKey)) {
-      if (isCurrent()) renderPersonal(cache.personal[cacheKey] || null, true);
+      renderPersonal(cache.personal[cacheKey] || null, true);
       return;
     }
-    const payload = await awaitUsageRequest(
-      () => usageService().requestPersonal(context.apiKey, context.model, range, context.baseUrl),
-      isCurrent,
-    );
-    if (payload === STALE_USAGE_REQUEST) return;
+    const payload = await usageService().requestPersonal(apiKey, currentModel(), range);
     if (payload.limited) {
-      if (!isCurrent()) return;
       showUsageLimit(payload.message);
       renderPersonal(cache.personal[cacheKey] || null, true);
       return;
     }
-    if (!isCurrent()) return;
     cache.personal[cacheKey] = payload?.personal || null;
     markFetched(cacheKey);
     renderPersonal(cache.personal[cacheKey], true);
   }
 
   async function loadOverview(options = {}) {
-    const context = accessContext();
-    const rankingRange = activeRange;
-    const personalRange = activePersonalRange;
-    const rankingToken = beginUsageRequest('ranking');
-    const personalToken = beginUsageRequest('personal');
-    const isRankingCurrent = () => requestViewIsCurrent('ranking', rankingToken, {
-      mode: 'personal', range: rankingRange, personalRange, contextKey: context.key,
-    });
-    const isPersonalCurrent = () => requestViewIsCurrent('personal', personalToken, {
-      mode: 'personal', range: rankingRange, personalRange, contextKey: context.key,
-    });
-    const rankingKey = rankingCacheKey(rankingRange, context);
-    const personalKey = personalCacheKey(personalRange, context.apiKey, context.baseUrl, context.model);
-    if (!context.apiKey) {
-      if (isRankingCurrent()) {
-        cache.rankings[rankingKey] = [];
-        renderRanking([], rankingRange);
-      }
-      if (isPersonalCurrent()) renderPersonal(null, false);
+    const apiKey = currentApiKey();
+    if (!apiKey) {
+      cache.rankings[activeRange] = [];
+      renderRanking([], activeRange);
+      renderPersonal(null, false);
       return;
     }
-    if (!options.force && cacheFresh(rankingKey) && cacheFresh(personalKey)
-      && cache.rankings[rankingKey] && Object.prototype.hasOwnProperty.call(cache.personal, personalKey)) {
-      if (isRankingCurrent()) renderRanking(cache.rankings[rankingKey], rankingRange);
-      if (isPersonalCurrent()) renderPersonal(cache.personal[personalKey] || null, true);
+    const rankingKey = `ranking:${activeRange}`;
+    const personalKey = personalCacheKey(activePersonalRange, apiKey);
+    if (!options.force && cacheFresh(rankingKey) && cacheFresh(personalKey) && cache.rankings[activeRange] && Object.prototype.hasOwnProperty.call(cache.personal, personalKey)) {
+      renderRanking(cache.rankings[activeRange], activeRange);
+      renderPersonal(cache.personal[personalKey] || null, true);
       return;
     }
     const service = usageService();
     if (!service?.requestOverview) {
-      await Promise.all([loadRanking(rankingRange, options), loadPersonal(personalRange, options)]);
+      await Promise.all([loadRanking(activeRange, options), loadPersonal(activePersonalRange, options)]);
       return;
     }
-    const payload = await awaitUsageRequest(
-      () => service.requestOverview(context.apiKey, context.model, rankingRange, personalRange, context.baseUrl),
-      () => isRankingCurrent() || isPersonalCurrent(),
-    );
-    if (payload === STALE_USAGE_REQUEST) return;
+    const payload = await service.requestOverview(apiKey, currentModel(), activeRange, activePersonalRange);
     if (payload.limited) {
-      if (!isRankingCurrent() && !isPersonalCurrent()) return;
       showUsageLimit(payload.message);
-      if (isRankingCurrent()) renderRanking(cache.rankings[rankingKey] || [], rankingRange);
-      if (isPersonalCurrent()) renderPersonal(cache.personal[personalKey] || null, true);
+      renderRanking(cache.rankings[activeRange] || [], activeRange);
+      renderPersonal(cache.personal[personalKey] || null, true);
       return;
     }
     if (!payload.available) {
-      if (isRankingCurrent()) {
-        cache.rankings[rankingKey] = [];
-        renderRanking([], rankingRange);
-      }
-      if (isPersonalCurrent()) {
-        cache.personal[personalKey] = null;
-        renderPersonal(null, true);
-      }
+      cache.rankings[activeRange] = [];
+      cache.personal[personalKey] = null;
+      renderRanking([], activeRange);
+      renderPersonal(null, true);
       return;
     }
-    if (isRankingCurrent()) {
-      cache.rankings[rankingKey] = payload.ranking || [];
-      markFetched(rankingKey);
-      renderRanking(cache.rankings[rankingKey], rankingRange);
-    }
-    if (isPersonalCurrent()) {
-      cache.personal[personalKey] = payload.personal || null;
-      markFetched(personalKey);
-      renderPersonal(cache.personal[personalKey], true);
-    }
+    cache.rankings[activeRange] = payload.ranking || [];
+    cache.personal[personalKey] = payload.personal || null;
+    markFetched(rankingKey);
+    markFetched(personalKey);
+    renderRanking(cache.rankings[activeRange], activeRange);
+    renderPersonal(cache.personal[personalKey], true);
   }
 
   async function loadDepartmentRanking(range, options = {}) {
     const password = getDepartmentPassword();
-    const context = accessContext({ password });
-    const token = beginUsageRequest('department-ranking');
-    const isCurrent = () => requestViewIsCurrent('department-ranking', token, {
-      mode: 'department', range, password: context.password, contextKey: context.key,
-    });
-    const cacheKey = departmentRankingCacheKey(range, context);
-    if (!options.force && cacheFresh(cacheKey) && cache.departmentRankings[cacheKey]) {
-      if (isCurrent()) renderRanking(cache.departmentRankings[cacheKey], range);
+    const cacheKey = `department:ranking:${range}`;
+    if (!options.force && cacheFresh(cacheKey) && cache.departmentRankings[range]) {
+      renderRanking(cache.departmentRankings[range], range);
       return;
     }
     const service = usageService();
-    const payload = await awaitUsageRequest(
-      () => service?.requestDepartmentSummary
-        ? service.requestDepartmentSummary(context.password, context.apiKey, context.model, range, context.baseUrl)
-        : service.requestDepartmentRanking(context.password, context.apiKey, context.model, range, context.baseUrl),
-      isCurrent,
-    );
-    if (payload === STALE_USAGE_REQUEST) return;
+    const payload = service?.requestDepartmentSummary
+      ? await service.requestDepartmentSummary(password, currentApiKey(), currentModel(), range)
+      : await service.requestDepartmentRanking(password, currentApiKey(), currentModel(), range);
     if (payload.limited) {
-      if (!isCurrent()) return;
       showUsageLimit(payload.message);
-      renderRanking(cache.departmentRankings[cacheKey] || [], range);
+      renderRanking(cache.departmentRankings[range] || [], range);
       return;
     }
     if (!payload.available) {
-      if (!isCurrent()) return;
-      cache.departmentRankings[cacheKey] = [];
+      cache.departmentRankings[range] = [];
       renderRanking([], range);
       showUsageLimit(payload.reason || '部门统计不可用');
       return;
     }
-    if (!isCurrent()) return;
-    cache.departmentRankings[cacheKey] = payload.ranking || [];
+    cache.departmentRankings[range] = payload.ranking || [];
     markFetched(cacheKey);
-    renderRanking(cache.departmentRankings[cacheKey], range);
+    renderRanking(cache.departmentRankings[range], range);
   }
 
   async function loadDepartmentUsers(departmentId, departmentName) {
-    const range = activeDepartmentRange;
-    const password = getDepartmentPassword();
-    const context = accessContext({ password });
-    const token = beginUsageRequest('department-users');
-    const isCurrent = () => isLatestUsageRequest('department-users', token)
-      && activeMode === 'department'
-      && activeDepartmentRange === range
-      && currentUsageContextKey(context.password) === context.key;
-    const cacheKey = departmentUsersCacheKey(range, departmentId, context);
+    const cacheKey = `${activeDepartmentRange}:${departmentId}`;
     if (cache.departmentUsers[cacheKey]) {
-      if (isCurrent()) renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
+      renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
       return;
     }
-    const payload = await awaitUsageRequest(
-      () => usageService().requestDepartmentUsers(context.password, context.apiKey, context.model, departmentId, range, context.baseUrl),
-      isCurrent,
-    );
-    if (payload === STALE_USAGE_REQUEST) return;
+    const payload = await usageService().requestDepartmentUsers(getDepartmentPassword(), currentApiKey(), currentModel(), departmentId, activeDepartmentRange);
     if (payload.limited) {
-      if (!isCurrent()) return;
       showUsageLimit(payload.message);
       renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey] || []);
       return;
     }
-    if (!isCurrent()) return;
     cache.departmentUsers[cacheKey] = payload.users || [];
     renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
   }
 
   async function refreshUsageStats() {
     const refresh = $('usageStatsRefresh');
-    const token = beginUsageRequest('refresh');
-    const mode = activeMode;
-    const range = activeRange;
-    const personalRange = activePersonalRange;
-    const departmentRange = activeDepartmentRange;
-    const contextKey = currentUsageContextKey(activeMode === 'department' ? getDepartmentPassword() : '');
-    const isCurrent = () => isLatestUsageRequest('refresh', token)
-      && activeMode === mode
-      && activeRange === range
-      && activePersonalRange === personalRange
-      && activeDepartmentRange === departmentRange
-      && currentUsageContextKey(activeMode === 'department' ? getDepartmentPassword() : '') === contextKey;
     clearUsageLimit();
     refresh?.classList.add('is-spinning');
     refresh && (refresh.disabled = true);
     try {
-      if (mode === 'department') await loadDepartmentRanking(departmentRange, { force: true });
-      else await loadOverview({ force: true });
+      if (activeMode === 'department') {
+        await loadDepartmentRanking(activeDepartmentRange, { force: true });
+      } else {
+        await loadOverview({ force: true });
+      }
     } catch (err) {
-      if (!isCurrent()) return;
       if (String(err.message || '').includes('密码错误')) {
         clearDepartmentPassword();
         clearDepartmentCache();
       }
       showUsageLimit(err.message || '加载失败');
     } finally {
-      // A view change makes the response stale, but the operation still owns the
-      // refresh control unless a newer refresh has started.
-      if (isLatestUsageRequest('refresh', token)) {
-        refresh?.classList.remove('is-spinning');
-        refresh && (refresh.disabled = false);
-      }
+      refresh?.classList.remove('is-spinning');
+      refresh && (refresh.disabled = false);
     }
   }
 
@@ -680,27 +518,15 @@
 
   async function switchMode() {
     clearUsageLimit();
-    const token = beginUsageRequest('mode');
-    const expectedMode = activeMode;
-    // Entering department mode stores a password after this token is created;
-    // the mode transition itself must remain valid across that expected change.
-    const contextKey = currentUsageContextKey('');
-    const isCurrent = () => isLatestUsageRequest('mode', token)
-      && activeMode === expectedMode
-      && currentUsageContextKey('') === contextKey;
-    if (expectedMode === 'personal') {
-      invalidateUsageRequest('ranking');
-      invalidateUsageRequest('personal');
-      invalidateUsageRequest('overview');
+    if (activeMode === 'personal') {
       try {
-        const ok = await ensureDepartmentAccess(isCurrent);
-        if (!ok || !isCurrent()) return;
+        const ok = await ensureDepartmentAccess();
+        if (!ok) return;
         activeMode = 'department';
         updateModeUi();
         renderPersonal(null, true);
         await loadDepartmentRanking(activeDepartmentRange);
       } catch (err) {
-        if (!isCurrent()) return;
         if (String(err.message || '').includes('密码错误')) {
           clearDepartmentPassword();
           clearDepartmentCache();
@@ -709,8 +535,6 @@
       }
       return;
     }
-    invalidateUsageRequest('department-ranking');
-    invalidateUsageRequest('department-users');
     activeMode = 'personal';
     updateModeUi();
     await refreshUsageStats();
@@ -728,12 +552,8 @@
   }
 
   async function handleUsageTabClick(button) {
-    if (activeMode === 'department') {
-      activeDepartmentRange = button.dataset.usageTab || 'today';
-      invalidateUsageRequest('department-users');
-    } else {
-      activeRange = button.dataset.usageTab || 'today';
-    }
+    if (activeMode === 'department') activeDepartmentRange = button.dataset.usageTab || 'today';
+    else activeRange = button.dataset.usageTab || 'today';
     document.querySelectorAll('[data-usage-tab]').forEach(item => item.classList.toggle('active', item === button));
     try {
       clearUsageLimit();
@@ -757,7 +577,7 @@
         clearDepartmentPassword();
         clearDepartmentCache();
       }
-      showUsageLimit(err.message || '部门用户统计查询失败');
+      showUsageLimit(err.message || '查询部门用户统计失败');
     }
   }
 
@@ -765,12 +585,7 @@
     const target = event.target;
     if (target?.id === 'usageStatsPanel') return closePanel();
     const backButton = target?.closest?.('#usageBackDepartments');
-    if (backButton) {
-      invalidateUsageRequest('department-users');
-      const context = accessContext({ password: getDepartmentPassword() });
-      const key = departmentRankingCacheKey(activeDepartmentRange, context);
-      return renderRanking(cache.departmentRankings[key] || [], activeDepartmentRange);
-    }
+    if (backButton) return renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange);
     const personalRangeButton = target?.closest?.('[data-personal-range]');
     if (personalRangeButton) return handlePersonalRangeClick(personalRangeButton);
     const tabButton = target?.closest?.('[data-usage-tab]');
@@ -790,7 +605,7 @@
   async function exportDepartmentUsage() {
     try {
       clearUsageLimit();
-      const payload = await usageService().exportDepartmentUsage(getDepartmentPassword(), currentApiKey(), currentModel(), activeDepartmentRange, currentBaseUrl());
+      const payload = await usageService().exportDepartmentUsage(getDepartmentPassword(), currentApiKey(), currentModel(), activeDepartmentRange);
       const url = URL.createObjectURL(payload.blob);
       const link = document.createElement('a');
       link.href = url;
@@ -816,7 +631,6 @@
   }
 
   function closePanel() {
-    invalidateAllUsageRequests();
     $('usageStatsPanel')?.classList.remove('show');
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'true');
   }
@@ -839,7 +653,7 @@
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { currentApiKey, currentBaseUrl, renderPersonal, renderRanking, renderDepartmentUsers };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { currentApiKey, renderPersonal, renderRanking, renderDepartmentUsers };
 
   if (typeof document === 'undefined') return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

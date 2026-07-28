@@ -1,4 +1,4 @@
-const { dataUrlToBuffer, limitExtractedText, withAttachmentHeader, throwIfAborted } = require('./utils');
+const { dataUrlToBuffer, limitExtractedText, withAttachmentHeader } = require('./utils');
 
 function isTextExtractable(filename = '', type = '') {
   return /^(text\/|application\/(json|xml|yaml|javascript|x-javascript|typescript|x-typescript))/i.test(String(type || ''))
@@ -16,15 +16,11 @@ function looksBinaryBuffer(buffer) {
   return suspicious / sample.length > 0.08;
 }
 
-async function extractPlainText(filename, dataUrl, type = '', options = {}) {
-  throwIfAborted(options.signal);
+async function extractPlainText(filename, dataUrl, type = '') {
   const buffer = dataUrlToBuffer(dataUrl);
   if (looksBinaryBuffer(buffer)) throw Object.assign(new Error('文件看起来是二进制内容，无法按文本解析'), { statusCode: 415 });
   const raw = buffer.toString('utf8');
-  return {
-    text: withAttachmentHeader('文本', filename, type || 'plain-text', limitExtractedText(raw), '解析说明：以下为按文本文件读取到的正文；请基于这些内容回答用户问题。'),
-    parser: 'plain-text',
-  };
+  return withAttachmentHeader('文本', filename, type || 'plain-text', limitExtractedText(raw), '解析说明：以下为按文本文件读取到的正文；请基于这些内容回答用户问题。');
 }
 
 module.exports = { isTextExtractable, extractPlainText, looksBinaryBuffer };

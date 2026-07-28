@@ -16,7 +16,6 @@ test
 README.md
 LICENSE
 *.md
-!vendor/README.md
 vendor/chunks/
 AGENTS.md
 CONTRIBUTING.md

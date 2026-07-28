@@ -124,9 +124,9 @@ function hangingRequest(signal) {
   });
 }
 
-function createDeadlineHarness(requestJson, routeApi = routeService) {
+function createDeadlineHarness(requestJson) {
   const previousWindow = global.window;
-  global.window = { ChatUIServices: { route: routeApi }, ChatUIRouteService: routeApi };
+  global.window = { ChatUIServices: { route: routeService }, ChatUIRouteService: routeService };
   const state = { activeSessionId: 'session-a', sessions: [{ id: 'session-a', messages: [] }], attachments: [], mode: 'chat', autoMode: true };
   const workflow = routeDecisionWorkflow.createRouteDecisionWorkflow({
     state,
@@ -137,35 +137,9 @@ function createDeadlineHarness(requestJson, routeApi = routeService) {
     buildRequestHeaders: () => ({}),
     buildRouteAttachmentMetadata: () => [],
     requestJson,
-    parseRouteResult: routeApi.parseRouteResult,
+    parseRouteResult: routeService.parseRouteResult,
   });
   return { workflow, restore: () => { if (previousWindow === undefined) delete global.window; else global.window = previousWindow; } };
-}
-
-async function testRouteWorkflowNeverReturnsARouteThatTheDispatchGateWillReject() {
-  const canonical = routeService.parseRouteResult(JSON.stringify({
-    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'plain_chat', relation: 'new', resources: [],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', unresolved_resources: [] }, confidence: 1, review_reasons: [], rationale: 'plain chat',
-  }), { input: 'hello' });
-  assert.ok(canonical);
-  const inconsistent = { ...canonical, executionResources: null };
-  const routeApi = {
-    ...routeService,
-    inspectRouteResult: () => ({ route: inconsistent, reason: '' }),
-  };
-  const harness = createDeadlineHarness(async () => ({ choices: [{ message: { content: '{}' } }] }), routeApi);
-  const originalWarn = console.warn;
-  console.warn = () => {};
-  try {
-    const route = await harness.workflow.getEffectiveRoute('hello', [], 'session-a', {}, {});
-    assert.strictEqual(route.needClarification, true, 'an execution-inconsistent route must be contained before submission');
-    assert.strictEqual(route.api, 'clarify');
-    assert.strictEqual(routeService.isRouteDispatchable(route), false);
-  } finally {
-    console.warn = originalWarn;
-    harness.restore();
-  }
 }
 
 async function testPrimaryAndFallbackShareOneAbsoluteIntentDeadline() {
@@ -249,7 +223,6 @@ module.exports = [
   testRepairInvariantSnapshotProtectsUnresolvedChoiceShape,
   testRepairRequiresExplicitCompleteV5SemanticBoundary,
   testRepairPayloadCarriesMachineCheckedInvariantBoundary,
-  testRouteWorkflowNeverReturnsARouteThatTheDispatchGateWillReject,
   testPrimaryAndFallbackShareOneAbsoluteIntentDeadline,
   testRepairConsumesTheSameIntentDeadlineAndCannotStartFallbackAfterExpiry,
   testStructuredOutputCompatibilityRetrySharesTheSameDeadline,

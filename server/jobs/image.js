@@ -1,5 +1,5 @@
 const { sendJson } = require('../http/response');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, readUpstreamTextWithLimit, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 
@@ -158,7 +158,6 @@ function markImageJobFailed(job = {}, err) {
 }
 
 async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
-  if (job.status !== 'running') return;
   const { headers, body } = buildImageUpstreamRequest(job);
   const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
     method: 'POST',
@@ -170,11 +169,11 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
   try {
     job.serverStartAt = Date.now();
     const upstream = await upstreamResponse;
-    const text = await readUpstreamTextWithLimit(upstream);
+    const text = await upstream.text();
     const data = parseImageUpstreamResponse(upstream, text);
-    if (job.status === 'running' && !controller.signal.aborted) markImageJobDone(job, data);
+    markImageJobDone(job, data);
   } catch (err) {
-    if (job.status === 'running') markImageJobFailed(job, err);
+    markImageJobFailed(job, err);
   } finally {
     clearTimeout(timer);
     delete job.controller;
@@ -194,12 +193,9 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
       const job = createImageJobFromRequestBody(jobId, body, { baseUrl, apiKey, extraHeaders });
       imageJobs.set(job.id, job);
       withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs })).catch(err => {
-        if (job.status === 'running') {
-          job.status = 'error';
-          job.error = err.message || String(err);
-          job.updatedAt = Date.now();
-          if (typeof notifyJob === 'function') notifyJob(job);
-        }
+        job.status = 'error';
+        job.error = err.message || String(err);
+        job.updatedAt = Date.now();
       });
       sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
@@ -208,7 +204,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
   }
 
   function getImageJob(req, res) {
-    const id = req.jobId || getJobIdFromUrl(req);
+    const id = getJobIdFromUrl(req);
     const job = findJobOr404(imageJobs, id, res);
     if (!job) return;
     sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });

@@ -42,7 +42,7 @@ function sanitizeStoredDisplayItem(item = {}) {
     ...item,
     html: stripLargeDataUrlsFromText(item.html || '').replace(/\s(?:src|href|data-persisted-src|data-original-src|data-object-url|data-preview-object-url)=(['"])(?:data:|blob:|[^'"]*\[(?:attachment|image)-data-omitted\])[^'"]*\1/gi, ''),
     rawText: stripLargeDataUrlsFromText(item.rawText || ''),
-    imageContext: sanitizeAttachmentContextForStorage(item.imageContext),
+    imageContext: sanitizeAttachmentContextForStorage(item.imageContext) || item.imageContext || '',
     attachmentContext: sanitizeAttachmentContextForStorage(item.attachmentContext),
   };
   if (next.presentation && typeof next.presentation === 'object' && !Array.isArray(next.presentation)) {
@@ -57,7 +57,7 @@ function sanitizeStoredMessage(message = {}) {
   next.content = stripLargePayloadData(next.content ?? '');
   next.rawText = stripLargeDataUrlsFromText(next.rawText || '');
   if (next.html) next.html = stripLargeDataUrlsFromText(next.html);
-  next.imageContext = sanitizeAttachmentContextForStorage(next.imageContext);
+  next.imageContext = sanitizeAttachmentContextForStorage(next.imageContext) || next.imageContext || '';
   next.attachmentContext = sanitizeAttachmentContextForStorage(next.attachmentContext);
   if (next.presentation && typeof next.presentation === 'object' && !Array.isArray(next.presentation)) {
     next.presentation = sanitizeStorageValue(next.presentation);

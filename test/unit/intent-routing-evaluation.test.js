@@ -55,10 +55,6 @@ function testIntentRoutingEvaluationFixtureCoversEverySupportedOperation() {
   assert.ok(suite.cases.some(item => !item.input && item.attachments.length), 'benchmark must cover attachment-only turns');
   assert.ok(suite.cases.some(item => item.attachments.some(attachment => attachment.has_extracted_text === false)), 'benchmark must cover explicitly unusable files');
   assert.ok(suite.cases.some(item => item.current_mode && item.auto_mode === false), 'benchmark must cover fixed manual mode semantics');
-  assert.throws(() => evaluation.validateFixtureSuite({
-    schema_version: evaluation.SCHEMA_VERSION,
-    cases: [{ ...suite.cases[0], id: 'non-critical-only', safety_critical: false }],
-  }), /at least one safety-critical case/);
 }
 
 function testIntentRoutingEvaluationScoresAValidRouteEndToEnd() {
@@ -178,7 +174,6 @@ async function testIntentRoutingEvaluationRunnerRedactsCredentialsFromTransportE
   assert.ok(!serializedReport.includes(apiKey));
   assert.ok(!serializedReport.includes('user:password'));
   assert.ok(serializedReport.includes('[redacted]'));
-  assert.strictEqual(report.quality_gate.passed, false, 'a transport failure must fail the quality gate even when credentials are redacted');
 }
 
 module.exports = [

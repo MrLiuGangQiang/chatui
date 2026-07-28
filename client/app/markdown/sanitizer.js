@@ -8,9 +8,7 @@ const SAFE_ATTRS = [
   'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style', 'open',
 ];
 const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'button', 'textarea', 'select', 'option'];
-const DISPLAY_FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'input', 'textarea', 'select', 'option'];
-const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel|blob):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp);base64,)/i;
-const { shouldKeepSanitizedUrl } = require('./link-policy');
+const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|svg\+xml);base64,)/i;
 const SAFE_STYLE_PROPERTIES = new Set([
   'border', 'border-color', 'border-style', 'border-width', 'border-radius',
   'border-top', 'border-top-color', 'border-top-style', 'border-top-width',
@@ -54,46 +52,34 @@ function domPurifyOptions() {
   };
 }
 
-function displayDomPurifyOptions() {
-  return {
-    ADD_ATTR: SAFE_ATTRS,
-    ALLOW_DATA_ATTR: true,
-    FORBID_TAGS: DISPLAY_FORBID_TAGS,
-    FORBID_ATTR: [/^on/i, 'srcdoc'],
-    ALLOWED_URI_REGEXP: SAFE_URI_PATTERN,
-  };
-}
-
-function sanitizeAttribute(node, data) {
-  if (data.attrName === 'style') {
-    const safe = sanitizeStyleValue(data.attrValue);
-    if (safe) data.attrValue = safe;
-    else data.keepAttr = false;
-    return;
-  }
-  if (!shouldKeepSanitizedUrl(node, data.attrName, data.attrValue)) data.keepAttr = false;
-}
-
-function createSanitizer(optionsFactory = domPurifyOptions) {
+function createSanitizer() {
   if (typeof window !== 'undefined' && window.DOMPurify) {
-    if (!window.DOMPurify.__chatuiSanitizeAttributeHook) {
-      window.DOMPurify.addHook?.('uponSanitizeAttribute', sanitizeAttribute);
-      window.DOMPurify.__chatuiSanitizeAttributeHook = true;
-    }
-    return html => window.DOMPurify.sanitize(String(html || ''), optionsFactory());
+    window.DOMPurify.addHook?.('uponSanitizeAttribute', (_node, data) => {
+      if (data.attrName === 'style') {
+        const safe = sanitizeStyleValue(data.attrValue);
+        if (safe) data.attrValue = safe;
+        else data.keepAttr = false;
+      }
+    });
+    return html => window.DOMPurify.sanitize(String(html || ''), domPurifyOptions());
   }
 
   try {
     const { JSDOM } = require('jsdom');
     const createDOMPurify = require('dompurify');
     const purify = createDOMPurify(new JSDOM('').window);
-    purify.addHook('uponSanitizeAttribute', sanitizeAttribute);
-    return html => purify.sanitize(String(html || ''), optionsFactory());
+    purify.addHook('uponSanitizeAttribute', (_node, data) => {
+      if (data.attrName === 'style') {
+        const safe = sanitizeStyleValue(data.attrValue);
+        if (safe) data.attrValue = safe;
+        else data.keepAttr = false;
+      }
+    });
+    return html => purify.sanitize(String(html || ''), domPurifyOptions());
   } catch (err) {
     throw new Error(`DOMPurify sanitizer unavailable: ${err && err.message || err}`);
   }
 }
 
 const sanitizeHtml = createSanitizer();
-const sanitizeDisplayHtml = createSanitizer(displayDomPurifyOptions);
-module.exports = { MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, DISPLAY_FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, sanitizeAttribute, domPurifyOptions, displayDomPurifyOptions, createSanitizer, sanitizeHtml, sanitizeDisplayHtml };
+module.exports = { MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, domPurifyOptions, createSanitizer, sanitizeHtml };

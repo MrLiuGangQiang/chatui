@@ -1,6 +1,4 @@
-const { positiveInteger } = require('../config/numbers');
-
-const DEFAULT_MAX_BODY_BYTES = positiveInteger(process.env.MAX_BODY_BYTES, 1024 * 1024, { max: 512 * 1024 * 1024 });
+const DEFAULT_MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
 const MAX_BODY_BYTES = DEFAULT_MAX_BODY_BYTES;
 
 function payloadTooLargeError() {
@@ -11,7 +9,8 @@ function payloadTooLargeError() {
 }
 
 function normalizeMaxBytes(value) {
-  return positiveInteger(value, DEFAULT_MAX_BODY_BYTES, { max: 512 * 1024 * 1024 });
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MAX_BODY_BYTES;
 }
 
 function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {

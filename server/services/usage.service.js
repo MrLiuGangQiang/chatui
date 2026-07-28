@@ -42,7 +42,7 @@ function groupUsersByDepartment(rows = []) {
     if (!acc[departmentId]) acc[departmentId] = [];
     acc[departmentId].push(user);
     return acc;
-  }, Object.create(null));
+  }, {});
 }
 
 async function getDepartmentExportWorkbook(usageStats, range) {

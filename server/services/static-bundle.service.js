@@ -29,51 +29,6 @@ const MARKDOWN_CORE_SCRIPT_PATHS = Object.freeze([
 ]);
 
 const manifestCache = new Map();
-const assetHashCache = new Map();
-
-function staticPathOutsideRootError(filePath = '') {
-  const err = new Error('Static asset resolves outside the configured root');
-  err.code = 'STATIC_PATH_OUTSIDE_ROOT';
-  err.statusCode = 403;
-  err.filePath = filePath;
-  return err;
-}
-
-function canonicalRootPath(root) {
-  const canonical = fs.realpathSync(root);
-  if (!fs.statSync(canonical).isDirectory()) throw new Error('Static root is not a directory');
-  return canonical;
-}
-
-function isPathWithinCanonicalRoot(filePath, canonicalRoot) {
-  const relative = path.relative(canonicalRoot, filePath);
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
-function resolvePathWithinRoot(filePath, canonicalRoot) {
-  const canonical = fs.realpathSync(filePath);
-  if (!isPathWithinCanonicalRoot(canonical, canonicalRoot)) throw staticPathOutsideRootError(filePath);
-  return canonical;
-}
-
-function trimCache(cache, maxEntries) {
-  while (cache.size > maxEntries) cache.delete(cache.keys().next().value);
-}
-
-function statSignature(stat = {}) {
-  return `${Number(stat.size || 0)}:${Number(stat.mtimeMs || 0)}:${Number(stat.ctimeMs || 0)}:${String(stat.ino || '')}`;
-}
-
-function cachedFileHash(filePath, stat = fs.statSync(filePath)) {
-  const signature = statSignature(stat);
-  const cached = assetHashCache.get(filePath);
-  if (cached?.signature === signature) return cached.hash;
-  const hash = sha1(fs.readFileSync(filePath));
-  assetHashCache.delete(filePath);
-  assetHashCache.set(filePath, { signature, hash });
-  trimCache(assetHashCache, 512);
-  return hash;
-}
 
 function sha1(value) {
   return crypto.createHash('sha1').update(value).digest('hex');
@@ -113,19 +68,13 @@ function manifestSource(html) {
   return match ? match[1] : html;
 }
 
-function parseAssetManifest(root, rootWithSep, kind, options = {}) {
-  const canonicalRoot = options.canonicalRoot || canonicalRootPath(root);
-  const indexPath = resolvePathWithinRoot(path.join(root, 'index.html'), canonicalRoot);
-  const indexStat = fs.statSync(indexPath);
-  const indexSignature = statSignature(indexStat);
-  const cached = manifestCache.get(indexPath);
-  if (cached?.signature === indexSignature) {
-    for (const entries of Object.values(cached.parsed)) {
-      for (const entry of entries) resolvePathWithinRoot(entry.filePath, canonicalRoot);
-    }
-    return cached.parsed[kind] || [];
-  }
+function parseAssetManifest(root, rootWithSep, kind) {
+  const indexPath = path.join(root, 'index.html');
   const source = fs.readFileSync(indexPath, 'utf8');
+  const cacheKey = `${indexPath}:${sha1(source)}`;
+  const cached = manifestCache.get(cacheKey);
+  if (cached) return cached[kind] || [];
+  manifestCache.clear();
 
   const manifest = manifestSource(source);
   const css = [];
@@ -135,26 +84,18 @@ function parseAssetManifest(root, rootWithSep, kind, options = {}) {
     const href = attrValue(attrs, 'href');
     if (!rel.split(/\s+/).includes('stylesheet') || href.includes('/assets/chatui.bundle.')) return '';
     const asset = resolveBundleEntry(root, rootWithSep, href);
-    if (asset) {
-      resolvePathWithinRoot(asset.filePath, canonicalRoot);
-      css.push(asset);
-    }
+    if (asset) css.push(asset);
     return '';
   });
   manifest.replace(/<script\b([^>]*?)>\s*<\/script>/gi, (_tag, attrs) => {
     const src = attrValue(attrs, 'src');
     if (!src || src.includes('/assets/chatui.bundle.')) return '';
     const asset = resolveBundleEntry(root, rootWithSep, src);
-    if (asset) {
-      resolvePathWithinRoot(asset.filePath, canonicalRoot);
-      js.push(asset);
-    }
+    if (asset) js.push(asset);
     return '';
   });
   const parsed = { css, js };
-  manifestCache.delete(indexPath);
-  manifestCache.set(indexPath, { signature: indexSignature, parsed });
-  trimCache(manifestCache, 32);
+  manifestCache.set(cacheKey, parsed);
   return parsed[kind] || [];
 }
 
@@ -162,29 +103,23 @@ function bundleCacheKey(kind, signature) {
   return `${kind}:${signature}`;
 }
 
-function bundleMetadata(root, rootWithSep, kind, options = {}) {
-  const canonicalRoot = options.canonicalRoot || canonicalRootPath(root);
+function bundleMetadata(root, rootWithSep, kind) {
   const markdownCoreScripts = kind === 'js'
     ? MARKDOWN_CORE_SCRIPT_PATHS
       .map(urlPath => ({ href: urlPath, urlPath, filePath: safeJoin(root, rootWithSep, urlPath) }))
       .filter(asset => asset.filePath && fs.existsSync(asset.filePath))
     : [];
-  const assets = markdownCoreScripts.concat(parseAssetManifest(root, rootWithSep, kind, { canonicalRoot }));
+  const assets = markdownCoreScripts.concat(parseAssetManifest(root, rootWithSep, kind));
   const parts = [`kind:${kind}`, `bundle:${BUNDLE_VERSION}`];
   const entries = assets.map((asset) => {
-    const canonicalFilePath = resolvePathWithinRoot(asset.filePath, canonicalRoot);
-    const stat = fs.statSync(canonicalFilePath);
-    const contentHash = cachedFileHash(canonicalFilePath, stat);
+    const stat = fs.statSync(asset.filePath);
+    const content = fs.readFileSync(asset.filePath);
+    const contentHash = sha1(content);
     parts.push(`${asset.urlPath}:${contentHash}`);
-    return { ...asset, filePath: canonicalFilePath, stat, contentHash };
+    return { ...asset, stat, contentHash };
   });
   const signature = parts.join('|');
   return { entries, signature, etag: `"${sha1(signature).slice(0, 32)}"` };
-}
-
-function clearBundleMetadataCaches() {
-  manifestCache.clear();
-  assetHashCache.clear();
 }
 
 function bundleRevision(root, rootWithSep, kind) {
@@ -205,12 +140,9 @@ function rewriteCssUrls(css, assetUrlPath) {
   });
 }
 
-function buildBundleBody(entries, kind, options = {}) {
+function buildBundleBody(entries, kind) {
   return Buffer.from((entries || []).map((asset) => {
-    const filePath = options.canonicalRoot
-      ? resolvePathWithinRoot(asset.filePath, options.canonicalRoot)
-      : asset.filePath;
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = fs.readFileSync(asset.filePath, 'utf8');
     if (kind === 'css') return `\n/* ${asset.urlPath} */\n${rewriteCssUrls(content, asset.urlPath)}\n`;
     return `\n;\n/* ${asset.urlPath} */\n${content}\n`;
   }).join(''), 'utf8');
@@ -231,11 +163,4 @@ module.exports = {
   buildBundleBody,
   bundleRevision,
   contentTypeForBundle,
-  statSignature,
-  cachedFileHash,
-  clearBundleMetadataCaches,
-  staticPathOutsideRootError,
-  canonicalRootPath,
-  isPathWithinCanonicalRoot,
-  resolvePathWithinRoot,
 };

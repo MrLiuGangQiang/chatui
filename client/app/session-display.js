@@ -273,9 +273,6 @@
       const baseUpdatedAt = Number(session.snapshotUpdatedAt || 0);
       const snapshot = buildSnapshot(session);
       snapshot.updatedAt = revision;
-      // Retain the revision this tab loaded. A background tab can otherwise
-      // overwrite newer history when its page lifecycle handlers persist.
-      snapshot.baseUpdatedAt = baseUpdatedAt;
       if (!snapshotStore?.schedulePut || snapshotStore.supported === false) {
         writeSnapshotFallback(snapshot, baseUpdatedAt);
         saveSessionsMeta();
@@ -292,16 +289,6 @@
           if (getState().disposedSessionIds?.has?.(session.id)) return result;
           const current = getState().sessions?.find(item => item.id === session.id) || session;
           if (revision >= Number(current.persistenceUpdatedAt || 0)) {
-            // The store may have merged records written by another tab while
-            // this tab was in the background. Reflect that durable result in
-            // memory too, otherwise the next local render can still look as
-            // though the message disappeared until a full reload.
-            if (Array.isArray(result?.messages)) {
-              current.messages = normalizeMessageList(result.messages, current.id);
-              if (current.id === getState().activeSessionId) getState().messages = current.messages;
-            }
-            if (Array.isArray(result?.pendingDisplay)) current.display = pendingDisplayItems(result.pendingDisplay);
-            if (result?.lastGeneratedImage) current.lastGeneratedImage = result.lastGeneratedImage;
             current.snapshotUpdatedAt = Math.max(Number(current.snapshotUpdatedAt || 0), revision);
             current.persistenceUpdatedAt = Math.max(Number(current.persistenceUpdatedAt || 0), revision);
             saveSessionsMeta();

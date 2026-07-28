@@ -212,6 +212,12 @@ function testBrowserCoreRegistersTaskStateWithoutAnotherGlobal() {
   assert.throws(() => browser.ChatUICore.registerModule('taskState', {}), /already registered/);
 }
 
+function testCoreIndexExportsTaskStateWithoutBrowserGlobal() {
+  const core = require('../../client/core');
+  assert.strictEqual(core.taskState, taskState);
+  assert.ok(!Object.keys(globalThis).some(key => /^ChatUI.*TaskState$/.test(key)), 'the pure reducer must not add another browser global');
+}
+
 module.exports = [
   testTaskStateStartsIdleWithSubmitControls,
   testTaskStateFollowsDurableOwnershipChain,
@@ -225,4 +231,5 @@ module.exports = [
   testTaskStateDoesNotReviveTerminalTaskFromStaleRecovery,
   testTaskStateIgnoresUnknownAndOutOfOrderEvents,
   testBrowserCoreRegistersTaskStateWithoutAnotherGlobal,
+  testCoreIndexExportsTaskStateWithoutBrowserGlobal,
 ];

@@ -1,6 +1,5 @@
 const { readBody, parseJson } = require('../../http/body');
 const usageService = require('../../services/usage.service');
-const { validateUsageBaseUrl } = require('../../services/usage-access.service');
 const usageValidator = require('../../validators/usage.validator');
 
 function unavailablePayload() {
@@ -28,27 +27,9 @@ function compactDepartmentRow(row = {}) {
   return [row.department_id || '', row.department_name || '', row.total_tokens || 0, row.prompt_tokens || 0, row.completion_tokens || 0, row.prompt_cached_tokens || 0, row.completion_reasoning_tokens || 0];
 }
 
-function checkUsageAccessRateLimit(req, res, sendJson) {
-  // Authentication validation performs an upstream /models request. Apply a
-  // shared bucket before that request so endpoint switching cannot bypass it.
-  const result = usageValidator.checkUsageRefreshLimit(req, 'access');
-  if (result.allowed) return true;
-  sendJson(res, 429, {
-    error: { message: 'Usage access is temporarily rate limited', code: 'USAGE_ACCESS_RATE_LIMITED' },
-  }, usageValidator.usageRateLimitHeaders(result));
-  return false;
-}
-
 async function readJsonBody(req, res, sendJson) {
   try {
-    const body = parseJson(await readBody(req, { maxBytes: 256 * 1024 }));
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      const err = new Error('请求体必须是 JSON 对象');
-      err.statusCode = 400;
-      err.code = 'INVALID_REQUEST_BODY';
-      throw err;
-    }
-    return body;
+    return parseJson(await readBody(req, { maxBytes: 256 * 1024 }));
   } catch (err) {
     sendJson(res, err.statusCode || 400, { error: { message: err.message || '请求体不是有效 JSON', code: err.code || 'INVALID_REQUEST_BODY' } }, { 'Access-Control-Allow-Origin': '*' });
     return null;
@@ -69,7 +50,7 @@ function validateDepartmentAccess(body, res, sendJson) {
 }
 
 function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send }) {
-  async function validateUsageAccess(req, body, res) {
+  async function validateUsageAccess(body, res) {
     const apiKey = usageValidator.normalizeApiKey(body);
     const model = String(body?.model || body?.chat_model || '').trim();
     if (!apiKey) {
@@ -80,80 +61,20 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
       sendJson(res, 400, { error: { message: '请先正确配置聊天模型', code: 'MODEL_NOT_CONFIGURED' } }, { 'Access-Control-Allow-Origin': '*' });
       return null;
     }
-    if (apiKey.length > 4096 || /[\r\n\u0000]/.test(apiKey)) {
-      sendJson(res, 400, { error: { message: 'API Key 格式无效', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    if (model.length > 256 || /[\r\n\u0000]/.test(model)) {
-      sendJson(res, 400, { error: { message: '聊天模型名称无效', code: 'MODEL_NOT_CONFIGURED' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    if (!usageStats || typeof usageStats.getUserByApiKey !== 'function') {
-      sendJson(res, 503, { error: { message: '统计数据源未配置，无法验证访问权限', code: 'USAGE_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    if (!checkUsageAccessRateLimit(req, res, sendJson)) return null;
-    let user;
-    try {
-      user = await usageService.getUserByApiKey(usageStats, apiKey);
-    } catch (err) {
-      console.error('[usage] API Key membership lookup failed:', err?.message || err);
-      sendJson(res, 503, { error: { message: '统计数据源暂时不可用，无法验证访问权限', code: 'USAGE_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    if (!user) {
-      sendJson(res, 403, { error: { message: '未找到该 API Key 对应的统计用户', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    const requestedBaseUrl = body?.base_url ?? body?.baseUrl;
-    const baseUrlValidation = validateUsageBaseUrl(requestedBaseUrl);
-    if (!baseUrlValidation.ok) {
-      sendJson(res, baseUrlValidation.statusCode, {
-        error: { message: baseUrlValidation.message, code: baseUrlValidation.code },
-      }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    if (!usageAccessValidator || typeof usageAccessValidator.validate !== 'function') {
-      sendJson(res, 503, { error: { message: 'Usage access validation is unavailable', code: 'USAGE_ACCESS_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    try {
-      const validation = await usageAccessValidator.validate(apiKey, model, { baseUrl: baseUrlValidation.baseUrl });
-      if (!validation?.ok) {
-        const statusCode = [400, 401, 403, 429, 503].includes(Number(validation?.statusCode))
-          ? Number(validation.statusCode)
-          : 403;
-        sendJson(res, statusCode, {
-          error: {
-            message: String(validation?.message || 'Usage access validation failed').slice(0, 500),
-            code: String(validation?.code || 'INVALID_USAGE_ACCESS').slice(0, 80),
-          },
-        }, { 'Access-Control-Allow-Origin': '*' });
-        return null;
-      }
-    } catch (err) {
-      console.error('[usage] access validation failed:', err?.message || err);
-      sendJson(res, 503, { error: { message: 'Usage access validation is unavailable', code: 'MODEL_VALIDATION_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      return null;
-    }
-    return { apiKey, model, baseUrl: baseUrlValidation.baseUrl, username: String(user.username || '').trim() };
+    return { apiKey, model };
   }
   async function routeFeedback(req, res) {
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
     try {
-      const access = await validateUsageAccess(req, body, res);
+      const access = await validateUsageAccess(body, res);
       if (!access) return;
-      const username = access.username;
+      if (!usageStats) return sendJson(res, 503, { error: { message: '统计数据源未配置，无法识别反馈用户名', code: 'USAGE_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
+      const personal = await usageService.getPersonalRange(usageStats, access.apiKey, 'total');
+      const username = String(personal?.username || '').trim();
       if (!username) return sendJson(res, 403, { error: { message: '未找到该 API Key 对应的统计用户名，无法提交反馈', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
-      if (!feedbackSender || typeof feedbackSender.send !== 'function') {
-        const err = new Error('反馈通道尚未配置');
-        err.code = 'FEEDBACK_NOT_CONFIGURED';
-        err.statusCode = 503;
-        throw err;
-      }
-      await feedbackSender.send(body.content, { username });
+      await feedbackSender?.send(body.content, { username });
       return sendJson(res, 200, { ok: true, message: '反馈已发送' }, { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
       if (err?.code !== 'FEEDBACK_NOT_CONFIGURED') console.error('[feedback] dingtalk delivery failed:', err?.cause?.message || err?.message || err);
@@ -165,7 +86,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
     const apiKey = usageValidator.normalizeApiKey(body);
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     const rankingRange = usageValidator.normalizePersonalRange(body?.ranking_range || body?.rankingRange || body?.range);
     const personalRange = usageValidator.normalizePersonalRange(body?.personal_range || body?.personalRange || body?.range);
     if (!rankingRange || !personalRange) return sendJson(res, 400, { error: { message: '不支持的统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
@@ -202,7 +123,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
   async function routeRankings(req, res) {
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
-    if (!body || !(await validateUsageAccess(req, body, res))) return;
+    if (!body || !(await validateUsageAccess(body, res))) return;
     const limitResult = usageValidator.checkUsageRefreshLimit(req, 'rankings');
     if (!limitResult.allowed) {
       return sendJson(res, 200, {
@@ -229,7 +150,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
     const apiKey = usageValidator.normalizeApiKey(body);
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     const range = usageValidator.normalizePersonalRange(body?.range);
     if (!range) return sendJson(res, 400, { error: { message: '不支持的统计范围' } }, { 'Access-Control-Allow-Origin': '*' });
     const limitResult = usageValidator.checkUsageRefreshLimit(req, 'personal');
@@ -255,7 +176,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     if (!usageValidator.hasDepartmentPassword()) return sendJson(res, 200, departmentUnavailablePayload(), { 'Access-Control-Allow-Origin': '*' });
     if (!usageValidator.isDepartmentPasswordValid(String(body?.password || '').trim())) {
       return sendJson(res, 403, { available: true, authorized: false, error: { message: '密码错误，无权限访问' } }, { 'Access-Control-Allow-Origin': '*' });
@@ -267,7 +188,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     if (!validateDepartmentAccess(body, res, sendJson)) return;
     if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
     const range = usageValidator.normalizeDepartmentRange(body?.range);
@@ -295,7 +216,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     if (!validateDepartmentAccess(body, res, sendJson)) return;
     if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
     const range = usageValidator.normalizeDepartmentRange(body?.range);
@@ -313,7 +234,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     if (!validateDepartmentAccess(body, res, sendJson)) return;
     if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
     const range = usageValidator.normalizeDepartmentRange(body?.range);
@@ -336,7 +257,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     if (req.method !== 'POST') return sendMethodNotAllowed(res);
     const body = await readJsonBody(req, res, sendJson);
     if (!body) return;
-    if (!(await validateUsageAccess(req, body, res))) return;
+    if (!(await validateUsageAccess(body, res))) return;
     if (!validateDepartmentAccess(body, res, sendJson)) return;
     if (!usageStats) return sendJson(res, 200, departmentUnavailablePayload('PostgreSQL 未配置，部门统计功能未启用'), { 'Access-Control-Allow-Origin': '*' });
     const range = usageValidator.normalizeDepartmentRange(body?.range);

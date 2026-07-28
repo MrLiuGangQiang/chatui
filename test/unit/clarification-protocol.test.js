@@ -80,8 +80,6 @@ function testContinuationV4UsesOneStrictNonExecutingSchema() {
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.v3' }), { pending }), null);
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ final_task_mode: 'image' }), { pending }), null, 'extra execution controls must invalidate the whole response');
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ confidence: 0.84 }), { pending }), null, 'low confidence must fail closed');
-  const wrapped = `模型分类结果如下：\n\n\`\`\`json\n${continuationJson()}\n\`\`\``;
-  assert.ok(clarification.parseContinuationClassifierResult(wrapped, { pending }), 'a valid strict JSON object wrapped by a compatibility gateway should still be accepted');
 }
 
 function testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext() {

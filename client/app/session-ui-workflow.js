@@ -61,10 +61,9 @@
         tab.classList.toggle('busy', isSessionBusy(session.id));
         tab.dataset.sessionId = session.id;
         tab.innerHTML = `<span class="session-title" title="${sessionTitleHtml(session)}">${sessionTitleHtml(session)}</span><small>${getSessionReturnCount(session)} 条</small><button class="session-rename-btn" type="button" title="重命名会话" aria-label="重命名会话">✎</button><button class="session-delete-btn" type="button" title="删除会话" aria-label="删除会话">×</button>`;
-        // Running jobs can refresh the list between pointerdown and click. In
-        // that race the original tab is detached and the browser drops click,
-        // so switch immediately for mouse/pen. Touch and keyboard continue to
-        // use click to preserve scrolling and accessibility behavior.
+        // A running task can refresh the list between pointerdown and click,
+        // detaching this button and causing the browser to drop click. Switch
+        // immediately for mouse/pen; keep touch and keyboard on click.
         tab.addEventListener('pointerdown', event => {
           if (shouldSwitchSessionOnPointerDown(event)) switchSession(session.id);
         });

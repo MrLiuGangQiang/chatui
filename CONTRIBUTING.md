@@ -39,14 +39,14 @@ The project currently uses a custom Node.js test runner:
 npm run check
 ```
 
-Add focused tests under `test/unit/` or `test/smoke/` when practical. When substantially changing a legacy regression, move it into the closest focused suite instead of expanding `test/legacy/regression.test.js`.
-The runner recursively discovers named `*.test.js` suites, rejects empty or duplicate suites, and applies a per-test timeout. Run one suite with `npm test -- unit/example.test.js`; invoking a suite file directly only loads its exports and does not execute it.
-
-Browser-ready third-party files are source/build dependencies rather than server runtime dependencies. Keep their version, source, license, and verification mode aligned in `vendor/manifest.json`, then run `npm run check:vendor`.
+Add focused tests under `test/unit/` or `test/smoke/` when practical. Existing tests in `test/run-tests.js` should be moved into focused files when they are substantially changed.
 
 ## Known cleanup boundaries
 
 The following areas require dedicated, separately reviewed refactors rather than incidental cleanup:
 
 - Reduce root `app.js` to a bootstrap entry and remove duplicated workflow implementations.
+- Split the large `test/run-tests.js` runner by feature.
+- Replace per-file cache-version strings in `index.html` with generated content hashes or one application version.
 - Separate server-only usage SQL from browser-safe shared range definitions.
+- Document and automate the source, version, and license update process for `vendor/` assets.

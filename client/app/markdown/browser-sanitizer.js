@@ -11,13 +11,7 @@
     'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style', 'open',
   ];
   const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'button', 'textarea', 'select', 'option'];
-  const DISPLAY_FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'input', 'textarea', 'select', 'option'];
-  const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel|blob):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp);base64,)/i;
-  const linkPolicy = global.ChatUIMarkdownLinkPolicy
-    || (typeof require === 'function' ? require('./link-policy') : {});
-  const shouldKeepSanitizedUrl = linkPolicy.shouldKeepSanitizedUrl || ((_node, attributeName) => ![
-    'href', 'xlink:href', 'src', 'srcset', 'poster', 'background', 'longdesc', 'action', 'formaction',
-  ].includes(String(attributeName || '').toLowerCase()));
+  const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|svg\+xml);base64,)/i;
   const SAFE_STYLE_PROPERTIES = new Set([
     'border', 'border-color', 'border-style', 'border-width', 'border-radius',
     'border-top', 'border-top-color', 'border-top-style', 'border-top-width',
@@ -57,45 +51,25 @@
     };
   }
 
-  function displayDomPurifyOptions() {
-    return {
-      ADD_ATTR: SAFE_ATTRS,
-      ALLOW_DATA_ATTR: true,
-      FORBID_TAGS: DISPLAY_FORBID_TAGS,
-      FORBID_ATTR: [/^on/i, 'srcdoc'],
-      ALLOWED_URI_REGEXP: SAFE_URI_PATTERN,
-    };
-  }
-
-  function sanitizeAttribute(node, data) {
+  function ensureStyleHook(purify) {
+    if (!purify || purify.__chatuiStyleHook) return;
+    purify.addHook?.('uponSanitizeAttribute', (_node, data) => {
       if (data.attrName === 'style') {
         const safe = sanitizeStyleValue(data.attrValue);
         if (safe) data.attrValue = safe;
         else data.keepAttr = false;
-        return;
       }
-      if (!shouldKeepSanitizedUrl(node, data.attrName, data.attrValue)) data.keepAttr = false;
-  }
-
-  function ensureSanitizeAttributeHook(purify) {
-    if (!purify || purify.__chatuiSanitizeAttributeHook) return;
-    purify.addHook?.('uponSanitizeAttribute', sanitizeAttribute);
-    purify.__chatuiSanitizeAttributeHook = true;
+    });
+    purify.__chatuiStyleHook = true;
   }
 
   function sanitizeHtml(html = '') {
     if (!global.DOMPurify?.sanitize) throw new Error('DOMPurify sanitizer unavailable');
-    ensureSanitizeAttributeHook(global.DOMPurify);
+    ensureStyleHook(global.DOMPurify);
     return global.DOMPurify.sanitize(String(html || ''), domPurifyOptions());
   }
 
-  function sanitizeDisplayHtml(html = '') {
-    if (!global.DOMPurify?.sanitize) throw new Error('DOMPurify sanitizer unavailable');
-    ensureSanitizeAttributeHook(global.DOMPurify);
-    return global.DOMPurify.sanitize(String(html || ''), displayDomPurifyOptions());
-  }
-
-  const api = Object.freeze({ MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, DISPLAY_FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, sanitizeAttribute, domPurifyOptions, displayDomPurifyOptions, sanitizeHtml, sanitizeDisplayHtml });
+  const api = Object.freeze({ MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, domPurifyOptions, sanitizeHtml });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (global) global.ChatUIMarkdownSanitizer = api;
 })(typeof window !== 'undefined' ? window : globalThis);

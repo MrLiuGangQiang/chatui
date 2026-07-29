@@ -98,6 +98,12 @@ async function testApiContractCoreEndpointsKeepShape() {
     assert.ok(publicConfig.json.config.features && typeof publicConfig.json.config.features === 'object');
     assert.ok(publicConfig.json.config.context && typeof publicConfig.json.config.context === 'object');
     assert.strictEqual(typeof publicConfig.json.config.context.windowTokens, 'number');
+
+    const changelog = await request(baseUrl, '/api/changelog');
+    assert.strictEqual(changelog.res.status, 200);
+    assertCorsJson(changelog);
+    assert.ok(Array.isArray(changelog.json.releases));
+    assert.ok(changelog.json.releases.some(item => item.version === 'v1.9.6'));
   });
 }
 

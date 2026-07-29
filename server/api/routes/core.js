@@ -1,4 +1,4 @@
-function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, sendJson, sendMethodNotAllowed, proxyImage, extractFileText, registerChatStreamJob }) {
+function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readChangelog = () => [], sendJson, sendMethodNotAllowed, proxyImage, extractFileText, registerChatStreamJob }) {
   const routes = [
     {
       path: '/api/version',
@@ -9,6 +9,11 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, sendJso
       path: '/api/config/public',
       method: 'GET',
       handler: (req, res) => sendJson(res, 200, { version: appVersion, config: readPublicConfig() }, { 'Access-Control-Allow-Origin': '*' }),
+    },
+    {
+      path: '/api/changelog',
+      method: 'GET',
+      handler: (req, res) => sendJson(res, 200, { releases: readChangelog() }, { 'Access-Control-Allow-Origin': '*' }),
     },
     {
       path: '/api/image',

@@ -11,6 +11,7 @@ const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
 const { createUsageStatsRepository } = require('./usage/stats-repository');
 const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.service');
 const { createUsageAccessValidator } = require('./services/usage-access.service');
+const { readReleaseNotes } = require('./services/release-notes.service');
 
 function createApp() {
   const postgresConfig = createPostgresConfig();
@@ -50,6 +51,7 @@ function createApp() {
     appVersion: APP_VERSION,
     buildIdentity: BUILD_IDENTITY,
     readPublicConfig,
+    readChangelog: () => readReleaseNotes({ root: ROOT }),
     send,
     sendJson,
     sendMethodNotAllowed,

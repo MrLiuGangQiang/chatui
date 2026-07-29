@@ -29,7 +29,7 @@
       </button>
       <button id="railConfigBtn" class="rail-icon-btn rail-bottom" type="button" title="配置" aria-label="配置">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .55V20a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1-.55 1.7 1.7 0 0 0-1.87.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.55-1H4a2 2 0 0 1 0-4h.08a1.7 1.7 0 0 0 .55-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6c.35-.14.68-.32 1-.55V4a2 2 0 0 1 4 0v.08c.32.23.65.41 1 .55a1.7 1.7 0 0 0 1.87-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9c.14.35.32.68.55 1H20a2 2 0 0 1 0 4h-.08c-.23.32-.41.65-.55 1Z"/></svg>
-        <span class="rail-version-badge" data-app-version aria-hidden="true">v--</span>
+        <span class="rail-version-badge" data-app-version data-version-changelog role="button" tabindex="0" aria-label="查看更新日志">v--</span>
       </button>
     </aside>
 
@@ -61,7 +61,7 @@
         <a class="session-github-btn" href="https://github.com/MrLiuGangQiang/chatui" target="_blank" rel="noopener noreferrer" title="GitHub 项目" aria-label="GitHub 项目">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6A9.4 9.4 0 0 0 8.9 20c.47.09.64-.2.64-.45v-1.62c-2.6.57-3.15-1.12-3.15-1.12-.43-1.1-1.05-1.39-1.05-1.39-.86-.59.07-.58.07-.58.95.07 1.45.98 1.45.98.85 1.45 2.23 1.03 2.77.79.09-.62.33-1.03.6-1.27-2.08-.24-4.27-1.04-4.27-4.63 0-1.02.37-1.86.98-2.52-.1-.24-.43-1.2.09-2.48 0 0 .8-.26 2.61.96A9 9 0 0 1 12 6.35c.8 0 1.61.11 2.37.32 1.8-1.22 2.6-.96 2.6-.96.52 1.28.2 2.24.1 2.48.61.66.98 1.5.98 2.52 0 3.6-2.2 4.39-4.3 4.62.34.29.64.86.64 1.74v2.48c0 .25.17.54.65.45A9.4 9.4 0 0 0 12 2.6Z"/></svg>
         </a>
-        <span class="sidebar-version-badge" data-app-version aria-label="当前版本" title="当前版本">
+        <span class="sidebar-version-badge" data-app-version data-version-changelog role="button" tabindex="0" aria-label="查看更新日志" title="查看更新日志">
           <span class="sidebar-version-text">--</span>
         </span>
         </div>
@@ -186,6 +186,22 @@
         </div>
       </form>
     </main>
+  </div>
+
+  <div id="changelogModal" class="modal changelog-modal" aria-hidden="true">
+    <div class="modal-mask" data-close-changelog></div>
+    <section class="changelog-dialog" role="dialog" aria-modal="true" aria-labelledby="changelogTitle">
+      <header class="dialog-head changelog-dialog-head">
+        <div>
+          <h2 id="changelogTitle">更新日志</h2>
+          <p id="changelogSubtitle">查看 ChatUI 的版本更新记录</p>
+        </div>
+        <button id="closeChangelogBtn" class="dialog-close" type="button" aria-label="关闭更新日志">×</button>
+      </header>
+      <div id="changelogContent" class="changelog-content" aria-live="polite">
+        <p class="changelog-status">正在加载更新日志…</p>
+      </div>
+    </section>
   </div>
 
   <button id="routeDiagramFab" class="route-diagram-fab" type="button" aria-label="查看任务路由执行地图" aria-controls="routeDiagramModal" aria-expanded="false" title="查看任务路由执行地图">
@@ -556,6 +572,7 @@
   <script src="./client/ui/usage-stats.js?v=1.2.76"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
   <script src="./client/app/runtime.js?v=1.2.69-semver-label"></script>
+  <script src="./client/ui/version-changelog.js?v=1.0.0"></script>
   <script src="./client/app/media-workflow.js?v=1.2.70-clarification-media-isolation"></script>
   <script src="./client/app/session-resources.js?v=1.1.1-session-draft-cleanup"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>

@@ -20,6 +20,8 @@ vendor/chunks/
 AGENTS.md
 CONTRIBUTING.md
 docs/
+!docs/releases/
+!docs/releases/*.md
 scripts/
 .editorconfig
 .gitattributes

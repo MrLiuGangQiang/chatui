@@ -49,6 +49,7 @@ COPY client ./client
 COPY server ./server
 COPY shared ./shared
 COPY vendor ./vendor
+COPY docs/releases ./docs/releases
 
 USER node
 EXPOSE 8765

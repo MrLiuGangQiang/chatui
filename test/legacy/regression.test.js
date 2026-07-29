@@ -322,8 +322,12 @@ function testRouteContextIsCompactAndIndexed() {
   });
   const body = payload.messages[1].content;
   assert.strictEqual((body.match(/"candidates"/g) || []).length, 0);
-  assert.strictEqual((body.match(/"image_candidates"/g) || []).length, 1);
+  assert.strictEqual((body.match(/"image_candidates"/g) || []).length, 0,
+    'the persisted copy of the current upload must not duplicate its authoritative attachment candidate');
   const parsedRouteUser = JSON.parse(body);
+  assert.deepStrictEqual(parsedRouteUser.resource_candidates, [{
+    candidate_key: 'i1', type: 'image', source: 'current', label: 'logo.png',
+  }]);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
   assert.ok(payload.messages[0].content.includes('"schema_version":"route_decision.v1"'));
@@ -3052,7 +3056,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.0-selection-binding-lock') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.1-current-media-binding') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {

@@ -507,6 +507,110 @@ function testDecisionBoundaryRejectsInventedKeysRolesAndSemanticRepairDrift() {
   assert.strictEqual(routeService.repairInvariantSnapshot(missingSemanticFingerprint), null);
 }
 
+function currentGifOptions(historyCount = 0) {
+  const input = '识别这是什么';
+  const transientId = 'gif-current-transient';
+  const durableId = 'img_imgref_uploaded_current_1';
+  const currentMessageIndex = historyCount + 1;
+  const recentMessages = Array.from({ length: historyCount }, (_, index) => ({
+    index: index + 1,
+    role: 'user',
+    content: `历史图片 ${index + 1}`,
+  }));
+  recentMessages.push({
+    index: currentMessageIndex,
+    role: 'user',
+    content: `${input}\n\n[image id=${transientId} name=路飞2.gif type=image/gif size=128]`,
+  });
+  const historicalCandidates = Array.from({ length: historyCount }, (_, index) => ({
+    index: index + 1,
+    source_index: 1,
+    message_index: index + 1,
+    image_id: `history-image-${index + 1}`,
+    reference_id: `history-reference-${index + 1}`,
+    source: 'user_message',
+    target: 'uploaded',
+    filename: `history-${index + 1}.png`,
+  }));
+  const currentCandidate = {
+    index: historyCount + 1,
+    source_index: 1,
+    message_index: currentMessageIndex,
+    image_id: durableId,
+    reference_id: 'imgref_uploaded_current',
+    source: 'user_message',
+    target: 'uploaded',
+    filename: '路飞2.gif',
+  };
+  return {
+    input,
+    transientId,
+    durableId,
+    context: {
+      recent_messages: recentMessages,
+      image_candidates: [...historicalCandidates, currentCandidate],
+    },
+    attachments: [{
+      index: 1,
+      source_index: 1,
+      media_index: 1,
+      id: transientId,
+      image_id: transientId,
+      name: '路飞2.gif',
+      type: 'image/gif',
+      size: 128,
+      is_image: true,
+    }],
+  };
+}
+
+function testCurrentGifDecisionCanonicalizesIdentityAndDispatches() {
+  const options = currentGifOptions();
+  const payload = JSON.parse(routeService.buildRoutePayload({ model: 'router', ...options }).messages[1].content);
+  assert.deepStrictEqual(payload.resource_candidates, [{
+    candidate_key: 'i1', type: 'image', source: 'current', label: '路飞2.gif',
+  }], 'the persisted copy of the current GIF must not duplicate its attachment candidate');
+
+  const semantic = decision({
+    operation: 'image_qa',
+    bindings: [{ candidate_key: 'i1', role: 'source' }],
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.reason, '');
+  assert.strictEqual(inspected.route.taskContract.resources[0].id, options.durableId);
+  assert.ok(inspected.route.executionResources.images[0].identity_aliases.includes(options.transientId));
+  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true,
+    'a uniquely resolved current GIF alias must pass the canonical dispatch gate');
+}
+
+function testExistingImageHistoryKeepsCurrentGifCandidateStable() {
+  const options = currentGifOptions(4);
+  const payload = JSON.parse(routeService.buildRoutePayload({ model: 'router', ...options }).messages[1].content);
+  assert.deepStrictEqual(payload.resource_candidates.filter(candidate => candidate.type === 'image').map(candidate => ({
+    key: candidate.candidate_key,
+    source: candidate.source,
+    label: candidate.label,
+  })), [
+    { key: 'i1', source: 'history', label: 'history-1.png' },
+    { key: 'i2', source: 'history', label: 'history-2.png' },
+    { key: 'i3', source: 'history', label: 'history-3.png' },
+    { key: 'i4', source: 'history', label: 'history-4.png' },
+    { key: 'i5', source: 'current', label: '路飞2.gif' },
+  ]);
+
+  const semantic = decision({
+    operation: 'image_qa',
+    relation: 'followup',
+    bindings: [{ candidate_key: 'i5', role: 'source' }],
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route, 'the model-selected current i5 GIF must retain its binding after context compaction');
+  assert.strictEqual(inspected.reason, '');
+  assert.strictEqual(inspected.route.taskContract.resources[0].id, options.durableId);
+  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
+}
+
 module.exports = [
   testCompactDecisionCompilesEveryOperationToCanonicalExecution,
   testQuotedTextDecisionCompilesMessageIdentityAndPromptOnce,
@@ -519,4 +623,6 @@ module.exports = [
   testSelfContainedImageFollowupDoesNotInheritPriorPrompt,
   testDecisionCompilerBuildsClarificationChoicesWithoutModelAuthoredIds,
   testDecisionBoundaryRejectsInventedKeysRolesAndSemanticRepairDrift,
+  testCurrentGifDecisionCanonicalizesIdentityAndDispatches,
+  testExistingImageHistoryKeepsCurrentGifCandidateStable,
 ];

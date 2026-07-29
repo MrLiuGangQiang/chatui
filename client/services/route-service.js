@@ -986,11 +986,19 @@ function inspectTaskContract(taskContract = {}, options = {}) {
 function inspectRouteDecision(decision = {}, options = {}) {
   if (!hasExactRouteDecision(decision)) return { route: null, reason: 'decision_shape' };
   try {
-    const taskContract = compileRouteDecision(decision, options);
-    if (routeReadiness(taskContract) === 'needs_clarification') {
-      const inspected = inspectDeclaredClarification(taskContract, options);
+    const compiledTaskContract = compileRouteDecision(decision, options);
+    if (routeReadiness(compiledTaskContract) === 'needs_clarification') {
+      const inspected = inspectDeclaredClarification(compiledTaskContract, options);
       return inspected.route ? { ...inspected, route: { ...inspected.route, routeDecision: decision } } : inspected;
     }
+    // The compact decision catalog may bind a just-uploaded image by its
+    // transient attachment id. The full route context already owns the same
+    // image under its durable id, with the attachment id recorded as a
+    // validated alias. Canonicalize before creating the execution projection
+    // so the task contract and dispatch gate compare one stable identity.
+    const taskContract = typeof intentContract?.canonicalizeContractBindings === 'function'
+      ? intentContract.canonicalizeContractBindings(compiledTaskContract, options)
+      : compiledTaskContract;
     if (!hasRequiredTextToImageQuoteBinding(taskContract, options.context)) return { route: null, reason: 'resource_binding' };
     const inspected = inspectTaskContract(taskContract, options);
     return inspected.route ? { ...inspected, route: { ...inspected.route, routeDecision: decision } } : inspected;
@@ -1164,9 +1172,22 @@ function compactRoutePayloadContext(context = {}, input = '', attachments = []) 
       messages.pop();
     }
   }
+  const historicalImages = Array.isArray(next.image_candidates)
+    ? next.image_candidates
+      .filter(candidate => !currentMessageIndex || Number(candidate?.message_index) !== currentMessageIndex)
+      .map(candidate => candidate?.source === 'user_message'
+        ? { ...candidate, source: 'history' }
+        : candidate)
+    : [];
   const historicalFiles = Array.isArray(next.file_candidates)
     ? next.file_candidates.filter(candidate => Number(candidate?.message_index) !== currentMessageIndex)
     : [];
+  // Current attachments are catalogued from the authoritative attachment
+  // list below. Keeping their already-persisted message candidates as well
+  // creates duplicate identities and can shift a model-selected i-key onto a
+  // prior image. Every remaining user-message candidate is historical relative
+  // to this new input, even after the duplicate current message is removed.
+  next.image_candidates = historicalImages;
   next.file_candidates = currentFiles.length ? [...historicalFiles, ...currentFiles] : historicalFiles;
   next.recent_messages = messages;
   return next;

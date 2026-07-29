@@ -10,7 +10,7 @@ const { createVersionChangelogController } = require('../../client/ui/version-ch
 function testReleaseNotesAreVersionSortedAndBounded() {
   const releases = readReleaseNotes({ root: path.join(__dirname, '../..') });
   assert.ok(releases.length > 0);
-  assert.ok(releases.some(item => item.version === 'v1.10.2'));
+  assert.ok(releases.some(item => item.version === 'v1.10.3'));
   for (let index = 1; index < releases.length; index += 1) {
     const previous = releases[index - 1].version.replace(/^v/, '').split('.').slice(0, 3).map(Number);
     const current = releases[index].version.replace(/^v/, '').split('.').slice(0, 3).map(Number);

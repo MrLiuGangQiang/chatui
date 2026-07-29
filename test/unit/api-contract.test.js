@@ -103,7 +103,7 @@ async function testApiContractCoreEndpointsKeepShape() {
     assert.strictEqual(changelog.res.status, 200);
     assertCorsJson(changelog);
     assert.ok(Array.isArray(changelog.json.releases));
-    assert.ok(changelog.json.releases.some(item => item.version === 'v1.10.2'));
+    assert.ok(changelog.json.releases.some(item => item.version === 'v1.10.3'));
   });
 }
 

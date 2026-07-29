@@ -83,77 +83,349 @@ body {
   outline: none;
 }
 
+.changelog-modal {
+  z-index: 240 !important;
+}
+
 .changelog-dialog {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: min(720px, calc(100vw - 32px));
-  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  width: min(840px, calc(100vw - 48px));
+  max-height: min(820px, calc(100vh - 56px));
   transform: translate(-50%, -50%);
-  padding: 22px;
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: 0 26px 80px rgba(15,23,42,.2), inset 0 1px 0 rgba(255,255,255,.75);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, var(--accent));
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 95%, #eef4ff);
+  box-shadow: 0 30px 90px rgba(15,23,42,.24), inset 0 1px 0 rgba(255,255,255,.86);
+}
+
+.changelog-dialog,
+.changelog-dialog * {
+  box-sizing: border-box;
 }
 
 .changelog-dialog-head {
-  margin-bottom: 12px;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  margin: 0;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  background:
+    radial-gradient(circle at 88% 0, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 96%, #fff), color-mix(in srgb, var(--surface) 91%, #eaf1ff));
+}
+
+.changelog-heading-copy {
+  min-width: 0;
+}
+
+.changelog-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .12em;
+}
+
+.changelog-kicker > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.changelog-dialog-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -.025em;
+}
+
+.changelog-dialog-head p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.changelog-dialog .dialog-close {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--muted);
+  box-shadow: 0 5px 18px rgba(15,23,42,.07);
+}
+
+.changelog-dialog .dialog-close:hover,
+.changelog-dialog .dialog-close:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent);
+  outline: none;
 }
 
 .changelog-content {
-  max-height: min(620px, calc(100vh - 150px));
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  overflow-x: hidden;
+  padding: 18px 20px 22px;
+  scrollbar-gutter: stable;
+}
+
+.changelog-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 11px;
+  min-width: 0;
 }
 
 .changelog-entry {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
+  min-width: 0;
+  max-width: 100%;
+  overflow: clip;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface) 97%, #fff);
+  box-shadow: 0 7px 22px rgba(15,23,42,.045);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
 
-.changelog-entry:first-child {
-  padding-top: 4px;
+.changelog-entry:hover {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  box-shadow: 0 10px 28px rgba(15,23,42,.065);
 }
 
-.changelog-entry:last-child {
-  border-bottom: 0;
+.changelog-entry.is-latest {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 48%);
+  box-shadow: 0 12px 34px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.changelog-entry h3 {
-  margin: 0 0 8px;
+.changelog-entry-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 58px;
+  padding: 13px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.changelog-entry-summary::-webkit-details-marker { display: none; }
+.changelog-entry-summary::marker { content: ''; }
+
+.changelog-entry-summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 54%, transparent);
+  outline-offset: -3px;
+  border-radius: 13px;
+}
+
+.changelog-entry-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.changelog-entry-version {
   color: var(--text);
   font-size: 15px;
+  font-weight: 760;
+  letter-spacing: -.01em;
+}
+
+.changelog-entry-title {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.changelog-latest-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 23px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.changelog-entry-chevron {
+  flex: 0 0 9px;
+  width: 9px;
+  height: 9px;
+  margin-right: 3px;
+  border-right: 1.8px solid var(--muted);
+  border-bottom: 1.8px solid var(--muted);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform .18s ease, border-color .18s ease;
+}
+
+.changelog-entry[open] .changelog-entry-chevron {
+  border-color: var(--accent);
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.changelog-entry-panel {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
 }
 
 .changelog-entry-body {
+  width: 100%;
+  min-width: 0;
   margin: 0;
-  color: var(--muted);
+  padding: 18px 20px 21px;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
   font: inherit;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.78;
   overflow-wrap: anywhere;
 }
 
 .changelog-entry-body > :first-child { margin-top: 0; }
 .changelog-entry-body > :last-child { margin-bottom: 0; }
-.changelog-entry-body p { margin: 8px 0; }
-.changelog-entry-body h1,
-.changelog-entry-body h2,
-.changelog-entry-body h3,
-.changelog-entry-body h4 { margin: 14px 0 6px; color: var(--text); font-size: 14px; }
+.changelog-entry-body p { margin: 10px 0; }
+.changelog-entry-body h1 { margin: 26px 0 12px; color: var(--text); font-size: 19px; line-height: 1.4; }
+.changelog-entry-body h2 {
+  margin: 28px 0 12px;
+  padding-left: 11px;
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.4;
+}
+.changelog-entry-body h3 { margin: 23px 0 10px; color: var(--text); font-size: 15px; line-height: 1.45; }
+.changelog-entry-body h4 { margin: 19px 0 8px; color: var(--text); font-size: 14px; line-height: 1.45; }
 .changelog-entry-body ul,
-.changelog-entry-body ol { margin: 8px 0; padding-left: 22px; }
-.changelog-entry-body li { margin: 3px 0; }
-.changelog-entry-body code { padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--surface) 78%, var(--text)); font-size: .92em; }
-.changelog-entry-body pre { margin: 10px 0; padding: 10px; overflow-x: auto; border-radius: 8px; background: color-mix(in srgb, var(--surface) 82%, #000); }
-.changelog-entry-body pre code { padding: 0; background: transparent; }
+.changelog-entry-body ol { margin: 11px 0; padding-left: 24px; }
+.changelog-entry-body li { margin: 6px 0; padding-left: 2px; }
+.changelog-entry-body li::marker { color: var(--accent); font-weight: 700; }
+.changelog-entry-body code {
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  font-size: .9em;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.changelog-entry-body pre {
+  margin: 14px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface) 85%, #e6edf8);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.changelog-entry-body pre code { padding: 0; background: transparent; white-space: inherit; }
+.changelog-entry-body blockquote {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 46%, var(--border));
+  border-radius: 0 9px 9px 0;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.changelog-entry-body a { color: var(--accent); text-underline-offset: 3px; }
+
+.changelog-table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 15px 0;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.changelog-entry-body table {
+  width: 100%;
+  min-width: 600px;
+  margin: 0;
+  border: 0;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.changelog-entry-body th,
+.changelog-entry-body td {
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.changelog-entry-body th {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--text);
+  font-weight: 700;
+}
+
+.changelog-entry-body tr:last-child td { border-bottom: 0; }
+.changelog-entry-body th:last-child,
+.changelog-entry-body td:last-child { border-right: 0; }
+
+.changelog-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 42px;
+  margin-top: 12px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.changelog-more:hover,
+.changelog-more:focus-visible {
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  outline: none;
+}
 
 .changelog-status {
-  margin: 12px 0;
+  margin: 28px 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
+  text-align: center;
 }
 
 @media (max-width: 640px) {
@@ -162,15 +434,25 @@ body {
     bottom: 0;
     left: 0;
     width: 100%;
-    max-height: 88dvh;
+    max-height: 92dvh;
     transform: none;
-    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
-    border-radius: 20px 20px 0 0;
+    padding: 0;
+    border-radius: 22px 22px 0 0;
   }
 
-  .changelog-content {
-    max-height: calc(88dvh - 92px);
-  }
+  .changelog-dialog-head { padding: 18px 17px 15px; }
+  .changelog-dialog-head h2 { font-size: 21px; }
+  .changelog-dialog-head p { max-width: 290px; font-size: 12px; }
+  .changelog-content { padding: 13px 12px calc(16px + env(safe-area-inset-bottom)); }
+  .changelog-list { gap: 9px; }
+  .changelog-entry-summary { min-height: 54px; padding: 12px 13px; }
+  .changelog-entry-version { font-size: 14px; }
+  .changelog-entry-title { max-width: 180px; }
+  .changelog-entry-body { padding: 16px 15px 18px; font-size: 13.5px; line-height: 1.72; }
+  .changelog-entry-body h2 { margin-top: 24px; font-size: 16px; }
+  .changelog-entry-body h3 { font-size: 14.5px; }
+  .changelog-entry-body pre { padding: 12px; font-size: 11.5px; }
+  .changelog-entry-body table { min-width: 560px; font-size: 12px; }
 }
 
 /* ═══════════════════════════════════════════

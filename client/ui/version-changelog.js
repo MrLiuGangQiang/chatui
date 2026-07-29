@@ -1,6 +1,23 @@
 (function initVersionChangelog(root) {
   'use strict';
 
+  const INITIAL_RELEASE_COUNT = 12;
+  const RELEASE_BATCH_SIZE = 12;
+
+  function comparableReleaseLabel(value = '') {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^chatui[\s·:：-]*/i, '')
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  function releaseSubtitle(release = {}, version = '') {
+    const title = String(release.title || '').trim();
+    if (!title || comparableReleaseLabel(title) === comparableReleaseLabel(version)) return '';
+    return title;
+  }
+
   function createVersionChangelogController(options = {}) {
     const documentRef = options.document || root?.document;
     const fetchImpl = options.fetchImpl || root?.fetch?.bind(root);
@@ -33,22 +50,98 @@
         content.appendChild(empty);
         return;
       }
-      releases.forEach(release => {
-        const article = documentRef.createElement('article');
-        article.className = 'changelog-entry';
-        const heading = documentRef.createElement('h3');
-        heading.textContent = `${release.version || ''} ${release.title || ''}`.trim();
+
+      function renderBody(body, release) {
+        if (body.dataset.rendered === '1') return;
+        body.dataset.rendered = '1';
+        const markdown = String(release.body || '').replace(/^#\s+.*(?:\r?\n|$)/, '').trim();
+        if (typeof markdownRenderer === 'function') body.innerHTML = markdownRenderer(markdown);
+        else body.textContent = markdown;
+        body.querySelectorAll?.('table')?.forEach(table => {
+          if (table.parentElement?.classList.contains('changelog-table-wrap')) return;
+          const wrapper = documentRef.createElement('div');
+          wrapper.className = 'changelog-table-wrap';
+          table.parentNode?.insertBefore(wrapper, table);
+          wrapper.appendChild(table);
+        });
+      }
+
+      function createEntry(release, index) {
+        const version = String(release.version || '').trim() || '未标记版本';
+        const subtitle = releaseSubtitle(release, version);
+        const entry = documentRef.createElement('details');
+        entry.className = `changelog-entry${index === 0 ? ' is-latest' : ''}`;
+        entry.open = index === 0;
+
+        const summary = documentRef.createElement('summary');
+        summary.className = 'changelog-entry-summary';
+        summary.setAttribute('aria-label', `${version}${subtitle ? `，${subtitle}` : ''}`);
+        const heading = documentRef.createElement('span');
+        heading.className = 'changelog-entry-heading';
+        const versionLabel = documentRef.createElement('span');
+        versionLabel.className = 'changelog-entry-version';
+        versionLabel.textContent = version;
+        heading.appendChild(versionLabel);
+        if (subtitle) {
+          const subtitleLabel = documentRef.createElement('span');
+          subtitleLabel.className = 'changelog-entry-title';
+          subtitleLabel.textContent = subtitle;
+          heading.appendChild(subtitleLabel);
+        }
+        if (index === 0) {
+          const latest = documentRef.createElement('span');
+          latest.className = 'changelog-latest-badge';
+          latest.textContent = '最新版本';
+          heading.appendChild(latest);
+        }
+        const chevron = documentRef.createElement('span');
+        chevron.className = 'changelog-entry-chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        summary.append(heading, chevron);
+
+        const panel = documentRef.createElement('div');
+        panel.className = 'changelog-entry-panel';
         const body = documentRef.createElement('div');
         body.className = 'changelog-entry-body';
-        const markdown = String(release.body || '').replace(/^#\s+.*(?:\r?\n|$)/, '').trim();
-        if (typeof markdownRenderer === 'function') {
-          body.innerHTML = markdownRenderer(markdown);
-        } else {
-          body.textContent = markdown;
+        panel.appendChild(body);
+        entry.append(summary, panel);
+        const ensureRendered = () => {
+          if (entry.open) renderBody(body, release);
+        };
+        entry.addEventListener('toggle', ensureRendered);
+        ensureRendered();
+        return entry;
+      }
+
+      const list = documentRef.createElement('div');
+      list.className = 'changelog-list';
+      let renderedCount = 0;
+      const appendBatch = count => {
+        const end = Math.min(releases.length, renderedCount + count);
+        for (let index = renderedCount; index < end; index += 1) {
+          list.appendChild(createEntry(releases[index], index));
         }
-        article.append(heading, body);
-        content.appendChild(article);
-      });
+        renderedCount = end;
+      };
+      appendBatch(INITIAL_RELEASE_COUNT);
+      content.appendChild(list);
+
+      if (renderedCount < releases.length) {
+        const more = documentRef.createElement('button');
+        more.className = 'changelog-more';
+        more.type = 'button';
+        const updateMoreLabel = () => {
+          const remaining = releases.length - renderedCount;
+          more.textContent = `查看更早版本（剩余 ${remaining} 个）`;
+        };
+        updateMoreLabel();
+        more.addEventListener('click', () => {
+          appendBatch(RELEASE_BATCH_SIZE);
+          if (renderedCount >= releases.length) more.remove();
+          else updateMoreLabel();
+        });
+        content.appendChild(more);
+      }
     }
 
     async function load() {

@@ -6,7 +6,7 @@
   <title>ChatUI</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.162-stable-clarification-height" />
+  <link rel="stylesheet" href="./assets/chatui.bundle.css?v=1.3.163-changelog-cards" />
   <script>
     try {
       if (localStorage.getItem('openapi-chat-image-session-sidebar-collapsed-v1') === '1') {
@@ -192,9 +192,10 @@
     <div class="modal-mask" data-close-changelog></div>
     <section class="changelog-dialog" role="dialog" aria-modal="true" aria-labelledby="changelogTitle">
       <header class="dialog-head changelog-dialog-head">
-        <div>
+        <div class="changelog-heading-copy">
+          <span class="changelog-kicker"><span aria-hidden="true"></span>版本记录</span>
           <h2 id="changelogTitle">更新日志</h2>
-          <p id="changelogSubtitle">查看 ChatUI 的版本更新记录</p>
+          <p id="changelogSubtitle">按版本查看 ChatUI 的功能、修复与兼容性变化</p>
         </div>
         <button id="closeChangelogBtn" class="dialog-close" type="button" aria-label="关闭更新日志">×</button>
       </header>
@@ -572,7 +573,7 @@
   <script src="./client/ui/usage-stats.js?v=1.2.76"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
   <script src="./client/app/runtime.js?v=1.2.69-semver-label"></script>
-  <script src="./client/ui/version-changelog.js?v=1.0.0"></script>
+  <script src="./client/ui/version-changelog.js?v=1.1.0-cards"></script>
   <script src="./client/app/media-workflow.js?v=1.2.70-clarification-media-isolation"></script>
   <script src="./client/app/session-resources.js?v=1.1.1-session-draft-cleanup"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>

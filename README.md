@@ -1,6 +1,6 @@
 # ChatUI 极简聊天与生图工具
 
-ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单页前端 + Node.js 本地代理为核心，支持聊天、流式输出、思考内容展示、文本生图、图片编辑、多附件解析、Markdown/数学公式/Mermaid 渲染、会话管理、任务恢复、本地图片缓存、使用统计排行榜和 Docker 镜像发布。
+ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单页前端 + Node.js 本地代理为核心，支持聊天、流式输出、思考内容展示、文本生图、图片编辑、多附件原生输入、Markdown/数学公式/Mermaid 渲染、会话管理、任务恢复、本地图片缓存、使用统计排行榜和 Docker 镜像发布。
 
 项目定位：用尽量少的依赖快速接入第三方大模型网关、私有 OpenAI 兼容服务、聚合 API 或本地模型代理。
 
@@ -55,7 +55,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
   - `edit_image`：图片编辑。
 - 可配置独立路由模型；未配置时使用聊天模型。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
-- 非图片附件上传时直接走聊天，先解析附件正文，不进入图片路由。
+- 非图片附件上传时直接走聊天，通过 Responses API 的 Base64 原生文件输入发送，不进入图片路由。
 - 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据。
 
 ### 图片能力
@@ -82,10 +82,10 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 支持图片附件压缩：JPEG / PNG / WebP 会尽量压缩到合适大小。
 - 支持 BMP 转 PNG。
 - 支持图片附件作为多模态聊天内容或图片编辑输入。
-- 支持文本/代码类文件读取为上下文。
-- 支持 PDF 文本提取，并带多级 fallback。
-- 支持 Word / Excel / PowerPoint 附件解析。
-- 对无法解析的附件会在消息中明确说明，避免误以为模型已读取正文。
+- 支持 OpenAI `input_file` 文档类型，包括 PDF、文本/代码、Word、PowerPoint 和表格文件。
+- 文件编码为 Data URL，并以 `input_file.file_data` 直接放入 `/v1/responses`；不会请求 `/v1/files`。
+- PDF 支持 `auto` / `low` / `high` 页面图像清晰度；非 PDF 不发送 `detail`。
+- 原始文档 Blob 缓存到 IndexedDB，编辑或恢复历史消息时重新编码，不把大段 Base64 写入聊天历史。
 
 ### Markdown 与富文本展示
 
@@ -148,7 +148,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 支持 Docker 多架构镜像。
 - 推送语义化版本 Git tag 后触发 GitHub Actions 构建镜像。
 - 镜像推送到 Docker Hub 和阿里云 ACR。
-- 测试覆盖前端 core/services/ui/app、服务端 API、附件解析、路由、任务和冒烟流程。
+- 测试覆盖前端 core/services/ui/app、服务端 API、原生附件输入、路由、任务和冒烟流程。
 
 ---
 
@@ -618,39 +618,34 @@ png, jpg, jpeg, gif, webp, bmp, svg
 
 ### 文本与代码附件
 
-常见文本/代码文件会读取正文并追加到聊天上下文中。
-
-如果疑似二进制或无法解析，会在消息里说明未能解析正文。
+常见文本/代码文件会编码为 Base64 Data URL，并作为 Responses API 的 `input_file.file_data` 直接发送。客户端不会另外提取并重复发送文档正文。
 
 ### PDF 附件
 
-PDF 解析顺序：
-
-1. `pdftotext` / Poppler，优先用于稳定提取中文和布局文本。
-2. `pdf-parse` / pdf.js。
-3. 基础 PDF 文本流解析。
-4. OCR fallback：`pdftoppm` 转图片 + `tesseract`，语言为 `chi_sim+eng`。
-
-如果 OCR 依赖不可用，会返回明确提示。
+PDF 通过 OpenAI 原生文件输入处理。支持在附件标签中选择 `auto`、`low` 或 `high`；该参数只影响 PDF 页面图像处理，PDF 文本仍会被提取。包含页面图像的 PDF 理解需要支持视觉输入的模型。
 
 ### Office 附件
 
-支持：
+原生文件输入支持：
 
-| 类型 | 扩展名 | 解析方式 |
+| 类型 | 常见扩展名 | 上游处理方式 |
 | --- | --- | --- |
-| Word | `.docx`, `.doc` | 优先 mammoth，失败后 officeparser / OpenXML fallback |
-| Excel | `.xlsx`, `.xlsm`, `.xls` | 优先 officeparser，失败后解析工作簿 XML 预览 |
-| PowerPoint | `.pptx`, `.ppt` | 优先 officeparser，失败后解析 slide XML |
+| Word / 富文档 | `.doc`, `.docx`, `.rtf`, `.odt` | 提取文本 |
+| PowerPoint / 演示文稿 | `.ppt`, `.pptx`, `.pps` 等 | 提取文本 |
+| Excel / 表格 | `.xls`, `.xlsx`, `.csv`, `.tsv`, `.iif` 等 | 表格增强；每个 Sheet 最多处理前 1,000 行 |
 
-Excel fallback 会提取最多前 8 个工作表、每个表前 80 行、前 40 列，并转成 Markdown 表格预览。
+非 PDF 文件中的嵌入图片和图表不会进入模型视觉上下文；需要保留图表或排版时，请先转换为 PDF。
+
+每个文档必须严格小于 50 MB；同一条 Responses 请求中的全部文档合计也必须严格小于 50 MB。
+Base64 编码会使 HTTP JSON 请求体增大约三分之一；使用中转站或反向代理时，应将请求体上限配置为至少 72 MiB。
 
 ### 附件上下文规则
 
 - 路由模型只看附件元数据，不读取附件正文。
-- 聊天模型可读取文本/Office/PDF 提取结果。
+- 聊天模型通过 Responses API 的 `input_file.file_data` 读取原始文档。
 - 图片编辑接口只接收图片附件。
-- 不支持解析的附件不会把二进制强行发给聊天模型。
+- Base64 只在发送和未完成任务恢复时生成；聊天历史保留 IndexedDB Blob 引用，不持久化完整 Data URL。
+- native 文档不会同时以内联文本重复发送。
 
 ---
 
@@ -742,8 +737,8 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 | 聊天规范消息 | `localStorage` |
 | 展示历史 display | `localStorage` |
 | 最近生成图片上下文 | `localStorage` + `IndexedDB` |
-| 上传/生成图片二进制 | `IndexedDB` |
-| 未完成 Job 记录 | `localStorage` |
+| 上传文档与上传/生成图片二进制 | `IndexedDB` |
+| 未完成 Job 记录 | `localStorage` + `IndexedDB`（大媒体 payload） |
 
 ### 历史恢复
 
@@ -763,7 +758,7 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 ---
 ## 使用统计与排行榜
 
-使用统计是可选能力，依赖外部 PostgreSQL 数据库中的使用日志表。未配置数据库连接时，前端统计入口仍可打开，但接口会返回不可用状态，核心聊天、生图、图片编辑和附件解析不受影响。
+使用统计是可选能力，依赖外部 PostgreSQL 数据库中的使用日志表。未配置数据库连接时，前端统计入口仍可打开，但接口会返回不可用状态，核心聊天、生图、图片编辑和附件输入不受影响。
 
 #### 展示能力
 
@@ -810,7 +805,6 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 | --- | --- | --- |
 | `/api/version` | GET | 返回当前应用版本，来自 `package.json` |
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
-| `/api/extract-file` | POST | 附件文本提取：PDF / Office 等 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
 | `/api/usage/rankings?range=today|yesterday|total` | GET | 查询指定范围排行榜，懒加载按需查询 |
 | `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key` 与 `range` |
@@ -883,7 +877,7 @@ GET, POST
 | `UPSTREAM_TIMEOUT_MS` | `600000` | 上游 API 超时，默认 10 分钟 |
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
-| `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image Base64 payloads are never logged. |
+| `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
@@ -917,7 +911,7 @@ docker run -d --name chatui --restart unless-stopped -p 8765:8765 \
   liugangqiang/chatui:latest
 ```
 
-If text requests work but visual chat fails, run `docker logs --tail 200 chatui` after one failed upload. The log records only target host/path, outbound byte size and the underlying network code (such as `ECONNRESET`); it does not include credentials or image data.
+If text requests work but image/file chat fails, run `docker logs --tail 200 chatui` after one failed upload. The log records only target host/path, outbound byte size and the underlying network code (such as `ECONNRESET`); it does not include credentials or Base64 data.
 
 
 示例：
@@ -969,7 +963,6 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 │   ├── usage/                     # 使用统计查询仓库
 │   ├── http/                      # 请求 body、响应、安全头、静态文件服务
 │   ├── proxy/                     # OpenAI 兼容代理、图片代理、Header 规范化
-│   ├── extract/                   # PDF / Office / OpenXML / OCR 辅助解析
 │   ├── security/                  # 上游 URL 安全策略
 │   ├── services/                  # 服务端用例与外部集成
 │   ├── validators/                # API 输入校验
@@ -1026,7 +1019,7 @@ git diff --check
 - 前端 services：模型、Job、聊天、路由、生图、图片解析。
 - 前端 UI：文件动作、实时渲染、滚动、消息渲染、消息操作、图片操作。
 - 前端 app：状态、run、会话、持久化、display item、runtime、image store。
-- API、Job 生命周期、附件解析、路由与 HTTP 服务冒烟。
+- API、Job 生命周期、原生附件输入、路由与 HTTP 服务冒烟。
 
 当前测试以 Node/JSDOM 和 HTTP smoke 为主；真实浏览器 E2E 作为后续增强项。
 
@@ -1191,13 +1184,13 @@ ChatUI 会尽量降级为普通请求。
 
 ### PDF 没有识别出文字
 
-可能是扫描件、图片型 PDF 或复杂字体编码 PDF。
+PDF 由上游 Responses API 处理。扫描件、图片型 PDF 需要模型支持视觉输入，并且中转站必须完整支持 `input_file.file_data`。
 
 建议：
 
-- 使用 Docker 镜像，镜像内置 Poppler 和 Tesseract OCR 依赖。
-- 确认 OCR 依赖可用：`pdftoppm`、`tesseract`、`chi_sim`、`eng`。
-- 或将 PDF 导出为文本/Markdown 后再上传。
+- 确认聊天模型支持 PDF/视觉文件输入。
+- 确认中转站实现 `/v1/responses` 中的 `input_file.file_data`，且允许 Base64 请求体通过。
+- 将扫描件先做 OCR，或导出为可检索 PDF、文本/Markdown 后再上传。
 
 ### 清空对话会删除配置吗？
 

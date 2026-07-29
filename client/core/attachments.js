@@ -15,6 +15,19 @@ function isCompressibleRasterImage(file = {}) {
   return ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(type) || /\.(png|jpe?g|webp)$/i.test(name);
 }
 
+function isInputFileAvailable(item = {}) {
+  if (item.input_file_available === true || item.inputFileAvailable === true) return true;
+  const isInputFile = item.inputFile === true || item.input_file === true;
+  if (!isInputFile) return false;
+  return !!(
+    item.file
+    || String(item.fileData || item.file_data || '').trim()
+    || String(item.persistedSrc || item.persisted_src || '').trim()
+    || String(item.src || '').trim()
+    || String(item.dataUrl || item.data_url || '').trim()
+  );
+}
+
 function formatBytes(bytes = 0) {
   const value = Number(bytes) || 0;
   if (value < 1024) return `${value} B`;
@@ -141,7 +154,10 @@ function buildRouteAttachmentMetadata(attachments = []) {
       type: item.type || (item.file && item.file.type) || '',
       size: Number(item.size || (item.file && item.file.size)) || 0,
       is_image: isImage,
-      ...(!isImage ? { has_extracted_text: !!String(item.text || '').trim() } : {}),
+      ...(!isImage ? {
+        has_extracted_text: !!String(item.text || '').trim(),
+        input_file_available: isInputFileAvailable(item),
+      } : {}),
       ...(!isImage && item.unsupportedReason ? { unsupported_reason: item.unsupportedReason } : {}),
     };
   });
@@ -150,6 +166,7 @@ function buildRouteAttachmentMetadata(attachments = []) {
 const api = Object.freeze({
   isImageFile,
   isCompressibleRasterImage,
+  isInputFileAvailable,
   formatBytes,
   looksLikeImageEditInstruction,
   IMAGE_REFERENCE_PREFIX,

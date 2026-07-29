@@ -57,6 +57,24 @@ function uploadedFileAttachmentsFromMessage(message = {}) {
   return attachmentContext.attachments.filter(item => item && !isImageAttachmentMeta(item));
 }
 
+function isInputFileAvailable(item = {}) {
+  const helper = root?.ChatUICoreAttachments?.isInputFileAvailable
+    || root?.ChatUICore?.attachments?.isInputFileAvailable;
+  if (typeof helper === 'function') return !!helper(item);
+  const marked = item.inputFile === true || item.input_file === true;
+  if (!marked) return false;
+  return !!(
+    item.file
+    || item.persistedSrc
+    || item.persisted_src
+    || item.src
+    || item.dataUrl
+    || item.data_url
+    || item.fileData
+    || item.file_data
+  );
+}
+
 function buildFileCandidates(messages = []) {
   const result = [];
   for (let messageIndex = (Array.isArray(messages) ? messages.length : 0) - 1; messageIndex >= 0; messageIndex -= 1) {
@@ -72,6 +90,7 @@ function buildFileCandidates(messages = []) {
         type: file.type || 'application/octet-stream',
         size: Number(file.size) || 0,
         has_extracted_text: !!String(file.text || '').trim(),
+        input_file_available: isInputFileAvailable(file),
         unsupported_reason: file.unsupportedReason || file.unsupported_reason || '',
         message_index: messageIndex + 1,
       });

@@ -1,4 +1,4 @@
-function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readChangelog = () => [], sendJson, sendMethodNotAllowed, proxyImage, extractFileText, registerChatStreamJob }) {
+function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readChangelog = () => [], sendJson, sendMethodNotAllowed, proxyImage, registerChatStreamJob }) {
   const routes = [
     {
       path: '/api/version',
@@ -24,11 +24,6 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readCha
       path: '/api/chat-stream-jobs',
       method: 'POST',
       handler: registerChatStreamJob,
-    },
-    {
-      path: '/api/extract-file',
-      method: 'POST',
-      handler: extractFileText,
     },
   ];
 

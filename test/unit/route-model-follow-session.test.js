@@ -215,7 +215,7 @@ function testSessionRouteModelResolutionUsesOneCanonicalRule() {
   assert.strictEqual(sessionConfig.getSessionRouteModel({ session: { chatModel: 'removed-model' }, config: { chatModel: 'deepseek-v4-flash', routeModel: '' }, models }), 'deepseek-v4-flash');
 }
 
-function createRouteHarness({ config, sessions, requestJson }) {
+function createRouteHarness({ config, sessions, requestJson, buildRouteAttachmentMetadata = () => [] }) {
   const previousWindow = global.window;
   global.window = { ChatUIServices: { route: routeService }, ChatUIRouteService: routeService };
   const state = {
@@ -234,7 +234,7 @@ function createRouteHarness({ config, sessions, requestJson }) {
     getSessionChatModel: (sessionId, currentConfig) => sessionConfig.getSessionChatModel({ session: getSession(sessionId), config: currentConfig, models: config.models }),
     getSessionRouteModel: (sessionId, currentConfig) => sessionConfig.getSessionRouteModel({ session: getSession(sessionId), config: currentConfig, models: config.models }),
     buildRequestHeaders: () => ({}),
-    buildRouteAttachmentMetadata: () => [],
+    buildRouteAttachmentMetadata,
     requestJson,
     parseRouteResult: routeService.parseRouteResult,
   });
@@ -416,6 +416,73 @@ async function testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition()
     assert.deepStrictEqual(requestedModels, ['route-model'], 'a valid current-text image contract must execute from the primary route result without a second recognition request');
     assert.strictEqual(route.mode, 'image');
     assert.strictEqual(route.api, 'image_generation');
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testNativeMarkdownFileQaDecisionIsPrimarySingleFlight() {
+  const requestedModels = [];
+  const name = '\u516c\u53f8OpenClaw\u5b89\u88c5\u8fc7\u7a0b.md';
+  const attachment = {
+    attachmentId: 'current-native-markdown',
+    name,
+    type: 'text/markdown',
+    size: 128,
+    inputFile: true,
+    text: '',
+  };
+  const semantic = {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'file_qa',
+    relation: 'new',
+    bindings: [{ candidate_key: 'f1', role: 'attachment' }],
+    changes: [],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.99,
+    rationale: '\u7528\u6237\u8bf7\u6c42\u603b\u7ed3\u672c\u8f6e\u4e0a\u4f20\u7684 Markdown \u6587\u4ef6\u5185\u5bb9\u3002',
+  };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    buildRouteAttachmentMetadata: received => {
+      assert.deepStrictEqual(received, [attachment]);
+      return [{
+        index: 1,
+        source_index: 1,
+        media_index: 1,
+        id: 'current-native-markdown',
+        file_id: 'current-native-markdown',
+        name,
+        type: 'text/markdown',
+        size: 128,
+        is_image: false,
+        has_extracted_text: false,
+        input_file_available: true,
+      }];
+    },
+    requestJson: async (_url, payload) => {
+      requestedModels.push(payload.model);
+      if (requestedModels.length > 1) throw new Error('a valid native file decision must not enter repair or fallback routing');
+      const user = JSON.parse(payload.messages[1].content);
+      assert.ok(user.resource_candidates.some(candidate => candidate.candidate_key === 'f1'
+        && candidate.type === 'file'
+        && candidate.source === 'current'));
+      return responseFor(semantic);
+    },
+  });
+
+  try {
+    const route = await harness.workflow.getEffectiveRoute('\u603b\u7ed3\u5185\u5bb9', [attachment], 'session-a', {}, {});
+    assert.deepStrictEqual(requestedModels, ['route-model']);
+    assert.strictEqual(route.operationType, 'file_qa');
+    assert.strictEqual(route.api, 'chat');
+    assert.strictEqual(route.dispatchAuthorized, true);
+    assert.strictEqual(route.taskContract.resources[0].id, 'current-native-markdown');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
   } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
@@ -999,13 +1066,13 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(!app.includes(continuationResolution), 'the root entry must not retain a duplicate pending-clarification classifier');
   assert.ok(!submit.includes('const cfg=getConfig(),model=cfg.routeModel||cfg.chatModel'), 'pending clarification classification must not fall back to the stale global model rule');
   const chatWorkflowSource = fs.readFileSync(path.join(root, 'client/app/chat-workflow.js'), 'utf8');
-  assert.ok(chatWorkflowSource.includes('const sessionChatModel=getSessionChatModel(n.sessionId||state.activeSessionId,a)') && chatWorkflowSource.includes('buildChatPayload(sessionChatModel') && chatWorkflowSource.includes('buildResponsesPayload(sessionChatModel'), 'final chat dispatch must use the target session model for both Chat Completions and Responses APIs');
+  assert.ok(chatWorkflowSource.includes('const sessionChatModel=getSessionChatModel(n.sessionId||state.activeSessionId,a)') && chatWorkflowSource.includes('buildChatPayload(sessionChatModel') && chatWorkflowSource.includes('buildResponsesRequestPayload(sessionChatModel'), 'final chat dispatch must use the target session model for both Chat Completions and Responses APIs');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.78-secret-free-backup'));
   assert.ok(index.includes('submit-workflow.js?v=1.4.4-clarification-identity'));
   assert.ok(index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler'));
-  assert.ok(index.includes('app.js?v=2.1.56-encoding-integrity'));
+  assert.ok(index.includes('app.js?v=2.2.0-native-file-inputs'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 
@@ -1020,6 +1087,7 @@ module.exports = [
   testFollowRouteDoesNotRetrySameSessionModelAfterFailure,
   testInvalidPrimaryRouteRetriesDistinctSessionModelAndReturnsSafeClarification,
   testValidCurrentTextImageRouteDoesNotTriggerFallbackRecognition,
+  testNativeMarkdownFileQaDecisionIsPrimarySingleFlight,
   testSelfContainedImageFollowupIsPrimarySingleFlight,
   testValidQuotedTextImageDecisionIsPrimarySingleFlight,
   testAmbiguousEditIsClarifiedByFirstRoute,

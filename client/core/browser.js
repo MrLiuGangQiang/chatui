@@ -68,6 +68,10 @@
     enumerable: true,
     get: () => registeredModules.get('executionResources') || null,
   });
+  Object.defineProperty(api, 'fileInputs', {
+    enumerable: true,
+    get: () => registeredModules.get('fileInputs') || null,
+  });
   Object.freeze(api);
   if (typeof window !== 'undefined') window.ChatUICore = api;
   else global.ChatUICore = api;

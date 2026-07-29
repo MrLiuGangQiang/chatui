@@ -1,0 +1,249 @@
+'use strict';
+
+const assert = require('assert');
+const { File: BufferFile } = require('buffer');
+
+const coreAttachments = require('../../client/core/attachments');
+const imageRouteContext = require('../../client/core/image-route-context');
+const imageContextWorkflow = require('../../client/app/image-context-workflow');
+const routeService = require('../../client/services/route-service');
+
+const FileCtor = globalThis.File || BufferFile;
+
+function createWorkflow(media, writes = []) {
+  return imageContextWorkflow.createImageContextWorkflow({
+    File: FileCtor,
+    isImageFile: item => String(item?.type || item?.file?.type || '').startsWith('image/'),
+    putImageBlob: async (key, blob) => {
+      writes.push(key);
+      media.set(key, blob);
+    },
+    imageRefToFile: async (ref, name) => {
+      assert.match(ref, /^indexeddb:\/\//);
+      const blob = media.get(ref.slice('indexeddb://'.length));
+      if (!blob) throw new Error(`missing test blob: ${ref}`);
+      return new FileCtor([blob], name, { type: blob.type || 'application/octet-stream' });
+    },
+    imageRefToDataUrl: async ref => ref,
+    parseImageContext: coreAttachments.parseImageContext,
+  });
+}
+
+async function testNativePdfContextPersistsOriginalBlobWithoutBase64Payload() {
+  const media = new Map();
+  const writes = [];
+  const workflow = createWorkflow(media, writes);
+  const file = new FileCtor(['quarterly report'], 'quarterly.pdf', { type: 'application/pdf', lastModified: 1234 });
+  const attachment = {
+    attachmentId: 'local-report-id',
+    file,
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    inputFile: true,
+    text: 'legacy extracted text must not be duplicated',
+    pdfDetail: 'high',
+    fileData: 'data:application/pdf;base64,cXVhcnRlcmx5IHJlcG9ydA==',
+    file_data: 'data:application/pdf;base64,dHJhbnNpZW50',
+  };
+
+  const context = await workflow.buildUserAttachmentContext('review this report', [attachment]);
+  const stored = context.attachments[0];
+
+  assert.strictEqual(stored.id, 'local-report-id');
+  assert.strictEqual(stored.src, 'indexeddb://attachment-file-local-report-id');
+  assert.strictEqual(stored.persistedSrc, stored.src);
+  assert.strictEqual(attachment.persistedSrc, stored.src);
+  assert.strictEqual(stored.inputFile, true);
+  assert.strictEqual(stored.text, '', 'native input files must not persist a duplicate inline-text channel');
+  assert.strictEqual(stored.pdfDetail, 'high');
+  assert.strictEqual(Object.hasOwn(stored, 'status'), false);
+  assert.strictEqual(Object.hasOwn(stored, 'fileData'), false);
+  assert.strictEqual(Object.hasOwn(stored, 'file_data'), false);
+  assert.deepStrictEqual(writes, ['attachment-file-local-report-id']);
+  assert.strictEqual(await media.get('attachment-file-local-report-id').text(), 'quarterly report');
+
+  const [restored] = await workflow.restoreUserAttachmentsFromContext(JSON.stringify(context));
+  assert.ok(restored.file instanceof FileCtor, 'history restore must return a File that request preparation can encode');
+  assert.strictEqual(restored.file.name, 'quarterly.pdf');
+  assert.strictEqual(restored.file.type, 'application/pdf');
+  assert.strictEqual(await restored.file.text(), 'quarterly report');
+  assert.strictEqual(restored.attachmentId, 'local-report-id');
+  assert.strictEqual(restored.persistedSrc, stored.src);
+  assert.strictEqual(restored.src, stored.src);
+  assert.strictEqual(restored.inputFile, true);
+  assert.strictEqual(restored.text, '');
+  assert.strictEqual(restored.pdfDetail, 'high');
+  assert.strictEqual(Object.hasOwn(restored, 'status'), false);
+  assert.strictEqual(Object.hasOwn(restored, 'fileData'), false);
+  assert.strictEqual(Object.hasOwn(restored, 'file_data'), false);
+}
+
+async function testExistingDurableDocumentKeepsLocalFileIdentityWithoutRepersisting() {
+  const media = new Map([
+    ['existing-document', new Blob(['document body'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })],
+  ]);
+  const writes = [];
+  const workflow = createWorkflow(media, writes);
+  const attachment = {
+    fileId: 'local-route-file-id',
+    name: 'notes.docx',
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    size: 13,
+    persistedSrc: 'indexeddb://existing-document',
+    inputFile: true,
+    fileData: 'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,ZG9jdW1lbnQgYm9keQ==',
+  };
+
+  const context = await workflow.buildUserAttachmentContext('', [attachment]);
+  assert.strictEqual(context.attachments[0].id, 'local-route-file-id');
+  assert.strictEqual(context.attachments[0].src, 'indexeddb://existing-document');
+  assert.strictEqual(Object.hasOwn(context.attachments[0], 'status'), false);
+  assert.strictEqual(Object.hasOwn(context.attachments[0], 'fileData'), false);
+  assert.deepStrictEqual(writes, [], 'an existing durable Blob reference must be reused');
+
+  const [restored] = await workflow.restoreUserAttachmentsFromContext(context);
+  assert.strictEqual(restored.attachmentId, 'local-route-file-id');
+  assert.strictEqual(Object.hasOwn(restored, 'status'), false);
+  assert.strictEqual(Object.hasOwn(restored, 'fileData'), false);
+  assert.strictEqual(restored.file.name, 'notes.docx');
+  assert.strictEqual(await restored.file.text(), 'document body');
+}
+
+async function testMissingNativeDocumentBlobFailsInsteadOfDroppingAttachment() {
+  const workflow = createWorkflow(new Map());
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    await assert.rejects(
+      () => workflow.restoreUserAttachmentsFromContext({
+        attachments: [{
+          id: 'local-missing-file',
+          name: 'missing.pdf',
+          type: 'application/pdf',
+          src: 'indexeddb://missing-file',
+          inputFile: true,
+        }],
+      }),
+      error => error?.code === 'FILE_CONTENT_UNAVAILABLE' && /missing\.pdf/.test(error.message),
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
+async function testHistoricalNativeMarkdownKeepsReadableRouteCandidate() {
+  const name = '\u516c\u53f8OpenClaw\u5b89\u88c5\u8fc7\u7a0b.md';
+  const media = new Map([
+    ['historical-markdown', new Blob(['# OpenClaw\n\nInstall steps.'], { type: 'text/markdown' })],
+  ]);
+  const workflow = createWorkflow(media);
+  const context = await workflow.buildUserAttachmentContext('uploaded the guide', [{
+    attachmentId: 'historical-native-markdown',
+    name,
+    type: 'text/markdown',
+    size: 27,
+    persistedSrc: 'indexeddb://historical-markdown',
+    inputFile: true,
+    text: '',
+  }]);
+  const stored = context.attachments[0];
+
+  assert.strictEqual(stored.inputFile, true);
+  assert.strictEqual(stored.src, 'indexeddb://historical-markdown');
+  assert.strictEqual(coreAttachments.isInputFileAvailable(stored), true, 'a durable IndexedDB source makes native history content readable');
+
+  const [restored] = await workflow.restoreUserAttachmentsFromContext(context);
+  assert.strictEqual(restored.inputFile, true);
+  assert.strictEqual(coreAttachments.isInputFileAvailable(restored), true);
+  assert.strictEqual(await restored.file.text(), '# OpenClaw\n\nInstall steps.');
+
+  const routeContext = imageRouteContext.buildRouteContext({
+    messages: [{
+      role: 'user',
+      content: 'uploaded the guide',
+      attachmentContext: JSON.stringify(context),
+    }],
+  });
+  assert.strictEqual(routeContext.file_candidates.length, 1);
+  assert.deepStrictEqual({
+    source: routeContext.file_candidates[0].source,
+    file_id: routeContext.file_candidates[0].file_id,
+    has_extracted_text: routeContext.file_candidates[0].has_extracted_text,
+    input_file_available: routeContext.file_candidates[0].input_file_available,
+  }, {
+    source: 'history',
+    file_id: 'historical-native-markdown',
+    has_extracted_text: false,
+    input_file_available: true,
+  });
+
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: 'summarize the previously uploaded Markdown file',
+    attachments: [],
+    context: routeContext,
+  });
+  const routeUser = JSON.parse(payload.messages[1].content);
+  assert.ok(routeUser.resource_candidates.some(candidate => candidate.candidate_key === 'f1'
+    && candidate.type === 'file'
+    && candidate.source === 'history'
+    && candidate.label === name));
+
+  const semantic = {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'file_qa',
+    relation: 'followup',
+    bindings: [{ candidate_key: 'f1', role: 'attachment' }],
+    changes: [],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.99,
+    rationale: 'summarize the selected historical Markdown file',
+  };
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), {
+    input: 'summarize the previously uploaded Markdown file',
+    attachments: [],
+    context: routeContext,
+  });
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.dispatchAuthorized, true);
+  assert.strictEqual(inspected.route.taskContract.resources[0].source, 'history');
+  assert.deepStrictEqual(inspected.route.taskContract.directive.base_resource_keys, ['r1']);
+}
+
+async function testNativeInputMarkerWithoutContentStaysUnavailableInHistory() {
+  const workflow = createWorkflow(new Map());
+  const context = await workflow.buildUserAttachmentContext('upload marker only', [{
+    attachmentId: 'marker-only-markdown',
+    name: 'marker-only.md',
+    type: 'text/markdown',
+    size: 32,
+    inputFile: true,
+    text: '',
+  }]);
+  const stored = context.attachments[0];
+  assert.strictEqual(stored.inputFile, true);
+  assert.strictEqual(Object.hasOwn(stored, 'src'), false);
+  assert.strictEqual(coreAttachments.isInputFileAvailable(stored), false, 'native transport mode alone must not claim readable content');
+
+  const routeContext = imageRouteContext.buildRouteContext({
+    messages: [{ role: 'user', content: 'upload marker only', attachmentContext: JSON.stringify(context) }],
+  });
+  assert.strictEqual(routeContext.file_candidates[0].input_file_available, false);
+  const routeUser = JSON.parse(routeService.buildRoutePayload({
+    model: 'route-model',
+    input: 'summarize that file',
+    context: routeContext,
+  }).messages[1].content);
+  assert.ok(!routeUser.resource_candidates.some(candidate => candidate.type === 'file'));
+}
+
+module.exports = [
+  testNativePdfContextPersistsOriginalBlobWithoutBase64Payload,
+  testExistingDurableDocumentKeepsLocalFileIdentityWithoutRepersisting,
+  testMissingNativeDocumentBlobFailsInsteadOfDroppingAttachment,
+  testHistoricalNativeMarkdownKeepsReadableRouteCandidate,
+  testNativeInputMarkerWithoutContentStaysUnavailableInHistory,
+];

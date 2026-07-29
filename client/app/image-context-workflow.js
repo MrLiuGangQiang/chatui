@@ -9,6 +9,7 @@
     const putImageBlob = deps.putImageBlob;
     const imageRefToFile = deps.imageRefToFile;
     const imageRefToDataUrl = deps.imageRefToDataUrl;
+    const FileCtor = deps.File || root?.File;
     const normalizeLastGeneratedImage = deps.normalizeLastGeneratedImage || (value => value);
     const findImageReferenceById = deps.findImageReferenceById || (() => null);
     const makeImageReferenceId = deps.makeImageReferenceId;
@@ -17,13 +18,17 @@
     const parseImageItemId = deps.parseImageItemId;
     const normalizeImageSelection = deps.normalizeImageSelection;
     const normalizeSelectedImageIds = deps.normalizeSelectedImageIds;
-    const parseImageContext = deps.parseImageContext;
+    const parseImageContext = deps.parseImageContext || (value => {
+      if (!value) return null;
+      if (typeof value === 'object') return value;
+      try { return JSON.parse(value); } catch { return null; }
+    });
 
     function serializeAttachmentEntry(item, index = 0) {
       const name = item?.name || item?.file?.name || 'attachment';
       const type = item?.type || item?.file?.type || 'application/octet-stream';
       const size = item?.size || item?.file?.size || 0;
-      const existingId = item?.attachmentId || item?.attachment_id || item?.imageId || item?.image_id || item?.id || '';
+      const existingId = item?.attachmentId || item?.attachment_id || item?.imageId || item?.image_id || item?.fileId || item?.file_id || item?.id || '';
       const safeName = String(name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'attachment';
       const id = existingId || `att_${Date.now().toString(36)}_${index + 1}_${safeName}`;
       if (item && typeof item === 'object' && !item.attachmentId) item.attachmentId = id;
@@ -162,25 +167,114 @@
       } catch { return ''; }
     }
 
+    function preferredGenericAttachmentSrc(item = {}) {
+      const candidates = [
+        item.persistedSrc,
+        item.persisted_src,
+        item.src,
+        item.dataUrl,
+        item.data_url,
+      ].map(value => String(value || '').trim()).filter(Boolean);
+      return candidates.map(durableAttachmentRef).find(Boolean) || candidates[0] || '';
+    }
+
+    function isPdfAttachment(item = {}) {
+      return String(item.type || item.file?.type || '').toLowerCase() === 'application/pdf'
+        || /\.pdf$/i.test(String(item.name || item.file?.name || ''));
+    }
+
+    function normalizePdfDetail(value = '') {
+      const detail = String(value || '').trim().toLowerCase();
+      return detail === 'low' || detail === 'high' ? detail : 'auto';
+    }
+
+    function isNativeInputFile(item = {}) {
+      return item.inputFile === true || item.input_file === true;
+    }
+
+    async function persistGenericAttachmentRef(item, meta, index = 0) {
+      const source = preferredGenericAttachmentSrc(item);
+      const durable = durableAttachmentRef(source);
+      if (durable) {
+        if (item && typeof item === 'object') item.persistedSrc = durable;
+        return durable;
+      }
+      if (typeof putImageBlob !== 'function') return '';
+      let blob = item?.file || null;
+      if (!blob && /^(?:data:|blob:)/i.test(source)) {
+        try { blob = await dataUrlToBlob(source); } catch { blob = null; }
+      }
+      if (!blob) return '';
+      try {
+        const safeId = String(meta?.id || `file-${index + 1}`).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 96) || `file-${index + 1}`;
+        const key = `attachment-file-${safeId}`;
+        await putImageBlob(key, blob);
+        const persistedSrc = `indexeddb://${key}`;
+        if (item && typeof item === 'object') item.persistedSrc = persistedSrc;
+        return persistedSrc;
+      } catch { return ''; }
+    }
+
+    function rawAttachmentContext(value) {
+      if (!value) return null;
+      if (typeof value === 'object') return value;
+      try { return JSON.parse(value); } catch { return null; }
+    }
+
+    function attachmentContextForRestore(value) {
+      const normalized = parseImageContext(value);
+      const raw = rawAttachmentContext(value);
+      if (!Array.isArray(raw?.attachments)) return normalized;
+      const normalizedAttachments = Array.isArray(normalized?.attachments) ? normalized.attachments : [];
+      const byId = new Map(normalizedAttachments.map(item => [String(item?.id || item?.attachmentId || item?.attachment_id || ''), item]).filter(([id]) => id));
+      const attachments = raw.attachments.map((item, index) => {
+        const localId = String(item?.id || item?.attachmentId || item?.attachment_id || item?.fileId || item?.file_id || '');
+        const base = byId.get(localId) || normalizedAttachments[index] || {};
+        return {
+          ...base,
+          ...item,
+          src: item?.persistedSrc || item?.persisted_src || item?.src || base.src || '',
+        };
+      });
+      return { ...(normalized || {}), ...raw, attachments };
+    }
+
+    function restoredDocumentFile(file, item = {}) {
+      if (!file || typeof FileCtor !== 'function') return file;
+      const name = item.name || file.name || 'attachment';
+      const type = item.type || file.type || 'application/octet-stream';
+      if (file.name === name && (!item.type || file.type === type)) return file;
+      try {
+        return new FileCtor([file], name, {
+          type,
+          lastModified: Number(item.lastModified || item.last_modified || file.lastModified) || Date.now(),
+        });
+      } catch { return file; }
+    }
+
     async function buildUserAttachmentContext(prompt, attachments = []) {
       const generic = [];
       for (let index = 0; index < attachments.length; index += 1) {
         const item = attachments[index];
         if (isImageFile(item)) continue;
         const meta = serializeAttachmentEntry(item, index);
+        const inputFile = isNativeInputFile(item);
         const entry = {
           id: meta.id,
           name: meta.name,
           type: meta.type,
           size: meta.size,
-          text: item.text || '',
+          text: inputFile ? '' : item.text || '',
           unsupportedReason: item.unsupportedReason || '',
           compressionNote: item.compressionNote || '',
         };
-        if (item.dataUrl) {
-          const src = await persistGenericAttachmentSrc(item.dataUrl, entry.name);
-          if (src) entry.src = src;
+        const src = await persistGenericAttachmentRef(item, meta, index);
+        if (src) {
+          entry.src = src;
+          entry.persistedSrc = src;
         }
+        if (inputFile) entry.inputFile = true;
+        if (isPdfAttachment(item)) entry.pdfDetail = normalizePdfDetail(item.pdfDetail || item.pdf_detail);
         generic.push(entry);
       }
       const images = await persistImageAttachmentRefs(attachments.filter(item => isImageFile(item)));
@@ -188,33 +282,52 @@
     }
 
     async function restoreUserAttachmentsFromContext(value) {
-      const context = parseImageContext(value);
+      const context = attachmentContextForRestore(value);
       const attachments = Array.isArray(context?.attachments) ? context.attachments : [];
       const result = [];
       for (const item of attachments) {
         try {
-          if (item.src) {
-            const file = await imageRefToFile(item.src, item.name || 'attachment');
+          const src = preferredGenericAttachmentSrc(item);
+          const inputFile = isNativeInputFile(item);
+          const localAttachmentId = item.id || item.attachmentId || item.attachment_id || item.fileId || item.file_id || '';
+          if (src) {
+            let file = await imageRefToFile(src, item.name || 'attachment');
             const image = isImageFile({ name: item.name || file.name, type: item.type || file.type });
-            const durableSrc = durableAttachmentRef(item.src);
-            result.push({
+            if (!image) file = restoredDocumentFile(file, item);
+            const durableSrc = durableAttachmentRef(src);
+            const restored = {
               file,
               name: item.name || file.name,
               type: item.type || file.type || 'application/octet-stream',
               size: item.size || file.size,
-              dataUrl: image ? await imageRefToDataUrl(item.src, item.name || file.name) : item.src,
+              dataUrl: image ? await imageRefToDataUrl(src, item.name || file.name) : src,
               previewSrc: image ? durableSrc : '',
-              persistedSrc: image ? durableSrc : '',
-              text: item.text || '',
-              attachmentId: item.id || item.attachmentId || item.attachment_id || '',
+              persistedSrc: durableSrc,
+              src: durableSrc,
+              text: inputFile ? '' : item.text || '',
+              attachmentId: localAttachmentId,
               unsupportedReason: item.unsupportedReason || '',
               compressionNote: item.compressionNote || '',
               fromPrevious: !!item.fromPrevious,
-            });
+            };
+            if (inputFile) restored.inputFile = true;
+            if (isPdfAttachment(item)) restored.pdfDetail = normalizePdfDetail(item.pdfDetail || item.pdf_detail);
+            result.push(restored);
             continue;
           }
-          result.push({ file: null, name: item.name || 'attachment', type: item.type || 'application/octet-stream', size: item.size || 0, dataUrl: '', text: item.text || '', attachmentId: item.id || item.attachmentId || item.attachment_id || '', unsupportedReason: item.unsupportedReason || '', compressionNote: item.compressionNote || '' });
-        } catch (err) { console.warn('restore attachment failed', err); }
+          const restored = { file: null, name: item.name || 'attachment', type: item.type || 'application/octet-stream', size: item.size || 0, dataUrl: '', text: inputFile ? '' : item.text || '', attachmentId: localAttachmentId, unsupportedReason: item.unsupportedReason || '', compressionNote: item.compressionNote || '' };
+          if (inputFile) restored.inputFile = true;
+          if (isPdfAttachment(item)) restored.pdfDetail = normalizePdfDetail(item.pdfDetail || item.pdf_detail);
+          result.push(restored);
+        } catch (err) {
+          console.warn('restore attachment failed', err);
+          if (isNativeInputFile(item)) {
+            const restoreError = new Error(`附件内容不可用，请重新上传：${item.name || 'attachment'}`);
+            restoreError.code = 'FILE_CONTENT_UNAVAILABLE';
+            restoreError.cause = err;
+            throw restoreError;
+          }
+        }
       }
       return result;
     }

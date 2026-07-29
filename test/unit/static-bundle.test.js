@@ -91,8 +91,24 @@ function testHeavyMarkdownEnhancementsAreDeferredFromPrimaryBundle() {
   assert.match(loader, /local: '\.\/vendor\/katex\.min\.js'/, 'KaTeX must remain available from the self-hosted dependency loader');
 }
 
+function testFileInputContractLoadsBeforeItsBrowserConsumers() {
+  const root = path.join(__dirname, '../..');
+  const entries = staticBundle.parseAssetManifest(root, `${root}${path.sep}`, 'js');
+  const paths = entries.map(entry => entry.urlPath);
+  const coreIndex = paths.indexOf('/client/core/browser.js');
+  const contractIndex = paths.indexOf('/shared/file-inputs.js');
+  const chatServiceIndex = paths.indexOf('/client/services/chat-service.js');
+  const workflowIndex = paths.indexOf('/client/app/attachments-workflow.js');
+
+  assert.ok(coreIndex >= 0 && contractIndex > coreIndex, 'the shared file-input contract must register after ChatUICore exists');
+  assert.ok(contractIndex < chatServiceIndex, 'the contract must load before chat payload construction');
+  assert.ok(contractIndex < workflowIndex, 'the contract must load before attachment selection and upload workflows');
+  assert.ok(!paths.includes('/client/services/attachment-service.js'), 'the removed local extraction service must not be bundled');
+}
+
 module.exports = [
   testStaticBundleManifestParsesLocalEntriesOnly,
   testStaticBundleHelpersBuildExpectedBodyAndMetadata,
   testHeavyMarkdownEnhancementsAreDeferredFromPrimaryBundle,
+  testFileInputContractLoadsBeforeItsBrowserConsumers,
 ];

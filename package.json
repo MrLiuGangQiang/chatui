@@ -1,6 +1,6 @@
 {
   "name": "chatui",
-  "version": "1.9.8",
+  "version": "1.10.0",
   "private": true,
   "description": "ChatUI 是一个轻量、无需前端构建、可直接部署的 OpenAI 兼容接口 Web 工具。它同时支持聊天、生图、图片编辑、附件上传、Markdown、数学公式、代码复制、思考内容展示和模型配置。",
   "main": "server.js",
@@ -36,7 +36,6 @@
     "jszip": "^3.10.1",
     "katex": "^0.16.47",
     "linkify-it": "6.1.0",
-    "mammoth": "^1.12.0",
     "markdown-it": "^14.2.0",
     "markdown-it-abbr": "^2.0.0",
     "markdown-it-deflist": "^3.0.1",
@@ -49,10 +48,7 @@
     "markdown-it-task-lists": "^2.1.1",
     "markdown-it-texmath": "^1.0.0",
     "mermaid": "^11.15.0",
-    "officeparser": "^6.1.1",
-    "pdf-parse": "^2.4.5",
-    "pg": "^8.21.0",
-    "word-extractor": "^1.0.4"
+    "pg": "^8.21.0"
   },
   "engines": {
     "node": ">=20.19.0"

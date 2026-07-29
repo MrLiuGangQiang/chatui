@@ -207,6 +207,93 @@ function testCompilerKeepsUnavailableAndAttachmentOnlyTurnsNonExecuting() {
   assert.strictEqual(attachmentOnlyRoute.taskContract.resources[0].id, 'photo');
 }
 
+function testNativeMarkdownDecisionCompilesWhileUnreadableFilesAndInvalidKeysStayRejected() {
+  const name = '\u516c\u53f8OpenClaw\u5b89\u88c5\u8fc7\u7a0b.md';
+  const nativeMarkdown = {
+    id: 'native-markdown-current',
+    file_id: 'native-markdown-current',
+    name,
+    type: 'text/markdown',
+    size: 128,
+    is_image: false,
+    media_index: 1,
+    source_index: 1,
+    has_extracted_text: false,
+    input_file_available: true,
+  };
+  const options = {
+    input: '\u603b\u7ed3\u5185\u5bb9',
+    attachments: [nativeMarkdown],
+    context: {},
+  };
+  const semantic = decision({
+    operation: 'file_qa',
+    bindings: [{ candidate_key: 'f1', role: 'attachment' }],
+    confidence: 0.99,
+    rationale: '\u7528\u6237\u8bf7\u6c42\u603b\u7ed3\u672c\u8f6e\u4e0a\u4f20\u7684 Markdown \u6587\u4ef6\u5185\u5bb9\u3002',
+  });
+
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.strictEqual(inspected.reason, '');
+  assert.ok(inspected.route, 'the valid route_decision returned for a native Markdown file must compile');
+  assert.strictEqual(inspected.route.operationType, 'file_qa');
+  assert.strictEqual(inspected.route.api, 'chat');
+  assert.strictEqual(inspected.route.dispatchAuthorized, true);
+  assert.deepStrictEqual(inspected.route.taskContract.resources, [{
+    key: 'r1',
+    type: 'file',
+    source: 'current',
+    role: 'attachment',
+    index: 1,
+    id: 'native-markdown-current',
+    reference_id: '',
+    missing: false,
+  }]);
+
+  const camelCaseAvailability = { ...nativeMarkdown, inputFileAvailable: true };
+  delete camelCaseAvailability.input_file_available;
+  assert.ok(routeService.inspectRouteResult(JSON.stringify(semantic), {
+    ...options,
+    attachments: [camelCaseAvailability],
+  }).route, 'the camelCase availability alias must remain readable at compatibility boundaries');
+
+  const markerWithoutContent = {
+    ...nativeMarkdown,
+    id: 'marker-only-file',
+    file_id: 'marker-only-file',
+    inputFile: true,
+    input_file_available: false,
+  };
+  const missingContent = routeService.inspectRouteResult(JSON.stringify(semantic), {
+    ...options,
+    attachments: [markerWithoutContent],
+  });
+  assert.strictEqual(missingContent.route, null, 'inputFile marks the transport mode, not readable content');
+  assert.strictEqual(missingContent.reason, 'resource_binding');
+
+  const unsupported = {
+    ...nativeMarkdown,
+    id: 'unsupported-file',
+    file_id: 'unsupported-file',
+    input_file_available: false,
+    unsupported_reason: 'Unsupported file input type',
+  };
+  const unsupportedResult = routeService.inspectRouteResult(JSON.stringify(semantic), {
+    ...options,
+    attachments: [unsupported],
+  });
+  assert.strictEqual(unsupportedResult.route, null);
+  assert.strictEqual(unsupportedResult.reason, 'resource_binding');
+
+  const invalidReference = decision({
+    operation: 'file_qa',
+    bindings: [{ candidate_key: 'f2', role: 'attachment' }],
+  });
+  const invalidReferenceResult = routeService.inspectRouteResult(JSON.stringify(invalidReference), options);
+  assert.strictEqual(invalidReferenceResult.route, null, 'availability must not weaken exact candidate-key binding');
+  assert.strictEqual(invalidReferenceResult.reason, 'resource_binding');
+}
+
 function testCompilerMapsDeclaredImageClarificationWithoutChoosingLocally() {
   const options = historicalAnimalOptions([
     { id: 'dog-a', description: '草地上的金毛犬', labels: ['dog'] },
@@ -426,6 +513,7 @@ module.exports = [
   testQuotedPlainChatDecisionUsesTheSameCanonicalMessageSource,
   testCompilerEnforcesOnlyAnExplicitFixedProductMode,
   testCompilerKeepsUnavailableAndAttachmentOnlyTurnsNonExecuting,
+  testNativeMarkdownDecisionCompilesWhileUnreadableFilesAndInvalidKeysStayRejected,
   testCompilerMapsDeclaredImageClarificationWithoutChoosingLocally,
   testCompilerRejectsMissingEditValueWithoutLocalClarification,
   testSelfContainedImageFollowupDoesNotInheritPriorPrompt,

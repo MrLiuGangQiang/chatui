@@ -16,7 +16,6 @@
   const promptComposerService = browser.ChatUIPromptComposerService || root.ChatUIPromptComposerService || {};
   const imageGenerationService = browser.ChatUIImageGenerationService || root.ChatUIImageGenerationService || {};
   const imageService = browser.ChatUIImageService || root.ChatUIImageService || {};
-  const attachmentService = browser.ChatUIAttachmentService || root.ChatUIAttachmentService || {};
   const runtimeService = browser.ChatUIRuntimeService || root.ChatUIRuntimeService || {};
   const clarificationService = browser.ChatUIClarificationService || root.ChatUIClarificationService || {};
 
@@ -59,6 +58,10 @@
 
   const chat = Object.freeze({
     extractChatJobText: data => chatService.extractChatJobText(data),
+    buildUserContentWithAttachments: (prompt, attachments) => chatService.buildUserContentWithAttachments(prompt, attachments),
+    responsesInputFromChatMessages: messages => chatService.responsesInputFromChatMessages(messages),
+    messagesHaveInputFiles: messages => chatService.messagesHaveInputFiles(messages),
+    buildResponsesPayload: (model, messages, options) => chatService.buildResponsesPayload(model, messages, options),
     requestJson: options => chatService.requestJson({ toProxyUrl, parseResponseJson, normalizeError, fetchImpl: options?.fetchImpl || fetchImpl(), ...options }),
     parseSseLine: line => chatService.parseSseLine(line, reasoning.extractStreamDelta || (() => ({}))),
   });
@@ -87,15 +90,11 @@
     imageFilesToJobPayload: (list, readFileAsDataURL) => imageService.imageFilesToJobPayload(list, readFileAsDataURL),
   });
 
-  const attachmentsApi = Object.freeze({
-    extractFileText: options => attachmentService.extractFileText(withHttpDeps(options)),
-  });
-
   const runtime = Object.freeze({
     requestAppVersion: options => runtimeService.requestAppVersion(withHttpDeps(options)),
   });
 
-  const api = Object.freeze({ models, jobs, chat, route, promptComposer, images, attachments: attachmentsApi, runtime, clarification: clarificationService });
+  const api = Object.freeze({ models, jobs, chat, route, promptComposer, images, runtime, clarification: clarificationService });
   if (typeof window !== 'undefined') {
     window.ChatUIServicesComposition = api;
     window.ChatUIServicesFallback = api;

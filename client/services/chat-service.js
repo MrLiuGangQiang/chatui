@@ -1,6 +1,9 @@
 (function initChatUIChatService(root) {
   'use strict';
 
+const fileInputs = root?.ChatUICore?.fileInputs
+  || (typeof require === 'function' ? require('../../shared/file-inputs') : null);
+
 function normalizeText(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -22,6 +25,104 @@ function extractChatJobText(data) {
     firstTokenMs: Number.isFinite(data?.metrics?.firstTokenMs) ? data.metrics.firstTokenMs : null,
     durationMs: Number.isFinite(data?.metrics?.durationMs) ? data.metrics.durationMs : null,
   };
+}
+
+function isImageAttachment(item = {}) {
+  const type = String(item?.type || item?.file?.type || '').toLowerCase();
+  const name = String(item?.name || item?.file?.name || '').toLowerCase();
+  return type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function isNativeFileAttachment(item = {}) {
+  return item?.inputFile === true || item?.input_file === true || /^data:[^,]+;base64,/i.test(String(item?.fileData || item?.file_data || ''));
+}
+
+function inputFileData(item = {}) {
+  const value = String(item?.fileData || item?.file_data || '');
+  return /^data:[^,]+;base64,/i.test(value) ? value : '';
+}
+
+function isPdfInputFilePart(part = {}) {
+  const dataType = /^data:([^;,]+);base64,/i.exec(String(part?.file_data || ''))?.[1] || '';
+  return fileInputs?.isPdfFile?.({ name: part?.filename, type: dataType })
+    || dataType.toLowerCase() === 'application/pdf'
+    || /\.pdf$/i.test(String(part?.filename || ''));
+}
+
+function buildUserContentWithAttachments(prompt = '', attachments = []) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const nativeFiles = list.filter(item => !isImageAttachment(item) && isNativeFileAttachment(item) && inputFileData(item));
+  const inlineTextFiles = list.filter(item => !isImageAttachment(item) && !isNativeFileAttachment(item) && String(item?.text || '').trim());
+  const images = list.filter(item => isImageAttachment(item) && /^data:image\//i.test(String(item?.dataUrl || '')));
+  const unavailable = list.filter(item => {
+    if (isImageAttachment(item)) return !/^data:image\//i.test(String(item?.dataUrl || ''));
+    if (isNativeFileAttachment(item)) return !inputFileData(item);
+    return !String(item?.text || '').trim();
+  });
+  const text = [
+    String(prompt || '').trim(),
+    inlineTextFiles.length
+      ? inlineTextFiles.map(item => `[附件：${item.name || 'attachment'}]\n${String(item.text || '').trim()}`).join('\n\n')
+      : '',
+    unavailable.length
+      ? `[以下附件无法发送给模型：\n${unavailable.map(item => `- ${item.name || 'attachment'} (${item.type || 'application/octet-stream'})：${item.unsupportedReason || '文件内容不可用，请重新上传'}`).join('\n')}\n]`
+      : '',
+  ].filter(Boolean).join('\n\n');
+
+  if (!nativeFiles.length && !images.length) return text;
+  const parts = [];
+  for (const item of nativeFiles) {
+    const part = {
+      type: 'input_file',
+      filename: String(item.name || item.file?.name || 'attachment'),
+      file_data: inputFileData(item),
+    };
+    if (fileInputs?.isPdfFile?.(item)) part.detail = fileInputs.normalizePdfDetail?.(item.pdfDetail || item.pdf_detail) || 'auto';
+    parts.push(part);
+  }
+  if (text) parts.push({ type: 'text', text });
+  for (const item of images) parts.push({ type: 'image_url', image_url: { url: item.dataUrl } });
+  return parts;
+}
+
+function responsesInputFromChatMessages(messages = []) {
+  return (Array.isArray(messages) ? messages : []).map(message => {
+    const role = ['system', 'user', 'assistant'].includes(message?.role) ? message.role : 'user';
+    const content = message?.content;
+    if (!Array.isArray(content)) return { role, content: String(content ?? '') };
+    const parts = content.map(part => {
+      if (part?.type === 'text') return { type: 'input_text', text: String(part.text || '') };
+      if (part?.type === 'image_url') return { type: 'input_image', image_url: String(part.image_url?.url || part.image_url || '') };
+      if (part?.type === 'input_file' && part.file_data) {
+        const includeDetail = !!part.detail && isPdfInputFilePart(part);
+        return {
+          type: 'input_file',
+          filename: String(part.filename || 'attachment'),
+          file_data: String(part.file_data),
+          ...(includeDetail ? { detail: fileInputs?.normalizePdfDetail?.(part.detail) || String(part.detail) } : {}),
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    return { role, content: parts.length ? parts : '' };
+  });
+}
+
+function messagesHaveInputFiles(messages = []) {
+  return (Array.isArray(messages) ? messages : []).some(message => Array.isArray(message?.content)
+    && message.content.some(part => part?.type === 'input_file' && part?.file_data));
+}
+
+function buildResponsesPayload(model, messages, options = {}) {
+  const payload = { model, input: responsesInputFromChatMessages(messages) };
+  if (options.reasoningEnabled) {
+    payload.reasoning = {
+      effort: options.reasoningEffort || 'medium',
+      summary: options.summary || 'auto',
+    };
+  }
+  if (options.stream !== false) payload.stream = true;
+  return payload;
 }
 
 async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', directMode = false, baseUrl = '', method = 'POST', headers = {}, signal, toProxyUrl, parseResponseJson, normalizeError }) {
@@ -59,7 +160,15 @@ function parseSseLine(line, extractStreamDelta) {
   return { done: false, delta };
 }
 
-const api = Object.freeze({ extractChatJobText, requestJson, parseSseLine });
+const api = Object.freeze({
+  extractChatJobText,
+  buildUserContentWithAttachments,
+  responsesInputFromChatMessages,
+  messagesHaveInputFiles,
+  buildResponsesPayload,
+  requestJson,
+  parseSseLine,
+});
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (root) root.ChatUIChatService = api;

@@ -16,7 +16,6 @@ function createRouter(deps) {
     rootWithSep,
     proxy,
     proxyImage,
-    extractFileText,
     imageJobs,
     chatJobs,
     abortJob,
@@ -41,7 +40,6 @@ function createRouter(deps) {
     sendJson,
     sendMethodNotAllowed,
     proxyImage,
-    extractFileText,
     registerChatStreamJob,
   });
 

@@ -10,18 +10,8 @@ LABEL org.opencontainers.image.title="ChatUI" \
     org.opencontainers.image.version="${CHATUI_VERSION}" \
     org.opencontainers.image.revision="${CHATUI_BUILD_SHA}"
 
-# Runtime-only dependencies:
-# - poppler-utils: PDF text extraction / PDF-to-image fallback
-# - tesseract + eng/chi_sim: OCR fallback used by server.js (`chi_sim+eng`)
-# - font-noto-cjk + fontconfig: compact CJK font fallback for PDF rendering
 RUN apk add --no-cache \
-    ca-certificates \
-    poppler-utils \
-    tesseract-ocr \
-    tesseract-ocr-data-eng \
-    tesseract-ocr-data-chi_sim \
-    font-noto-cjk \
-    fontconfig
+    ca-certificates
 
 WORKDIR /app
 ENV NODE_ENV=production \

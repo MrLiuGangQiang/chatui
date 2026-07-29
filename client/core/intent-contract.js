@@ -1,6 +1,9 @@
 (function initChatUIIntentContract(root) {
   'use strict';
 
+  const attachmentsCore = root?.ChatUICoreAttachments
+    || (typeof require === 'function' ? require('./attachments') : {});
+
   const SCHEMA_VERSION = 'task_contract.v5';
   const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
   const VALID_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']);
@@ -326,6 +329,22 @@
     return 'context';
   }
 
+  function isInputFileAvailable(item = {}) {
+    const checker = root?.ChatUICoreAttachments?.isInputFileAvailable
+      || attachmentsCore?.isInputFileAvailable;
+    return typeof checker === 'function'
+      ? checker(item)
+      : item?.input_file_available === true || item?.inputFileAvailable === true;
+  }
+
+  function fileCandidateUnavailable(item = {}) {
+    if (String(item?.unsupported_reason || item?.unsupportedReason || '').trim()) return true;
+    const extractedText = typeof item?.has_extracted_text === 'boolean'
+      ? item.has_extracted_text
+      : typeof item?.hasExtractedText === 'boolean' ? item.hasExtractedText : undefined;
+    return extractedText === false && !isInputFileAvailable(item);
+  }
+
   function mediaCandidates(type, context = {}, attachments = [], operation = '') {
     const currentMessageIndex = currentUserMessageIndex(context);
     const sourceCandidates = Array.isArray(type === 'image' ? context.image_candidates : context.file_candidates)
@@ -344,8 +363,7 @@
         source: normalizeCandidateSource(entry?.source, entry?.message_index || entry?.messageIndex, currentMessageIndex),
         target: String(entry?.target || ''),
         name: String(entry?.name || entry?.filename || ''),
-        unavailable: type === 'file'
-          && (entry?.has_extracted_text === false || !!String(entry?.unsupported_reason || entry?.unsupportedReason || '').trim()),
+        unavailable: type === 'file' && fileCandidateUnavailable(entry),
         attachmentIdAliases: [],
         attachmentIndexAliases: [],
       };
@@ -370,10 +388,7 @@
         source: 'current',
         target: 'uploaded',
         name: String(attachment?.name || attachment?.filename || attachment?.file?.name || ''),
-        unavailable: type === 'file'
-          && (attachment?.has_extracted_text === false
-            || attachment?.hasExtractedText === false
-            || !!String(attachment?.unsupported_reason || attachment?.unsupportedReason || '').trim()),
+        unavailable: type === 'file' && fileCandidateUnavailable(attachment),
         attachmentIdAliases: [],
         attachmentIndexAliases: [],
       };

@@ -1,14 +1,18 @@
 const { sendJson } = require('../http/response');
-const { readBody, parseJson } = require('../http/body');
+const { readBody, parseJson, payloadTooLargeError } = require('../http/body');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { Agent, ProxyAgent } = require('undici');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
+const fileInputs = require('../../shared/file-inputs');
 
 const CHAT_BODY_BYTES = 2 * 1024 * 1024;
 const CHAT_VISUAL_BODY_BYTES = 12 * 1024 * 1024;
+const CHAT_FILE_BODY_BYTES = 72 * 1024 * 1024;
+const MAX_FILE_INPUT_DECODED_BYTES = fileInputs.MAX_REQUEST_BYTES;
+const MAX_FILE_DATA_MEDIA_TYPE_BYTES = 255;
 const IMAGE_BODY_BYTES = 50 * 1024 * 1024;
 const PUBLIC_UPSTREAM_DISPATCHER = new Agent({ connect: { lookup: createPublicLookup({ allowPrivate: false }) } });
 let proxyDispatcher = null;
@@ -53,23 +57,128 @@ function hasVisualChatAttachment(value, seen = new Set()) {
   seen.add(value);
   if (Array.isArray(value)) return value.some((item) => hasVisualChatAttachment(item, seen));
   const type = String(value.type || value.mimeType || value.media_type || '').toLowerCase();
-  const url = String(value.url || value.dataUrl || value.data_url || '').toLowerCase();
-  if (type.startsWith('image/') || type === 'image_url' || url.startsWith('data:image/')) return true;
+  const imageUrl = value.image_url && typeof value.image_url === 'object' ? value.image_url.url : value.image_url;
+  const urlPrefix = String(value.url || value.dataUrl || value.data_url || imageUrl || '').slice(0, 64).toLowerCase();
+  if (type.startsWith('image/') || type === 'image_url' || type === 'input_image' || urlPrefix.startsWith('data:image/')) return true;
   return Object.values(value).some((item) => hasVisualChatAttachment(item, seen));
+}
+
+function fileInputError(message, code = 'INVALID_FILE_DATA', statusCode = 400) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  return error;
+}
+
+function isResponsesFileDataRequest(body, requestUrl = '') {
+  const pathname = String(requestUrl || '').split('?')[0];
+  if (/^\/api\/responses\/?$/.test(pathname)) return true;
+  const isManagedChat = pathname.startsWith('/api/chat-jobs') || /^\/api\/chat-stream-jobs\/?$/.test(pathname);
+  return isManagedChat && body?.api === 'responses';
+}
+
+function responsesInputFileDataParts(payload = {}) {
+  if (!Array.isArray(payload?.input)) return [];
+  const parts = [];
+  for (const item of payload.input) {
+    if (!Array.isArray(item?.content)) continue;
+    for (const part of item.content) {
+      if (!part || typeof part !== 'object' || part.type !== 'input_file') continue;
+      if (Object.prototype.hasOwnProperty.call(part, 'file_data')) parts.push(part);
+    }
+  }
+  return parts;
+}
+
+function inspectFileDataUri(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.slice(0, 5).toLowerCase() !== 'data:') {
+    throw fileInputError('Responses input_file.file_data must be a base64 data URI');
+  }
+  const commaIndex = value.indexOf(',');
+  if (commaIndex <= 5) throw fileInputError('Responses input_file.file_data must include a media type and base64 data');
+  const metadata = value.slice(5, commaIndex);
+  const suffix = ';base64';
+  if (metadata.length > MAX_FILE_DATA_MEDIA_TYPE_BYTES + suffix.length) {
+    throw fileInputError('Responses input_file.file_data has an invalid media type');
+  }
+  if (!metadata.toLowerCase().endsWith(suffix)) {
+    throw fileInputError('Responses input_file.file_data must use base64 encoding');
+  }
+  const mediaType = metadata.slice(0, -suffix.length);
+  const mimeToken = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+  if (!mediaType || mediaType.length > MAX_FILE_DATA_MEDIA_TYPE_BYTES || !mimeToken.test(mediaType)) {
+    throw fileInputError('Responses input_file.file_data has an invalid media type');
+  }
+
+  const encoded = value.slice(commaIndex + 1);
+  if (!encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+    throw fileInputError('Responses input_file.file_data contains invalid base64');
+  }
+  const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const finalValue = alphabet.indexOf(encoded[encoded.length - padding - 1]);
+  if ((padding === 2 && finalValue % 16 !== 0) || (padding === 1 && finalValue % 4 !== 0)) {
+    throw fileInputError('Responses input_file.file_data contains non-canonical base64');
+  }
+  const decodedBytes = (encoded.length / 4) * 3 - padding;
+  if (decodedBytes <= 0) throw fileInputError('Responses input_file.file_data must not be empty');
+  return { decodedBytes, fileDataBytes: value.length, mediaType: mediaType.toLowerCase() };
+}
+
+function inspectResponsesFileData(body, { requestUrl = '', maxDecodedBytes = MAX_FILE_INPUT_DECODED_BYTES } = {}) {
+  if (!isResponsesFileDataRequest(body, requestUrl)) return { count: 0, decodedBytes: 0, fileDataBytes: 0 };
+  const parts = responsesInputFileDataParts(body?.payload);
+  const parsedLimit = Number(maxDecodedBytes);
+  const decodedLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.floor(parsedLimit)
+    : MAX_FILE_INPUT_DECODED_BYTES;
+  let decodedBytes = 0;
+  let fileDataBytes = 0;
+  for (const part of parts) {
+    const inspected = inspectFileDataUri(part.file_data);
+    decodedBytes += inspected.decodedBytes;
+    fileDataBytes += inspected.fileDataBytes;
+    if (decodedBytes >= decodedLimit) {
+      throw fileInputError(
+        'Combined decoded file inputs must be smaller than 50 MB',
+        'FILE_INPUT_REQUEST_TOO_LARGE',
+        413
+      );
+    }
+  }
+  return { count: parts.length, decodedBytes, fileDataBytes };
+}
+
+function validateChatRequestBody(body, { requestUrl = '', bodyBytes = 0, maxDecodedBytes } = {}) {
+  const size = Math.max(0, Number(bodyBytes) || 0);
+  const visual = hasVisualChatAttachment(body);
+  const files = inspectResponsesFileData(body, { requestUrl, maxDecodedBytes });
+  const nonFileLimit = visual ? CHAT_VISUAL_BODY_BYTES : CHAT_BODY_BYTES;
+  if (files.count > 0) {
+    // Only canonical file_data bytes receive the larger envelope. All other
+    // JSON still has to fit the pre-existing plain or visual request tier.
+    if (size > CHAT_FILE_BODY_BYTES || Math.max(0, size - files.fileDataBytes) > nonFileLimit) {
+      throw payloadTooLargeError();
+    }
+    return { kind: 'file', limitBytes: CHAT_FILE_BODY_BYTES, visual, ...files };
+  }
+  if (size > nonFileLimit) throw payloadTooLargeError();
+  return { kind: visual ? 'visual' : 'plain', limitBytes: nonFileLimit, visual, ...files };
 }
 
 async function extractProxyRequest(req, res) {
   let body;
   try {
     const isImageJob = String(req?.url || '').startsWith('/api/image-jobs');
-    // Read visual chat requests with a bounded larger ceiling, then reject oversized plain chat below.
-    // This lets upload and quoted-image requests use the identical chat payload contract.
-    body = parseJson(await readBody(req, { maxBytes: isImageJob ? IMAGE_BODY_BYTES : CHAT_VISUAL_BODY_BYTES }));
-    if (!isImageJob && !hasVisualChatAttachment(body) && Buffer.byteLength(JSON.stringify(body), 'utf8') > CHAT_BODY_BYTES) {
-      const err = new Error('请求体过大');
-      err.statusCode = 413;
-      err.code = 'PAYLOAD_TOO_LARGE';
-      throw err;
+    // A Responses file data URI expands by roughly 4/3 in JSON. Read against one
+    // absolute ceiling, then enforce the narrower plain/image/file tier below.
+    const rawBody = await readBody(req, { maxBytes: isImageJob ? IMAGE_BODY_BYTES : CHAT_FILE_BODY_BYTES });
+    body = parseJson(rawBody);
+    if (!isImageJob) {
+      validateChatRequestBody(body, {
+        requestUrl: req?.url,
+        bodyBytes: Buffer.byteLength(rawBody, 'utf8'),
+      });
     }
   } catch (err) {
     sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err), code: err.code || 'INVALID_REQUEST_BODY' } });
@@ -204,4 +313,4 @@ function findJobOr404(store, id, res) {
   return job;
 }
 
-module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };
+module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, CHAT_FILE_BODY_BYTES, MAX_FILE_INPUT_DECODED_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, isResponsesFileDataRequest, responsesInputFileDataParts, inspectFileDataUri, inspectResponsesFileData, validateChatRequestBody, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };

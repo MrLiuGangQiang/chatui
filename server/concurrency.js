@@ -38,10 +38,7 @@ class ConcurrencyLimiter {
 
 const MAX_UPSTREAM_CONCURRENCY = Number(process.env.MAX_UPSTREAM_CONCURRENCY || 30);
 const MAX_UPSTREAM_QUEUE = Number(process.env.MAX_UPSTREAM_QUEUE || 100);
-const MAX_EXTRACT_CONCURRENCY = Number(process.env.MAX_EXTRACT_CONCURRENCY || 3);
-const MAX_EXTRACT_QUEUE = Number(process.env.MAX_EXTRACT_QUEUE || 20);
 const limiter = new ConcurrencyLimiter(MAX_UPSTREAM_CONCURRENCY, { maxQueue: MAX_UPSTREAM_QUEUE });
-const extractLimiter = new ConcurrencyLimiter(MAX_EXTRACT_CONCURRENCY, { maxQueue: MAX_EXTRACT_QUEUE });
 
 async function withLimiter(currentLimiter, fn) {
   await currentLimiter.acquire();
@@ -49,4 +46,4 @@ async function withLimiter(currentLimiter, fn) {
   finally { currentLimiter.release(); }
 }
 
-module.exports = { limiter, extractLimiter, withLimiter, ConcurrencyLimiter };
+module.exports = { limiter, withLimiter, ConcurrencyLimiter };

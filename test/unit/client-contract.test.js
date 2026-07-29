@@ -1,12 +1,15 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { File: BufferFile } = require('buffer');
 
 const routeService = require('../../client/services/route-service');
 const clarificationService = require('../../client/services/clarification-service');
 const chatService = require('../../client/services/chat-service');
 const jobService = require('../../client/services/job-service');
 const attachmentsCore = require('../../client/core/attachments');
+
+const FileCtor = globalThis.File || BufferFile;
 
 function currentTextResource(key = 'r9') {
   return { key, type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false };
@@ -213,6 +216,41 @@ function testClientContractAttachmentMetadataUsesTypedMediaIndexes() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(app.includes('window.ChatUICore?.attachments?.buildRouteAttachmentMetadata'), 'the root entry must delegate attachment metadata to the canonical core implementation');
   assert.ok(!app.includes('media_index:i'), 'the root entry must not retain a second attachment-metadata implementation');
+}
+
+function testNativeMarkdownAttachmentMetadataExposesReadableInputFile() {
+  const name = '\u516c\u53f8OpenClaw\u5b89\u88c5\u8fc7\u7a0b.md';
+  const file = new FileCtor(['# OpenClaw\n\nInstallation notes.'], name, { type: 'text/markdown' });
+  const metadata = attachmentsCore.buildRouteAttachmentMetadata([{
+    attachmentId: 'current-native-markdown',
+    file,
+    name,
+    type: 'text/markdown',
+    size: file.size,
+    inputFile: true,
+    text: '',
+  }]);
+
+  assert.strictEqual(metadata.length, 1);
+  assert.strictEqual(metadata[0].has_extracted_text, false);
+  assert.strictEqual(metadata[0].input_file_available, true, 'a current native File must remain readable even without locally extracted text');
+
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '\u603b\u7ed3\u672c\u8f6e\u4e0a\u4f20\u7684 Markdown \u6587\u4ef6',
+    attachments: metadata,
+    context: {},
+  });
+  const user = JSON.parse(payload.messages[1].content);
+  assert.strictEqual(user.attachments[0].input_file_available, true);
+  assert.strictEqual(user.context.file_candidates[0].input_file_available, true);
+  assert.deepStrictEqual(user.resource_candidates, [{
+    candidate_key: 'f1',
+    type: 'file',
+    source: 'current',
+    label: name,
+  }]);
+  assert.ok(!/file_data|base64/i.test(payload.messages[1].content), 'routing metadata must never inline the native file body');
 }
 
 function testClientContractRouteParsingPreservesClarificationShape() {
@@ -893,6 +931,7 @@ module.exports = [
   testRouteResultInspectionSeparatesShapeAndResourceFailures,
   testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles,
   testClientContractAttachmentMetadataUsesTypedMediaIndexes,
+  testNativeMarkdownAttachmentMetadataExposesReadableInputFile,
   testClientContractRouteParsingPreservesClarificationShape,
   testClientContractRejectsRedundantOrUnknownFields,
   testExplicitQuoteCompletesOnlyAnOmittedFollowupMessageBinding,

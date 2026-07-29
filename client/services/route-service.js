@@ -37,7 +37,8 @@ const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严�
 
 const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前自检：这是第一次且最终的语义决定，不能假设应用会在本地纠错；恰好 10 个顶层字段，空数组也输出 []；只选 resource_candidates 中的 key；ready 无 unresolved；引用文字生图必须绑定 m key；自包含生图追问不得绑定历史 m key；bindings 的类型/role 满足 operation；只输出 route_decision.v1 JSON。`;
 const ROUTE_MISSING_DETAIL_GUIDANCE_V5 = `关键反例：“把猫的颜色换一下”没有给出目标颜色，不能 ready，也不能输出 value=""。必须保持 edit_image 和已明确的 target binding，输出 needs_clarification，changes=[]，clarification.question 询问目标颜色，并声明 text/source/missing、candidate_keys=[]。只有“把猫改成黑色”这类目标值明确的指令才能输出非空 replace.value。`;
-const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_MISSING_DETAIL_GUIDANCE_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
+const ROUTE_NATIVE_INPUT_FILE_GUIDANCE_V5 = `原生 input_file 即使 has_extracted_text=false，也可能由执行模型直接读取；只要文件出现在 resource_candidates 中，就视为可读取并允许绑定。`;
+const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_MISSING_DETAIL_GUIDANCE_V5}\n\n${ROUTE_NATIVE_INPUT_FILE_GUIDANCE_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
 
 const INTENT_REPAIR_SYSTEM_PROMPT_V5 = `你是 route_decision.v1 格式修复器。repair_invariants 是不可变边界：operation、relation、readiness、bindings、changes、constraints、clarification.question 和 unresolved 语义不可改变；只能补齐非语义结构字段，不能增删候选、改角色、改约束、替用户选择或改变是否执行。只输出严格 JSON。`;
 
@@ -1129,18 +1130,23 @@ function createExplicitTextToImageRoute(input = '') {
 function buildFileCandidatesFromAttachments(attachments = []) {
   return (attachments || [])
     .filter(item => item && !item.is_image)
-    .map((item, index) => ({
-      index: Number(item.media_index || item.mediaIndex) || index + 1,
-      source_index: Number(item.source_index || item.sourceIndex) || index + 1,
-      source: 'current',
-      target: 'uploaded',
-      file_id: item.file_id || item.id || item.attachmentId || item.attachment_id || '',
-      name: item.name || 'attachment',
-      type: item.type || '',
-      size: Number(item.size) || 0,
-      has_extracted_text: !!(item.has_extracted_text || item.hasExtractedText),
-      unsupported_reason: item.unsupported_reason || item.unsupportedReason || '',
-    }));
+    .map((item, index) => {
+      const extractedText = item.has_extracted_text ?? item.hasExtractedText;
+      const inputFileAvailable = item.input_file_available === true || item.inputFileAvailable === true;
+      return {
+        index: Number(item.media_index || item.mediaIndex) || index + 1,
+        source_index: Number(item.source_index || item.sourceIndex) || index + 1,
+        source: 'current',
+        target: 'uploaded',
+        file_id: item.file_id || item.id || item.attachmentId || item.attachment_id || '',
+        name: item.name || 'attachment',
+        type: item.type || '',
+        size: Number(item.size) || 0,
+        ...(extractedText !== undefined ? { has_extracted_text: !!extractedText } : {}),
+        ...(inputFileAvailable ? { input_file_available: true } : {}),
+        unsupported_reason: item.unsupported_reason || item.unsupportedReason || '',
+      };
+    });
 }
 
 function compactRoutePayloadContext(context = {}, input = '', attachments = []) {

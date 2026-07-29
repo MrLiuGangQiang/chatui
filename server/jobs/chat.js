@@ -1,7 +1,7 @@
 const { sendJson } = require('../http/response');
 const { performance } = require('perf_hooks');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404, responsesInputFileDataParts } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const chatStreamParser = require('./chat-stream-parser');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
@@ -67,6 +67,12 @@ function summarizeChatPayload(payload = {}) {
   };
 }
 
+function releaseChatJobFileData(job) {
+  const parts = responsesInputFileDataParts(job?.payload);
+  for (const part of parts) delete part.file_data;
+  return parts.length;
+}
+
 function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS }) {
 async function runChatJob(job) {
 job.serverStartAtMs = performance.now();
@@ -81,6 +87,7 @@ const { response: upstreamResponse, controller, timer } = createUpstreamFetch(jo
   job,
   upstreamTimeoutMs,
 });
+releaseChatJobFileData(job);
 try {
   const upstream = await upstreamResponse;
   job.upstreamAcceptedAt = Date.now();
@@ -121,6 +128,7 @@ const { response: upstreamResponse, controller, timer } = createUpstreamFetch(jo
   job,
   upstreamTimeoutMs,
 });
+releaseChatJobFileData(job);
 try {
   const upstream = await upstreamResponse;
   job.upstreamAcceptedAt = Date.now();
@@ -257,4 +265,4 @@ function updateChatJobFromStreamChunk(job, text, options = {}) {
   };
 }
 
-module.exports = { createChatJobHandlers, summarizeChatPayload };
+module.exports = { createChatJobHandlers, summarizeChatPayload, releaseChatJobFileData };

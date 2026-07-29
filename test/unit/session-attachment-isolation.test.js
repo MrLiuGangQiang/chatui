@@ -8,21 +8,18 @@ const mediaWorkflow = require('../../client/app/media-workflow');
 const sessionResources = require('../../client/app/session-resources');
 const sessionUiWorkflow = require('../../client/app/session-ui-workflow');
 
-class DeferredFileReader {
+class DeferredBlobStore {
   static latest = null;
 
-  readAsArrayBuffer() {
-    DeferredFileReader.latest = this;
-  }
-
-  completeText(text) {
-    this.result = new TextEncoder().encode(text).buffer;
-    this.onload?.();
+  static put(key, blob) {
+    return new Promise(resolve => {
+      DeferredBlobStore.latest = { key, blob, complete: resolve };
+    });
   }
 }
 
 function createAttachmentHarness() {
-  DeferredFileReader.latest = null;
+  DeferredBlobStore.latest = null;
   const state = {
     sessions: [{ id: 'session-a' }, { id: 'session-b' }],
     activeSessionId: 'session-a',
@@ -39,7 +36,7 @@ function createAttachmentHarness() {
   const workflow = attachmentsWorkflow.createAttachmentsWorkflow({
     getState: () => state,
     getElement: () => null,
-    FileReader: DeferredFileReader,
+    putImageBlob: DeferredBlobStore.put,
     isImageFile: () => false,
     isCompressibleRasterImage: () => false,
     autoResize() {},
@@ -52,27 +49,28 @@ function createAttachmentHarness() {
 async function testUploadCompletionStaysWithItsOriginatingSession() {
   const { state, workflow } = createAttachmentHarness();
   const upload = workflow.addFiles([{ name: 'draft.txt', type: 'text/plain', size: 5 }]);
-  assert.ok(DeferredFileReader.latest, 'upload should begin reading before a session switch');
+  assert.ok(DeferredBlobStore.latest, 'the original file should begin persisting before a session switch');
 
   state.activeSessionId = 'session-b';
   state.attachments = state.attachmentDrafts.get('session-b');
   state.uploadTasks = state.uploadTaskDrafts.get('session-b');
-  DeferredFileReader.latest.completeText('draft text');
+  DeferredBlobStore.latest.complete();
   await upload;
 
   assert.strictEqual(state.attachments.length, 0, 'the newly active session must not display the previous session attachment');
   assert.strictEqual(state.attachmentDrafts.get('session-b').length, 0, 'a switched-to session must retain its own empty attachment draft');
   assert.strictEqual(state.attachmentDrafts.get('session-a').length, 1, 'the completed upload must return to the session that initiated it');
-  assert.strictEqual(state.attachmentDrafts.get('session-a')[0].text, 'draft text');
+  assert.match(state.attachmentDrafts.get('session-a')[0].persistedSrc, /^indexeddb:\/\/attachment-file-/);
+  assert.strictEqual(state.attachmentDrafts.get('session-a')[0].inputFile, true);
 }
 
 async function testClearingDraftPreventsLateUploadFromReturning() {
   const { state, workflow } = createAttachmentHarness();
   const upload = workflow.addFiles([{ name: 'discard.txt', type: 'text/plain', size: 7 }]);
-  assert.ok(DeferredFileReader.latest, 'upload should be in flight');
+  assert.ok(DeferredBlobStore.latest, 'file persistence should be in flight');
 
   workflow.clearAttachments();
-  DeferredFileReader.latest.completeText('discard me');
+  DeferredBlobStore.latest.complete();
   await upload;
 
   assert.deepStrictEqual(state.attachmentDrafts.get('session-a'), [], 'clearing a draft must invalidate an in-flight upload result');

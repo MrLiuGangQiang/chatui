@@ -1,6 +1,9 @@
 (function initChatUIAppAttachmentsWorkflow(root) {
   'use strict';
 
+  const sharedFileInputs = root?.ChatUICore?.fileInputs
+    || (typeof require === 'function' ? require('../../shared/file-inputs') : null);
+
   const DEFAULT_IMAGE_UPLOAD_LIMITS = Object.freeze({ maxLongEdge: 2048, maxBytes: 20 * 1024 * 1024, minQuality: 0.72 });
   const MIME_BY_EXT = Object.freeze({
     txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', csv: 'text/csv', xml: 'application/xml', yaml: 'text/yaml', yml: 'text/yaml', js: 'text/javascript', ts: 'text/typescript', jsx: 'text/javascript', tsx: 'text/typescript', html: 'text/html', css: 'text/css', py: 'text/x-python', java: 'text/x-java', go: 'text/x-go', rs: 'text/x-rust', php: 'text/x-php', sql: 'text/x-sql', log: 'text/plain', conf: 'text/plain',
@@ -9,20 +12,13 @@
   });
 
   function inferMimeByName(name = '') {
+    const sharedMime = sharedFileInputs?.inferMimeType?.(name);
+    if (sharedMime && sharedMime !== 'application/octet-stream') return sharedMime;
     return MIME_BY_EXT[String(name || '').split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream';
   }
 
-  function isPdfFile(file = {}) { return file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''); }
-  function isOfficeFile(file = {}) { return /\.(docx?|xlsx?|pptx?)$/i.test(file.name || '') || /(wordprocessingml|spreadsheetml|presentationml|msword|ms-excel|ms-powerpoint)/.test(file.type || ''); }
-  function isExcelFile(file = {}) { return /\.(xlsx|xlsm)$/i.test(file.name || '') || /spreadsheetml\.sheet|spreadsheetml|ms-excel/.test(file.type || ''); }
-  function canExtractOfficeText(file = {}) { return /\.(xlsx|xlsm|xls|pptx|ppt|docx|doc)$/i.test(file.name || '') || /(spreadsheetml|presentationml|wordprocessingml|msword|ms-excel|ms-powerpoint)/.test(file.type || ''); }
-  function canExtractAttachmentText(file = {}) { return isPdfFile(file) || canExtractOfficeText(file); }
-  function isProbablyTextFile(file = {}) { return /text|json|xml|csv|markdown|javascript|typescript|yaml|html|css|sql/.test(file.type || '') || /\.(txt|md|markdown|json|csv|xml|yaml|yml|js|ts|jsx|tsx|html|css|py|java|go|rs|php|sql|log|conf|ini|env|sh|bash|zsh|toml|lock)$/i.test(file.name || ''); }
   function isBmpFile(file = {}) { return /image\/(bmp|x-ms-bmp)/i.test(file.type || '') || /\.bmp$/i.test(file.name || ''); }
   function replaceExt(name = 'image', ext = '') { const text = String(name || 'image'); return text.includes('.') ? text.replace(/\.[^.]*$/, ext) : `${text}${ext}`; }
-  function looksBinary(text = '') { if (!text) return false; const sample = String(text).slice(0, 2000); if (sample.includes('\0')) return true; return (sample.match(/[\u0000-\u0008\u000E-\u001F\uFFFD]/g) || []).length / sample.length > 0.05; }
-  function decodeArrayBufferText(buffer, encoding, fatal = false) { if (typeof TextDecoder === 'undefined') return ''; try { return new TextDecoder(encoding, { fatal }).decode(buffer); } catch { return ''; } }
-  function decodedTextQuality(text = '') { const sample = String(text || '').slice(0, 8000); if (!sample) return -1000; const bad = (sample.match(/\uFFFD/g) || []).length; const control = (sample.match(/[\u0000-\u0008\u000E-\u001F]/g) || []).length; return 3 * (sample.match(/[\u3400-\u9fff]/g) || []).length + (sample.match(/[A-Za-z0-9]/g) || []).length + 0.2 * (sample.match(/\s/g) || []).length - 80 * bad - 40 * control; }
   function canvasToBlob(canvas, type, quality) { return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('图片压缩失败')), type, quality)); }
 
   function createAttachmentsWorkflow(deps = {}) {
@@ -33,21 +29,25 @@
     const updateSendAvailability = deps.updateSendAvailability || (() => {});
     const openImagePreview = deps.openImagePreview || (() => {});
     const toast = deps.toast || (() => {});
-    const parseResponseJson = deps.parseResponseJson;
-    const normalizeError = deps.normalizeError || ((_err, payload) => payload?.message || '请求失败');
     const isImageFile = deps.isImageFile || (() => false);
     const isCompressibleRasterImage = deps.isCompressibleRasterImage || (() => false);
     const formatBytes = deps.formatBytes || (value => `${Number(value) || 0} B`);
     const getImageBlob = deps.getImageBlob;
     const putImageBlob = deps.putImageBlob;
-    const dataUrlToBlob = deps.dataUrlToBlob || (url => fetch(url).then(res => res.blob()));
     const blobToDataUrl = deps.blobToDataUrl;
     const createImageBitmapImpl = deps.createImageBitmap || root.createImageBitmap?.bind(root);
     const documentRef = deps.document || root.document;
     const FileReaderCtor = deps.FileReader || root.FileReader;
     const FileCtor = deps.File || root.File;
     const limits = deps.imageUploadLimits || DEFAULT_IMAGE_UPLOAD_LIMITS;
-    const attachmentService = deps.attachmentService || root.ChatUIServices?.attachments || root.ChatUIAttachmentService || {};
+    const fileInputs = deps.fileInputs || root?.ChatUICore?.fileInputs || sharedFileInputs || {};
+    const input = getElement('fileInput');
+    if (input && typeof fileInputs.acceptAttribute === 'function') input.accept = fileInputs.acceptAttribute({ includeImages: true });
+
+    function inputFileMimeType(name = '', fallback = '') {
+      const inferred = fileInputs.inferMimeType?.(name, fallback);
+      return inferred && inferred !== 'application/octet-stream' ? inferred : inferMimeByName(name);
+    }
 
     function ensureStateMap(state, key) {
       if (!(state[key] instanceof Map)) state[key] = new Map();
@@ -122,9 +122,16 @@
       if (!bar) return;
       bar.innerHTML = attachments.map((item, index) => {
         const image = String(item.type || '').startsWith('image/');
-        const preview = image ? `<button class="attachment-thumb-btn" type="button" data-preview-attachment="${index}" title="打开预览：${escapeHtml(item.name)}" aria-label="打开预览：${escapeHtml(item.name)}"><img src="${escapeHtml(item.dataUrl)}" alt="" /></button>` : `<span class="file-icon">${escapeHtml(String(item.name || '').split('.').pop() || 'FILE')}</span>`;
-        const note = item.compressionNote ? `<em title="${escapeHtml(item.compressionNote)}">已压缩</em>` : item.text || item.dataUrl ? '' : `<em title="${escapeHtml(item.unsupportedReason || '暂不支持解析')}">未解析</em>`;
-        return `<div class="attachment-chip${image ? ' attachment-chip-image' : ''}"${image ? ` data-preview-attachment="${index}" role="button" tabindex="0" aria-label="打开预览：${escapeHtml(item.name)}"` : ''} title="${escapeHtml(item.compressionNote || item.unsupportedReason || item.name)}">${preview}<span>${escapeHtml(item.name)}</span>${note}<button type="button" data-remove-attachment="${index}">×</button></div>`;
+        const preview = image
+          ? `<button class="attachment-thumb-btn" type="button" data-preview-attachment="${index}" title="打开预览：${escapeHtml(item.name)}" aria-label="打开预览：${escapeHtml(item.name)}"><img src="${escapeHtml(item.dataUrl)}" alt="" /></button>`
+          : `<span class="file-icon">${escapeHtml(String(item.name || '').split('.').pop() || 'FILE')}</span>`;
+        const note = item.compressionNote
+          ? `<em title="${escapeHtml(item.compressionNote)}">已压缩</em>`
+          : item.inputFile || item.text || item.dataUrl ? '' : `<em title="${escapeHtml(item.unsupportedReason || '暂不支持解析')}">未解析</em>`;
+        const detail = !image && fileInputs.isPdfFile?.(item)
+          ? `<label class="attachment-pdf-detail" title="PDF 页面图像处理清晰度"><span>PDF</span><select data-pdf-detail="${index}" aria-label="${escapeHtml(item.name)} PDF 清晰度"><option value="auto"${item.pdfDetail === 'auto' || !item.pdfDetail ? ' selected' : ''}>自动</option><option value="low"${item.pdfDetail === 'low' ? ' selected' : ''}>低</option><option value="high"${item.pdfDetail === 'high' ? ' selected' : ''}>高</option></select></label>`
+          : '';
+        return `<div class="attachment-chip${image ? ' attachment-chip-image' : ''}"${image ? ` data-preview-attachment="${index}" role="button" tabindex="0" aria-label="打开预览：${escapeHtml(item.name)}"` : ''} title="${escapeHtml(item.compressionNote || item.unsupportedReason || item.name)}">${preview}<span>${escapeHtml(item.name)}</span>${note}${detail}<button type="button" data-remove-attachment="${index}">×</button></div>`;
       }).join('');
       bar.classList.toggle('show', attachments.length > 0);
       bar.querySelectorAll('[data-preview-attachment]').forEach(node => {
@@ -137,6 +144,11 @@
         attachments.splice(Number(node.dataset.removeAttachment), 1);
         renderAttachments();
         autoResize();
+      }));
+      bar.querySelectorAll('[data-pdf-detail]').forEach(node => node.addEventListener('change', event => {
+        event.stopPropagation();
+        const item = attachments[Number(node.dataset.pdfDetail)];
+        if (item) item.pdfDetail = fileInputs.normalizePdfDetail?.(node.value) || node.value || 'auto';
       }));
     }
 
@@ -202,24 +214,134 @@
     function startTimedUploadPhase(id, phase, start = 8, end = 96, intervalMs = 220, sessionId = getState().activeSessionId) { const started = root.performance?.now ? root.performance.now() : Date.now(); setUploadPhase(id, phase, start, sessionId); return setInterval(() => { const elapsed = (root.performance?.now ? root.performance.now() : Date.now()) - started; const value = start + (end - start) * (1 - Math.exp(-elapsed / 4200)); setUploadPhase(id, phase, Math.min(end, value), sessionId); }, intervalMs); }
 
     function readFileAsDataURL(file, taskId = null, phase = '读取文件') { return new Promise((resolve, reject) => { const reader = new FileReaderCtor(); reader.onload = () => { if (taskId) setUploadPhase(taskId, phase, 100); resolve(reader.result); }; reader.onerror = reject; reader.onprogress = event => { if (taskId && event.lengthComputable) setUploadPhaseProgress(taskId, phase, event.loaded, event.total); }; reader.readAsDataURL(file); }); }
-    function readFileAsArrayBuffer(file, taskId = null, phase = '读取文件') { return new Promise((resolve, reject) => { const reader = new FileReaderCtor(); reader.onload = () => { if (taskId) setUploadPhase(taskId, phase, 100); resolve(reader.result); }; reader.onerror = reject; reader.onprogress = event => { if (taskId && event.lengthComputable) setUploadPhaseProgress(taskId, phase, event.loaded, event.total); }; reader.readAsArrayBuffer(file); }); }
-    async function readFileAsText(file, taskId = null) {
-      const buffer = await readFileAsArrayBuffer(file, taskId);
-      const bytes = new Uint8Array(buffer || new ArrayBuffer(0));
-      if (bytes.length >= 2 && bytes[0] === 255 && bytes[1] === 254) return decodeArrayBufferText(buffer, 'utf-16le');
-      if (bytes.length >= 2 && bytes[0] === 254 && bytes[1] === 255) return decodeArrayBufferText(buffer, 'utf-16be');
-      if (bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) return decodeArrayBufferText(buffer, 'utf-8');
-      const strict = decodeArrayBufferText(buffer, 'utf-8', true);
-      if (strict && !looksBinary(strict)) return strict;
-      const candidates = ['utf-8', 'gb18030', 'gbk', 'big5', 'utf-16le'].map(encoding => ({ encoding, text: decodeArrayBufferText(buffer, encoding) })).filter(item => item.text && !looksBinary(item.text));
-      candidates.sort((a, b) => decodedTextQuality(b.text) - decodedTextQuality(a.text));
-      return candidates[0]?.text || decodeArrayBufferText(buffer, 'utf-8') || '';
-    }
-
     async function dataUrlToFile(url, name = 'previous-image.png') { const response = await fetch(url); const blob = await response.blob(); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); }
     async function urlToImageFile(url, name = 'previous-image.png') { const response = await fetch(url); if (!response.ok) throw new Error('无法读取上一张图片作为编辑参考'); const blob = await response.blob(); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); }
     async function imageRefToFile(ref, name = 'previous-image.png') { if (!ref) return null; if (ref.startsWith('indexeddb://')) { const blob = await getImageBlob(ref.replace('indexeddb://', '')); if (!blob) throw new Error('图片缓存不存在，无法继续编辑'); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); } return ref.startsWith('data:') ? dataUrlToFile(ref, name) : urlToImageFile(ref, name); }
     async function imageRefToDataUrl(ref, name = 'image.png') { if (!ref) return ''; if (ref.startsWith('data:')) return ref; if (ref.startsWith('indexeddb://')) { const blob = await getImageBlob(ref.replace('indexeddb://', '')); if (!blob) throw new Error('图片缓存不存在，无法继续发送'); return blobToDataUrl(blob); } return ref; }
+
+    function ensureAttachmentId(item = {}, index = 0) {
+      const existing = item.attachmentId || item.attachment_id || item.id || '';
+      if (existing) return String(existing);
+      const safeName = String(item.name || item.file?.name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'attachment';
+      const id = `att_${Date.now().toString(36)}_${index + 1}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
+      item.attachmentId = id;
+      return id;
+    }
+
+    async function persistInputFile(item, index = 0) {
+      if (!item?.file || typeof putImageBlob !== 'function') return '';
+      const attachmentId = ensureAttachmentId(item, index);
+      const safeId = String(attachmentId).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 96) || `file-${index + 1}`;
+      const key = `attachment-file-${safeId}`;
+      await putImageBlob(key, item.file);
+      item.persistedSrc = `indexeddb://${key}`;
+      return item.persistedSrc;
+    }
+
+    async function attachmentFile(item = {}) {
+      if (item.file) return item.file;
+      const ref = String(item.persistedSrc || item.persisted_src || item.src || item.dataUrl || item.data_url || '');
+      if (!ref) return null;
+      return imageRefToFile(ref, item.name || 'attachment');
+    }
+
+    function needsInputFileData(item = {}) {
+      return item.inputFile === true
+        || item.input_file === true
+        || !!(item.file || item.persistedSrc || item.persisted_src || item.src || item.dataUrl || item.data_url);
+    }
+
+    function withoutTransientFileMetadata(item = {}) {
+      return Object.fromEntries(Object.entries(item).filter(([key]) => {
+        if (key === 'status' || key === 'error' || key === 'fileData' || key === 'file_data') return false;
+        return !key.startsWith('upstream');
+      }));
+    }
+
+    function abortIfRequested(signal) {
+      if (!signal?.aborted) return;
+      const error = new Error('File input preparation was cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+
+    function normalizeInputFileDataUrl(value, mimeType) {
+      const raw = String(value || '');
+      const comma = raw.indexOf(',');
+      if (comma <= 0 || !/;base64$/i.test(raw.slice(0, comma))) {
+        throw Object.assign(new Error('Failed to encode the file input as Base64'), { code: 'FILE_DATA_ENCODING_FAILED' });
+      }
+      return `data:${mimeType};base64,${raw.slice(comma + 1)}`;
+    }
+
+    async function readInputFileData(file, item = {}, signal) {
+      abortIfRequested(signal);
+      const filename = file.name || item.name || 'attachment';
+      const mimeType = inputFileMimeType(filename, file.type || item.type);
+      let dataUrl = '';
+      if (typeof blobToDataUrl === 'function') {
+        dataUrl = await blobToDataUrl(file);
+      } else if (typeof FileReaderCtor === 'function') {
+        dataUrl = await readFileAsDataURL(file);
+      } else if (typeof file.arrayBuffer === 'function') {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (typeof root?.btoa === 'function') {
+          const chunks = [];
+          const chunkSize = 0x8000;
+          for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+            chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+          }
+          dataUrl = `data:${mimeType};base64,${root.btoa(chunks.join(''))}`;
+        } else if (typeof Buffer !== 'undefined') {
+          dataUrl = `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`;
+        }
+      }
+      abortIfRequested(signal);
+      return normalizeInputFileDataUrl(dataUrl, mimeType);
+    }
+
+    async function prepareChatAttachments(list = [], options = {}) {
+      const prepared = await ensureChatAttachmentImageDataUrls(list);
+      const documents = prepared.filter(item => !isImageFile(item));
+      if (!documents.length) return prepared;
+      const resolvedDocuments = new Map();
+      for (const item of documents) {
+        if (!needsInputFileData(item)) continue;
+        abortIfRequested(options.signal);
+        const file = await attachmentFile(item);
+        if (file) resolvedDocuments.set(item, file);
+      }
+      fileInputs.validateRequestFiles?.([...resolvedDocuments].map(([item, file]) => ({
+        name: file.name || item.name || 'attachment',
+        type: inputFileMimeType(file.name || item.name, file.type || item.type),
+        size: Number(file.size) || 0,
+      })));
+      const result = [];
+      for (const item of prepared) {
+        if (isImageFile(item)) {
+          result.push(item);
+          continue;
+        }
+        if (!needsInputFileData(item)) {
+          result.push(withoutTransientFileMetadata(item));
+          continue;
+        }
+        const file = resolvedDocuments.get(item);
+        if (!file) throw Object.assign(new Error(`附件内容不可用，请重新上传：${item.name || 'attachment'}`), { code: 'FILE_CONTENT_UNAVAILABLE' });
+        const fileData = await readInputFileData(file, item, options.signal);
+        result.push({
+          ...withoutTransientFileMetadata(item),
+          file,
+          name: file.name || item.name || 'attachment',
+          type: inputFileMimeType(file.name || item.name, file.type || item.type),
+          size: Number(file.size) || 0,
+          inputFile: true,
+          fileData,
+          text: '',
+        });
+      }
+      return result;
+    }
     async function prepareChatImageAttachments(list = []) {
       const result = [];
       for (const source of list || []) {
@@ -288,29 +410,6 @@
     }
     async function convertBmpToPng(file) { const bitmap = await createImageBitmapImpl(file); try { const canvas = documentRef.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height; canvas.getContext('2d').drawImage(bitmap, 0, 0); const blob = await new Promise((resolve, reject) => canvas.toBlob(item => item ? resolve(item) : reject(new Error('BMP 转 PNG 失败')), 'image/png')); return new FileCtor([blob], replaceExt(file.name, '.png'), { type: 'image/png' }); } finally { bitmap.close?.(); } }
 
-    async function extractAttachmentText(item, taskId = null) {
-      if (!item?.dataUrl) return '';
-      let timer = null;
-      try {
-        if (taskId) timer = startTimedUploadPhase(taskId, '解析文本', 8, 96);
-        const text = attachmentService.extractFileText
-          ? await attachmentService.extractFileText({ item, fetchImpl: root.fetch?.bind(root), parseResponseJson, normalizeError })
-          : await (async () => {
-            const response = await fetch('/api/extract-file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: item.name, type: item.type, dataUrl: item.dataUrl }) });
-            const payload = await parseResponseJson(response);
-            if (!response.ok) throw new Error(normalizeError(null, payload));
-            return String(payload.text || '').trim();
-          })();
-        if (timer) { clearInterval(timer); timer = null; }
-        if (taskId) setUploadPhase(taskId, '解析文本', 97);
-        if (taskId) setUploadPhase(taskId, '解析文本', 100);
-        return text;
-      } catch (err) {
-        item.unsupportedReason = `本地解析失败：${err.message || String(err)}。为避免接口报错，不会直接发送二进制原文件。`;
-        return '';
-      } finally { if (timer) clearInterval(timer); }
-    }
-
     async function addFiles(files) {
       const incoming = [...files];
       if (!incoming.length) return;
@@ -324,6 +423,30 @@
       const taskSessionIds = ensureStateMap(state, 'uploadTaskSessionIds');
       uploadTasks.forEach(task => taskSessionIds.set(task.id, sessionId));
       renderUploadProgress();
+
+      const documentErrors = new Map();
+      const acceptedIncomingDocuments = [];
+      incoming.forEach((file, index) => {
+        const descriptor = { name: file.name, type: file.type || inferMimeByName(file.name), size: file.size };
+        if (isImageFile(descriptor)) return;
+        try {
+          fileInputs.validateFile?.(descriptor);
+          acceptedIncomingDocuments.push({ index, file: descriptor });
+        } catch (err) {
+          documentErrors.set(index, err);
+        }
+      });
+      if (acceptedIncomingDocuments.length && typeof fileInputs.validateRequestFiles === 'function') {
+        const existingDocuments = (attachmentDraftFor(state, sessionId) || [])
+          .filter(item => !isImageFile(item))
+          .map(item => ({ name: item.name, type: item.type, size: item.size || item.file?.size }));
+        try {
+          fileInputs.validateRequestFiles([...existingDocuments, ...acceptedIncomingDocuments.map(item => item.file)]);
+        } catch (err) {
+          acceptedIncomingDocuments.forEach(item => documentErrors.set(item.index, err));
+        }
+      }
+
       for (let index = 0; index < incoming.length; index += 1) {
         const taskId = uploadTasks[index]?.id;
         try {
@@ -336,10 +459,19 @@
           const type = file.type || inferMimeByName(file.name);
           if (isImageFile({ name: file.name, type })) { setUploadPhase(taskId, '检查图片', 18); const compressed = await compressImageIfNeeded(file); setUploadPhase(taskId, '检查图片', 100); file = compressed.file; compressionNote = compressed.changed ? compressed.note : ''; }
           const item = { file, name: file.name, originalName: originalName || (compressionNote ? incoming[index].name : ''), type: file.type || inferMimeByName(file.name), size: file.size, dataUrl: '', text: '', unsupportedReason: '', compressionNote };
-          if (isImageFile(item)) item.dataUrl = await readFileAsDataURL(file, taskId, '读取图片');
-          else if (isPdfFile(item) || isOfficeFile(item)) { item.dataUrl = await readFileAsDataURL(file, taskId, '读取文件'); if (canExtractAttachmentText(item)) { const text = await extractAttachmentText(item, taskId); if (text) item.text = text; } }
-          else if (isProbablyTextFile(item)) { item.text = await readFileAsText(file, taskId, '读取文本'); if (looksBinary(item.text)) { item.text = ''; item.unsupportedReason = '文件看起来是二进制内容，未内联解析'; } }
-          else try { const text = await readFileAsText(file, taskId, '读取文本'); if (looksBinary(text)) item.dataUrl = await readFileAsDataURL(file, taskId, '读取文件'); else item.text = text; } catch { item.dataUrl = await readFileAsDataURL(file, taskId, '读取文件'); }
+          if (isImageFile(item)) {
+            item.dataUrl = await readFileAsDataURL(file, taskId, '读取图片');
+          } else {
+            const validationError = documentErrors.get(index);
+            if (validationError) throw validationError;
+            fileInputs.validateFile?.(item);
+            item.attachmentId = ensureAttachmentId(item, index);
+            item.inputFile = true;
+            if (fileInputs.isPdfFile?.(item)) item.pdfDetail = 'auto';
+            setUploadPhase(taskId, '保存文件', 35);
+            await persistInputFile(item, index);
+            setUploadPhase(taskId, '保存文件', 100);
+          }
           setUploadPhase(taskId, '添加到附件', 80);
           const draft = attachmentDraftFor(state, sessionId);
           if (draft && sessionCanReceiveAttachments(state, sessionId) && attachmentDraftVersion(state, sessionId) === draftVersion) {
@@ -377,13 +509,14 @@
 
     return Object.freeze({
       renderAttachments, hasPendingUploads, renderUploadProgress, setUploadTask, finishUploadProgressSoon, setUploadPhase, setUploadPhaseProgress, startTimedUploadPhase,
-      readFileAsDataURL, readFileAsArrayBuffer, readFileAsText, dataUrlToFile, urlToImageFile, imageRefToFile, imageRefToDataUrl, prepareChatImageAttachments, ensureChatAttachmentImageDataUrls,
-      compressImageIfNeeded, convertBmpToPng, extractAttachmentText, addFiles, clearAttachments,
+      readFileAsDataURL, dataUrlToFile, urlToImageFile, imageRefToFile, imageRefToDataUrl, prepareChatImageAttachments, ensureChatAttachmentImageDataUrls,
+      ensureAttachmentId, persistInputFile, attachmentFile, prepareChatAttachments,
+      compressImageIfNeeded, convertBmpToPng, addFiles, clearAttachments,
     });
   }
 
   const api = Object.freeze({
-    DEFAULT_IMAGE_UPLOAD_LIMITS, inferMimeByName, isPdfFile, isOfficeFile, isExcelFile, canExtractOfficeText, canExtractAttachmentText, isProbablyTextFile, isBmpFile, replaceExt, looksBinary, decodeArrayBufferText, decodedTextQuality, canvasToBlob, createAttachmentsWorkflow,
+    DEFAULT_IMAGE_UPLOAD_LIMITS, inferMimeByName, isBmpFile, replaceExt, canvasToBlob, createAttachmentsWorkflow,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

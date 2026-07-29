@@ -7,7 +7,6 @@ const { readBody } = require('../../server/http/body');
 const staticHttp = require('../../server/http/static');
 const urlPolicy = require('../../server/security/url-policy');
 const { fetchWithValidatedRedirects, configuredUpstreamProxyUrl, readUpstreamErrorDetails, summarizeUpstreamRequest, normalizeUpstreamErrorMessage } = require('../../server/jobs/common');
-const extractApi = require('../../server/extract');
 const { ConcurrencyLimiter } = require('../../server/concurrency');
 const safeLog = require('../../server/logging/safe-log');
 const { sendError } = require('../../server/http/response');
@@ -161,11 +160,6 @@ async function testServerHardeningHelpers() {
   const expired = store.get('running-old');
   assert.strictEqual(aborted, true);
   assert.strictEqual(expired.status, 'error');
-
-  assert.strictEqual(extractApi.fileKind('a.txt', 'text/plain'), 'text');
-  assert.strictEqual(extractApi.fileKind('a.pdf', ''), 'pdf');
-  assert.strictEqual(extractApi.estimateDataUrlBytes('data:text/plain;base64,QUJDRA=='), 6);
-  assert.throws(() => extractApi.assertExtractSizeAllowed('text', 999999999), /文件过大/);
 
   const limiter = new ConcurrencyLimiter(1, { maxQueue: 0 });
   return limiter.acquire()

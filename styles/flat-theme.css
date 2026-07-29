@@ -1346,6 +1346,20 @@ body {
   background: var(--accent-light) !important;
   color: var(--accent) !important;
 }
+.custom-select-menu {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+@media (max-width: 640px) {
+  #routeDiagramFab { display: none !important; }
+  .config-dialog .custom-select-menu {
+    max-height: min(42vh, 240px);
+    overflow-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+}
 
 /* ═══════════════════════════════════════════
    Reasoning Panel (inside messages)

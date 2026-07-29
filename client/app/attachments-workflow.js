@@ -170,10 +170,23 @@
       const tasks = syncActiveUploadTasks(state);
       node.innerHTML = tasks.map(task => {
         const percent = Math.max(0, Math.min(100, Math.round(task.percent || 0)));
-        const status = task.error ? '失败' : task.done ? '完成' : task.status || '处理中';
-        return `<div class="upload-progress-item${task.error ? ' error' : ''}${task.done ? ' done' : ''}"><div class="upload-progress-row"><span class="upload-progress-name">${escapeHtml(task.name || '文件')}</span><span class="upload-progress-percent">${escapeHtml(status)} · ${percent}%</span></div><div class="upload-progress-track"><i style="width:${percent}%"></i></div></div>`;
+        const status = task.error ? String(task.status || '处理失败') : task.done ? '完成' : task.status || '处理中';
+        const errorAttributes = task.error ? ' role="alert" aria-live="assertive"' : '';
+        const dismissButton = task.error ? `<button type="button" class="upload-progress-dismiss" data-dismiss-upload-error="${escapeHtml(task.id || '')}" aria-label="关闭 ${escapeHtml(task.name || '文件')} 的上传错误" title="关闭错误提示">×</button>` : '';
+        const errorDetail = task.error ? `<div class="upload-progress-error">${escapeHtml(status)}</div>` : '';
+        const progressStatus = task.error ? '上传失败' : `${status} · ${percent}%`;
+        return `<div class="upload-progress-item${task.error ? ' error' : ''}${task.done ? ' done' : ''}"${errorAttributes}><div class="upload-progress-row"><span class="upload-progress-name">${escapeHtml(task.name || '文件')}</span><span class="upload-progress-actions"><span class="upload-progress-percent">${escapeHtml(progressStatus)}</span>${dismissButton}</span></div>${errorDetail}<div class="upload-progress-track"><i style="width:${percent}%"></i></div></div>`;
       }).join('');
       node.classList.toggle('show', tasks.length > 0);
+      node.querySelectorAll?.('[data-dismiss-upload-error]').forEach(button => button.addEventListener('click', () => {
+        const taskId = String(button.dataset.dismissUploadError || '');
+        const index = tasks.findIndex(task => String(task?.id || '') === taskId && task?.error);
+        if (index < 0) return;
+        const [removed] = tasks.splice(index, 1);
+        ensureStateMap(state, 'uploadTaskSessionIds').delete(removed?.id);
+        renderUploadProgress();
+        autoResize();
+      }));
       updateSendAvailability();
     }
     function setUploadTask(id, patch = {}, sessionId = null) {
@@ -197,8 +210,11 @@
         if (!sessionCanReceiveAttachments(state, sessionId)) return;
         const tasks = uploadTasksFor(state, sessionId);
         const taskSessionIds = ensureStateMap(state, 'uploadTaskSessionIds');
-        tasks.forEach(task => { if (taskSessionIds.get(task?.id) === sessionId) taskSessionIds.delete(task.id); });
-        tasks.splice(0, tasks.length);
+        const failedTasks = tasks.filter(task => task?.error);
+        tasks.forEach(task => {
+          if (!task?.error && taskSessionIds.get(task?.id) === sessionId) taskSessionIds.delete(task.id);
+        });
+        tasks.splice(0, tasks.length, ...failedTasks);
         if (sessionId === state.activeSessionId) {
           state.uploadTasks = tasks;
           renderUploadProgress();

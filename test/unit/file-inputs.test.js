@@ -49,7 +49,7 @@ function testFileInputCategoriesAndMimeInference() {
   }
 }
 
-function testFileInputSizeLimitsAreStrictlyBelowFiftyMegabytes() {
+function testFileInputSizeLimitsAreStrictlyBelowTenMegabytes() {
   const justBelowLimit = {
     name: 'largest-valid.txt',
     type: 'text/plain',
@@ -87,6 +87,6 @@ function testPdfDetailNormalization() {
 
 module.exports = [
   testFileInputCategoriesAndMimeInference,
-  testFileInputSizeLimitsAreStrictlyBelowFiftyMegabytes,
+  testFileInputSizeLimitsAreStrictlyBelowTenMegabytes,
   testPdfDetailNormalization,
 ];

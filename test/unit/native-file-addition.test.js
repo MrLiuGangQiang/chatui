@@ -26,8 +26,9 @@ function createHarness(options = {}) {
     disposedSessionIds: new Set(),
   };
   const workflow = attachmentsWorkflow.createAttachmentsWorkflow({
+    root: options.root,
     getState: () => state,
-    getElement: () => null,
+    getElement: options.getElement || (() => null),
     fileInputs: options.fileInputs || fileInputs,
     isImageFile: item => String(item?.type || item?.file?.type || '').startsWith('image/'),
     isCompressibleRasterImage: () => false,
@@ -44,6 +45,38 @@ function createHarness(options = {}) {
   }
 
   return { state, workflow, writes, cancelCleanupTimer };
+}
+
+function testUploadErrorShowsTheLimitAndRemainsVisible() {
+  let dismiss = null;
+  const dismissButton = {
+    dataset: { dismissUploadError: 'too-large' },
+    addEventListener(type, callback) { if (type === 'click') dismiss = callback; },
+  };
+  const uploadProgress = {
+    innerHTML: '',
+    classList: { toggle() {} },
+    querySelectorAll() { return [dismissButton]; },
+  };
+  const harness = createHarness({
+    getElement: id => id === 'uploadProgress' ? uploadProgress : null,
+    root: { setTimeout(callback) { callback(); return 1; }, clearTimeout() {} },
+  });
+  harness.state.uploadTasks.push({
+    id: 'too-large', name: 'archive.zip', percent: 100,
+    status: '文件必须小于 10 MB：archive.zip', done: true, error: true,
+  });
+
+  harness.workflow.renderUploadProgress();
+
+  assert.match(uploadProgress.innerHTML, /role="alert"/);
+  assert.match(uploadProgress.innerHTML, /上传失败/);
+  assert.match(uploadProgress.innerHTML, /文件必须小于 10 MB：archive\.zip/);
+  assert.match(uploadProgress.innerHTML, /data-dismiss-upload-error="too-large"/);
+  harness.workflow.finishUploadProgressSoon();
+  assert.strictEqual(harness.state.uploadTasks.length, 1, 'failed uploads stay visible until another file selection replaces them');
+  dismiss();
+  assert.strictEqual(harness.state.uploadTasks.length, 0, 'the dismiss button removes the failed upload');
 }
 
 async function withoutExpectedWarnings(callback) {
@@ -122,13 +155,13 @@ async function testAddFilesRejectsUnsupportedNativeType() {
     assert.strictEqual(harness.state.uploadTasks.length, 1);
     assert.strictEqual(harness.state.uploadTasks[0].done, true);
     assert.strictEqual(harness.state.uploadTasks[0].error, true);
-    assert.match(harness.state.uploadTasks[0].status, /Unsupported file input type/);
+    assert.match(harness.state.uploadTasks[0].status, /暂不支持该文件类型：payload\.exe/);
   } finally {
     harness.cancelCleanupTimer();
   }
 }
 
-async function testAddFilesRejectsAggregateAtExactlyFiftyMegabytes() {
+async function testAddFilesRejectsAggregateAtExactlyTenMegabytes() {
   const harness = createHarness();
   const half = fileInputs.MAX_REQUEST_BYTES / 2;
   const files = [
@@ -144,7 +177,7 @@ async function testAddFilesRejectsAggregateAtExactlyFiftyMegabytes() {
     for (const task of harness.state.uploadTasks) {
       assert.strictEqual(task.done, true);
       assert.strictEqual(task.error, true);
-      assert.match(task.status, /Combined file inputs must be smaller than 50 MB/);
+      assert.match(task.status, /合计必须小于 10 MB/);
     }
   } finally {
     harness.cancelCleanupTimer();
@@ -221,7 +254,7 @@ async function testPrepareChatAttachmentsKeepsLegacyTextOnlyFilesInline() {
 async function testPrepareChatAttachmentsValidatesRealBlobMetadataBeforeEncoding() {
   let validatedFiles = null;
   let encodingCalls = 0;
-  const aggregateError = Object.assign(new Error('Combined file inputs must be smaller than 50 MB'), {
+  const aggregateError = Object.assign(new Error('本次上传的文件合计必须小于 10 MB'), {
     code: 'FILE_INPUT_REQUEST_TOO_LARGE',
   });
   const harness = createHarness({
@@ -280,10 +313,11 @@ function testLegacyLocalExtractionSurfaceIsRemoved() {
 }
 
 module.exports = [
+  testUploadErrorShowsTheLimitAndRemainsVisible,
   testAddFilesPersistsSupportedPdfAsNativeInput,
   testEveryDocumentCategoryUsesNativeInput,
   testAddFilesRejectsUnsupportedNativeType,
-  testAddFilesRejectsAggregateAtExactlyFiftyMegabytes,
+  testAddFilesRejectsAggregateAtExactlyTenMegabytes,
   testPrepareChatAttachmentsEncodesBase64WithoutUploading,
   testPrepareChatAttachmentsKeepsLegacyTextOnlyFilesInline,
   testPrepareChatAttachmentsValidatesRealBlobMetadataBeforeEncoding,

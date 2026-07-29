@@ -140,7 +140,7 @@ function inspectResponsesFileData(body, { requestUrl = '', maxDecodedBytes = MAX
     fileDataBytes += inspected.fileDataBytes;
     if (decodedBytes >= decodedLimit) {
       throw fileInputError(
-        'Combined decoded file inputs must be smaller than 50 MB',
+        '本次上传的文件合计必须小于 10 MB',
         'FILE_INPUT_REQUEST_TOO_LARGE',
         413
       );

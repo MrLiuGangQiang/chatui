@@ -12,8 +12,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function createChatUIFileInputs() {
   'use strict';
 
-  const MAX_FILE_BYTES = 50 * 1024 * 1024;
-  const MAX_REQUEST_BYTES = 50 * 1024 * 1024;
+  const MAX_FILE_BYTES = 10 * 1024 * 1024;
+  const MAX_REQUEST_BYTES = 10 * 1024 * 1024;
   const PDF_DETAILS = Object.freeze(['auto', 'low', 'high']);
 
   const CATEGORY_EXTENSIONS = Object.freeze({
@@ -192,16 +192,16 @@
 
   function validateFile(file = {}) {
     const size = Number(file.size || file.bytes || 0);
-    if (!isAcceptedFile(file)) throw validationError(`Unsupported file input type: ${file.name || file.filename || 'attachment'}`, 'FILE_INPUT_TYPE_UNSUPPORTED');
+    if (!isAcceptedFile(file)) throw validationError(`暂不支持该文件类型：${file.name || file.filename || '附件'}`, 'FILE_INPUT_TYPE_UNSUPPORTED');
     if (!Number.isFinite(size) || size <= 0) throw validationError('File input must not be empty', 'FILE_INPUT_SIZE_INVALID');
-    if (size >= MAX_FILE_BYTES) throw validationError(`File must be smaller than 50 MB: ${file.name || file.filename || 'attachment'}`, 'FILE_INPUT_TOO_LARGE');
+    if (size >= MAX_FILE_BYTES) throw validationError(`文件必须小于 10 MB：${file.name || file.filename || '附件'}`, 'FILE_INPUT_TOO_LARGE');
     return { name: file.name || file.filename || 'attachment', type: inferMimeType(file.name || file.filename, file.type || file.mimeType), size, category: categoryForFile(file) };
   }
 
   function validateRequestFiles(files = []) {
     const validated = (Array.isArray(files) ? files : []).map(validateFile);
     const totalBytes = validated.reduce((sum, file) => sum + file.size, 0);
-    if (totalBytes >= MAX_REQUEST_BYTES) throw validationError('Combined file inputs must be smaller than 50 MB', 'FILE_INPUT_REQUEST_TOO_LARGE');
+    if (totalBytes >= MAX_REQUEST_BYTES) throw validationError('本次上传的文件合计必须小于 10 MB', 'FILE_INPUT_REQUEST_TOO_LARGE');
     return { files: validated, totalBytes };
   }
 

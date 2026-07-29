@@ -3,6 +3,7 @@
 
   const INITIAL_RELEASE_COUNT = 12;
   const RELEASE_BATCH_SIZE = 12;
+  const READ_RELEASES_KEY = 'chatui-changelog-read-v1';
 
   function comparableReleaseLabel(value = '') {
     return String(value || '')
@@ -28,6 +29,32 @@
     let active = false;
     let previousFocus = null;
 
+    function readReleaseVersions() {
+      try {
+        const value = JSON.parse(root?.localStorage?.getItem(READ_RELEASES_KEY) || '[]');
+        return new Set(Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : []);
+      } catch { return new Set(); }
+    }
+
+    function markReleaseRead(version) {
+      const value = String(version || '').trim();
+      if (!value) return;
+      const read = readReleaseVersions();
+      read.add(value);
+      try { root?.localStorage?.setItem(READ_RELEASES_KEY, JSON.stringify([...read])); } catch {}
+    }
+
+    function syncUnreadIndicators(releases = []) {
+      const read = readReleaseVersions();
+      const hasUnread = releases.some(release => !read.has(String(release?.version || '').trim()));
+      documentRef?.querySelectorAll?.('[data-version-changelog]')?.forEach(node => {
+        node.classList.toggle('has-unread-changelog', hasUnread);
+        node.setAttribute('data-unread-changelog', hasUnread ? '1' : '0');
+        node.setAttribute('aria-label', hasUnread ? '查看更新日志（有未读版本）' : '查看更新日志');
+        node.setAttribute('title', hasUnread ? '查看更新日志（有未读版本）' : '查看更新日志');
+      });
+    }
+
     function setOpen(open) {
       const modal = getElement('changelogModal');
       if (!modal) return;
@@ -43,6 +70,8 @@
       const content = getElement('changelogContent');
       if (!content) return;
       content.textContent = '';
+      const readVersions = readReleaseVersions();
+      syncUnreadIndicators(releases);
       if (!Array.isArray(releases) || !releases.length) {
         const empty = documentRef.createElement('p');
         empty.className = 'changelog-status';
@@ -70,7 +99,8 @@
         const version = String(release.version || '').trim() || '未标记版本';
         const subtitle = releaseSubtitle(release, version);
         const entry = documentRef.createElement('details');
-        entry.className = `changelog-entry${index === 0 ? ' is-latest' : ''}`;
+        const isRead = readVersions.has(version);
+        entry.className = `changelog-entry${index === 0 ? ' is-latest' : ''}${isRead ? '' : ' is-unread'}`;
         entry.open = index === 0;
 
         const summary = documentRef.createElement('summary');
@@ -94,10 +124,24 @@
           latest.textContent = '最新版本';
           heading.appendChild(latest);
         }
+        if (!isRead) {
+          const unread = documentRef.createElement('span');
+          unread.className = 'changelog-unread-badge';
+          unread.textContent = '未读';
+          unread.setAttribute('aria-label', '未读版本');
+          heading.appendChild(unread);
+        }
         const chevron = documentRef.createElement('span');
         chevron.className = 'changelog-entry-chevron';
         chevron.setAttribute('aria-hidden', 'true');
         summary.append(heading, chevron);
+        summary.addEventListener('click', () => {
+          if (!entry.classList.contains('is-unread')) return;
+          markReleaseRead(version);
+          entry.classList.remove('is-unread');
+          entry.querySelector('.changelog-unread-badge')?.remove();
+          syncUnreadIndicators(releases);
+        });
 
         const panel = documentRef.createElement('div');
         panel.className = 'changelog-entry-panel';
@@ -197,5 +241,8 @@
   if (root?.document) {
     const controller = createVersionChangelogController();
     controller.bind();
+    // Fetch release metadata during page initialization so unread indicators
+    // are visible on both version entry points before the changelog is opened.
+    void controller.load();
   }
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

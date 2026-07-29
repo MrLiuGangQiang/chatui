@@ -272,6 +272,57 @@ body {
   font-size: 11px;
   font-weight: 700;
 }
+.changelog-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  box-shadow: 0 4px 12px rgba(239,68,68,.24);
+}
+.changelog-entry.is-unread .changelog-entry-summary {
+  border-color: rgba(239,68,68,.42);
+  box-shadow: 0 8px 22px rgba(239,68,68,.10);
+}
+.rail-version-badge.has-unread-changelog,
+.sidebar-version-badge.has-unread-changelog {
+  position: relative;
+  overflow: visible !important;
+}
+.rail-version-badge.has-unread-changelog::after,
+.sidebar-version-badge.has-unread-changelog::after {
+  content: '未读';
+  position: absolute;
+  top: -9px;
+  right: -18px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 1px 5px;
+  border: 2px solid rgba(255,255,255,.9);
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(239,68,68,.3);
+  pointer-events: none;
+}
+.rail-version-badge.has-unread-changelog::after {
+  right: -7px;
+  top: -7px;
+}
+.sidebar-version-badge.has-unread-changelog::after {
+  right: -6px;
+  top: -8px;
+}
 
 .changelog-entry-chevron {
   flex: 0 0 9px;

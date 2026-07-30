@@ -119,15 +119,15 @@ function enhanceCodeExpansion(wrap, code) {
     const stateChanged = wrap.dataset.codeExpansionState !== state;
     if (wrap.classList.contains('code-block-expanded') !== expanded) wrap.classList.toggle('code-block-expanded', expanded);
     if (wrap.classList.contains('code-block-collapsed') === expanded) wrap.classList.toggle('code-block-collapsed', !expanded);
-    const bottomLabel = expanded ? '收起代码' : '查看完整代码';
+    const bottomLabel = expanded ? '收起内容' : '查看完整内容';
     if (stateChanged || !toggle.firstElementChild) {
       toggle.innerHTML = `${expanded ? CODE_COLLAPSE_DOUBLE_ICON_SVG : CODE_EXPAND_DOUBLE_ICON_SVG}<span>${bottomLabel}</span>`;
     }
     if (toggle.getAttribute('aria-label') !== bottomLabel) toggle.setAttribute('aria-label', bottomLabel);
     const ariaExpanded = String(expanded);
     if (toggle.getAttribute('aria-expanded') !== ariaExpanded) toggle.setAttribute('aria-expanded', ariaExpanded);
-    if (stateChanged || !headerToggle.firstElementChild) headerToggle.innerHTML = expanded ? CODE_COLLAPSE_ICON_SVG : CODE_EXPAND_ICON_SVG;
-    const headerLabel = expanded ? '收起代码' : '查看完整代码';
+    if (stateChanged || !headerToggle.firstElementChild) headerToggle.innerHTML = expanded ? CODE_COLLAPSE_DOUBLE_ICON_SVG : CODE_EXPAND_DOUBLE_ICON_SVG;
+    const headerLabel = expanded ? '收起内容' : '查看完整内容';
     if (headerToggle.title !== headerLabel) headerToggle.title = headerLabel;
     if (headerToggle.getAttribute('aria-label') !== headerLabel) headerToggle.setAttribute('aria-label', headerLabel);
     if (headerToggle.getAttribute('aria-expanded') !== ariaExpanded) headerToggle.setAttribute('aria-expanded', ariaExpanded);

@@ -149,7 +149,16 @@
       body: JSON.stringify({ content, api_key: apiKey || '', model: chatModel || '', route_model: routeModel || '' }),
     });
     const payload = await parseJson(response);
-    if (!response.ok) throw new Error(errorMessage(payload, '反馈发送失败，请稍后重试'));
+    if (!response.ok) {
+      // Keep the review reason separate from the generic HTTP error.  Some
+      // proxies replace `error.message`, while the review envelope remains
+      // intact and is what the feedback form needs to show to the user.
+      const reviewReason = String(payload?.review?.reason || '').trim();
+      const error = new Error(reviewReason ? `审核未通过：${reviewReason}` : errorMessage(payload, '反馈发送失败，请稍后重试'));
+      error.reviewReason = reviewReason;
+      error.code = String(payload?.error?.code || '');
+      throw error;
+    }
     return payload;
   }
 

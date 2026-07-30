@@ -163,6 +163,30 @@ async function testDingTalkFeedbackSenderContracts() {
   await assert.rejects(unavailable.send('问题'), err => err.code === 'FEEDBACK_NOT_CONFIGURED');
 }
 
+async function testFeedbackSubmissionPreservesReviewRejectionReason() {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const source = fs.readFileSync(path.join(__dirname, '../../client/services/usage-stats.js'), 'utf8');
+  const context = {
+    window: {},
+    fetch: async () => ({
+      ok: false,
+      text: async () => JSON.stringify({
+        review: { accepted: false, reason: '请补充可复现的操作步骤。' },
+        error: { message: '审核未通过：请补充可复现的操作步骤。', code: 'INVALID_FEEDBACK' },
+      }),
+    }),
+  };
+  vm.runInNewContext(source, context, { filename: 'usage-stats.js' });
+  await assert.rejects(
+    context.window.ChatUIServices.usageStats.submitFeedback('测试反馈', 'sk-test', 'chat-model'),
+    error => error?.reviewReason === '请补充可复现的操作步骤。'
+      && error?.message === '审核未通过：请补充可复现的操作步骤。'
+      && error?.code === 'INVALID_FEEDBACK',
+  );
+}
+
 function testUsageStatsScriptsLoadInExpectedOrder() {
   const fs = require('fs');
   const path = require('path');
@@ -175,7 +199,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const viewIndex = index.indexOf('client/features/usage-stats/view-helpers.js');
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
-  assert.ok(index.includes('client/services/usage-stats.js?v=1.2.77-feedback-template'), 'feedback request shape should ship with a fresh service cache version');
+  assert.ok(index.includes('client/services/usage-stats.js?v=1.2.79-feedback-reason'), 'feedback rejection reasons should ship with a fresh service cache version');
   assert.ok(index.includes('client/ui/usage-stats.js?v=1.2.78-feedback-form'), 'feedback form should ship with a fresh UI cache version');
   assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
   assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
@@ -296,6 +320,7 @@ module.exports = [
   testUsageStatsViewHelpersPreserveMarkupAndLabels,
   testUsageStatsModuleLoadsWithCommonJsFacade,
   testDingTalkFeedbackSenderContracts,
+  testFeedbackSubmissionPreservesReviewRejectionReason,
   testUsageStatsScriptsLoadInExpectedOrder,
   testUsageValidatorNormalizesInputs,
   testUsageValidatorRateLimitPreservesContract,

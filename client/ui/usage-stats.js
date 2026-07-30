@@ -379,7 +379,8 @@
       setFeedbackStatus('反馈已发送，感谢你的反馈。');
       setTimeout(closeFeedbackPanel, 900);
     } catch (err) {
-      setFeedbackStatus(err?.message || '反馈发送失败，请稍后重试', true);
+      const reason = String(err?.reviewReason || err?.message || '').trim();
+      setFeedbackStatus(reason || '反馈发送失败，请稍后重试', true);
     } finally {
       submit && (submit.disabled = false);
     }

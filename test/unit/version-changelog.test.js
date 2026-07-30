@@ -22,7 +22,31 @@ function testVersionChangelogIsWiredToTheVersionBadges() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(index.includes('data-version-changelog'));
   assert.ok(index.includes('id="changelogModal"'));
+  assert.ok(index.includes('id="markAllChangelogReadBtn"'));
   assert.ok(index.includes('./client/ui/version-changelog.js'));
+}
+
+async function testVersionChangelogMarksAllReleasesRead() {
+  const dom = new JSDOM('<button id="version" data-version-changelog></button><div id="changelogModal"><button id="markAllChangelogReadBtn"></button><button id="closeChangelogBtn"></button><div id="changelogContent"></div></div>', { url: 'https://chatui.test' });
+  const releases = [{ version: 'v1.9.7', body: '# v1.9.7' }, { version: 'v1.9.6', body: '# v1.9.6' }];
+  const controller = createVersionChangelogController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ releases }) }),
+  });
+  controller.bind();
+  await controller.load();
+
+  const content = dom.window.document.getElementById('changelogContent');
+  const markAll = dom.window.document.getElementById('markAllChangelogReadBtn');
+  assert.strictEqual(content.querySelectorAll('.changelog-entry.is-unread').length, 2);
+  assert.strictEqual(markAll.disabled, false);
+  markAll.click();
+  assert.strictEqual(content.querySelectorAll('.changelog-entry.is-unread').length, 0);
+  assert.strictEqual(content.querySelectorAll('.changelog-unread-badge').length, 0);
+  assert.strictEqual(markAll.disabled, true);
+  assert.deepStrictEqual(JSON.parse(dom.window.localStorage.getItem('chatui-changelog-read-v1')).sort(), ['v1.9.6', 'v1.9.7']);
+  assert.strictEqual(dom.window.document.getElementById('version').classList.contains('has-unread-changelog'), false);
 }
 
 async function testVersionChangelogRendersMarkdownThroughTheSharedRenderer() {
@@ -109,6 +133,7 @@ module.exports = [
   testReleaseNotesAreVersionSortedAndBounded,
   testVersionChangelogIsWiredToTheVersionBadges,
   testVersionChangelogRendersMarkdownThroughTheSharedRenderer,
+  testVersionChangelogMarksAllReleasesRead,
   testVersionChangelogLazilyRendersCollapsedReleaseCards,
   testVersionChangelogHasDedicatedResponsiveReadingStyles,
   testMobileRouteMapAndModelSelectScrolling,

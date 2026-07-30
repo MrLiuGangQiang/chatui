@@ -22,16 +22,18 @@
   function createVersionChangelogController(options = {}) {
     const documentRef = options.document || root?.document;
     const fetchImpl = options.fetchImpl || root?.fetch?.bind(root);
+    const storage = options.storage || root?.localStorage;
     const markdownRenderer = options.renderMarkdown
       || root?.ChatUIMarkdown?.renderMarkdown
       || root?.ChatUIApp?.markdown?.renderMarkdown;
     const getElement = id => documentRef?.getElementById(id);
     let active = false;
     let previousFocus = null;
+    let loadedReleases = [];
 
     function readReleaseVersions() {
       try {
-        const value = JSON.parse(root?.localStorage?.getItem(READ_RELEASES_KEY) || '[]');
+        const value = JSON.parse(storage?.getItem(READ_RELEASES_KEY) || '[]');
         return new Set(Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : []);
       } catch { return new Set(); }
     }
@@ -41,12 +43,24 @@
       if (!value) return;
       const read = readReleaseVersions();
       read.add(value);
-      try { root?.localStorage?.setItem(READ_RELEASES_KEY, JSON.stringify([...read])); } catch {}
+      try { storage?.setItem(READ_RELEASES_KEY, JSON.stringify([...read])); } catch {}
+    }
+
+    function hasUnreadReleases(releases = []) {
+      const read = readReleaseVersions();
+      return releases.some(release => !read.has(String(release?.version || '').trim()));
+    }
+
+    function syncMarkAllReadButton(releases = loadedReleases) {
+      const button = getElement('markAllChangelogReadBtn');
+      if (!button) return;
+      const hasUnread = hasUnreadReleases(releases);
+      button.disabled = !hasUnread;
+      button.setAttribute('aria-label', hasUnread ? '将全部更新日志标记为已读' : '所有更新日志均已读');
     }
 
     function syncUnreadIndicators(releases = []) {
-      const read = readReleaseVersions();
-      const hasUnread = releases.some(release => !read.has(String(release?.version || '').trim()));
+      const hasUnread = hasUnreadReleases(releases);
       documentRef?.querySelectorAll?.('[data-version-changelog]')?.forEach(node => {
         node.classList.toggle('has-unread-changelog', hasUnread);
         node.setAttribute('data-unread-changelog', hasUnread ? '1' : '0');
@@ -69,9 +83,11 @@
     function render(releases) {
       const content = getElement('changelogContent');
       if (!content) return;
+      loadedReleases = Array.isArray(releases) ? releases : [];
       content.textContent = '';
       const readVersions = readReleaseVersions();
       syncUnreadIndicators(releases);
+      syncMarkAllReadButton(releases);
       if (!Array.isArray(releases) || !releases.length) {
         const empty = documentRef.createElement('p');
         empty.className = 'changelog-status';
@@ -141,6 +157,7 @@
           entry.classList.remove('is-unread');
           entry.querySelector('.changelog-unread-badge')?.remove();
           syncUnreadIndicators(releases);
+          syncMarkAllReadButton(releases);
         });
 
         const panel = documentRef.createElement('div');
@@ -191,15 +208,20 @@
     async function load() {
       const content = getElement('changelogContent');
       if (!fetchImpl) return;
-      if (content) content.innerHTML = '<p class="changelog-status">正在加载更新日志…</p>';
+      const showStatus = message => {
+        if (!content) return;
+        const status = documentRef.createElement('p');
+        status.className = 'changelog-status';
+        status.textContent = message;
+        content.replaceChildren(status);
+      };
+      showStatus('正在加载更新日志…');
       try {
         const response = await fetchImpl('/api/changelog', { cache: 'no-store' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         render(payload?.releases);
-      } catch {
-        if (content) content.innerHTML = '<p class="changelog-status">更新日志加载失败，请稍后重试</p>';
-      }
+      } catch { showStatus('更新日志加载失败，请稍后重试'); }
     }
 
     function open(trigger) {
@@ -209,6 +231,17 @@
     }
 
     function close() { setOpen(false); }
+
+    function markAllRead() {
+      if (!loadedReleases.length) return;
+      loadedReleases.forEach(release => markReleaseRead(release?.version));
+      getElement('changelogContent')?.querySelectorAll?.('.changelog-entry.is-unread').forEach(entry => {
+        entry.classList.remove('is-unread');
+        entry.querySelector('.changelog-unread-badge')?.remove();
+      });
+      syncUnreadIndicators(loadedReleases);
+      syncMarkAllReadButton(loadedReleases);
+    }
 
     function bind() {
       documentRef?.querySelectorAll?.('[data-version-changelog]')?.forEach(node => {
@@ -227,13 +260,14 @@
         });
       });
       getElement('closeChangelogBtn')?.addEventListener('click', close);
+      getElement('markAllChangelogReadBtn')?.addEventListener('click', markAllRead);
       documentRef?.querySelectorAll?.('[data-close-changelog]')?.forEach(node => node.addEventListener('click', close));
       documentRef?.addEventListener('keydown', event => {
         if (event.key === 'Escape' && active) close();
       });
     }
 
-    return Object.freeze({ bind, open, close, load });
+    return Object.freeze({ bind, open, close, load, markAllRead });
   }
 
   const api = Object.freeze({ createVersionChangelogController });

@@ -158,6 +158,44 @@ body {
   line-height: 1.5;
 }
 
+.changelog-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.changelog-mark-all-read {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  transform: translateY(2px);
+  white-space: nowrap;
+}
+
+.changelog-mark-all-read::before {
+  content: '✓';
+  margin-right: 5px;
+  font-weight: 800;
+}
+
+.changelog-mark-all-read:hover:not(:disabled),
+.changelog-mark-all-read:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  outline: none;
+}
+
+.changelog-mark-all-read:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
 .changelog-dialog .dialog-close {
   flex: 0 0 36px;
   width: 36px;
@@ -492,6 +530,8 @@ body {
   }
 
   .changelog-dialog-head { padding: 18px 17px 15px; }
+  .changelog-title-row { gap: 8px; }
+  .changelog-mark-all-read { height: 24px; font-size: 12px; }
   .changelog-dialog-head h2 { font-size: 21px; }
   .changelog-dialog-head p { max-width: 290px; font-size: 12px; }
   .changelog-content { padding: 13px 12px calc(16px + env(safe-area-inset-bottom)); }

@@ -95,7 +95,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 ### 4.2 `server/services/`
 
-服务端 use case 和外部集成层，例如 Release Notes、静态 bundle、图片编辑 payload、使用统计访问控制和钉钉反馈。服务应以明确输入输出组合底层能力，避免依赖浏览器状态。
+服务端 use case 和外部集成层，例如 Release Notes、静态 bundle、图片编辑 payload、使用统计访问控制、问题反馈模型审核和钉钉投递。服务应以明确输入输出组合底层能力，避免依赖浏览器状态。反馈审核必须先于用户名查询和外部投递，模型拒绝或审核不可用时不得发送反馈。
 
 ### 4.3 `server/jobs/`
 
@@ -123,7 +123,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 ### 4.7 支撑目录
 
-- `server/config/`：服务端环境变量、公开配置和 build identity 装配；
+- `server/config/`：服务端环境变量、仅本机 `.env.local` 加载、公开配置和 build identity 装配；本机文件只能补充缺失变量，不能覆盖部署环境，也不能进入版本控制；
 - `server/version-source.js`：读取并校验根目录唯一版本源；
 - `server/errors/`：统一错误类型；
 - `server/logging/`：安全日志；

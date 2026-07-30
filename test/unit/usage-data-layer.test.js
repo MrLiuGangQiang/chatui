@@ -1,7 +1,11 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { createPostgresConfig } = require('../../server/db/postgres');
+const { applyMissingEnvironment, loadLocalEnv } = require('../../server/config/local-env');
 const { createUsageAccessValidator, modelsFromPayload } = require('../../server/services/usage-access.service');
 const { createUsageStatsRepository } = require('../../server/usage/stats-repository');
 
@@ -32,6 +36,23 @@ function testPostgresConfigurationRequiresACompleteConnectionAndNormalizesSsl() 
     host: 'db', port: 5433, database: 'chatui', user: 'reader', password: 'secret', min: 0, max: 10,
     idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000, ssl: false,
   });
+}
+
+function testLocalEnvironmentLoadsIgnoredFileWithoutOverridingProcessValues() {
+  const env = { PGHOST: 'inherited-host' };
+  assert.deepStrictEqual(applyMissingEnvironment('PGHOST=file-host\nPGPORT=5433\nPGPASSWORD="file secret"\n', env), ['PGPASSWORD', 'PGPORT']);
+  assert.deepStrictEqual(env, { PGHOST: 'inherited-host', PGPORT: '5433', PGPASSWORD: 'file secret' });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-local-env-'));
+  try {
+    fs.writeFileSync(path.join(root, '.env.local'), 'PGDATABASE=chatui_test\nPGUSER=reader\n', 'utf8');
+    const target = {};
+    const result = loadLocalEnv({ root, env: target });
+    assert.deepStrictEqual(result, { loaded: true, applied: ['PGDATABASE', 'PGUSER'] });
+    assert.deepStrictEqual(target, { PGDATABASE: 'chatui_test', PGUSER: 'reader' });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function testUsageAccessPayloadParsingSupportsCompatibleModelShapes() {
@@ -124,6 +145,7 @@ async function testUsageRepositoryCoversPersonalDepartmentAndRangeQueries() {
 
 module.exports = [
   testPostgresConfigurationRequiresACompleteConnectionAndNormalizesSsl,
+  testLocalEnvironmentLoadsIgnoredFileWithoutOverridingProcessValues,
   testUsageAccessPayloadParsingSupportsCompatibleModelShapes,
   testUsageAccessValidatorRejectsInvalidInputsAndCachesValidatedPairs,
   testUsageAccessValidatorMapsUpstreamDenialModelMismatchAndOutage,

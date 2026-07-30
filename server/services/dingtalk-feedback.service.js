@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { normalizeFeedback, feedbackUserContent, feedbackWithModelContext } = require('./feedback-content.service');
 
 const DINGTALK_WEBHOOK_HOSTS = new Set(['oapi.dingtalk.com', 'api.dingtalk.com']);
 
@@ -31,10 +32,6 @@ function signedWebhookUrl(webhook, secret = process.env.DINGTALK_FEEDBACK_SECRET
   return url.toString();
 }
 
-function normalizeFeedback(content) {
-  return String(content || '').replace(/\r\n?/g, '\n').trim().replace(/\n{3,}/g, '\n\n').slice(0, 4000);
-}
-
 function feedbackMessage(content, username = '', now = new Date()) {
   const author = String(username || '').trim() || '未知用户';
   const submittedAt = now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }).replace(/\//g, '-');
@@ -51,18 +48,19 @@ function createDingTalkFeedbackSender({ accessToken = process.env.DINGTALK_FEEDB
   const normalizedWebhook = normalizeWebhook(accessToken);
   return {
     configured: Boolean(normalizedWebhook),
-    async send(content, { username = '' } = {}) {
-      const text = normalizeFeedback(content);
+    async send(content, { username = '', routeModel = '', chatModel = '' } = {}) {
+      const userContent = feedbackUserContent(content);
+      if (!userContent) {
+        const err = new Error('请填写需要反馈的问题');
+        err.code = 'INVALID_FEEDBACK';
+        err.statusCode = 400;
+        throw err;
+      }
+      const text = feedbackWithModelContext(content, { routeModel, chatModel });
       if (!normalizedWebhook) {
         const err = new Error('反馈通道尚未配置');
         err.code = 'FEEDBACK_NOT_CONFIGURED';
         err.statusCode = 503;
-        throw err;
-      }
-      if (!text) {
-        const err = new Error('请填写需要反馈的问题');
-        err.code = 'INVALID_FEEDBACK';
-        err.statusCode = 400;
         throw err;
       }
       if (typeof fetchImpl !== 'function') throw new Error('当前运行环境不支持发送反馈');

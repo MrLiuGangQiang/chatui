@@ -1,7 +1,7 @@
 const { createUsageController, isDepartmentPasswordValid } = require('../controllers/usage.controller');
 
-function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send }) {
-  const controller = createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send });
+function createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackReviewer, feedbackSender, send }) {
+  const controller = createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackReviewer, feedbackSender, send });
 
   function routeUsage(req, res) {
     const pathname = String(req.url || '').split('?')[0];

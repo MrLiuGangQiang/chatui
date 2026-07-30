@@ -29,6 +29,7 @@ function createRouter(deps) {
     getChatJob,
     usageStats,
     usageAccessValidator,
+    feedbackReviewer,
     feedbackSender,
   } = deps;
 
@@ -64,6 +65,7 @@ function createRouter(deps) {
     sendMethodNotAllowed,
     usageStats,
     usageAccessValidator,
+    feedbackReviewer,
     feedbackSender,
   });
 

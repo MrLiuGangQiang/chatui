@@ -2,6 +2,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { loadLocalEnv } = require('./server/config/local-env');
+
+loadLocalEnv({ root: __dirname });
+
 const { HOST, PORT } = require('./server/config');
 const { createApp } = require('./server/app');
 

@@ -49,7 +49,7 @@ function validateDepartmentAccess(body, res, sendJson) {
   return true;
 }
 
-function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackSender, send }) {
+function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackReviewer, feedbackSender, send }) {
   async function validateUsageAccess(body, res) {
     const apiKey = usageValidator.normalizeApiKey(body);
     const model = String(body?.model || body?.chat_model || '').trim();
@@ -89,14 +89,32 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     try {
       const access = await validateUsageAccess(body, res);
       if (!access) return;
+      if (typeof feedbackReviewer?.review !== 'function') {
+        return sendJson(res, 503, { error: { message: '反馈内容审核服务暂时不可用，请稍后重试', code: 'FEEDBACK_REVIEW_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
+      }
+      const review = await feedbackReviewer.review(body.content, access);
+      if (!review?.accepted) {
+        return sendJson(res, 422, {
+          ok: false,
+          review: {
+            accepted: false,
+            missing_sections: Array.isArray(review?.missingSections) ? review.missingSections : [],
+          },
+          error: {
+            message: review?.message || '反馈内容不够完整，请补充问题描述、复现描述和期望结果',
+            code: 'INVALID_FEEDBACK',
+          },
+        }, { 'Access-Control-Allow-Origin': '*' });
+      }
       if (!usageStats) return sendJson(res, 503, { error: { message: '统计数据源未配置，无法识别反馈用户名', code: 'USAGE_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
       const personal = await usageService.getPersonalRange(usageStats, access.apiKey, 'total');
       const username = String(personal?.username || '').trim();
       if (!username) return sendJson(res, 403, { error: { message: '未找到该 API Key 对应的统计用户名，无法提交反馈', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
-      await feedbackSender?.send(body.content, { username });
+      const routeModel = String(body?.route_model || body?.routeModel || '').trim();
+      await feedbackSender?.send(body.content, { username, routeModel, chatModel: access.model });
       return sendJson(res, 200, { ok: true, message: '反馈已发送' }, { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
-      if (err?.code !== 'FEEDBACK_NOT_CONFIGURED') console.error('[feedback] dingtalk delivery failed:', err?.cause?.message || err?.message || err);
+      if (err?.code !== 'FEEDBACK_NOT_CONFIGURED' && err?.code !== 'INVALID_FEEDBACK') console.error('[feedback] submission failed:', err?.cause?.message || err?.message || err);
       return sendJson(res, err?.statusCode || 500, { error: { message: err?.message || '反馈发送失败，请稍后重试', code: err?.code || 'FEEDBACK_DELIVERY_FAILED' } }, { 'Access-Control-Allow-Origin': '*' });
     }
   }

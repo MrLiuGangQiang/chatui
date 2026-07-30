@@ -142,11 +142,11 @@
     return { blob, filename: match?.[1] || `department-usage-${range}.xlsx` };
   }
 
-  async function submitFeedback(content, apiKey, model) {
+  async function submitFeedback(content, apiKey, model, routeModel = '') {
     const response = await fetch('/api/usage/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, api_key: apiKey || '', model: model || '' }),
+      body: JSON.stringify({ content, api_key: apiKey || '', model: model || '', route_model: routeModel || '' }),
     });
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(errorMessage(payload, '反馈发送失败，请稍后重试'));

@@ -58,8 +58,15 @@ function createMockResponse() {
   };
 }
 
-async function invokeUsageRoute(path, { method = 'GET', body = '', usageStats = {}, usageAccessValidator = { async validate() { return { ok: true }; } } } = {}) {
-  const { routeUsage } = createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator });
+async function invokeUsageRoute(path, {
+  method = 'GET',
+  body = '',
+  usageStats = {},
+  usageAccessValidator = { async validate() { return { ok: true }; } },
+  feedbackReviewer = { async review() { return { accepted: true, missingSections: [], message: '' }; } },
+  feedbackSender = { async send() { return true; } },
+} = {}) {
+  const { routeUsage } = createUsageRoutes({ sendJson, sendMethodNotAllowed, usageStats, usageAccessValidator, feedbackReviewer, feedbackSender });
   const req = {
     url: path,
     method,
@@ -234,6 +241,56 @@ async function testApiContractUsageAccessValidatorGuardsEveryProtectedRoute() {
   }
 }
 
+async function testApiContractFeedbackRequiresModelApprovalBeforeDelivery() {
+  const rejectedCalls = [];
+  const rejected = await invokeUsageRoute('/api/usage/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', content: '不好用' }),
+    usageStats: {
+      async getPersonalRange() { rejectedCalls.push('usage'); return { username: 'tester' }; },
+    },
+    feedbackReviewer: {
+      async review(content, access) {
+        rejectedCalls.push(['review', content, access]);
+        return { accepted: false, missingSections: ['reproduction_description', 'expected_result'], message: '反馈内容不完整，请补充：复现描述、期望结果。' };
+      },
+    },
+    feedbackSender: { async send() { rejectedCalls.push('send'); } },
+  });
+  assert.strictEqual(rejected.status, 422);
+  assert.deepStrictEqual(rejected.json, {
+    ok: false,
+    review: { accepted: false, missing_sections: ['reproduction_description', 'expected_result'] },
+    error: { message: '反馈内容不完整，请补充：复现描述、期望结果。', code: 'INVALID_FEEDBACK' },
+  });
+  assert.deepStrictEqual(rejectedCalls, [['review', '不好用', { apiKey: 'sk-test', model: 'gpt-test' }]], 'rejected feedback must not query the user or reach DingTalk');
+
+  const acceptedCalls = [];
+  const accepted = await invokeUsageRoute('/api/usage/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ api_key: 'sk-test', model: 'gpt-test', route_model: 'route-test', content: '点击会话不切换；移动端打开侧栏点击第二个会话即可复现；期望切换到第二个会话。' }),
+    usageStats: {
+      async getPersonalRange(apiKey, range) {
+        acceptedCalls.push(['usage', apiKey, range]);
+        return { username: 'tester' };
+      },
+    },
+    feedbackReviewer: {
+      async review(content, access) {
+        acceptedCalls.push(['review', content, access]);
+        return { accepted: true, missingSections: [], message: '' };
+      },
+    },
+    feedbackSender: {
+      async send(content, options) { acceptedCalls.push(['send', content, options]); return true; },
+    },
+  });
+  assert.strictEqual(accepted.status, 200);
+  assert.deepStrictEqual(accepted.json, { ok: true, message: '反馈已发送' });
+  assert.deepStrictEqual(acceptedCalls.map(call => call[0]), ['review', 'usage', 'send']);
+  assert.deepStrictEqual(acceptedCalls.at(-1)[2], { username: 'tester', routeModel: 'route-test', chatModel: 'gpt-test' });
+}
+
 async function testApiContractJobMissingAndAbortShapes() {
   await withServer(async baseUrl => {
     const missingChat = await request(baseUrl, '/api/chat-jobs/missing-job');
@@ -260,5 +317,6 @@ module.exports = [
   testApiContractUsageConfiguredValidationShapes,
   testApiContractUsageCombinedEndpointsKeepCompatibility,
   testApiContractUsageAccessValidatorGuardsEveryProtectedRoute,
+  testApiContractFeedbackRequiresModelApprovalBeforeDelivery,
   testApiContractJobMissingAndAbortShapes,
 ];

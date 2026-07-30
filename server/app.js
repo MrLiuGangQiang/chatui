@@ -9,6 +9,7 @@ const { createRouter } = require('./api/router');
 const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
 const { createUsageStatsRepository } = require('./usage/stats-repository');
 const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.service');
+const { createFeedbackReviewer } = require('./services/feedback-review.service');
 const { createUsageAccessValidator } = require('./services/usage-access.service');
 const { readReleaseNotes } = require('./services/release-notes.service');
 
@@ -17,6 +18,7 @@ function createApp() {
   const postgresPool = createPostgresPool(postgresConfig);
   const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
   const feedbackSender = createDingTalkFeedbackSender();
+  const feedbackReviewer = createFeedbackReviewer();
   const usageAccessValidator = createUsageAccessValidator();
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
@@ -72,6 +74,7 @@ function createApp() {
     getChatJob,
     usageStats,
     usageAccessValidator,
+    feedbackReviewer,
     feedbackSender,
   });
   const server = http.createServer(route);

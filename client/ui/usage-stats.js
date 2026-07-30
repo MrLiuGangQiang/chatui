@@ -32,6 +32,30 @@
     return String($('chatModel')?.value || '').trim();
   }
 
+  function currentRouteModel() {
+    return String($('routeModel')?.value || '').trim();
+  }
+
+  const FEEDBACK_MODEL_CONTEXT_HEADING = '【模型信息（自动填写）】';
+  const FEEDBACK_USER_TEMPLATE = '【问题描述】\n\n【复现描述】\n\n【期望结果】';
+
+  function feedbackUserContent(content = '') {
+    const normalized = String(content || '').replace(/\r\n?/g, '\n').trim();
+    const markerIndex = normalized.lastIndexOf(FEEDBACK_MODEL_CONTEXT_HEADING);
+    return (markerIndex >= 0 ? normalized.slice(0, markerIndex) : normalized).trim();
+  }
+
+  function feedbackModelContext({ routeModel = '', chatModel = '' } = {}) {
+    const chat = String(chatModel || '').trim() || '未配置';
+    const route = String(routeModel || '').trim() || `${chat}（跟随聊天模型）`;
+    return `${FEEDBACK_MODEL_CONTEXT_HEADING}\n意图识别模型：${route}\n聊天模型：${chat}`;
+  }
+
+  function feedbackDraft(content = '', models = {}) {
+    const userContent = feedbackUserContent(content) || FEEDBACK_USER_TEMPLATE;
+    return `${userContent}\n\n${feedbackModelContext(models)}`;
+  }
+
   function ensureDom() {
     if ($('usageStatsButton')) return;
     const button = document.createElement('button');
@@ -94,7 +118,7 @@
         <div class="usage-feedback-body">
           <label for="usageFeedbackContent">反馈内容 <em>必填</em></label>
           <textarea id="usageFeedbackContent" maxlength="4000" placeholder="请描述问题现象、复现步骤和期望结果。"></textarea>
-          <div class="usage-feedback-notice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7h.01"/></svg><div><span>你的反馈会实时推送给公司同事，请描述清楚问题。</span></div><span id="usageFeedbackCount">0 / 4000</span></div>
+          <div class="usage-feedback-notice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7h.01"/></svg><div><span>提交前将由当前聊天模型审核，必须包含问题描述、复现描述和期望结果。</span></div><span id="usageFeedbackCount">0 / 4000</span></div>
           <div id="usageFeedbackStatus" class="usage-feedback-status" aria-live="polite"></div>
         </div>
         <div class="usage-feedback-foot"><button id="usageFeedbackCancel" type="button">取消</button><button id="usageFeedbackSubmit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>提交反馈</button></div>
@@ -276,10 +300,18 @@
     closePanel();
     const configured = Boolean(currentApiKey() && currentModel());
     setFeedbackStatus(configured ? '' : '请先在模型配置中填写 API Key 并选择聊天模型', !configured);
+    const textarea = $('usageFeedbackContent');
+    if (textarea) textarea.value = feedbackDraft(textarea.value, { routeModel: currentRouteModel(), chatModel: currentModel() });
     updateFeedbackCount();
     $('usageFeedbackPanel')?.classList.add('show');
     $('usageFeedbackPanel')?.setAttribute('aria-hidden', 'false');
-    setTimeout(() => $('usageFeedbackContent')?.focus(), 0);
+    setTimeout(() => {
+      textarea?.focus();
+      if (feedbackUserContent(textarea?.value) === FEEDBACK_USER_TEMPLATE) {
+        const position = '【问题描述】\n'.length;
+        textarea?.setSelectionRange?.(position, position);
+      }
+    }, 0);
   }
 
   function closeFeedbackPanel() {
@@ -299,9 +331,9 @@
     if (!content) return setFeedbackStatus('请填写需要反馈的问题', true);
     const submit = $('usageFeedbackSubmit');
     submit && (submit.disabled = true);
-    setFeedbackStatus('正在发送…');
+    setFeedbackStatus('正在调用模型审核反馈内容…');
     try {
-      await usageService()?.submitFeedback(content, currentApiKey(), currentModel());
+      await usageService()?.submitFeedback(content, currentApiKey(), currentModel(), currentRouteModel());
       $('usageFeedbackContent').value = '';
       updateFeedbackCount();
       setFeedbackStatus('反馈已发送，感谢你的反馈。');
@@ -653,7 +685,15 @@
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { currentApiKey, renderPersonal, renderRanking, renderDepartmentUsers };
+  if (typeof module !== 'undefined' && module.exports) module.exports = {
+    currentApiKey,
+    renderPersonal,
+    renderRanking,
+    renderDepartmentUsers,
+    feedbackUserContent,
+    feedbackModelContext,
+    feedbackDraft,
+  };
 
   if (typeof document === 'undefined') return;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

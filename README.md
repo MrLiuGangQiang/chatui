@@ -787,6 +787,7 @@ ChatUI 不需要数据库，主要使用浏览器本地存储。
 
 - 后端使用 `pg.Pool` 连接池复用数据库连接。
 - 连接串、分散连接参数、连接池最小/最大连接数、空闲超时、连接超时和 SSL 均通过环境变量配置。
+- 本地 `npm start` 会自动读取仓库根目录中被 Git 忽略的 `.env.local`；文件只填补当前进程未设置的变量，不覆盖部署平台已经注入的环境变量。
 - 推荐生产环境使用单变量连接串，例如：
 
 ```bash
@@ -794,6 +795,16 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 ```
 
 请不要在仓库、镜像或文档中写入真实数据库账号、密码、主机或连接串。
+
+本地开发可在 `.env.local` 中使用分散参数，避免把凭据写进启动命令或受版本控制文件：
+
+```dotenv
+PGHOST=postgres-host
+PGPORT=5432
+PGDATABASE=database
+PGUSER=user
+PGPASSWORD=password
+```
 
 ---
 
@@ -814,9 +825,9 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 | `/api/usage/department/rankings` | POST | 查询部门排行，body 包含访问字段与 `range` |
 | `/api/usage/department/users` | POST | 查询部门人员统计，body 另含 `department_id` |
 | `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx` |
-| `/api/usage/feedback` | POST | 提交问题反馈，body 包含 `api_key`、`model` 与 `content` |
+| `/api/usage/feedback` | POST | 审核并提交问题反馈，body 包含 `api_key`、`model`、可选 `route_model` 与 `content`；内容必须包含问题描述、复现描述和期望结果 |
 
-使用统计范围统一支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。统计与反馈入口会先通过当前 API Key 和聊天模型向上游执行访问校验；部门接口还需要部门密码。
+使用统计范围统一支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。统计与反馈入口会先通过当前 API Key 和聊天模型向上游执行访问校验；问题反馈还会由该聊天模型审核内容完整性，只有审核通过才会发送；部门接口还需要部门密码。
 
 ### Job API
 
@@ -878,6 +889,8 @@ GET, POST
 ---
 
 ## 环境变量
+
+直接运行 `npm start` 时，服务端会先读取根目录 `.env.local`，并且只应用尚未存在于进程环境中的变量。该文件已由 `.gitignore` 排除，仅供本机开发使用；Docker、CI 和生产部署仍应通过运行环境注入配置。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |

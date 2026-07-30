@@ -15,18 +15,19 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 根目录 `version.json` 是唯一版本事实来源；服务端通过 `server/version-source.js` 读取它。`package.json` 与 `package-lock.json` 只保留 npm 安装所需的同步镜像，发布脚本会自动维护这些镜像。
 
-## 2. 根静态入口
+## 2. 根静态入口与独立页面
 
-以下文件是受保护的根运行入口：
+以下文件是受保护的运行入口与独立页面：
 
 - `index.html`：主页面、模板和静态资源装载清单；
-- `route.html`：意图识别流程图页面；
+- `pages/route.html`：意图识别流程图页面；
+- `pages/files.html`：支持的文件格式与上传约束说明页面；
 - `app.js`：现有浏览器兼容启动与编排入口；
 - `styles.css`：根样式入口；
 - `favicon.svg`：站点图标；
 - `server.js`：Node.js 进程入口。
 
-这些文件由项目检查、静态服务器、Dockerfile、runtime identity 和测试共同依赖。修改、移动或删除任一根静态入口时，必须一起检查：
+这些文件由项目检查、静态服务器、Dockerfile、runtime identity 和测试共同依赖。修改、移动或删除任一根静态入口或独立页面时，必须一起检查：
 
 - `server/http/static.js` 的公开路径和缓存策略；
 - `server/services/static-bundle.service.js` 与 `index.html` 的清单顺序；

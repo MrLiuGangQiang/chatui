@@ -145,7 +145,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 本地 vendored：`markdown-it`、`KaTeX`、KaTeX 字体、Mermaid。
 - Node.js HTTP 服务静态托管前端。
 - 服务端代理只允许白名单路径。
-- 支持 Docker 多架构镜像。
+- 提供 `linux/amd64` Docker 镜像。
 - 推送语义化版本 Git tag 后触发 GitHub Actions 构建镜像。
 - 镜像推送到 Docker Hub 和阿里云 ACR。
 - 测试覆盖前端 core/services/ui/app、服务端 API、原生附件输入、路由、任务和冒烟流程。
@@ -967,7 +967,9 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 .
 ├── app.js                         # 浏览器端主业务编排入口
 ├── index.html                     # 页面结构、模板、配置弹窗、消息模板
-├── route.html                     # 智能任务路由流程图静态页面
+├── pages/                         # 弹窗按需加载的独立说明页面
+│   ├── route.html                 # 智能任务路由流程图
+│   └── files.html                 # 支持的文件格式与上传约束
 ├── styles.css                     # 全局样式、响应式布局、消息/图片/配置面板样式
 ├── styles/                        # 按功能拆分的补充样式
 ├── server.js                      # Node HTTP 启动入口
@@ -1004,7 +1006,7 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 │   └── fonts/                     # KaTeX 字体
 ├── Dockerfile                     # Docker 镜像定义
 ├── .dockerignore                  # Docker 构建忽略文件
-├── .github/workflows/dockerhub.yml # Tag 后构建并推送 Docker Hub / 阿里云 ACR
+├── .github/workflows/release.yml   # Tag 后优先发布阿里云 ACR，再自动同步 Docker Hub
 ├── CONTRIBUTING.md                # 开发规范、目录边界和治理约束
 ├── package.json
 ├── package-lock.json
@@ -1086,7 +1088,7 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 
 ## 发布与镜像仓库
 
-项目在 pull request 和 `main` 推送时运行日常 CI，包括 Node.js 20.19、Node.js 22 的 `npm run check`，以及 `Exact Docker runtime` 容器验证。推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 会触发独立的多架构镜像发布和 GitHub Release 流程。
+项目在 pull request 和 `main` 推送时运行日常 CI，包括 Node.js 20.19、Node.js 22 的 `npm run check`，以及 `Exact Docker runtime` 容器验证。推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 会触发独立的 `linux/amd64` 发布流程：先在阿里云 ACR 构建、验证和提升镜像，再创建 GitHub Release，最后自动同步同一已验证 digest 到 Docker Hub。
 
 ### 固定镜像地址
 
@@ -1103,9 +1105,9 @@ Docker Hub: liugangqiang/chatui
 2. 运行 `npm run check`；本机有 Docker 时再运行 `npm run preview:release`。
 3. 将候选提交推送到 `main`，等待 Node 检查和 `Exact Docker runtime` 全部通过。
 4. 在该已验证提交上创建并推送 annotated `vMAJOR.MINOR.PATCH` tag。
-5. workflow 构建带提交 SHA 和 runtime source fingerprint 的候选镜像，以 digest 启动验证，再把同一 digest 提升为版本、`v` 前缀和 `latest` 标签；验证与提升之间不得重建。
-6. 确认 Docker Hub、ACR 标签均解析到已验证 digest，容器 `/api/version` 的版本、Git SHA、source fingerprint 一致。
-7. 从该版本 Release Notes 创建或确认非 draft GitHub Release；只有镜像 workflow 与 GitHub Release 都成功后才算发布完成。
+5. workflow 构建带提交 SHA 和 runtime source fingerprint 的 ACR 候选镜像，以 digest 启动验证，再把同一 digest 提升为版本、`v` 前缀和 `latest` 标签；验证与提升之间不得重建。
+6. 确认 ACR 和 Docker Hub 标签均解析到已验证 digest，容器 `/api/version` 的版本、Git SHA、source fingerprint 一致。
+7. 从该版本 Release Notes 创建或确认非 draft GitHub Release；只有镜像 workflow、两个仓库的标签验证与 GitHub Release 都成功后才算发布完成。
 
 ### 镜像标签规则
 

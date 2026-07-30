@@ -39,6 +39,19 @@
   const FEEDBACK_MODEL_CONTEXT_HEADING = '【模型信息（自动填写）】';
   const FEEDBACK_USER_TEMPLATE = '【问题描述】\n\n【复现描述】\n\n【期望结果】';
   const FEEDBACK_USER_MAX_LENGTH = 3700;
+  const USAGE_STATS_ICON_SVG = `<svg class="neon-entry-icon usage-stats-entry-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <defs><linearGradient id="usageStatsIconGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#60a5fa"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+    <path class="usage-stats-orbit" d="M4.1 13.4a8.2 8.2 0 0 1 13.8-6M19.9 10.6a8.2 8.2 0 0 1-13.8 6" stroke="url(#usageStatsIconGradient)" opacity=".48"/>
+    <path class="usage-stats-grid" d="M5 19h14M6.7 16.5V13h3v3.5M10.6 16.5V9.8h3v6.7M14.5 16.5V6.6h3v9.9" stroke="url(#usageStatsIconGradient)"/>
+    <path class="usage-stats-trend" d="m6.7 11.1 4-3 2.8 1.5 4.1-4" stroke="url(#usageStatsIconGradient)"/>
+    <circle class="usage-stats-pulse" cx="17.6" cy="5.6" r="1.25" fill="#67e8f9" stroke="none"/>
+  </svg>`;
+  const USAGE_FEEDBACK_ICON_SVG = `<svg class="neon-entry-icon usage-feedback-entry-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <defs><linearGradient id="usageFeedbackIconGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#22d3ee"/><stop offset=".5" stop-color="#6366f1"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs>
+    <path class="usage-feedback-back" d="M5.2 6.1h11.6a3.2 3.2 0 0 1 3.2 3.2v5.2a3.2 3.2 0 0 1-3.2 3.2h-5.7l-4.4 2.8v-2.8H5.2A3.2 3.2 0 0 1 2 14.5V9.3a3.2 3.2 0 0 1 3.2-3.2Z" fill="url(#usageFeedbackIconGradient)" fill-opacity=".09" stroke="url(#usageFeedbackIconGradient)"/>
+    <path class="usage-feedback-wave" d="M6 12h2l1.2-2.2 2.1 4.4 1.6-3 1 1.8H18" stroke="url(#usageFeedbackIconGradient)"/>
+    <path class="usage-feedback-spark" d="m18.7 2 .5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z" fill="#f0abfc" stroke="none"/>
+  </svg>`;
 
   function feedbackUserContent(content = '') {
     const normalized = String(content || '').replace(/\r\n?/g, '\n').trim();
@@ -69,7 +82,7 @@
     button.type = 'button';
     button.title = '使用统计';
     button.setAttribute('aria-label', '使用统计');
-    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16"/><path d="M5 15l4-4 3 3 6-7"/><path d="M15 7h3v3"/></svg>';
+    button.innerHTML = USAGE_STATS_ICON_SVG;
 
     const feedbackButton = document.createElement('button');
     feedbackButton.id = 'usageFeedbackOpen';
@@ -77,7 +90,7 @@
     feedbackButton.type = 'button';
     feedbackButton.title = '问题反馈';
     feedbackButton.setAttribute('aria-label', '问题反馈');
-    feedbackButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15a4 4 0 0 1-4 4H9l-5 3v-7a4 4 0 0 1-2-3.46V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M7 10h10"/><path d="M7 14h6"/></svg>';
+    feedbackButton.innerHTML = USAGE_FEEDBACK_ICON_SVG;
 
     const panel = document.createElement('section');
     panel.id = 'usageStatsPanel';

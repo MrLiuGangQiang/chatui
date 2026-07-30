@@ -19,10 +19,15 @@ const {
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5A2.5 2.5 0 0 1 11.5 5h5A2.5 2.5 0 0 1 19 7.5v7A2.5 2.5 0 0 1 16.5 17h-5A2.5 2.5 0 0 1 9 14.5z"></path><path d="M7 19h5.5A2.5 2.5 0 0 0 15 16.5V16"></path><path d="M7 19A2.5 2.5 0 0 1 4.5 16.5v-7A2.5 2.5 0 0 1 7 7h5.5"></path></svg>';
 const COPY_SUCCESS_ICON_SVG = '<svg class="copy-success-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"></path></svg>';
+const CODE_EXPAND_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>';
+const CODE_COLLAPSE_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"></path></svg>';
+const CODE_EXPAND_DOUBLE_ICON_SVG = '<svg class="code-expand-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 5 5 5-5"></path><path d="m7 12 5 5 5-5"></path></svg>';
+const CODE_COLLAPSE_DOUBLE_ICON_SVG = '<svg class="code-expand-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 12 5-5 5 5"></path><path d="m7 17 5-5 5 5"></path></svg>';
 const MERMAID_RENDER_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
 const MERMAID_SOURCE_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h7a3 3 0 0 1 3 3v1"></path><path d="m14 4 3 3-3 3"></path><path d="M17 17h-7a3 3 0 0 1-3-3v-1"></path><path d="m10 20-3-3 3-3"></path></svg>';
 const MERMAID_LOADING_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v3"></path><path d="M12 16v3"></path><path d="M5 12h3"></path><path d="M16 12h3"></path><path d="m7.05 7.05 2.12 2.12"></path><path d="m14.83 14.83 2.12 2.12"></path></svg>';
 const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5"></path><path d="M12 16.5h.01"></path><path d="M10.3 4.9 3.8 16.2A2 2 0 0 0 5.5 19h13a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0z"></path></svg>';
+const COLLAPSIBLE_CODE_MIN_LINES = 24;
 
 let mermaidRenderSequence = 0;
 let mermaidRenderQueue = Promise.resolve();
@@ -97,6 +102,54 @@ function bindCopyButton(button, text, copyText) {
   });
 }
 
+function enhanceCodeExpansion(wrap, code) {
+  if (!wrap || !code) return;
+  const lineCount = (code.textContent || '').split('\n').length;
+  let toggle = wrap.querySelector(':scope > .code-expand-toggle');
+  let headerToggle = wrap.querySelector(':scope > .code-expand-header-toggle');
+  if (lineCount < COLLAPSIBLE_CODE_MIN_LINES) {
+    wrap.classList.remove('code-block-collapsed', 'code-block-expanded');
+    delete wrap.dataset.codeExpansionState;
+    toggle?.remove();
+    headerToggle?.remove();
+    return;
+  }
+  const sync = (expanded) => {
+    const state = expanded ? 'expanded' : 'collapsed';
+    const stateChanged = wrap.dataset.codeExpansionState !== state;
+    if (wrap.classList.contains('code-block-expanded') !== expanded) wrap.classList.toggle('code-block-expanded', expanded);
+    if (wrap.classList.contains('code-block-collapsed') === expanded) wrap.classList.toggle('code-block-collapsed', !expanded);
+    const bottomLabel = expanded ? '收起代码' : '查看完整代码';
+    if (stateChanged || !toggle.firstElementChild) {
+      toggle.innerHTML = `${expanded ? CODE_COLLAPSE_DOUBLE_ICON_SVG : CODE_EXPAND_DOUBLE_ICON_SVG}<span>${bottomLabel}</span>`;
+    }
+    if (toggle.getAttribute('aria-label') !== bottomLabel) toggle.setAttribute('aria-label', bottomLabel);
+    const ariaExpanded = String(expanded);
+    if (toggle.getAttribute('aria-expanded') !== ariaExpanded) toggle.setAttribute('aria-expanded', ariaExpanded);
+    if (stateChanged || !headerToggle.firstElementChild) headerToggle.innerHTML = expanded ? CODE_COLLAPSE_ICON_SVG : CODE_EXPAND_ICON_SVG;
+    const headerLabel = expanded ? '收起代码' : '查看完整代码';
+    if (headerToggle.title !== headerLabel) headerToggle.title = headerLabel;
+    if (headerToggle.getAttribute('aria-label') !== headerLabel) headerToggle.setAttribute('aria-label', headerLabel);
+    if (headerToggle.getAttribute('aria-expanded') !== ariaExpanded) headerToggle.setAttribute('aria-expanded', ariaExpanded);
+    wrap.dataset.codeExpansionState = state;
+  };
+  if (!toggle) {
+    toggle = document.createElement('button');
+    toggle.className = 'code-expand-toggle';
+    toggle.type = 'button';
+    wrap.appendChild(toggle);
+    toggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded')));
+  }
+  if (!headerToggle) {
+    headerToggle = document.createElement('button');
+    headerToggle.className = 'inline-copy code-action-icon code-expand-header-toggle';
+    headerToggle.type = 'button';
+    wrap.insertBefore(headerToggle, wrap.firstChild);
+    headerToggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded')));
+  }
+  sync(wrap.classList.contains('code-block-expanded'));
+}
+
 function enhanceCodeCopy(root, copyText) {
   if (!root?.querySelectorAll) return;
   root.querySelectorAll('pre').forEach((pre) => {
@@ -129,6 +182,7 @@ function enhanceCodeCopy(root, copyText) {
       wrap.insertBefore(btn, wrap.firstChild);
     }
     bindCopyButton(btn, text, copyText);
+    enhanceCodeExpansion(wrap, code || pre);
   });
 }
 
@@ -552,7 +606,7 @@ function enhanceRenderedMarkdown(root, options = {}) {
   });
 }
 
-const api = Object.freeze({ normalizeBetaMermaidSource, normalizeArchitectureMermaidSource, normalizeSankeyMermaidSource, normalizeRadarMermaidSource, getSankeyLabelReplacements, restoreSankeySvgLabels, COPY_ICON_SVG, COPY_SUCCESS_ICON_SVG, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog });
+const api = Object.freeze({ normalizeBetaMermaidSource, normalizeArchitectureMermaidSource, normalizeSankeyMermaidSource, normalizeRadarMermaidSource, getSankeyLabelReplacements, restoreSankeySvgLabels, COPY_ICON_SVG, COPY_SUCCESS_ICON_SVG, CODE_EXPAND_ICON_SVG, CODE_COLLAPSE_ICON_SVG, COLLAPSIBLE_CODE_MIN_LINES, addHeadingAnchors, wrapTables, bindCopyButton, enhanceCodeExpansion, enhanceCodeCopy, collectMermaidBlocks, initMermaidToggleUI, renderMermaidBlockOnDemand, showMermaidSource, renderMermaidBlocks, enhanceRenderedMarkdown, idleBatch, isElementVisible, performanceLog });
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (root) root.ChatUIMarkdownEnhancer = api;

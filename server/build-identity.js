@@ -11,13 +11,13 @@ const RUNTIME_ROOT_FILES = Object.freeze([
   'package-lock.json',
   'server.js',
   'index.html',
-  'route.html',
   'app.js',
   'styles.css',
   'favicon.svg',
 ]);
 const RUNTIME_ROOT_DIRECTORIES = Object.freeze([
   'config',
+  'pages',
   'styles',
   'client',
   'server',

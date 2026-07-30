@@ -1,5 +1,5 @@
-name: Build and push Docker image
-run-name: Build ChatUI ${{ inputs.version || github.ref_name }}
+name: Publish ChatUI release
+run-name: Publish ChatUI ${{ inputs.version || github.ref_name }} to ACR
 
 on:
   push:
@@ -11,6 +11,11 @@ on:
         description: Release tag to publish, for example v1.2.39
         required: true
         type: string
+      publish_dockerhub:
+        description: Mirror the verified ACR image to Docker Hub
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: docker-release-${{ inputs.version || github.ref_name }}
@@ -18,7 +23,6 @@ concurrency:
 
 env:
   IMAGE_NAME: chatui
-  DOCKERHUB_NAMESPACE: liugangqiang
 
 jobs:
   validate:
@@ -91,7 +95,8 @@ jobs:
       - name: Run release checks
         run: npm run check
 
-  docker-publish:
+  build-acr-candidate:
+    name: Build ACR candidate
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -108,12 +113,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_NAMESPACE }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Login to Alibaba Cloud ACR
         uses: docker/login-action@v4
         with:
@@ -121,16 +120,15 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Build once and push immutable candidates
+      - name: Build and push immutable ACR candidate
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           pull: true
           tags: |
-            ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}:candidate-${{ needs.validate.outputs.git_sha }}
             ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}:candidate-${{ needs.validate.outputs.git_sha }}
           build-args: |
             CHATUI_VERSION=${{ needs.validate.outputs.semver }}
@@ -138,36 +136,83 @@ jobs:
             CHATUI_SOURCE_REVISION=${{ needs.validate.outputs.source_revision }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
 
-      - name: Pull and verify the exact candidate digest
+  verify-acr-candidate:
+    name: Verify ACR candidate runtime
+    needs: [validate, build-acr-candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout runtime verifier
+        uses: actions/checkout@v5
+
+      - name: Verify the exact ACR candidate digest
         run: >-
           node scripts/verify-image-runtime.js
-          --image ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          --image ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}@${{ needs.build-acr-candidate.outputs.digest }}
           --version ${{ needs.validate.outputs.semver }}
           --git-sha ${{ needs.validate.outputs.git_sha }}
           --source-revision ${{ needs.validate.outputs.source_revision }}
 
-      - name: Promote the verified digest without rebuilding
+  promote-acr-release:
+    name: Promote verified ACR digest
+    needs: [validate, build-acr-candidate, verify-acr-candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Login to Alibaba Cloud ACR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Promote the verified ACR digest without rebuilding
         shell: bash
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ needs.build-acr-candidate.outputs.digest }}
           VERSION: ${{ needs.validate.outputs.version }}
           SEMVER: ${{ needs.validate.outputs.semver }}
           ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
           ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
         run: |
           set -euo pipefail
-          DH_IMAGE="${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
           ACR_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}"
-          docker buildx imagetools create \
-            --tag "${DH_IMAGE}:${SEMVER}" \
-            --tag "${DH_IMAGE}:${VERSION}" \
-            --tag "${DH_IMAGE}:latest" \
-            "${DH_IMAGE}@${DIGEST}"
           docker buildx imagetools create \
             --tag "${ACR_IMAGE}:${SEMVER}" \
             --tag "${ACR_IMAGE}:${VERSION}" \
             --tag "${ACR_IMAGE}:latest" \
             "${ACR_IMAGE}@${DIGEST}"
+
+  verify-acr-release:
+    name: Verify ACR release tags
+    needs: [validate, build-acr-candidate, promote-acr-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Login to Alibaba Cloud ACR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Verify all ACR release tags resolve to the candidate digest
+        shell: bash
+        env:
+          DIGEST: ${{ needs.build-acr-candidate.outputs.digest }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SEMVER: ${{ needs.validate.outputs.semver }}
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          ACR_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}"
           verify_digest() {
             local ref="$1"
             local output=""
@@ -187,14 +232,13 @@ jobs:
             return 1
           }
           for ref in \
-            "${DH_IMAGE}:${SEMVER}" "${DH_IMAGE}:${VERSION}" "${DH_IMAGE}:latest" \
             "${ACR_IMAGE}:${SEMVER}" "${ACR_IMAGE}:${VERSION}" "${ACR_IMAGE}:latest"; do
             verify_digest "$ref"
           done
 
   github-release:
     name: Publish GitHub Release
-    needs: [validate, docker-publish]
+    needs: [validate, verify-acr-release]
     if: github.event_name == 'push' || inputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -239,3 +283,55 @@ jobs:
               await github.rest.repos.createRelease(release);
               core.info(`Created GitHub Release for ${tag}.`);
             }
+
+  sync-dockerhub:
+    name: Mirror verified image to Docker Hub
+    if: github.event_name == 'push' || inputs.publish_dockerhub
+    needs: [validate, build-acr-candidate, verify-acr-release, github-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Copy the verified ACR digest to Docker Hub without rebuilding
+        shell: bash
+        env:
+          DIGEST: ${{ needs.build-acr-candidate.outputs.digest }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SEMVER: ${{ needs.validate.outputs.semver }}
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+          DOCKERHUB_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          ACR_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}"
+          DOCKERHUB_IMAGE="${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
+          docker buildx imagetools create \
+            --tag "${DOCKERHUB_IMAGE}:${SEMVER}" \
+            --tag "${DOCKERHUB_IMAGE}:${VERSION}" \
+            --tag "${DOCKERHUB_IMAGE}:latest" \
+            "${ACR_IMAGE}@${DIGEST}"
+
+      - name: Verify all Docker Hub tags resolve to the ACR candidate digest
+        shell: bash
+        env:
+          DIGEST: ${{ needs.build-acr-candidate.outputs.digest }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SEMVER: ${{ needs.validate.outputs.semver }}
+          DOCKERHUB_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          DOCKERHUB_IMAGE="${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
+          for ref in "${DOCKERHUB_IMAGE}:${SEMVER}" "${DOCKERHUB_IMAGE}:${VERSION}" "${DOCKERHUB_IMAGE}:latest"; do
+            output="$(docker buildx imagetools inspect "$ref")"
+            awk -v expected="$DIGEST" '$1 == "Digest:" && $2 == expected { found=1 } END { exit(found ? 0 : 1) }' <<<"$output" || {
+              echo "${ref} did not resolve to ${DIGEST}" >&2
+              exit 1
+            }
+          done

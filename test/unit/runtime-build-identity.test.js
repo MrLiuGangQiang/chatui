@@ -73,7 +73,7 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   const root = path.resolve(__dirname, '../..');
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
-  const release = fs.readFileSync(path.join(root, '.github/workflows/dockerhub.yml'), 'utf8');
+  const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const preview = fs.readFileSync(path.join(root, 'scripts/preview-release.js'), 'utf8');
   const serverConfig = fs.readFileSync(path.join(root, 'server/config/index.js'), 'utf8');
 
@@ -88,13 +88,25 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
     'CI must fail before building when the candidate version is empty');
   assert.ok(!ci.includes("require('./package.json')"),
     'CI must not use package.json as the canonical version source');
+  assert.match(ci, /CHATUI_SOURCE_REVISION=\$\{\{ steps\.identity\.outputs\.source_revision \}\}/);
   assert.match(serverConfig, /require\('\.\.\/version-source'\)/);
   assert.ok(!serverConfig.includes("require('../../package.json')"),
     'server runtime must not use package.json as the canonical version source');
-  assert.match(ci, /CHATUI_SOURCE_REVISION=\$\{\{ steps\.identity\.outputs\.source_revision \}\}/);
-  assert.match(release, /Build once and push immutable candidates/);
-  assert.match(release, /Pull and verify the exact candidate digest/);
-  assert.match(release, /Promote the verified digest without rebuilding/);
+  assert.ok(release.includes(`SOURCE_VERSION="$(node -p "require('./scripts/version-source').readVersion()")"`),
+    'release must resolve the canonical version without reading package.json');
+  assert.ok(release.includes('test "$SOURCE_VERSION" ='),
+    'release must reject a version source that disagrees with the tag');
+  assert.ok(!release.includes("require('./package.json')"),
+    'release must not use package.json as the canonical version source');
+  assert.match(release, /Build and push immutable ACR candidate/);
+  assert.match(release, /platforms: linux\/amd64/);
+  assert.ok(!release.includes('linux/arm64'), 'release workflow must stay single-platform');
+  assert.match(release, /Verify the exact ACR candidate digest/);
+  assert.match(release, /Promote the verified ACR digest without rebuilding/);
+  assert.ok(release.indexOf('Verify the exact ACR candidate digest') < release.indexOf('Promote the verified ACR digest without rebuilding'),
+    'ACR candidate verification must happen before promotion');
+  assert.match(release, /Mirror verified image to Docker Hub/);
+  assert.match(release, /Copy the verified ACR digest to Docker Hub without rebuilding/);
   assert.match(release, /imagetools create/);
   assert.match(release, /verify_digest\(\)/);
   assert.match(release, /for attempt in \$\(seq 1 12\)/);

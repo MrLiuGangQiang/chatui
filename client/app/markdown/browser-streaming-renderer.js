@@ -275,6 +275,13 @@
       });
       return root;
     };
+    const prepareCompletedCodeBlocks = root => {
+      wrapCompletedStreamingCodeBlocks(root);
+      root?.querySelectorAll?.('pre').forEach(pre => {
+        try { global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(pre.closest?.('.code-block'), pre.querySelector('code') || pre); } catch {}
+      });
+      return root;
+    };
     const removeTailNode = () => {
       try { tailNode?.remove?.(); } catch {}
       tailNode = null;
@@ -434,6 +441,9 @@
         streamingCodeRaw = next;
         scheduleStreamingCodeHighlight();
       }
+      try { global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(node, code); } catch {}
+      const pre = code.parentElement;
+      if (node.classList.contains('code-block-collapsed') && pre) pre.scrollTop = pre.scrollHeight;
       if (node.parentNode === container && node !== container.lastChild) container.appendChild(node);
     };
     const patchTableRow = (row, values, cellName, alignments = []) => {
@@ -696,13 +706,13 @@
         raw += String(delta || '');
         const { stable, tail, index } = splitStableTailIncremental();
         if (index < consumed) {
-          if (container) { container.replaceChildren(...htmlToFrag(render(raw), { deferResources: true }).childNodes); wrapCompletedStreamingCodeBlocks(container); enhanceSafe(container, { reset: true }); }
+          if (container) { const rendered = prepareCompletedCodeBlocks(htmlToFrag(render(raw), { deferResources: true })); container.replaceChildren(...rendered.childNodes); enhanceSafe(container, { reset: true }); }
           consumed = raw.length; tailText = '';
           return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' };
         }
         const part = stable.slice(consumed);
         if (container) {
-          if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; wrapCompletedStreamingCodeBlocks(fragmentRootFor(inserted)); enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
+          if (part) { const inserted = insertRendered(container, render(part), null, { deferResources: true }); consumed = stable.length; prepareCompletedCodeBlocks(fragmentRootFor(inserted)); enhanceSafe(fragmentRootFor(inserted), { streaming: true }); }
           syncTailNode(container, tail);
           tailText = tail;
         } else { if (part) consumed = stable.length; tailText = tail; }
@@ -730,8 +740,8 @@
           removeStreamingTableNode();
           const unchanged = finalMarkupMatchesCurrent(container, finalHtml);
           if (unchanged) restoreStreamingResources(container);
-          else container.replaceChildren(...htmlToFrag(finalHtml).childNodes);
-          wrapCompletedStreamingCodeBlocks(container);
+          else { const rendered = prepareCompletedCodeBlocks(htmlToFrag(finalHtml)); container.replaceChildren(...rendered.childNodes); }
+          prepareCompletedCodeBlocks(container);
           enhanceSafe(container, { final: true, streaming: true, reset: !unchanged, canonical: true });
           consumed = raw.length;
           tailText = '';

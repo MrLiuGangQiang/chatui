@@ -2378,16 +2378,17 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(modal.classList.contains('show'));
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'false');
   assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
-  assert.strictEqual(frame.getAttribute('src'), './route.html?v=1.3.2-stage3-centered');
+  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=1.3.2-stage3-centered');
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.strictEqual(controller.isOpen(), false);
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'true');
   assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
   assert.strictEqual(document.activeElement, trigger);
-  assert.ok(fs.existsSync(path.join(__dirname, '../../route.html')), 'the intent-recognition diagram page should be shipped with the app');
-  assert.strictEqual(staticHttp.isPublicStaticPath('/route.html'), true, 'the diagram page should be available through the static server');
-  assert.ok(fs.readFileSync(path.join(__dirname, '../../route.html'), 'utf8').includes('m17 14 10 10-10 10-10-10Z'), 'the first-pass route card should use a clear decision-and-branch icon');
-  const routeDiagram = fs.readFileSync(path.join(__dirname, '../../route.html'), 'utf8');
+  assert.ok(fs.existsSync(path.join(__dirname, '../../pages/route.html')), 'the intent-recognition diagram page should be shipped with the app');
+  assert.strictEqual(staticHttp.isPublicStaticPath('/pages/route.html'), true, 'the diagram page should be available through the static server');
+  assert.ok(fs.readFileSync(path.join(__dirname, '../../pages/route.html'), 'utf8').includes('m17 14 10 10-10 10-10-10Z'), 'the first-pass route card should use a clear decision-and-branch icon');
+  const routeDiagram = fs.readFileSync(path.join(__dirname, '../../pages/route.html'), 'utf8');
+  assert.strictEqual((routeDiagram.match(/class="card-value small step-11-value" textLength="142" lengthAdjust="spacingAndGlyphs"/g) || []).length, 3, 'step 11 copy must stay constrained to its card content column');
   assert.ok(routeDiagram.includes('fallback stays inside the route card') && routeDiagram.includes('x="1041" y="572" width="208" height="18"'), 'the fallback route should stay inside the first-pass route card rather than covering another stage');
   assert.ok(!routeDiagram.includes('x="1023" y="346" width="244" height="56"'), 'the old floating fallback callout should not overlap the preceding stage');
   assert.ok(routeDiagram.includes('connected S-shaped route track') && routeDiagram.includes('id="executionSnakeTrack"') && routeDiagram.includes('<animateMotion id="flowCometMotion"') && routeDiagram.includes('repeatCount="indefinite"') && routeDiagram.includes('M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630') && routeDiagram.includes('H311C268 630 240 657 240 699V778C240 820 266 848 308 848') && routeDiagram.includes('H1584'), 'the execution sequence should remain one continuous animated S-shaped flow between cards with matching upper and lower turns');
@@ -3175,7 +3176,7 @@ function testSessionPersistenceKeepsDurableImageDisplayWhenAStaleTextReplyCollid
 function testDockerfileIncludesSharedRuntimeModules() {
   const dockerfile = fs.readFileSync(path.join(__dirname, '../../Dockerfile'), 'utf8');
   assert.ok(dockerfile.includes('COPY shared ./shared'), 'Docker image must include shared runtime modules used by server config/jobs');
-  assert.ok(dockerfile.includes('COPY server.js index.html route.html app.js styles.css favicon.svg ./'), 'Docker image must include route.html required by the route-diagram modal');
+  assert.ok(dockerfile.includes('COPY pages ./pages'), 'Docker image must include the standalone pages required by the shared document modal');
   assert.ok(dockerfile.includes('npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund'), 'Docker release build should omit optional native packages to avoid arm64 QEMU npm install crashes');
   assert.ok(dockerfile.includes('CHATUI_BUILD_SHA=${CHATUI_BUILD_SHA}') && dockerfile.includes('CHATUI_SOURCE_REVISION=${CHATUI_SOURCE_REVISION}'), 'Docker image must carry the exact commit and runtime source fingerprint verified by CI');
 }

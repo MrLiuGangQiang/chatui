@@ -6,7 +6,7 @@ const path = require('path');
 const { readVersion } = require('./version-source');
 
 const ROOT = path.resolve(__dirname, '..');
-const REQUIRED_STATIC_FILES = ['index.html', 'route.html', 'app.js', 'styles.css', 'favicon.svg'];
+const REQUIRED_STATIC_FILES = ['index.html', 'pages/route.html', 'pages/files.html', 'app.js', 'styles.css', 'favicon.svg'];
 const REQUIRED_RUNTIME_FILES = ['server.js'];
 const REQUIRED_DOCUMENTATION_FILES = ['docs/architecture.md', 'docs/development.md'];
 const REQUIRED_PROJECT_FILES = ['version.json', 'package.json', 'package-lock.json', 'Dockerfile', 'server/http/static.js'];
@@ -71,8 +71,8 @@ function checkProject({ root = ROOT } = {}) {
       fail(`package.json must define a non-empty ${script} script.`);
     }
   }
-  if (!dockerfile.includes('route.html')) fail('Dockerfile must package route.html.');
-  if (!staticServer.includes("'/route.html'")) fail('server/http/static.js must expose /route.html.');
+  if (!dockerfile.includes('COPY pages ./pages')) fail('Dockerfile must package the standalone pages directory.');
+  if (!staticServer.includes("'/pages/'")) fail('server/http/static.js must expose the standalone pages directory.');
 
   return {
     version,

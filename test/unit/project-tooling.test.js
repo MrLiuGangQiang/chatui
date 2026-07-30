@@ -39,8 +39,8 @@ function createProjectFixture() {
     lockfileVersion: 3,
     packages: { '': { name: fixturePackage.name, version: fixturePackage.version } },
   }, null, 2)}\n`);
-  writeFixtureFile(root, 'Dockerfile', 'COPY route.html ./\n');
-  writeFixtureFile(root, 'server/http/static.js', "const PUBLIC_ROOT_FILES = new Set(['/route.html']);\n");
+  writeFixtureFile(root, 'Dockerfile', 'COPY pages ./pages\n');
+  writeFixtureFile(root, 'server/http/static.js', "const PUBLIC_PREFIXES = ['/pages/'];\n");
   for (const file of [...REQUIRED_STATIC_FILES, ...REQUIRED_RUNTIME_FILES, ...REQUIRED_DOCUMENTATION_FILES]) {
     writeFixtureFile(root, file, `${file}\n`);
   }
@@ -63,7 +63,7 @@ function testProjectToolingChecksStaticAndPackageContracts() {
   const result = checkProject();
   assert.strictEqual(result.version, readVersion());
   assert.strictEqual(result.version, packageJson.version);
-  assert.strictEqual(result.staticFiles, 5);
+  assert.strictEqual(result.staticFiles, 6);
   assert.strictEqual(result.runtimeFiles, 1);
   assert.strictEqual(result.documentationFiles, 2);
   assert.strictEqual(packageJson.scripts['check:syntax'], 'node scripts/check-syntax.js');

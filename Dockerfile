@@ -32,7 +32,8 @@ ENV NODE_ENV=production \
 COPY version.json package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
-COPY server.js index.html route.html app.js styles.css favicon.svg ./
+COPY server.js index.html app.js styles.css favicon.svg ./
+COPY pages ./pages
 COPY config ./config
 COPY styles ./styles
 COPY client ./client

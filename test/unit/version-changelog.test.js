@@ -123,7 +123,7 @@ function testVersionChangelogHasDedicatedResponsiveReadingStyles() {
 function testMobileRouteMapAndModelSelectScrolling() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles.css'), 'utf8');
   const customSelect = fs.readFileSync(path.join(__dirname, '../../client/app/custom-select-workflow.js'), 'utf8');
-  assert.ok(css.includes('@media (max-width:640px){#routeDiagramFab{display:none!important}'));
+  assert.ok(css.includes('@media (max-width:640px){#routeDiagramFab,#supportedFilesFab{display:none!important}'));
   assert.ok(css.includes('touch-action:pan-y'), 'model menus must preserve vertical touch scrolling');
   assert.ok(customSelect.includes("item.addEventListener('pointerdown', event => event.stopPropagation())"));
   assert.ok(!customSelect.includes("item.addEventListener('pointerdown', event => { event.preventDefault()"), 'option pointerdown must not cancel mobile scrolling');

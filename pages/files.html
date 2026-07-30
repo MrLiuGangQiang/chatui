@@ -1,0 +1,2048 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+  />
+  <!-- Standalone page loaded by the shared document viewer. -->
+  <title>支持的文件格式</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --white: #f5f7ff;
+      --muted: #e4e9f3;
+      --blue: #00aaff;
+      --cyan: #65dcff;
+      --green: #10ed8b;
+      --red: #ff3137;
+      --orange: #ff8a09;
+      --purple: #b265ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #00040c;
+    }
+
+    body {
+      font-family:
+        "Microsoft YaHei",
+        "PingFang SC",
+        "Noto Sans SC",
+        "Source Han Sans SC",
+        Arial,
+        sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    #poster {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 1536px;
+      height: 1024px;
+      overflow: hidden;
+      transform-origin: 0 0;
+      color: var(--white);
+      border: 1px solid rgba(169, 181, 198, 0.7);
+      border-radius: 0;
+      background:
+        radial-gradient(
+          ellipse at 56% 108%,
+          rgba(0, 61, 157, 0.25) 0%,
+          rgba(0, 38, 100, 0.12) 26%,
+          transparent 56%
+        ),
+        radial-gradient(
+          ellipse at 84% 48%,
+          rgba(0, 31, 86, 0.2),
+          transparent 47%
+        ),
+        radial-gradient(
+          ellipse at 24% 29%,
+          rgba(0, 27, 70, 0.18),
+          transparent 43%
+        ),
+        linear-gradient(180deg, #02050b 0%, #020817 46%, #020c20 100%);
+      box-shadow:
+        inset 0 0 80px rgba(0, 23, 65, 0.18),
+        inset 0 0 3px rgba(255, 255, 255, 0.16);
+    }
+
+    #poster::before {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: "";
+      opacity: 0.38;
+      background:
+        radial-gradient(circle at 38% 30%, #087cff 0 1px, transparent 1.5px),
+        radial-gradient(circle at 88% 22%, #008dff 0 1px, transparent 1.5px),
+        radial-gradient(circle at 67% 76%, #075aff 0 1px, transparent 1.5px),
+        radial-gradient(circle at 95% 56%, #014ebb 0 1px, transparent 1.5px),
+        radial-gradient(circle at 17% 90%, #0065cc 0 1px, transparent 1.5px);
+    }
+
+    .svg-defs {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    /* 顶部标题 */
+
+    .brand-logo {
+      position: absolute;
+      z-index: 2;
+      left: 44px;
+      top: 26px;
+      width: 64px;
+      height: 78px;
+      overflow: visible;
+    }
+
+    .main-title {
+      position: absolute;
+      z-index: 2;
+      left: 132px;
+      top: 27px;
+      margin: 0;
+      color: #f7f8fc;
+      font-size: 48px;
+      font-weight: 900;
+      line-height: 1.12;
+      letter-spacing: 1px;
+      text-shadow:
+        0 2px 2px rgba(0, 0, 0, 0.65),
+        0 0 13px rgba(255, 255, 255, 0.08);
+    }
+
+    .main-subtitle {
+      position: absolute;
+      z-index: 2;
+      left: 133px;
+      top: 99px;
+      color: #e8ebf3;
+      font-size: 25px;
+      font-weight: 400;
+      line-height: 1.35;
+      letter-spacing: 0.2px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+    }
+
+    /* 通用卡片 */
+
+    .info-card,
+    .format-panel,
+    .notice-panel {
+      position: absolute;
+      z-index: 1;
+      overflow: hidden;
+      border-style: solid;
+      border-width: 1px;
+    }
+
+    .info-card::after,
+    .format-panel::after,
+    .notice-panel::after {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: "";
+      opacity: 0.72;
+      background:
+        radial-gradient(
+          circle at 81% 20%,
+          rgba(var(--rgb), 0.88) 0 0.8px,
+          transparent 1.35px
+        ),
+        radial-gradient(
+          circle at 94% 41%,
+          rgba(var(--rgb), 0.72) 0 0.8px,
+          transparent 1.35px
+        ),
+        radial-gradient(
+          circle at 70% 80%,
+          rgba(var(--rgb), 0.5) 0 0.8px,
+          transparent 1.35px
+        );
+    }
+
+    .info-card > *,
+    .format-panel > *,
+    .notice-panel > * {
+      z-index: 2;
+    }
+
+    /* 顶部信息卡 */
+
+    .info-card {
+      top: 30px;
+      height: 143px;
+      border-radius: 13px;
+      box-shadow:
+        inset 0 0 25px rgba(var(--rgb), 0.05),
+        0 0 15px rgba(var(--rgb), 0.03);
+    }
+
+    .info-card.limit {
+      --rgb: 0, 143, 255;
+      left: 516px;
+      width: 320px;
+      border-color: rgba(0, 142, 255, 0.9);
+      background:
+        radial-gradient(
+          circle at 16% 48%,
+          rgba(0, 113, 255, 0.17),
+          transparent 30%
+        ),
+        linear-gradient(
+          115deg,
+          rgba(0, 37, 79, 0.43),
+          rgba(0, 5, 14, 0.94)
+        );
+    }
+
+    .info-card.extract {
+      --rgb: 0, 220, 111;
+      left: 848px;
+      width: 320px;
+      border-color: rgba(0, 207, 101, 0.85);
+      background:
+        radial-gradient(
+          circle at 18% 46%,
+          rgba(0, 159, 79, 0.18),
+          transparent 29%
+        ),
+        linear-gradient(
+          115deg,
+          rgba(0, 49, 35, 0.44),
+          rgba(0, 8, 11, 0.94)
+        );
+    }
+
+    .info-card.guide {
+      --rgb: 255, 105, 0;
+      left: 1180px;
+      width: 320px;
+      border-color: rgba(255, 104, 0, 0.88);
+      background:
+        radial-gradient(
+          circle at 17% 45%,
+          rgba(255, 92, 0, 0.18),
+          transparent 29%
+        ),
+        linear-gradient(
+          115deg,
+          rgba(65, 24, 0, 0.43),
+          rgba(9, 5, 4, 0.95)
+        );
+    }
+
+    .info-icon {
+      position: absolute;
+      left: 14px;
+      top: 19px;
+      width: 48px;
+      height: 52px;
+      overflow: visible;
+    }
+
+    .extract .info-icon {
+      left: 14px;
+      top: 18px;
+      width: 48px;
+      height: 54px;
+    }
+
+    .guide .info-icon {
+      left: 14px;
+      top: 19px;
+    }
+
+    .info-copy {
+      position: absolute;
+      top: 17px;
+    }
+
+    .limit .info-copy {
+      left: 74px;
+    }
+
+    .extract .info-copy {
+      left: 74px;
+    }
+
+    .guide .info-copy {
+      left: 74px;
+    }
+
+    .info-heading {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 800;
+      line-height: 29px;
+      white-space: nowrap;
+      text-shadow: 0 0 10px rgba(var(--rgb), 0.25);
+    }
+
+    .limit .info-heading {
+      color: #59d6ff;
+    }
+
+    .extract .info-heading {
+      color: #27ed7f;
+    }
+
+    .guide .info-heading {
+      color: #ff900c;
+    }
+
+    .info-description {
+      margin-top: 5px;
+      width: 236px;
+      color: #edf1f7;
+      font-size: 14.5px;
+      font-weight: 500;
+      line-height: 25px;
+      white-space: normal;
+    }
+
+    .limit .highlight {
+      color: #00d4ff;
+    }
+
+    .extract .highlight {
+      color: #1aed89;
+    }
+
+    .guide .highlight {
+      color: #ff9c16;
+    }
+
+    /* 格式区域通用样式 */
+
+    .format-panel {
+      border-radius: 15px;
+      box-shadow:
+        inset 0 0 31px rgba(var(--rgb), 0.055),
+        0 0 18px rgba(var(--rgb), 0.025);
+    }
+
+    .format-panel.image {
+      --rgb: 0, 167, 255;
+      left: 36px;
+      top: 184px;
+      width: 726px;
+      height: 218px;
+      border-color: rgba(0, 173, 255, 0.93);
+      background:
+        radial-gradient(
+          ellipse at 80% 53%,
+          rgba(0, 91, 255, 0.23),
+          transparent 37%
+        ),
+        radial-gradient(
+          ellipse at 12% 47%,
+          rgba(0, 89, 139, 0.11),
+          transparent 38%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(0, 34, 69, 0.5),
+          rgba(1, 7, 21, 0.94) 72%
+        );
+    }
+
+    .format-panel.pdf {
+      --rgb: 255, 31, 38;
+      left: 774px;
+      top: 184px;
+      width: 726px;
+      height: 218px;
+      border-color: rgba(255, 32, 39, 0.9);
+      background:
+        radial-gradient(
+          ellipse at 79% 53%,
+          rgba(181, 0, 20, 0.2),
+          transparent 38%
+        ),
+        radial-gradient(
+          ellipse at 15% 46%,
+          rgba(108, 0, 11, 0.14),
+          transparent 36%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(49, 5, 10, 0.48),
+          rgba(10, 4, 9, 0.95) 73%
+        );
+    }
+
+    .format-panel.sheet {
+      --rgb: 0, 226, 126;
+      left: 36px;
+      top: 413px;
+      width: 726px;
+      height: 158px;
+      border-color: rgba(0, 213, 116, 0.92);
+      background:
+        radial-gradient(
+          ellipse at 81% 50%,
+          rgba(0, 151, 80, 0.21),
+          transparent 37%
+        ),
+        radial-gradient(
+          ellipse at 13% 49%,
+          rgba(0, 91, 63, 0.15),
+          transparent 37%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(0, 46, 33, 0.5),
+          rgba(0, 10, 13, 0.95) 74%
+        );
+    }
+
+    .format-panel.document {
+      --rgb: 144, 54, 255;
+      left: 774px;
+      top: 413px;
+      width: 726px;
+      height: 158px;
+      border-color: rgba(141, 57, 255, 0.9);
+      background:
+        radial-gradient(
+          ellipse at 81% 53%,
+          rgba(107, 25, 255, 0.22),
+          transparent 38%
+        ),
+        radial-gradient(
+          ellipse at 16% 47%,
+          rgba(83, 18, 145, 0.14),
+          transparent 36%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(31, 9, 66, 0.53),
+          rgba(5, 6, 24, 0.96) 74%
+        );
+    }
+
+    .format-panel.presentation {
+      --rgb: 255, 106, 0;
+      left: 36px;
+      top: 583px;
+      width: 1464px;
+      height: 111px;
+      border-color: rgba(255, 104, 0, 0.93);
+      background:
+        radial-gradient(
+          ellipse at 81% 51%,
+          rgba(210, 63, 0, 0.23),
+          transparent 36%
+        ),
+        radial-gradient(
+          ellipse at 14% 50%,
+          rgba(104, 40, 0, 0.15),
+          transparent 37%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(54, 22, 3, 0.5),
+          rgba(12, 6, 7, 0.95) 76%
+        );
+    }
+
+    .format-panel.code {
+      --rgb: 0, 127, 255;
+      left: 36px;
+      top: 706px;
+      width: 1464px;
+      height: 220px;
+      border-color: rgba(0, 126, 244, 0.91);
+      background:
+        radial-gradient(
+          ellipse at 87% 56%,
+          rgba(0, 92, 230, 0.22),
+          transparent 24%
+        ),
+        radial-gradient(
+          ellipse at 22% 50%,
+          rgba(0, 70, 156, 0.13),
+          transparent 40%
+        ),
+        linear-gradient(
+          110deg,
+          rgba(0, 34, 76, 0.54),
+          rgba(2, 8, 23, 0.95) 78%
+        );
+    }
+
+    .panel-icon,
+    .panel-art {
+      position: absolute;
+      overflow: visible;
+    }
+
+    .panel-title {
+      position: absolute;
+      margin: 0;
+      font-weight: 900;
+      line-height: 1.2;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+      text-shadow:
+        0 0 12px rgba(var(--rgb), 0.28),
+        0 2px 3px rgba(0, 0, 0, 0.72);
+    }
+
+    .tag-list,
+    .code-rows {
+      position: absolute;
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 7px;
+    }
+
+    .tag {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      padding: 0 8px;
+      color: #edf2fb;
+      border: 1px solid rgba(var(--rgb), 0.6);
+      border-radius: 6px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(var(--rgb), 0.09),
+          rgba(0, 5, 16, 0.82)
+        );
+      box-shadow:
+        inset 0 0 8px rgba(var(--rgb), 0.055),
+        0 1px 1px rgba(0, 0, 0, 0.65);
+      font-size: 17px;
+      font-weight: 500;
+      line-height: 1;
+      white-space: nowrap;
+      text-shadow: 0 1px 2px #000;
+    }
+
+    .panel-description {
+      position: absolute;
+      margin: 0;
+      color: #edf1f8;
+      font-size: 18px;
+      font-weight: 500;
+      line-height: 30px;
+      white-space: nowrap;
+      text-shadow: 0 2px 3px rgba(0, 0, 0, 0.8);
+    }
+
+    /* 图片 */
+
+    .image .panel-icon {
+      left: 22px;
+      top: 18px;
+      width: 76px;
+      height: 72px;
+    }
+
+    .image .panel-title {
+      left: 116px;
+      top: 18px;
+      color: #80e5ff;
+      font-size: 32px;
+    }
+
+    .image .tag-list {
+      left: 116px;
+      top: 64px;
+      width: 430px;
+      gap: 6px;
+    }
+
+    .image .tag {
+      padding: 0 7px;
+      font-size: 16px;
+    }
+
+    .image .panel-description {
+      left: 116px;
+      top: 105px;
+      font-size: 17px;
+    }
+
+    .image .panel-art {
+      right: 2px;
+      top: 5px;
+      width: 208px;
+      height: 204px;
+    }
+
+    /* PDF */
+
+    .pdf .panel-icon {
+      left: 22px;
+      top: 18px;
+      width: 76px;
+      height: 72px;
+    }
+
+    .pdf .panel-title {
+      left: 116px;
+      top: 18px;
+      color: #ff282e;
+      font-size: 32px;
+    }
+
+    .pdf .tag-list {
+      left: 116px;
+      top: 64px;
+      width: 100px;
+    }
+
+    .pdf .panel-description {
+      left: 116px;
+      top: 105px;
+      font-size: 17px;
+      line-height: 32px;
+    }
+
+    .pdf .panel-art {
+      right: -1px;
+      top: 1px;
+      width: 274px;
+      height: 205px;
+    }
+
+    /* 表格 */
+
+    .sheet .panel-icon {
+      left: 22px;
+      top: 18px;
+      width: 76px;
+      height: 72px;
+    }
+
+    .sheet .panel-title {
+      left: 116px;
+      top: 18px;
+      color: #02ef93;
+      font-size: 32px;
+    }
+
+    .sheet .tag-list {
+      left: 116px;
+      top: 64px;
+      width: 385px;
+      gap: 7px;
+    }
+
+    .sheet .tag {
+      height: 32px;
+      padding: 0 8px;
+      font-size: 17px;
+    }
+
+    .sheet .panel-art {
+      right: 0;
+      top: 1px;
+      width: 208px;
+      height: 155px;
+    }
+
+    /* 文档 */
+
+    .document .panel-icon {
+      left: 22px;
+      top: 18px;
+      width: 76px;
+      height: 72px;
+    }
+
+    .document .panel-title {
+      left: 116px;
+      top: 18px;
+      color: #d89cff;
+      font-size: 32px;
+    }
+
+    .document .tag-list {
+      left: 116px;
+      top: 64px;
+      width: 385px;
+    }
+
+    .document .tag {
+      height: 32px;
+      font-size: 17px;
+    }
+
+    .document .panel-art {
+      right: 1px;
+      top: 0;
+      width: 210px;
+      height: 157px;
+    }
+
+    /* 演示文稿 */
+
+    .presentation .panel-icon {
+      left: 22px;
+      top: 18px;
+      width: 76px;
+      height: 72px;
+    }
+
+    .presentation .panel-title {
+      left: 116px;
+      top: 18px;
+      color: #ff8807;
+      font-size: 32px;
+    }
+
+    .presentation .tag-list {
+      left: 116px;
+      top: 64px;
+      width: 760px;
+      gap: 7px;
+    }
+
+    .presentation .tag {
+      height: 32px;
+      padding: 0 8px;
+      font-size: 17px;
+    }
+
+    .presentation .panel-art {
+      right: 14px;
+      top: 0;
+      width: 190px;
+      height: 110px;
+    }
+
+    /* 文本代码 */
+
+    .code .panel-icon {
+      left: 22px;
+      top: 16px;
+      width: 76px;
+      height: 67px;
+    }
+
+    .code .panel-title {
+      left: 127px;
+      top: 12px;
+      color: #63d9ff;
+      font-size: 29px;
+    }
+
+    .code-rows {
+      left: 127px;
+      top: 45px;
+      width: 1095px;
+    }
+
+    .code-row {
+      display: flex;
+      width: 1095px;
+      height: 27px;
+      gap: 5px;
+      overflow: visible;
+      white-space: nowrap;
+    }
+
+    .code-row .tag {
+      height: 23px;
+      min-height: 23px;
+      padding: 0 7px;
+      border-radius: 5px;
+      font-size: var(--code-size, 14px);
+      line-height: 21px;
+    }
+
+    .code-note {
+      position: absolute;
+      left: 127px;
+      top: 184px;
+      margin: 0;
+      color: #e9edf5;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 24px;
+      white-space: nowrap;
+    }
+
+    .code .panel-art {
+      right: 7px;
+      top: 5px;
+      width: 253px;
+      height: 209px;
+    }
+
+    /* 底部注意区域 */
+
+    .notice-panel {
+      --rgb: 0, 144, 255;
+      left: 36px;
+      top: 939px;
+      width: 1464px;
+      height: 72px;
+      border-color: rgba(0, 143, 255, 0.92);
+      border-radius: 14px;
+      background:
+        radial-gradient(
+          ellipse at 9% 50%,
+          rgba(0, 112, 255, 0.19),
+          transparent 19%
+        ),
+        radial-gradient(
+          ellipse at 78% 50%,
+          rgba(0, 82, 190, 0.1),
+          transparent 42%
+        ),
+        linear-gradient(
+          105deg,
+          rgba(0, 35, 82, 0.68),
+          rgba(1, 9, 25, 0.95)
+        );
+      box-shadow:
+        inset 0 0 26px rgba(0, 105, 255, 0.08),
+        0 0 16px rgba(0, 91, 255, 0.03);
+    }
+
+    .notice-icon {
+      position: absolute;
+      left: 27px;
+      top: 5px;
+      width: 68px;
+      height: 61px;
+      overflow: visible;
+    }
+
+    .notice-title {
+      position: absolute;
+      left: 104px;
+      top: 9px;
+      margin: 0;
+      color: #20b8ff;
+      font-size: 30px;
+      font-weight: 900;
+      line-height: 50px;
+      white-space: nowrap;
+      text-shadow: 0 0 12px rgba(0, 151, 255, 0.3);
+    }
+
+    .notice-description {
+      position: absolute;
+      left: 203px;
+      top: 18px;
+      margin: 0;
+      color: #e8edf6;
+      font-size: 17.5px;
+      font-weight: 500;
+      line-height: 34px;
+      letter-spacing: 0.05px;
+      white-space: nowrap;
+      text-shadow: 0 2px 3px rgba(0, 0, 0, 0.8);
+    }
+
+    .notice-description .highlight {
+      color: #00d1ff;
+    }
+  </style>
+</head>
+
+<body>
+  <main id="poster">
+    <!-- SVG 定义 -->
+    <svg class="svg-defs" aria-hidden="true">
+      <defs>
+        <linearGradient id="blueGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#47a9ff" />
+          <stop offset="0.48" stop-color="#066dff" />
+          <stop offset="1" stop-color="#0042cf" />
+        </linearGradient>
+
+        <linearGradient id="blueDeepGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#30b9ff" />
+          <stop offset="0.45" stop-color="#075eff" />
+          <stop offset="1" stop-color="#1515a7" />
+        </linearGradient>
+
+        <linearGradient id="greenGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#5dffb5" />
+          <stop offset="0.48" stop-color="#0ac975" />
+          <stop offset="1" stop-color="#00693d" />
+        </linearGradient>
+
+        <linearGradient id="redGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff5d6a" />
+          <stop offset="0.5" stop-color="#e31d31" />
+          <stop offset="1" stop-color="#760014" />
+        </linearGradient>
+
+        <linearGradient id="orangeGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffcc2f" />
+          <stop offset="0.45" stop-color="#ff6b00" />
+          <stop offset="1" stop-color="#9c2200" />
+        </linearGradient>
+
+        <linearGradient id="purpleGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#d96aff" />
+          <stop offset="0.45" stop-color="#7124ff" />
+          <stop offset="1" stop-color="#2b0a9b" />
+        </linearGradient>
+
+        <radialGradient id="blueOrb" cx="36%" cy="29%" r="77%">
+          <stop offset="0" stop-color="#66cfff" />
+          <stop offset="0.45" stop-color="#0879ff" />
+          <stop offset="1" stop-color="#00329d" />
+        </radialGradient>
+
+        <radialGradient id="orangeOrb" cx="36%" cy="30%" r="76%">
+          <stop offset="0" stop-color="#ffce4c" />
+          <stop offset="0.48" stop-color="#f85a00" />
+          <stop offset="1" stop-color="#731000" />
+        </radialGradient>
+
+        <filter
+          id="glowBlue"
+          x="-80%"
+          y="-80%"
+          width="260%"
+          height="260%"
+          color-interpolation-filters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <filter
+          id="glowGreen"
+          x="-80%"
+          y="-80%"
+          width="260%"
+          height="260%"
+          color-interpolation-filters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="3.6" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <filter
+          id="glowRed"
+          x="-80%"
+          y="-80%"
+          width="260%"
+          height="260%"
+          color-interpolation-filters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <filter
+          id="glowOrange"
+          x="-80%"
+          y="-80%"
+          width="260%"
+          height="260%"
+          color-interpolation-filters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="3.8" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <filter
+          id="glowPurple"
+          x="-80%"
+          y="-80%"
+          width="260%"
+          height="260%"
+          color-interpolation-filters="sRGB"
+        >
+          <feGaussianBlur stdDeviation="3.8" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <!-- 左上角文件图标 -->
+        <symbol id="brandFile" viewBox="0 0 64 78">
+          <g filter="url(#glowBlue)">
+            <path
+              d="M12 3.5H41.5L56 18v49.5a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7v-57a7 7 0 0 1 7-7Z"
+              fill="url(#blueGradient)"
+              stroke="#b8e7ff"
+              stroke-width="1.4"
+            />
+            <path
+              d="M41.5 3.5V17a2 2 0 0 0 2 2H56"
+              fill="#74bfff"
+              stroke="#d3f3ff"
+              stroke-width="1.2"
+            />
+            <rect x="18" y="29" width="24" height="4" rx="2" fill="#dff8ff" />
+            <rect x="18" y="40" width="27" height="4" rx="2" fill="#dff8ff" />
+            <rect x="18" y="51" width="27" height="4" rx="2" fill="#dff8ff" />
+          </g>
+        </symbol>
+
+        <!-- 顶部信息图标 -->
+        <symbol id="sizeInfoIcon" viewBox="0 0 64 64">
+          <g filter="url(#glowBlue)">
+            <circle
+              cx="32"
+              cy="32"
+              r="28.5"
+              fill="url(#blueOrb)"
+              stroke="#d8f5ff"
+              stroke-width="1.3"
+            />
+            <path
+              d="M22 15h14l8 8v25H22Z"
+              fill="#ebf7ff"
+              stroke="#fff"
+              stroke-width="1"
+            />
+            <path d="M36 15v8h8" fill="#65b5ff" stroke="#fff" />
+            <path d="M27 29h10M27 34h9" stroke="#1575e8" stroke-width="2.5" />
+            <path
+              d="M39 43v-9m0 0-4 4m4-4 4 4"
+              fill="none"
+              stroke="#1669df"
+              stroke-width="2.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="extractInfoIcon" viewBox="0 0 64 68">
+          <g filter="url(#glowGreen)">
+            <path
+              d="M32 4c7.6 6.3 14.3 8.5 23 9.8v19.5C55 47.5 46.2 58 32 64 17.8 58 9 47.5 9 33.3V13.8C17.7 12.5 24.4 10.3 32 4Z"
+              fill="url(#greenGradient)"
+              stroke="#8effce"
+              stroke-width="1.5"
+            />
+            <path
+              d="m21 34 7 7 15-17"
+              fill="none"
+              stroke="#effff8"
+              stroke-width="4.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M32 8c6.2 4.6 11.8 6.7 19 8"
+              fill="none"
+              stroke="#d8ffed"
+              stroke-width="1.3"
+              opacity="0.8"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="guideInfoIcon" viewBox="0 0 64 64">
+          <g filter="url(#glowOrange)">
+            <circle
+              cx="32"
+              cy="32"
+              r="28.5"
+              fill="url(#orangeOrb)"
+              stroke="#ffd385"
+              stroke-width="1.4"
+            />
+            <path
+              d="M14 32c4.3-7 10.2-10.5 18-10.5S45.7 25 50 32c-4.3 7-10.2 10.5-18 10.5S18.3 39 14 32Z"
+              fill="none"
+              stroke="#fff7eb"
+              stroke-width="4"
+              stroke-linejoin="round"
+            />
+            <circle cx="32" cy="32" r="6.2" fill="#fff8ed" />
+            <circle cx="32" cy="32" r="2.8" fill="#d34a00" />
+            <path
+              d="M10 32h5M49 32h5"
+              stroke="#fff"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            />
+          </g>
+        </symbol>
+
+        <!-- 分类小图标 -->
+        <symbol id="imageIcon" viewBox="0 0 92 84">
+          <g filter="url(#glowBlue)">
+            <rect
+              x="3.5"
+              y="3.5"
+              width="85"
+              height="77"
+              rx="10"
+              fill="url(#blueDeepGradient)"
+              stroke="#b9edff"
+              stroke-width="1.6"
+            />
+            <circle cx="27" cy="26" r="8" fill="#c8eeff" />
+            <circle cx="72" cy="24" r="5" fill="#bce7ff" />
+            <path
+              d="M14 68 35 42l13 14 18-22 14 34Z"
+              fill="#d8f4ff"
+              stroke="#fff"
+              stroke-width="1"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M14 68 35 42l13 14"
+              fill="#6eb8ff"
+              opacity="0.65"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="pdfIcon" viewBox="0 0 64 76">
+          <g filter="url(#glowRed)">
+            <path
+              d="M31 8c-1.6 13.5-5.6 29.4-12.2 42.6C15.3 57.7 11 65.2 7 67.5c-2.2 1.3-4.6.1-4.1-2.5.9-5.2 10.5-11.8 21.1-15.6 10.4-3.8 22.5-5.3 31.5-3.4 4.8 1 6.7 4.2 4.3 6.2-3.6 3-13.5-.1-21.5-5.8C27.9 39 23 27 25.6 15c1.4-6.2 5.9-10.3 5.4-7Z"
+              fill="none"
+              stroke="#fff5f5"
+              stroke-width="5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="sheetIcon" viewBox="0 0 70 80">
+          <g filter="url(#glowGreen)">
+            <path
+              d="M10 3h35l15 15v53a6 6 0 0 1-6 6H10a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6Z"
+              fill="url(#greenGradient)"
+              stroke="#a0ffd3"
+              stroke-width="1.4"
+            />
+            <path d="M45 3v15h15" fill="#c9ffe4" stroke="#eafff5" />
+            <rect
+              x="18"
+              y="30"
+              width="28"
+              height="27"
+              rx="1"
+              fill="none"
+              stroke="#eafff5"
+              stroke-width="3"
+            />
+            <path
+              d="M27.5 30v27M37 30v27M18 39h28M18 48h28"
+              stroke="#eafff5"
+              stroke-width="2.2"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="documentIcon" viewBox="0 0 64 80">
+          <g filter="url(#glowPurple)">
+            <path
+              d="M9 3h34l15 15v53a6 6 0 0 1-6 6H9a6 6 0 0 1-6-6V9a6 6 0 0 1 6-6Z"
+              fill="url(#purpleGradient)"
+              stroke="#efc5ff"
+              stroke-width="1.4"
+            />
+            <path d="M43 3v15h15" fill="#e19bff" stroke="#fff" />
+            <rect x="17" y="31" width="26" height="4" rx="2" fill="#f7eaff" />
+            <rect x="17" y="42" width="29" height="4" rx="2" fill="#f7eaff" />
+            <rect x="17" y="53" width="29" height="4" rx="2" fill="#f7eaff" />
+          </g>
+        </symbol>
+
+        <symbol id="presentationIcon" viewBox="0 0 76 78">
+          <g filter="url(#glowOrange)">
+            <rect
+              x="4"
+              y="4"
+              width="67"
+              height="54"
+              rx="7"
+              fill="url(#orangeGradient)"
+              stroke="#ffe29b"
+              stroke-width="1.4"
+            />
+            <rect x="15" y="19" width="24" height="4" rx="2" fill="#fff4dd" />
+            <rect x="15" y="29" width="11" height="18" rx="2" fill="#fff3d4" />
+            <rect x="31" y="38" width="20" height="4" rx="2" fill="#fff3d4" />
+            <path
+              d="M37.5 58v12M24 72h27"
+              stroke="#ffb82c"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="codeIcon" viewBox="0 0 82 70">
+          <g filter="url(#glowBlue)">
+            <rect
+              x="3"
+              y="4"
+              width="76"
+              height="62"
+              rx="9"
+              fill="url(#blueDeepGradient)"
+              stroke="#89e6ff"
+              stroke-width="1.3"
+            />
+            <path
+              d="m30 21-12 14 12 14M51 21l12 14-12 14M45 18 35 52"
+              fill="none"
+              stroke="#e7f9ff"
+              stroke-width="4.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </g>
+        </symbol>
+
+        <symbol id="noticeIcon" viewBox="0 0 70 64">
+          <g filter="url(#glowBlue)">
+            <circle
+              cx="34"
+              cy="31"
+              r="26"
+              fill="url(#blueOrb)"
+              stroke="#bcecff"
+              stroke-width="1.2"
+            />
+            <path
+              d="M34 12c5.5 4.1 10.2 5.6 16 6.7v12.6C50 41.4 43.8 49 34 53.3 24.2 49 18 41.4 18 31.3V18.7C23.8 17.6 28.5 16.1 34 12Z"
+              fill="#74afff"
+              stroke="#e5f6ff"
+              stroke-width="1.2"
+            />
+            <circle cx="34" cy="29" r="3.2" fill="#fff" />
+            <rect x="32.2" y="34" width="3.6" height="9" rx="1.8" fill="#fff" />
+          </g>
+        </symbol>
+
+        <!-- 图片插画 -->
+        <symbol id="imageArt" viewBox="0 0 240 210">
+          <g opacity="0.88">
+            <ellipse
+              cx="122"
+              cy="172"
+              rx="101"
+              ry="30"
+              fill="rgba(0,74,255,.08)"
+              stroke="#096dff"
+            />
+            <ellipse
+              cx="122"
+              cy="170"
+              rx="82"
+              ry="22"
+              fill="none"
+              stroke="#00a5ff"
+              stroke-width="1.3"
+            />
+            <ellipse
+              cx="122"
+              cy="169"
+              rx="63"
+              ry="15"
+              fill="none"
+              stroke="#5dc5ff"
+              stroke-width="1.1"
+            />
+            <path
+              d="M22 168h200M42 184h160"
+              stroke="#0c4cc8"
+              stroke-width=".8"
+              opacity=".7"
+            />
+          </g>
+
+          <g filter="url(#glowPurple)" transform="rotate(14 147 90)">
+            <rect
+              x="88"
+              y="28"
+              width="111"
+              height="137"
+              rx="11"
+              fill="url(#purpleGradient)"
+              stroke="#e780ff"
+              stroke-width="1.2"
+            />
+          </g>
+
+          <g filter="url(#glowBlue)" transform="rotate(12 131 88)">
+            <rect
+              x="70"
+              y="18"
+              width="115"
+              height="142"
+              rx="11"
+              fill="#0755da"
+              stroke="#9eeeff"
+              stroke-width="1.4"
+            />
+            <rect
+              x="77"
+              y="26"
+              width="101"
+              height="128"
+              rx="8"
+              fill="url(#blueDeepGradient)"
+              stroke="#6bddff"
+            />
+          </g>
+
+          <g transform="rotate(12 124 88)">
+            <circle cx="101" cy="65" r="10" fill="#9ed9ff" />
+            <path
+              d="M82 136 107 101l19 22 24-35 21 48Z"
+              fill="#67bfff"
+              stroke="#d8f7ff"
+              stroke-width="1.2"
+              stroke-linejoin="round"
+            />
+          </g>
+
+          <g fill="#08a8ff" filter="url(#glowBlue)">
+            <circle cx="207" cy="80" r="1.5" />
+            <circle cx="221" cy="110" r="1" />
+            <circle cx="200" cy="139" r="1.1" />
+            <circle cx="34" cy="123" r="1.2" />
+          </g>
+        </symbol>
+
+        <!-- PDF 插画 -->
+        <symbol id="pdfArt" viewBox="0 0 280 210">
+          <g opacity="0.9">
+            <ellipse
+              cx="148"
+              cy="175"
+              rx="111"
+              ry="31"
+              fill="rgba(211,0,18,.07)"
+              stroke="#c91722"
+            />
+            <ellipse
+              cx="148"
+              cy="172"
+              rx="91"
+              ry="23"
+              fill="none"
+              stroke="#ff381e"
+              stroke-width="1.2"
+            />
+            <ellipse
+              cx="148"
+              cy="170"
+              rx="71"
+              ry="16"
+              fill="none"
+              stroke="#ff8c18"
+              stroke-width="1.1"
+            />
+            <ellipse
+              cx="150"
+              cy="111"
+              rx="110"
+              ry="43"
+              fill="none"
+              stroke="#ff4d15"
+              stroke-width="1.1"
+              transform="rotate(9 150 111)"
+            />
+            <ellipse
+              cx="151"
+              cy="109"
+              rx="104"
+              ry="54"
+              fill="none"
+              stroke="#ff7b0a"
+              stroke-width=".8"
+              transform="rotate(-9 151 109)"
+            />
+          </g>
+
+          <g filter="url(#glowRed)">
+            <path
+              d="M108 20h75l27 27v105a8 8 0 0 1-8 8h-94a8 8 0 0 1-8-8V28a8 8 0 0 1 8-8Z"
+              fill="url(#redGradient)"
+              stroke="#ffd2d3"
+              stroke-width="1.5"
+            />
+            <path
+              d="M183 20v25a4 4 0 0 0 4 4h23"
+              fill="#ff7b83"
+              stroke="#fff1f1"
+              stroke-width="1.1"
+            />
+            <rect x="122" y="42" width="24" height="4" rx="2" fill="#ffe6e2" />
+            <rect x="122" y="58" width="57" height="4" rx="2" fill="#ffe6e2" />
+            <rect x="122" y="74" width="65" height="4" rx="2" fill="#ffe6e2" />
+            <rect
+              x="117"
+              y="112"
+              width="70"
+              height="39"
+              rx="5"
+              fill="#a10d17"
+              stroke="#ff7d45"
+            />
+            <text
+              x="152"
+              y="133"
+              fill="#ffd9d3"
+              font-size="24"
+              font-weight="800"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              font-family="Arial, sans-serif"
+            >
+              PDF
+            </text>
+          </g>
+
+          <g fill="#ff4d18" filter="url(#glowOrange)">
+            <circle cx="55" cy="74" r="1.4" />
+            <circle cx="232" cy="57" r="1.2" />
+            <circle cx="247" cy="106" r="1.4" />
+            <circle cx="62" cy="142" r="1.2" />
+          </g>
+
+          <path
+            d="M225 70h11M230.5 64.5v11M55 113h9M59.5 108.5v9"
+            stroke="#ff6c22"
+            stroke-width="1"
+            opacity=".8"
+          />
+        </symbol>
+
+        <!-- 表格插画 -->
+        <symbol id="sheetArt" viewBox="0 0 230 160">
+          <ellipse
+            cx="120"
+            cy="132"
+            rx="91"
+            ry="23"
+            fill="rgba(0,189,94,.07)"
+            stroke="#00a758"
+          />
+          <ellipse
+            cx="120"
+            cy="130"
+            rx="72"
+            ry="16"
+            fill="none"
+            stroke="#00e478"
+          />
+          <ellipse
+            cx="120"
+            cy="129"
+            rx="54"
+            ry="10"
+            fill="none"
+            stroke="#5cffaf"
+          />
+
+          <g filter="url(#glowGreen)" transform="rotate(10 140 67)">
+            <rect
+              x="94"
+              y="12"
+              width="91"
+              height="113"
+              rx="9"
+              fill="#087f55"
+              stroke="#44ffac"
+            />
+          </g>
+
+          <g filter="url(#glowGreen)" transform="rotate(7 121 69)">
+            <rect
+              x="78"
+              y="8"
+              width="91"
+              height="119"
+              rx="9"
+              fill="url(#greenGradient)"
+              stroke="#abffda"
+              stroke-width="1.2"
+            />
+            <rect x="96" y="34" width="26" height="7" rx="2" fill="#dfffee" />
+            <rect x="127" y="39" width="22" height="6" rx="2" fill="#c7ffdf" />
+            <rect x="96" y="50" width="22" height="6" rx="2" fill="#c7ffdf" />
+            <rect x="124" y="54" width="27" height="6" rx="2" fill="#c7ffdf" />
+            <rect x="96" y="67" width="21" height="6" rx="2" fill="#c7ffdf" />
+            <rect x="123" y="69" width="25" height="6" rx="2" fill="#c7ffdf" />
+          </g>
+
+          <g filter="url(#glowGreen)">
+            <rect
+              x="53"
+              y="83"
+              width="48"
+              height="43"
+              rx="6"
+              fill="#08793f"
+              stroke="#74ffb7"
+            />
+            <text
+              x="77"
+              y="105"
+              fill="#eafff4"
+              font-size="27"
+              font-weight="900"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              font-family="Arial, sans-serif"
+            >
+              X
+            </text>
+          </g>
+
+          <g fill="#00ec82">
+            <circle cx="35" cy="66" r="1" />
+            <circle cx="200" cy="41" r="1.1" />
+            <circle cx="208" cy="82" r="1" />
+          </g>
+        </symbol>
+
+        <!-- 文档插画 -->
+        <symbol id="documentArt" viewBox="0 0 230 160">
+          <ellipse
+            cx="121"
+            cy="134"
+            rx="95"
+            ry="23"
+            fill="rgba(112,35,255,.07)"
+            stroke="#6922d5"
+          />
+          <ellipse
+            cx="121"
+            cy="132"
+            rx="76"
+            ry="16"
+            fill="none"
+            stroke="#9b38ff"
+          />
+          <ellipse
+            cx="121"
+            cy="131"
+            rx="56"
+            ry="10"
+            fill="none"
+            stroke="#d374ff"
+          />
+
+          <g filter="url(#glowPurple)" transform="rotate(12 149 68)">
+            <rect
+              x="105"
+              y="21"
+              width="88"
+              height="110"
+              rx="9"
+              fill="#5421c9"
+              stroke="#d87cff"
+            />
+          </g>
+
+          <g filter="url(#glowPurple)" transform="rotate(5 124 66)">
+            <path
+              d="M78 8h61l19 20v98a8 8 0 0 1-8 8H78a8 8 0 0 1-8-8V16a8 8 0 0 1 8-8Z"
+              fill="url(#purpleGradient)"
+              stroke="#f1bdff"
+              stroke-width="1.3"
+            />
+            <path
+              d="M139 8v18a4 4 0 0 0 4 4h15"
+              fill="#da73ff"
+              stroke="#fff"
+            />
+            <rect x="92" y="37" width="43" height="5" rx="2.5" fill="#f0d9ff" />
+            <rect x="92" y="53" width="51" height="5" rx="2.5" fill="#e5c6ff" />
+            <rect x="92" y="69" width="45" height="5" rx="2.5" fill="#e5c6ff" />
+            <rect
+              x="91"
+              y="94"
+              width="54"
+              height="31"
+              rx="5"
+              fill="#5420b9"
+              stroke="#a76aff"
+            />
+            <text
+              x="118"
+              y="110"
+              fill="#e7ccff"
+              font-size="20"
+              font-weight="800"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              font-family="Arial, sans-serif"
+            >
+              DOC
+            </text>
+          </g>
+
+          <g fill="#a846ff">
+            <circle cx="33" cy="54" r="1" />
+            <circle cx="209" cy="51" r="1.1" />
+            <circle cx="198" cy="92" r="1" />
+          </g>
+        </symbol>
+
+        <!-- 演示插画 -->
+        <symbol id="presentationArt" viewBox="0 0 200 120">
+          <ellipse
+            cx="113"
+            cy="99"
+            rx="80"
+            ry="17"
+            fill="rgba(255,92,0,.07)"
+            stroke="#b43b00"
+          />
+          <ellipse
+            cx="113"
+            cy="98"
+            rx="63"
+            ry="11"
+            fill="none"
+            stroke="#ff6a00"
+          />
+          <ellipse
+            cx="113"
+            cy="97"
+            rx="45"
+            ry="7"
+            fill="none"
+            stroke="#ffaf23"
+          />
+
+          <g filter="url(#glowOrange)" transform="rotate(5 109 55)">
+            <rect
+              x="54"
+              y="7"
+              width="117"
+              height="88"
+              rx="8"
+              fill="url(#orangeGradient)"
+              stroke="#ffe49c"
+              stroke-width="1.3"
+            />
+            <rect
+              x="64"
+              y="17"
+              width="96"
+              height="68"
+              rx="3"
+              fill="#b83400"
+              stroke="#ff8e16"
+            />
+            <rect x="75" y="28" width="22" height="4" rx="2" fill="#ffd86c" />
+            <rect x="79" y="62" width="8" height="16" rx="1" fill="#ffd66c" />
+            <rect x="95" y="53" width="8" height="25" rx="1" fill="#ffd66c" />
+            <rect x="111" y="44" width="8" height="34" rx="1" fill="#ffd66c" />
+            <circle cx="139" cy="43" r="10" fill="#ffbd1b" />
+          </g>
+        </symbol>
+
+        <!-- 代码插画 -->
+        <symbol id="codeArt" viewBox="0 0 260 215">
+          <ellipse
+            cx="130"
+            cy="181"
+            rx="109"
+            ry="29"
+            fill="rgba(0,82,255,.08)"
+            stroke="#0757d8"
+          />
+          <ellipse
+            cx="130"
+            cy="179"
+            rx="88"
+            ry="21"
+            fill="none"
+            stroke="#087dff"
+          />
+          <ellipse
+            cx="130"
+            cy="177"
+            rx="66"
+            ry="14"
+            fill="none"
+            stroke="#4ec5ff"
+          />
+
+          <g filter="url(#glowBlue)" transform="rotate(12 151 90)">
+            <rect
+              x="91"
+              y="25"
+              width="126"
+              height="126"
+              rx="9"
+              fill="#003996"
+              stroke="#36bfff"
+            />
+            <rect x="98" y="34" width="112" height="16" rx="4" fill="#0d5acb" />
+            <circle cx="106" cy="42" r="2" fill="#bcefff" />
+            <circle cx="114" cy="42" r="2" fill="#6ad5ff" />
+            <circle cx="122" cy="42" r="2" fill="#2dbfff" />
+          </g>
+
+          <g filter="url(#glowBlue)" transform="rotate(3 125 95)">
+            <rect
+              x="61"
+              y="38"
+              width="137"
+              height="130"
+              rx="10"
+              fill="#032d7e"
+              stroke="#45d0ff"
+              stroke-width="1.2"
+            />
+            <rect x="68" y="46" width="123" height="18" rx="4" fill="#0752b9" />
+            <circle cx="77" cy="55" r="2.2" fill="#c9f2ff" />
+            <circle cx="86" cy="55" r="2.2" fill="#6edfff" />
+            <circle cx="95" cy="55" r="2.2" fill="#2cbfff" />
+            <rect
+              x="72"
+              y="70"
+              width="115"
+              height="88"
+              rx="4"
+              fill="#011c55"
+              stroke="#0b72d9"
+            />
+            <path
+              d="m111 92-18 20 18 20M148 92l18 20-18 20M140 86l-20 51"
+              fill="none"
+              stroke="#7be7ff"
+              stroke-width="6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </g>
+
+          <g fill="#078cff">
+            <circle cx="30" cy="95" r="1.2" />
+            <circle cx="231" cy="66" r="1.1" />
+            <circle cx="236" cy="130" r="1.2" />
+          </g>
+
+          <path
+            d="M224 94h21M228 104h23M232 114h18"
+            stroke="#0877e6"
+            stroke-width="1"
+            opacity=".7"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- 顶部标题 -->
+    <svg class="brand-logo" viewBox="0 0 64 78" aria-hidden="true">
+      <use href="#brandFile"></use>
+    </svg>
+
+    <h1 class="main-title">支持的文件格式</h1>
+    <div class="main-subtitle">多种格式支持 · 满足您的所有需求</div>
+
+    <!-- 顶部说明卡 -->
+    <section class="info-card limit">
+      <svg class="info-icon" viewBox="0 0 64 64" aria-hidden="true">
+        <use href="#sizeInfoIcon"></use>
+      </svg>
+
+      <div class="info-copy">
+        <h2 class="info-heading">文件大小限制</h2>
+        <div class="info-description">
+          所有文件均须小于 <span class="highlight">10 MB</span>，<br />
+          单次上传合计也须小于 <span class="highlight">10 MB</span>。
+        </div>
+      </div>
+    </section>
+
+    <section class="info-card extract">
+      <svg class="info-icon" viewBox="0 0 64 68" aria-hidden="true">
+        <use href="#extractInfoIcon"></use>
+      </svg>
+
+      <div class="info-copy">
+        <h2 class="info-heading">内容提取说明</h2>
+        <div class="info-description">
+          非图片附件不会在本地提取正文；<br />
+          PDF 视觉页面、扫描件、图片和图表<br />
+          需上游模型具备视觉能力。
+        </div>
+      </div>
+    </section>
+
+    <section class="info-card guide">
+      <svg class="info-icon" viewBox="0 0 64 64" aria-hidden="true">
+        <use href="#guideInfoIcon"></use>
+      </svg>
+
+      <div class="info-copy">
+        <h2 class="info-heading">使用说明</h2>
+        <div class="info-description">
+          支持视觉聊天、图片生成参考<br />
+          和图片编辑（仅限图片类文件）。
+        </div>
+      </div>
+    </section>
+
+    <!-- 图片 -->
+    <section class="format-panel image">
+      <svg class="panel-icon" viewBox="0 0 92 84" aria-hidden="true">
+        <use href="#imageIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">图片</h2>
+
+      <div
+        class="tag-list"
+        data-tags=".png|.jpg|.jpeg|.gif|.webp|.bmp|.svg"
+      ></div>
+
+      <p class="panel-description">
+        以及浏览器 image/* MIME；<br />
+        JPEG/PNG/WebP 尽量压缩，BMP 转 PNG，<br />
+        可用于视觉聊天、图片生成参考和图片编辑。
+      </p>
+
+      <svg class="panel-art" viewBox="0 0 240 210" aria-hidden="true">
+        <use href="#imageArt"></use>
+      </svg>
+    </section>
+
+    <!-- PDF -->
+    <section class="format-panel pdf">
+      <svg class="panel-icon" viewBox="0 0 64 76" aria-hidden="true">
+        <use href="#pdfIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">PDF</h2>
+
+      <div class="tag-list" data-tags=".pdf"></div>
+
+      <p class="panel-description">
+        使用 Responses input_file.file_data，<br />
+        支持页面清晰度： auto、 low、 high。
+      </p>
+
+      <svg class="panel-art" viewBox="0 0 280 210" aria-hidden="true">
+        <use href="#pdfArt"></use>
+      </svg>
+    </section>
+
+    <!-- 表格 -->
+    <section class="format-panel sheet">
+      <svg class="panel-icon" viewBox="0 0 70 80" aria-hidden="true">
+        <use href="#sheetIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">表格</h2>
+
+      <div
+        class="tag-list"
+        data-tags=".xls|.xlsx|.xlt|.xlw|.xla|.xlb|.xlc|.xlm|.csv|.tsv|.iif|.numbers"
+      ></div>
+
+      <svg class="panel-art" viewBox="0 0 230 160" aria-hidden="true">
+        <use href="#sheetArt"></use>
+      </svg>
+    </section>
+
+    <!-- 文档 -->
+    <section class="format-panel document">
+      <svg class="panel-icon" viewBox="0 0 64 80" aria-hidden="true">
+        <use href="#documentIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">文档 / 富文本</h2>
+
+      <div
+        class="tag-list"
+        data-tags=".doc|.docx|.dot|.odt|.rtf|.pages"
+      ></div>
+
+      <svg class="panel-art" viewBox="0 0 230 160" aria-hidden="true">
+        <use href="#documentArt"></use>
+      </svg>
+    </section>
+
+    <!-- 演示文稿 -->
+    <section class="format-panel presentation">
+      <svg class="panel-icon" viewBox="0 0 76 78" aria-hidden="true">
+        <use href="#presentationIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">演示文稿</h2>
+
+      <div
+        class="tag-list"
+        data-tags=".pot|.ppa|.pps|.ppt|.pptx|.pwz|.wiz|.key"
+      ></div>
+
+      <svg class="panel-art" viewBox="0 0 200 120" aria-hidden="true">
+        <use href="#presentationArt"></use>
+      </svg>
+    </section>
+
+    <!-- 文本 / 代码 -->
+    <section class="format-panel code">
+      <svg class="panel-icon" viewBox="0 0 82 70" aria-hidden="true">
+        <use href="#codeIcon"></use>
+      </svg>
+
+      <h2 class="panel-title">文本 / 代码</h2>
+
+      <div class="code-rows">
+        <div
+          class="code-row"
+          data-tags=".asm|.bat|.c|.cc|.conf|.cpp|.css|.cxx|.def|.dic|.eml|.h|.hh|.htm|.html|.ics|.ifb|.in|.js|.json|.ksh|.list|.log"
+        ></div>
+
+        <div
+          class="code-row"
+          data-tags=".markdown|.md|.mht|.mhtml|.mime|.mjs|.nws|.py|.rst|.s|.sql|.srt|.text|.txt|.vcf|.vtt|.xml|.ts|.tsx|.jsx|.java"
+        ></div>
+
+        <div
+          class="code-row"
+          data-tags=".go|.rs|.php|.rb|.sh|.bash|.zsh|.tex|.cs|.scala|.kt|.kts|.swift|.lua|.r|.jl|.ex|.exs|.erl|.hrl|.hs|.clj|.groovy|.dart"
+        ></div>
+
+        <div
+          class="code-row"
+          data-tags=".awk|.hbs|.mustache|.ejs|.jinja|.jinja2|.liquid|.erb|.twig|.pug|.jade|.cmake|.gradle|.ini|.properties|.proto|.scss|.sass"
+        ></div>
+
+        <div
+          class="code-row"
+          data-tags=".less|.hcl|.tf|.toml|.graphql|.gql|.ndjson|.json5|.yaml|.yml|.astro|.diff|.patch|.dockerfile"
+        ></div>
+      </div>
+
+      <p class="code-note">无扩展名 Dockerfile 按文本 / 代码识别。</p>
+
+      <svg class="panel-art" viewBox="0 0 260 215" aria-hidden="true">
+        <use href="#codeArt"></use>
+      </svg>
+    </section>
+
+    <!-- 底部注意 -->
+    <section class="notice-panel">
+      <svg class="notice-icon" viewBox="0 0 70 64" aria-hidden="true">
+        <use href="#noticeIcon"></use>
+      </svg>
+
+      <h2 class="notice-title">注意：</h2>
+
+      <p class="notice-description">
+        非图片附件不会在本地提取正文；&nbsp; PDF
+        视觉页面、扫描件、图片和图表需上游模型具备视觉能力。&nbsp;
+        所有文件均须小于 <span class="highlight">10 MB</span>，&nbsp;
+        单次上传合计也须小于 <span class="highlight">10 MB</span>。
+      </p>
+    </section>
+  </main>
+
+  <script>
+    const BASE_WIDTH = 1536;
+    const BASE_HEIGHT = 1024;
+    const poster = document.getElementById("poster");
+
+    // 生成扩展名标签
+    document.querySelectorAll("[data-tags]").forEach((container) => {
+      const tags = container.dataset.tags.split("|");
+
+      tags.forEach((text) => {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = text;
+        container.appendChild(tag);
+      });
+    });
+
+    // 保证代码标签在不同系统字体下仍不会超出指定区域
+    function fitCodeRows() {
+      document.querySelectorAll(".code-row").forEach((row) => {
+        let fontSize = 14;
+        row.style.setProperty("--code-size", fontSize + "px");
+
+        while (row.scrollWidth > row.clientWidth && fontSize > 11.8) {
+          fontSize -= 0.1;
+          row.style.setProperty("--code-size", fontSize.toFixed(1) + "px");
+        }
+      });
+    }
+
+    // 固定 1536×1024 画布，按窗口等比缩放
+    function fitPoster() {
+      const scale = Math.min(
+        window.innerWidth / BASE_WIDTH,
+        window.innerHeight / BASE_HEIGHT
+      );
+
+      const left = (window.innerWidth - BASE_WIDTH * scale) / 2;
+      const top = (window.innerHeight - BASE_HEIGHT * scale) / 2;
+
+      poster.style.left = left + "px";
+      poster.style.top = top + "px";
+      poster.style.transform = `scale(${scale})`;
+    }
+
+    fitCodeRows();
+    fitPoster();
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => {
+        fitCodeRows();
+        fitPoster();
+      });
+    }
+
+    window.addEventListener("resize", fitPoster);
+  </script>
+</body>
+</html>

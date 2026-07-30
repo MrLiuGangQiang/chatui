@@ -120,7 +120,7 @@ npm run check
    - 校验 package 基本信息和 `private: true`；
    - 校验 `version.json` 格式，并确认 `package.json`、`package-lock.json` 镜像字段与它一致；
    - 校验要求的 package scripts；
-   - 校验根静态文件存在，并检查 `route.html` 的 Docker/静态服务约束。
+   - 校验根静态文件与 `pages/` 独立页面存在，并检查该目录的 Docker/静态服务约束。
 2. `npm run check:architecture`
    - 限制根 `app.js` 大小；
    - 禁止超过 baseline 的 legacy `with (...)`；
@@ -136,7 +136,7 @@ npm run check
 - Docker 构建或 `preview:release`；
 - 正式代码覆盖率阈值；
 - 真实浏览器 E2E；
-- ARM64 容器运行测试；
+- `linux/amd64` 容器运行测试；
 - 真实 PostgreSQL 集成环境；
 - 真实 OpenAI-compatible 上游调用；
 - actionlint、通用 lint、format 或 image vulnerability scan。
@@ -178,8 +178,8 @@ npm run preview:release
 
 - 当前提交已经推送到 `origin/main`；
 - GitHub required checks 已通过；
-- ARM64 镜像已经运行；
-- Docker Hub/ACR 标签已经发布；
+- `linux/amd64` 镜像已经运行；
+- ACR 和 Docker Hub 标签已经发布；
 - GitHub Release 已存在。
 
 如果本机没有 Docker，不要伪造或跳过记录。按 release procedure，必须在打 tag 前等待该提交的远端 `Exact Docker runtime` 成功。
@@ -220,7 +220,7 @@ Docker 可用时还必须运行：
 npm run preview:release
 ```
 
-提交 release candidate 并推送到 `main`。等待该精确提交的全部 main CI，特别是 `Exact Docker runtime`，成功后才能打 tag。
+提交 release candidate 并推送到 `main`。等待该精确提交的全部 main CI，特别是 `Exact Docker runtime`，成功后才能打 tag；不能以脏工作区、另一 worktree 或较早 commit 的结果作为候选依据。
 
 ### 9.3 创建 annotated tag
 
@@ -231,23 +231,25 @@ git tag -a vMAJOR.MINOR.PATCH -m "ChatUI vMAJOR.MINOR.PATCH"
 git push origin vMAJOR.MINOR.PATCH
 ```
 
-不要使用 lightweight tag，不要把 tag 指向未通过 main CI 的提交。
+不要使用 lightweight tag，也不要把 tag 指向未通过 main CI 的提交。
 
 ### 9.4 Tag workflow
 
-`.github/workflows/dockerhub.yml` 当前会：
+`.github/workflows/release.yml` 以阿里云 ACR 为主发布路径，当前会：
 
 1. 校验 tag 格式；
 2. checkout tag，确认它是 annotated tag 且提交属于 `origin/main`；
 3. 校验 tag 与 `version.json` 一致、npm 版本镜像一致，并检查 Release Notes；
 4. 再次运行 `npm run check`；
-5. 构建 `linux/amd64`、`linux/arm64` 候选 manifest，并推送到 Docker Hub 和 ACR 的 candidate tag；
-6. 按构建输出 digest 拉取候选，并运行 runtime identity/asset 验证；
-7. 不重新构建，直接把同一 digest 提升为 `MAJOR.MINOR.PATCH`、`vMAJOR.MINOR.PATCH` 和 `latest`；
-8. 验证两个 registry 的所有正式标签都解析到该 digest；
+5. 构建 `linux/amd64` ACR 候选镜像；
+6. 按构建输出 digest 拉取 ACR 候选，并运行 runtime identity/asset 验证；
+7. 不重新构建，直接把同一 digest 提升为 ACR 的 `MAJOR.MINOR.PATCH`、`vMAJOR.MINOR.PATCH` 和 `latest`；
+8. 验证 ACR 的全部正式标签都解析到该 digest；
 9. 创建或更新同 tag 的非 draft、非 prerelease GitHub Release。
 
-当前 workflow 构建双架构 manifest，但候选容器的运行验证发生在 GitHub runner 的本机架构上；不要把它描述为两个平台都已启动验证。
+Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签验证和 GitHub Release 成功后，自动从已验证的 ACR digest 复制，不会重建镜像。手动触发 workflow 时，`publish_dockerhub` 默认也为启用状态。
+
+当前 workflow 仅构建并验证 `linux/amd64` 镜像；ARM64 部署不在发布支持范围内。
 
 ### 9.5 发布完成条件
 
@@ -256,7 +258,8 @@ git push origin vMAJOR.MINOR.PATCH
 - tag 指向已验证的确切 main commit；
 - tag-triggered Docker workflow 成功；
 - GitHub Release 已发布且不是 draft；
-- Docker Hub 与 ACR 的版本、`v` 前缀和 `latest` 标签解析到验证过的同一 digest；
+- ACR 的版本、`v` 前缀和 `latest` 标签解析到验证过的同一 digest；
+- Docker Hub 的对应标签也解析到同一 digest；
 - workflow 的 `/api/version` 校验匹配 version、Git SHA 和 runtime source revision；
 - 已说明是否还需要部署环境拉取新镜像或重启服务。
 
@@ -269,10 +272,9 @@ git push origin vMAJOR.MINOR.PATCH
 - GitHub main CI 和 required checks 状态；
 - tag workflow 是否成功完成；
 - GitHub Release 是否真正发布；
-- Docker Hub/ACR 的标签传播和最终 digest；
+- ACR 和 Docker Hub 的标签传播及最终 digest；
 - registry 登录、secret 权限和配额；
 - GitHub branch/tag protection 与 ruleset；
-- ARM64 镜像的实际启动行为；
 - 下游部署是否已拉取新镜像并完成重启/健康检查；
 - 真实上游、网络代理和生产 PostgreSQL 的可用性。
 

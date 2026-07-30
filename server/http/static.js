@@ -31,8 +31,8 @@ const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
-const PUBLIC_ROOT_FILES = new Set(['/index.html', '/route.html', '/favicon.svg', '/styles.css', '/app.js']);
-const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/'];
+const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
+const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/', '/pages/'];
 
 function isPublicStaticPath(urlPath) {
   let pathname;

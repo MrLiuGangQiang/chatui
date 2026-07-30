@@ -192,6 +192,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const path = require('path');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const ui = fs.readFileSync(path.join(__dirname, '../../client/ui/usage-stats.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
   const serviceIndex = index.indexOf('client/services/usage-stats.js');
   const rangesIndex = index.indexOf('shared/usage/ranges.js');
   const formatIndex = index.indexOf('client/ui/usage-stats-format.js');
@@ -203,6 +204,11 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   assert.ok(index.includes('client/ui/usage-stats.js?v=1.2.78-feedback-form'), 'feedback form should ship with a fresh UI cache version');
   assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
   assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
+  assert.ok(ui.includes('id="usageStatsIconGradient"') && ui.includes('class="usage-stats-pulse"'), 'the usage launcher must use the neon dashboard icon');
+  assert.ok(ui.includes('stop-color="#60a5fa"') && ui.includes('stop-color="#8b5cf6"') && !ui.includes('stop-color="#34d399"'), 'the usage launcher gradient should match the blue-cyan-violet entry palette');
+  assert.ok(ui.includes('id="usageFeedbackIconGradient"') && ui.includes('class="usage-feedback-wave"'), 'the feedback launcher must use the neon waveform icon');
+  assert.ok(css.includes('.usage-stats-button{border-color:#bfdbfe!important;background:#eff6ff!important;color:#1d4ed8!important') && css.includes('.usage-stats-button:hover{background:#dbeafe!important'), 'the usage launcher surface should match the other light-blue entry buttons');
+  assert.ok(css.includes('@keyframes usage-entry-pulse') && css.includes('.usage-feedback-open:hover .usage-feedback-spark'), 'usage entry icons must retain their shared motion treatment');
 }
 
 function testUsageValidatorNormalizesInputs() {

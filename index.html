@@ -208,31 +208,52 @@
     </section>
   </div>
 
-  <button id="routeDiagramFab" class="route-diagram-fab" type="button" aria-label="查看任务路由执行地图" aria-controls="routeDiagramModal" aria-expanded="false" title="查看任务路由执行地图">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="6" cy="5.5" r="2"/>
-      <circle cx="18" cy="5.5" r="2"/>
-      <circle cx="12" cy="18" r="2"/>
-      <path d="M6 7.5v2.1a4.4 4.4 0 0 0 4.4 4.4h1.2A4.4 4.4 0 0 1 16 18M18 7.5v2.1a4.4 4.4 0 0 1-4.4 4.4h-1.2A4.4 4.4 0 0 0 8 18"/>
+  <button id="supportedFilesFab" class="route-diagram-fab supported-files-fab" type="button" aria-label="查看支持的文件格式" aria-controls="routeDiagramModal" aria-expanded="false" title="查看支持的文件格式">
+    <svg class="fab-icon fab-files-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <linearGradient id="filesFabGradient" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#22d3ee"/>
+          <stop offset=".52" stop-color="#3b82f6"/>
+          <stop offset="1" stop-color="#8b5cf6"/>
+        </linearGradient>
+      </defs>
+      <path class="fab-files-back" d="M4.2 6.4h8.2l3.1 3.1v10.1H4.2z" stroke="url(#filesFabGradient)" opacity=".42"/>
+      <path class="fab-files-main" d="M7.1 3.2h7.2l4.2 4.2v13.4H7.1z" fill="url(#filesFabGradient)" fill-opacity=".1" stroke="url(#filesFabGradient)"/>
+      <path d="M14.3 3.2v4.2h4.2M10 12h5.7M10 15.6h4.2" stroke="url(#filesFabGradient)"/>
+      <path class="fab-files-spark" d="m19.2 2 .55 1.45L21.2 4l-1.45.55L19.2 6l-.55-1.45L17.2 4l1.45-.55z" fill="#67e8f9" stroke="none"/>
+    </svg>
+    <span class="sr-only">查看支持的文件格式</span>
+  </button>
+
+  <button id="routeDiagramFab" class="route-diagram-fab route-map-fab" type="button" aria-label="查看任务路由执行地图" aria-controls="routeDiagramModal" aria-expanded="false" title="查看任务路由执行地图">
+    <svg class="fab-icon fab-route-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <linearGradient id="routeFabGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#a78bfa"/>
+          <stop offset=".48" stop-color="#3b82f6"/>
+          <stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient>
+      </defs>
+      <path class="fab-route-orbit" d="M4.1 8.2A8.8 8.8 0 0 1 18.8 5M19.9 15.8A8.8 8.8 0 0 1 5.2 19" stroke="url(#routeFabGradient)" opacity=".5"/>
+      <path class="fab-route-track" d="M5.2 6.1h5.5a3 3 0 0 1 3 3v5.6a3 3 0 0 0 3 3h1.7" stroke="url(#routeFabGradient)"/>
+      <circle cx="5.2" cy="6.1" r="2.2" fill="#8b5cf6" fill-opacity=".16" stroke="url(#routeFabGradient)"/>
+      <circle cx="13.7" cy="12" r="2" fill="#3b82f6" fill-opacity=".18" stroke="url(#routeFabGradient)"/>
+      <path class="fab-route-arrow" d="m17.2 15.4 2.8 2.3-2.8 2.3" stroke="url(#routeFabGradient)"/>
+      <circle class="fab-route-comet" cx="10.6" cy="6.1" r="1" fill="#67e8f9" stroke="none"/>
     </svg>
     <span class="sr-only">查看意图识别流程</span>
   </button>
 
   <div id="routeDiagramModal" class="route-diagram-modal" aria-hidden="true">
     <div class="route-diagram-mask" data-route-diagram-close></div>
-    <section class="route-diagram-dialog" role="dialog" aria-modal="true" aria-labelledby="routeDiagramTitle" aria-describedby="routeDiagramHint">
+    <section class="route-diagram-dialog" role="dialog" aria-modal="true" aria-label="页面预览">
       <header class="route-diagram-head">
-        <div>
-          <span class="route-diagram-kicker">Task routing</span>
-          <h2 id="routeDiagramTitle">任务路由执行地图</h2>
-          <p id="routeDiagramHint">查看 ChatUI 从提交、路由到持久化执行的条件流程。</p>
-        </div>
-        <button id="closeRouteDiagramBtn" class="route-diagram-close" type="button" data-route-diagram-close aria-label="关闭流程图" title="关闭流程图">
+        <button id="closeRouteDiagramBtn" class="route-diagram-close" type="button" data-route-diagram-close aria-label="关闭页面" title="关闭页面">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
       </header>
       <div class="route-diagram-frame-wrap">
-        <iframe id="routeDiagramFrame" title="任务路由执行地图" loading="lazy"></iframe>
+        <iframe id="routeDiagramFrame" title="页面预览" loading="lazy"></iframe>
       </div>
     </section>
   </div>
@@ -453,17 +474,17 @@
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.3.4-execution-map-compact-secret-free-backup-connection-right" />
+  <link rel="stylesheet" href="./styles.css?v=1.3.4-execution-map-compact-secret-free-backup-connection-right-code-collapse-classic-icon-aligned-v2" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.4.0-native-file-inputs" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.44-stable-clarification-height" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.7" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall-code-expand-hover-lock-bottom-overlay" />
   <script src="./client/app/markdown/source-normalizer.js?v=1.2.67"></script>
   <script src="./client/app/markdown/link-policy.js?v=1.2.65"></script>
   <script src="./client/app/markdown/mermaid-normalizer.js?v=1.2.65"></script>
   <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/app/markdown/browser-engine.js?v=1.2.68-default-table-align"></script>
-  <script src="./client/app/markdown/enhancer.js?v=1.2.82"></script>
+  <script src="./client/app/markdown/enhancer.js?v=1.2.88-code-collapse-hover-overlap-fix"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
   <script src="./client/app/image-store.js?v=1.2.66-media-key-scan"></script>
   <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.99-large-dispose"></script>

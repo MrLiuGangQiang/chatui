@@ -65,6 +65,16 @@ async function testServerSmokeCoreEndpoints() {
     assert.ok(config.version, 'public config should expose app version');
     assert.ok(config.config && typeof config.config === 'object', 'public config should expose config object');
 
+    const supportedFiles = await request(baseUrl, '/pages/files.html');
+    assert.strictEqual(supportedFiles.res.status, 200);
+    assert.match(supportedFiles.res.headers.get('content-type') || '', /text\/html/);
+    assert.ok(supportedFiles.text.includes('<title>支持的文件格式</title>'));
+
+    const routeMap = await request(baseUrl, '/pages/route.html');
+    assert.strictEqual(routeMap.res.status, 200);
+    assert.match(routeMap.res.headers.get('content-type') || '', /text\/html/);
+    assert.ok(routeMap.text.includes('12节点执行地图'));
+
   });
 }
 

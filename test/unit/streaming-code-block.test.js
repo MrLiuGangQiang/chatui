@@ -215,6 +215,7 @@ function testMarkdownActionHoverUsesStableAnimatedSurface() {
   const lockRules = css.slice(lockStart, motionStart);
   assert.ok(lockRules.includes(':is(:hover,:focus,:focus-visible,:active)'), 'hover, focus, and active states should share the same geometry and visual baseline');
   assert.ok(lockRules.includes('.code-copy-icon:is(.copied,.copy-failed)') && lockRules.includes(':is(.is-error,.is-loading)'), 'copy and Mermaid feedback states should use the same locked button box');
+  assert.ok(lockRules.includes('.code-expand-header-toggle'), 'the code expansion action must share the locked button geometry without borrowing the copy-button position');
   assert.ok(lockRules.includes(':is(.mermaid-block,.mermaid-rendered-block)>.mermaid-render-toggle'), 'the rendered Mermaid conversion button should use the same interaction lock');
   for (const declaration of [
     'top:8px!important',

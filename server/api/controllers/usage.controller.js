@@ -92,16 +92,19 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
       if (typeof feedbackReviewer?.review !== 'function') {
         return sendJson(res, 503, { error: { message: '反馈内容审核服务暂时不可用，请稍后重试', code: 'FEEDBACK_REVIEW_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
       }
-      const review = await feedbackReviewer.review(body.content, access);
+      const chatModel = access.model;
+      const review = await feedbackReviewer.review(body.content, { apiKey: access.apiKey, model: chatModel });
       if (!review?.accepted) {
+        const reason = String(review?.message || '反馈内容不够完整，请补充问题描述、复现描述和期望结果').trim();
         return sendJson(res, 422, {
           ok: false,
           review: {
             accepted: false,
             missing_sections: Array.isArray(review?.missingSections) ? review.missingSections : [],
+            reason,
           },
           error: {
-            message: review?.message || '反馈内容不够完整，请补充问题描述、复现描述和期望结果',
+            message: `审核未通过：${reason}`,
             code: 'INVALID_FEEDBACK',
           },
         }, { 'Access-Control-Allow-Origin': '*' });
@@ -111,7 +114,7 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
       const username = String(personal?.username || '').trim();
       if (!username) return sendJson(res, 403, { error: { message: '未找到该 API Key 对应的统计用户名，无法提交反馈', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
       const routeModel = String(body?.route_model || body?.routeModel || '').trim();
-      await feedbackSender?.send(body.content, { username, routeModel, chatModel: access.model });
+      await feedbackSender?.send(body.content, { username, routeModel, chatModel });
       return sendJson(res, 200, { ok: true, message: '反馈已发送' }, { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
       if (err?.code !== 'FEEDBACK_NOT_CONFIGURED' && err?.code !== 'INVALID_FEEDBACK') console.error('[feedback] submission failed:', err?.cause?.message || err?.message || err);

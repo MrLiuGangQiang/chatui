@@ -62,6 +62,13 @@ function testFeedbackReviewPromptAndParserRequireAllThreeSections() {
   assert.deepStrictEqual(rejected.missingSections, ['reproduction_description', 'expected_result']);
   assert.strictEqual(rejected.accepted, false);
   assert.ok(rejected.message.includes('复现描述') && rejected.message.includes('期望结果'));
+
+  const unreasonable = feedbackReview.parseFeedbackReviewResult(JSON.stringify(reviewResult({
+    reasonable: false,
+    message: '复现步骤与问题现象不对应，请补充实际触发条件。',
+  })));
+  assert.strictEqual(unreasonable.accepted, false);
+  assert.strictEqual(unreasonable.message, '复现步骤与问题现象不对应，请补充实际触发条件。');
 }
 
 async function testFeedbackReviewerRepairsOneInvalidModelResponse() {

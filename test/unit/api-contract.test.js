@@ -260,8 +260,8 @@ async function testApiContractFeedbackRequiresModelApprovalBeforeDelivery() {
   assert.strictEqual(rejected.status, 422);
   assert.deepStrictEqual(rejected.json, {
     ok: false,
-    review: { accepted: false, missing_sections: ['reproduction_description', 'expected_result'] },
-    error: { message: '反馈内容不完整，请补充：复现描述、期望结果。', code: 'INVALID_FEEDBACK' },
+    review: { accepted: false, missing_sections: ['reproduction_description', 'expected_result'], reason: '反馈内容不完整，请补充：复现描述、期望结果。' },
+    error: { message: '审核未通过：反馈内容不完整，请补充：复现描述、期望结果。', code: 'INVALID_FEEDBACK' },
   });
   assert.deepStrictEqual(rejectedCalls, [['review', '不好用', { apiKey: 'sk-test', model: 'gpt-test' }]], 'rejected feedback must not query the user or reach DingTalk');
 

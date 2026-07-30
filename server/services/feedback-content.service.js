@@ -21,7 +21,7 @@ function feedbackModelContext({ routeModel = '', chatModel = '' } = {}) {
   const chat = normalizeModelName(chatModel) || '未配置';
   const configuredRoute = normalizeModelName(routeModel);
   const route = configuredRoute || `${chat}（跟随聊天模型）`;
-  return `${FEEDBACK_MODEL_CONTEXT_HEADING}\n意图识别模型：${route}\n聊天模型：${chat}`;
+  return `${FEEDBACK_MODEL_CONTEXT_HEADING}\n意图模型：${route}\n聊天模型：${chat}`;
 }
 
 function feedbackWithModelContext(content, models = {}) {

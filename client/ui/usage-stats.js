@@ -38,6 +38,7 @@
 
   const FEEDBACK_MODEL_CONTEXT_HEADING = '【模型信息（自动填写）】';
   const FEEDBACK_USER_TEMPLATE = '【问题描述】\n\n【复现描述】\n\n【期望结果】';
+  const FEEDBACK_USER_MAX_LENGTH = 3700;
 
   function feedbackUserContent(content = '') {
     const normalized = String(content || '').replace(/\r\n?/g, '\n').trim();
@@ -48,12 +49,16 @@
   function feedbackModelContext({ routeModel = '', chatModel = '' } = {}) {
     const chat = String(chatModel || '').trim() || '未配置';
     const route = String(routeModel || '').trim() || `${chat}（跟随聊天模型）`;
-    return `${FEEDBACK_MODEL_CONTEXT_HEADING}\n意图识别模型：${route}\n聊天模型：${chat}`;
+    return `${FEEDBACK_MODEL_CONTEXT_HEADING}\n意图模型：${route}\n聊天模型：${chat}`;
   }
 
   function feedbackDraft(content = '', models = {}) {
     const userContent = feedbackUserContent(content) || FEEDBACK_USER_TEMPLATE;
     return `${userContent}\n\n${feedbackModelContext(models)}`;
+  }
+
+  function feedbackContentFromFields({ problem = '', reproduction = '', expected = '' } = {}) {
+    return `【问题描述】\n${String(problem || '').trim()}\n\n【复现描述】\n${String(reproduction || '').trim()}\n\n【期望结果】\n${String(expected || '').trim()}`.trim();
   }
 
   function ensureDom() {
@@ -112,13 +117,18 @@
     feedbackPanel.innerHTML = `
       <div class="usage-feedback-card" role="dialog" aria-modal="true" aria-labelledby="usageFeedbackTitle">
         <div class="usage-feedback-head">
-          <div class="usage-feedback-heading"><strong id="usageFeedbackTitle">问题反馈</strong></div>
+          <div class="usage-feedback-heading"><span>帮助我们持续改进</span><strong id="usageFeedbackTitle">提交问题反馈</strong></div>
           <button id="usageFeedbackClose" type="button" aria-label="关闭反馈">×</button>
         </div>
         <div class="usage-feedback-body">
-          <label for="usageFeedbackContent">反馈内容 <em>必填</em></label>
-          <textarea id="usageFeedbackContent" maxlength="4000" placeholder="请描述问题现象、复现步骤和期望结果。"></textarea>
-          <div class="usage-feedback-notice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7h.01"/></svg><div><span>提交前将由当前聊天模型审核，必须包含问题描述、复现描述和期望结果。</span></div><span id="usageFeedbackCount">0 / 4000</span></div>
+          <p class="usage-feedback-intro">按下面三步补充信息，提交前会由当前聊天模型检查内容是否足够清楚。</p>
+          <div class="usage-feedback-fields">
+            <label class="usage-feedback-field" for="usageFeedbackProblem"><span class="usage-feedback-step">1</span><span><strong>问题描述</strong><em>发生了什么？</em></span><textarea id="usageFeedbackProblem" maxlength="1400" placeholder="例如：移动端点击会话后，页面仍停留在原会话。"></textarea></label>
+            <label class="usage-feedback-field" for="usageFeedbackReproduction"><span class="usage-feedback-step">2</span><span><strong>复现描述</strong><em>怎样可以再次出现？</em></span><textarea id="usageFeedbackReproduction" maxlength="1400" placeholder="例如：打开会话侧栏，点击任意其他会话。"></textarea></label>
+            <label class="usage-feedback-field" for="usageFeedbackExpected"><span class="usage-feedback-step">3</span><span><strong>期望结果</strong><em>正确行为应是什么？</em></span><textarea id="usageFeedbackExpected" maxlength="900" placeholder="例如：应立即切换并显示所选会话的消息。"></textarea></label>
+          </div>
+          <div class="usage-feedback-models" aria-label="本次反馈使用的模型信息"><div class="usage-feedback-models-title">模型信息 <span>自动记录</span></div><div id="usageFeedbackModels" class="usage-feedback-model-values"></div></div>
+          <div class="usage-feedback-notice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v5"/><path d="M12 7h.01"/></svg><div><span>只需填写上方内容；模型信息会由系统自动附加。</span></div><span id="usageFeedbackCount">0 / 3700</span></div>
           <div id="usageFeedbackStatus" class="usage-feedback-status" aria-live="polite"></div>
         </div>
         <div class="usage-feedback-foot"><button id="usageFeedbackCancel" type="button">取消</button><button id="usageFeedbackSubmit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>提交反馈</button></div>
@@ -296,21 +306,49 @@
     status.classList.toggle('is-success', Boolean(message && !isError));
   }
 
+  function feedbackFields() {
+    return {
+      problem: String($('usageFeedbackProblem')?.value || ''),
+      reproduction: String($('usageFeedbackReproduction')?.value || ''),
+      expected: String($('usageFeedbackExpected')?.value || ''),
+    };
+  }
+
+  function renderFeedbackModels() {
+    const el = $('usageFeedbackModels');
+    if (!el) return;
+    const chat = currentModel() || '未配置';
+    const route = currentRouteModel() || `${chat}（跟随聊天模型）`;
+    el.innerHTML = `<div><span>意图模型</span><code>${escapeHtml(route)}</code></div><div><span>聊天模型</span><code>${escapeHtml(chat)}</code></div>`;
+  }
+
+  function clearFeedbackFieldErrors() {
+    ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => $(id)?.classList.remove('is-invalid'));
+  }
+
+  function validateFeedbackFields(fields = feedbackFields()) {
+    const required = [
+      ['usageFeedbackProblem', fields.problem, '问题描述'],
+      ['usageFeedbackReproduction', fields.reproduction, '复现描述'],
+      ['usageFeedbackExpected', fields.expected, '期望结果'],
+    ];
+    clearFeedbackFieldErrors();
+    const missing = required.filter(([, value]) => !String(value || '').trim());
+    missing.forEach(([id]) => $(id)?.classList.add('is-invalid'));
+    return missing.length ? `请补充：${missing.map(([, , label]) => label).join('、')}` : '';
+  }
+
   function openFeedbackPanel() {
     closePanel();
     const configured = Boolean(currentApiKey() && currentModel());
     setFeedbackStatus(configured ? '' : '请先在模型配置中填写 API Key 并选择聊天模型', !configured);
-    const textarea = $('usageFeedbackContent');
-    if (textarea) textarea.value = feedbackDraft(textarea.value, { routeModel: currentRouteModel(), chatModel: currentModel() });
+    renderFeedbackModels();
+    clearFeedbackFieldErrors();
     updateFeedbackCount();
     $('usageFeedbackPanel')?.classList.add('show');
     $('usageFeedbackPanel')?.setAttribute('aria-hidden', 'false');
     setTimeout(() => {
-      textarea?.focus();
-      if (feedbackUserContent(textarea?.value) === FEEDBACK_USER_TEMPLATE) {
-        const position = '【问题描述】\n'.length;
-        textarea?.setSelectionRange?.(position, position);
-      }
+      $('usageFeedbackProblem')?.focus();
     }, 0);
   }
 
@@ -322,19 +360,21 @@
 
   function updateFeedbackCount() {
     const count = $('usageFeedbackCount');
-    if (count) count.textContent = `${String($('usageFeedbackContent')?.value || '').length} / 4000`;
+    if (count) count.textContent = `${Object.values(feedbackFields()).join('').length} / ${FEEDBACK_USER_MAX_LENGTH}`;
   }
 
   async function submitFeedback() {
     if (!currentApiKey() || !currentModel()) return setFeedbackStatus('请先在模型配置中填写 API Key 并选择聊天模型', true);
-    const content = String($('usageFeedbackContent')?.value || '').trim();
-    if (!content) return setFeedbackStatus('请填写需要反馈的问题', true);
+    const fields = feedbackFields();
+    const validationMessage = validateFeedbackFields(fields);
+    if (validationMessage) return setFeedbackStatus(validationMessage, true);
+    const content = feedbackContentFromFields(fields);
     const submit = $('usageFeedbackSubmit');
     submit && (submit.disabled = true);
     setFeedbackStatus('正在调用模型审核反馈内容…');
     try {
       await usageService()?.submitFeedback(content, currentApiKey(), currentModel(), currentRouteModel());
-      $('usageFeedbackContent').value = '';
+      ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => { const field = $(id); if (field) field.value = ''; });
       updateFeedbackCount();
       setFeedbackStatus('反馈已发送，感谢你的反馈。');
       setTimeout(closeFeedbackPanel, 900);
@@ -679,7 +719,10 @@
     $('usageFeedbackClose')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackCancel')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackSubmit')?.addEventListener('click', submitFeedback);
-    $('usageFeedbackContent')?.addEventListener('input', updateFeedbackCount);
+    ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => $(id)?.addEventListener('input', () => {
+      $(id)?.classList.remove('is-invalid');
+      updateFeedbackCount();
+    }));
     $('usageFeedbackPanel')?.addEventListener('click', event => { if (event.target?.id === 'usageFeedbackPanel') closeFeedbackPanel(); });
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
@@ -693,6 +736,7 @@
     feedbackUserContent,
     feedbackModelContext,
     feedbackDraft,
+    feedbackContentFromFields,
   };
 
   if (typeof document === 'undefined') return;

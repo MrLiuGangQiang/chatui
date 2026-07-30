@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { normalizeFeedback, feedbackUserContent, feedbackWithModelContext } = require('./feedback-content.service');
 
 const DINGTALK_WEBHOOK_HOSTS = new Set(['oapi.dingtalk.com', 'api.dingtalk.com']);
+const FEEDBACK_SECTION_LABELS = Object.freeze(['问题描述', '复现描述', '期望结果']);
 
 function normalizeAccessToken(value = process.env.DINGTALK_FEEDBACK_ACCESS_TOKEN) {
   const token = String(value || '').trim();
@@ -32,14 +33,45 @@ function signedWebhookUrl(webhook, secret = process.env.DINGTALK_FEEDBACK_SECRET
   return url.toString();
 }
 
+function displayText(value = '') {
+  return String(value || '').replace(/\r\n?/g, '\n').trim();
+}
+
+function feedbackSections(content) {
+  const normalized = feedbackUserContent(content);
+  const markers = [...normalized.matchAll(/【(问题描述|复现描述|期望结果)】/g)];
+  if (!markers.length) return [{ label: '反馈详情', content: normalized }];
+  const sections = new Map();
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index];
+    const end = markers[index + 1]?.index ?? normalized.length;
+    sections.set(marker[1], displayText(normalized.slice(marker.index + marker[0].length, end)));
+  }
+  return FEEDBACK_SECTION_LABELS.map(label => ({ label, content: sections.get(label) || '（未填写）' }));
+}
+
+function feedbackModelDetails(content) {
+  const normalized = normalizeFeedback(content);
+  const marker = '【模型信息（自动填写）】';
+  const context = normalized.includes(marker) ? normalized.slice(normalized.lastIndexOf(marker) + marker.length) : '';
+  const read = label => context.match(new RegExp(`^${label}：(.+)$`, 'm'))?.[1]?.trim() || '';
+  return { routeModel: read('意图模型') || read('意图识别模型') || '未配置', chatModel: read('聊天模型') || '未配置' };
+}
+
+function feedbackDetailsMarkdown(content) {
+  const sections = feedbackSections(content);
+  return sections.map((section, index) => `#### ${sections.length === 3 ? `${index + 1}. ` : ''}${section.label}\n${section.content}`).join('\n\n');
+}
+
 function feedbackMessage(content, username = '', now = new Date()) {
-  const author = String(username || '').trim() || '未知用户';
+  const author = displayText(username).replace(/\n+/g, ' ') || '未知用户';
   const submittedAt = now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }).replace(/\//g, '-');
+  const models = feedbackModelDetails(content);
   return {
     msgtype: 'markdown',
     markdown: {
-      title: `${author} 的问题反馈`,
-      text: `### 🔔 新的问题反馈\n\n---\n\n${content}\n\n---\n\n<font color=#8c8c8c>来自：${author}　·　${submittedAt}</font>`,
+      title: `问题反馈 · ${author}`,
+      text: `### 🐞 新问题反馈\n\n> 提交人：${author}  \n> 提交时间：${submittedAt}\n\n---\n\n${feedbackDetailsMarkdown(content)}\n\n---\n\n#### 模型信息\n- 意图模型：\`${models.routeModel}\`\n- 聊天模型：\`${models.chatModel}\``,
     },
   };
 }
@@ -92,4 +124,4 @@ function createDingTalkFeedbackSender({ accessToken = process.env.DINGTALK_FEEDB
   };
 }
 
-module.exports = { DINGTALK_WEBHOOK_HOSTS, normalizeAccessToken, normalizeWebhook, signedWebhookUrl, normalizeFeedback, feedbackMessage, createDingTalkFeedbackSender };
+module.exports = { DINGTALK_WEBHOOK_HOSTS, FEEDBACK_SECTION_LABELS, normalizeAccessToken, normalizeWebhook, signedWebhookUrl, normalizeFeedback, feedbackSections, feedbackModelDetails, feedbackDetailsMarkdown, feedbackMessage, createDingTalkFeedbackSender };

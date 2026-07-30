@@ -83,7 +83,7 @@ function testUsageStatsFrontendHelpers() {
 function testFeedbackContentKeepsAuthoritativeModelsWithinLengthLimit() {
   const content = feedbackContent.feedbackWithModelContext('x'.repeat(4000), { routeModel: 'route-model', chatModel: 'chat-model' });
   assert.strictEqual(content.length, feedbackContent.MAX_FEEDBACK_LENGTH);
-  assert.ok(content.endsWith('意图识别模型：route-model\n聊天模型：chat-model'));
+  assert.ok(content.endsWith('意图模型：route-model\n聊天模型：chat-model'));
 }
 
 
@@ -117,11 +117,12 @@ function testUsageStatsModuleLoadsWithCommonJsFacade() {
     assert.strictEqual(typeof usageStats.renderPersonal, 'function');
     assert.strictEqual(typeof usageStats.renderRanking, 'function');
     assert.strictEqual(typeof usageStats.renderDepartmentUsers, 'function');
+    assert.strictEqual(usageStats.feedbackContentFromFields({ problem: '会话未切换', reproduction: '点击另一会话', expected: '应切换会话' }), '【问题描述】\n会话未切换\n\n【复现描述】\n点击另一会话\n\n【期望结果】\n应切换会话');
     const draft = usageStats.feedbackDraft('', { routeModel: '', chatModel: 'chat-main' });
-    assert.strictEqual(draft, '【问题描述】\n\n【复现描述】\n\n【期望结果】\n\n【模型信息（自动填写）】\n意图识别模型：chat-main（跟随聊天模型）\n聊天模型：chat-main');
+    assert.strictEqual(draft, '【问题描述】\n\n【复现描述】\n\n【期望结果】\n\n【模型信息（自动填写）】\n意图模型：chat-main（跟随聊天模型）\n聊天模型：chat-main');
     const updated = usageStats.feedbackDraft(draft.replace('【问题描述】', '【问题描述】\n移动端点击会话没有切换'), { routeModel: 'route-new', chatModel: 'chat-new' });
     assert.ok(updated.includes('移动端点击会话没有切换'));
-    assert.ok(updated.includes('意图识别模型：route-new') && updated.includes('聊天模型：chat-new'));
+    assert.ok(updated.includes('意图模型：route-new') && updated.includes('聊天模型：chat-new'));
     assert.strictEqual((updated.match(/【模型信息（自动填写）】/g) || []).length, 1, 'refreshing a draft must replace the automatic model block');
   } finally {
     delete require.cache[usageStatsPath];
@@ -145,14 +146,17 @@ async function testDingTalkFeedbackSenderContracts() {
     fetchImpl: async (url, init) => { calls.push({ url, init }); return { ok: true, json: async () => ({ errcode: 0 }) }; },
     now: () => 0,
   });
-  assert.strictEqual(await sender.send('  页面打不开\n\n【模型信息（自动填写）】\n意图识别模型：伪造值  ', {
+  assert.strictEqual(await sender.send('【问题描述】\n页面打不开\n\n【复现描述】\n打开首页即可复现\n\n【期望结果】\n页面应正常打开\n\n【模型信息（自动填写）】\n意图模型：伪造值  ', {
     routeModel: 'route-model',
     chatModel: 'chat-model',
   }), true);
   assert.strictEqual(calls.length, 1);
   const delivered = JSON.parse(calls[0].init.body).markdown.text;
-  assert.ok(delivered.includes('页面打不开'));
-  assert.ok(delivered.includes('意图识别模型：route-model') && delivered.includes('聊天模型：chat-model'));
+  assert.ok(delivered.includes('#### 1. 问题描述\n页面打不开'));
+  assert.ok(delivered.includes('#### 2. 复现描述\n打开首页即可复现'));
+  assert.ok(delivered.includes('#### 3. 期望结果\n页面应正常打开'));
+  assert.ok(delivered.includes('#### 模型信息'));
+  assert.ok(delivered.includes('意图模型：`route-model`') && delivered.includes('聊天模型：`chat-model`'));
   assert.ok(!delivered.includes('伪造值'), 'server-normalized model context must replace user-edited model text');
   await assert.rejects(sender.send('   '), err => err.code === 'INVALID_FEEDBACK');
   const unavailable = dingTalkFeedback.createDingTalkFeedbackSender({ accessToken: '' });
@@ -172,9 +176,9 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
   assert.ok(index.includes('client/services/usage-stats.js?v=1.2.77-feedback-template'), 'feedback request shape should ship with a fresh service cache version');
-  assert.ok(index.includes('client/ui/usage-stats.js?v=1.2.77-feedback-template'), 'feedback template should ship with a fresh UI cache version');
-  assert.ok(ui.includes('必须包含问题描述、复现描述和期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should explain the three required sections and the model-review stage');
-  assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图识别模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
+  assert.ok(index.includes('client/ui/usage-stats.js?v=1.2.78-feedback-form'), 'feedback form should ship with a fresh UI cache version');
+  assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
+  assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
 }
 
 function testUsageValidatorNormalizesInputs() {

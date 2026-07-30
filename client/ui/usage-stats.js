@@ -264,6 +264,7 @@
   let activePersonalRange = 'today';
   let activeDepartmentRange = 'today';
   let activeMode = 'personal';
+  let activeDepartmentDetail = null;
 
   function clearDepartmentCache() {
     cache.departmentRankings = {};
@@ -549,9 +550,9 @@
     renderRanking(cache.departmentRankings[range], range);
   }
 
-  async function loadDepartmentUsers(departmentId, departmentName) {
+  async function loadDepartmentUsers(departmentId, departmentName, options = {}) {
     const cacheKey = `${activeDepartmentRange}:${departmentId}`;
-    if (cache.departmentUsers[cacheKey]) {
+    if (!options.force && cache.departmentUsers[cacheKey]) {
       renderDepartmentUsers(departmentName, cache.departmentUsers[cacheKey]);
       return;
     }
@@ -572,7 +573,11 @@
     refresh && (refresh.disabled = true);
     try {
       if (activeMode === 'department') {
-        await loadDepartmentRanking(activeDepartmentRange, { force: true });
+        if (activeDepartmentDetail) {
+          await loadDepartmentUsers(activeDepartmentDetail.id, activeDepartmentDetail.name, { force: true });
+        } else {
+          await loadDepartmentRanking(activeDepartmentRange, { force: true });
+        }
       } else {
         await loadOverview({ force: true });
       }
@@ -609,6 +614,7 @@
         const ok = await ensureDepartmentAccess();
         if (!ok) return;
         activeMode = 'department';
+        activeDepartmentDetail = null;
         updateModeUi();
         renderPersonal(null, true);
         await loadDepartmentRanking(activeDepartmentRange);
@@ -622,6 +628,7 @@
       return;
     }
     activeMode = 'personal';
+    activeDepartmentDetail = null;
     updateModeUi();
     await refreshUsageStats();
   }
@@ -655,9 +662,12 @@
   }
 
   async function openDepartmentRow(row) {
+    const departmentId = row.dataset.departmentId;
+    const departmentName = row.dataset.departmentName || '部门';
+    activeDepartmentDetail = { id: departmentId, name: departmentName };
     try {
       clearUsageLimit();
-      await loadDepartmentUsers(row.dataset.departmentId, row.dataset.departmentName || '部门');
+      await loadDepartmentUsers(departmentId, departmentName, { force: true });
     } catch (err) {
       if (String(err.message || '').includes('密码错误')) {
         clearDepartmentPassword();
@@ -671,7 +681,10 @@
     const target = event.target;
     if (target?.id === 'usageStatsPanel') return closePanel();
     const backButton = target?.closest?.('#usageBackDepartments');
-    if (backButton) return renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange);
+    if (backButton) {
+      activeDepartmentDetail = null;
+      return renderRanking(cache.departmentRankings[activeDepartmentRange] || [], activeDepartmentRange);
+    }
     const personalRangeButton = target?.closest?.('[data-personal-range]');
     if (personalRangeButton) return handlePersonalRangeClick(personalRangeButton);
     const tabButton = target?.closest?.('[data-usage-tab]');

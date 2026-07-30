@@ -95,11 +95,15 @@ function missingSections(raw = {}) {
 }
 
 function rejectionMessage(missing = [], modelMessage = '') {
+  const reason = String(modelMessage || '').trim().slice(0, 300);
+  // The model can determine that a section is semantically insufficient even
+  // when the form field is non-empty. Its explanation is more useful than a
+  // generic list inferred from the boolean section flags.
+  if (reason) return reason;
   if (missing.length) {
     return `反馈内容不完整，请补充：${missing.map(key => REQUIRED_SECTION_LABELS[key]).join('、')}。`;
   }
-  return String(modelMessage || '').trim().slice(0, 300)
-    || '这段内容暂时无法作为有效的问题反馈，请补充具体问题、复现过程和期望结果。';
+  return '这段内容暂时无法作为有效的问题反馈，请补充具体问题、复现过程和期望结果。';
 }
 
 function parseFeedbackReviewResult(value = '') {

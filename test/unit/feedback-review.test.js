@@ -61,7 +61,14 @@ function testFeedbackReviewPromptAndParserRequireAllThreeSections() {
   })));
   assert.deepStrictEqual(rejected.missingSections, ['reproduction_description', 'expected_result']);
   assert.strictEqual(rejected.accepted, false);
-  assert.ok(rejected.message.includes('复现描述') && rejected.message.includes('期望结果'));
+  assert.strictEqual(rejected.message, '描述不完整');
+
+  const rejectedWithoutModelReason = feedbackReview.parseFeedbackReviewResult(JSON.stringify(reviewResult({
+    has_reproduction_description: false,
+    reasonable: false,
+    message: '',
+  })));
+  assert.strictEqual(rejectedWithoutModelReason.message, '反馈内容不完整，请补充：复现描述。');
 
   const unreasonable = feedbackReview.parseFeedbackReviewResult(JSON.stringify(reviewResult({
     reasonable: false,

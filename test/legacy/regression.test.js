@@ -1247,7 +1247,7 @@ function testSessionSwitchFocusesBottom() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
-  assert.ok(source.includes('switchSession(session.id)'), 'session tabs should use the normal v1.3.25 switchSession path instead of an extra override layer');
+  assert.ok(source.includes('function bindSessionSwitchInput(list)') && source.includes('switchSession(tab.dataset.sessionId)') && source.includes('switchSession(gesture.sessionId)'), 'delegated session input should keep mouse, keyboard, and touch on the normal switchSession path instead of adding an override layer');
   assert.ok(!source.includes('switchSessionToBottom'), 'session-ui should not contain the later switch-bottom wrapper');
   const removedOverride = ['session', 'switch', 'override'].join('-') + '.js';
   assert.ok(!index.includes(removedOverride), 'the extra capture-phase session switch override should not be loaded');
@@ -1371,7 +1371,7 @@ function testEmptySessionRendersPremiumWelcome() {
   assert.ok(css.includes('@media (min-width:761px) and (max-height:900px)') && css.includes('align-items:center!important;\n    padding-top:10px!important;\n    padding-bottom:max(var(--composer-safe-bottom,168px),132px)!important') && css.includes('.welcome-feature-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:8px!important;}'), 'low-height desktop displays should center the compact welcome page inside composer-safe space and preserve a four-column capability grid');
   assert.ok(css.includes('@media (min-width:761px) and (max-height:700px)') && css.includes('.welcome-orbit,.welcome-badges{display:none!important;}') && css.includes('.welcome-feature-card{min-height:92px!important;}'), 'very short desktop displays should remove secondary hero decoration and use the densest safe layout');
   assert.ok(css.includes('@media (min-width:761px) and (max-height:520px)') && css.includes('align-items:flex-start!important') && css.includes('.welcome-feature-card{min-height:86px!important;padding:8px!important;}'), 'extremely short desktop displays should top-align an extra-dense scroll-safe layout instead of clipping it');
-  assert.ok(css.includes('@media (max-width:640px)') && css.includes('padding:6px 5px max(var(--composer-safe-bottom,142px),132px)!important') && css.includes('.welcome-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;}') && css.includes('@media (max-width:360px)') && css.includes('.welcome-orbit{display:none!important;}'), 'the compact welcome page should keep scroll clearance above the mobile composer, use a two-column grid, and fall back to one column on narrow screens');
+  assert.ok(css.includes('@media (max-width:640px)') && css.includes('padding:8px 8px max(var(--composer-safe-bottom,136px),120px)!important') && css.includes('.welcome-badges,.welcome-guidelines,.welcome-section-head{display:none!important;}') && css.includes('.welcome-feature-card p,.welcome-feature-index{display:none!important;}') && css.includes('@media (max-width:360px)') && css.includes('.welcome-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;}'), 'the mobile welcome page should keep only a compact hero and two-column capability shortcuts above the composer');
 }
 
 function testHistoryRenderLoadsNewestMessagesFirst() {

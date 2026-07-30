@@ -11,6 +11,34 @@
     return event.button === undefined || event.button === 0;
   }
 
+  const SESSION_TOUCH_TAP_SLOP = 12;
+
+  function createSessionTouchGesture(event) {
+    if (!event || event.pointerType !== 'touch' || event.isPrimary === false || isSessionActionTarget(event.target)) return null;
+    if (event.button !== undefined && event.button !== 0) return null;
+    return {
+      pointerId: event.pointerId,
+      startX: Number(event.clientX) || 0,
+      startY: Number(event.clientY) || 0,
+      moved: false,
+    };
+  }
+
+  function updateSessionTouchGesture(gesture, event) {
+    if (!gesture || !event || event.pointerType !== 'touch') return gesture;
+    if (gesture.pointerId !== undefined && event.pointerId !== gesture.pointerId) return gesture;
+    const distance = Math.hypot((Number(event.clientX) || 0) - gesture.startX, (Number(event.clientY) || 0) - gesture.startY);
+    if (distance > SESSION_TOUCH_TAP_SLOP) gesture.moved = true;
+    return gesture;
+  }
+
+  function shouldSwitchSessionOnTouchPointerUp(event, gesture) {
+    if (!gesture || !event || event.pointerType !== 'touch' || isSessionActionTarget(event.target)) return false;
+    if (gesture.pointerId !== undefined && event.pointerId !== gesture.pointerId) return false;
+    updateSessionTouchGesture(gesture, event);
+    return !gesture.moved;
+  }
+
   function createSessionUiWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const $ = deps.getElement || (() => null);
@@ -47,11 +75,56 @@
     const sessionConfig = deps.sessionConfig || {};
     const constants = deps.constants || {};
     const ACTIVE_SESSION_KEY = constants.ACTIVE_SESSION_KEY || 'active-session';
+    const boundSessionLists = new WeakSet();
+    let activeTouchGesture = null;
+    let handledTouchSwitch = null;
+
+    function sessionTabForEvent(event, list) {
+      const tab = event?.target?.closest?.('.session-tab');
+      return tab && list.contains(tab) ? tab : null;
+    }
+
+    function bindSessionSwitchInput(list) {
+      if (boundSessionLists.has(list)) return;
+      boundSessionLists.add(list);
+      list.addEventListener('pointerdown', event => {
+        const tab = sessionTabForEvent(event, list);
+        if (!tab) return;
+        const gesture = createSessionTouchGesture(event);
+        if (gesture) {
+          activeTouchGesture = { ...gesture, sessionId: tab.dataset.sessionId };
+          return;
+        }
+        if (shouldSwitchSessionOnPointerDown(event)) switchSession(tab.dataset.sessionId);
+      });
+      list.addEventListener('pointermove', event => { updateSessionTouchGesture(activeTouchGesture, event); });
+      list.addEventListener('pointercancel', () => { activeTouchGesture = null; });
+      list.addEventListener('pointerup', event => {
+        const gesture = activeTouchGesture;
+        activeTouchGesture = null;
+        if (!shouldSwitchSessionOnTouchPointerUp(event, gesture)) return;
+        handledTouchSwitch = { sessionId: gesture.sessionId, timeStamp: Number(event.timeStamp) || 0 };
+        switchSession(gesture.sessionId);
+      });
+      list.addEventListener('click', event => {
+        const tab = sessionTabForEvent(event, list);
+        if (!tab || isSessionActionTarget(event.target)) return;
+        const sessionId = tab.dataset.sessionId;
+        const clickTime = Number(event.timeStamp) || 0;
+        const followsHandledTouch = handledTouchSwitch?.sessionId === sessionId
+          && (!clickTime || !handledTouchSwitch.timeStamp || clickTime - handledTouchSwitch.timeStamp < 1000);
+        if (followsHandledTouch) { handledTouchSwitch = null; return; }
+        handledTouchSwitch = null;
+        if (event.pointerType && event.pointerType !== 'touch') return;
+        switchSession(sessionId);
+      });
+    }
 
     function renderSessionList() {
       const state = getState();
       const list = $('sessionList');
       if (!list) return;
+      bindSessionSwitchInput(list);
       list.innerHTML = '';
       state.sessions.forEach(session => {
         const tab = documentRef.createElement('button');
@@ -61,17 +134,9 @@
         tab.classList.toggle('busy', isSessionBusy(session.id));
         tab.dataset.sessionId = session.id;
         tab.innerHTML = `<span class="session-title" title="${sessionTitleHtml(session)}">${sessionTitleHtml(session)}</span><small>${getSessionReturnCount(session)} 条</small><button class="session-rename-btn" type="button" title="重命名会话" aria-label="重命名会话">✎</button><button class="session-delete-btn" type="button" title="删除会话" aria-label="删除会话">×</button>`;
-        // A running task can refresh the list between pointerdown and click,
-        // detaching this button and causing the browser to drop click. Switch
-        // immediately for mouse/pen; keep touch and keyboard on click.
-        tab.addEventListener('pointerdown', event => {
-          if (shouldSwitchSessionOnPointerDown(event)) switchSession(session.id);
-        });
-        tab.addEventListener('click', event => {
-          if (isSessionActionTarget(event.target)) return;
-          if (event.pointerType && event.pointerType !== 'touch') return;
-          switchSession(session.id);
-        });
+        // Switching is delegated to the stable list container above. A
+        // running task may replace every tab between pointerdown and
+        // pointerup, but the original touch gesture still completes there.
         tab.addEventListener('dblclick', event => { if (!event.target.closest('.session-delete-btn') && !event.target.closest('.session-title-input')) beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-rename-btn')?.addEventListener('click', event => { event.stopPropagation(); beginRenameSession(session.id, event.target); });
         tab.querySelector('.session-delete-btn')?.addEventListener('click', event => { event.stopPropagation(); deleteSession(session.id); });
@@ -250,7 +315,15 @@
     return Object.freeze({ renderSessionList, newSession, deleteSession, clearAllSessions, beginRenameSession, renderSessionModelArea, setSessionChatModel });
   }
 
-  const api = Object.freeze({ isSessionActionTarget, shouldSwitchSessionOnPointerDown, createSessionUiWorkflow });
+  const api = Object.freeze({
+    SESSION_TOUCH_TAP_SLOP,
+    isSessionActionTarget,
+    shouldSwitchSessionOnPointerDown,
+    createSessionTouchGesture,
+    updateSessionTouchGesture,
+    shouldSwitchSessionOnTouchPointerUp,
+    createSessionUiWorkflow,
+  });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionUiWorkflow = api;
   if (root?.window) root.window.ChatUIAppSessionUiWorkflow = api;

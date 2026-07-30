@@ -4382,32 +4382,46 @@ body{
 }
 @media (max-width:640px){
   .messages:has(>.empty-welcome:only-child){
-    padding:6px 5px max(var(--composer-safe-bottom,142px),132px)!important;
+    padding:8px 8px max(var(--composer-safe-bottom,136px),120px)!important;
   }
-  .welcome-hero{padding:20px 17px 17px!important;border-radius:16px!important;}
-  .welcome-kicker{font-size:9.5px!important;letter-spacing:.14em!important;}
-  .welcome-title{font-size:31px!important;line-height:1.12!important;}
-  .welcome-subtitle{margin-top:10px!important;}
-  .welcome-badges{gap:5px!important;}
-  .welcome-badges>span{min-height:24px!important;padding:0 8px!important;font-size:10px!important;}
+  .empty-welcome{gap:8px!important;}
+  .welcome-hero{padding:16px 15px 14px!important;border-radius:15px!important;}
+  .welcome-kicker{margin-bottom:7px!important;font-size:9px!important;letter-spacing:.13em!important;}
+  .welcome-title{font-size:27px!important;line-height:1.1!important;}
+  .welcome-subtitle{
+    display:-webkit-box!important;
+    overflow:hidden!important;
+    margin-top:7px!important;
+    font-size:12px!important;
+    line-height:1.48!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+  }
+  .welcome-badges,.welcome-guidelines,.welcome-section-head{display:none!important;}
   .welcome-orbit{display:none!important;}
+  .welcome-capabilities{padding-top:0!important;}
   .welcome-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
-  .welcome-feature-card{min-height:132px!important;padding:13px!important;border-radius:15px!important;}
-  .welcome-feature-card h3{margin-top:10px!important;font-size:12.5px!important;}
-  .welcome-guidelines{border-radius:15px!important;}
-  .welcome-guidelines-head{
-    align-items:flex-start!important;
-    flex-direction:column!important;
-    gap:3px!important;
-    padding:11px 13px 9px!important;
+  .welcome-feature-grid{gap:7px!important;}
+  .welcome-feature-card{
+    min-height:50px!important;
+    padding:8px 9px!important;
+    display:grid!important;
+    grid-template-columns:28px minmax(0,1fr)!important;
+    align-items:center!important;
+    gap:8px!important;
+    border-radius:12px!important;
   }
-  .welcome-guidelines-head>p{display:none!important;}
-  .welcome-guideline{padding:10px 13px!important;}
+  .welcome-feature-top{display:block!important;}
+  .welcome-feature-icon{width:28px!important;height:28px!important;border-radius:9px!important;}
+  .welcome-feature-icon svg{width:15px!important;height:15px!important;}
+  .welcome-feature-card h3{margin:0!important;font-size:11.8px!important;line-height:1.35!important;}
+  .welcome-feature-card p,.welcome-feature-index{display:none!important;}
 }
 
 @media (max-width:360px){
-  .welcome-feature-grid{grid-template-columns:1fr!important;}
-  .welcome-feature-card{min-height:0!important;}
+  .welcome-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;}
+  .welcome-feature-card{min-height:46px!important;padding:7px!important;gap:6px!important;}
+  .welcome-feature-card h3{font-size:11.2px!important;}
 }
 
 /* Height-aware welcome density for low-resolution desktop displays. */

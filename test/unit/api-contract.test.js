@@ -203,6 +203,37 @@ async function testApiContractUsageCombinedEndpointsKeepCompatibility() {
   }
 }
 
+async function testApiContractUsageAccessValidatorGuardsEveryProtectedRoute() {
+  const routes = [
+    ['/api/usage/overview', { ranking_range: 'today', personal_range: 'today' }],
+    ['/api/usage/rankings', { range: 'today' }],
+    ['/api/usage/personal', { range: 'today' }],
+    ['/api/usage/department/verify', { password: 'secret' }],
+    ['/api/usage/department/summary', { password: 'secret', range: 'today' }],
+    ['/api/usage/department/rankings', { password: 'secret', range: 'today' }],
+    ['/api/usage/department/users', { password: 'secret', range: 'today', department_id: 'dept-1' }],
+    ['/api/usage/department/export', { password: 'secret', range: 'today' }],
+    ['/api/usage/feedback', { content: 'feedback' }],
+  ];
+  for (const [route, extraBody] of routes) {
+    const calls = [];
+    const result = await invokeUsageRoute(route, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: 'sk-denied', model: 'gpt-denied', ...extraBody }),
+      usageStats: new Proxy({}, { get: () => () => { throw new Error('usage repository must not run after denied access'); } }),
+      usageAccessValidator: {
+        async validate(apiKey, model) {
+          calls.push([apiKey, model]);
+          return { ok: false, statusCode: 403, code: 'INVALID_API_KEY', message: 'API Key 无效，统计和反馈暂不可用' };
+        },
+      },
+    });
+    assert.deepStrictEqual(calls, [['sk-denied', 'gpt-denied']], `${route} must use the shared access validator exactly once`);
+    assert.strictEqual(result.status, 403, `${route} must reject invalid access before any data operation`);
+    assert.deepStrictEqual(result.json, { error: { message: 'API Key 无效，统计和反馈暂不可用', code: 'INVALID_API_KEY' } });
+  }
+}
+
 async function testApiContractJobMissingAndAbortShapes() {
   await withServer(async baseUrl => {
     const missingChat = await request(baseUrl, '/api/chat-jobs/missing-job');
@@ -228,5 +259,6 @@ module.exports = [
   testApiContractUsageUnavailableAndValidationShapes,
   testApiContractUsageConfiguredValidationShapes,
   testApiContractUsageCombinedEndpointsKeepCompatibility,
+  testApiContractUsageAccessValidatorGuardsEveryProtectedRoute,
   testApiContractJobMissingAndAbortShapes,
 ];

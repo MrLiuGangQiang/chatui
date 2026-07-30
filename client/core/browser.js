@@ -27,18 +27,28 @@
       const id = typeof item === 'string' ? item : item?.id || item?.name;
       if (!id) return;
       const modelId = String(id);
-      const type = typeof sharedModels.inferModelType === 'function' ? sharedModels.inferModelType(item) : item?.type || '';
-      meta[modelId] = { id: modelId, type, unrecognized: !type, inferred: !item?.type && !!type };
+      const rawType = item?.type || '';
+      const normalizedType = typeof sharedModels.normalizeModelType === 'function' ? sharedModels.normalizeModelType(rawType) : rawType;
+      const type = ['chat', 'image', 'embedding'].includes(normalizedType) ? normalizedType : '';
+      meta[modelId] = {
+        id: modelId,
+        type,
+        unrecognized: item?.unrecognized === true || !type,
+        inferred: item?.inferred === true,
+      };
       models.push(modelId);
     });
     return { models: Array.from(new Set(models)).sort(), meta };
   }
 
   function browserIsModelAllowedFor(modelId, targetType, meta = {}) {
+    if (typeof sharedModels.isModelAllowedFor === 'function') {
+      return sharedModels.isModelAllowedFor(modelId, targetType, meta);
+    }
     const rawType = meta?.[modelId]?.type || '';
     const type = typeof sharedModels.normalizeModelType === 'function' ? sharedModels.normalizeModelType(rawType) : rawType;
     if (!type) return true;
-    return targetType === 'image' ? type === 'image' : targetType !== 'chat' || type !== 'image';
+    return !targetType || type === targetType;
   }
 
   const models = Object.freeze({

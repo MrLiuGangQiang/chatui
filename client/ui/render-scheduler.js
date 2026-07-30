@@ -5,24 +5,28 @@
 
   function scheduleIdle(callback, timeoutMs = 1200) {
     let done = false;
-    let idleHandle = null;
-    let fallbackHandle = null;
+    const handle = { idleHandle: null, fallbackHandle: null, timerHandle: null, cancelled: false, cancel: null };
     const run = deadline => {
-      if (done) return;
+      if (done || handle.cancelled) return;
       done = true;
-      if (fallbackHandle) clearTimeout(fallbackHandle);
+      if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
+      if (handle.timerHandle != null) clearTimeout(handle.timerHandle);
+      if (handle.idleHandle != null && typeof global.cancelIdleCallback === 'function') global.cancelIdleCallback(handle.idleHandle);
       callback(deadline || { didTimeout: true, timeRemaining: () => 0 });
     };
-    fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 80);
-    if (typeof global.requestIdleCallback === 'function') idleHandle = global.requestIdleCallback(run, { timeout: timeoutMs });
-    else setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
-    return { idleHandle, fallbackHandle, cancel: () => cancelIdle({ idleHandle, fallbackHandle }) };
+    handle.fallbackHandle = setTimeout(() => run({ didTimeout: true, timeRemaining: () => 0 }), timeoutMs + 80);
+    if (typeof global.requestIdleCallback === 'function') handle.idleHandle = global.requestIdleCallback(run, { timeout: timeoutMs });
+    else handle.timerHandle = setTimeout(() => run({ didTimeout: false, timeRemaining: () => 8 }), 0);
+    handle.cancel = () => cancelIdle(handle);
+    return handle;
   }
 
   function cancelIdle(handle) {
     if (!handle) return;
+    handle.cancelled = true;
     if (handle.idleHandle != null && typeof global.cancelIdleCallback === 'function') global.cancelIdleCallback(handle.idleHandle);
     if (handle.fallbackHandle != null) clearTimeout(handle.fallbackHandle);
+    if (handle.timerHandle != null) clearTimeout(handle.timerHandle);
   }
 
   function createRenderScheduler(options = {}) {

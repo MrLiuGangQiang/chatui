@@ -125,9 +125,9 @@ function buildResponsesPayload(model, messages, options = {}) {
   return payload;
 }
 
-async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', directMode = false, baseUrl = '', method = 'POST', headers = {}, signal, toProxyUrl, parseResponseJson, normalizeError }) {
-  const targetUrl = directMode ? url : toProxyUrl(url, baseUrl);
-  const body = directMode ? payload : { baseUrl, apiKey, payload, method, headers };
+async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', baseUrl = '', method = 'POST', headers = {}, signal, toProxyUrl, parseResponseJson, normalizeError }) {
+  const targetUrl = toProxyUrl(url, baseUrl);
+  const body = { baseUrl, apiKey, payload, method, headers };
   let response;
   try {
     response = await fetchImpl(targetUrl, {
@@ -135,8 +135,6 @@ async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', direc
       signal,
       headers: {
         'Content-Type': 'application/json',
-        ...(directMode ? headers : {}),
-        ...(directMode && apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       ...(method === 'GET' ? {} : { body: JSON.stringify(body) }),
     });

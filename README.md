@@ -211,7 +211,7 @@ cd chatui
 ### 安装依赖
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 启动服务
@@ -438,9 +438,9 @@ GET /models
 
 如果模型没有 `type` 字段，或 `type` 为空：
 
-- 聊天下拉可选。
-- 生图下拉也可选。
-- 模型后显示红色 `未知类型` 标记。
+- 名称包含已知聊天、图片或 embedding 关键词时，会按名称推断类型，并显示 `按名称识别`。
+- 名称也无法识别时保留为未知类型，同时进入聊天和生图下拉。
+- 未知模型后显示红色 `未知类型` 标记。
 - 加载状态会显示未知类型数量，例如 `已加载 12 个，3 个未知类型`。
 
 ### Header 参数
@@ -803,15 +803,20 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 
 | API | 方法 | 说明 |
 | --- | --- | --- |
-| `/api/version` | GET | 返回当前应用版本，来自 `package.json` |
+| `/api/version` | GET | 返回当前应用版本，来自根目录唯一版本源 `version.json` |
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
-| `/api/usage/rankings?range=today|yesterday|total` | GET | 查询指定范围排行榜，懒加载按需查询 |
-| `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key` 与 `range` |
-| `/api/usage/department/verify` | POST | 校验部门统计访问密码，body 包含 `password` |
-| `/api/usage/department/rankings` | POST | 查询部门排行，body 包含 `password` 与 `range=today|yesterday|month|last_month|total` |
-| `/api/usage/department/users` | POST | 查询部门人员统计，body 包含 `password`、`department_id` 与 `range` |
-| `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx`，body 包含 `password` 与 `range` |
+| `/api/usage/overview` | POST | 一次查询排行榜与个人统计，body 包含 `api_key`、`model` 和范围 |
+| `/api/usage/rankings` | POST | 查询指定范围排行榜，body 包含 `api_key`、`model` 与 `range` |
+| `/api/usage/personal` | POST | 查询指定范围个人统计，body 包含 `api_key`、`model` 与 `range` |
+| `/api/usage/department/verify` | POST | 校验部门统计访问，body 包含 `api_key`、`model` 与 `password` |
+| `/api/usage/department/summary` | POST | 查询部门汇总，body 包含访问字段与 `range` |
+| `/api/usage/department/rankings` | POST | 查询部门排行，body 包含访问字段与 `range` |
+| `/api/usage/department/users` | POST | 查询部门人员统计，body 另含 `department_id` |
+| `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx` |
+| `/api/usage/feedback` | POST | 提交问题反馈，body 包含 `api_key`、`model` 与 `content` |
+
+使用统计范围统一支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。统计与反馈入口会先通过当前 API Key 和聊天模型向上游执行访问校验；部门接口还需要部门密码。
 
 ### Job API
 
@@ -835,9 +840,13 @@ POSTGRES_URL='postgres://user:password@postgres-host:5432/database?sslmode=disab
 ```text
 /models
 /chat/completions
+/responses
 /images/generations
+/images/edits
 /openai/image_edit
 ```
+
+`/openai/image_edit` 是本地代理的兼容别名，服务端会将它规范化为上游 `/images/edits`。托管图片 Job 直接使用 `/images/edits`。
 
 允许方法：
 
@@ -852,7 +861,7 @@ GET, POST
 - 自定义 Header 透传。
 - 上游超时。
 - SSE 转发。
-- 图片上游路径规则：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/openai/image_edit` multipart。前端/本地缓存里的 base64 会在服务端转成文件 Blob，按 `image[]` 数组字段上传；多图会重复追加多个 `image[]` 字段。
+- 图片上游路径规则：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart。前端/本地缓存里的 base64 会在服务端转成文件 Blob，按 `image[]` 数组字段上传；多图会重复追加多个 `image[]` 字段。
 - 流式聊天 Job 同步更新。
 - 错误响应标准化。
 
@@ -986,6 +995,7 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 ├── CONTRIBUTING.md                # 开发规范、目录边界和治理约束
 ├── package.json
 ├── package-lock.json
+├── version.json
 └── README.md
 ```
 
@@ -1026,12 +1036,15 @@ git diff --check
 ### 常用单项检查
 
 ```bash
-node --check app.js
-node --check server.js
+npm run check:syntax
 node test/run-tests.js
-node test/unit/server-hardening.test.js
-node test/smoke/server-smoke.test.js
+node test/run-tests.js unit/server-hardening.test.js
+node test/run-tests.js smoke/server-smoke.test.js
+node test/run-tests.js --list
+node test/run-tests.js unit/usage --timeout=20000
 ```
+
+测试文件导出测试函数数组，不能直接执行单个 `*.test.js` 文件；聚焦运行必须通过 `test/run-tests.js`，否则可能以退出码 0 结束但实际执行 0 项。
 
 ### 启动检查
 
@@ -1060,7 +1073,7 @@ curl -I http://127.0.0.1:8765/vendor/mermaid.min.js
 
 ## 发布与镜像仓库
 
-项目不设日常 CI 检查流程。仅推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 时，GitHub Actions 才会校验版本、构建并推送多架构 Docker 镜像，然后发布对应的 GitHub Release。
+项目在 pull request 和 `main` 推送时运行日常 CI，包括 Node.js 20.19、Node.js 22 的 `npm run check`，以及 `Exact Docker runtime` 容器验证。推送 `vMAJOR.MINOR.PATCH` 格式的正式 Release Git tag 会触发独立的多架构镜像发布和 GitHub Release 流程。
 
 ### 固定镜像地址
 
@@ -1073,12 +1086,13 @@ Docker Hub: liugangqiang/chatui
 
 ### Release 流程
 
-1. 提交并推送 `main` 分支。
-2. 创建并推送符合 `vMAJOR.MINOR.PATCH` 格式的 annotated Git tag，例如 `v1.2.3`。
-3. GitHub Actions 读取 tag，校验 `package.json` 与 `package-lock.json` 版本，并运行 `npm run check`。
-4. 构建 `linux/amd64` 与 `linux/arm64` 多架构镜像。
-5. 将同一构建结果推送到 Docker Hub 与阿里云 ACR。
-6. 镜像发布成功后，workflow 为同一 tag 创建或更新已发布的 GitHub Release。
+1. 从当前 `origin/main` 准备一个干净候选，运行 `npm run release:prepare`。该命令按 `a.b.c` 规则自动递增根目录 `version.json`（`c=99` 的下一版才进位到 `b+1.0`），同步 `package.json`、`package-lock.json` 镜像字段并创建同版本 `docs/releases/vMAJOR.MINOR.PATCH.md`。
+2. 运行 `npm run check`；本机有 Docker 时再运行 `npm run preview:release`。
+3. 将候选提交推送到 `main`，等待 Node 检查和 `Exact Docker runtime` 全部通过。
+4. 在该已验证提交上创建并推送 annotated `vMAJOR.MINOR.PATCH` tag。
+5. workflow 构建带提交 SHA 和 runtime source fingerprint 的候选镜像，以 digest 启动验证，再把同一 digest 提升为版本、`v` 前缀和 `latest` 标签；验证与提升之间不得重建。
+6. 确认 Docker Hub、ACR 标签均解析到已验证 digest，容器 `/api/version` 的版本、Git SHA、source fingerprint 一致。
+7. 从该版本 Release Notes 创建或确认非 draft GitHub Release；只有镜像 workflow 与 GitHub Release 都成功后才算发布完成。
 
 ### 镜像标签规则
 
@@ -1086,24 +1100,20 @@ Docker Hub: liugangqiang/chatui
 | --- | --- | --- |
 | `latest` | `liugangqiang/chatui:latest` | 最新正式版本 |
 | `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.2.3` | 精确版本标签 |
+| `vMAJOR.MINOR.PATCH` | `liugangqiang/chatui:v1.2.3` | 与 Git tag 一致的精确版本标签 |
 
 ### Release Notes 规范
 
-正式 Release Notes 必须包含：
-
-- 新增：新增能力、入口、配置、文档、部署方式。
-- 删除：移除的功能、依赖、配置或行为；没有则写“无”。
-- 修改：已有行为、UI、结构、默认值、部署流程的调整。
-- 修复：bug、兼容性、构建、部署、安全或体验问题修复。
-
-Release Notes 应面向使用者说明实际影响，不能只写 commit message。
+正式 Release Notes 必须使用正确版本标题并包含实质性的用户说明；可按新增、修改、修复、删除等实际内容分类，不要求制造空章节。Release Notes 不能只复制 commit message。
 
 ### 发布前检查
 
 ```bash
-npm test
+npm run check
 git diff --check
 ```
+
+本机可用 Docker 时还应运行 `npm run preview:release`；否则必须等待推送提交的 `Exact Docker runtime` 成功后才能打 tag。
 
 如果涉及 Docker 镜像内容，确认 Dockerfile 包含必要目录：
 
@@ -1154,7 +1164,7 @@ curl -I http://your-host/vendor/katex.min.css
 { "id": "your-image-model", "type": "image_generation" }
 ```
 
-如果没有 `type`，模型会标记为 `未知类型`，并同时出现在聊天和生图下拉中。
+如果没有 `type`，ChatUI 会先根据模型名称推断聊天、图片或 embedding 类型，并显示 `按名称识别`；名称也无法识别时才标记为 `未知类型`，并同时出现在聊天和生图下拉中。
 
 ### 生图失败
 
@@ -1165,7 +1175,7 @@ curl -I http://your-host/vendor/katex.min.css
 - 模型是否支持 OpenAI 兼容图片接口。
 - 图片尺寸是否被该模型支持。
 - API Key 是否有生图权限。
-- 上游是否支持 `/images/generations` 和 `/openai/image_edit`：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/openai/image_edit` multipart，服务端会把 base64 输入转成 `image[]` 文件数组字段。
+- 上游是否支持 `/images/generations` 和 `/images/edits`：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart，服务端会把 base64 输入转成 `image[]` 文件数组字段。本地兼容代理仍接受 `/openai/image_edit` 并转换为 `/images/edits`。
 
 ### 图片显示失败但返回了 URL
 
@@ -1220,7 +1230,9 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 - 如果使用反向代理，请限制管理入口访问范围。
 - 如果接入私有模型网关，请做好鉴权和访问控制。
 - 服务端默认阻止代理访问私有地址段以降低 SSRF 风险；不要在公开部署中设置 `CHATUI_ALLOW_PRIVATE_UPSTREAM=1`。
-- 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/openai/image_edit`。
+- 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/images/edits` 和兼容别名 `/openai/image_edit`。
+- 浏览器尝试加载上游返回的公开图片 URL 时不会附带 API Key；需要鉴权的图片统一回退到 `/api/image`，由服务端校验图片 URL 与 Endpoint 同源后再请求。
+- 当前 Job 存储是单实例内存实现，Job 查询、SSE、中止和删除接口尚未绑定用户身份。面向不可信多用户公开部署时，必须在反向代理或应用层增加认证与会话所有权校验，不能把 Job ID 当作授权凭据。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。
 - `vendor/` 是前端公开资源，不要放任何密钥。
 - API Key 保存在当前浏览器 localStorage；清空站点数据会删除配置与历史。

@@ -18,15 +18,21 @@ function renderMath(raw = '', displayMode = false, katexInstance = null) {
 }
 
 function createKatexOptions(options = {}) {
-  return { throwOnError: false, strict: false, trust: false, output: 'htmlAndMathml', ...(options.katexOptions || {}) };
+  return {
+    ...(options.katexOptions || {}),
+    throwOnError: false,
+    strict: false,
+    trust: false,
+    output: 'htmlAndMathml',
+  };
 }
 
 function applyMathPlugin(md, { loadOptional, katexOptions } = {}) {
   const loader = typeof loadOptional === 'function' ? loadOptional : (() => null);
-  const texmathPlugin = loader('markdown-it-texmath', 'markdownItTexmath') || loader('markdown-it-texmath', 'texmath');
-  const plugin = texmathPlugin && (texmathPlugin.default || texmathPlugin.full || texmathPlugin);
-  if (!plugin) return false;
   try {
+    const texmathPlugin = loader('markdown-it-texmath', 'markdownItTexmath') || loader('markdown-it-texmath', 'texmath');
+    const plugin = texmathPlugin && (texmathPlugin.default || texmathPlugin.full || texmathPlugin);
+    if (!plugin) return false;
     const katex = loader('katex', 'katex');
     md.use(plugin, { engine: katex, delimiters: ['dollars', 'brackets', 'beg_end'], katexOptions: createKatexOptions({ katexOptions }) });
     return true;

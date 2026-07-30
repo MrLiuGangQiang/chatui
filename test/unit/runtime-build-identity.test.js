@@ -16,6 +16,7 @@ function makeFixture() {
   fs.mkdirSync(path.join(root, 'server'), { recursive: true });
   fs.mkdirSync(path.join(root, 'client'), { recursive: true });
   fs.mkdirSync(path.join(root, 'vendor', 'chunks'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'version.json'), '{"version":"1.2.3"}');
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.2.3"}');
   fs.writeFileSync(path.join(root, 'server.js'), 'require("./server/app")');
   fs.writeFileSync(path.join(root, 'server', 'app.js'), 'module.exports = 1;');
@@ -28,7 +29,7 @@ function testRuntimeSourceRevisionTracksExactlyDockerRuntimeCode() {
   try {
     const before = computeRuntimeSourceRevision(root);
     assert.match(before, /^sha256:[a-f0-9]{64}$/);
-    assert.deepStrictEqual(runtimeSourceFiles(root), ['client/app.js', 'package.json', 'server.js', 'server/app.js']);
+    assert.deepStrictEqual(runtimeSourceFiles(root), ['client/app.js', 'package.json', 'server.js', 'server/app.js', 'version.json']);
 
     fs.writeFileSync(path.join(root, 'vendor', 'chunks', 'ignored.js'), 'ignored');
     fs.writeFileSync(path.join(root, 'client', 'notes.md'), 'ignored');
@@ -74,16 +75,22 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   const release = fs.readFileSync(path.join(root, '.github/workflows/dockerhub.yml'), 'utf8');
   const preview = fs.readFileSync(path.join(root, 'scripts/preview-release.js'), 'utf8');
+  const serverConfig = fs.readFileSync(path.join(root, 'server/config/index.js'), 'utf8');
 
   assert.match(dockerfile, /CHATUI_SOURCE_REVISION=\$\{CHATUI_SOURCE_REVISION\}/);
+  assert.match(dockerfile, /COPY version\.json package\.json package-lock\.json \.\//,
+    'Docker runtime must package the canonical version source');
   assert.match(dockerfile, /org\.opencontainers\.image\.revision/);
   assert.match(ci, /Verify exact container identity and assets/);
-  assert.ok(ci.includes(`VERSION="$(node -p "require('./package.json').version")"`),
-    'CI must resolve a non-empty package version without passing escaped quotes to Node');
+  assert.ok(ci.includes(`VERSION="$(node -p "require('./scripts/version-source').readVersion()")"`),
+    'CI must resolve a non-empty canonical version without reading package.json');
   assert.ok(ci.includes('test -n "$VERSION"'),
     'CI must fail before building when the candidate version is empty');
-  assert.ok(!ci.includes('require(\\"./package.json\\")'),
-    'CI must not use a shell expression that silently writes an empty version output');
+  assert.ok(!ci.includes("require('./package.json')"),
+    'CI must not use package.json as the canonical version source');
+  assert.match(serverConfig, /require\('\.\.\/version-source'\)/);
+  assert.ok(!serverConfig.includes("require('../../package.json')"),
+    'server runtime must not use package.json as the canonical version source');
   assert.match(ci, /CHATUI_SOURCE_REVISION=\$\{\{ steps\.identity\.outputs\.source_revision \}\}/);
   assert.match(release, /Build once and push immutable candidates/);
   assert.match(release, /Pull and verify the exact candidate digest/);

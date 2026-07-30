@@ -28,7 +28,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
-      semver: ${{ steps.version.outputs.semver }}
+      semver: ${{ steps.canonical.outputs.semver }}
       git_sha: ${{ steps.identity.outputs.git_sha }}
       source_revision: ${{ steps.identity.outputs.source_revision }}
     steps:
@@ -58,6 +58,15 @@ jobs:
         run: |
           git fetch origin main:refs/remotes/origin/main --force
           node scripts/verify-release-ref.js "${{ steps.version.outputs.version }}" origin/main
+
+      - name: Resolve canonical version source
+        id: canonical
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_VERSION="$(node -p "require('./scripts/version-source').readVersion()")"
+          test "$SOURCE_VERSION" = "${{ steps.version.outputs.semver }}"
+          echo "semver=$SOURCE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Resolve immutable release identity
         id: identity

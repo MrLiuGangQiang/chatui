@@ -29,7 +29,7 @@ ENV NODE_ENV=production \
     CHATUI_SOURCE_REVISION=${CHATUI_SOURCE_REVISION} \
     PATH=/usr/local/bin:/usr/bin:/bin
 
-COPY package.json package-lock.json ./
+COPY version.json package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
 COPY server.js index.html route.html app.js styles.css favicon.svg ./

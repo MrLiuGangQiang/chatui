@@ -967,12 +967,34 @@ async function testUploadedImageUsesOneDurableBlobAcrossMessageContexts() {
 }
 
 function testExistingImageEditGateAllowsPreviousSelection() {
-  const submitSource = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  const appSource = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
-  assert.ok(submitSource.includes('canResolveExistingEditImage'), 'submit workflow must allow previous/uploaded image resolver before blocking edit');
-  assert.ok(submitSource.includes('!!routeInfo.usePreviousImage') && submitSource.includes('routeInfo.target==="previous"'));
-  assert.ok(appSource.includes('canResolveExistingEditImage'), 'regenerate/app workflow must allow previous/uploaded image resolver before blocking edit');
-  assert.ok(appSource.includes('!!p.usePreviousImage') && appSource.includes('p.target==="previous"'));
+  const submitHelpers = require('../../client/app/submit-workflow.helpers');
+  const previous = {
+    imageId: 'img_previous_1',
+    referenceId: 'imgref_previous',
+    type: 'image/png',
+    routeSource: 'history',
+    sourceIndex: 1,
+  };
+  const pools = submitHelpers.buildExecutionResourcePools({ history: [previous] });
+  const projected = submitHelpers.projectRouteExecutionMedia({
+    executionResources: {
+      version: 'execution_resources.v1',
+      operation: 'image_edit',
+      images: [{
+        key: 'r1',
+        type: 'image',
+        role: 'target',
+        source: 'history',
+        index: 1,
+        id: 'img_previous_1',
+        reference_id: 'imgref_previous',
+      }],
+      files: [],
+    },
+  }, pools);
+  assert.strictEqual(projected.targets.length, 1, 'a canonical historical image binding must remain executable for image edit');
+  assert.strictEqual(projected.targets[0].imageId, 'img_previous_1');
+  assert.strictEqual(projected.targets[0].routeRole, 'target');
 }
 
 function testStructuredRouteDecisionCarriesRefs() {
@@ -3243,6 +3265,7 @@ const tests = [
   testNormalizeRouteKeepsExplicitImageQaChatDespiteImageIntent,
   testRouteOperationTypeDrivesCanonicalMode,
   testImageResultCorrectionRebuildsImagePrompt,
+  testExistingImageEditGateAllowsPreviousSelection,
   testChatAnswerStreamingFlushesQuickly,
   testStreamingTailRendersWithoutCursor,
   testSessionTailFocusPreservesBottomGapDuringDynamicLayout,
@@ -3260,6 +3283,7 @@ const tests = [
   testMarkdownPreviewIsFeatureModule,
   testMarkdownLiveStreamIsFeatureModule,
   testStreamingMarkdownTablesRemainAtomicUntilFinal,
+  testStreamingTailAppendsCumulativeDeltas,
   testLiveMarkdownStreamPreviewsChunksWithoutLoweringCommitCadence,
   testLiveMarkdownStreamDoesNotBlankExistingContentBeforeFirstPaint,
   testStreamingOutputSmoothnessOptimizations,

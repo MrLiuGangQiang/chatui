@@ -2,11 +2,11 @@
 'use strict';
 
 const path = require('path');
-const pkg = require('../package.json');
 const { createBuildIdentity } = require('../server/build-identity');
+const { readVersion } = require('./version-source');
 
 const root = path.resolve(__dirname, '..');
-const identity = createBuildIdentity({ root, version: pkg.version });
+const identity = createBuildIdentity({ root, version: readVersion({ root }) });
 
 if (require.main === module) {
   if (process.argv.includes('--source-only')) process.stdout.write(identity.sourceRevision);

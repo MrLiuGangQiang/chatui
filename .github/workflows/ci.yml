@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(node -p "require('./package.json').version")"
+          VERSION="$(node -p "require('./scripts/version-source').readVersion()")"
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "source_revision=$(node scripts/runtime-identity.js --source-only)" >> "$GITHUB_OUTPUT"

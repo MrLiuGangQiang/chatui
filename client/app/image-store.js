@@ -1,8 +1,15 @@
 (function(){
   const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
-  function createImageStore({ dbName = 'openapi-chat-image-db-v1', storeName = 'images', indexedDBImpl = indexedDB } = {}) {
+  function createImageStore({
+    dbName = 'openapi-chat-image-db-v1',
+    storeName = 'images',
+    indexedDBImpl = typeof indexedDB !== 'undefined' ? indexedDB : null,
+  } = {}) {
     function openImageDb() {
+      if (!indexedDBImpl || typeof indexedDBImpl.open !== 'function') {
+        return Promise.reject(new Error('IndexedDB is unavailable.'));
+      }
       return new Promise((resolve, reject) => {
         const req = indexedDBImpl.open(dbName, 1);
         req.onupgradeneeded = () => req.result.createObjectStore(storeName);

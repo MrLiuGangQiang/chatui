@@ -61,6 +61,25 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
       sendJson(res, 400, { error: { message: '请先正确配置聊天模型', code: 'MODEL_NOT_CONFIGURED' } }, { 'Access-Control-Allow-Origin': '*' });
       return null;
     }
+    if (typeof usageAccessValidator?.validate !== 'function') {
+      sendJson(res, 503, { error: { message: '访问校验服务暂不可用', code: 'MODEL_VALIDATION_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
+      return null;
+    }
+    let validation;
+    try {
+      validation = await usageAccessValidator.validate(apiKey, model);
+    } catch {
+      validation = { ok: false, statusCode: 503, code: 'MODEL_VALIDATION_UNAVAILABLE', message: '无法验证 API Key 和模型配置，统计和反馈暂不可用' };
+    }
+    if (!validation?.ok) {
+      sendJson(res, validation?.statusCode || 403, {
+        error: {
+          message: validation?.message || 'API Key 或模型配置无效，统计和反馈暂不可用',
+          code: validation?.code || 'INVALID_API_KEY',
+        },
+      }, { 'Access-Control-Allow-Origin': '*' });
+      return null;
+    }
     return { apiKey, model };
   }
   async function routeFeedback(req, res) {

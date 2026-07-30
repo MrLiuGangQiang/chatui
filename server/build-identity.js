@@ -6,6 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const RUNTIME_ROOT_FILES = Object.freeze([
+  'version.json',
   'package.json',
   'package-lock.json',
   'server.js',

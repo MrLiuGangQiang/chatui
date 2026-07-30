@@ -22,7 +22,23 @@ function testConfigDialogKeepsOnlyOperationalCopy() {
 
   assert.ok(index.includes('id="systemPrompt" rows="4"'));
   assert.ok(index.includes('id="imageStylePrompt" rows="4"'));
-  assert.ok(index.includes('flat-theme.css?v=2.2.3-code-action-motion-compact-config'));
+  assert.ok(index.includes('flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup'));
+}
+
+function testBackupActionsLiveInsideConnectionCard() {
+  const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
+  const connectionCardStart = index.indexOf('<section class="config-card connection-config-card">');
+  const modelCardStart = index.indexOf('<section class="config-card">', connectionCardStart + 1);
+  const exportButton = index.indexOf('id="exportBackupBtn"');
+  const importButton = index.indexOf('id="importBackupBtn"');
+  const transferStatus = index.indexOf('id="backupTransferStatus"');
+
+  assert.ok(connectionCardStart >= 0, 'connection card should expose a dedicated layout hook');
+  assert.ok(modelCardStart > connectionCardStart, 'model card should follow the connection card');
+  [exportButton, importButton, transferStatus].forEach(position => {
+    assert.ok(position > connectionCardStart && position < modelCardStart, 'backup controls should stay inside the connection card');
+  });
+  assert.ok(!index.includes('backup-config-card'), 'backup controls should not occupy a separate card');
 }
 
 function testConfigDialogUsesCompactResponsiveLayout() {
@@ -32,11 +48,13 @@ function testConfigDialogUsesCompactResponsiveLayout() {
   assert.ok(css.includes('#configModal .config-grid{\n  gap:8px!important'));
   assert.ok(css.includes('#configModal .prompt-config-layout textarea{\n  min-height:92px!important'));
   assert.ok(css.includes('grid-template-columns:minmax(0,.88fr) minmax(0,1.12fr)!important'));
-  assert.ok(css.includes('#configModal .backup-config-card{\n  display:grid!important'));
-  assert.ok(css.includes('grid-template-columns:minmax(0,1fr) auto!important'));
+  assert.ok(css.includes('#configModal .connection-config-card{\n  display:flex!important'));
+  assert.ok(css.includes('#configModal .connection-backup-actions{\n  margin-top:auto!important'));
+  assert.ok(css.includes('#configModal .connection-backup-actions{\n    display:grid!important'));
 }
 
 module.exports = [
   testConfigDialogKeepsOnlyOperationalCopy,
+  testBackupActionsLiveInsideConnectionCard,
   testConfigDialogUsesCompactResponsiveLayout
 ];

@@ -11,12 +11,14 @@
   }
 
   function inferModelType(model = {}) {
-    const explicit = normalizeModelType(model.type || model.capability || model.mode);
-    if (explicit) return explicit;
+    const explicitRaw = String(model.type || model.capability || model.mode || '').trim();
+    const explicit = normalizeModelType(explicitRaw);
+    if (explicitRaw) return ['chat', 'image', 'embedding'].includes(explicit) ? explicit : '';
     const id = String(model.id || model.name || model || '').toLowerCase();
     if (/embedding|embed/.test(id)) return 'embedding';
     if (/image|dall-e|gpt-image|imagen|flux|sdxl|midjourney|wan2\.?[0-9]?/.test(id)) return 'image';
-    return 'chat';
+    if (/chat|text|llm|language|completion|reason|assistant|gpt|claude|gemini|qwen|deepseek|llama|mistral/.test(id)) return 'chat';
+    return '';
   }
 
   function normalizeModelMeta(models = [], meta = {}) {
@@ -25,11 +27,13 @@
       const id = typeof item === 'string' ? item : item?.id || item?.name;
       if (!id) continue;
       const current = meta?.[id] || {};
-      const type = normalizeModelType(current.type) || inferModelType(item);
+      const configuredType = normalizeModelType(current.type);
+      const type = ['chat', 'image', 'embedding'].includes(configuredType) ? configuredType : inferModelType(item);
       result[id] = {
         id,
         type,
         unrecognized: current.unrecognized === true || !type,
+        inferred: current.inferred === true || (!current.type && !!type),
       };
     }
     return result;
@@ -47,7 +51,17 @@
     return data
       .map(item => typeof item === 'string' ? { id: item } : item)
       .filter(item => item?.id || item?.name)
-      .map(item => ({ id: String(item.id || item.name), type: inferModelType(item) }));
+      .map(item => {
+        const id = String(item.id || item.name);
+        const explicitRaw = String(item.type || item.capability || item.mode || '').trim();
+        const type = inferModelType(item);
+        return {
+          id,
+          type,
+          inferred: !explicitRaw && !!type,
+          unrecognized: !type,
+        };
+      });
   }
 
   const api = Object.freeze({ normalizeModelType, inferModelType, normalizeModelMeta, isModelAllowedFor, extractModels });

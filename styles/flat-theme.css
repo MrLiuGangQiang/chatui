@@ -5328,19 +5328,16 @@ body.session-sidebar-collapsed{
   min-height:92px!important;
   padding:8px 10px!important;
 }
-#configModal .backup-config-card{
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) auto!important;
-  align-items:center!important;
-  gap:8px 12px!important;
+#configModal .connection-config-card{
+  display:flex!important;
+  flex-direction:column!important;
 }
-#configModal .backup-config-card .config-section-title,
-#configModal .backup-config-actions{
-  margin:0!important;
+#configModal .connection-backup-actions{
+  margin-top:auto!important;
+  padding-top:10px!important;
 }
-#configModal .backup-transfer-status{
-  grid-column:1/-1!important;
-  margin:0!important;
+#configModal .connection-backup-actions + .backup-transfer-status{
+  margin:6px 0 0!important;
 }
 #configModal .config-dialog .dialog-actions{
   margin:0!important;
@@ -5368,14 +5365,8 @@ body.session-sidebar-collapsed{
   #configModal .config-grid{
     padding:8px!important;
   }
-  #configModal .backup-config-card{
-    grid-template-columns:1fr!important;
-  }
-  #configModal .backup-config-actions{
+  #configModal .connection-backup-actions{
     display:grid!important;
     grid-template-columns:1fr 1fr!important;
-  }
-  #configModal .backup-transfer-status{
-    grid-column:1!important;
   }
 }

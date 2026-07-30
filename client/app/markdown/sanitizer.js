@@ -1,3 +1,5 @@
+const { isSafeMarkdownLink } = require('./link-policy');
+
 const MATH_TAGS = ['math', 'mi', 'mn', 'mo', 'msup', 'msub', 'mrow', 'semantics', 'annotation'];
 const SAFE_HTML_TAGS = [
   'div', 'span', 'br', 'details', 'summary', 'kbd', 'sub', 'sup', 'mark', 'small', 'ins', 'del',
@@ -7,8 +9,9 @@ const SAFE_ATTRS = [
   'target', 'rel', 'class', 'id', 'data-copy-text', 'data-mermaid-rendered', 'aria-hidden', 'aria-label',
   'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style', 'open',
 ];
-const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'button', 'textarea', 'select', 'option'];
-const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|svg\+xml);base64,)/i;
+const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'input', 'button', 'textarea', 'select', 'option'];
+const URI_ATTRS = new Set(['href', 'src', 'xlink:href']);
+const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|avif);base64,)/i;
 const SAFE_STYLE_PROPERTIES = new Set([
   'border', 'border-color', 'border-style', 'border-width', 'border-radius',
   'border-top', 'border-top-color', 'border-top-style', 'border-top-width',
@@ -55,6 +58,10 @@ function domPurifyOptions() {
 function createSanitizer() {
   if (typeof window !== 'undefined' && window.DOMPurify) {
     window.DOMPurify.addHook?.('uponSanitizeAttribute', (_node, data) => {
+      if (URI_ATTRS.has(String(data.attrName || '').toLowerCase()) && !isSafeMarkdownLink(data.attrValue)) {
+        data.keepAttr = false;
+        return;
+      }
       if (data.attrName === 'style') {
         const safe = sanitizeStyleValue(data.attrValue);
         if (safe) data.attrValue = safe;
@@ -69,6 +76,10 @@ function createSanitizer() {
     const createDOMPurify = require('dompurify');
     const purify = createDOMPurify(new JSDOM('').window);
     purify.addHook('uponSanitizeAttribute', (_node, data) => {
+      if (URI_ATTRS.has(String(data.attrName || '').toLowerCase()) && !isSafeMarkdownLink(data.attrValue)) {
+        data.keepAttr = false;
+        return;
+      }
       if (data.attrName === 'style') {
         const safe = sanitizeStyleValue(data.attrValue);
         if (safe) data.attrValue = safe;

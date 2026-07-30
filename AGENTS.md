@@ -5,8 +5,8 @@
 When the user asks to **commit and release** (for example, "commit and release"), complete the entire release process; pushing a Git tag by itself is not a completed release.
 
 1. Work from one clean committed candidate based on current `origin/main`. Never use results from a dirty workspace or a different worktree as release evidence.
-2. Determine the next semantic version, update `package.json` and every matching version in `package-lock.json`, and ensure they match the planned `vMAJOR.MINOR.PATCH` tag.
-3. Add `docs/releases/vMAJOR.MINOR.PATCH.md` to the same candidate commit, with a clear title and concise user-facing notes. Release notes must exist in the tagged commit.
+2. Run `npm run release:prepare` to increment the canonical root `version.json`. The command synchronizes the npm-required `package.json` and `package-lock.json` mirror fields and creates the matching release-notes file; never choose a release version manually.
+3. Complete `docs/releases/vMAJOR.MINOR.PATCH.md` in the same candidate commit with a clear title and concise user-facing notes. Release notes must exist in the tagged commit.
 4. Run `npm run check`. When Docker is available locally, also run `npm run preview:release`; otherwise the exact-container CI check on the pushed commit must succeed before tagging. Do not release if either check fails.
 5. Commit the release changes and push the release commit to `main`. Wait for required main CI checks, including `Exact Docker runtime`, to succeed.
 6. Create an **annotated** `vMAJOR.MINOR.PATCH` Git tag on that exact verified main commit and push it. This triggers the Docker publishing workflow.
@@ -20,6 +20,13 @@ When the user asks to **commit and release** (for example, "commit and release")
 10. Report the exact version, commit, tag, GitHub Release status, verified image digest, Docker workflow result, and any remaining deployment action. If verification is still running, explicitly say the release is in progress rather than complete.
 
 For a hotfix that only repairs packaging or deployment, still follow the complete procedure above, including the GitHub Release and Docker workflow verification.
+
+## Local server port policy
+
+- ChatUI local development and manual test servers must always use port `8765`.
+- Never switch to another port automatically (including when `8765` is occupied).
+- Before starting a server, inspect the process listening on `8765`; if it is occupied, report the owning process and resolve or reuse that instance instead of starting a server on a different port.
+- Do not stop an existing `8765` listener unless it is verified to be the ChatUI instance in this workspace or the user explicitly asks to stop it.
 
 ## Engineering standards
 

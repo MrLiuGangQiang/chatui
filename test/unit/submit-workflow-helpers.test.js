@@ -1,6 +1,8 @@
 const assert = require('assert');
 
 const helpers = require('../../client/app/submit-workflow.helpers');
+const attachments = require('../../client/core/attachments');
+const routeService = require('../../client/services/route-service');
 
 function testSubmitHelpersParseAndPreviewQuoteContext() {
   assert.deepStrictEqual(helpers.parseContextValue('{"role":"user","content":" hello  world "}'), { role: 'user', content: ' hello  world ' });
@@ -112,10 +114,41 @@ async function testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHi
   assert.ok(!media.chatFiles.some(item => item.attachmentId === 'current-file'), 'an unselected current file must not leak into execution');
 }
 
+function testContinuationAttachmentPoolReachesTheCanonicalChatRequest() {
+  const originalWorkbook = {
+    attachmentId: 'workbook-low-code',
+    name: 'low-code-scope.xlsx',
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    size: 2048,
+    inputFile: true,
+    file: { name: 'low-code-scope.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 2048 },
+  };
+  const requestAttachments = helpers.mergeContinuationAttachments({
+    pending: [originalWorkbook],
+    current: [{ ...originalWorkbook }],
+  });
+  assert.strictEqual(requestAttachments.length, 1, 'the restored workbook must be carried once even if the answer turn also references it');
+
+  const metadata = attachments.buildRouteAttachmentMetadata(requestAttachments);
+  const routePayload = routeService.buildRoutePayload({ model: 'route-model', input: '按人日估算全部适合低代码的功能', attachments: metadata });
+  const routeUserPayload = JSON.parse(routePayload.messages[1].content);
+  assert.strictEqual(routeUserPayload.attachments[0].file_id, 'workbook-low-code', 'the full router must receive the restored workbook as a current request attachment');
+
+  const route = routeService.parseRouteResult(JSON.stringify({
+    schema_version: 'route_decision.v1', readiness: 'ready', operation: 'file_qa', relation: 'continuation',
+    bindings: [{ candidate_key: 'f1', role: 'attachment' }], changes: [], constraints: [],
+    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'the restored workbook is required for the estimate',
+  }), { input: '按人日估算全部适合低代码的功能', attachments: metadata, context: {} });
+  assert.ok(route);
+  const execution = helpers.projectRouteExecutionMedia(route, helpers.buildExecutionResourcePools({ current: requestAttachments }));
+  assert.deepStrictEqual(execution.chatFiles.map(item => item.attachmentId), ['workbook-low-code'], 'the same restored workbook must be the only file sent to chat execution');
+}
+
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
   testRouteMessageContextProjectionUsesOnlyResolvedBindings,
   testRouteExecutionMediaProjectionIsCanonicalAndRoleAware,
   testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHistoryFiles,
+  testContinuationAttachmentPoolReachesTheCanonicalChatRequest,
 ];

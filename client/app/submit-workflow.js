@@ -56,6 +56,7 @@
       || (typeof require === 'function' ? require('./submit-workflow.helpers') : {});
     const jobLifecycle = root?.ChatUIAppJobWorkflow || {};
     const getPreviousImageAttachments = deps.getPreviousImageAttachments || root?.getPreviousImageAttachments;
+    const restoreUserAttachmentsFromContext = deps.restoreUserAttachmentsFromContext || root?.restoreUserAttachmentsFromContext;
     const taskEvents = deps.taskEvents || root?.ChatUICore?.taskState?.TASK_EVENTS || {};
     const emitTaskEvent = (sessionId, type, details = {}) => type
       ? deps.dispatchTaskEvent?.(sessionId, { type, ...details })
@@ -257,6 +258,17 @@
             if(pendingAssistance){const retainedPending=clarification.retainPendingAfterAssistance?.(storedPending,{promptText,assistantReply:pendingDecision.assistantReply})||storedPending;if(retainedPending){targetSession.pendingClarification=retainedPending;sessionForReply&&(sessionForReply.pendingClarification=retainedPending);saveSessionsMeta?.()}return finishPreflightReply(pendingDecision.assistantReply,{metaText:"等待补充"})}
             const shouldMergePending=["pending_answer","partial_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0;
             const pendingMerge=shouldMergePending?clarification.mergePendingInput(storedPending,{promptText,resolvedInput:pendingDecision?.resolvedInput||""}):null;
+            const pendingAttachmentContexts=pendingMerge?.merged?[...new Map([
+              ...(clarification.pendingAttachmentContexts?.(storedPending)||[]),
+              ...(clarification.collectPendingAttachmentContexts?.({messages:targetSession.messages||state.messages||[],routeInfo:storedPending.routeInfo,sourceAttachmentContext:storedPending.sourceAttachmentContext})||[]),
+            ].map(context=>[JSON.stringify(context),context])).values()]:[];
+            let continuationRequestAttachments=currentTurnAttachments;
+            if(pendingMerge?.merged&&pendingAttachmentContexts.length){
+              if(typeof restoreUserAttachmentsFromContext!=="function")throw new Error("无法恢复澄清任务引用的原始附件，请重新上传后再试");
+              const restoredPendingAttachments=[];
+              for(const context of pendingAttachmentContexts)restoredPendingAttachments.push(...await restoreUserAttachmentsFromContext(context));
+              continuationRequestAttachments=submitHelpers.mergeContinuationAttachments?.({pending:restoredPendingAttachments,current:currentTurnAttachments,isImageFile:isImageAttachment})||[...restoredPendingAttachments,...currentTurnAttachments];
+            }
             const pendingQuoteContext=pendingMerge?.merged?JSON.stringify({role:"user",content:storedPending.originalText||"追问来源",sessionId,...storedPending.sourceImageContext?{imageContext:storedPending.sourceImageContext}:{},...storedPending.sourceAttachmentContext?{attachmentContext:storedPending.sourceAttachmentContext}:{},...storedPending.sourceQuoteContext?{quoteContext:storedPending.sourceQuoteContext}:{}}):"";
             if(pendingMerge?.merged){
               promptText=pendingMerge.promptText;
@@ -294,7 +306,7 @@
               await persistTargetMessages()
             }
             if(pendingMerge?.merged){
-               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),clarificationRouteContext,{deadlineAt:intentDeadlineAt}),routeMode=routeInfo.mode}catch(e){throw e}
+               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,buildRequestHeaders("message",sessionId),clarificationRouteContext,{deadlineAt:intentDeadlineAt}),routeMode=routeInfo.mode}catch(e){throw e}
             }else if(hasQuotedMessage){
                try{routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt}),routeMode=routeInfo.mode}catch(e){throw e}
              }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt}),routeMode=routeInfo.mode}catch(e){throw e}
@@ -366,7 +378,7 @@
             const historyFiles=await submitHelpers.restoreHistoricalFilePool(routeInfo,{messages:targetSession.messages||state.messages||[],restoreUserAttachmentsFromContext,isImageFile:isImageAttachment,source:"history"});
             const contextFiles=await submitHelpers.restoreHistoricalFilePool(routeInfo,{messages:targetSession.messages||state.messages||[],restoreUserAttachmentsFromContext,isImageFile:isImageAttachment,source:"context"});
             const sourcePools={
-              current:currentTurnAttachments,
+              current:pendingMerge?.merged?continuationRequestAttachments:currentTurnAttachments,
               quoted:quotedResourceAttachments,
               history:[...await restoreBoundImagePool("history"),...historyFiles],
               context:[...await restoreBoundImagePool("context"),...contextFiles],

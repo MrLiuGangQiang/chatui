@@ -187,6 +187,23 @@
     ).trim();
   }
 
+  function mergeContinuationAttachments(
+    { pending = [], current = [], isImageFile = defaultIsImageFile } = {},
+  ) {
+    const merged = [];
+    const seen = new Set();
+    for (const item of [...(Array.isArray(pending) ? pending : []), ...(Array.isArray(current) ? current : [])]) {
+      if (!item) continue;
+      const type = isImageFile(item) ? "image" : "file";
+      const id = mediaIdentity(item, type);
+      const key = id ? `${type}:${id}` : "";
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      merged.push(item);
+    }
+    return merged;
+  }
+
   function decorateExecutionPool(
     sourceAttachments = [],
     source = "current",
@@ -343,6 +360,7 @@
     projectRouteMessageContext,
     projectRouteExecutionMedia,
     mediaIdentity,
+    mergeContinuationAttachments,
     decorateExecutionPool,
     buildExecutionResourcePools,
     routeMediaResources,

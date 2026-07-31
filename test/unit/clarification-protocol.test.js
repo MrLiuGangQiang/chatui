@@ -55,20 +55,18 @@ function continuationJson(overrides = {}) {
     confidence: 0.99,
     resolved_input: '把猫和彩色鱼合并成一张图',
     selections: [{ resource_key: 'r2', choice_key: 'c2' }],
-    should_merge: true,
-    should_clear_pending: true,
     assistant_reply: '',
     reason: 'explicit choice',
     ...overrides,
   });
 }
 
-function testContinuationV5UsesOneStrictNonExecutingSchema() {
+function testContinuationV6UsesOneStrictNonExecutingSchema() {
   const pending = makePending();
   const payload = clarification.buildContinuationClassifierPayload({
     model: 'route-model', pending, currentInput: '彩色鱼', attachments: [],
   });
-  assert.strictEqual(clarification.CONTINUATION_SCHEMA_VERSION, 'pending_continuation.v5');
+  assert.strictEqual(clarification.CONTINUATION_SCHEMA_VERSION, 'pending_continuation.v6');
   assert.strictEqual(payload.response_format.type, 'json_schema');
   assert.strictEqual(payload.response_format.json_schema.strict, true);
   assert.strictEqual(payload.response_format.json_schema.schema.additionalProperties, false);
@@ -77,7 +75,7 @@ function testContinuationV5UsesOneStrictNonExecutingSchema() {
   assert.ok(payload.messages[0].content.includes('无权决定或暗示这些字段'));
   assert.ok(!payload.messages[0].content.includes('final_task_mode'));
 
-  assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.v4' }), { pending }), null);
+  assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.unsupported' }), { pending }), null);
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ final_task_mode: 'image' }), { pending }), null, 'extra execution controls must invalidate the whole response');
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ confidence: 0.84 }), { pending }), null, 'low confidence must fail closed');
 }
@@ -120,14 +118,25 @@ function testModelContinuationSupportsPartialClarificationAnswers() {
     confidence: 0.99,
     resolved_input: '猫的姿势换一下',
     selections: [{ resource_key: 'r1', choice_key: 'c2' }],
-    should_merge: true,
-    should_clear_pending: true,
     assistant_reply: '',
     reason: 'the user selected the second cat but did not provide the pose',
   }), { pending });
   assert.ok(decision, 'the model may preserve a valid partial answer for a combined clarification');
   assert.strictEqual(decision.resolvedInput, '猫的姿势换一下');
   assert.deepStrictEqual(decision.selections, [{ resource_key: 'r1', choice_key: 'c2' }]);
+
+  const partialWorkloadEstimate = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'partial_answer',
+    confidence: 0.98,
+    resolved_input: '需要估算全部适合低代码的功能的工作量',
+    selections: [],
+    assistant_reply: '',
+    reason: '用户回答了组合追问的一项，但仍需确认估算单位。',
+  }), { pending });
+  assert.ok(partialWorkloadEstimate, 'a high-confidence partial answer must continue through complete routing');
+  assert.strictEqual(partialWorkloadEstimate.shouldMerge, true);
+  assert.strictEqual(partialWorkloadEstimate.shouldClearPending, true);
 
   const context = clarification.buildClarificationRouteContext({
     baseContext: {
@@ -148,14 +157,48 @@ function testModelContinuationSupportsPartialClarificationAnswers() {
   assert.strictEqual(clarification.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
     relation: 'partial_answer', confidence: 0.99, resolved_input: '猫的姿势换一下',
-    selections: [{ resource_key: 'r1', choice_key: 'c9' }], should_merge: true,
-    should_clear_pending: true, assistant_reply: '', reason: 'invented choice',
+    selections: [{ resource_key: 'r1', choice_key: 'c9' }], assistant_reply: '', reason: 'invented choice',
   }), { pending }), null, 'model recognition must still fail closed for an unknown choice');
 
   const repairPayload = clarification.buildContinuationRepairPayload(payload, '{"relation":"partial_answer"}');
   assert.strictEqual(repairPayload.messages.at(-2).role, 'assistant');
-  assert.match(repairPayload.messages.at(-1).content, /未通过 pending_continuation\.v5 严格校验/);
+  assert.match(repairPayload.messages.at(-1).content, /未通过 pending_continuation\.v6 严格校验/);
   assert.match(repairPayload.messages.at(-1).content, /partial_answer/);
+}
+
+function testPendingClarificationSnapshotsRouteSelectedHistoricalAttachments() {
+  const workbookContext = JSON.stringify({
+    attachments: [{
+      id: 'workbook-low-code', name: 'low-code-scope.xlsx',
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      persistedSrc: 'indexeddb://attachment-file-workbook-low-code', inputFile: true,
+    }],
+  });
+  const routeInfo = {
+    taskContract: {
+      resources: [{
+        key: 'r1', type: 'file', source: 'history', role: 'attachment', index: 1,
+        id: 'workbook-low-code', reference_id: '', missing: false,
+      }],
+      clarification: { unresolved_resources: [] },
+    },
+  };
+  const messages = [
+    { role: 'user', content: '分析这个 Excel', attachmentContext: workbookContext },
+    { role: 'assistant', content: '已完成初步分析。' },
+    { role: 'user', content: '估算全部适合低代码的功能的工作量。' },
+  ];
+  const pending = clarification.createPendingClarification({
+    messages, clarificationText: '请确认按人日、人月还是项目周期估算？', routeInfo,
+  });
+
+  assert.strictEqual(pending.sourceAttachmentContexts.length, 1);
+  assert.strictEqual(pending.sourceAttachmentContexts[0].attachments[0].id, 'workbook-low-code');
+  assert.deepStrictEqual(
+    clarification.collectPendingAttachmentContexts({ messages, routeInfo }).map(context => context.attachments[0].id),
+    ['workbook-low-code'],
+    'a restored legacy pending record must recover the file selected by its persisted task contract',
+  );
 }
 
 function testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext() {
@@ -278,8 +321,6 @@ function testImageChoiceOrdinalDoesNotReachTheExecutionPrompt() {
     confidence: 0.99,
     resolved_input: '把当前图片换成红色',
     selections: [{ resource_key: 'r1', choice_key: 'c2' }],
-    should_merge: true,
-    should_clear_pending: true,
     assistant_reply: '',
     reason: 'the second external candidate was explicitly selected',
   }), { pending });
@@ -359,7 +400,7 @@ function testNewTaskMultiIntentAndAssistanceCannotDispatch() {
   const newTask = clarification.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
     relation: 'new_task', confidence: 0.99, resolved_input: '', selections: [],
-    should_merge: false, should_clear_pending: true, assistant_reply: '', reason: 'multiple independent goals',
+    assistant_reply: '', reason: 'multiple independent goals',
   }));
   assert.ok(newTask);
   assert.strictEqual(newTask.shouldMerge, false);
@@ -367,13 +408,13 @@ function testNewTaskMultiIntentAndAssistanceCannotDispatch() {
   const assistance = clarification.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_assistance', confidence: 0.99, resolved_input: '', selections: [],
-    should_merge: false, should_clear_pending: false, assistant_reply: '可选手绘鱼或彩色鱼，请选择一种。', reason: 'asked for choices',
+    assistant_reply: '可选手绘鱼或彩色鱼，请选择一种。', reason: 'asked for choices',
   }));
   assert.ok(assistance);
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('resolveClarificationRoute'));
   assert.ok(!submit.includes('pendingDecision?.operation') && !submit.includes('pendingDecision?.mode'));
-  assert.ok(submit.indexOf('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments') < submit.indexOf('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'));
+  assert.ok(submit.indexOf('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments') < submit.indexOf('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'));
 }
 
 function testClarificationContextPreservesCurrentQuotedAndPriorSources() {
@@ -461,11 +502,12 @@ function testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsE
 }
 
 module.exports = [
-  testContinuationV5UsesOneStrictNonExecutingSchema,
+  testContinuationV6UsesOneStrictNonExecutingSchema,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
   testResolvedInputIsRequiredAndNeverSynthesizedLocally,
   testImageChoiceOrdinalDoesNotReachTheExecutionPrompt,
   testModelContinuationSupportsPartialClarificationAnswers,
+  testPendingClarificationSnapshotsRouteSelectedHistoricalAttachments,
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
   testPendingClarificationCanReplayItsPersistedContract,

@@ -114,7 +114,7 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_answer', confidence: 0.99, resolved_input: input,
     selections: [{ resource_key: 'r2', choice_key: colorFishChoice.key }],
-    should_merge: true, should_clear_pending: true, assistant_reply: '', reason: 'selected the colorful fish',
+    assistant_reply: '', reason: 'selected the colorful fish',
   }), { pending });
   const rerouteContext = clarificationService.buildClarificationRouteContext({
     baseContext: context, pending, currentInput: '彩色鱼', resolvedInput: decision.resolvedInput,

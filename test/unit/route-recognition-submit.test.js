@@ -37,7 +37,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.4.4-clarification-identity'),
+    index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
@@ -51,7 +51,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   assert.ok(submit.includes('routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0'), 'the execution projection must mark route-selected messages as protected during context budgeting');
   assert.ok(chat.includes('protectedHistoryIndexes(rawMessages,protectedContextMessageCount(n))'), 'chat context budgeting must preserve selected messages and explicit quotes without shared mutable state');
   assert.ok(!chat.includes('nextRequestProtectedMessageCount'), 'concurrent chat requests must not share context-protection state');
-  assert.match(submit, /const sourcePools\s*=\s*\{\s*current:currentTurnAttachments,\s*quoted:quotedResourceAttachments,\s*history:/, 'all attachment sources must enter distinct execution pools');
+  assert.match(submit, /const sourcePools\s*=\s*\{\s*current:pendingMerge\?\.merged\?continuationRequestAttachments:currentTurnAttachments,\s*quoted:quotedResourceAttachments,\s*history:/, 'all attachment sources must enter distinct execution pools, with a continuation retaining its source attachments');
   assert.ok(submit.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the validated route contract must create the one canonical media projection');
   assert.ok(submit.includes('prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages])'), 'chat dispatch must use only contract-selected files and images');
   assert.ok(submit.includes('const editAttachments=executionMedia.imageInputs'), 'image dispatch must use only contract-selected image inputs');
@@ -117,20 +117,20 @@ function testPendingContinuationRequiresStrictModelContract() {
 
   const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'new_task', confidence: 1, resolved_input: '', selections: [], should_merge: false, should_clear_pending: true, assistant_reply: '', reason: 'complete independent request',
+    relation: 'new_task', confidence: 1, resolved_input: '', selections: [], assistant_reply: '', reason: 'complete independent request',
   }));
   assert.ok(newTask);
   assert.strictEqual(newTask.shouldMerge, false);
 
   const continuation = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer', confidence: 0.95, resolved_input: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', selections: [], should_merge: true, should_clear_pending: true, assistant_reply: '', reason: 'answers the pending question',
+    relation: 'pending_answer', confidence: 0.95, resolved_input: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', selections: [], assistant_reply: '', reason: 'answers the pending question',
   }));
   assert.ok(continuation, 'only a complete, high-confidence continuation contract may authorize a merge');
 
   const assistance = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_assistance', confidence: 0.95, resolved_input: '', selections: [], should_merge: false, should_clear_pending: false, assistant_reply: '可选犬种：沙皮狗、柴犬、金毛、拉布拉多。请选择一种。', reason: 'the user requested choices for the active breed question',
+    relation: 'pending_assistance', confidence: 0.95, resolved_input: '', selections: [], assistant_reply: '可选犬种：沙皮狗、柴犬、金毛、拉布拉多。请选择一种。', reason: 'the user requested choices for the active breed question',
   }));
   assert.ok(assistance, 'an assistance reply must preserve the active pending task rather than start a new route');
   assert.strictEqual(assistance.assistantReply.includes('沙皮狗'), true);
@@ -157,7 +157,9 @@ function testPendingContinuationRequiresStrictModelContract() {
   assert.ok(!submit.includes('finalTaskMode') && !submit.includes('selectedIndexes'), 'a continuation classifier must expose no operation or media-selection controls');
   assert.ok(!submit.includes('resolveClarificationRoute') && !submit.includes('pendingResolvedRoute'), 'a structured choice must never bypass canonical intent routing');
   assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a continuation must become explicit context for full rerouting');
-  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a continuation must reroute with current attachments only');
+  assert.ok(submit.includes('clarification.collectPendingAttachmentContexts?.('), 'a continuation must recover the attachments selected by its pending task snapshot');
+  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a continuation must reroute with its restored original attachments');
+  assert.ok(submit.includes('current:pendingMerge?.merged?continuationRequestAttachments:currentTurnAttachments'), 'the final execution pool must use the same restored attachment list that the full router saw');
   assert.ok(submit.includes('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'), 'submit must apply the canonical execution gate even when a route has no task contract');
   assert.ok(!submit.includes('if(routeInfo.taskContract&&routeUtils.isRouteDispatchable'), 'the dispatch gate must not be conditional on a contract being present');
   assert.ok(!submit.includes('引用图片为准，按引用图片执行编辑'), 'quoted routes must not be rewritten after contract validation');

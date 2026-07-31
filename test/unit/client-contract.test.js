@@ -733,8 +733,6 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
     confidence: 0.99,
     resolved_input: 'combine the cat and colorful fish',
     selections: [{ resource_key: 'r2', choice_key: 'c2' }],
-    should_merge: true,
-    should_clear_pending: true,
     assistant_reply: '',
     reason: 'the user selected the colorful fish option',
   }), { pending });
@@ -757,8 +755,7 @@ function testStructuredClarificationSelectionResumesTheOriginalCompositionContra
   assert.strictEqual(clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
     relation: 'pending_answer', confidence: 0.99, resolved_input: 'combine them',
-    selections: [{ resource_key: 'r2', choice_key: 'c9' }], should_merge: true,
-    should_clear_pending: true, assistant_reply: '', reason: 'unknown choice',
+    selections: [{ resource_key: 'r2', choice_key: 'c9' }], assistant_reply: '', reason: 'unknown choice',
   }), { pending }), null, 'an unknown choice must never enter the reroute context');
 
   const missingUpload = {

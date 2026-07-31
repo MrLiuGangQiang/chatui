@@ -497,7 +497,7 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     currentInput: '山巅的',
   });
   assert.strictEqual(payload.temperature, 0);
-  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v5');
+  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v6');
   assert.ok(payload.messages[0].content.includes('无权决定'));
   assert.ok(payload.messages[0].content.includes('最小语义补全'));
   assert.ok(payload.messages[0].content.includes('operation、API、mode'));
@@ -508,8 +508,6 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
     confidence: 0.97,
     resolved_input: '山巅的晚霞图',
     selections: [],
-    should_merge: true,
-    should_clear_pending: true,
     assistant_reply: '',
     reason: '用户正在补充未完成的图片任务',
   }));
@@ -528,7 +526,7 @@ function testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup() {
   const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
     schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
     relation: 'new_task', confidence: 1, resolved_input: '', selections: [],
-    should_merge: false, should_clear_pending: true, assistant_reply: '', reason: 'independent question',
+    assistant_reply: '', reason: 'independent question',
   }));
   assert.ok(newTask);
   assert.strictEqual(newTask.shouldMerge, false);
@@ -646,11 +644,11 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'a classifier failure must keep pending clarification instead of silently starting a new task');
   assert.ok(submit.includes('pendingMerge?.merged&&clearStoredPendingClarification()'), 'a merged clarification should be consumed only after durable handoff');
   assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a merged answer must create an explicit clarification route context');
-  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,currentTurnAttachments'), 'a merged answer must be fully rerouted with current-turn attachments only');
+  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a merged answer must be fully rerouted with its restored source attachments');
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.4.4-clarification-identity'), 'submit workflow cache version should include the clarification identity boundary');
-  assert.ok(index.includes('clarification-service.js?v=1.4.1-pending-replay'), 'clarification service cache version should include pending replay semantics');
+  assert.ok(index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments'), 'submit workflow cache version should include pending source attachments');
+  assert.ok(index.includes('clarification-service.js?v=1.5.0-pending-source-attachments'), 'clarification service cache version should include pending source attachments');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -1710,7 +1708,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -3079,7 +3077,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.4.4-clarification-identity') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.1-current-media-binding') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.1-current-media-binding') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {

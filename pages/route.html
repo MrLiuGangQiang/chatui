@@ -1,627 +1,747 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<!-- Standalone page loaded by the shared document viewer. -->
-<title>ChatUI · 奥哲AI助手：12节点执行地图</title>
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; background: #020611; }
-  body {
-    display: grid;
-    place-items: center;
-    overflow: auto;
-    background:
-      radial-gradient(circle at 52% -14%, rgba(39, 112, 255, .22), transparent 43%),
-      radial-gradient(circle at 91% 96%, rgba(145, 72, 255, .16), transparent 36%),
-      #020611;
-    font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
-  }
-  .poster {
-    display: block;
-    width: min(100vw, calc(100vh * 1.776833));
-    height: auto;
-    aspect-ratio: 1672 / 941;
-    background: #050b1c;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, .45);
-  }
-  svg text { text-rendering: geometricPrecision; }
-  .title-main { font-size: 62px; font-weight: 900; letter-spacing: -1.8px; filter: drop-shadow(0 4px 16px rgba(67, 145, 255, .15)); }
-  .subtitle { font-size: 22px; font-weight: 650; letter-spacing: 4.8px; fill: #afc8ef; }
-  .phase-label { font-size: 16px; font-weight: 800; letter-spacing: 3px; }
-  .phase-title { font-size: 27px; font-weight: 850; letter-spacing: .5px; }
-  .card-num { font-family: "Arial Narrow", "DIN Condensed", Georgia, serif; font-size: 42px; font-weight: 800; letter-spacing: 1px; }
-  .card-title { font-size: 25px; font-weight: 750; fill: #f4f8ff !important; }
-  .card-title.sm { font-size: 23px; }
-  .card-label { font-size: 15px; font-weight: 800; letter-spacing: .8px; fill: #86a8d1 !important; }
-  .card-value { font-size: 16px; font-weight: 500; fill: #d6e5fb !important; }
-  .card-value.small { font-size: 15.5px; }
-  .bottom-copy { font-size: 22px; font-weight: 650; letter-spacing: 3px; fill: #e4edff !important; }
-  .hud-chip text { font-size: 13px; font-weight: 800; letter-spacing: 2.3px; fill: #b9d8ff; }
-  .hud-chip rect { fill: #0b1a36; fill-opacity: .82; stroke: #2b6fc4; stroke-opacity: .75; }
-  .phase-orbit { fill: none; stroke-dasharray: 3 10; transform-box: fill-box; transform-origin: center; animation: orbit-spin 16s linear infinite; }
-  .phase-orbit.reverse { animation-direction: reverse; animation-duration: 20s; }
-  .data-pulse { transform-box: fill-box; transform-origin: center; animation: data-pulse 1.9s ease-in-out infinite; }
-  .flow-comet { pointer-events: none; }
-  .completion-station rect { fill: url(#completionPanel); stroke: #8f74f7; stroke-opacity: .58; }
-  svg rect[fill="#fff"][fill-opacity=".98"] { fill: url(#cardGlass) !important; stroke: #315378 !important; }
-  g[filter="url(#shadowBlue)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #327dc7 !important; }
-  g[filter="url(#shadowGreen)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #267b70 !important; }
-  g[filter="url(#shadowPurple)"] rect[fill="#fff"][fill-opacity=".98"] { stroke: #725fc1 !important; }
-  svg rect[fill="none"][rx="14"],
-  svg rect[fill="none"][rx="13"] { stroke: #5d7ea4 !important; stroke-opacity: .32; }
-  .fallback-pill rect { fill: #221f48; stroke: #8068dc; stroke-opacity: .74; }
-  .fallback-pill text { fill: #d8ceff; }
-  @keyframes orbit-spin { to { transform: rotate(360deg); } }
-  @keyframes data-pulse { 0%, 100% { opacity: .45; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.2); } }
-  @media (prefers-reduced-motion: reduce) {
-    .phase-orbit, .data-pulse { animation: none; }
-  }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <!-- Standalone source-ordered route map loaded by the shared document viewer. -->
+  <title>ChatUI · 你的消息怎样变成任务</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --white: #f5f7ff;
+      --muted: #e4e9f3;
+      --blue: #00aaff;
+      --cyan: #65dcff;
+      --green: #10ed8b;
+      --red: #ff3137;
+      --orange: #ff8a09;
+      --purple: #b265ff;
+      --ink: #00040c;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--ink); }
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+
+    #poster {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 1672px;
+      height: 941px;
+      overflow: hidden;
+      transform-origin: 0 0;
+      color: var(--white);
+      border: 1px solid rgba(169, 181, 198, 0.7);
+      background:
+        radial-gradient(ellipse at 50% 112%, rgba(0, 61, 157, 0.3), transparent 55%),
+        radial-gradient(ellipse at 94% 18%, rgba(178, 101, 255, 0.12), transparent 34%),
+        radial-gradient(ellipse at 3% 45%, rgba(0, 170, 255, 0.12), transparent 32%),
+        linear-gradient(180deg, #02050b 0%, #020817 47%, #020c20 100%);
+      box-shadow: inset 0 0 90px rgba(0, 23, 65, 0.22), inset 0 0 3px rgba(255, 255, 255, 0.16);
+      isolation: isolate;
+    }
+
+    #poster::before {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: "";
+      opacity: 0.34;
+      background-image:
+        linear-gradient(rgba(51, 121, 207, 0.075) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(51, 121, 207, 0.075) 1px, transparent 1px),
+        radial-gradient(circle at 13% 22%, var(--blue) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 43% 68%, var(--cyan) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 74% 28%, var(--green) 0 1px, transparent 1.6px),
+        radial-gradient(circle at 92% 78%, var(--purple) 0 1px, transparent 1.6px);
+      background-size: 42px 42px, 42px 42px, auto, auto, auto, auto;
+    }
+
+    #poster::after {
+      position: absolute;
+      z-index: 8;
+      left: 0;
+      top: -150px;
+      width: 100%;
+      height: 116px;
+      pointer-events: none;
+      content: "";
+      opacity: 0.15;
+      background: linear-gradient(180deg, transparent, rgba(101, 220, 255, 0.2), transparent);
+      animation: scan-poster 8.5s linear infinite;
+    }
+
+    .ambient { position: absolute; z-index: 0; border-radius: 50%; filter: blur(34px); pointer-events: none; }
+    .ambient.blue { left: -90px; top: 140px; width: 290px; height: 290px; background: rgba(0, 170, 255, 0.1); }
+    .ambient.green { left: 570px; top: 360px; width: 380px; height: 300px; background: rgba(16, 237, 139, 0.055); }
+    .ambient.purple { right: -82px; bottom: 52px; width: 330px; height: 330px; background: rgba(178, 101, 255, 0.09); }
+
+    .poster-header {
+      position: absolute;
+      z-index: 6;
+      left: 38px;
+      right: 38px;
+      top: 21px;
+      height: 120px;
+      border-bottom: 1px solid rgba(101, 220, 255, 0.18);
+    }
+
+    .poster-header::after {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 1px;
+      content: "";
+      background: linear-gradient(90deg, var(--blue), rgba(101, 220, 255, 0.12) 52%, rgba(178, 101, 255, 0.62));
+      box-shadow: 0 0 12px rgba(0, 170, 255, 0.28);
+    }
+
+    .brand-mark { position: absolute; left: 0; top: 2px; width: 80px; height: 80px; filter: drop-shadow(0 0 18px rgba(0, 170, 255, 0.28)); }
+    .brand-mark .hex { fill: rgba(0, 170, 255, 0.055); stroke: var(--blue); stroke-width: 1.4; }
+    .brand-mark .route-line, .brand-mark .route-node { fill: none; stroke: var(--cyan); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .brand-mark .route-node { fill: #04182a; }
+    .brand-mark .end-node { stroke: var(--green); }
+
+    .title-block { position: absolute; left: 99px; top: 0; width: 1040px; }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 5px;
+      color: var(--cyan);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 12.5px;
+      font-weight: 850;
+      letter-spacing: 1.8px;
+    }
+    .eyebrow-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(16, 237, 139, 0.8); animation: pulse-dot 1.8s ease-in-out infinite; }
+    .main-title { margin: 0; color: #f7f8fc; font-size: 39px; font-weight: 900; line-height: 1.06; letter-spacing: 0.3px; text-shadow: 0 3px 12px rgba(0, 0, 0, 0.68); }
+    .main-title .accent { color: transparent; background: linear-gradient(90deg, var(--blue), var(--cyan) 45%, var(--green)); -webkit-background-clip: text; background-clip: text; }
+    .subtitle { margin: 7px 0 0; color: rgba(228, 233, 243, 0.82); font-size: 15px; line-height: 1.45; letter-spacing: 0.08px; }
+    .subtitle strong { color: var(--white); font-weight: 800; }
+    .subtitle .branch-copy { color: var(--orange); }
+
+    .runtime-card {
+      --state-rgb: 0, 170, 255;
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 416px;
+      height: 98px;
+      padding: 13px 16px 12px;
+      border: 1px solid rgba(var(--state-rgb), 0.48);
+      border-radius: 13px;
+      background: linear-gradient(135deg, rgba(var(--state-rgb), 0.13), transparent 46%), rgba(1, 8, 20, 0.86);
+      box-shadow: inset 0 0 28px rgba(var(--state-rgb), 0.055), 0 0 24px rgba(var(--state-rgb), 0.08);
+      overflow: hidden;
+    }
+    .runtime-card::after { position: absolute; right: -26px; top: -36px; width: 122px; height: 122px; border-radius: 50%; content: ""; background: rgba(var(--state-rgb), 0.08); filter: blur(14px); }
+    .runtime-card[data-phase="busy"], .runtime-card[data-phase="stopping"], .runtime-card[data-phase="failed"] { --state-rgb: 255, 49, 55; }
+    .runtime-card[data-phase="accepted"], .runtime-card[data-phase="capturing"], .runtime-card[data-phase="routing"] { --state-rgb: 0, 170, 255; }
+    .runtime-card[data-phase="handoff"], .runtime-card[data-phase="clarifying"] { --state-rgb: 178, 101, 255; }
+    .runtime-card[data-phase="running"], .runtime-card[data-phase="recovering"], .runtime-card[data-phase="completed"] { --state-rgb: 16, 237, 139; }
+    .runtime-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; min-width: 0; color: rgba(228, 233, 243, 0.66); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11.5px; font-weight: 850; letter-spacing: 1px; }
+    .runtime-lamp { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: rgb(var(--state-rgb)); box-shadow: 0 0 11px rgba(var(--state-rgb), 0.9); animation: pulse-dot 1.6s ease-in-out infinite; }
+    .session-flag { min-width: 0; max-width: 174px; margin-left: auto; overflow: hidden; color: rgba(228, 233, 243, 0.78); font-size: 10.5px; letter-spacing: 0.35px; text-overflow: ellipsis; white-space: nowrap; }
+    .pending-flag { display: none; flex: 0 0 auto; padding: 2px 7px; border: 1px solid rgba(178, 101, 255, 0.55); border-radius: 999px; color: #d9b8ff; background: rgba(178, 101, 255, 0.1); letter-spacing: 0.8px; }
+    .runtime-card[data-pending-clarification="true"] .pending-flag { display: inline-flex; }
+    .runtime-label { position: relative; z-index: 1; display: block; margin-top: 7px; color: #f7f8fc; font-size: 18px; font-weight: 850; line-height: 1.2; }
+    .runtime-note { position: relative; z-index: 1; margin: 4px 0 0; color: rgba(228, 233, 243, 0.72); font-size: 12.5px; line-height: 1.35; }
+
+    .workflow { position: absolute; z-index: 2; left: 0; top: 148px; width: 1672px; height: 704px; }
+    .source-order-ribbon {
+      position: absolute;
+      z-index: 7;
+      left: 69px;
+      top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 35px;
+      padding: 0 14px 0 9px;
+      border: 1px solid rgba(0, 170, 255, 0.38);
+      border-radius: 999px;
+      background: rgba(0, 12, 31, 0.82);
+      color: rgba(228, 233, 243, 0.72);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 11.5px;
+      font-weight: 850;
+      letter-spacing: 0.8px;
+      box-shadow: 0 0 18px rgba(0, 170, 255, 0.08);
+    }
+    .source-order-ribbon b { display: inline-flex; align-items: center; height: 21px; padding: 0 8px; border-radius: 999px; color: #00131e; background: linear-gradient(90deg, var(--cyan), var(--green)); font-size: 11.5px; letter-spacing: 0.7px; }
+    .source-order-ribbon strong { color: var(--white); font-size: 12.5px; letter-spacing: 0.8px; }
+
+    .flow-track, .flow-runner { position: absolute; inset: 0; width: 1672px; height: 704px; overflow: visible; pointer-events: none; }
+    .flow-track { z-index: 1; }
+    .flow-runner { z-index: 2; }
+    .track-shadow, .track-core, .sequence-link, .branch-track { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .track-shadow { stroke: rgba(0, 170, 255, 0.12); stroke-width: 12; filter: blur(4px); }
+    .track-core { stroke: rgba(101, 220, 255, 0.24); stroke-width: 2; stroke-dasharray: 7 10; animation: dash-run 1.2s linear infinite; }
+    .sequence-link { stroke: rgba(101, 220, 255, 0.78); stroke-width: 2.2; filter: drop-shadow(0 0 5px rgba(0, 170, 255, 0.56)); }
+    .sequence-link.row-wrap { stroke: rgba(0, 170, 255, 0.52); stroke-width: 1.7; stroke-dasharray: 7 7; }
+    .branch-track { stroke: rgba(255, 49, 55, 0.78); stroke-width: 2; stroke-dasharray: 5 5; filter: drop-shadow(0 0 5px rgba(255, 49, 55, 0.42)); }
+    .runner-halo { fill: rgba(101, 220, 255, 0.2); filter: blur(5px); }
+    .runner-core { fill: var(--white); stroke: var(--cyan); stroke-width: 2; filter: drop-shadow(0 0 8px var(--blue)); }
+    .wrap-label { position: absolute; z-index: 5; width: 126px; text-align: center; color: rgba(101, 220, 255, 0.78); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11px; font-weight: 900; letter-spacing: 0.35px; pointer-events: none; }
+    .wrap-label.one { right: 0; top: 232px; }
+    .wrap-label.two { left: 0; top: 447px; }
+
+    .phase-card {
+      --phase-rgb: 0, 170, 255;
+      position: absolute;
+      z-index: 4;
+      left: 8px;
+      width: 40px;
+      height: 172px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid rgba(var(--phase-rgb), 0.38);
+      border-radius: 12px;
+      background: rgba(1, 10, 25, 0.9);
+      box-shadow: inset 0 0 18px rgba(var(--phase-rgb), 0.055), 0 0 20px rgba(var(--phase-rgb), 0.06);
+    }
+    .phase-card.submit { top: 52px; --phase-rgb: 0, 170, 255; }
+    .phase-card.route { top: 267px; --phase-rgb: 16, 237, 139; }
+    .phase-card.execute { top: 482px; --phase-rgb: 178, 101, 255; }
+    .phase-index { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; color: rgb(var(--phase-rgb)); background: rgba(var(--phase-rgb), 0.1); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11px; font-weight: 900; }
+    .phase-name { color: rgba(228, 233, 243, 0.86); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11.5px; font-weight: 900; letter-spacing: 0.4px; writing-mode: vertical-rl; text-orientation: mixed; }
+    .phase-range { color: rgba(var(--phase-rgb), 0.78); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10px; font-weight: 900; letter-spacing: 0.1px; }
+
+    .node-grid {
+      position: absolute;
+      z-index: 3;
+      left: 80px;
+      top: 52px;
+      width: 1550px;
+      display: grid;
+      grid-template-rows: repeat(3, 172px);
+      row-gap: 43px;
+    }
+    .node-row { display: grid; min-width: 0; grid-template-columns: repeat(4, 350px); column-gap: 50px; }
+    .node-row.reverse { direction: rtl; }
+    .node-row.reverse > .node { direction: ltr; }
+
+    .node {
+      --rgb: 0, 170, 255;
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      padding: 11px 15px 10px;
+      border: 1px solid rgba(var(--rgb), 0.54);
+      border-radius: 13px;
+      background: linear-gradient(135deg, rgba(var(--rgb), 0.115), transparent 42%), linear-gradient(180deg, rgba(5, 17, 37, 0.96), rgba(1, 9, 23, 0.965));
+      box-shadow: inset 0 0 30px rgba(var(--rgb), 0.042), 0 12px 28px rgba(0, 0, 0, 0.25), 0 0 18px rgba(var(--rgb), 0.055);
+      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+    .node::before { position: absolute; left: 0; right: 0; top: 0; height: 2px; content: ""; background: linear-gradient(90deg, rgb(var(--rgb)), rgba(var(--rgb), 0.08) 70%, transparent); box-shadow: 0 0 9px rgba(var(--rgb), 0.62); }
+    .node::after { position: absolute; right: -28px; bottom: -38px; width: 112px; height: 112px; border-radius: 50%; content: ""; background: rgba(var(--rgb), 0.045); filter: blur(9px); pointer-events: none; }
+    .node.blue { --rgb: 0, 170, 255; }
+    .node.cyan { --rgb: 101, 220, 255; }
+    .node.green { --rgb: 16, 237, 139; }
+    .node.orange { --rgb: 255, 138, 9; }
+    .node.purple { --rgb: 178, 101, 255; }
+    .node.is-current {
+      z-index: 7;
+      border-color: rgb(var(--rgb));
+      transform: translateY(-2px);
+      box-shadow: inset 0 0 38px rgba(var(--rgb), 0.12), 0 0 0 2px rgba(var(--rgb), 0.24), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 34px rgba(var(--rgb), 0.46);
+      animation: current-node-pulse 1.65s ease-in-out infinite;
+    }
+    .node.is-current .node-number { color: #001019; background: rgb(var(--rgb)); box-shadow: 0 0 18px rgba(var(--rgb), 0.72); }
+    .node.is-terminal-current { box-shadow: inset 0 0 38px rgba(16, 237, 139, 0.13), 0 0 0 2px rgba(16, 237, 139, 0.25), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 38px rgba(16, 237, 139, 0.5); }
+    .node.is-error-current { box-shadow: inset 0 0 38px rgba(255, 49, 55, 0.13), 0 0 0 2px rgba(255, 49, 55, 0.3), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 38px rgba(255, 49, 55, 0.48); }
+
+    .node-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; min-height: 26px; }
+    .node-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      height: 27px;
+      padding: 0 8px;
+      border: 1px solid rgba(var(--rgb), 0.6);
+      border-radius: 7px;
+      color: rgb(var(--rgb));
+      background: rgba(var(--rgb), 0.1);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      box-shadow: 0 0 12px rgba(var(--rgb), 0.08);
+    }
+    .node-kind { color: rgba(228, 233, 243, 0.84); font-size: 12px; font-weight: 900; letter-spacing: 0.1px; }
+    .node-icon { width: 24px; height: 24px; margin-left: auto; color: rgb(var(--rgb)); opacity: 0.9; filter: drop-shadow(0 0 5px rgba(var(--rgb), 0.35)); }
+    .node-icon * { fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+    .node-title { position: relative; z-index: 1; margin: 6px 0 3px; color: #f7f8fc; font-size: 20px; font-weight: 850; line-height: 1.2; letter-spacing: 0.08px; }
+    .node-summary { position: relative; z-index: 1; min-height: 35px; margin: 0; color: rgba(228, 233, 243, 0.9); font-size: 13px; font-weight: 560; line-height: 1.34; }
+    .node-code {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      min-height: 22px;
+      margin-top: 4px;
+      padding: 3px 7px;
+      overflow: hidden;
+      border-left: 2px solid rgba(var(--rgb), 0.72);
+      color: rgba(212, 238, 255, 0.88);
+      background: rgba(0, 0, 0, 0.2);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 12px;
+      line-height: 1.25;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .node-branches { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; min-height: 20px; margin-top: 3px; overflow: hidden; }
+    .branch-chip {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      height: 20px;
+      padding: 0 8px;
+      border: 1px solid rgba(var(--chip-rgb, 101, 220, 255), 0.34);
+      border-radius: 999px;
+      color: rgba(var(--chip-rgb, 101, 220, 255), 0.9);
+      background: rgba(var(--chip-rgb, 101, 220, 255), 0.065);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 11.5px;
+      font-weight: 850;
+      letter-spacing: 0.15px;
+      white-space: nowrap;
+    }
+    .branch-chip.pass { --chip-rgb: 16, 237, 139; }
+    .branch-chip.warn { --chip-rgb: 255, 138, 9; }
+    .branch-chip.stop { --chip-rgb: 255, 49, 55; }
+    .branch-chip.pending { --chip-rgb: 178, 101, 255; }
+
+    .clarification-exit {
+      position: absolute;
+      z-index: 5;
+      left: 470px;
+      top: 664px;
+      width: 750px;
+      height: 33px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 11px;
+      border: 1px solid rgba(255, 49, 55, 0.48);
+      border-radius: 9px;
+      color: rgba(245, 247, 255, 0.88);
+      background: linear-gradient(90deg, rgba(255, 49, 55, 0.13), rgba(178, 101, 255, 0.08));
+      box-shadow: 0 0 18px rgba(255, 49, 55, 0.075);
+      font-size: 11.5px;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+    .clarification-exit b { flex: 0 0 auto; color: var(--red); font-family: Consolas, "SFMono-Regular", monospace; font-size: 12px; letter-spacing: 0.5px; }
+    .clarification-exit span { color: rgba(228, 233, 243, 0.72); }
+    .clarification-exit.is-current { border-color: rgba(178, 101, 255, 0.86); background: linear-gradient(90deg, rgba(255, 49, 55, 0.18), rgba(178, 101, 255, 0.18)); box-shadow: 0 0 24px rgba(178, 101, 255, 0.28); }
+    .phase-card { transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease; }
+    .phase-card.is-current { border-color: rgba(var(--phase-rgb), 0.86); background: rgba(var(--phase-rgb), 0.13); box-shadow: inset 0 0 22px rgba(var(--phase-rgb), 0.11), 0 0 24px rgba(var(--phase-rgb), 0.3); }
+    .workflow.has-live-progress .flow-runner { opacity: 0.3; }
+
+    .poster-footer {
+      position: absolute;
+      z-index: 6;
+      left: 38px;
+      right: 38px;
+      bottom: 18px;
+      height: 66px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(101, 220, 255, 0.16);
+    }
+    .poster-footer::before { position: absolute; left: 0; right: 0; top: -1px; height: 1px; content: ""; background: linear-gradient(90deg, rgba(0, 170, 255, 0.6), rgba(101, 220, 255, 0.08) 58%, rgba(178, 101, 255, 0.44)); }
+    .lifecycle { display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; }
+    .lifecycle-title { margin-right: 4px; color: rgba(228, 233, 243, 0.58); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10.5px; font-weight: 900; letter-spacing: 0.7px; white-space: nowrap; }
+    .lifecycle-item {
+      --life-rgb: 0, 170, 255;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 8px;
+      border: 1px solid rgba(var(--life-rgb), 0.25);
+      border-radius: 999px;
+      color: rgba(228, 233, 243, 0.58);
+      background: rgba(var(--life-rgb), 0.035);
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 10.5px;
+      font-weight: 800;
+      white-space: nowrap;
+      transition: 160ms ease;
+    }
+    .lifecycle-item i { width: 5px; height: 5px; border-radius: 50%; background: rgba(var(--life-rgb), 0.55); }
+    .lifecycle-item.handoff { --life-rgb: 178, 101, 255; }
+    .lifecycle-item.boundary, .lifecycle-item.terminal { --life-rgb: 16, 237, 139; }
+    .lifecycle-item.past { color: rgba(228, 233, 243, 0.78); border-color: rgba(var(--life-rgb), 0.44); background: rgba(var(--life-rgb), 0.075); }
+    .lifecycle-item.current { color: #f7f8fc; border-color: rgba(var(--life-rgb), 0.78); background: rgba(var(--life-rgb), 0.14); box-shadow: 0 0 13px rgba(var(--life-rgb), 0.18); }
+    .lifecycle-item.current i { background: rgb(var(--life-rgb)); box-shadow: 0 0 8px rgba(var(--life-rgb), 0.9); }
+    .lifecycle-arrow { color: rgba(101, 220, 255, 0.4); font-size: 11px; }
+    .running-note { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border: 1px solid rgba(16, 237, 139, 0.32); border-radius: 7px; color: var(--green); background: rgba(16, 237, 139, 0.065); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10.5px; font-weight: 900; letter-spacing: 0.5px; white-space: nowrap; }
+    .legend { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex: 0 0 auto; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; color: rgba(228, 233, 243, 0.58); font-size: 11px; white-space: nowrap; }
+    .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 8px color-mix(in srgb, var(--dot) 70%, transparent); }
+
+    @keyframes pulse-dot { 0%, 100% { opacity: 0.55; transform: scale(0.88); } 50% { opacity: 1; transform: scale(1.12); } }
+    @keyframes current-node-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.16); } }
+    @keyframes dash-run { to { stroke-dashoffset: -17; } }
+    @keyframes scan-poster { from { transform: translateY(0); } to { transform: translateY(1120px); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      #poster::after, .eyebrow-dot, .runtime-lamp, .track-core, .node.is-current { animation: none !important; }
+      .flow-runner { display: none; }
+    }
+  </style>
 </head>
 <body>
-<svg class="poster" viewBox="0 0 1672 941" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="posterTitle posterDesc">
-  <title id="posterTitle">ChatUI · 奥哲AI助手：12节点执行地图</title>
-  <desc id="posterDesc">三阶段、十二个节点的任务路由执行流程图；资源恢复、结构化澄清续办、合同修复和备用模型均按条件进入，交接后异步等待结果。</desc>
+  <main id="poster" aria-label="ChatUI 从发送到完成的处理流程图">
+    <span class="ambient blue"></span>
+    <span class="ambient green"></span>
+    <span class="ambient purple"></span>
 
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#07122c"/>
-      <stop offset=".48" stop-color="#060d22"/>
-      <stop offset="1" stop-color="#080d24"/>
-    </linearGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#25d7ff"/>
-      <stop offset="0.52" stop-color="#1786ff"/>
-      <stop offset="1" stop-color="#714cff"/>
-    </linearGradient>
-    <linearGradient id="blueSoft" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#164474"/>
-      <stop offset="0.48" stop-color="#24baf6"/>
-      <stop offset="1" stop-color="#5a65ff"/>
-    </linearGradient>
-    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#23d9b0"/>
-      <stop offset=".56" stop-color="#16b990"/>
-      <stop offset="1" stop-color="#48dca3"/>
-    </linearGradient>
-    <linearGradient id="greenSoft" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#164d4d"/>
-      <stop offset="0.5" stop-color="#21c79b"/>
-      <stop offset="1" stop-color="#6be4bc"/>
-    </linearGradient>
-    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#8f75ff"/>
-      <stop offset=".54" stop-color="#8257f5"/>
-      <stop offset="1" stop-color="#e074ff"/>
-    </linearGradient>
-    <linearGradient id="snakeSoft" x1="0" y1="391" x2="0" y2="848" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2ccfff"/>
-      <stop offset=".36" stop-color="#3c91ff"/>
-      <stop offset=".55" stop-color="#2ad7a8"/>
-      <stop offset=".76" stop-color="#28c59c"/>
-      <stop offset="1" stop-color="#b17dff"/>
-    </linearGradient>
-    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#39d5ff"/>
-      <stop offset=".52" stop-color="#4b88ff"/>
-      <stop offset="1" stop-color="#b277ff"/>
-    </linearGradient>
-    <linearGradient id="phaseBlue" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#102a54"/>
-      <stop offset="1" stop-color="#0c1939"/>
-    </linearGradient>
-    <linearGradient id="phaseGreen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b3d43"/>
-      <stop offset="1" stop-color="#0b1e35"/>
-    </linearGradient>
-    <linearGradient id="phasePurple" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#292254"/>
-      <stop offset="1" stop-color="#141332"/>
-    </linearGradient>
-    <linearGradient id="cardGlass" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#152747" stop-opacity=".98"/>
-      <stop offset=".52" stop-color="#0d1a34" stop-opacity=".97"/>
-      <stop offset="1" stop-color="#0a132a" stop-opacity=".98"/>
-    </linearGradient>
-    <linearGradient id="completionPanel" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#302360" stop-opacity=".94"/>
-      <stop offset="1" stop-color="#161638" stop-opacity=".96"/>
-    </linearGradient>
-    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
-      <path d="M42 0H0V42" fill="none" stroke="#5da7ff" stroke-opacity=".075" stroke-width="1"/>
-      <circle cx=".5" cy=".5" r=".8" fill="#90c9ff" fill-opacity=".17"/>
-    </pattern>
-    <radialGradient id="completionGlow" cx="50%" cy="45%" r="55%">
-      <stop offset="0" stop-color="#9f7cff" stop-opacity=".55"/>
-      <stop offset="1" stop-color="#8c71ff" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="discBlue" cx="42%" cy="35%" r="75%">
-      <stop offset="0" stop-color="#6bd4ff"/>
-      <stop offset="0.55" stop-color="#087eff"/>
-      <stop offset="1" stop-color="#2452d8"/>
-    </radialGradient>
-    <radialGradient id="discPurple" cx="42%" cy="35%" r="75%">
-      <stop offset="0" stop-color="#a995ff"/>
-      <stop offset="0.58" stop-color="#7357ed"/>
-      <stop offset="1" stop-color="#4f35c9"/>
-    </radialGradient>
+    <header class="poster-header">
+      <svg class="brand-mark" viewBox="0 0 88 88" aria-hidden="true">
+        <path class="hex" d="M44 4 78 23.5v39L44 82 10 62.5v-39Z" />
+        <path class="route-line" d="M24 27h18v16h20v18" />
+        <path class="route-line" d="m55 54 7 7 7-7" />
+        <circle class="route-node" cx="24" cy="27" r="4" />
+        <circle class="route-node" cx="42" cy="43" r="4" />
+        <circle class="route-node end-node" cx="62" cy="61" r="4" />
+      </svg>
+      <div class="title-block">
+        <div class="eyebrow"><span class="eyebrow-dot"></span>从你的消息 · 到任务完成</div>
+        <h1 class="main-title">你的消息怎样变成任务 <span class="accent">01 → 12</span></h1>
+        <p class="subtitle"><strong>按顺序看：</strong>先收到你的消息，再理解你的需求，最后开始处理。</p>
+      </div>
+      <section class="runtime-card" data-runtime-state data-phase="idle" data-pending-clarification="false" aria-live="polite">
+        <div class="runtime-top"><span class="runtime-lamp"></span>现在的状态<span class="session-flag" data-runtime-session>当前会话</span><span class="pending-flag">需要补充</span></div>
+        <strong class="runtime-label" data-runtime-label>现在可以发送</strong>
+        <p class="runtime-note" data-runtime-note>这里只展示处理顺序</p>
+      </section>
+    </header>
 
-    <filter id="shadowBlue" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0b8fff" flood-opacity=".28"/>
-    </filter>
-    <filter id="shadowGreen" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#12d4a2" flood-opacity=".24"/>
-    </filter>
-    <filter id="shadowPurple" x="-35%" y="-35%" width="170%" height="190%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#9666ff" flood-opacity=".26"/>
-    </filter>
-    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="14"/>
-    </filter>
-    <filter id="smallShadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#1f91ff" flood-opacity=".35"/>
-    </filter>
-    <filter id="logoShadow" x="-45%" y="-45%" width="190%" height="220%">
-      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#168cff" flood-opacity=".35"/>
-    </filter>
-    <filter id="neonGlow" x="-80%" y="-160%" width="260%" height="420%">
-      <feGaussianBlur stdDeviation="4" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <clipPath id="completionClip">
-      <rect x="1315" y="659" width="269" height="166" rx="25"/>
-    </clipPath>
+    <section class="workflow" aria-label="按 01 到 12 顺序处理你的消息">
+      <div class="source-order-ribbon"><b>处理顺序</b><strong>01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11 → 12</strong></div>
 
-    <marker id="greenArrowHead" markerWidth="18" markerHeight="18" refX="15" refY="9" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M2.5,2.5 L15,9 L2.5,15.5" fill="none" stroke="#0daf79" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </marker>
+      <svg class="flow-track" data-layout="serpentine-s" viewBox="0 0 1672 704" aria-hidden="true">
+        <defs>
+          <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#65dcff" /></marker>
+          <marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff3137" /></marker>
+        </defs>
+        <path class="track-shadow" d="M58 138H1630Q1658 138 1658 166V325Q1658 353 1630 353H80Q58 353 58 375V546Q58 568 80 568H1648" />
+        <path class="track-core" id="mainRouteGuide" data-sequence="01 02 03 04 05 06 07 08 09 10 11 12" d="M58 138H1630Q1658 138 1658 166V325Q1658 353 1630 353H80Q58 353 58 375V546Q58 568 80 568H1648" />
+        <g class="sequence-links" aria-label="严格顺序连接">
+          <path class="sequence-link" data-from="01" data-to="02" d="M430 138H476" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="02" data-to="03" d="M830 138H876" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="03" data-to="04" d="M1230 138H1276" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link row-wrap" data-from="04" data-to="05" d="M1630 138Q1658 138 1658 166V325Q1658 353 1630 353" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="05" data-to="06" d="M1280 353H1234" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="06" data-to="07" d="M880 353H834" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="07" data-to="08" d="M480 353H434" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link row-wrap" data-from="08" data-to="09" d="M80 353Q58 353 58 375V546Q58 568 80 568" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="09" data-to="10" d="M430 568H476" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="10" data-to="11" d="M830 568H876" marker-end="url(#arrowBlue)" />
+          <path class="sequence-link" data-from="11" data-to="12" d="M1230 568H1276" marker-end="url(#arrowBlue)" />
+        </g>
+        <path class="branch-track clarification-track" data-branch-from="10" d="M655 654V662" marker-end="url(#arrowRed)" />
+      </svg>
 
-    <symbol id="icon-shield-lock" viewBox="0 0 48 48">
-      <path d="M24 3.5 40 9.5v12.2c0 10.7-6.5 18.6-16 22.8-9.5-4.2-16-12.1-16-22.8V9.5Z" fill="currentColor"/>
-      <rect x="17" y="20" width="14" height="11" rx="2.4" fill="#fff"/>
-      <path d="M20 20v-3.1a4 4 0 0 1 8 0V20" fill="none" stroke="#fff" stroke-width="2.5"/>
-      <circle cx="24" cy="25" r="1.7" fill="currentColor"/>
-      <path d="M24 26.5v2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="icon-doc" viewBox="0 0 48 48">
-      <path d="M12 4h18l8 8v31H12Z" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linejoin="round"/>
-      <path d="M30 4v10h8" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linejoin="round"/>
-      <path d="M18 22h14M18 28h14M18 34h10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="icon-chat" viewBox="0 0 48 48">
-      <path d="M7 7h34a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H22l-10 7 2.2-7H7a6 6 0 0 1-6-6V13a6 6 0 0 1 6-6Z" fill="currentColor"/>
-      <circle cx="16" cy="22" r="2.2" fill="#fff"/>
-      <circle cx="24" cy="22" r="2.2" fill="#fff"/>
-      <circle cx="32" cy="22" r="2.2" fill="#fff"/>
-    </symbol>
-    <symbol id="icon-search" viewBox="0 0 48 48">
-      <circle cx="20" cy="20" r="13" fill="none" stroke="currentColor" stroke-width="3.8"/>
-      <path d="m30 30 12 12" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="icon-folder" viewBox="0 0 48 48">
-      <path d="M4.5 12.5h15l4.2 5H43a3 3 0 0 1 3 3v19a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4v-24a3 3 0 0 1 2.5-3Z" fill="currentColor"/>
-      <path d="M5 17h36a3 3 0 0 1 2.9 3.8l-4.7 17A4 4 0 0 1 35.4 41H5Z" fill="#fff" opacity=".18"/>
-      <path d="M5 17h36" stroke="#fff" stroke-opacity=".55" stroke-width="2"/>
-    </symbol>
-    <symbol id="icon-link" viewBox="0 0 48 48">
-      <path d="M19 29 14 34a8 8 0 0 1-11-11l7-7a8 8 0 0 1 11 0l2 2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
-      <path d="m29 19 5-5a8 8 0 0 1 11 11l-7 7a8 8 0 0 1-11 0l-2-2" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
-      <path d="m17 31 14-14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="icon-cubes" viewBox="0 0 48 48">
-      <g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round">
-        <path d="m24 3 9 5v10l-9 5-9-5V8Z"/>
-        <path d="m24 23 9 5v10l-9 5-9-5V28Z"/>
-        <path d="m8 18 9 5v10l-9 5-7-4V23Z"/>
-        <path d="m40 18 7 5v11l-7 4-8-5V23Z"/>
-      </g>
-      <path d="m15 8 9 5 9-5M15 28l9 5 9-5M1 23l7 4 9-4M32 23l8 4 7-4" fill="none" stroke="currentColor" stroke-width="2.2"/>
-    </symbol>
-    <symbol id="icon-route" viewBox="0 0 48 48">
-      <g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 24h7"/>
-        <path d="m17 14 10 10-10 10-10-10Z"/>
-        <path d="M27 24h5c4 0 6-2.6 6-6v-6h1"/>
-        <path d="M27 24h5c4 0 6 2.6 6 6v6h1"/>
-      </g>
-      <circle cx="6" cy="24" r="4" fill="currentColor"/>
-      <circle cx="42" cy="12" r="4" fill="currentColor"/>
-      <circle cx="42" cy="36" r="4" fill="currentColor"/>
-    </symbol>
-    <symbol id="icon-db" viewBox="0 0 48 48">
-      <ellipse cx="24" cy="10" rx="15" ry="6" fill="currentColor"/>
-      <path d="M9 10v9c0 3.3 6.7 6 15 6s15-2.7 15-6v-9M9 19v9c0 3.3 6.7 6 15 6s15-2.7 15-6v-9M9 28v9c0 3.3 6.7 6 15 6s15-2.7 15-6v-9" fill="none" stroke="currentColor" stroke-width="3"/>
-      <path d="M12 10c0 2.2 5.4 4 12 4s12-1.8 12-4" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="1.8"/>
-    </symbol>
-    <symbol id="icon-shield-check" viewBox="0 0 48 48">
-      <path d="M24 3.5 40 9.5v12.2c0 10.7-6.5 18.6-16 22.8-9.5-4.2-16-12.1-16-22.8V9.5Z" fill="currentColor"/>
-      <path d="m15 24 6 6 12-13" fill="none" stroke="#fff" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="icon-question" viewBox="0 0 48 48">
-      <path d="M7 6h34a5 5 0 0 1 5 5v24a5 5 0 0 1-5 5H27l-8 6 1.5-6H7a5 5 0 0 1-5-5V11a5 5 0 0 1 5-5Z" fill="currentColor"/>
-      <path d="M18 18.5a7 7 0 1 1 10.5 6.1c-3.4 1.9-4.5 3-4.5 6" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
-      <circle cx="24" cy="36" r="2" fill="#fff"/>
-    </symbol>
-    <symbol id="icon-plane" viewBox="0 0 48 48">
-      <path d="M44 4 4 21l16 6 6 17Z" fill="currentColor"/>
-      <path d="m20 27 24-23-18 29" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="icon-inbox" viewBox="0 0 48 48">
-      <path d="M9 24 4 39h40l-5-15h-8l-3 6h-8l-3-6Z" fill="currentColor"/>
-      <path d="M24 4v20M17 17l7 7 7-7" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M9 35h30" stroke="#fff" stroke-opacity=".6" stroke-width="2.5"/>
-    </symbol>
-    <symbol id="icon-compass" viewBox="0 0 48 48">
-      <circle cx="24" cy="24" r="20" fill="currentColor"/>
-      <path d="m31 14-5 13-13 7 6-14Z" fill="#fff"/>
-      <circle cx="24" cy="24" r="2.4" fill="currentColor"/>
-    </symbol>
-    <symbol id="icon-rocket" viewBox="0 0 48 48">
-      <path d="M28 5c8-2 13-1 15 1 2 2 3 7 1 15L31 34l-10-3-3-10Z" fill="currentColor"/>
-      <circle cx="33" cy="15" r="4" fill="#fff" opacity=".9"/>
-      <path d="m18 21-9 4-4 9 13-3M31 34l-4 9-9 4 3-13" fill="currentColor"/>
-      <path d="M14 35c-4 1-7 4-9 8 4-2 7-2 10-1 1-3 1-5-1-7Z" fill="#764fdc"/>
-    </symbol>
-  </defs>
+      <svg class="flow-runner" viewBox="0 0 1672 704" aria-hidden="true">
+        <circle class="runner-halo" r="10"><animateMotion dur="18s" repeatCount="indefinite" rotate="auto"><mpath href="#mainRouteGuide" /></animateMotion></circle>
+        <circle class="runner-core" r="4"><animateMotion dur="18s" repeatCount="indefinite" rotate="auto"><mpath href="#mainRouteGuide" /></animateMotion></circle>
+      </svg>
 
-  <!-- background -->
-  <rect width="1672" height="941" fill="url(#bg)"/>
-  <rect width="1672" height="941" fill="url(#grid)"/>
-  <ellipse cx="1456" cy="102" rx="270" ry="164" fill="#216cff" opacity=".14" filter="url(#softGlow)"/>
-  <ellipse cx="98" cy="287" rx="150" ry="150" fill="#2aa9ff" opacity=".16" filter="url(#softGlow)"/>
-  <ellipse cx="95" cy="520" rx="150" ry="150" fill="#11d9a0" opacity=".13" filter="url(#softGlow)"/>
-  <ellipse cx="91" cy="733" rx="155" ry="155" fill="#9b70ff" opacity=".14" filter="url(#softGlow)"/>
-  <path d="M0 169 H1672" fill="none" stroke="#4b8cff" stroke-opacity=".2" stroke-width="1"/>
-  <path d="M28 181 H1644" fill="none" stroke="#7db7ff" stroke-opacity=".1" stroke-width="1" stroke-dasharray="2 11"/>
+      <span class="wrap-label one">下一步：04 → 05</span>
+      <span class="wrap-label two">下一步：08 → 09</span>
 
-  <!-- bottom waves -->
-  <path d="M0 846 C160 910 330 863 520 891 C708 920 900 909 1090 887 C1270 866 1460 829 1672 874 L1672 941 L0 941Z" fill="#07152d"/>
-  <path d="M0 860 C184 916 342 887 520 908 C711 932 910 925 1098 900 C1298 874 1486 849 1672 894" fill="none" stroke="#255c9f" stroke-width="9" opacity=".5"/>
-  <path d="M0 878 C198 922 366 905 553 920 C760 936 928 938 1124 918 C1310 899 1480 869 1672 911" fill="none" stroke="#6b77d5" stroke-width="3" opacity=".55"/>
+      <aside class="phase-card submit" aria-label="阶段一，收到并检查，步骤 01 到 04"><span class="phase-index">一</span><strong class="phase-name">收到</strong><span class="phase-range">01—04</span></aside>
+      <aside class="phase-card route" aria-label="阶段二，理解需求，步骤 05 到 08"><span class="phase-index">二</span><strong class="phase-name">理解</strong><span class="phase-range">05—08</span></aside>
+      <aside class="phase-card execute" aria-label="阶段三，开始处理，步骤 09 到 12"><span class="phase-index">三</span><strong class="phase-name">处理</strong><span class="phase-range">09—12</span></aside>
 
-  <!-- header logo -->
-  <g transform="translate(51 35)" filter="url(#logoShadow)">
-    <path d="M58 0 116 32v65L58 129 0 97V32Z" fill="#fff"/>
-    <path d="M58 8 106 35v56L58 119 10 91V35Z" fill="url(#blue)"/>
-    <path d="M31 43c0-11 10-19 24-19h8c14 0 24 8 24 19v9c0 11-10 19-24 19H51L39 82l2-13c-6-3-10-9-10-17Z" fill="#fff"/>
-    <circle cx="50" cy="48" r="4.2" fill="#1269e7"/>
-    <circle cx="66" cy="48" r="4.2" fill="#1269e7"/>
-  </g>
+      <div class="node-grid">
+        <div class="node-row" data-row-layout="forward" data-visual-order="01 02 03 04">
+          <article class="node blue" data-step="01" data-row="1">
+          <div class="node-head"><span class="node-number">01</span><span class="node-kind">先确认</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M6 12h10"/><path d="m13 9 3 3-3 3"/></svg></div>
+          <h2 class="node-title">先确认能不能发送</h2>
+          <p class="node-summary">如果还有任务在进行，就先不开始新的；内容不完整也会先停下来。</p>
+          <div class="node-code" title="busy / pendingSubmit">已有任务 → 先等一等</div>
+          <div class="node-branches"><span class="branch-chip stop">先停一下，不开新任务</span></div>
+        </article>
 
-  <!-- header title -->
-  <g class="hud-chip" transform="translate(204 26)">
-    <rect width="292" height="25" rx="12.5"/>
-    <circle class="data-pulse" cx="17" cy="12.5" r="4" fill="#48e5c3"/>
-    <text x="32" y="17">INTENT ROUTING · LIVE MAP</text>
-  </g>
-  <text x="204" y="101" class="title-main" fill="#f4f8ff" textLength="241" lengthAdjust="spacingAndGlyphs">ChatUI</text>
-  <text x="467" y="101" class="title-main" fill="url(#titleGrad)">·</text>
-  <text x="510" y="101" class="title-main" fill="#f4f8ff" textLength="385" lengthAdjust="spacingAndGlyphs">奥哲AI助手：</text>
-  <text x="930" y="101" class="title-main" fill="url(#titleGrad)" textLength="406" lengthAdjust="spacingAndGlyphs">12节点执行地图</text>
+        <article class="node blue" data-step="02" data-row="1">
+          <div class="node-head"><span class="node-number">02</span><span class="node-kind">先保存</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></div>
+          <h2 class="node-title">先保存这次内容</h2>
+          <p class="node-summary">先把你这次说的话保存好，途中中断也不会丢。</p>
+          <div class="node-code" title="stage=accepted">保存好 → 再继续</div>
+          <div class="node-branches"><span class="branch-chip pass" data-event="TASK_ACCEPTED ATTACHMENT_CAPTURE_STARTED">刷新后也能接着处理</span></div>
+        </article>
 
-  <!-- subtitle ornament -->
-  <line x1="354" y1="145" x2="398" y2="145" stroke="#b8d7f3" stroke-width="1.5"/>
-  <circle cx="413" cy="145" r="5" fill="#79b8ed"/>
-  <circle cx="437" cy="145" r="5" fill="#5fa8ec"/>
-  <circle cx="462" cy="145" r="5.5" fill="#2d91ed"/>
-  <circle cx="488" cy="145" r="6" fill="#127ced"/>
-  <text x="539" y="156" class="subtitle" textLength="595" lengthAdjust="spacingAndGlyphs">12个节点：必经链路 + 条件分支</text>
-  <circle cx="1178" cy="145" r="5.5" fill="#7e54e7"/>
-  <circle cx="1201" cy="145" r="5" fill="#9a72ec"/>
-  <circle cx="1224" cy="145" r="4.8" fill="#b6a0f2"/>
-  <line x1="1238" y1="145" x2="1285" y2="145" stroke="#d2c8f4" stroke-width="1.5"/>
+        <article class="node cyan" data-step="03" data-row="1">
+          <div class="node-head"><span class="node-number">03</span><span class="node-kind">收好内容</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5l2 2h9v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M7 4h8l2 3"/><path d="M8 14h8"/><path d="M12 11v6"/></svg></div>
+          <h2 class="node-title">把附件和消息放在一起</h2>
+          <p class="node-summary">把你发来的文字和附件收好，准备继续处理。</p>
+          <div class="node-code" data-event="ATTACHMENT_CAPTURED" title="stage=captured · ATTACHMENT_CAPTURED">文字 + 附件 → 放在一起</div>
+          <div class="node-branches"><span class="branch-chip pass">继续往下</span></div>
+        </article>
 
-  <!-- top-right decorative console -->
-  <g transform="translate(1355 10)" opacity=".96">
-    <path d="M20 154 209 109 306 149 112 190Z" fill="#eaf4ff" opacity=".72"/>
-    <path d="M97 53 220 23v108L97 157Z" fill="#e8f4ff" fill-opacity=".28" stroke="#78b7ee" stroke-opacity=".42" stroke-width="1.4"/>
-    <path d="M59 72 166 47v88L59 160Z" fill="#d9edff" fill-opacity=".22" stroke="#5fa7ea" stroke-opacity=".55" stroke-width="1.5"/>
-    <path d="M165 52 250 74v69l-85-8Z" fill="#eff7ff" fill-opacity=".3" stroke="#9bc8ef" stroke-opacity=".4"/>
-    <path d="M29 107 49 102v30l-20 5Z" fill="#f4f9ff" stroke="#8fc4ee" stroke-opacity=".55"/>
-    <path d="M29 107 39 112 59 107 49 102Z" fill="#d3e9ff"/>
-    <path d="M49 102 59 107v30l-10-5Z" fill="#c7e2fb"/>
-    <rect x="67" y="84" width="7" height="4" rx="2" fill="#a3c9eb"/>
-    <rect x="67" y="94" width="7" height="4" rx="2" fill="#a3c9eb"/>
-    <rect x="67" y="104" width="7" height="4" rx="2" fill="#a3c9eb"/>
-    <rect x="80" y="81" width="30" height="3" rx="1.5" fill="#c1dcf4"/>
-    <rect x="80" y="91" width="38" height="3" rx="1.5" fill="#c1dcf4"/>
-    <rect x="80" y="101" width="25" height="3" rx="1.5" fill="#c1dcf4"/>
-    <ellipse cx="159" cy="142" rx="71" ry="22" fill="#1468df" opacity=".22"/>
-    <ellipse cx="159" cy="139" rx="69" ry="22" fill="#0c6fe8"/>
-    <ellipse cx="159" cy="133" rx="62" ry="17" fill="#fff" opacity=".88"/>
-    <ellipse cx="159" cy="130" rx="54" ry="14" fill="#6bc6ff" opacity=".55"/>
-    <circle cx="159" cy="96" r="48" fill="#fff" fill-opacity=".84" stroke="#cbe5fa" stroke-width="2"/>
-    <circle cx="159" cy="96" r="39" fill="url(#discBlue)"/>
-    <path d="M139 80c0-8 7-13 17-13h6c10 0 17 5 17 13v6c0 8-7 13-17 13h-9l-8 8 1.5-10c-4-2-7-6-7-11Z" fill="#fff"/>
-    <circle cx="153" cy="83" r="2.7" fill="#1372eb"/>
-    <circle cx="165" cy="83" r="2.7" fill="#1372eb"/>
-    <circle cx="248" cy="81" r="4" fill="#b1d5f3"/>
-    <circle cx="248" cy="103" r="4" fill="#b1d5f3"/>
-  </g>
+        <article class="node orange" data-step="04" data-row="1">
+          <div class="node-head"><span class="node-number">04</span><span class="node-kind">先检查</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.2 8.4-8 10-4.8-1.6-8-5-8-10V6Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></div>
+          <h2 class="node-title">确认基本内容没问题</h2>
+          <p class="node-summary">看看附件、文字和必要设置是否正常。</p>
+          <div class="node-code" data-event="ROUTING_STARTED" title="stage=routing · ROUTING_STARTED">附件 · 文字 · 设置</div>
+          <div class="node-branches"><span class="branch-chip warn">有问题 → 告诉你</span></div>
+        </article>
 
-  <!-- phase 1 -->
-  <g filter="url(#shadowBlue)">
-    <circle cx="121" cy="279" r="91" fill="#167cf0" opacity=".16"/>
-    <circle cx="121" cy="279" r="83" fill="url(#phaseBlue)" stroke="#4db8ff" stroke-opacity=".7" stroke-width="1.5"/>
-  </g>
-  <circle class="phase-orbit" cx="121" cy="279" r="96" stroke="#48bdff" stroke-opacity=".9"/>
-  <text x="121" y="244" text-anchor="middle" class="phase-label" fill="#61c8ff">阶段一</text>
-  <text x="121" y="281" text-anchor="middle" class="phase-title" fill="#ecf8ff">接收与准备</text>
-  <g color="#49beff" transform="translate(96 298)" filter="url(#smallShadow)">
-    <use href="#icon-inbox" width="50" height="50"/>
-  </g>
+        </div>
+        <div class="node-row reverse" data-row-layout="reverse" data-visual-order="08 07 06 05">
+          <article class="node purple" data-step="05" data-row="2">
+          <div class="node-head"><span class="node-number">05</span><span class="node-kind">看前文</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h6v6H5z"/><path d="M13 13h6v6h-6z"/><path d="M11 8h3a3 3 0 0 1 3 3v2"/><path d="m15 11 2 2 2-2"/></svg></div>
+          <h2 class="node-title">看看是不是接着刚才的问题</h2>
+          <p class="node-summary">如果你是在回答刚才的问题，就接上前面的内容；否则按新请求处理。</p>
+          <div class="node-code" title="pending_continuation.v6">接着上一次 / 新请求</div>
+          <div class="node-branches"><span class="branch-chip pass">接着刚才</span><span class="branch-chip pending">新的事情</span></div>
+        </article>
 
-  <!-- process arrows only: the phase badge is intentionally independent -->
-  <g fill="url(#blue)" opacity=".96">
-    <path d="M558 273h21v-8l18 14-18 14v-8h-21Z"/>
-    <path d="M875 273h11v-8l18 14-18 14v-8h-11Z"/>
-    <path d="M1197 273h19v-8l18 14-18 14v-8h-19Z"/>
-  </g>
+        <article class="node cyan" data-step="06" data-row="2">
+          <div class="node-head"><span class="node-number">06</span><span class="node-kind">整理资料</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16"/><path d="M6 4h12l2 4-2 12H6L4 8Z"/><path d="M9 12h6"/><path d="M12 10v4"/></svg></div>
+          <h2 class="node-title">把相关资料找齐</h2>
+          <p class="node-summary">把这次消息、你引用的内容和前面相关信息放在一起。</p>
+          <div class="node-code" title="resource_candidates">这次内容 + 相关资料</div>
+          <div class="node-branches"><span class="branch-chip pending">资料齐了</span></div>
+        </article>
+        <article class="node blue" data-step="07" data-row="2">
+          <div class="node-head"><span class="node-number">07</span><span class="node-kind">理解需求</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></div>
+          <h2 class="node-title">弄清楚你想做什么</h2>
+          <p class="node-summary">根据你说的话，判断你想完成什么，以及需要哪些资料。</p>
+          <div class="node-code" title="route_decision.v1">理解你的需求</div>
+          <div class="node-branches"><span class="branch-chip warn">明确要做什么</span></div>
+        </article>
 
-  <!-- card 01 -->
-  <g filter="url(#shadowBlue)">
-    <rect x="266" y="184" width="289" height="174" rx="17" fill="#fff" fill-opacity=".98" stroke="#d8e9f7" stroke-width="1.4"/>
-    <rect x="270" y="188" width="281" height="166" rx="14" fill="none" stroke="#edf6fc" stroke-width="1"/>
-  </g>
-  <line x1="284" y1="251" x2="537" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
-  <text x="284" y="236" class="card-num" fill="url(#blue)">01</text>
-  <text x="357" y="233" class="card-title">发送门禁</text>
-  <g color="#207eea" transform="translate(464 206)"><use href="#icon-shield-lock" width="35" height="35"/></g>
-  <text x="288" y="279" class="card-label">输入：</text><text x="351" y="279" class="card-value">点击/运行/输入</text>
-  <text x="288" y="309" class="card-label">处理：</text><text x="351" y="309" class="card-value">忙则停止、上传/长度校验</text>
-  <text x="288" y="339" class="card-label">输出：</text><text x="351" y="339" class="card-value">继续或提示</text>
+        <article class="node green" data-step="08" data-row="2">
+          <div class="node-head"><span class="node-number">08</span><span class="node-kind">再确认</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5"/><path d="M12 12v9"/></svg></div>
+          <h2 class="node-title">看看有没有理解错</h2>
+          <p class="node-summary">把刚才理解到的内容整理好，再看看有没有遗漏。</p>
+          <div class="node-code" title="inspectRouteResult → compileRouteDecision">整理成清楚的做法</div>
+          <div class="node-branches"><span class="branch-chip pass" title="task_contract.v5 · execution_resources.v1">确认清楚了吗？</span></div>
+        </article>
 
-  <!-- card 02 -->
-  <g filter="url(#shadowBlue)">
-    <rect x="600" y="184" width="272" height="174" rx="17" fill="#fff" fill-opacity=".98" stroke="#d8e9f7" stroke-width="1.4"/>
-    <rect x="604" y="188" width="264" height="166" rx="14" fill="none" stroke="#edf6fc" stroke-width="1"/>
-  </g>
-  <line x1="618" y1="251" x2="854" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
-  <text x="618" y="236" class="card-num" fill="url(#blue)">02</text>
-  <text x="690" y="233" class="card-title sm">接受并持久化</text>
-  <g color="#1f7fe5" transform="translate(832 208)"><use href="#icon-doc" width="32" height="32"/></g>
-  <text x="622" y="279" class="card-label">输入：</text><text x="685" y="279" class="card-value">原始文本/附件</text>
-  <text x="622" y="309" class="card-label">处理：</text><text x="685" y="309" class="card-value">写入 accepted 记录</text>
-  <text x="622" y="339" class="card-label">输出：</text><text x="685" y="339" class="card-value">可恢复 pending</text>
+        </div>
+        <div class="node-row" data-row-layout="forward" data-visual-order="09 10 11 12">
+          <article class="node orange" data-step="09" data-row="3">
+          <div class="node-head"><span class="node-number">09</span><span class="node-kind">再试一次</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="m16 4 3 3-3 3"/></svg></div>
+          <h2 class="node-title">不清楚时再想一遍</h2>
+          <p class="node-summary">如果还没理解清楚，先重新整理一次；仍不清楚就换一种判断方式。</p>
+          <div class="node-code" title="repair once · fallback model">先重新整理 → 再换方式</div>
+          <div class="node-branches"><span class="branch-chip warn">再试一次</span><span class="branch-chip stop">不改变你的意思</span></div>
+        </article>
 
-  <!-- card 03 -->
-  <g filter="url(#shadowBlue)">
-    <rect x="906" y="184" width="288" height="174" rx="17" fill="#fff" fill-opacity=".98" stroke="#d8e9f7" stroke-width="1.4"/>
-    <rect x="910" y="188" width="280" height="166" rx="14" fill="none" stroke="#edf6fc" stroke-width="1"/>
-  </g>
-  <line x1="924" y1="251" x2="1176" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
-  <text x="924" y="236" class="card-num" fill="url(#blue)">03</text>
-  <text x="997" y="233" class="card-title sm">捕获并写会话</text>
-  <g color="#1685ec" transform="translate(1140 205)"><use href="#icon-chat" width="34" height="34"/></g>
-  <text x="928" y="279" class="card-label">输入：</text><text x="991" y="279" class="card-value">accepted 请求</text>
-  <text x="928" y="309" class="card-label">处理：</text><text x="991" y="309" class="card-value">预览附件、写用户消息</text>
-  <text x="928" y="339" class="card-label">输出：</text><text x="991" y="339" class="card-value">captured + 会话占位</text>
+        <article class="node green" data-step="10" data-row="3">
+          <div class="node-head"><span class="node-number">10</span><span class="node-kind">做决定</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h6v6H5z"/><path d="M13 13h6v6h-6z"/><path d="M11 8h3a3 3 0 0 1 3 3v2"/><path d="M17 13v-2"/></svg></div>
+          <h2 class="node-title">决定先问你，还是直接做</h2>
+          <p class="node-summary">还缺信息就先问你；都清楚了才继续。</p>
+          <div class="node-code" title="needClarification · isRouteDispatchable">还不清楚 ↘ · 已清楚 → 11</div>
+          <div class="node-branches"><span class="branch-chip pass">直接开始</span><span class="branch-chip stop">先问你</span></div>
+        </article>
 
-  <!-- card 04 -->
-  <g filter="url(#shadowBlue)">
-    <rect x="1237" y="184" width="281" height="174" rx="17" fill="#fff" fill-opacity=".98" stroke="#d8e9f7" stroke-width="1.4"/>
-    <rect x="1241" y="188" width="273" height="166" rx="14" fill="none" stroke="#edf6fc" stroke-width="1"/>
-  </g>
-  <line x1="1255" y1="251" x2="1500" y2="251" stroke="#b9daf3" stroke-width="1.2"/>
-  <text x="1255" y="236" class="card-num" fill="url(#blue)">04</text>
-  <text x="1328" y="233" class="card-title">本地预检</text>
-  <g color="#126ed7" transform="translate(1436 205)"><use href="#icon-search" width="36" height="36"/></g>
-  <text x="1259" y="279" class="card-label">输入：</text><text x="1322" y="279" class="card-value">文本/配置</text>
-  <text x="1259" y="309" class="card-label">处理：</text><text x="1322" y="309" class="card-value">附件/输入/URL/模型</text>
-  <text x="1259" y="339" class="card-label">输出：</text><text x="1322" y="339" class="card-value">报错或继续</text>
+        <article class="node cyan" data-step="11" data-row="3">
+          <div class="node-head"><span class="node-number">11</span><span class="node-kind">准备开始</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h6v5H4z"/><path d="M14 13h6v5h-6z"/><path d="M10 8.5h4a3 3 0 0 1 3 3V13"/><path d="m15 11 2 2 2-2"/></svg></div>
+          <h2 class="node-title">备齐要用的内容</h2>
+          <p class="node-summary">按刚才的理解，找好真正要用的图片、文件和前面相关内容。</p>
+          <div class="node-code" title="buildExecutionResourcePools · projectRouteExecutionMedia">图片、文件、前面内容</div>
+          <div class="node-branches"><span class="branch-chip pass">准备好了</span></div>
+        </article>
 
-  <!-- phase 2 -->
-  <g filter="url(#shadowGreen)">
-    <circle cx="119" cy="516" r="92" fill="#16d1a0" opacity=".14"/>
-    <circle cx="119" cy="516" r="84" fill="url(#phaseGreen)" stroke="#54e5be" stroke-opacity=".7" stroke-width="1.5"/>
-  </g>
-  <circle class="phase-orbit reverse" cx="119" cy="516" r="97" stroke="#60ecc3" stroke-opacity=".88"/>
-  <text x="119" y="476" text-anchor="middle" class="phase-label" fill="#6beec8">阶段二</text>
-  <text x="119" y="515" text-anchor="middle" class="phase-title" fill="#ecfff8">理解与路由</text>
-  <g color="#45e5b4" transform="translate(95 536)" filter="url(#smallShadow)">
-    <use href="#icon-compass" width="48" height="48"/>
-  </g>
+        <article class="node purple" data-step="12" data-row="3">
+          <div class="node-head"><span class="node-number">12</span><span class="node-kind">开始处理</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4c3 0 5 1 6 2-1 5-3.8 8.7-8 11l-5-5c2.3-4.2 6-7 11-8Z"/><path d="m9 15-4 1-2 3 5-1"/><path d="m12 18-1 4 3-2 1-4"/><circle cx="15.5" cy="8.5" r="1.5"/></svg></div>
+          <h2 class="node-title">正式开始处理任务</h2>
+          <p class="node-summary">任务开始后会显示“进行中”；收到结果后，才算完成。</p>
+          <div class="node-code" title="stage=handoff · HANDOFF_COMMITTED">开始处理 → 进行中</div>
+          <div class="node-branches" title="JOB_COMPLETED_COMMITTED"><span class="branch-chip pass">收到结果 → 已完成</span></div>
+        </article>
+        </div>
+      </div>
 
-  <!-- process arrows only: the phase badge is intentionally independent -->
-  <g fill="url(#green)" opacity=".96">
-    <path d="M468 510h6v-8l18 14-18 14v-8h-6Z"/>
-    <path d="M726 510h6v-8l18 14-18 14v-8h-6Z"/>
-    <path d="M998 510h6v-8l18 14-18 14v-8h-6Z"/>
-    <path d="M1270 510h12v-8l18 14-18 14v-8h-12Z"/>
-  </g>
+      <aside class="clarification-exit" aria-label="需要补充信息">
+        <b>还需要你补充</b>
+        <span>先问你，记住当前进度，补充后再继续。</span>
+      </aside>
+    </section>
 
-  <!-- card 05 -->
-  <g filter="url(#shadowGreen)">
-    <rect x="233" y="425" width="232" height="171" rx="16" fill="#fff" fill-opacity=".98" stroke="#d4eee4" stroke-width="1.4"/>
-    <rect x="237" y="429" width="224" height="163" rx="13" fill="none" stroke="#eef9f5"/>
-  </g>
-  <line x1="251" y1="493" x2="447" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
-  <text x="251" y="478" class="card-num" fill="url(#green)">05</text>
-  <text x="315" y="476" class="card-title sm">资源恢复</text>
-  <g color="#10ae79" transform="translate(419 449)"><use href="#icon-folder" width="31" height="31"/></g>
-  <text x="253" y="521" class="card-label">输入：</text><text x="315" y="521" class="card-value">引用/历史资源</text>
-  <text x="253" y="551" class="card-label">处理：</text><text x="315" y="551" class="card-value">按需找回图/文件</text>
-  <text x="253" y="581" class="card-label">输出：</text><text x="315" y="581" class="card-value">可用候选</text>
+    <footer class="poster-footer">
+      <div class="lifecycle" aria-label="任务进度">
+        <span class="lifecycle-title">任务进度</span>
+        <span class="lifecycle-item" data-lifecycle-phase="accepted"><i></i>已收到</span>
+        <span class="lifecycle-arrow">→</span>
+        <span class="lifecycle-item" data-lifecycle-phase="routing"><i></i>正在理解</span>
+        <span class="lifecycle-arrow">→</span>
+        <span class="lifecycle-item handoff" data-lifecycle-phase="handoff"><i></i>准备开始</span>
+        <span class="lifecycle-arrow">→</span>
+        <span class="lifecycle-item boundary" data-lifecycle-phase="running"><i></i>进行中</span>
+        <span class="lifecycle-arrow">→</span>
+        <span class="lifecycle-item terminal" data-lifecycle-phase="completed"><i></i>已完成</span>
+        <span class="running-note">进行中不等于完成</span>
+      </div>
+      <div class="legend" aria-label="颜色图例">
+        <span class="legend-item"><i class="legend-dot" style="--dot: var(--blue)"></i>必经步骤</span>
+        <span class="legend-item"><i class="legend-dot" style="--dot: var(--green)"></i>可以继续</span>
+        <span class="legend-item"><i class="legend-dot" style="--dot: var(--orange)"></i>重新判断</span>
+        <span class="legend-item"><i class="legend-dot" style="--dot: var(--red)"></i>暂时停下</span>
+        <span class="legend-item"><i class="legend-dot" style="--dot: var(--purple)"></i>需要补充 / 准备开始</span>
+      </div>
+    </footer>
+  </main>
 
-  <!-- card 06 -->
-  <g filter="url(#shadowGreen)">
-    <rect x="493" y="425" width="230" height="171" rx="16" fill="#fff" fill-opacity=".98" stroke="#d4eee4" stroke-width="1.4"/>
-    <rect x="497" y="429" width="222" height="163" rx="13" fill="none" stroke="#eef9f5"/>
-  </g>
-  <line x1="511" y1="493" x2="705" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
-  <text x="511" y="478" class="card-num" fill="url(#green)">06</text>
-  <text x="575" y="476" class="card-title sm">澄清续办</text>
-  <g color="#0aa774" transform="translate(678 451)"><use href="#icon-link" width="32" height="32"/></g>
-  <text x="513" y="521" class="card-label">输入：</text><text x="575" y="521" class="card-value">原合同/用户选择</text>
-  <text x="513" y="551" class="card-label">处理：</text><text x="575" y="551" class="card-value">绑定候选选择</text>
-  <text x="513" y="581" class="card-label">输出：</text><text x="575" y="581" class="card-value">恢复原任务/新任务</text>
+  <script>
+    const BASE_WIDTH = 1672;
+    const BASE_HEIGHT = 941;
+    const ROUTE_STATE_MESSAGE = "chatui:route-task-state";
+    const poster = document.getElementById("poster");
+    const workflow = document.querySelector(".workflow");
+    const runtimeState = document.querySelector("[data-runtime-state]");
+    const runtimeLabel = runtimeState?.querySelector("[data-runtime-label]");
+    const runtimeNote = runtimeState?.querySelector("[data-runtime-note]");
+    const runtimeSession = runtimeState?.querySelector("[data-runtime-session]");
+    let lastSyncSequence = -1;
 
-  <!-- card 07 -->
-  <g filter="url(#shadowGreen)">
-    <rect x="750" y="425" width="245" height="171" rx="16" fill="#fff" fill-opacity=".98" stroke="#d4eee4" stroke-width="1.4"/>
-    <rect x="754" y="429" width="237" height="163" rx="13" fill="none" stroke="#eef9f5"/>
-  </g>
-  <line x1="768" y1="493" x2="977" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
-  <text x="768" y="478" class="card-num" fill="url(#green)">07</text>
-  <text x="832" y="476" class="card-title sm">路由上下文</text>
-  <g color="#0baa76" transform="translate(958 453)"><use href="#icon-cubes" width="29" height="29"/></g>
-  <text x="770" y="521" class="card-label">输入：</text><text x="832" y="521" class="card-value small">prompt/历史/候选</text>
-  <text x="770" y="551" class="card-label">处理：</text><text x="832" y="551" class="card-value">组装路由上下文</text>
-  <text x="770" y="581" class="card-label">输出：</text><text x="832" y="581" class="card-value">context JSON</text>
+    function fitPoster() {
+      const scale = Math.min(window.innerWidth / BASE_WIDTH, window.innerHeight / BASE_HEIGHT);
+      const left = (window.innerWidth - BASE_WIDTH * scale) / 2;
+      const top = (window.innerHeight - BASE_HEIGHT * scale) / 2;
+      poster.style.left = left + "px";
+      poster.style.top = top + "px";
+      poster.style.transform = `scale(${scale})`;
+    }
 
-  <!-- card 08 -->
-  <g filter="url(#shadowGreen)">
-    <rect x="1023" y="425" width="244" height="171" rx="16" fill="#fff" fill-opacity=".98" stroke="#d4eee4" stroke-width="1.4"/>
-    <rect x="1027" y="429" width="236" height="163" rx="13" fill="none" stroke="#eef9f5"/>
-  </g>
-  <line x1="1041" y1="493" x2="1249" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
-  <text x="1041" y="478" class="card-num" fill="url(#green)">08</text>
-  <text x="1105" y="476" class="card-title sm">首轮路由</text>
-  <g color="#0aa774" transform="translate(1208 451)"><use href="#icon-route" width="33" height="33"/></g>
-  <text x="1043" y="517" class="card-label">输入：</text><text x="1105" y="517" class="card-value small">context/routeModel</text>
-  <text x="1043" y="542" class="card-label">处理：</text><text x="1105" y="542" class="card-value small">/chat/completions</text>
-  <text x="1043" y="566" class="card-label">输出：</text><text x="1105" y="566" class="card-value small">task_contract.v5</text>
+    const runtimeLabels = {
+      idle: ["现在可以发送", "这里只展示处理顺序"],
+      busy: ["有任务正在进行", "当前会话正在处理任务，不会同时开始第二个任务"],
+      accepted: ["已收到你的消息", "内容已保存，马上继续处理"],
+      capturing: ["正在整理你的消息", "正在收好附件和消息"],
+      routing: ["正在理解你的需求", "正在判断下一步怎么做"],
+      handoff: ["准备开始处理", "已经理解你的需求，马上开始"],
+      running: ["正在处理", "任务还在进行，收到结果后才算完成"],
+      recovering: ["正在继续处理", "正在接着之前的任务继续"],
+      stopping: ["正在停止", "停止完成后才能再次发送"],
+      completed: ["已经完成", "结果已收到，可以开始下一件事"],
+      failed: ["暂时没能完成", "这次没有成功，可以重新发送"],
+      stopped: ["已停止", "可以重新发送"],
+      clarifying: ["等待你补充", "当前会话的任务已保留，补充后会从这里继续"],
+    };
+    const fallbackStepByPhase = {
+      busy: "12",
+      accepted: "02",
+      capturing: "03",
+      routing: "07",
+      handoff: "12",
+      running: "12",
+      recovering: "12",
+      stopping: "12",
+      completed: "12",
+      failed: "12",
+      stopped: "12",
+    };
 
-  <!-- fallback stays inside the route card so it never covers another stage -->
-  <g class="fallback-pill">
-    <rect x="1041" y="572" width="208" height="18" rx="5" fill="#f6f1ff" stroke="#e4d9fb"/>
-    <path d="M1052 577v5h5" fill="none" stroke="#7a52d4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="1063" y="586" font-size="11.2" font-weight="600" fill="#6842bb">已声明澄清 → 立即终止路由</text>
-  </g>
+    function normalizeStep(value) {
+      const raw = String(value ?? "").trim();
+      if (!raw) return "";
+      const normalized = /^\d+$/.test(raw) ? raw.padStart(2, "0") : raw;
+      return /^(0[1-9]|1[0-2])$/.test(normalized) ? normalized : "";
+    }
 
-  <!-- card 09 -->
-  <g filter="url(#shadowGreen)">
-    <rect x="1302" y="425" width="247" height="171" rx="16" fill="#fff" fill-opacity=".98" stroke="#d4eee4" stroke-width="1.4"/>
-    <rect x="1306" y="429" width="239" height="163" rx="13" fill="none" stroke="#eef9f5"/>
-  </g>
-  <line x1="1320" y1="493" x2="1531" y2="493" stroke="#a9e0cc" stroke-width="1.1"/>
-  <text x="1320" y="478" class="card-num" fill="url(#green)">09</text>
-  <text x="1384" y="476" class="card-title sm">合同校验</text>
-  <g color="#0aad78" transform="translate(1506 453)"><use href="#icon-db" width="29" height="29"/></g>
-  <text x="1322" y="521" class="card-label">输入：</text><text x="1384" y="521" class="card-value small">task_contract.v5</text>
-  <text x="1322" y="551" class="card-label">处理：</text><text x="1384" y="551" class="card-value small">澄清终止 / 执行校验</text>
-  <text x="1322" y="581" class="card-label">输出：</text><text x="1384" y="581" class="card-value small">客户问题或执行计划</text>
+    function activeStepFor(detail, phase) {
+      if (detail.pendingClarification) return "10";
+      const queryStep = new URLSearchParams(window.location.search).get("taskStep") || "";
+      const explicit = normalizeStep(detail.activeStep || queryStep);
+      return explicit || fallbackStepByPhase[phase] || "";
+    }
 
-  <!-- phase 3 -->
-  <g filter="url(#shadowPurple)">
-    <circle cx="116" cy="729" r="91" fill="#a17aff" opacity=".16"/>
-    <circle cx="116" cy="729" r="83" fill="url(#phasePurple)" stroke="#b49cff" stroke-opacity=".72" stroke-width="1.5"/>
-  </g>
-  <circle class="phase-orbit" cx="116" cy="729" r="96" stroke="#c0a9ff" stroke-opacity=".9"/>
-  <text x="116" y="699" text-anchor="middle" class="phase-label" fill="#c4b2ff">阶段三</text>
-  <text x="116" y="736" text-anchor="middle" class="phase-title" fill="#faf8ff">复审与执行</text>
-  <g color="#ae91ff" transform="translate(88 748)" filter="url(#smallShadow)">
-    <use href="#icon-rocket" width="56" height="56"/>
-  </g>
+    function applyRuntimeState(detail = {}) {
+      if (!runtimeState) return false;
+      const syncSequence = Number(detail.syncSequence);
+      if (Number.isFinite(syncSequence) && syncSequence >= 0) {
+        if (syncSequence <= lastSyncSequence) return false;
+        lastSyncSequence = syncSequence;
+      }
 
-  <!-- process arrows only: the phase badge is intentionally independent -->
-  <g fill="url(#purple)" opacity=".96">
-    <path d="M542 736h71v-8l18 14-18 14v-8H542Z"/>
-    <path d="M882 736h71v-8l18 14-18 14v-8H882Z"/>
-    <path d="M1222 736h72v-8l18 14-18 14v-8h-72Z"/>
-  </g>
+      const queryPhase = new URLSearchParams(window.location.search).get("taskPhase") || "";
+      const taskPhase = String(detail.phase || queryPhase || "idle").toLowerCase();
+      const pendingClarification = !!detail.pendingClarification;
+      const displayPhase = pendingClarification ? "clarifying" : taskPhase;
+      const copy = runtimeLabels[displayPhase] || runtimeLabels.idle;
+      const sessionId = String(detail.sessionId || "");
+      const sessionTitle = String(detail.sessionTitle || "当前会话").trim() || "当前会话";
+      const activeStep = activeStepFor(detail, taskPhase);
+      const isTerminal = taskPhase === "completed" && !pendingClarification;
+      const isError = ["failed", "stopped", "stopping"].includes(taskPhase);
 
-  <!-- card 10 -->
-  <g filter="url(#shadowPurple)">
-    <rect x="294" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="298" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
-  </g>
-  <line x1="312" y1="725" x2="521" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="312" y="710" class="card-num" fill="url(#purple)">10</text>
-  <text x="376" y="706" class="card-title sm">合同修复</text>
-  <g color="#6f55df" transform="translate(474 680)"><use href="#icon-shield-check" width="35" height="35"/></g>
-  <text x="314" y="752" class="card-label">输入：</text><text x="376" y="752" class="card-value small">未声明澄清的无效合同</text>
-  <text x="314" y="782" class="card-label">处理：</text><text x="376" y="782" class="card-value small">同模型限次修复</text>
-  <text x="314" y="812" class="card-label">输出：</text><text x="376" y="812" class="card-value small">有效合同/安全停止</text>
+      runtimeState.dataset.phase = displayPhase;
+      runtimeState.dataset.taskPhase = taskPhase;
+      runtimeState.dataset.pendingClarification = pendingClarification ? "true" : "false";
+      runtimeState.dataset.sessionId = sessionId;
+      runtimeState.dataset.activeStep = activeStep;
+      poster.dataset.sessionId = sessionId;
+      poster.dataset.activeStep = activeStep;
+      if (runtimeLabel) runtimeLabel.textContent = copy[0];
+      if (runtimeNote) runtimeNote.textContent = copy[1];
+      if (runtimeSession) {
+        runtimeSession.textContent = sessionId ? `会话 · ${sessionTitle}` : "当前会话";
+        runtimeSession.title = sessionId ? `${sessionTitle} · ${sessionId}` : "当前会话";
+      }
 
-  <!-- card 11 -->
-  <g filter="url(#shadowPurple)">
-    <rect x="634" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="638" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
-  </g>
-  <line x1="652" y1="725" x2="861" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="652" y="710" class="card-num" fill="url(#purple)">11</text>
-  <text x="717" y="706" class="card-title sm">澄清分支</text>
-  <g color="#7658e0" transform="translate(819 678)"><use href="#icon-question" width="35" height="35"/></g>
-  <text x="654" y="752" class="card-label">输入：</text><text x="717" y="752" class="card-value small step-11-value" textLength="142" lengthAdjust="spacingAndGlyphs">needs_clarification</text>
-  <text x="654" y="782" class="card-label">处理：</text><text x="717" y="782" class="card-value small step-11-value" textLength="142" lengthAdjust="spacingAndGlyphs">立即展示并保存续办策略</text>
-  <text x="654" y="812" class="card-label">输出：</text><text x="717" y="812" class="card-value small step-11-value" textLength="142" lengthAdjust="spacingAndGlyphs">选择续办 / 回答后重路由</text>
+      document.querySelectorAll(".node[data-step]").forEach(node => {
+        const current = !!activeStep && node.dataset.step === activeStep;
+        node.classList.toggle("is-current", current);
+        node.classList.toggle("is-terminal-current", current && isTerminal);
+        node.classList.toggle("is-error-current", current && isError);
+        if (current) node.setAttribute("aria-current", "step");
+        else node.removeAttribute("aria-current");
+      });
+      document.querySelectorAll(".phase-card").forEach(card => {
+        const currentNode = activeStep ? document.querySelector(`.node[data-step="${activeStep}"]`) : null;
+        card.classList.toggle("is-current", !!currentNode && card.classList.contains(
+          currentNode.dataset.row === "1" ? "submit" : currentNode.dataset.row === "2" ? "route" : "execute"
+        ));
+      });
+      document.querySelector(".clarification-exit")?.classList.toggle("is-current", pendingClarification);
+      workflow?.classList.toggle("has-live-progress", !!activeStep && taskPhase !== "idle");
 
-  <!-- card 12 -->
-  <g filter="url(#shadowPurple)">
-    <rect x="974" y="659" width="245" height="166" rx="16" fill="#fff" fill-opacity=".98" stroke="#e2dcf7" stroke-width="1.4"/>
-    <rect x="978" y="663" width="237" height="158" rx="13" fill="none" stroke="#f3f0fc"/>
-  </g>
-  <line x1="992" y1="725" x2="1201" y2="725" stroke="#c8bdf0" stroke-width="1.1"/>
-  <text x="992" y="710" class="card-num" fill="url(#purple)">12</text>
-  <text x="1056" y="706" class="card-title sm">任务交接</text>
-  <g color="#7951e2" transform="translate(1174 680)"><use href="#icon-plane" width="34" height="34"/></g>
-  <text x="994" y="752" class="card-label">输入：</text><text x="1056" y="752" class="card-value small">已授权计划/附件</text>
-  <text x="994" y="782" class="card-label">处理：</text><text x="1056" y="782" class="card-value small">持久化交接后分发</text>
-  <text x="994" y="812" class="card-label">输出：</text><text x="1056" y="812" class="card-value">异步结果或恢复</text>
+      const lifecycleRank = { accepted: 0, capturing: 0, routing: 1, handoff: 2, running: 3, recovering: 3, completed: 4 };
+      const lifecyclePhase = pendingClarification ? "routing" : taskPhase;
+      const currentRank = Object.prototype.hasOwnProperty.call(lifecycleRank, lifecyclePhase) ? lifecycleRank[lifecyclePhase] : -1;
+      document.querySelectorAll("[data-lifecycle-phase]").forEach(item => {
+        const itemRank = lifecycleRank[item.dataset.lifecyclePhase] ?? -1;
+        item.classList.toggle("current", currentRank >= 0 && itemRank === currentRank);
+        item.classList.toggle("past", currentRank >= 0 && itemRank < currentRank);
+      });
+      return true;
+    }
 
-  <!-- completion -->
-  <g>
-    <g class="completion-station">
-      <rect x="1315" y="659" width="269" height="166" rx="25"/>
-    </g>
-    <g clip-path="url(#completionClip)">
-    <path d="M1329 676 C1396 650 1499 647 1581 678 C1640 700 1661 770 1622 806 C1578 847 1420 837 1350 807 C1313 791 1298 734 1329 676Z" fill="#8d72ed" opacity=".16"/>
-    <ellipse cx="1414" cy="740" rx="99" ry="91" fill="url(#completionGlow)"/>
-    <ellipse cx="1414" cy="789" rx="58" ry="13" fill="#6752db" opacity=".3"/>
-    <ellipse cx="1414" cy="783" rx="48" ry="12" fill="#a589ff" opacity=".58"/>
-    <ellipse cx="1414" cy="776" rx="38" ry="9" fill="#e4ddff" opacity=".8"/>
-    <circle cx="1414" cy="733" r="52" fill="#171438" fill-opacity=".94" stroke="#baaaff" stroke-opacity=".82"/>
-    <circle cx="1414" cy="733" r="40" fill="url(#discPurple)" opacity=".9"/>
-    <path d="M1414 698 1441 709v20c0 18-11 31-27 38-16-7-27-20-27-38v-20Z" fill="#fff" fill-opacity=".23" stroke="#fff" stroke-width="3"/>
-    <path d="m1400 730 10 10 19-20" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="m1510 676 4 11 11 4-11 4-4 11-4-11-11-4 11-4Z" fill="#fff"/>
-    <g class="completion-copy" text-anchor="middle">
-      <text x="1526" y="710" font-size="10.5" font-weight="800" letter-spacing="1.6" textLength="104" lengthAdjust="spacingAndGlyphs" fill="#cfc1ff">FINAL HANDOFF</text>
-      <text x="1526" y="747" font-size="22" font-weight="750" textLength="94" lengthAdjust="spacingAndGlyphs" fill="#f5f1ff">任务已交接</text>
-      <text x="1526" y="780" font-size="18" font-weight="650" textLength="104" lengthAdjust="spacingAndGlyphs" fill="#d8ccff">等待结果或恢复</text>
-    </g>
-    </g>
-  </g>
+    window.addEventListener("message", event => {
+      if (event.source !== window.parent || event.data?.type !== ROUTE_STATE_MESSAGE) return;
+      if (event.origin && event.origin !== "null" && event.origin !== window.location.origin) return;
+      applyRuntimeState(event.data);
+    });
 
-  <!-- connected S-shaped route track: top row → middle row → execution row -->
-  <g id="executionSnakeTrack" pointer-events="none">
-    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="url(#snakeSoft)" stroke-opacity=".16" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#061229" stroke-opacity=".98" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="url(#snakeSoft)" stroke-opacity=".96" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#061229" stroke-opacity=".98" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path id="snakeTrackGuide" d="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584" fill="none" stroke="#e8f9ff" stroke-opacity=".42" stroke-width="1.3" stroke-dasharray="3 18" stroke-linecap="round" stroke-linejoin="round">
-      <animate attributeName="stroke-dashoffset" values="0;-84" dur="2.4s" repeatCount="indefinite"/>
-    </path>
-  </g>
-
-  <!-- one continuous moving light follows the S-shaped route -->
-  <g id="flowComet" class="flow-comet" filter="url(#neonGlow)">
-    <animateMotion id="flowCometMotion" dur="7.2s" repeatCount="indefinite" rotate="auto" path="M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630H311C268 630 240 657 240 699V778C240 820 266 848 308 848H1584"/>
-    <ellipse cx="-18" cy="0" rx="22" ry="5.4" fill="#4fdfff" fill-opacity=".56">
-      <animate attributeName="fill" values="#4fdfff;#54f0bc;#c1a5ff;#4fdfff" keyTimes="0;.48;.8;1" dur="7.2s" repeatCount="indefinite"/>
-    </ellipse>
-    <circle r="14" fill="#36cfff" fill-opacity=".28">
-      <animate attributeName="fill" values="#36cfff;#38e7aa;#ab8aff;#36cfff" keyTimes="0;.48;.8;1" dur="7.2s" repeatCount="indefinite"/>
-    </circle>
-    <circle r="5.8" fill="#f8fdff"/>
-  </g>
-
-  <!-- bottom note pill -->
-  <g filter="url(#shadowPurple)">
-    <rect x="475" y="872" width="688" height="50" rx="25" fill="#121c3b" fill-opacity=".96" stroke="#7769ca" stroke-width="1.4"/>
-  </g>
-  <line x1="431" y1="897" x2="475" y2="897" stroke="#847ad2" stroke-width="1.5"/>
-  <circle cx="447" cy="897" r="5" fill="#af95ff"/>
-  <circle cx="479" cy="897" r="5" fill="#d6ceff"/>
-  <circle cx="1128" cy="897" r="5" fill="#d6ceff"/>
-  <circle cx="1175" cy="897" r="5.5" fill="#ad96ff"/>
-  <line x1="1163" y1="897" x2="1205" y2="897" stroke="#847ad2" stroke-width="1.5"/>
-  <g color="#aa91ff" transform="translate(549 874)"><use href="#icon-shield-check" width="44" height="44"/></g>
-  <text x="618" y="908" class="bottom-copy">条件分支按需进入：修复、澄清、备用与恢复</text>
-</svg>
+    fitPoster();
+    applyRuntimeState();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPoster);
+    window.addEventListener("resize", fitPoster);
+  </script>
 </body>
 </html>

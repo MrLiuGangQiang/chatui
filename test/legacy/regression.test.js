@@ -2376,39 +2376,27 @@ function testRouteDiagramLauncherUsesModal() {
   assert.ok(modal.classList.contains('show'));
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'false');
   assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
-  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=1.3.2-stage3-centered');
+  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=2.7.0-s-track-progress');
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.strictEqual(controller.isOpen(), false);
   assert.strictEqual(modal.getAttribute('aria-hidden'), 'true');
   assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
   assert.strictEqual(document.activeElement, trigger);
-  assert.ok(fs.existsSync(path.join(__dirname, '../../pages/route.html')), 'the intent-recognition diagram page should be shipped with the app');
+
+  const routePath = path.join(__dirname, '../../pages/route.html');
+  assert.ok(fs.existsSync(routePath), 'the intent-recognition diagram page should be shipped with the app');
   assert.strictEqual(staticHttp.isPublicStaticPath('/pages/route.html'), true, 'the diagram page should be available through the static server');
-  assert.ok(fs.readFileSync(path.join(__dirname, '../../pages/route.html'), 'utf8').includes('m17 14 10 10-10 10-10-10Z'), 'the first-pass route card should use a clear decision-and-branch icon');
-  const routeDiagram = fs.readFileSync(path.join(__dirname, '../../pages/route.html'), 'utf8');
-  assert.strictEqual((routeDiagram.match(/class="card-value small step-11-value" textLength="142" lengthAdjust="spacingAndGlyphs"/g) || []).length, 3, 'step 11 copy must stay constrained to its card content column');
-  assert.ok(routeDiagram.includes('fallback stays inside the route card') && routeDiagram.includes('x="1041" y="572" width="208" height="18"'), 'the fallback route should stay inside the first-pass route card rather than covering another stage');
-  assert.ok(!routeDiagram.includes('x="1023" y="346" width="244" height="56"'), 'the old floating fallback callout should not overlap the preceding stage');
-  assert.ok(routeDiagram.includes('connected S-shaped route track') && routeDiagram.includes('id="executionSnakeTrack"') && routeDiagram.includes('<animateMotion id="flowCometMotion"') && routeDiagram.includes('repeatCount="indefinite"') && routeDiagram.includes('M266 391 H1535 C1578 391 1606 418 1606 460V560C1606 602 1580 630 1538 630') && routeDiagram.includes('H311C268 630 240 657 240 699V778C240 820 266 848 308 848') && routeDiagram.includes('H1584'), 'the execution sequence should remain one continuous animated S-shaped flow between cards with matching upper and lower turns');
-  assert.ok(routeDiagram.includes('id="snakeTrackGuide"') && routeDiagram.includes('stroke-dashoffset') && !routeDiagram.includes('step-beacon'), 'the runway should use a flowing center guide and one travelling comet rather than node-by-node beacons');
-  assert.ok(routeDiagram.indexOf('id="executionSnakeTrack"') > routeDiagram.indexOf('<!-- completion -->'), 'the snake track should be painted above the third-stage and completion shadows so its final turn remains fully visible');
-  assert.ok(routeDiagram.includes('M558 273h21v-8l18 14-18 14v-8h-21Z') && routeDiagram.includes('M468 510h6v-8l18 14-18 14v-8h-6Z') && routeDiagram.includes('M542 736h71v-8l18 14-18 14v-8H542Z') && !routeDiagram.includes('M216 273h29v-8l18 14-18 14v-8h-29Z') && !routeDiagram.includes('M214 510h5v-6l11 12-11 12v-6h-5Z') && !routeDiagram.includes('M211 723h68v-8l12 14-12 14v-8h-68Z') && routeDiagram.includes('cx="116" cy="729" r="91"'), 'only card-to-card arrows should remain; phase badges should stay aligned and independent');
-  assert.ok(routeDiagram.includes('class="completion-copy" text-anchor="middle"') && routeDiagram.includes('textLength="94"') && routeDiagram.includes('textLength="104"'), 'the completion copy should stay centered and constrained inside its panel');
-  assert.ok(routeDiagram.includes('<rect x="1315" y="659" width="269" height="166" rx="25"/>') && routeDiagram.includes('clip-path="url(#completionClip)"'), 'the completion node should align with the execution cards and keep its artwork above the runway');
-  assert.ok(!routeDiagram.includes('step-beacon'), 'the execution sequence should use the single travelling flow light instead of independent card beacons');
-  assert.ok(routeDiagram.includes('task_contract.v5') && routeDiagram.includes('needs_clarification') && routeDiagram.includes('立即展示并保存续办策略') && routeDiagram.includes('选择续办 / 回答后重路由') && routeDiagram.includes('持久化交接后分发') && routeDiagram.includes('异步结果或恢复'), 'the route diagram should describe terminal clarification, safe continuation, and durable handoff');
-  assert.ok(routeDiagram.indexOf('写入 accepted 记录') < routeDiagram.indexOf('预览附件、写用户消息'), 'the route diagram should show durable acceptance before asynchronous attachment capture and session commit');
-  const executionCards = [...routeDiagram.matchAll(/<rect x="(\d+)" y="659" width="(\d+)" height="166" rx="16" fill="#fff" fill-opacity="\.98"/g)].map(([, x, width]) => ({ x: Number(x), width: Number(width) }));
-  assert.strictEqual(executionCards.length, 3, 'the execution row should contain exactly three cards');
-  const executionGaps = [executionCards[1].x - executionCards[0].x - executionCards[0].width, executionCards[2].x - executionCards[1].x - executionCards[1].width];
-  const outerExecutionGaps = [executionCards[0].x - 199, 1315 - (executionCards[2].x + executionCards[2].width)];
-  const allExecutionGaps = [...executionGaps, ...outerExecutionGaps];
-  assert.ok(Math.max(...allExecutionGaps) - Math.min(...allExecutionGaps) <= 1 && Math.min(...allExecutionGaps) >= 90, 'the phase marker, execution cards, and completion graphic should keep visually uniform spacing');
-  assert.ok(!routeDiagram.includes('本地归一化') && !routeDiagram.includes('低置信才复审') && !routeDiagram.includes('用户补充回到06'), 'the route diagram should not describe the retired local-classification, single-condition review, or direct clarification-loop behavior');
+  const routeDiagram = fs.readFileSync(routePath, 'utf8');
+  assert.strictEqual((routeDiagram.match(/<article class="node [^"]+" data-step="\d{2}"/g) || []).length, 12, 'the runtime map should expose exactly twelve numbered nodes');
+  assert.ok(routeDiagram.includes('route_decision.v1') && routeDiagram.includes('task_contract.v5') && routeDiagram.includes('execution_resources.v1'), 'the map should name the model decision, compiled contract, and execution projection boundaries');
+  assert.ok(routeDiagram.includes('class="flow-track"') && routeDiagram.includes('class="flow-runner"') && routeDiagram.includes('<animateMotion') && routeDiagram.includes('id="mainRouteGuide"') && routeDiagram.includes('class="sequence-links"') && routeDiagram.includes('clarification-track') && routeDiagram.includes('@media (prefers-reduced-motion: reduce)'), 'the redesigned map should keep the ordered main flow, unnumbered conditional exits, and a reduced-motion fallback');
+  assert.ok(routeDiagram.indexOf('stage=accepted') < routeDiagram.indexOf('stage=captured') && routeDiagram.indexOf('stage=captured') < routeDiagram.indexOf('stage=routing'), 'durable acceptance, attachment capture, and routing commit must remain in source order');
+  assert.ok(routeDiagram.includes('进行中不等于完成') && routeDiagram.includes('JOB_COMPLETED_COMMITTED') && routeDiagram.includes('data-sequence="01 02 03 04 05 06 07 08 09 10 11 12"') && !routeDiagram.includes('deliberately bypassed'), 'the map must distinguish running from completion and keep every numbered node on the source-ordered main track');
   assert.ok(!formatting.pendingFeedbackHtml('正在执行：路由模型意图识别').includes('pending-route-link'), 'route preflight waiting text should stay focused on task status');
+
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
-  assert.ok(index.includes('id="routeDiagramFab"') && index.includes('id="routeDiagramModal"') && index.includes('route-diagram-workflow.js'), 'the page should ship the persistent flow entry and modal controller');
+  assert.ok(index.includes('id="routeDiagramFab"') && index.includes('id="routeDiagramModal"') && index.includes('route-diagram-workflow.js?v=2.7.0-s-track-progress'), 'the page should ship the persistent flow entry and the updated modal controller');
   assert.ok(css.includes('.route-diagram-fab{') && css.includes('.route-diagram-modal.show{'), 'the flow entry and modal should have dedicated responsive styles');
 }
 

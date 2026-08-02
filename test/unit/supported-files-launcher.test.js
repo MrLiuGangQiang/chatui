@@ -46,12 +46,127 @@ function testSupportedFilesLauncherReusesDocumentModalLifecycle() {
   assert.strictEqual(document.activeElement, filesTrigger);
 
   routeTrigger.click();
-  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=1.3.2-stage3-centered');
-  assert.strictEqual(frame.getAttribute('title'), '任务路由执行地图');
+  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=2.7.0-s-track-progress');
+  assert.strictEqual(frame.getAttribute('title'), '意图识别流程图');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-aspect'), '1672 / 941');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-max-width'), '1672px');
   assert.strictEqual(routeTrigger.getAttribute('aria-expanded'), 'true');
   assert.ok(modal.classList.contains('show'), 'the route page must use the same headerless viewer');
+  controller.close();
+  dom.window.close();
+}
+
+
+function testRouteDiagramPublishesSessionScopedProgress() {
+  const dom = createLauncherDom();
+  const { document } = dom.window;
+  const frame = document.getElementById('routeDiagramFrame');
+  const messages = [];
+  const clearedTimers = [];
+  let activeSessionId = 'session-a';
+  const sessions = new Map([
+    ['session-a', { id: 'session-a', title: '会话 A', pendingClarification: false }],
+    ['session-b', { id: 'session-b', customTitle: '会话 B', pendingClarification: true }],
+    ['session-c', { id: 'session-c', title: '会话 C', pendingClarification: false }],
+  ]);
+  const tasks = new Map([
+    ['session-a', {
+      phase: 'running',
+      owner: 'managed_job',
+      taskId: 'task-a',
+      submissionId: 'submit-a',
+      jobId: 'chatjob-a',
+      jobKind: 'chat',
+      revision: 7,
+    }],
+    ['session-b', {
+      phase: 'completed',
+      owner: 'canonical_session',
+      taskId: 'task-b',
+      submissionId: 'submit-b',
+      revision: 4,
+    }],
+    ['session-c', {
+      phase: 'routing',
+      owner: 'pending_submission',
+      taskId: 'task-c',
+      submissionId: 'submit-c',
+      revision: 2,
+    }],
+  ]);
+  const pendingSubmits = new Map([
+    ['session-a', { submissionId: 'submit-a', stage: 'handoff', jobId: 'chatjob-a', jobKind: 'chat' }],
+    ['session-b', { submissionId: 'submit-b', stage: 'routing' }],
+    ['session-c', { submissionId: 'stale-submit', stage: 'handoff', jobId: 'stale-job', jobKind: 'image' }],
+  ]);
+  const controller = routeDiagramWorkflow.createRouteDiagramWorkflow({
+    document,
+    getActiveSession: () => sessions.get(activeSessionId),
+    getTaskState: sessionId => tasks.get(sessionId) || null,
+    isSessionBusy: sessionId => tasks.get(sessionId)?.phase === 'running',
+    loadPendingSubmit: sessionId => pendingSubmits.get(sessionId) || null,
+    setInterval: () => 'route-state-timer',
+    clearInterval: timer => clearedTimers.push(timer),
+  });
+  try {
+    controller.init();
+    document.getElementById('routeDiagramFab').click();
+    frame.contentWindow.postMessage = (message, targetOrigin) => messages.push({ message, targetOrigin });
+    assert.strictEqual(controller.publishRouteTaskState(), true);
+    assert.strictEqual(messages.length, 1);
+    assert.deepStrictEqual(messages[0].message, {
+      type: 'chatui:route-task-state',
+      phase: 'running',
+      owner: 'managed_job',
+      sessionId: 'session-a',
+      sessionTitle: '会话 A',
+      taskId: 'task-a',
+      submissionId: 'submit-a',
+      jobId: 'chatjob-a',
+      jobKind: 'chat',
+      pendingStage: 'handoff',
+      pendingClarification: false,
+      activeStep: '12',
+      taskRevision: 7,
+      syncSequence: 2,
+    });
+    assert.strictEqual(messages[0].targetOrigin, 'http://localhost');
+
+    activeSessionId = 'session-b';
+    assert.strictEqual(controller.publishRouteTaskState(), true);
+    assert.deepStrictEqual(messages.at(-1).message, {
+      type: 'chatui:route-task-state',
+      phase: 'completed',
+      owner: 'canonical_session',
+      sessionId: 'session-b',
+      sessionTitle: '会话 B',
+      taskId: 'task-b',
+      submissionId: 'submit-b',
+      jobId: '',
+      jobKind: '',
+      pendingStage: 'routing',
+      pendingClarification: true,
+      activeStep: '10',
+      taskRevision: 4,
+      syncSequence: 3,
+    });
+    assert.ok(!messages.at(-1).message.jobId.includes('chatjob-a'), 'session B must not inherit session A job identity');
+
+    activeSessionId = 'session-c';
+    assert.strictEqual(controller.publishRouteTaskState(), true);
+    const sessionC = messages.at(-1).message;
+    assert.strictEqual(sessionC.sessionId, 'session-c');
+    assert.strictEqual(sessionC.phase, 'routing');
+    assert.strictEqual(sessionC.activeStep, '07');
+    assert.strictEqual(sessionC.pendingStage, '', 'a stale pending submission must not describe a newer task in the same session');
+    assert.strictEqual(sessionC.jobId, '');
+    assert.strictEqual(sessionC.jobKind, '');
+    assert.strictEqual(sessionC.syncSequence, 4);
+  } finally {
+    controller.close();
+    dom.window.close();
+  }
+  assert.deepStrictEqual(clearedTimers, ['route-state-timer']);
 }
 
 function testSupportedFilesLauncherShipsItsStaticPage() {
@@ -78,7 +193,7 @@ function testSupportedFilesLauncherShipsItsStaticPage() {
   assert.strictEqual(staticHttp.isPublicStaticPath('/route.html'), false, 'the retired root route path must not remain public');
   assert.ok(dockerfile.includes('COPY pages ./pages'), 'the Docker runtime must package the shared standalone-page directory');
   assert.ok(fs.readFileSync(path.join(root, 'pages/files.html'), 'utf8').includes('<title>支持的文件格式</title>'));
-  assert.ok(fs.readFileSync(path.join(root, 'pages/route.html'), 'utf8').includes('12节点执行地图'));
+  assert.ok(fs.readFileSync(path.join(root, 'pages/route.html'), 'utf8').includes('你的消息怎样变成任务'));
 }
 
-module.exports = [testSupportedFilesLauncherReusesDocumentModalLifecycle, testSupportedFilesLauncherShipsItsStaticPage];
+module.exports = [testSupportedFilesLauncherReusesDocumentModalLifecycle, testRouteDiagramPublishesSessionScopedProgress, testSupportedFilesLauncherShipsItsStaticPage];

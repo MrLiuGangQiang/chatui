@@ -61,7 +61,7 @@ function testCompactDecisionCompilesEveryOperationToCanonicalExecution() {
     ['image_qa', [{ candidate_key: 'i1', role: 'source' }], 'chat', 'vision'],
     ['ocr', [{ candidate_key: 'i1', role: 'source' }], 'chat', 'vision'],
     ['image_compare', [{ candidate_key: 'i1', role: 'compare_a' }, { candidate_key: 'i2', role: 'compare_b' }], 'chat', 'vision'],
-    ['edit_image', [{ candidate_key: 'i1', role: 'target' }], 'edit_image', 'image_edit'],
+    ['edit_image', [{ candidate_key: 'i1', role: 'target' }, { candidate_key: 'i2', role: 'reference' }], 'edit_image', 'image_edit'],
     ['image_reference_gen', [{ candidate_key: 'i1', role: 'reference' }, { candidate_key: 'i2', role: 'style_reference' }], 'image', 'image_edit'],
   ];
 
@@ -76,6 +76,23 @@ function testCompactDecisionCompilesEveryOperationToCanonicalExecution() {
     assert.deepStrictEqual(inspected.route.routeDecision, semantic);
     assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
   }
+}
+
+function testReferenceGenerationPolicyUsesBoundResourceStructure() {
+  const options = currentResources();
+  const inspectPolicy = bindings => routeService.inspectRouteResult(JSON.stringify(decision({
+    operation: 'image_reference_gen',
+    bindings,
+  })), options).route?.taskContract?.directive?.unmentioned_policy;
+
+  assert.strictEqual(inspectPolicy([{ candidate_key: 'i1', role: 'reference' }]), 'preserve',
+    'one full reference is a preservation baseline');
+  assert.strictEqual(inspectPolicy([{ candidate_key: 'i1', role: 'style_reference' }]), 'allow_change',
+    'a style-only reference must not freeze unrelated image structure');
+  assert.strictEqual(inspectPolicy([
+    { candidate_key: 'i1', role: 'reference' },
+    { candidate_key: 'i2', role: 'reference' },
+  ]), 'allow_change', 'combining multiple references must allow a newly composed result');
 }
 
 function testQuotedTextDecisionCompilesMessageIdentityAndPromptOnce() {
@@ -132,6 +149,34 @@ function testQuotedPlainChatDecisionUsesTheSameCanonicalMessageSource() {
     key: 'r1', type: 'message', source: 'quoted', role: 'context', index: 7,
     id: 'quoted-paragraph', reference_id: '', missing: false,
   }]);
+}
+
+function testQuotedClarificationTextQuestionRoutesAsPlainChat() {
+  const options = {
+    input: '有几个颜色',
+    attachments: [],
+    context: {
+      quoted_message: { index: 4, id: 'quoted-clarification', role: 'assistant' },
+      recent_messages: [{
+        index: 4, id: 'quoted-clarification', role: 'assistant',
+        content: '请明确选择一种颜色，例如狸花色、橘色、白色、黑色、三花色、玳瑁色、灰色或奶牛色。',
+      }],
+    },
+  };
+  const payload = routeService.buildRoutePayload({ model: 'route-model', ...options });
+  assert.ok(payload.messages[0].content.includes('询问显式引用文本本身'));
+  assert.ok(payload.messages[0].content.includes('current_input="有几个颜色"'));
+  assert.ok(payload.messages[0].content.includes('不得返回 edit_image'));
+
+  const semantic = decision({
+    operation: 'plain_chat', relation: 'followup',
+    bindings: [{ candidate_key: 'm1', role: 'context' }],
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.api, 'chat');
+  assert.strictEqual(inspected.route.needClarification, false);
+  assert.strictEqual(inspected.route.taskContract.resources[0].id, 'quoted-clarification');
 }
 
 function testCompilerEnforcesOnlyAnExplicitFixedProductMode() {
@@ -476,6 +521,154 @@ function testDecisionCompilerBuildsClarificationChoicesWithoutModelAuthoredIds()
   ]);
 }
 
+function testEditClarificationPreservesTargetAndSelectedReferenceWithoutSemanticDrift() {
+  const options = {
+    input: '不是这只猫，替换成你生成的猫',
+    attachments: [],
+    context: {
+      image_candidates: [
+        { index: 1, source: 'history', image_id: 'composite-cat', reference_id: 'composite-cat-ref', filename: 'composite.png' },
+        { index: 2, source: 'history', image_id: 'persian-cat', reference_id: 'persian-cat-ref', filename: 'persian.png' },
+        { index: 3, source: 'history', image_id: 'original-cat', reference_id: 'original-cat-ref', filename: 'original.png' },
+      ],
+    },
+  };
+  const semantic = decision({
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'continuation',
+    bindings: [{ candidate_key: 'i1', role: 'target' }],
+    changes: [{ op: 'replace', target: '目标图中的猫', value: '用户选择的参考猫' }],
+    clarification: {
+      question: '请确认要替换成哪一张猫图。',
+      unresolved: [{ type: 'image', role: 'reference', reason: 'ambiguous', candidate_keys: ['i2', 'i3'] }],
+    },
+  });
+  const pending = routeService.inspectRouteResult(JSON.stringify(semantic), options).route;
+  assert.ok(pending, 'target-plus-reference edits must remain a valid pending task contract');
+  assert.ok(pending.taskContract);
+  assert.strictEqual(pending.clarificationDegraded, undefined);
+  assert.strictEqual(routeService.isRouteDispatchable(pending), false);
+  assert.deepStrictEqual(pending.taskContract.resources.map(resource => [resource.id, resource.role]), [
+    ['composite-cat', 'target'],
+  ]);
+  assert.deepStrictEqual(pending.taskContract.directive.base_resource_keys, ['r1', 'r2']);
+  assert.strictEqual(pending.taskContract.directive.unmentioned_policy, 'preserve');
+  assert.deepStrictEqual(pending.taskContract.clarification.unresolved_resources[0].choices.map(choice => ({
+    id: choice.id, role: pending.taskContract.clarification.unresolved_resources[0].role,
+  })), [
+    { id: 'persian-cat', role: 'reference' },
+    { id: 'original-cat', role: 'reference' },
+  ]);
+
+  const slot = pending.taskContract.clarification.unresolved_resources[0];
+  const selected = slot.choices[1];
+  const readySemantic = decision({
+    operation: 'edit_image',
+    relation: 'continuation',
+    bindings: [
+      { candidate_key: 'i1', role: 'target' },
+      { candidate_key: 'i3', role: 'reference' },
+    ],
+    changes: semantic.changes,
+  });
+  const readyOptions = {
+    ...options,
+    context: {
+      ...options.context,
+      clarification_context: {
+        schema_version: 'clarification_context.v1',
+        base_task: options.input,
+        clarification_question: semantic.clarification.question,
+        prior_task_contract: pending.taskContract,
+        unresolved_resources: pending.taskContract.clarification.unresolved_resources,
+        current_answer: '2',
+        resolved_input: options.input,
+        continuation_relation: 'pending_answer',
+        selected_choices: [{
+          resource_key: slot.key,
+          choice_key: selected.key,
+          type: slot.type,
+          role: slot.role,
+          source: selected.source,
+          index: selected.index,
+          id: selected.id,
+          reference_id: selected.reference_id,
+          label: selected.label,
+        }],
+        explicit_quote_text: '',
+        attachments: { current: [], quoted: [], prior_sources: [] },
+        source_policy: 'test',
+      },
+    },
+  };
+  const ready = routeService.inspectRouteResult(JSON.stringify(readySemantic), readyOptions).route;
+  assert.ok(ready, 'the completed selection must compile without a repair/fallback route');
+  assert.strictEqual(routeService.isRouteDispatchable(ready), true);
+  assert.deepStrictEqual(ready.taskContract.resources.map(resource => [resource.id, resource.role]), [
+    ['composite-cat', 'target'],
+    ['original-cat', 'reference'],
+  ]);
+  assert.strictEqual(ready.routeDecision.bindings[1].role, 'reference');
+
+  const reversedInputs = structuredClone(readySemantic);
+  reversedInputs.bindings.reverse();
+  const rejectedReversedInputs = routeService.inspectRouteResult(JSON.stringify(reversedInputs), readyOptions);
+  assert.strictEqual(rejectedReversedInputs.route, null,
+    'the edit target must remain the first multipart image input');
+
+  const roleDrift = structuredClone(readySemantic);
+  roleDrift.bindings[1].role = 'style_reference';
+  const rejectedRoleDrift = routeService.inspectRouteResult(JSON.stringify(roleDrift), readyOptions);
+  assert.strictEqual(rejectedRoleDrift.route, null,
+    'a completed selection must not weaken the compiler-owned reference role merely to avoid a retry');
+  assert.strictEqual(rejectedRoleDrift.reason, 'resource_binding');
+}
+
+function testDegradedClarificationRetainsCompilerValidatedChoicesWithoutAuthorizingExecution() {
+  const options = {
+    input: '分析目标图，但先确认参考图',
+    attachments: [],
+    context: {
+      image_candidates: [
+        { index: 1, source: 'history', image_id: 'source-image', reference_id: 'source-image-ref', filename: 'source.png' },
+        { index: 2, source: 'history', image_id: 'reference-a', reference_id: 'reference-a-ref', filename: 'a.png' },
+        { index: 3, source: 'history', image_id: 'reference-b', reference_id: 'reference-b-ref', filename: 'b.png' },
+      ],
+    },
+  };
+  const semantic = decision({
+    readiness: 'needs_clarification',
+    operation: 'image_qa',
+    relation: 'continuation',
+    bindings: [{ candidate_key: 'i1', role: 'source' }],
+    clarification: {
+      question: '请选择参考图。',
+      // image_qa cannot consume a reference role. Candidate identities are
+      // compiler-valid, but operation semantics still fail closed.
+      unresolved: [{ type: 'image', role: 'reference', reason: 'ambiguous', candidate_keys: ['i2', 'i3'] }],
+    },
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route, 'a declared clarification remains a successful non-executing route');
+  assert.strictEqual(inspected.route.taskContract, null);
+  assert.strictEqual(inspected.route.clarificationDegraded, true);
+  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), false);
+  assert.deepStrictEqual(inspected.route.clarificationSlots, [{
+    key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous',
+    choices: [
+      { key: 'c1', source: 'history', index: 2, id: 'reference-a', reference_id: 'reference-a-ref', label: 'a.png' },
+      { key: 'c2', source: 'history', index: 3, id: 'reference-b', reference_id: 'reference-b-ref', label: 'b.png' },
+    ],
+  }], 'compiler-validated candidate identities must survive only as clarification display/selection data');
+
+  const invented = structuredClone(semantic);
+  invented.clarification.unresolved[0].candidate_keys = ['i2', 'i9'];
+  const rejected = routeService.inspectRouteResult(JSON.stringify(invented), options);
+  assert.strictEqual(rejected.route, null, 'an invented candidate key must still fail before any degraded slot is retained');
+  assert.strictEqual(rejected.reason, 'resource_binding');
+}
+
 function testDecisionBoundaryRejectsInventedKeysRolesAndSemanticRepairDrift() {
   const options = currentResources();
   const invented = decision({ operation: 'image_qa', bindings: [{ candidate_key: 'i9', role: 'source' }] });
@@ -550,6 +743,7 @@ function currentGifOptions(historyCount = 0) {
       recent_messages: recentMessages,
       image_candidates: [...historicalCandidates, currentCandidate],
     },
+    currentTurn: { messageIndex: currentMessageIndex },
     attachments: [{
       index: 1,
       source_index: 1,
@@ -611,10 +805,239 @@ function testExistingImageHistoryKeepsCurrentGifCandidateStable() {
   assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
 }
 
+
+function attachmentOnlyCurrentOptions() {
+  const transientId = 'attachment-only-transient';
+  const durableId = 'img_imgref_uploaded_attachment_only_1';
+  return {
+    input: '',
+    transientId,
+    durableId,
+    currentTurn: { messageIndex: 1, messageId: 'current-attachment-turn' },
+    context: {
+      recent_messages: [{ index: 1, id: 'current-attachment-turn', role: 'user', content: '[image attachment]' }],
+      image_candidates: [{
+        index: 1,
+        source_index: 1,
+        message_index: 1,
+        image_id: durableId,
+        reference_id: 'imgref_uploaded_attachment_only',
+        source: 'user_message',
+        target: 'uploaded',
+        filename: 'only.png',
+      }],
+    },
+    attachments: [{
+      index: 1,
+      source_index: 1,
+      media_index: 1,
+      id: transientId,
+      image_id: transientId,
+      name: 'only.png',
+      type: 'image/png',
+      size: 64,
+      is_image: true,
+    }],
+  };
+}
+
+function testAttachmentOnlyCurrentTurnUsesOneCurrentCandidateAndNoHistoryMessage() {
+  const options = attachmentOnlyCurrentOptions();
+  const payload = JSON.parse(routeService.buildRoutePayload({ model: 'router', ...options }).messages[1].content);
+  assert.deepStrictEqual(payload.resource_candidates, [{
+    candidate_key: 'i1', type: 'image', source: 'current', label: 'only.png',
+  }]);
+  assert.ok(!payload.context?.recent_messages, 'the current attachment-only message must not be exposed again as historical context');
+  assert.ok(!payload.context?.image_candidates, 'the persisted copy of the current upload must be removed before cataloguing attachments');
+
+  const trimmedPayload = JSON.parse(routeService.buildRoutePayload({
+    model: 'router', ...options, context: { ...options.context, recent_messages: [] },
+  }).messages[1].content);
+  assert.deepStrictEqual(trimmedPayload.resource_candidates, payload.resource_candidates,
+    'the explicit turn index must still remove persisted media when context trimming drops the message row');
+
+  const inferredPayload = JSON.parse(routeService.buildRoutePayload({
+    model: 'router', ...options, currentTurn: null,
+  }).messages[1].content);
+  assert.deepStrictEqual(inferredPayload.resource_candidates, payload.resource_candidates,
+    'attachment identity must safely recover the current turn for direct service callers');
+
+  const semantic = decision({
+    operation: 'image_qa',
+    bindings: [{ candidate_key: 'i1', role: 'source' }],
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.taskContract.resources[0].id, options.durableId);
+  assert.ok(inspected.route.executionResources.images[0].identity_aliases.includes(options.transientId));
+  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
+}
+
+function testPartialClarificationSelectionMustRemainBoundWhileOtherSlotStaysUnresolved() {
+  const context = {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'left-a', reference_id: 'left-a-ref', filename: 'left-a.png' },
+      { index: 2, source: 'history', image_id: 'left-b', reference_id: 'left-b-ref', filename: 'left-b.png' },
+      { index: 3, source: 'history', image_id: 'right-a', reference_id: 'right-a-ref', filename: 'right-a.png' },
+      { index: 4, source: 'history', image_id: 'right-b', reference_id: 'right-b-ref', filename: 'right-b.png' },
+    ],
+    clarification_context: {
+      schema_version: 'clarification_context.v1',
+      continuation_relation: 'partial_answer',
+      selected_choices: [{
+        resource_key: 'r1', choice_key: 'c2', type: 'image', role: 'compare_a',
+        source: 'history', index: 2, id: 'left-b', reference_id: 'left-b-ref', label: 'left B',
+      }],
+    },
+  };
+  const semantic = decision({
+    readiness: 'needs_clarification',
+    operation: 'image_compare',
+    relation: 'continuation',
+    bindings: [{ candidate_key: 'i2', role: 'compare_a' }],
+    clarification: {
+      question: '请选择右侧要比较的图片。',
+      unresolved: [{ type: 'image', role: 'compare_b', reason: 'ambiguous', candidate_keys: ['i3', 'i4'] }],
+    },
+  });
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), {
+    input: '左边选第二张', attachments: [], context,
+  });
+  assert.ok(inspected.route, 'a partial selection must compile with the selected resource bound and the other slot unresolved');
+  assert.strictEqual(inspected.route.needClarification, true);
+  assert.strictEqual(inspected.route.taskContract.resources[0].id, 'left-b');
+  assert.deepStrictEqual(inspected.route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id), ['right-a', 'right-b']);
+
+  const omittedSelection = { ...semantic, bindings: [] };
+  assert.strictEqual(routeService.inspectRouteResult(JSON.stringify(omittedSelection), {
+    input: '左边选第二张', attachments: [], context,
+  }).route, null, 'the rerouter must not silently forget a choice already made in a partial answer');
+}
+
+function testLegacyTaskContractsAreConvertedBackThroughCandidateDecisions() {
+  const context = {
+    image_candidates: [{
+      index: 1, source: 'history', image_id: 'legacy-cat', reference_id: 'legacy-cat-ref',
+      filename: 'cat.png', description: '灰色猫',
+    }],
+  };
+  const legacy = {
+    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'edit_image', relation: 'followup',
+    resources: [{
+      key: 'r1', type: 'image', source: 'history', role: 'target', index: 1,
+      id: 'legacy-cat', reference_id: 'legacy-cat-ref', missing: false,
+    }],
+    directive: {
+      mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve',
+      operations: [{ op: 'replace', target: '猫的颜色', value: '黑色' }], constraints: [],
+    },
+    clarification: { question: '', unresolved_resources: [] },
+    confidence: 0.97, review_reasons: [], rationale: 'legacy compatible output',
+  };
+  const converted = routeService.convertLegacyTaskContractToDecision(legacy, {
+    input: '把猫改成黑色', attachments: [], context,
+  });
+  assert.ok(converted);
+  assert.deepStrictEqual(converted.bindings, [{ candidate_key: 'i1', role: 'target' }]);
+  assert.deepStrictEqual(converted.changes, [{ op: 'replace', target: '猫的颜色', value: '黑色' }]);
+
+  const inspected = routeService.inspectRouteResult(JSON.stringify(legacy), {
+    input: '把猫改成黑色', attachments: [], context,
+  });
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.legacyModelOutputConverted, true);
+  assert.deepStrictEqual(inspected.route.routeDecision, converted);
+  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
+}
+
+function testLegacyConversionFailsClosedWhenIdentityIsNotUnique() {
+  const context = {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'duplicate-cat', reference_id: '', filename: 'a.png' },
+      { index: 2, source: 'history', image_id: 'duplicate-cat', reference_id: '', filename: 'b.png' },
+    ],
+  };
+  const legacy = {
+    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'edit_image', relation: 'followup',
+    resources: [{
+      key: 'r1', type: 'image', source: 'history', role: 'target', index: 1,
+      id: 'duplicate-cat', reference_id: '', missing: false,
+    }],
+    directive: {
+      mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve',
+      operations: [{ op: 'replace', target: '背景', value: '白色' }], constraints: [],
+    },
+    clarification: { question: '', unresolved_resources: [] },
+    confidence: 0.9, review_reasons: [], rationale: 'ambiguous copied identity',
+  };
+  assert.strictEqual(routeService.convertLegacyTaskContractToDecision(legacy, { input: '背景改白色', context }), null);
+  const inspected = routeService.inspectRouteResult(JSON.stringify(legacy), { input: '背景改白色', context });
+  assert.strictEqual(inspected.route, null, 'an ambiguous legacy identity must never bypass candidate-key compilation');
+}
+
+function testPartialClarificationCannotDropPreviouslyBoundResources() {
+  const context = {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'base-reference', reference_id: 'base-reference-ref', filename: 'base.png' },
+      { index: 2, source: 'history', image_id: 'selected-style', reference_id: 'selected-style-ref', filename: 'selected.png' },
+      { index: 3, source: 'history', image_id: 'remaining-a', reference_id: 'remaining-a-ref', filename: 'remaining-a.png' },
+      { index: 4, source: 'history', image_id: 'remaining-b', reference_id: 'remaining-b-ref', filename: 'remaining-b.png' },
+    ],
+    clarification_context: {
+      schema_version: 'clarification_context.v1',
+      continuation_relation: 'partial_answer',
+      prior_task_contract: {
+        resources: [{
+          key: 'r1', type: 'image', source: 'history', role: 'reference', index: 1,
+          id: 'base-reference', reference_id: 'base-reference-ref', missing: false,
+        }],
+      },
+      selected_choices: [{
+        resource_key: 'r2', choice_key: 'c1', type: 'image', role: 'style_reference',
+        source: 'history', index: 2, id: 'selected-style', reference_id: 'selected-style-ref', label: 'selected style',
+      }],
+    },
+  };
+  const semantic = decision({
+    readiness: 'needs_clarification',
+    operation: 'image_reference_gen',
+    relation: 'continuation',
+    bindings: [
+      { candidate_key: 'i1', role: 'reference' },
+      { candidate_key: 'i2', role: 'style_reference' },
+    ],
+    clarification: {
+      question: '请选择剩余的风格参考图。',
+      unresolved: [{ type: 'image', role: 'style_reference', reason: 'ambiguous', candidate_keys: ['i3', 'i4'] }],
+    },
+  });
+  const options = { input: '第二项选第一张', attachments: [], context };
+  const inspected = routeService.inspectRouteResult(JSON.stringify(semantic), options);
+  assert.ok(inspected.route, 'a valid partial answer must preserve the prior binding, the new selection, and the remaining unresolved slot');
+  assert.deepStrictEqual(inspected.route.taskContract.resources.map(resource => [resource.id, resource.role]), [
+    ['base-reference', 'reference'],
+    ['selected-style', 'style_reference'],
+  ]);
+  assert.deepStrictEqual(inspected.route.taskContract.clarification.unresolved_resources[0].choices.map(choice => choice.id), [
+    'remaining-a',
+    'remaining-b',
+  ]);
+
+  const droppedPriorBinding = {
+    ...semantic,
+    bindings: [{ candidate_key: 'i2', role: 'style_reference' }],
+  };
+  const rejected = routeService.inspectRouteResult(JSON.stringify(droppedPriorBinding), options);
+  assert.strictEqual(rejected.route, null, 'the rerouter must not discard a binding established before the partial answer');
+  assert.strictEqual(rejected.reason, 'resource_binding');
+}
+
 module.exports = [
   testCompactDecisionCompilesEveryOperationToCanonicalExecution,
+  testReferenceGenerationPolicyUsesBoundResourceStructure,
   testQuotedTextDecisionCompilesMessageIdentityAndPromptOnce,
   testQuotedPlainChatDecisionUsesTheSameCanonicalMessageSource,
+  testQuotedClarificationTextQuestionRoutesAsPlainChat,
   testCompilerEnforcesOnlyAnExplicitFixedProductMode,
   testCompilerKeepsUnavailableAndAttachmentOnlyTurnsNonExecuting,
   testNativeMarkdownDecisionCompilesWhileUnreadableFilesAndInvalidKeysStayRejected,
@@ -622,7 +1045,14 @@ module.exports = [
   testCompilerRejectsMissingEditValueWithoutLocalClarification,
   testSelfContainedImageFollowupDoesNotInheritPriorPrompt,
   testDecisionCompilerBuildsClarificationChoicesWithoutModelAuthoredIds,
+  testEditClarificationPreservesTargetAndSelectedReferenceWithoutSemanticDrift,
+  testDegradedClarificationRetainsCompilerValidatedChoicesWithoutAuthorizingExecution,
   testDecisionBoundaryRejectsInventedKeysRolesAndSemanticRepairDrift,
   testCurrentGifDecisionCanonicalizesIdentityAndDispatches,
   testExistingImageHistoryKeepsCurrentGifCandidateStable,
+  testAttachmentOnlyCurrentTurnUsesOneCurrentCandidateAndNoHistoryMessage,
+  testLegacyTaskContractsAreConvertedBackThroughCandidateDecisions,
+  testLegacyConversionFailsClosedWhenIdentityIsNotUnique,
+  testPartialClarificationSelectionMustRemainBoundWhileOtherSlotStaysUnresolved,
+  testPartialClarificationCannotDropPreviouslyBoundResources,
 ];

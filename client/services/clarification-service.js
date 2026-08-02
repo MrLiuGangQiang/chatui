@@ -4,6 +4,7 @@
   const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v6';
   const CLARIFICATION_CONTEXT_VERSION = 'clarification_context.v1';
   const CLARIFICATION_REPLAY_VERSION = 'clarification_replay.v1';
+  const CONTINUATION_CONFIDENCE_THRESHOLD = 0.85;
   const CONTINUATION_RELATIONS = Object.freeze([
     'pending_answer',
     'partial_answer',
@@ -52,13 +53,14 @@
 
 状态规则：
 1. pending_answer：直接且完整回答追问；partial_answer：明确回答了组合追问中的至少一项，但仍有其他必填项未回答；revision：修改未完成任务；continuation：补充未完成任务。这四类必须置信度至少 0.85，且 resolved_input 必须是可交给后续路由器重新识别的自然请求。partial_answer 不是失败：完整路由器会保留已回答内容并继续追问剩余项。
-2. pending_assistance：用户没有回答追问，而是在当前追问中请求候选、示例或解释。此时 resolved_input=""、selections=[]，assistant_reply 给出直接有用且不替用户做决定的简短帮助。不得把已经明确选择候选或补充某项信息的回复误判为 pending_assistance。
-3. new_task：与追问无关的完整新任务，包括同时提出多个独立目标。unclear：无法可靠判断。二者都必须 resolved_input=""、selections=[]、assistant_reply=""。不确定时使用 new_task 或 unclear，绝不合并旧任务。
+2. pending_assistance：用户没有回答追问，而是在当前追问或显式引用的追问文本中请求候选、示例、解释、计数、复述、含义或理由。此时 resolved_input=""、selections=[]，assistant_reply 必须直接回答用户这次提出的问题，同时不替用户完成原选择。不得把已经明确选择候选或补充某项信息的回复误判为 pending_assistance；也不得把“有几个/有哪些/什么意思/为什么”等针对追问文本的问句误判为 pending_answer、continuation 或 new_task。
+3. new_task：与追问无关的完整新任务，包括同时提出多个独立目标；只有置信度至少 0.85 且明确独立时才能使用。unclear：无法可靠判断，或无法高置信地区分新任务与追问回答。二者都必须 resolved_input=""、selections=[]、assistant_reply=""。不确定时必须使用 unclear；应用会保留原任务并要求用户明确说明，绝不合并或静默丢弃旧任务。
 4. resolved_input 只能合并 pending.base_task、current_input、显式 quote_text 和已记录 supplements 中用户已经表达的信息；不得加入风格、画质、镜头、构图、对象、约束或操作类型等未表达内容，不得出现“本轮补充”“原始任务”“追问来源”等内部事务措辞。若本轮只是回答 ambiguous 资源选择，应用会以 pending.base_task 作为执行语义权威，resolved_input 无权覆盖它。
-5. prior_task_contract 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。partial_answer 只返回本轮已经回答的 choices，不要求替用户补齐其他 ambiguous 槽。对 missing 槽不返回 selection，由后续路由器重新检查是否仍缺少信息。
+5. prior_task_contract 与 pending.unresolved_resources 只用于理解追问和校验显式选择，不能沿用其 operation 或把它改成 ready。pending.unresolved_resources 是 prior_task_contract 缺失时仍然有效的稳定候选快照。对 ambiguous 槽，只有用户明确选择时才从原 choices 原样返回 resource_key/choice_key；不得猜测，不得返回未知 key。partial_answer 只返回本轮已经回答的 choices，不要求替用户补齐其他 ambiguous 槽。对 missing 槽不返回 selection，由后续路由器重新检查是否仍缺少信息。
 6. 如果用户新增、替换或同时上传多个附件，只描述用户明确表达的任务，不判断附件角色，也不把附件数量解释成选择。附件是否满足任务由后续完整路由器决定。
 7. 编号、中文序数、候选标签、文件名、左右位置及自然描述都可能是有效选择表达；必须结合 choices 判断，不得只识别固定格式。例如组合追问要求“选猫图并说明姿势”时，current_input="2"、"第二张"、"右边那只猫"或"选候选图二"若都明确指向 c2，均返回 partial_answer、对应 selection，并以 pending.base_task 作为 resolved_input；current_input="第二张，让它趴着"若同时补齐两项，则返回 pending_answer、对应 selection，并把“趴着”合入 resolved_input。
-8. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
+8. 强制对照：pending.question="请选择狸花色、橘色、白色、黑色、三花色、玳瑁色、灰色或奶牛色"，current_input="有几个颜色"，且 quote_text 引用了该追问时，relation 必须是 pending_assistance，assistant_reply 应直接回答“共有 8 种颜色”，不能返回 pending_answer，不能把“有几个颜色”合并为图片编辑指令，也不能再次要求用户选颜色。
+9. 输出字段必须完整且不得增删。reason 只写一行分类依据。`;
   const CONTINUATION_SINGLE_IMAGE_GUIDANCE = `图片 target 的 ambiguous 槽一次只能选择一个 choice。用户回答“全部”“都要”或同时指定多个编号时，不得返回 selection，也不得合并执行；返回 pending_assistance，assistant_reply 明确说明一次只能选择一张图片并请用户回复一个编号。
 
 资源选择与执行指令必须正交：编号、顺序、候选标签、文件名以及“左边/右边那张”等仅用于回答候选选择问题时，只能体现在 selections 中，绝不能继续出现在 resolved_input 里，否则图片模型可能把它误解为图片内部区域。但这类定位词之外的原始语义绝不能丢失：必须保留 pending.base_task 和 current_input 中用户已经表达的对象、部位、属性、动作、数值、颜色及约束；“猫”“猫的颜色”是编辑对象/属性，不是候选定位词，不能改写成泛化的“当前图片”。如果用户只是回答候选编号，resolved_input 应以原始任务为主。例如 pending.base_task="把猫的颜色换成红色"、current_input="第二张图" 且选择第二个 choice 时，必须输出 resolved_input="把猫的颜色换成红色"；如果 current_input="第二张图改成红色"，也必须输出 resolved_input="把猫的颜色换成红色"，不能输出“把当前图片换成红色”或“把第二张图改成红色”。`;
@@ -76,9 +78,21 @@
     return null;
   }
 
+  function routeClarificationSlots(routeInfo = null) {
+    if (!routeInfo || typeof routeInfo !== 'object' || Array.isArray(routeInfo)) return [];
+    const direct = routeInfo.clarificationSlots;
+    if (Array.isArray(direct) && direct.length) return direct;
+    const contractSlots = routeInfo.taskContract?.clarification?.unresolved_resources;
+    return Array.isArray(contractSlots) ? contractSlots : [];
+  }
+
+  function pendingUnresolvedResources(value = null) {
+    const pending = normalizePendingClarification(value);
+    return routeClarificationSlots(pending?.routeInfo);
+  }
+
   function compactRouteInfo(routeInfo = null) {
     if (!routeInfo || typeof routeInfo !== 'object' || Array.isArray(routeInfo)) return null;
-    const contractSlots = routeInfo.taskContract?.clarification?.unresolved_resources;
     return {
       mode: String(routeInfo.mode || ''),
       api: String(routeInfo.api || ''),
@@ -87,9 +101,7 @@
       readiness: String(routeInfo.readiness || ''),
       needClarification: routeInfo.needClarification === true,
       clarificationQuestion: String(routeInfo.clarificationQuestion || ''),
-      clarificationSlots: Array.isArray(routeInfo.clarificationSlots)
-        ? routeInfo.clarificationSlots
-        : Array.isArray(contractSlots) ? contractSlots : [],
+      clarificationSlots: routeClarificationSlots(routeInfo),
       taskContract: routeInfo.taskContract && typeof routeInfo.taskContract === 'object'
         ? routeInfo.taskContract
         : null,
@@ -102,7 +114,6 @@
     const pending = normalizePendingClarification(value);
     if (!pending) return null;
     const routeInfo = pending.routeInfo || {};
-    const contractSlots = routeInfo.taskContract?.clarification?.unresolved_resources;
     return {
       ...routeInfo,
       needClarification: true,
@@ -110,9 +121,7 @@
         || routeInfo.clarificationQuestion
         || routeInfo.taskContract?.clarification?.question
         || '',
-      clarificationSlots: Array.isArray(routeInfo.clarificationSlots) && routeInfo.clarificationSlots.length
-        ? routeInfo.clarificationSlots
-        : Array.isArray(contractSlots) ? contractSlots : [],
+      clarificationSlots: routeClarificationSlots(routeInfo),
     };
   }
 
@@ -168,7 +177,7 @@
     for (const resource of Array.isArray(taskContract?.resources) ? taskContract.resources : []) {
       if (resource?.type === 'file' && ['history', 'context'].includes(String(resource.source || '')) && resource.id) ids.add(String(resource.id));
     }
-    for (const slot of Array.isArray(taskContract?.clarification?.unresolved_resources) ? taskContract.clarification.unresolved_resources : []) {
+    for (const slot of routeClarificationSlots(routeInfo)) {
       if (slot?.type !== 'file') continue;
       for (const choice of Array.isArray(slot.choices) ? slot.choices : []) {
         if (['history', 'context'].includes(String(choice?.source || '')) && choice.id) ids.add(String(choice.id));
@@ -191,6 +200,15 @@
     return normalizePendingAttachmentContexts([...currentContexts, ...historicalContexts]);
   }
 
+  let clarificationIdSequence = 0;
+
+  function createClarificationId() {
+    const randomUuid = root?.crypto?.randomUUID?.();
+    if (randomUuid) return `clarify-${randomUuid}`;
+    clarificationIdSequence = (clarificationIdSequence + 1) % 0x100000;
+    return `clarify-${Date.now().toString(36)}-${clarificationIdSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   function normalizePendingClarification(value = null) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const originalText = String(value.originalText ?? value.original_text ?? value.baseTask ?? value.base_task ?? '').trim();
@@ -198,7 +216,10 @@
     if (!originalText && !routeInfo?.taskContract) return null;
     const sourceAttachmentContext = value.sourceAttachmentContext || value.source_attachment_context || null;
     return {
-      id: String(value.id || `clarify-${Date.now().toString(36)}`),
+      // Normalization is intentionally identity-neutral. New pending records get
+      // an id at creation, while imported legacy records are assigned one once by
+      // migratePendingClarification and immediately persisted by the caller.
+      id: String(value.id || ''),
       originalText,
       baseTaskText: String(value.baseTaskText || value.base_task_text || originalText).trim(),
       clarificationText: String(value.clarificationText || value.clarification_text || '').trim(),
@@ -219,6 +240,12 @@
     };
   }
 
+  function migratePendingClarification(value = null) {
+    const normalized = normalizePendingClarification(value);
+    if (!normalized || normalized.id) return normalized;
+    return { ...normalized, id: createClarificationId() };
+  }
+
   function createPendingClarification({
     messages = [],
     clarificationText = '',
@@ -230,6 +257,7 @@
     const latestUser = latestUserMessage(messages);
     const attachmentContext = sourceAttachmentContext || latestUser?.message?.attachmentContext || latestUser?.message?.attachment_context || null;
     return normalizePendingClarification({
+      id: createClarificationId(),
       originalText: latestUser?.text || '',
       baseTaskText: latestUser?.text || '',
       clarificationText,
@@ -268,6 +296,7 @@
     recentMessages = [],
   } = {}) {
     const normalized = normalizePendingClarification(pending);
+    const unresolvedResources = pendingUnresolvedResources(normalized);
     return {
       model,
       temperature: 0,
@@ -280,6 +309,7 @@
             base_task: normalized.originalText,
             question: normalized.clarificationText,
             prior_task_contract: normalized.routeInfo?.taskContract || null,
+            unresolved_resources: unresolvedResources,
             has_source_image: !!normalized.sourceImageContext,
             has_source_attachment: !!normalized.sourceAttachmentContext,
             has_source_quote: !!normalized.sourceQuoteContext,
@@ -320,7 +350,7 @@
   function selectionsMatchPending(pending, selections = [], { allowPartial = false } = {}) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return selections.length === 0;
-    const unresolved = normalized.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    const unresolved = pendingUnresolvedResources(normalized);
     if (!Array.isArray(unresolved) || !unresolved.length) return selections.length === 0;
     const ambiguous = unresolved.filter(slot => slot?.reason === 'ambiguous');
     if (allowPartial) {
@@ -339,7 +369,7 @@
   function isPureResourceSelectionAnswer(pending, relation = '', selections = []) {
     if (relation !== 'pending_answer') return false;
     const normalized = normalizePendingClarification(pending);
-    const unresolved = normalized?.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    const unresolved = pendingUnresolvedResources(normalized);
     return !!normalized?.originalText
       && Array.isArray(unresolved)
       && unresolved.length > 0
@@ -370,8 +400,11 @@
       const merging = MERGE_RELATIONS.has(relation);
       const partialAnswer = relation === 'partial_answer';
       const assistance = relation === 'pending_assistance';
-      if (merging && (raw.confidence < 0.85 || !resolvedInput || assistantReply)) return null;
+      const newTask = relation === 'new_task';
+      const unclear = relation === 'unclear';
+      if (merging && (raw.confidence < CONTINUATION_CONFIDENCE_THRESHOLD || !resolvedInput || assistantReply)) return null;
       if (assistance && (resolvedInput || raw.selections.length || !assistantReply)) return null;
+      if (newTask && raw.confidence < CONTINUATION_CONFIDENCE_THRESHOLD) return null;
       if (!merging && !assistance && (resolvedInput || raw.selections.length || assistantReply)) return null;
       if (merging && options.pending && !selectionsMatchPending(options.pending, raw.selections, { allowPartial: partialAnswer })) return null;
 
@@ -384,7 +417,7 @@
         resolvedInput: canonicalResolvedInput,
         selections: raw.selections.map(item => Object.freeze({ resource_key: item.resource_key, choice_key: item.choice_key })),
         shouldMerge: merging,
-        shouldClearPending: !assistance,
+        shouldClearPending: !assistance && !unclear,
         assistantReply,
         reason: raw.reason.trim(),
       });
@@ -503,7 +536,7 @@
   }
 
   function selectedChoiceDetails(pending, selections = []) {
-    const unresolved = pending?.routeInfo?.taskContract?.clarification?.unresolved_resources;
+    const unresolved = pendingUnresolvedResources(pending);
     if (!Array.isArray(unresolved)) return [];
     return selections.map(selection => {
       const slot = unresolved.find(item => item?.key === selection.resource_key);
@@ -568,12 +601,13 @@
     return context;
   }
 
-  function priorResourceSources(taskContract = null) {
-    if (!taskContract || typeof taskContract !== 'object') return [];
-    const bound = Array.isArray(taskContract.resources) ? taskContract.resources : [];
-    const unresolved = Array.isArray(taskContract.clarification?.unresolved_resources)
-      ? taskContract.clarification.unresolved_resources
-      : [];
+  function priorResourceSources(taskContract = null, fallbackUnresolved = []) {
+    const contract = taskContract && typeof taskContract === 'object' ? taskContract : null;
+    const bound = Array.isArray(contract?.resources) ? contract.resources : [];
+    const contractUnresolved = contract?.clarification?.unresolved_resources;
+    const unresolved = Array.isArray(contractUnresolved) && contractUnresolved.length
+      ? contractUnresolved
+      : Array.isArray(fallbackUnresolved) ? fallbackUnresolved : [];
     return [
       ...bound.map(resource => ({
         resource_key: String(resource?.key || ''), type: String(resource?.type || ''), role: String(resource?.role || ''),
@@ -599,7 +633,8 @@
   } = {}) {
     const normalized = normalizePendingClarification(pending);
     const resolved = String(resolvedInput || '').trim();
-    if (!normalized || !resolved || !selectionsMatchPending(normalized, selections)) return null;
+    const partialAnswer = String(continuationRelation || '') === 'partial_answer';
+    if (!normalized || !resolved || !selectionsMatchPending(normalized, selections, { allowPartial: partialAnswer })) return null;
     const context = mergeQuotedMessageContext(baseContext && typeof baseContext === 'object' ? baseContext : {}, quotedContext);
     const quotedMedia = [
       ...(Array.isArray(context.image_candidates) ? context.image_candidates.filter(item => item?.source === 'quoted') : []),
@@ -610,6 +645,7 @@
       base_task: normalized.originalText,
       clarification_question: normalized.clarificationText,
       prior_task_contract: normalized.routeInfo?.taskContract || null,
+      unresolved_resources: pendingUnresolvedResources(normalized),
       current_answer: String(currentInput || '').trim(),
       resolved_input: resolved,
       continuation_relation: String(continuationRelation || ''),
@@ -624,7 +660,7 @@
           reference_id: String(item?.reference_id || ''),
           name: String(item?.filename || item?.name || ''),
         })),
-        prior_sources: priorResourceSources(normalized.routeInfo?.taskContract),
+        prior_sources: priorResourceSources(normalized.routeInfo?.taskContract, pendingUnresolvedResources(normalized)),
       },
       source_policy: 'Only this turn attachments are current. Earlier pending resources remain history/context; explicit UI quote resources are quoted. Re-run the complete router before execution.',
     };
@@ -633,6 +669,7 @@
 
   const api = Object.freeze({
     CONTINUATION_SCHEMA_VERSION,
+    CONTINUATION_CONFIDENCE_THRESHOLD,
     CLARIFICATION_CONTEXT_VERSION,
     CLARIFICATION_REPLAY_VERSION,
     CONTINUATION_SYSTEM_PROMPT,
@@ -640,7 +677,9 @@
     buildContinuationClassifierPayload,
     buildContinuationRepairPayload,
     parseContinuationClassifierResult,
+    createClarificationId,
     normalizePendingClarification,
+    migratePendingClarification,
     collectPendingAttachmentContexts,
     pendingAttachmentContexts,
     createPendingClarification,

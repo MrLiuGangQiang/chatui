@@ -640,15 +640,15 @@ function testPendingClarificationClearsAfterMergedSend() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(!submit.includes('findPendingFromHistory?.(targetSession.messages||state.messages||[])'), 'pending clarification must be an explicit one-shot state, not inferred repeatedly from history');
-  assert.ok(submit.includes('const storedPending=clarification.normalizePendingClarification?.(targetSession.pendingClarification)||null'), 'pending clarification should only come from explicit session state');
+  assert.ok(submit.includes('const rawStoredPending=targetSession.pendingClarification;') && submit.includes('(clarification.migratePendingClarification||clarification.normalizePendingClarification)?.(rawStoredPending)'), 'pending clarification should only come from explicit session state and legacy identity migration');
   assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'a classifier failure must keep pending clarification instead of silently starting a new task');
-  assert.ok(submit.includes('pendingMerge?.merged&&clearStoredPendingClarification()'), 'a merged clarification should be consumed only after durable handoff');
+  assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'), 'a merged clarification should be consumed only after durable handoff');
   assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a merged answer must create an explicit clarification route context');
   assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a merged answer must be fully rerouted with its restored source attachments');
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments'), 'submit workflow cache version should include pending source attachments');
-  assert.ok(index.includes('clarification-service.js?v=1.5.0-pending-source-attachments'), 'clarification service cache version should include pending source attachments');
+  assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction'), 'submit workflow cache version should include pending source attachments');
+  assert.ok(index.includes('clarification-service.js?v=1.5.3-stable-pending-id'), 'clarification service cache version should include pending source attachments');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -1708,7 +1708,7 @@ function testHistoryAnchorLastQuestionSpacerClearsOnSubmit() {
   assert.ok(featureSource.includes('if (pinLastQuestionToTop) ensureJumpScrollSpace(node, 18)') && featureSource.includes('if (!pinLastQuestionToTop) clearJumpScrollSpace()'), 'older directory jumps should not leave artificial tail space behind');
   assert.ok(featureSource.includes("markManualScroll?.({ type: 'history-anchor-nav', tailSpacer: pinLastQuestionToTop })"), 'history anchor should expose whether the jump used a tail spacer for debugging/state logic');
   assert.ok(submit.includes("getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true })"), 'submitting a new message should clear directory jump spacer and cancel delayed corrections before dynamic rendering');
-  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
+  assert.ok(index.includes('history-anchor-nav.js?v=1.0.18') && index.includes('submit-workflow.js?v=1.5.2-pending-transaction') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'history spacer submit fix should retain current browser cache versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match the directory spacer fix cache-busting');
 }
 
@@ -2611,7 +2611,7 @@ function testPendingSubmitHandsOffAtomicallyToDurableJob() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   assert.ok(!submit.includes('saveChatJob(sessionId,{id:preparedChatJobId'), 'route preflight must not create a payload-less job that can outrank pending-submit recovery');
   assert.ok(!submit.includes('clearPendingSubmit(sessionId);const replacementResponseIndex='), 'route ownership must not be cleared before a successor task is durable');
-  assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;pendingMerge?.merged&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
+  assert.ok(submit.includes('completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;pendingTransition.consumeOnHandoff&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)}'));
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind)'));
   assert.ok(chat.includes('await persistChatJobSnapshot') && chat.includes('n.onDurableHandoff?.()'), 'chat must acknowledge handoff only after its payload snapshot commits');
   assert.ok(chat.includes('let f=n.clientJobId||u?.jobId||makeClientChatJobId()'), 'chat should reuse the route-assigned id and allocate a stable fallback only when absent');
@@ -2668,7 +2668,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('regenerate-workflow.js?v=1.2.1-pending-replay') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
+  assert.ok(index.includes('regenerate-workflow.js?v=1.2.2-stable-pending-id') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'), 'cache versions should deliver the canonical regenerate workflow');
 }
 
 function testReasoningPreferenceIsSessionScoped() {
@@ -2951,7 +2951,7 @@ function testForceImageButtonOnUserMessages() {
   assert.ok(regenerate.includes('prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后")'), 'force-image action should remove/replace the old assistant response like regenerate');
   assert.ok(regenerate.includes('routeUtils.createExplicitTextToImageRoute?.(replayPrompt)') && regenerate.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)') && regenerate.includes('await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract'), 'force-image action should send the durable resolved task through a validated v5 contract and canonical resource projection');
   assert.ok(index.includes('force-image-wand') && index.includes('force-image-sparkle') && index.includes('force-image-frame'), 'force-image button should use the refined wand/image icon instead of the old heavy image-box icon');
-  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('regenerate-workflow.js?v=1.2.1-pending-replay') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('assets/chatui.bundle.css?v=1.3.163-changelog-cards') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
+  assert.ok(index.includes('message-workflow.js?v=1.3.41-stream-settle-binding') && index.includes('regenerate-workflow.js?v=1.2.2-stable-pending-id') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('assets/chatui.bundle.css?v=1.3.163-changelog-cards') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'force-image UI and action changes should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match force-image cache-busting');
 }
 
@@ -3059,7 +3059,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!flatCss.includes('.manual-intent-card') && !flatCss.includes('.manual-intent-actions'), 'manual intent chooser CSS should be removed');
   const imageWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(imageWorkflow.includes('clearReasoning?.(d)') && imageWorkflow.includes('delete c.reasoningText'), 'image generation should clear route/chat reasoning panel when it starts');
-  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.6.0-role-binding-integrity'), 'image reasoning cleanup should be wired and cache-busted');
+  assert.ok(app.includes('clearReasoning,setImageContext') && index.includes('image-workflow.js?v=1.6.1-precise-role-prompt'), 'image reasoning cleanup should be wired and cache-busted');
   const sessionPanelWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/session-panel-workflow.js'), 'utf8');
   assert.ok(/window\.setTimeout\.call\(window,\s*\(\)\s*=>\s*\w+\.focus\(\),\s*\w+\s*\|\|\s*60\)/.test(sessionPanelWorkflow), 'session panel should bind native setTimeout to window to avoid Illegal invocation');
 
@@ -3077,7 +3077,7 @@ function testRouteTimeoutShowsSlowNoticeThenFailsCleanly() {
   assert.ok(!submitWorkflow.includes('state.reasoningMode&&assistantNode&&updateReasoning?.(assistantNode,"",{keepEmpty:!0,followActive:!0})'), 'submit should not show reasoning panel before route recognition returns');
   const chatWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(chatWorkflow.includes('clearReplacementOnAccepted') && chatWorkflow.includes('reasoningEnabled?(updateMessageContentLight') && chatWorkflow.includes('updateReasoning(g,"",{keepEmpty:!0})'), 'reasoning waiting panel should only appear after the chat request is accepted');
-  assert.ok(index.includes('intent-contract.js?v=3.4.4-single-edit-target') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler') && index.includes('route-service.js?v=3.6.1-current-media-binding') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
+  assert.ok(index.includes('intent-contract.js?v=3.4.5-edit-target-references') && index.includes('execution-resources.js?v=1.0.0-contract-projection') && index.includes('submit-workflow.js?v=1.5.2-pending-transaction') && index.includes('chat-workflow.js?v=1.5.0-native-file-inputs') && index.includes('route-decision-workflow.js?v=3.4.1-current-turn-identity') && index.includes('route-service.js?v=3.6.6-target-reference-clarification') && index.includes('app.js?v=2.2.0-native-file-inputs') && index.includes('flat-theme.css?v=2.2.3-code-action-motion'), 'cache versions should deliver the intent boundary and execution-resource semantics');
 }
 
 function testImageSuccessResultReconciliation() {
@@ -3128,7 +3128,7 @@ function testImageSuccessResultReconciliation() {
   assert.ok(app.includes('if(s&&hasSuccessfulImageResult(e,s,'), 'late showRunError should ignore errors after the same image result succeeded');
   assert.strictEqual((app.match(/reconcileSuccessfulImageResult(?=[,}])/g) || []).length, 2, 'app should inject reconciliation once into each image workflow without duplicate dependency entries');
   assert.ok(index.includes('image-result-reconciliation.js?v=1.0.0') && index.indexOf('image-result-reconciliation.js?v=1.0.0') < index.indexOf('app.js?v=2.2.0-native-file-inputs'), 'reconciliation module should load before app.js');
-  assert.ok(index.includes('image-workflow.js?v=1.6.0-role-binding-integrity') && index.includes('job-resume-workflow.js?v=1.3.0-execution-resources') && index.includes('app.js?v=2.2.0-native-file-inputs'), 'image success reconciliation should bump workflow and app cache versions');
+  assert.ok(index.includes('image-workflow.js?v=1.6.1-precise-role-prompt') && index.includes('job-resume-workflow.js?v=1.3.0-execution-resources') && index.includes('app.js?v=2.2.0-native-file-inputs'), 'image success reconciliation should bump workflow and app cache versions');
 }
 
 function testSessionPersistenceCompactsDuplicateRestoredMessagesByStableIndex() {

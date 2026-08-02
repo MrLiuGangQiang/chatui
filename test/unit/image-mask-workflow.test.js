@@ -280,8 +280,30 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   assert.ok(source.includes('随附图片角色（按上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
   assert.ok(source.includes('u.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
   assert.ok(source.includes('buildImageRoleMap(canonicalExecution.imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
+  assert.ok(source.includes('buildImageRoleGuide(canonicalExecution.imageInputs, t.taskContract)'), 'the final image prompt must derive precise target/reference rules from the validated task contract');
   assert.ok(source.includes('F.length !== f.length'), 'a partially restored multi-image request must fail before handoff');
   assert.ok(source.includes('canonicalExecution.operation === "edit_image" ? ""'), 'global image style must be disabled for preserve-oriented edits');
+}
+
+function testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous() {
+  const inputs = [
+    { routeRole: 'target', routeResourceKey: 'r1', routeId: 'composite-cat', routeReferenceId: 'composite-ref' },
+    { routeRole: 'reference', routeResourceKey: 'r2', routeId: 'selected-cat', routeReferenceId: 'selected-cat-ref' },
+  ];
+  const taskContract = {
+    operation: 'edit_image',
+    directive: { unmentioned_policy: 'preserve' },
+  };
+  const guide = imageWorkflow.buildImageRoleGuide(inputs, taskContract);
+  const finalPrompt = ['不是这只猫，替换成你生成的猫', guide].join('\n\n');
+
+  assert.match(finalPrompt, /图片1：作为编辑目标图（唯一需要修改的底图）/);
+  assert.match(finalPrompt, /图片2：作为内容参考（用户已确认的替换或新增内容来源，不是编辑目标）/);
+  assert.match(finalPrompt, /所有修改只作用于图片1/);
+  assert.match(finalPrompt, /不要把参考图的背景、构图或无关元素带入目标图/);
+  assert.match(finalPrompt, /除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格/);
+  assert.match(finalPrompt, /不要输出拼图、对比图或并排候选/);
+  assert.doesNotMatch(finalPrompt, /第2张|候选2|选择2/, 'candidate locator text must never leak into the image-model prompt');
 }
 
 function testResumedImageResultPersistsReturnedImageInsteadOfJobInput() {
@@ -363,6 +385,7 @@ module.exports = [
   testImageJobServiceForwardsMasksInManagedRequest,
   testRootImageJobAdapterForwardsMasksInBothPaths,
   testReferenceRolesReachTheImageRequestBoundary,
+  testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous,
   testResumedImageResultPersistsReturnedImageInsteadOfJobInput,
   testImageResumeRestoresMasksIntoTheirDedicatedSlot,
 ];

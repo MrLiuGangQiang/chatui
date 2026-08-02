@@ -495,8 +495,8 @@
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.66-multi-reference"></script>
   <script src="./client/core/image-route-context.js?v=2.2.2-clarification-preview-filter&native-file-routing=1"></script>
-  <script src="./client/core/intent-contract.js?v=3.4.4-single-edit-target&native-file-routing=1"></script>
-  <script src="./client/core/attachments.js?v=1.3.0-execution-resources&native-file-routing=1"></script>
+  <script src="./client/core/intent-contract.js?v=3.4.5-edit-target-references&native-file-routing=1"></script>
+  <script src="./client/core/attachments.js?v=1.3.1-image-result-descriptors&native-file-routing=1"></script>
   <script src="./client/core/preflight-guards.js?v=2.0.0-preinsert-guard"></script>
   <script src="./shared/config/context-budget.js?v=1.1.0-required-boundary"></script>
   <script src="./shared/file-names.js?v=1.0.1"></script>
@@ -515,11 +515,11 @@
   <script src="./client/services/job-service.js?v=1.3.0-image-mask-resources"></script>
   <script src="./client/services/chat-service.js?v=1.3.1-base64-file-data"></script>
   <script src="./client/services/prompt-composer-service.js?v=2.2.0-full-input"></script>
-  <script src="./client/services/route-service.js?v=3.6.1-current-media-binding&native-file-routing=1"></script>
+  <script src="./client/services/route-service.js?v=3.6.6-target-reference-clarification&native-file-routing=1"></script>
   <script src="./client/services/image-generation-service.js?v=1.4.0-image-mask-resources"></script>
   <script src="./client/services/image-service.js?v=1.8.0-role-preservation"></script>
   <script src="./client/services/runtime-service.js?v=1.1.1-semver-label"></script>
-  <script src="./client/services/clarification-service.js?v=1.5.0-pending-source-attachments&completed-replay=1"></script>
+  <script src="./client/services/clarification-service.js?v=1.5.3-stable-pending-id&completed-replay=1"></script>
   <script src="./client/services/composition.js?v=1.5.0-file-inputs"></script>
   <script src="./client/services/usage-stats.js?v=1.2.79-feedback-reason"></script>
   <script src="./client/ui/usage-stats-format.js?v=1.0.0"></script>
@@ -533,17 +533,17 @@
   <script src="./client/app/session-config.js?v=1.2.66-session-route-model"></script>
   <script src="./client/app/formatting.js?v=1.2.69-execution-map"></script>
   <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
-  <script src="./client/app/display-items.js?v=1.2.70-message-projection"></script>
+  <script src="./client/app/display-items.js?v=1.2.71-canonical-insertion-order"></script>
   <script src="./client/app/persistence.js?v=1.2.66-task-lifecycle-state-machine"></script>
   <script src="./client/app/runs.js?v=1.2.66-session-run-owner"></script>
   <script src="./client/app/task-lifecycle.js?v=1.2.5-interface-completion-projection"></script>
   <script src="./client/app/model-ui.js?v=1.2.65"></script>
   <script src="./client/app/attachments-workflow.js?v=1.3.1-base64-file-data"></script>
-  <script src="./client/app/image-context-workflow.js?v=1.9.1-base64-file-data"></script>
+  <script src="./client/app/image-context-workflow.js?v=1.9.2-image-result-descriptors"></script>
   <script src="./client/app/session-persistence.js?v=1.4.4-newest-image-result"></script>
   <script src="./client/app/message-records.js?v=2.0.1-message-order"></script>
   <script src="./client/app/session-store.js?v=2.0.3-import-reset-tombstone"></script>
-  <script src="./client/app/session-display.js?v=2.1.10-resilient-snapshot-fallback"></script>
+  <script src="./client/app/session-display.js?v=2.1.11-immediate-refresh-fallback"></script>
   <script src="./client/app/backup-workflow.js?v=1.5.3-import-media-preserved"></script>
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
@@ -565,15 +565,15 @@
   <script src="./client/app/image-result-workflow.js?v=1.7.1-image-semantics"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.3.0-execution-resources"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.3.0-pending-source-attachments"></script>
-  <script src="./client/app/submit-workflow.js?v=1.5.0-pending-source-attachments&completed-replay=1"></script>
+  <script src="./client/app/submit-workflow.js?v=1.5.2-pending-transaction&completed-replay=1"></script>
   <script src="./client/app/chat-workflow.js?v=1.5.0-native-file-inputs&native-file-routing=1"></script>
-  <script src="./client/app/image-workflow.js?v=1.6.0-role-binding-integrity&completed-replay=1"></script>
-  <script src="./client/app/regenerate-workflow.js?v=1.2.1-pending-replay&completed-replay=1"></script>
+  <script src="./client/app/image-workflow.js?v=1.6.1-precise-role-prompt&completed-replay=1"></script>
+  <script src="./client/app/regenerate-workflow.js?v=1.2.2-stable-pending-id&completed-replay=1"></script>
   <script src="./client/app/message-workflow.js?v=1.3.41-stream-settle-binding"></script>
   <script src="./client/app/display-history-workflow.js?v=2.0.5-pending-session-continuity"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.33"></script>
-  <script src="./client/app/route-decision-workflow.js?v=3.4.0-decision-compiler"></script>
+  <script src="./client/app/route-decision-workflow.js?v=3.4.1-current-turn-identity"></script>
   <script src="./client/app/reasoning-workflow.js?v=1.3.35-reasoning-persistence"></script>
   <script src="./client/ui/file-actions.js?v=1.2.67"></script>
   <script src="./client/ui/realtime-renderer.js?v=1.2.65"></script>

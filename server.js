@@ -9,7 +9,7 @@ loadLocalEnv({ root: __dirname });
 const { HOST, PORT } = require('./server/config');
 const { createApp } = require('./server/app');
 
-const { server } = createApp();
+const { server, requestTrace } = createApp();
 
 // HTTP server tuning: prevent socket exhaustion under high traffic
 server.keepAliveTimeout = 65000;
@@ -75,6 +75,11 @@ server.listen(PORT, HOST, () => {
   console.log(`LAN access: http://<this-machine-ip>:${PORT}`);
   console.log(`Listening on: ${HOST}:${PORT}`);
   console.log(`PID: ${process.pid}`);
+  if (requestTrace?.enabled) {
+    const tracePath = path.relative(__dirname, requestTrace.filePath) || requestTrace.filePath;
+    console.log(`[request-trace] writing redacted NDJSON to ${tracePath}`);
+    requestTrace.record({ event: 'server.started', pid: process.pid, host: HOST, port: PORT });
+  }
 });
 
 process.on('SIGINT', shutdown);

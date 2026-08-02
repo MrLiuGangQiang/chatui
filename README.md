@@ -52,11 +52,11 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 自动判断当前输入应走：
   - `chat`：普通聊天。
   - `image`：文本生成图片。
-  - `edit_image`：图片编辑。
+  - `edit_image`：编辑一个明确目标图，可同时使用内容参考图、风格参考图和 mask。
 - 可配置独立路由模型；未配置时使用聊天模型。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
 - 非图片附件上传时直接走聊天，通过 Responses API 的 Base64 原生文件输入发送，不进入图片路由。
-- 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据。
+- 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据；目标图与内容/风格参考图使用稳定角色绑定，不依赖候选顺序猜测。
 
 ### 图片能力
 
@@ -900,6 +900,11 @@ GET, POST
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |
+| `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；默认关闭。 |
+| `CHATUI_REQUEST_TRACE_FILE` | `temp/request-trace.ndjson` | 请求追踪文件路径；相对路径以仓库根目录解析。默认目录已被 Git 忽略。 |
+| `CHATUI_REQUEST_TRACE_MAX_BYTES` | `20971520` | 单个请求追踪文件的轮转上限，默认 20 MiB。 |
+| `CHATUI_REQUEST_TRACE_ROTATIONS` | `3` | 保留的历史轮转文件数量。 |
+| `CHATUI_REQUEST_TRACE_TEXT` | `1` | 追踪启用后是否保留脱敏且限长的用户输入与模型输出。设为 `0` 时只记录长度和结构摘要。系统提示词和 reasoning 正文始终不落盘。 |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |

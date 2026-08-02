@@ -3,19 +3,57 @@
 
   function imageRoleLabel(role = "") {
     return role === "target"
-      ? "作为编辑目标图"
+      ? "作为编辑目标图（唯一需要修改的底图）"
       : role === "style_reference"
-        ? "仅作为风格参考"
-        : "作为内容参考";
+        ? "仅作为风格参考（不是内容来源或编辑目标）"
+        : "作为内容参考（用户已确认的替换或新增内容来源，不是编辑目标）";
   }
 
-  function buildImageRoleGuide(imageInputs = []) {
+  function imagePositionsWithRole(imageInputs = [], roles = []) {
+    const allowed = new Set(roles);
+    return imageInputs
+      .map((item, index) => allowed.has(String(item?.routeRole || "")) ? index + 1 : 0)
+      .filter(Boolean);
+  }
+
+  function imagePositionList(positions = []) {
+    return positions.map(position => `图片${position}`).join("、");
+  }
+
+  function buildImageRoleGuide(imageInputs = [], taskContract = null) {
     if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return "";
-    return [
+    const lines = [
       "随附图片角色（按上传顺序）：",
       ...imageInputs.map((item, index) => `- 图片${index + 1}：${imageRoleLabel(item?.routeRole)}`),
-      "请严格按上述角色使用各图片。",
-    ].join("\n");
+    ];
+    const operation = String(taskContract?.operation || "");
+    const directive = taskContract?.directive && typeof taskContract.directive === "object"
+      ? taskContract.directive
+      : {};
+    const targets = imagePositionsWithRole(imageInputs, ["target"]);
+    const references = imagePositionsWithRole(imageInputs, ["reference"]);
+    const styleReferences = imagePositionsWithRole(imageInputs, ["style_reference"]);
+    if (operation === "edit_image") {
+      if (targets.length === 1) lines.push(`- 编辑范围：所有修改只作用于${imagePositionList(targets)}。`);
+      if (references.length) {
+        lines.push(`- 内容来源：${imagePositionList(references)}只提供用户指令明确要求借鉴、替换或新增的主体与内容；除非用户明确要求，不要把参考图的背景、构图或无关元素带入目标图。`);
+      }
+      if (styleReferences.length) {
+        lines.push(`- 风格来源：${imagePositionList(styleReferences)}只提供视觉风格，不替换目标图中的主体身份或内容。`);
+      }
+      if (directive.unmentioned_policy === "preserve") {
+        lines.push("- 保留边界：除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格。 ");
+      }
+      if (references.length || styleReferences.length) {
+        lines.push("- 融合要求：让修改后的尺度、透视、光照、阴影和遮挡关系与目标图自然一致，不要输出拼图、对比图或并排候选。 ");
+      }
+    } else if (operation === "image_reference_gen") {
+      lines.push("- 输出类型：基于这些参考图生成一张新图片；所有输入图都不是直接编辑目标。 ");
+      if (references.length) lines.push(`- 内容参考：仅从${imagePositionList(references)}提取用户明确要求使用的主体和内容。`);
+      if (styleReferences.length) lines.push(`- 风格参考：仅从${imagePositionList(styleReferences)}提取视觉风格。`);
+    }
+    lines.push("请严格按上述角色使用各图片，不要根据候选编号重新猜测图片用途。");
+    return lines.map(line => line.trimEnd()).join("\n");
   }
 
   function buildImageRoleMap(imageInputs = []) {
@@ -179,7 +217,7 @@
             t.editInstruction || t.routePrompt || t.originalPrompt || P || "",
           ).trim(),
           E = executionPrompt || routeFallbackPrompt || P,
-          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs),
+          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs, t.taskContract),
           roleAwarePrompt = [E, referenceRoleGuide].filter(Boolean).join("\n\n"),
           stylePrompt = canonicalExecution.operation === "edit_image" ? "" : getEffectiveImageStylePrompt(n, s),
           g = buildImagePromptWithStylePrompt(roleAwarePrompt, stylePrompt),

@@ -73,23 +73,38 @@ function releaseChatJobFileData(job) {
   return parts.length;
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS }) {
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace }) {
 async function runChatJob(job) {
 job.serverStartAtMs = performance.now();
-const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+const traceSpan = requestTrace?.begin?.({
+  source: 'chat_job',
+  jobId: job.id,
   method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    ...(job.extraHeaders || {}),
-    ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
-  },
-  body: JSON.stringify(job.payload),
-  job,
-  upstreamTimeoutMs,
+  target: job.targetUrl,
+  targetPath: job.targetPath,
+  payload: job.payload,
+  headerNames: Object.keys(job.extraHeaders || {}),
+  secrets: [job.apiKey],
 });
-releaseChatJobFileData(job);
+let timer = null;
+let upstreamStatus = 0;
+let failure = null;
 try {
-  const upstream = await upstreamResponse;
+  const upstreamRequest = createUpstreamFetch(job.targetUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(job.extraHeaders || {}),
+      ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+    },
+    body: JSON.stringify(job.payload),
+    job,
+    upstreamTimeoutMs,
+  });
+  timer = upstreamRequest.timer;
+  releaseChatJobFileData(job);
+  const upstream = await upstreamRequest.response;
+  upstreamStatus = Number(upstream.status) || 0;
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
   const text = await upstream.text();
@@ -99,13 +114,19 @@ try {
   job.data = data;
   job.durationMs = elapsedSince(job.serverStartAtMs);
 } catch (err) {
+  failure = err;
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
   job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
-  clearTimeout(timer);
+  if (timer) clearTimeout(timer);
   delete job.controller;
   job.updatedAt = Date.now();
+  if (job.status === 'done') {
+    requestTrace?.complete?.(traceSpan, { status: upstreamStatus, response: job.data, durationMs: job.durationMs });
+  } else {
+    requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: failure || new Error(job.error) });
+  }
   notifyJob(job);
 }
 }
@@ -116,24 +137,40 @@ job.streamStarted = true;
 job.serverStartAt = Date.now();
 job.serverStartAtMs = performance.now();
 job.firstTokenMs = null;
-const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+const traceSpan = requestTrace?.begin?.({
+  source: 'chat_stream_job',
+  jobId: job.id,
   method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
-    ...(job.extraHeaders || {}),
-    ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
-  },
-  body: JSON.stringify({ ...job.payload, stream: true }),
-  job,
-  upstreamTimeoutMs,
+  target: job.targetUrl,
+  targetPath: job.targetPath,
+  payload: { ...job.payload, stream: true },
+  headerNames: Object.keys(job.extraHeaders || {}),
+  secrets: [job.apiKey],
 });
-releaseChatJobFileData(job);
+let timer = null;
+let upstreamStatus = 0;
+let contentType = '';
+let failure = null;
 try {
-  const upstream = await upstreamResponse;
+  const upstreamRequest = createUpstreamFetch(job.targetUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(job.extraHeaders || {}),
+      ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+    },
+    body: JSON.stringify({ ...job.payload, stream: true }),
+    job,
+    upstreamTimeoutMs,
+  });
+  timer = upstreamRequest.timer;
+  releaseChatJobFileData(job);
+  const upstream = await upstreamRequest.response;
+  upstreamStatus = Number(upstream.status) || 0;
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
-  const contentType = upstream.headers.get('content-type') || '';
+  contentType = upstream.headers.get('content-type') || '';
   if (!upstream.ok) {
     const text = await upstream.text();
     const data = safeParseJson(text);
@@ -161,13 +198,19 @@ try {
   job.durationMs = elapsedSince(job.serverStartAtMs);
   delete job.buffer;
 } catch (err) {
+  failure = err;
   const aborted = err?.name === 'AbortError';
   job.status = 'error';
   job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
-  clearTimeout(timer);
+  if (timer) clearTimeout(timer);
   delete job.controller;
   job.updatedAt = Date.now();
+  if (job.status === 'done') {
+    requestTrace?.complete?.(traceSpan, { status: upstreamStatus, response: job.data, contentType, durationMs: job.durationMs });
+  } else {
+    requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: failure || new Error(job.error), contentType });
+  }
   notifyChatStreamJob(job);
 }
 }

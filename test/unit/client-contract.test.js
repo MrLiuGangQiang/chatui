@@ -77,6 +77,8 @@ function testRoutePromptIsOneOrderedDecisionSpecification() {
   assert.ok(system.includes('“生成提示词”绝不是“生成图片”') && system.includes('属于 image_qa'), 'image-to-prompt requests must remain text-producing vision tasks');
   assert.ok(system.includes('image 允许 text_to_image/image_reference_gen') && system.includes('edit_image 允许 edit_image'), 'reference generation must remain allowed in the image product mode');
   assert.ok(system.includes('恰好 1 个 target') && system.includes('绝不能把“全部”解释为多个 target'), 'image editing must select exactly one target');
+  assert.ok(system.includes('prior_task_contract 为空') && system.includes('不得把降级槽视为执行授权'),
+    'degraded candidate snapshots must help rerouting without authorizing execution');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 450, 'the final check should remain a compact invariant list, not duplicate the routing rules');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('输出前自检'), 'the first route request must require a complete decision even when the intent is simple');
   assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('空数组也输出 []'), 'the first route request must explicitly retain empty decision fields');
@@ -161,6 +163,8 @@ function testRouteResultInspectionSeparatesShapeAndResourceFailures() {
   assert.strictEqual(declaredClarification.route.api, 'clarify');
   assert.strictEqual(declaredClarification.route.dispatchAuthorized, false);
   assert.strictEqual(declaredClarification.route.taskContract, null);
+  assert.deepStrictEqual(declaredClarification.route.clarificationSlots, [],
+    'uncompiled model-authored legacy choices must not be retained as trusted candidates');
   assert.strictEqual(declaredClarification.route.requiresRerouteAfterClarification, true);
   assert.strictEqual(declaredClarification.route.clarificationQuestion, 'Which fish image should be used?');
   const degradedPending = clarificationService.createPendingClarification({

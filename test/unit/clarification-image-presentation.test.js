@@ -10,6 +10,8 @@ const routeService = require('../../client/services/route-service');
 const presentation = require('../../client/features/clarification/presentation');
 const messageRecords = require('../../client/app/message-records');
 const persistence = require('../../client/app/persistence');
+const clarification = require('../../client/services/clarification-service');
+const submitWorkflow = require('../../client/app/submit-workflow');
 
 function ambiguousImageContract(choices) {
   return {
@@ -95,6 +97,61 @@ function testImageClarificationRendersNumberedDurableThumbnails() {
   assert.ok(rendered.html.indexOf('data-choice-key="c1"') < rendered.html.indexOf('data-choice-key="c2"'), 'reply 2 must keep mapping to the second structured choice');
 }
 
+function testPendingAssistanceReusesDegradedImageChoicesInsteadOfClaimingTheyWereShown() {
+  const messages = dogMessages();
+  const choices = routeChoices(messages);
+  const pending = clarification.createPendingClarification({
+    messages: [...messages, { role: 'user', content: '不是这只狗，替换成你生成的狗' }],
+    clarificationText: '请确认要替换成哪一张狗图。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      clarificationQuestion: '请确认要替换成哪一张狗图。',
+      clarificationSlots: [{ key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices }],
+      taskContract: null,
+      clarificationDegraded: true,
+      requiresRerouteAfterClarification: true,
+    },
+  });
+  const assistantReply = '可以，我会把两张候选图片展示给你，请回复要选择的那一张。';
+  const rendered = submitWorkflow.buildPendingAssistancePresentation({
+    pending,
+    assistantReply,
+    clarificationService: clarification,
+    presentationApi: presentation,
+    presentationOptions: { messages },
+  });
+  assert.strictEqual(rendered.rawText, assistantReply);
+  assert.strictEqual(rendered.hasImageChoices, true);
+  assert.strictEqual(rendered.displayContent, rendered.html);
+  assert.match(rendered.html, /data-clarification-image-choices="1"/);
+  assert.strictEqual((rendered.html.match(/class="clarification-choice-card"/g) || []).length, 2);
+  assert.strictEqual((rendered.html.match(/class="clarification-choice-image"/g) || []).length, 2);
+  assert.match(rendered.html, /data-persisted-src="indexeddb:\/\/dog-second"/);
+  assert.match(rendered.html, /data-persisted-src="indexeddb:\/\/dog-first"/);
+}
+
+function testPendingAssistanceWithoutImageChoicesRemainsPlainText() {
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '把猫改一种颜色' }],
+    clarificationText: '请选择一种颜色。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', needClarification: true,
+      clarificationQuestion: '请选择一种颜色。',
+      clarificationSlots: [{ key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] }],
+      taskContract: null,
+    },
+  });
+  const rendered = submitWorkflow.buildPendingAssistancePresentation({
+    pending,
+    assistantReply: '共有 8 种颜色。',
+    clarificationService: clarification,
+    presentationApi: presentation,
+  });
+  assert.strictEqual(rendered.hasImageChoices, false);
+  assert.strictEqual(rendered.html, '');
+  assert.strictEqual(rendered.displayContent, '共有 8 种颜色。');
+}
+
 function testClarificationPreviewsNeverBecomeNewImageCandidates() {
   const messages = dogMessages();
   const choices = routeChoices(messages);
@@ -171,6 +228,8 @@ function testMessageImagesDoNotInheritGenericFrames() {
 module.exports = [
   testImageClarificationQuestionDoesNotInlineCandidateMetadata,
   testImageClarificationRendersNumberedDurableThumbnails,
+  testPendingAssistanceReusesDegradedImageChoicesInsteadOfClaimingTheyWereShown,
+  testPendingAssistanceWithoutImageChoicesRemainsPlainText,
   testClarificationPreviewsNeverBecomeNewImageCandidates,
   testClarificationThumbnailHtmlSurvivesCanonicalPersistence,
   testRouteCandidateDisplayLabelIsShortAndDeduplicated,

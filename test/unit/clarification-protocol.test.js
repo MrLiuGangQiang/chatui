@@ -61,6 +61,26 @@ function continuationJson(overrides = {}) {
   });
 }
 
+function testPendingClarificationIdentityIsCreatedOnceAndMigratedExplicitly() {
+  const created = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '把猫改成黑色' }],
+    clarificationText: '请选择要修改的图片。',
+  });
+  assert.match(created.id, /^clarify-/);
+  assert.strictEqual(clarification.normalizePendingClarification(created).id, created.id, 'normalization must preserve an existing identity');
+
+  const legacy = {
+    originalText: '把猫改成黑色', clarificationText: '请选择要修改的图片。',
+    createdAt: 100, updatedAt: 100, rounds: 1,
+  };
+  const normalizedLegacy = clarification.normalizePendingClarification(legacy);
+  assert.strictEqual(normalizedLegacy.id, '', 'read-only normalization must not invent a different identity on every call');
+  const migrated = clarification.migratePendingClarification(legacy);
+  assert.match(migrated.id, /^clarify-/);
+  assert.strictEqual(clarification.normalizePendingClarification(migrated).id, migrated.id, 'the one-time migrated identity must remain stable');
+  assert.strictEqual(clarification.migratePendingClarification(migrated).id, migrated.id, 'migration must be idempotent after persistence');
+}
+
 function testContinuationV6UsesOneStrictNonExecutingSchema() {
   const pending = makePending();
   const payload = clarification.buildContinuationClassifierPayload({
@@ -78,6 +98,38 @@ function testContinuationV6UsesOneStrictNonExecutingSchema() {
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ schema_version: 'pending_continuation.unsupported' }), { pending }), null);
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ final_task_mode: 'image' }), { pending }), null, 'extra execution controls must invalidate the whole response');
   assert.strictEqual(clarification.parseContinuationClassifierResult(continuationJson({ confidence: 0.84 }), { pending }), null, 'low confidence must fail closed');
+}
+
+function testQuotedClarificationQuestionReturnsAssistanceInsteadOfMerging() {
+  const contract = ambiguousContract();
+  contract.operation = 'edit_image';
+  contract.clarification.question = '请明确选择一种颜色，例如狸花色、橘色、白色、黑色、三花色、玳瑁色、灰色或奶牛色。';
+  contract.clarification.unresolved_resources = [
+    { key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [] },
+  ];
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '把图片中的猫换一种颜色' }],
+    clarificationText: contract.clarification.question,
+    routeInfo: {
+      mode: 'edit_image', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      clarificationQuestion: contract.clarification.question, taskContract: contract,
+    },
+  });
+  const payload = clarification.buildContinuationClassifierPayload({
+    model: 'route-model', pending, currentInput: '有几个颜色', quoteText: contract.clarification.question,
+  });
+  assert.ok(payload.messages[0].content.includes('有几个/有哪些/什么意思/为什么'));
+  assert.ok(payload.messages[0].content.includes('共有 8 种颜色'));
+
+  const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_assistance', confidence: 0.99, resolved_input: '', selections: [],
+    assistant_reply: '共有 8 种颜色。', reason: '用户询问引用的澄清文本中列出了多少种颜色，并未选择颜色。',
+  }), { pending });
+  assert.ok(decision);
+  assert.strictEqual(decision.shouldMerge, false);
+  assert.strictEqual(decision.shouldClearPending, false);
+  assert.strictEqual(decision.assistantReply, '共有 8 种颜色。');
 }
 
 function testModelContinuationSupportsPartialClarificationAnswers() {
@@ -164,6 +216,46 @@ function testModelContinuationSupportsPartialClarificationAnswers() {
   assert.strictEqual(repairPayload.messages.at(-2).role, 'assistant');
   assert.match(repairPayload.messages.at(-1).content, /未通过 pending_continuation\.v6 严格校验/);
   assert.match(repairPayload.messages.at(-1).content, /partial_answer/);
+}
+
+function testPartialAnswerWithMultipleAmbiguousSlotsRetainsThePendingContext() {
+  const contract = ambiguousContract();
+  contract.clarification.question = '请选择鱼图和风格图。';
+  contract.clarification.unresolved_resources.push({
+    key: 'r3', type: 'image', role: 'style_reference', reason: 'ambiguous',
+    choices: [
+      { key: 'c1', source: 'history', index: 4, id: 'style-a', reference_id: 'style-a-ref', label: '暖色风格' },
+      { key: 'c2', source: 'history', index: 5, id: 'style-b', reference_id: 'style-b-ref', label: '冷色风格' },
+    ],
+  });
+  const pending = makePending(contract);
+  const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'partial_answer',
+    confidence: 0.99,
+    resolved_input: '把猫和彩色鱼合并成一张图',
+    selections: [{ resource_key: 'r2', choice_key: 'c2' }],
+    assistant_reply: '',
+    reason: 'the fish was selected but the style remains unresolved',
+  }), { pending });
+  assert.ok(decision);
+  const context = clarification.buildClarificationRouteContext({
+    baseContext: {
+      image_candidates: [
+        { index: 2, source: 'history', image_id: 'fish-a', reference_id: 'fish-a-ref' },
+        { index: 3, source: 'history', image_id: 'fish-b', reference_id: 'fish-b-ref' },
+      ],
+    },
+    pending,
+    currentInput: '选彩色鱼',
+    resolvedInput: decision.resolvedInput,
+    continuationRelation: decision.relation,
+    selections: decision.selections,
+  });
+  assert.ok(context, 'a partial answer must be accepted when more than one ambiguous slot exists');
+  assert.deepStrictEqual(context.clarification_context.selected_choices.map(choice => choice.resource_key), ['r2']);
+  assert.strictEqual(context.clarification_context.prior_task_contract.clarification.unresolved_resources.length, 2,
+    'the unresolved style slot must remain available to the complete router');
 }
 
 function testPendingClarificationSnapshotsRouteSelectedHistoricalAttachments() {
@@ -411,8 +503,21 @@ function testNewTaskMultiIntentAndAssistanceCannotDispatch() {
     assistant_reply: '可选手绘鱼或彩色鱼，请选择一种。', reason: 'asked for choices',
   }));
   assert.ok(assistance);
+  assert.strictEqual(clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'new_task', confidence: 0.84, resolved_input: '', selections: [],
+    assistant_reply: '', reason: 'not sufficiently certain',
+  })), null, 'a low-confidence new_task must not clear the pending task');
+  const unclear = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'unclear', confidence: 0, resolved_input: '', selections: [],
+    assistant_reply: '', reason: 'could be an answer or a new task',
+  }), { pending: makePending() });
+  assert.ok(unclear);
+  assert.strictEqual(unclear.shouldClearPending, false, 'unclear must preserve the pending task');
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.ok(!submit.includes('resolveClarificationRoute'));
+  assert.ok(submit.includes('pendingDecision?.relation==="unclear"'), 'the submit workflow must handle an unclear continuation without deleting pending state');
   assert.ok(!submit.includes('pendingDecision?.operation') && !submit.includes('pendingDecision?.mode'));
   assert.ok(submit.indexOf('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments') < submit.indexOf('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'));
 }
@@ -471,6 +576,75 @@ function testPendingClarificationCanReplayItsPersistedContract() {
   assert.deepStrictEqual(replayRoute.clarificationSlots, ambiguousContract().clarification.unresolved_resources);
 }
 
+function testDegradedPendingUsesStableClarificationSlotsForClassifierAndSelectionValidation() {
+  const slots = [{
+    key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous',
+    choices: [
+      { key: 'c1', source: 'history', index: 2, id: 'persian-cat', reference_id: 'persian-cat-ref', label: '波斯猫图片' },
+      { key: 'c2', source: 'history', index: 4, id: 'original-cat', reference_id: 'original-cat-ref', label: '最初生成的猫图片' },
+    ],
+  }];
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: '不是这只猫，替换成你生成的猫' }],
+    clarificationText: '请确认要替换成哪一张猫图。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      clarificationQuestion: '请确认要替换成哪一张猫图。',
+      clarificationSlots: slots,
+      taskContract: null,
+      clarificationDegraded: true,
+      requiresRerouteAfterClarification: true,
+    },
+  });
+  const payload = clarification.buildContinuationClassifierPayload({
+    model: 'route-model', pending, currentInput: '第二张', attachments: [],
+  });
+  const classifierInput = JSON.parse(payload.messages[1].content);
+  assert.strictEqual(classifierInput.pending.prior_task_contract, null);
+  assert.deepStrictEqual(classifierInput.pending.unresolved_resources, slots,
+    'the continuation model must see stable choices even when no executable prior contract exists');
+
+  const decision = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer', confidence: 0.99,
+    resolved_input: '不是这只猫，替换成你生成的猫',
+    selections: [{ resource_key: 'r2', choice_key: 'c2' }],
+    assistant_reply: '', reason: 'the second persisted choice was selected',
+  }), { pending });
+  assert.ok(decision, 'a valid degraded-slot selection must pass strict validation');
+  assert.strictEqual(decision.resolvedInput, '不是这只猫，替换成你生成的猫');
+
+  const context = clarification.buildClarificationRouteContext({
+    baseContext: {
+      image_candidates: [
+        { index: 2, source: 'history', image_id: 'persian-cat', reference_id: 'persian-cat-ref' },
+        { index: 4, source: 'history', image_id: 'original-cat', reference_id: 'original-cat-ref' },
+      ],
+    },
+    pending,
+    currentInput: '第二张',
+    resolvedInput: decision.resolvedInput,
+    continuationRelation: decision.relation,
+    selections: decision.selections,
+  });
+  assert.ok(context);
+  assert.deepStrictEqual(context.clarification_context.unresolved_resources, slots);
+  assert.deepStrictEqual(context.clarification_context.selected_choices, [{
+    resource_key: 'r2', choice_key: 'c2', type: 'image', role: 'reference',
+    source: 'history', index: 4, id: 'original-cat', reference_id: 'original-cat-ref', label: '最初生成的猫图片',
+  }]);
+  assert.ok(context.clarification_context.attachments.prior_sources.some(item => item.id === 'original-cat'));
+
+  const unknown = clarification.parseContinuationClassifierResult(JSON.stringify({
+    schema_version: clarification.CONTINUATION_SCHEMA_VERSION,
+    relation: 'pending_answer', confidence: 0.99,
+    resolved_input: '不是这只猫，替换成你生成的猫',
+    selections: [{ resource_key: 'r2', choice_key: 'c9' }],
+    assistant_reply: '', reason: 'invented choice',
+  }), { pending });
+  assert.strictEqual(unknown, null, 'a model-invented choice key must still fail closed');
+}
+
 function testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsEdit() {
   const pending = clarification.createPendingClarification({
     messages: [{ role: 'user', content: 'generate a product poster' }],
@@ -502,14 +676,18 @@ function testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsE
 }
 
 module.exports = [
+  testPendingClarificationIdentityIsCreatedOnceAndMigratedExplicitly,
   testContinuationV6UsesOneStrictNonExecutingSchema,
+  testQuotedClarificationQuestionReturnsAssistanceInsteadOfMerging,
   testStructuredChoiceIsValidatedThenOnlyForwardedAsRerouteContext,
   testResolvedInputIsRequiredAndNeverSynthesizedLocally,
   testImageChoiceOrdinalDoesNotReachTheExecutionPrompt,
   testModelContinuationSupportsPartialClarificationAnswers,
+  testPartialAnswerWithMultipleAmbiguousSlotsRetainsThePendingContext,
   testPendingClarificationSnapshotsRouteSelectedHistoricalAttachments,
   testNewTaskMultiIntentAndAssistanceCannotDispatch,
   testClarificationContextPreservesCurrentQuotedAndPriorSources,
   testPendingClarificationCanReplayItsPersistedContract,
+  testDegradedPendingUsesStableClarificationSlotsForClassifierAndSelectionValidation,
   testCompletedClarificationReplayPersistsEveryConfirmedRoundAndSupportsEdit,
 ];

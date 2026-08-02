@@ -1,6 +1,10 @@
 (function initChatUIAppImageContextWorkflow(root) {
   'use strict';
 
+  const coreAttachments = typeof require === 'function'
+    ? require('../core/attachments')
+    : root?.ChatUICoreAttachments || {};
+
   function createImageContextWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const getActiveSession = deps.getActiveSession || (() => ({}));
@@ -18,6 +22,7 @@
     const parseImageItemId = deps.parseImageItemId;
     const normalizeImageSelection = deps.normalizeImageSelection;
     const normalizeSelectedImageIds = deps.normalizeSelectedImageIds;
+    const normalizeStoredImageAttachment = deps.normalizeStoredImageAttachment || coreAttachments.normalizeStoredImageAttachment;
     const parseImageContext = deps.parseImageContext || (value => {
       if (!value) return null;
       if (typeof value === 'object') return value;
@@ -74,20 +79,16 @@
       if (!item || !isImageFile(item)) return null;
       const base = serializeAttachmentEntry(item);
       const src = preferredImageAttachmentSrc(item);
-      return src ? {
+      if (!src) return null;
+      if (typeof normalizeStoredImageAttachment !== 'function') throw new Error('Image attachment storage normalizer is unavailable');
+      return normalizeStoredImageAttachment({
+        ...item,
         id: base.id,
         name: base.name || 'image.png',
         type: base.type || 'image/png',
         size: base.size || 0,
         src,
-        fromPrevious: !!item.fromPrevious,
-        sourceIndex: Number(item.sourceIndex) || 0,
-        imageId: item.imageId || item.image_id || '',
-        referenceId: item.referenceId || item.reference_id || '',
-        routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
-        routeRole: item.routeRole || item.route_role || item.role || '',
-        routeSource: item.routeSource || item.route_source || item.source || '',
-      } : null;
+      });
     }
 
     async function persistImageAttachmentRefs(list = []) {
@@ -133,7 +134,11 @@
       const attachments = normalizeImageAttachmentList(context.attachments, '', context);
       const masks = normalizeImageAttachmentList(context.masks || context.maskAttachments || context.mask_attachments, 'mask', context);
       return {
+        ...(context.schema_version || context.schemaVersion ? { schema_version: context.schema_version || context.schemaVersion } : {}),
+        ...(context.resultId || context.result_id ? { resultId: context.resultId || context.result_id } : {}),
         prompt: context.prompt || '',
+        routePrompt: context.routePrompt || context.route_prompt || '',
+        content: context.content || '',
         mode: context.mode || 'image',
         target: context.target || 'new',
         usePreviousImage: !!context.usePreviousImage,

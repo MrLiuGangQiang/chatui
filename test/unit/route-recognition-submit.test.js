@@ -18,11 +18,11 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'the route UI wrapper must forward headers, context, cancellation, and the absolute pipeline deadline without an argument shift'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt})'),
+    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
     'normal submissions must pass request headers as the third route argument, not the session ID'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt})'),
+    submit.includes('getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
     'quoted submissions must preserve both their structured quote context and the current-turn attachment candidates'
   );
   assert.ok(submit.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'an explicit quote must be forwarded as a structured route binding, not only as background history');
@@ -37,13 +37,13 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'quoted routes must not shift the session ID into the headers slot'
   );
   assert.ok(
-    index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments'),
+    index.includes('submit-workflow.js?v=1.5.2-pending-transaction'),
     'the browser must fetch the explicit-quote workflow instead of a cached version'
   );
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
   assert.ok(submit.includes('classifierDeadline.race(requestJson('), 'the pending continuation classifier must consume the same bounded intent interval');
-  assert.ok(submit.includes('compatibilityPayload') && submit.includes('delete compatibilityPayload.response_format'), 'a structured-output compatibility retry must remain inside that same interval');
-  assert.ok(submit.includes('{deadlineAt:intentDeadlineAt}'), 'every full-router branch must inherit the absolute deadline started before continuation classification');
+  assert.ok(submit.includes('requestJsonWithStructuredOutputFallback(requestClassifier,body)'), 'continuation classification must use the shared bounded structured-output fallback');
+  assert.ok(submit.includes('{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}'), 'every full-router branch must inherit the absolute deadline and current-turn identity started before continuation classification');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
   assert.ok(submit.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(routeInfo,targetSession.messages||state.messages||[],quotedMessage)||null'), 'every selected message resource must be projected into the outgoing chat base');
@@ -76,6 +76,69 @@ async function testContinuationClassifierDeadlineFailsClosed() {
   }
 }
 
+async function testContinuationStructuredOutputFallbackPreservesJsonMode() {
+  const strictPayload = {
+    model: 'route-model',
+    response_format: { type: 'json_schema', json_schema: { name: 'pending' } },
+    messages: [],
+  };
+  const attempts = [];
+  const unsupported = type => {
+    const error = new Error(`response_format ${type} unsupported`);
+    return error;
+  };
+  const response = await submitWorkflow.requestJsonWithStructuredOutputFallback(async payload => {
+    attempts.push(payload);
+    if (attempts.length === 1) throw unsupported('json_schema');
+    return { ok: true };
+  }, strictPayload);
+  assert.deepStrictEqual(response, { ok: true });
+  assert.strictEqual(attempts.length, 2);
+  assert.strictEqual(attempts[0].response_format.type, 'json_schema');
+  assert.deepStrictEqual(attempts[1].response_format, { type: 'json_object' });
+  assert.strictEqual(strictPayload.response_format.type, 'json_schema', 'fallback must not mutate the canonical payload');
+
+  const plainAttempts = [];
+  await submitWorkflow.requestJsonWithStructuredOutputFallback(async payload => {
+    plainAttempts.push(payload);
+    if (plainAttempts.length < 3) throw unsupported(payload.response_format?.type || 'plain');
+    return { ok: 'plain' };
+  }, strictPayload);
+  assert.strictEqual(plainAttempts.length, 3);
+  assert.strictEqual(plainAttempts[1].response_format.type, 'json_object');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(plainAttempts[2], 'response_format'), false, 'plain JSON is only the final compatibility fallback');
+
+  let nonCompatibilityCalls = 0;
+  await assert.rejects(
+    () => submitWorkflow.requestJsonWithStructuredOutputFallback(async () => {
+      nonCompatibilityCalls += 1;
+      throw new Error('network unavailable');
+    }, strictPayload),
+    /network unavailable/,
+  );
+  assert.strictEqual(nonCompatibilityCalls, 1, 'ordinary transport failures must not trigger protocol retries');
+}
+
+function testPendingTransitionCommitsOnlyAfterHandoff() {
+  const pending = { id: 'pending-1' };
+  const consume = submitWorkflow.createPendingTransition(pending, { shouldClearPending: true });
+  assert.deepStrictEqual(consume, { pendingId: 'pending-1', consumeOnHandoff: true });
+  assert.strictEqual(Object.isFrozen(consume), true);
+  assert.deepStrictEqual(
+    submitWorkflow.createPendingTransition(pending, { shouldClearPending: false }),
+    { pendingId: 'pending-1', consumeOnHandoff: false },
+  );
+  assert.deepStrictEqual(
+    submitWorkflow.createPendingTransition(null, { shouldClearPending: true }),
+    { pendingId: '', consumeOnHandoff: false },
+  );
+
+  const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  assert.ok(submit.includes('const pendingTransition=createPendingTransition(storedPending,pendingDecision);'));
+  assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'));
+  assert.strictEqual((submit.match(/clearStoredPendingClarification\(\)/g) || []).length, 1, 'pending may only be consumed by the durable handoff callback');
+}
+
 function testImageGenerationDoesNotShadowSubmitOptions() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
@@ -101,7 +164,7 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
     'sendImage must not restore or infer resources after canonical projection'
   );
   assert.ok(
-    index.includes('image-workflow.js?v=1.6.0-role-binding-integrity'),
+    index.includes('image-workflow.js?v=1.6.1-precise-role-prompt'),
     'the browser must fetch the image workflow with exact reference-media recovery'
   );
 }
@@ -150,7 +213,8 @@ function testPendingContinuationRequiresStrictModelContract() {
   assert.ok(submit.includes('const pendingAssistance=pendingDecision?.relation==="pending_assistance"'), 'pending assistance must answer within the active task before route dispatch');
   assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'an invalid or unavailable continuation classifier must fail closed');
   assert.ok(submit.includes('原任务已保留，请重试'), 'the fail-closed response must tell the user that pending state was retained');
-  assert.ok(submit.includes('pendingMerge?.merged&&clearStoredPendingClarification()'), 'a merged clarification must be consumed only after durable request handoff');
+  assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'), 'pending state must be consumed only after durable request handoff');
+  assert.strictEqual((submit.match(/clearStoredPendingClarification\(\)/g) || []).length, 1, 'no route or preflight stage may consume pending state before durable handoff');
   assert.ok(!submit.includes('treating current input as a new task'), 'classifier failure must not silently turn a clarification answer into a new task');
   assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
   assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
@@ -192,7 +256,9 @@ function testForceImageUsesExplicitCanonicalContract() {
 module.exports = [
   testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift,
   testContinuationClassifierDeadlineFailsClosed,
+  testContinuationStructuredOutputFallbackPreservesJsonMode,
   testPendingContinuationRequiresStrictModelContract,
+  testPendingTransitionCommitsOnlyAfterHandoff,
   testImageGenerationDoesNotShadowSubmitOptions,
   testChatRerouteAllocatesRecoveryIdAfterImageMode,
   testForceImageUsesExplicitCanonicalContract,

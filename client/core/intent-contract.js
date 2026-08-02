@@ -208,12 +208,17 @@
     if (task.operation === 'edit_image') {
       const targets = images.filter(resource => resource.role === 'target');
       const masks = images.filter(resource => resource.role === 'mask');
+      const imageInputs = images.filter(resource => resource.role !== 'mask');
+      // Image edits may use additional content/style references while retaining
+      // one explicit target. This matches the multipart image-edit boundary,
+      // which already preserves every role independently in image_role_map.
       return directive.mode === 'patch'
         && images.length > 0
         && !files.length
         && hasOnlyResourceTypes(boundResources, ['image'])
-        && hasOnlyResourceRoles(images, ['target', 'mask'])
+        && hasOnlyResourceRoles(images, ['target', 'reference', 'style_reference', 'mask'])
         && targets.length === 1
+        && imageInputs[0]?.role === 'target'
         && masks.length <= 1
         && images.every(resource => baseKeys.has(resource.key));
     }

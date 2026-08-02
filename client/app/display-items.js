@@ -66,21 +66,62 @@ function messageNodeIndex(node, role = messageNodeRole(node)) {
   return parseDisplayMessageIndex(raw);
 }
 
+function normalizeCanonicalNodeRole(role = '') {
+  return role === 'error' ? 'assistant' : role;
+}
+
+function setMessageNodeIndex(node, role, index) {
+  if (!node?.dataset || !Number.isFinite(index)) return node || null;
+  const normalizedRole = normalizeCanonicalNodeRole(role || messageNodeRole(node));
+  const key = normalizedRole === 'user' ? 'messageIndex' : normalizedRole === 'assistant' ? 'responseIndex' : '';
+  if (!key) return node;
+  const otherKey = key === 'messageIndex' ? 'responseIndex' : 'messageIndex';
+  node.dataset[key] = String(index);
+  delete node.dataset[otherKey];
+  if (node.__displayItem) {
+    node.__displayItem[key] = String(index);
+    delete node.__displayItem[otherKey];
+  }
+  return node;
+}
+
+function shiftCanonicalSuffixForInsertion(nodes, node, expectedRole, expectedIndex) {
+  const indexed = nodes.map((candidate, domIndex) => {
+    const role = normalizeCanonicalNodeRole(messageNodeRole(candidate));
+    return { candidate, domIndex, role, index: messageNodeIndex(candidate, role) };
+  }).filter(entry => entry.candidate !== node && entry.role && Number.isFinite(entry.index));
+  const hasCrossRoleCollision = indexed.some(entry => entry.role !== expectedRole && entry.index === expectedIndex);
+  if (!hasCrossRoleCollision) return false;
+
+  // A canonical insertion reindexes every later record. The live DOM may still
+  // expose the old suffix indexes, so comparing only `> expectedIndex` moves the
+  // inserted image/reply below the next user turn until a refresh rebuilds it.
+  // The opposite-role collision at the inserted slot is the unambiguous signal
+  // that this suffix still needs the same one-position shift as canonical state.
+  indexed
+    .filter(entry => entry.index >= expectedIndex)
+    .sort((left, right) => right.index - left.index || right.domIndex - left.domIndex)
+    .forEach(entry => setMessageNodeIndex(entry.candidate, entry.role, entry.index + 1));
+  return true;
+}
+
 function reconcileCanonicalMessageNode(container, node, { role = '', index = null } = {}) {
   if (!container?.querySelectorAll || !node) return node || null;
-  const normalizeRole = value => value === 'error' ? 'assistant' : value;
-  const expectedRole = normalizeRole(role || messageNodeRole(node));
+  const expectedRole = normalizeCanonicalNodeRole(role || messageNodeRole(node));
   const expectedIndex = parseDisplayMessageIndex(index);
   if (!expectedRole || !Number.isFinite(expectedIndex)) return node;
+  setMessageNodeIndex(node, expectedRole, expectedIndex);
   const nodes = [...container.querySelectorAll('.message')];
   for (const candidate of nodes) {
-    const candidateRole = normalizeRole(messageNodeRole(candidate));
+    const candidateRole = normalizeCanonicalNodeRole(messageNodeRole(candidate));
     if (candidate === node || candidateRole !== expectedRole) continue;
     if (messageNodeIndex(candidate, candidateRole) === expectedIndex) candidate.remove();
   }
+  const remainingNodes = [...container.querySelectorAll('.message')];
+  shiftCanonicalSuffixForInsertion(remainingNodes, node, expectedRole, expectedIndex);
   const anchor = [...container.querySelectorAll('.message')].find(candidate => {
     if (candidate === node) return false;
-    const candidateRole = normalizeRole(messageNodeRole(candidate));
+    const candidateRole = normalizeCanonicalNodeRole(messageNodeRole(candidate));
     const candidateIndex = messageNodeIndex(candidate, candidateRole);
     return Number.isFinite(candidateIndex) && candidateIndex > expectedIndex;
   });

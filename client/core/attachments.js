@@ -48,18 +48,36 @@ const {
 } = imageReferences;
 
 function normalizeStoredImageAttachment(item = {}, fallbackRole = '') {
+  const sourceIndex = Number(item.sourceIndex || item.source_index) || 0;
+  const ordinal = Number(item.ordinal || item.position) || sourceIndex || 0;
+  const labels = Array.isArray(item.labels)
+    ? item.labels.map(value => String(value || '').trim()).filter(Boolean).slice(0, 12)
+    : [];
   return {
     id: item.id || item.attachmentId || item.attachment_id || '',
-    name: item.name || '',
+    name: item.name || item.filename || '',
+    filename: item.filename || item.name || '',
     type: item.type || '',
     size: Number(item.size) || 0,
     src: item.persistedSrc || item.src || '',
     text: item.text || '',
     unsupportedReason: item.unsupportedReason || item.unsupported_reason || '',
     compressionNote: item.compressionNote || item.compression_note || '',
+    fromPrevious: !!(item.fromPrevious || item.from_previous),
     imageId: item.imageId || item.image_id || '',
     referenceId: item.referenceId || item.reference_id || '',
-    sourceIndex: Number(item.sourceIndex || item.source_index) || 0,
+    resultId: item.resultId || item.result_id || '',
+    sourceIndex,
+    ordinal,
+    width: Number(item.width || item.originalWidth || item.original_width) || 0,
+    height: Number(item.height || item.originalHeight || item.original_height) || 0,
+    prompt: item.prompt || '',
+    description: item.description || item.semanticDescription || item.semantic_description || '',
+    semantic_text: item.semantic_text || item.semanticText || '',
+    labels,
+    label: item.label || '',
+    subject: item.subject || '',
+    updatedAt: item.updatedAt || item.updated_at || null,
     routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
     routeRole: item.routeRole || item.route_role || item.role || fallbackRole,
     routeSource: item.routeSource || item.route_source || item.source || '',
@@ -79,9 +97,12 @@ function normalizeImageContextForStorage(context = {}) {
     'mask',
   );
   return {
+    ...(context.schema_version || context.schemaVersion ? { schema_version: context.schema_version || context.schemaVersion } : {}),
+    ...(context.resultId || context.result_id ? { resultId: context.resultId || context.result_id } : {}),
     mode: context.mode || '',
     target: context.target || '',
     prompt: context.prompt || '',
+    routePrompt: context.routePrompt || context.route_prompt || '',
     content: context.content || '',
     usePreviousImage: !!context.usePreviousImage,
     updatedAt: context.updatedAt || context.updated_at || null,
@@ -178,6 +199,8 @@ const api = Object.freeze({
   normalizeSelectedImageIds,
   resolveImageSelectionFromIds,
   normalizeImageSelection,
+  normalizeStoredImageAttachment,
+  normalizeStoredImageAttachments,
   normalizeImageContextForStorage,
   parseImageContext,
   getLatestImageReferenceTarget,

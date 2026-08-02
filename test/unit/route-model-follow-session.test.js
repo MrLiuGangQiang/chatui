@@ -66,6 +66,22 @@ function currentTextToImageDecision() {
   };
 }
 
+function plainRouteDecision(overrides = {}) {
+  return {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'plain_chat',
+    relation: 'new',
+    bindings: [],
+    changes: [],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 0.95,
+    rationale: 'route model follow-session test',
+    ...overrides,
+  };
+}
+
 function reviewedImageEditContract() {
   return {
     schema_version: 'task_contract.v4',
@@ -678,6 +694,95 @@ async function testValidStructuredClarificationDoesNotTriggerRepairOrFallback() 
   }
 }
 
+async function testClarifiedTargetReferenceSelectionIsPrimarySingleFlight() {
+  const priorTaskContract = {
+    schema_version: 'task_contract.v5',
+    readiness: 'needs_clarification',
+    operation: 'edit_image',
+    relation: 'continuation',
+    resources: [{
+      key: 'r1', type: 'image', source: 'history', role: 'target', index: 1,
+      id: 'composite-cat', reference_id: 'composite-cat-ref', missing: false,
+    }],
+    directive: {
+      mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve',
+      operations: [{ op: 'replace', target: '目标图中的猫', value: '用户选择的参考猫' }],
+      constraints: [],
+    },
+    clarification: {
+      question: '请选择要用于替换的猫图。',
+      unresolved_resources: [{
+        key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+          { key: 'c1', source: 'history', index: 2, id: 'persian-cat', reference_id: 'persian-cat-ref', label: '波斯猫' },
+          { key: 'c2', source: 'history', index: 3, id: 'original-cat', reference_id: 'original-cat-ref', label: '最初生成的猫' },
+        ],
+      }],
+    },
+    confidence: 0.98,
+    review_reasons: [],
+    rationale: 'edit the composite target after the user chooses the replacement cat',
+  };
+  const firstDecision = plainRouteDecision({
+    operation: 'edit_image',
+    relation: 'continuation',
+    bindings: [
+      { candidate_key: 'i1', role: 'target' },
+      { candidate_key: 'i3', role: 'reference' },
+    ],
+    changes: priorTaskContract.directive.operations,
+    rationale: 'the selected cat replaces the cat in the existing composite target',
+  });
+  const requests = [];
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'route-model', models: ['route-model', 'chat-model'] },
+    sessions: [{ id: 'session-a', chatModel: 'chat-model', messages: [] }],
+    requestJson: async (_url, payload) => {
+      requests.push(payload);
+      if (requests.length > 1) throw new Error('a valid clarified target/reference route must not trigger repair or chat-model fallback');
+      return responseFor(firstDecision);
+    },
+  });
+  try {
+    const route = await harness.workflow.getEffectiveRoute('不是这只猫，替换成你生成的猫', [], 'session-a', {}, {
+      image_candidates: [
+        { index: 1, source: 'history', image_id: 'composite-cat', reference_id: 'composite-cat-ref', target: 'previous', prompt: '猫和鱼的自然合成图' },
+        { index: 2, source: 'history', image_id: 'persian-cat', reference_id: 'persian-cat-ref', target: 'previous', prompt: '波斯猫' },
+        { index: 3, source: 'history', image_id: 'original-cat', reference_id: 'original-cat-ref', target: 'previous', prompt: '最初生成的猫' },
+      ],
+      clarification_context: {
+        schema_version: 'clarification_context.v1',
+        base_task: '不是这只猫，替换成你生成的猫',
+        clarification_question: priorTaskContract.clarification.question,
+        prior_task_contract: priorTaskContract,
+        unresolved_resources: priorTaskContract.clarification.unresolved_resources,
+        current_answer: '2',
+        resolved_input: '不是这只猫，替换成你生成的猫',
+        continuation_relation: 'pending_answer',
+        selected_choices: [{
+          resource_key: 'r2', choice_key: 'c2', type: 'image', role: 'reference', source: 'history',
+          index: 3, id: 'original-cat', reference_id: 'original-cat-ref', label: '最初生成的猫',
+        }],
+        explicit_quote_text: '',
+        attachments: { current: [], quoted: [], prior_sources: [] },
+        source_policy: 'test',
+      },
+    });
+    assert.strictEqual(requests.length, 1, 'the completed selection must use one final route_decision request');
+    assert.strictEqual(route.operationType, 'edit_image');
+    assert.strictEqual(route.mode, 'edit_image');
+    assert.strictEqual(route.api, 'image_edit');
+    assert.deepStrictEqual(route.taskContract.resources.map(resource => [resource.id, resource.role]), [
+      ['composite-cat', 'target'],
+      ['original-cat', 'reference'],
+    ]);
+    assert.strictEqual(route.routeDecision.bindings[1].role, 'reference');
+    assert.strictEqual(global.__CHATUI_LAST_INTENT_TRACE__?.fallbackAi, false);
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
 async function testOperationPreservingClarificationIsPrimaryTerminalOutcome() {
   const requestedModels = [];
   const harness = createRouteHarness({
@@ -956,16 +1061,11 @@ async function testValidHighRiskRouteExecutesWithoutIndependentReview() {
   }
 }
 
-async function testInvalidPrimaryContractUsesSameModelRepairBeforeFallback() {
+async function testInvalidPrimaryDecisionUsesSameModelRepairBeforeFallback() {
   const models = ['router-special', 'chat-model'];
   const sessions = [{ id: 'session-a', chatModel: 'chat-model', messages: [] }];
   const requested = [];
-  const valid = {
-    ...plainChatContract(),
-    schema_version: 'task_contract.v5',
-    readiness: 'ready',
-    clarification: { question: '', unresolved_resources: [] },
-  };
+  const valid = plainRouteDecision();
   const invalid = { ...valid, accidental_field: 'must be rejected' };
   const harness = createRouteHarness({
     config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'router-special', models },
@@ -979,11 +1079,78 @@ async function testInvalidPrimaryContractUsesSameModelRepairBeforeFallback() {
     const route = await harness.workflow.getEffectiveRoute('Explain this request.', [], 'session-a', {}, {});
     assert.strictEqual(route.operationType, 'plain_chat');
     assert.deepStrictEqual(requested.map(payload => payload.model), ['router-special', 'router-special']);
-    assert.ok(requested[1].messages[0].content.startsWith(routeService.INTENT_REPAIR_SYSTEM_PROMPT), 'repair must keep the same model and explicitly repair only the rejected contract');
-    assert.ok(requested[1].messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'repair must receive the complete current contract instead of relying on an obsolete schema memory');
+    assert.ok(requested[1].messages[0].content.startsWith(routeService.INTENT_REPAIR_SYSTEM_PROMPT), 'repair must keep the same model and explicitly repair only the rejected decision');
+    assert.ok(requested[1].messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'repair must receive the complete current protocol');
     assert.strictEqual(requested[1].response_format?.json_schema?.strict, true);
     const repairInput = JSON.parse(requested[1].messages[1].content);
     assert.deepStrictEqual(repairInput.repair_invariants, routeService.repairInvariantSnapshot(invalid));
+  } finally {
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testMalformedLegacyTaskContractSkipsSemanticRepairBeforeFallback() {
+  const models = ['router-special', 'chat-model'];
+  const sessions = [{ id: 'session-a', chatModel: 'chat-model', messages: [] }];
+  const requested = [];
+  const validLegacy = {
+    ...plainChatContract(),
+    schema_version: 'task_contract.v5',
+    readiness: 'ready',
+    clarification: { question: '', unresolved_resources: [] },
+  };
+  const invalidLegacy = { ...validLegacy, accidental_field: 'must not be repaired' };
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'chat-model', routeModel: 'router-special', models },
+    sessions,
+    requestJson: async (_url, payload) => {
+      requested.push(payload);
+      return requested.length === 1 ? responseFor(invalidLegacy) : responseFor(plainRouteDecision());
+    },
+  });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const route = await harness.workflow.getEffectiveRoute('Explain this request.', [], 'session-a', {}, {});
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.deepStrictEqual(requested.map(payload => payload.model), ['router-special', 'chat-model']);
+    assert.ok(!requested[1].messages[0].content.startsWith(routeService.INTENT_REPAIR_SYSTEM_PROMPT),
+      'a model-authored task contract must go directly to the distinct fallback, not through identity-blind repair');
+  } finally {
+    console.warn = originalWarn;
+    harness.restore();
+    delete global.__CHATUI_LAST_INTENT_TRACE__;
+  }
+}
+
+async function testRouteWorkflowCarriesCurrentTurnIdentityIntoPayloadCompaction() {
+  const sessions = [{ id: 'session-a', chatModel: 'router-special', messages: [] }];
+  const requested = [];
+  const durableId = 'img_imgref_uploaded_workflow_current_1';
+  const transientId = 'workflow-transient';
+  const harness = createRouteHarness({
+    config: { baseUrl: 'https://example.test/v1', apiKey: 'key', chatModel: 'router-special', routeModel: 'router-special', models: ['router-special'] },
+    sessions,
+    buildRouteAttachmentMetadata: received => received,
+    requestJson: async (_url, payload) => {
+      requested.push(payload);
+      return responseFor(plainRouteDecision());
+    },
+  });
+  try {
+    await harness.workflow.getEffectiveRoute('', [{
+      id: transientId, image_id: transientId, media_index: 1, source_index: 1,
+      name: 'workflow.png', type: 'image/png', is_image: true,
+    }], 'session-a', {}, {
+      recent_messages: [{ index: 1, id: 'current-turn', role: 'user', content: '[image]' }],
+      image_candidates: [{
+        index: 1, source_index: 1, message_index: 1, image_id: durableId,
+        reference_id: 'imgref_uploaded_workflow_current', source: 'user_message', filename: 'workflow.png',
+      }],
+    }, { currentTurn: { messageIndex: 1, messageId: 'current-turn' } });
+    const userPayload = JSON.parse(requested[0].messages[1].content);
+    assert.deepStrictEqual(userPayload.resource_candidates, [{ candidate_key: 'i1', type: 'image', source: 'current', label: 'workflow.png' }]);
   } finally {
     harness.restore();
     delete global.__CHATUI_LAST_INTENT_TRACE__;
@@ -1070,8 +1237,8 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('session-config.js?v=1.2.66-session-route-model'));
   assert.ok(index.includes('config-workflow.js?v=1.2.78-secret-free-backup'));
-  assert.ok(index.includes('submit-workflow.js?v=1.5.0-pending-source-attachments'));
-  assert.ok(index.includes('route-decision-workflow.js?v=3.4.0-decision-compiler'));
+  assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction'));
+  assert.ok(index.includes('route-decision-workflow.js?v=3.4.1-current-turn-identity'));
   assert.ok(index.includes('app.js?v=2.2.0-native-file-inputs'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
@@ -1093,6 +1260,7 @@ module.exports = [
   testAmbiguousEditIsClarifiedByFirstRoute,
   testMissingEditDetailIsClarifiedByFirstRoute,
   testValidStructuredClarificationDoesNotTriggerRepairOrFallback,
+  testClarifiedTargetReferenceSelectionIsPrimarySingleFlight,
   testOperationPreservingClarificationIsPrimaryTerminalOutcome,
   testStableClarificationIdentityPreventsFallbackFromChoosingForTheUser,
   testDerivedClarificationMetadataCannotTriggerRepairOrFallback,
@@ -1101,7 +1269,9 @@ module.exports = [
   testExplicitQuoteMakesAnIncompletePlainChatFollowupSingleFlight,
   testRouteCancellationStopsTheCurrentIntentRequestWithoutFallback,
   testValidHighRiskRouteExecutesWithoutIndependentReview,
-  testInvalidPrimaryContractUsesSameModelRepairBeforeFallback,
+  testInvalidPrimaryDecisionUsesSameModelRepairBeforeFallback,
+  testMalformedLegacyTaskContractSkipsSemanticRepairBeforeFallback,
+  testRouteWorkflowCarriesCurrentTurnIdentityIntoPayloadCompaction,
   testBusyTaskCannotSwitchGlobalRouteModel,
   testBusySessionCannotSwitchModelMidSubmission,
   testSubmitPreflightUsesEffectiveSessionRouteModel,

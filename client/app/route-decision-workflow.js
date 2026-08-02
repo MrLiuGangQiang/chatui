@@ -74,8 +74,8 @@
       return { route, reason: route ? '' : 'contract_shape' };
     }
 
-    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, currentMode = 'chat', autoMode = true, raw, config, headers, signal, requiredReadiness = '' }) {
-      const options = { input, attachments, context, currentMode, autoMode };
+    async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, currentMode = 'chat', autoMode = true, currentTurn = null, raw, config, headers, signal, requiredReadiness = '' }) {
+      const options = { input, attachments, context, currentMode, autoMode, currentTurn };
       const mergeReadiness = (...values) => typeof routeSvc?.mergeRouteReadinessRequirement === 'function'
         ? routeSvc.mergeRouteReadinessRequirement(...values)
         : values.includes('needs_clarification') ? 'needs_clarification' : values.includes('ready') ? 'ready' : '';
@@ -115,6 +115,7 @@
         context,
         currentMode,
         autoMode,
+        currentTurn,
         previousOutput: raw,
         validationReason: initialReason,
         expectedReadiness: readinessRequirement,
@@ -270,13 +271,16 @@
           const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
           const attachmentMeta = buildRouteAttachmentMetadata(attachments);
           const context = routeContextOverride || buildRouteContext(sessionId);
+          const currentTurn = routeOptions?.currentTurn && typeof routeOptions.currentTurn === 'object'
+            ? routeOptions.currentTurn
+            : null;
           let primaryFailure = null;
           let fallbackFailure = null;
 
         if (config.baseUrl && primaryModel) {
           try {
             const firstPayload = routeSvc?.buildRoutePayload
-              ? routeSvc.buildRoutePayload({ model: primaryModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode })
+              ? routeSvc.buildRoutePayload({ model: primaryModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode, currentTurn })
               : { model: primaryModel, temperature: 0, messages: [] };
             const trace = {
               input,
@@ -303,7 +307,7 @@
             trace.firstRaw = extractRouteText(routeSvc, firstResponse);
             const primaryParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
               model: primaryModel, input, attachments: attachmentMeta, context, raw: trace.firstRaw,
-              currentMode: state.mode, autoMode: state.autoMode,
+              currentMode: state.mode, autoMode: state.autoMode, currentTurn,
               config, headers: requestHeaders, signal: intentDeadline.signal,
             }));
             let route = primaryParsed.route;
@@ -334,7 +338,7 @@
             if (!deadlineExpired && config.baseUrl && sessionChatModel && sessionChatModel !== primaryModel) {
               try {
                 throwIfRouteCancelled(parentSignal);
-                const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode });
+                const fallbackPayload = routeSvc.buildRoutePayload({ model: sessionChatModel, input, attachments: attachmentMeta, context, currentMode: state.mode, autoMode: state.autoMode, currentTurn });
                 let fallbackResponse;
                 try {
                   fallbackResponse = await intentDeadline.race(requestRouteDecision(fallbackPayload, config, requestHeaders, intentDeadline.signal));
@@ -351,7 +355,7 @@
                 const fallbackRaw = extractRouteText(routeSvc, fallbackResponse);
                 const fallbackParsed = await intentDeadline.race(parseOrRepairRoute(routeSvc, {
                   model: sessionChatModel, input, attachments: attachmentMeta, context, raw: fallbackRaw,
-                  currentMode: state.mode, autoMode: state.autoMode,
+                  currentMode: state.mode, autoMode: state.autoMode, currentTurn,
                   config, headers: requestHeaders, signal: intentDeadline.signal,
                 }));
                 const fallbackRoute = fallbackParsed.route;

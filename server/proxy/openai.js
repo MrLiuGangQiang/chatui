@@ -54,7 +54,7 @@ function withQueryParams(rawUrl, params) {
   return url.toString();
 }
 
-function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths }) {
+function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths, requestTrace }) {
   async function proxy(req, res) {
   const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
   if (!allowedProxyPaths.some(re => re.test(targetPath))) {
@@ -63,6 +63,9 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   let proxyChatJob = null;
   let upstreamTimer = null;
   let limiterAcquired = false;
+  let traceSpan = null;
+  let upstreamStatus = 0;
+  let traceContentType = '';
   const extracted = await extractProxyRequest(req, res);
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
@@ -105,6 +108,19 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       upstreamContentHeaders = editBody.headers || {};
     }
     const targetUrl = withQueryParams(`${baseUrl.replace(/\/+$/, '')}${upstreamPath}`, query);
+    traceSpan = requestTrace?.begin?.({
+      source: 'proxy',
+      jobId: proxyJobId,
+      method,
+      target: targetUrl,
+      targetPath: upstreamPath,
+      payload: outboundPayload,
+      headerNames: Object.keys(extraHeaders || {}),
+      queryKeys: Object.keys(query || {}),
+      fileCount: imageEditFiles.length,
+      maskCount: imageEditMasks.length,
+      secrets: [apiKey],
+    });
     const upstreamStartedAt = performance.now();
     const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
       method,
@@ -119,14 +135,17 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
     upstreamTimer = timer;
     const upstream = await upstreamResponse;
+    upstreamStatus = Number(upstream.status) || 0;
 
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
+    traceContentType = contentType;
     const isEventStream = contentType.toLowerCase().includes('text/event-stream');
 
     if (wantsStream || isEventStream) {
       const chatJob = proxyChatJob;
       if (!chatJob && targetPath === '/chat/completions' && proxyJobId) {
         // 已有后台流式 job 接管时，当前页面直接通过 SSE 恢复，避免重复请求/重复输出。
+        requestTrace?.fail?.(traceSpan, { status: 409, error: new Error('CHAT_JOB_ALREADY_STREAMING'), contentType });
         return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, { 'Access-Control-Allow-Origin': '*' });
       }
       const compactResponses = targetPath === '/responses' && wantsStream;
@@ -138,7 +157,12 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
       });
-      if (!upstream.body) return res.end();
+      if (!upstream.body) {
+        const traceDetails = { status: upstream.status, response: { streamed: true, emptyBody: true }, contentType };
+        if (upstream.ok) requestTrace?.complete?.(traceSpan, traceDetails);
+        else requestTrace?.fail?.(traceSpan, { ...traceDetails, error: new Error(`Upstream HTTP ${upstream.status}`) });
+        return res.end();
+      }
       let clientOpen = true;
       res.on('close', () => { clientOpen = false; controller.abort(); });
       const decoder = new StringDecoder('utf8');
@@ -173,11 +197,17 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         delete chatJob.buffer;
         notifyJob(chatJob);
       }
+      const traceDetails = { status: upstream.status, response: chatJob?.data || { streamed: true }, contentType };
+      if (upstream.ok) requestTrace?.complete?.(traceSpan, traceDetails);
+      else requestTrace?.fail?.(traceSpan, { ...traceDetails, error: new Error(`Upstream HTTP ${upstream.status}`) });
       if (clientOpen && !res.destroyed) res.end();
       return;
     }
 
     const text = await upstream.text();
+    const traceDetails = { status: upstream.status, responseText: text, contentType };
+    if (upstream.ok) requestTrace?.complete?.(traceSpan, traceDetails);
+    else requestTrace?.fail?.(traceSpan, { ...traceDetails, error: new Error(`Upstream HTTP ${upstream.status}`) });
     send(res, upstream.status, text, {
       'Content-Type': contentType,
       'Access-Control-Allow-Origin': '*',
@@ -185,6 +215,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
   } catch (err) {
     const aborted = err?.name === 'AbortError';
     const message = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
+    requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: err, contentType: traceContentType });
     if (proxyChatJob) {
       proxyChatJob.status = 'error';
       proxyChatJob.error = message;
@@ -204,6 +235,8 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
   async function proxyImage(req, res) {
   let upstreamTimer = null;
+  let traceSpan = null;
+  let upstreamStatus = 0;
   const extracted = await extractProxyRequest(req, res);
   if (!extracted) return;
   const { body, baseUrl, apiKey, extraHeaders } = extracted;
@@ -213,6 +246,16 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (!['http:', 'https:'].includes(imageUrl.protocol)) return sendError(res, 400, '非法图片地址', 'INVALID_IMAGE_URL');
     if (imageUrl.origin !== base.origin) return sendError(res, 403, '只允许代理同源图片地址', 'IMAGE_PROXY_ORIGIN_FORBIDDEN');
 
+    traceSpan = requestTrace?.begin?.({
+      source: 'image_proxy',
+      method: 'GET',
+      target: imageUrl.toString(),
+      targetPath: '/image',
+      payload: {},
+      kind: 'image_download',
+      headerNames: Object.keys(extraHeaders || {}),
+      secrets: [apiKey],
+    });
     const { response: upstreamResponse, controller, timer } = createUpstreamFetch(imageUrl.toString(), {
       method: 'GET',
       headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
@@ -220,15 +263,19 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
     upstreamTimer = timer;
     const upstream = await upstreamResponse;
+    upstreamStatus = Number(upstream.status) || 0;
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
       const text = await upstream.text();
+      requestTrace?.fail?.(traceSpan, { status: upstream.status, responseText: text, contentType, error: new Error(`Upstream HTTP ${upstream.status}`) });
       return sendError(res, upstream.status, text || '图片下载失败', 'IMAGE_DOWNLOAD_FAILED');
     }
     if (!contentType.startsWith('image/')) {
+      requestTrace?.fail?.(traceSpan, { status: 415, response: { contentType }, contentType, error: new Error('UPSTREAM_NOT_IMAGE') });
       return sendError(res, 415, '上游返回的不是图片', 'UPSTREAM_NOT_IMAGE');
     }
     const buffer = await readResponseBufferWithLimit(upstream);
+    requestTrace?.complete?.(traceSpan, { status: 200, response: { contentType, byteLength: buffer.length }, contentType });
     send(res, 200, buffer, {
       'Content-Type': contentType,
       'Cache-Control': 'no-store',
@@ -236,6 +283,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
   } catch (err) {
     const aborted = err?.name === 'AbortError';
+    requestTrace?.fail?.(traceSpan, { status: upstreamStatus || err.statusCode || (aborted ? 504 : 500), error: err });
     sendError(res, err.statusCode || (aborted ? 504 : 500), aborted ? '图片下载超时' : (err.message || String(err)), aborted ? 'IMAGE_DOWNLOAD_TIMEOUT' : 'IMAGE_PROXY_FAILED');
   } finally {
     if (upstreamTimer) clearTimeout(upstreamTimer);

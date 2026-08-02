@@ -157,32 +157,55 @@ function markImageJobFailed(job = {}, err) {
   return job;
 }
 
-async function runImageJob(job, { notifyJob, upstreamTimeoutMs } = {}) {
-  const { headers, body } = buildImageUpstreamRequest(job);
-  const { response: upstreamResponse, controller, timer } = createUpstreamFetch(job.targetUrl, {
+async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace } = {}) {
+  const traceSpan = requestTrace?.begin?.({
+    source: 'image_job',
+    jobId: job.id,
     method: 'POST',
-    headers,
-    body,
-    job,
-    upstreamTimeoutMs,
+    target: job.targetUrl,
+    targetPath: imageJobTargetPath(job.mode, job.payload),
+    payload: job.payload,
+    headerNames: Object.keys(job.extraHeaders || {}),
+    fileCount: job.files?.length || 0,
+    maskCount: job.masks?.length || 0,
+    secrets: [job.apiKey],
   });
+  let timer = null;
+  let upstreamStatus = 0;
+  let failure = null;
   try {
+    const { headers, body } = buildImageUpstreamRequest(job);
+    const upstreamRequest = createUpstreamFetch(job.targetUrl, {
+      method: 'POST',
+      headers,
+      body,
+      job,
+      upstreamTimeoutMs,
+    });
+    timer = upstreamRequest.timer;
     job.serverStartAt = Date.now();
-    const upstream = await upstreamResponse;
+    const upstream = await upstreamRequest.response;
+    upstreamStatus = Number(upstream.status) || 0;
     const text = await upstream.text();
     const data = parseImageUpstreamResponse(upstream, text);
     markImageJobDone(job, data);
   } catch (err) {
+    failure = err;
     markImageJobFailed(job, err);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     delete job.controller;
     job.updatedAt = Date.now();
+    if (job.status === 'done') {
+      requestTrace?.complete?.(traceSpan, { status: upstreamStatus, response: job.data, durationMs: job.durationMs });
+    } else {
+      requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: failure || new Error(job.error) });
+    }
     if (typeof notifyJob === 'function') notifyJob(job);
   }
 }
 
-function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
+function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace }) {
   async function startImageJob(req, res) {
     const extracted = await extractProxyRequest(req, res);
     if (!extracted) return;
@@ -192,7 +215,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs }) {
       if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
       const job = createImageJobFromRequestBody(jobId, body, { baseUrl, apiKey, extraHeaders });
       imageJobs.set(job.id, job);
-      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs })).catch(err => {
+      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace })).catch(err => {
         job.status = 'error';
         job.error = err.message || String(err);
         job.updatedAt = Date.now();

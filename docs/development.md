@@ -26,6 +26,26 @@ npm start
 
 本地数据库等私密配置可放在仓库根目录 `.env.local`。`npm start` 会在加载服务端配置前读取它，但不会覆盖当前进程或部署平台已经设置的同名变量；该文件被 Git 忽略，禁止强制提交。
 
+
+需要为后续问题复盘保留真实请求证据时，可在本机 `.env.local` 中启用持久请求追踪：
+
+```dotenv
+CHATUI_REQUEST_TRACE=1
+CHATUI_REQUEST_TRACE_FILE=temp/request-trace.ndjson
+CHATUI_REQUEST_TRACE_MAX_BYTES=20971520
+CHATUI_REQUEST_TRACE_ROTATIONS=3
+```
+
+重启 `npm start` 后，服务启动信息会显示实际日志路径。日志使用 `request_trace.v1` NDJSON，每次上游调用至少包含同一 `trace_id` 的 `request.started` 和 `request.completed`/`request.failed`。它会保留限长且脱敏的用户输入、路由输出和普通模型回复，便于复盘；系统提示词只记录长度与哈希，reasoning 只记录长度。API Key、Authorization、自定义 Header 值、文件 Base64、图片 Base64和签名 URL 查询参数不会落盘。日志可能包含用户对话正文，仅允许保存在受信任的本机环境，不得提交到 Git 或附加到 Release。
+
+查看最近记录：
+
+```powershell
+Get-Content temp/request-trace.ndjson -Tail 20
+```
+
+如只需要结构摘要，可设置 `CHATUI_REQUEST_TRACE_TEXT=0`；删除或关闭 `CHATUI_REQUEST_TRACE` 后，下次启动停止写入。
+
 ## 2. 测试 runner
 
 全量测试：

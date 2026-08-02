@@ -140,8 +140,11 @@ function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
   assert.ok(parsed);
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.needClarification, false);
+  assert.strictEqual(parsed.legacyModelOutputConverted, true, 'legacy model output must pass through the candidate-key compiler bridge');
   assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(selected.map(item => item.image_id)));
   assert.deepStrictEqual(new Set(parsed.taskContract.directive.base_resource_keys), new Set(['r1', 'r2']));
+  assert.strictEqual(parsed.taskContract.directive.unmentioned_policy, 'allow_change', 'the bridge must retain valid legacy composition semantics');
+  assert.strictEqual(routeService.isRouteDispatchable(parsed), true);
   assert.strictEqual(parsed.editInstruction, input);
 }
 

@@ -158,7 +158,9 @@
     function replayPendingClarification(node,{sessionId,userText,assistantIndex}={}){
       const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
       const session=state.sessions?.find(item=>item?.id===sessionId);
-      const pending=clarificationApi?.normalizePendingClarification?.(session?.pendingClarification)||null;
+      const rawPending=session?.pendingClarification;
+      const pending=(clarificationApi?.migratePendingClarification||clarificationApi?.normalizePendingClarification)?.(rawPending)||null;
+      if(session&&pending&&String(rawPending?.id||"")!==String(pending.id||"")){session.pendingClarification=pending;root?.saveSessionsMeta?.()}
       const assistantMessage=Array.isArray(state.messages)?state.messages[assistantIndex]:null;
       if(!clarificationApi?.matchesPendingClarificationMessage?.(pending,{message:assistantMessage,userText}))return!1;
       const routeInfo=clarificationApi.pendingClarificationRouteInfo?.(pending);

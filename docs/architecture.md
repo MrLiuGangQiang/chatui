@@ -111,6 +111,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 `server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化。`server/security/` 负责 URL 与网络访问策略。
 
 只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
+本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。
 
 ### 4.6 `server/usage/`、`server/db/` 与相关层
 
@@ -191,7 +192,7 @@ GET /
 
 ### 7.3 图片
 
-图片生成和编辑遵循同一 canonical resource contract。客户端只提交已校验的 source/target/reference/mask 绑定；服务端 Job 和 proxy 负责请求转换、上游调用、结果公开快照和停止/恢复。浏览器负责把结果持久化为稳定媒体引用并提交 canonical message。
+图片生成和编辑遵循同一 canonical resource contract。`edit_image` 必须恰好有一个 `target`，并可同时携带内容 `reference`、`style_reference` 和至多一个独立 `mask`；`image_reference_gen` 只生成新图，不得伪装成带 `target` 的编辑。客户端只提交已校验的 source/target/reference/mask 绑定，并把多图角色按实际 multipart 顺序写入可审计映射；服务端 Job 和 proxy 负责验证映射、请求转换、上游调用、结果公开快照和停止/恢复。浏览器负责把结果持久化为稳定媒体引用并提交 canonical message。
 
 ### 7.4 使用统计
 

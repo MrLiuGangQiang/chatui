@@ -194,6 +194,48 @@
       } catch {}
     }
 
+    function hasStoredSessionMetadata(sessionId) {
+      if (!sessionId) return false;
+      try {
+        const raw = localStorageRef.getItem(SESSIONS_KEY);
+        const stored = raw ? JSON.parse(raw) : null;
+        return Array.isArray(stored) && stored.some(item => item?.id === sessionId);
+      } catch {
+        return false;
+      }
+    }
+
+    function retainRecoverableSnapshot(snapshot, baseUpdatedAt = 0, reason = '') {
+      // Metadata is written before the fallback so a quota boundary cannot leave
+      // a brand-new snapshot without a session index entry. Both writes are
+      // synchronous, which makes a completed in-memory reply refresh-safe while
+      // its IndexedDB transaction is still pending.
+      const metadataSaved = saveSessionsMeta();
+      const metadataAvailable = metadataSaved || hasStoredSessionMetadata(snapshot?.id);
+      const fallbackRetained = writeSnapshotFallback(snapshot, baseUpdatedAt);
+      return {
+        recoverable: !!fallbackRetained && !!metadataAvailable,
+        fallbackRetained: !!fallbackRetained,
+        metadataAvailable: !!metadataAvailable,
+        metadataSaved: !!metadataSaved,
+        reason: String(reason || ''),
+      };
+    }
+
+    function createSessionPersistenceError(snapshot, reason, cause = null, recovery = null) {
+      const error = new Error('消息未能写入浏览器持久化存储，请勿刷新页面，并检查浏览器存储权限或空间后重试。');
+      error.name = 'SessionPersistenceError';
+      error.code = 'SESSION_PERSISTENCE_FAILED';
+      error.persistenceFailure = true;
+      error.reason = String(reason || 'unknown');
+      error.sessionId = String(snapshot?.id || '');
+      error.revision = Number(snapshot?.updatedAt || 0);
+      error.fallbackRetained = !!recovery?.fallbackRetained;
+      error.metadataAvailable = !!recovery?.metadataAvailable;
+      if (cause) error.cause = cause;
+      return error;
+    }
+
     function messageIdentity(message) {
       if (!message || !['user', 'assistant'].includes(message.role)) return '';
       const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
@@ -273,15 +315,33 @@
       const baseUpdatedAt = Number(session.snapshotUpdatedAt || 0);
       const snapshot = buildSnapshot(session);
       snapshot.updatedAt = revision;
+
+      // IndexedDB commits are asynchronous and can be cancelled by an immediate
+      // refresh. Retain a synchronous recovery copy before starting the durable
+      // write; the durable success path removes it once the same revision lands.
+      const initialRecovery = retainRecoverableSnapshot(snapshot, baseUpdatedAt, 'durable-write-pending');
       if (!snapshotStore?.schedulePut || snapshotStore.supported === false) {
-        writeSnapshotFallback(snapshot, baseUpdatedAt);
-        saveSessionsMeta();
-        return Promise.resolve({ fallback: true, revision });
+        if (!initialRecovery.recoverable) {
+          return Promise.reject(createSessionPersistenceError(snapshot, 'fallback-unavailable', null, initialRecovery));
+        }
+        return Promise.resolve({ fallback: true, revision, reason: 'indexeddb-unavailable' });
       }
+      if (!initialRecovery.recoverable) {
+        logger?.warn?.('session snapshot is waiting for IndexedDB without a complete refresh fallback', initialRecovery);
+      }
+
       let write;
       try { write = snapshotStore.schedulePut(snapshot); } catch (err) { write = Promise.reject(err); }
       const durableWrite = Promise.resolve(write).then(result => {
-        if (result === null) return result;
+        if (result === null) {
+          if (getState().disposedSessionIds?.has?.(session.id)) return result;
+          const recovery = retainRecoverableSnapshot(snapshot, baseUpdatedAt, 'durable-write-skipped');
+          if (!recovery.recoverable) {
+            throw createSessionPersistenceError(snapshot, 'durable-write-skipped', null, recovery);
+          }
+          logger?.warn?.('session snapshot durable write was skipped; recoverable fallback retained');
+          return { fallback: true, revision, reason: 'durable-write-skipped' };
+        }
         // snapshotUpdatedAt means a durable IndexedDB revision, not merely a
         // requested write. Keeping these meanings separate lets a late write
         // repair an immediate-refresh race without being rejected as stale.
@@ -291,27 +351,41 @@
           if (revision >= Number(current.persistenceUpdatedAt || 0)) {
             current.snapshotUpdatedAt = Math.max(Number(current.snapshotUpdatedAt || 0), revision);
             current.persistenceUpdatedAt = Math.max(Number(current.persistenceUpdatedAt || 0), revision);
-            saveSessionsMeta();
+            const metadataSaved = saveSessionsMeta();
+            if (!metadataSaved && !hasStoredSessionMetadata(session.id)) {
+              const recovery = retainRecoverableSnapshot(snapshot, baseUpdatedAt, 'metadata-write-failed');
+              if (!recovery.metadataAvailable) {
+                throw createSessionPersistenceError(snapshot, 'metadata-write-failed', null, recovery);
+              }
+            }
           }
           clearSnapshotFallback(session.id, revision);
         }
         return result;
-      }).catch(err => {
+      }, err => {
         if (getState().disposedSessionIds?.has?.(session.id)) return;
-        writeSnapshotFallback(snapshot, baseUpdatedAt);
-        saveSessionsMeta();
+        const recovery = retainRecoverableSnapshot(snapshot, baseUpdatedAt, 'durable-write-failed');
+        if (!recovery.recoverable) {
+          throw createSessionPersistenceError(snapshot, 'durable-write-failed', err, recovery);
+        }
         logger?.warn?.('save session snapshot failed; recoverable fallback retained', err);
+        return { fallback: true, revision, reason: 'durable-write-failed' };
       });
       if (!snapshotCommitWaitMs || typeof setTimeoutRef !== 'function') return durableWrite;
       let timeoutId = null;
-      const boundedWait = new Promise(resolve => {
+      const boundedWait = new Promise((resolve, reject) => {
         timeoutId = setTimeoutRef(() => {
-          if (!getState().disposedSessionIds?.has?.(session.id)) {
-            writeSnapshotFallback(snapshot, baseUpdatedAt);
-            saveSessionsMeta();
-            logger?.warn?.(`save session snapshot is still pending after ${snapshotCommitWaitMs}ms; continuing with recoverable fallback`);
+          if (getState().disposedSessionIds?.has?.(session.id)) {
+            resolve({ timedOut: true, revision, disposed: true });
+            return;
           }
-          resolve({ timedOut: true, revision });
+          const recovery = retainRecoverableSnapshot(snapshot, baseUpdatedAt, 'durable-write-timeout');
+          if (!recovery.recoverable) {
+            reject(createSessionPersistenceError(snapshot, 'durable-write-timeout', null, recovery));
+            return;
+          }
+          logger?.warn?.(`save session snapshot is still pending after ${snapshotCommitWaitMs}ms; continuing with recoverable fallback`);
+          resolve({ timedOut: true, fallback: true, revision });
         }, snapshotCommitWaitMs);
       });
       return Promise.race([durableWrite, boundedWait]).finally(() => {
@@ -343,7 +417,11 @@
         }));
         localStorageRef.setItem(SESSIONS_KEY, JSON.stringify(meta));
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId || getActiveSession()?.id || '');
-      } catch (err) { logger?.warn?.('save sessions meta failed', err); }
+        return true;
+      } catch (err) {
+        logger?.warn?.('save sessions meta failed', err);
+        return false;
+      }
     }
 
     function pendingDisplayItems(items = []) {

@@ -11,9 +11,84 @@ const {
 } = imageReferences;
 
 const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
+const ROUTE_FILE_CANDIDATE_TEXT_LIMITS = Object.freeze({
+  name: 240,
+  filename: 240,
+  type: 120,
+  unsupported_reason: 240,
+  unsupportedReason: 240,
+});
 
 function routeContextSize(value) {
   try { return JSON.stringify(value || {}).length; } catch { return Infinity; }
+}
+
+function truncateRouteContextText(value, maxChars) {
+  const text = String(value || '');
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+function compactRouteFileCandidate(candidate = {}) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate;
+  const next = { ...candidate };
+  for (const [key, maxChars] of Object.entries(ROUTE_FILE_CANDIDATE_TEXT_LIMITS)) {
+    if (next[key] !== undefined && next[key] !== null) next[key] = truncateRouteContextText(next[key], maxChars);
+  }
+  // Route recognition only needs file metadata. Never let a persisted payload
+  // or inline file body turn a historical candidate into an unbounded prompt.
+  for (const key of [
+    'text', 'content', 'raw', 'dataUrl', 'data_url', 'fileData', 'file_data',
+    'src', 'url', 'persistedSrc', 'persisted_src', 'file',
+  ]) delete next[key];
+  return next;
+}
+
+function isProtectedRouteFileCandidate(candidate = {}) {
+  return ['current', 'quoted', 'user_message'].includes(String(candidate?.source || '').trim());
+}
+
+function trimRouteFileCandidatesToSize(context = {}, limit = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
+  const candidates = Array.isArray(context.file_candidates)
+    ? context.file_candidates
+      .filter(candidate => candidate && typeof candidate === 'object' && !Array.isArray(candidate))
+      .map(compactRouteFileCandidate)
+    : [];
+  if (!candidates.length || routeContextSize(context) <= limit) return;
+
+  // buildFileCandidates orders history newest-first. Reserve exact bindings
+  // first, then keep as many recent historical candidates as the remaining
+  // serialized budget allows. This avoids repeatedly stringifying the full
+  // context while deleting hundreds of old files one by one.
+  const candidateSizes = candidates.map(candidate => routeContextSize(candidate));
+  const protectedIndexes = new Set();
+  let selectedSize = 0;
+  let selectedCount = 0;
+  candidates.forEach((candidate, index) => {
+    if (!isProtectedRouteFileCandidate(candidate)) return;
+    protectedIndexes.add(index);
+    selectedSize += candidateSizes[index];
+    selectedCount += 1;
+  });
+
+  const baseSize = routeContextSize({ ...context, file_candidates: [] });
+  const available = Math.max(0, Number(limit) - baseSize);
+  const serializedArrayDelta = (size, count) => size + Math.max(0, count - 1);
+  const selectedIndexes = new Set(protectedIndexes);
+
+  if (serializedArrayDelta(selectedSize, selectedCount) <= available) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (protectedIndexes.has(index)) continue;
+      const nextSize = selectedSize + candidateSizes[index];
+      const nextCount = selectedCount + 1;
+      if (serializedArrayDelta(nextSize, nextCount) > available) break;
+      selectedIndexes.add(index);
+      selectedSize = nextSize;
+      selectedCount = nextCount;
+    }
+  }
+
+  context.file_candidates = candidates.filter((candidate, index) => selectedIndexes.has(index));
 }
 
 function compactRouteMessage(message = {}, index = 0) {
@@ -166,11 +241,13 @@ function trimRouteContextToTokenWindow(context = {}, contextWindowTokens) {
 }
 
 function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
-  const limit = Number(maxChars) || DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
+  const parsedLimit = Number(maxChars);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
   const next = {
     ...context,
     recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
     image_candidates: Array.isArray(context.image_candidates) ? [...context.image_candidates] : [],
+    file_candidates: Array.isArray(context.file_candidates) ? [...context.file_candidates] : [],
     recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [],
     recent_uploaded_image_references: Array.isArray(context.recent_uploaded_image_references) ? [...context.recent_uploaded_image_references] : [],
   };
@@ -195,6 +272,7 @@ function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_M
     next.recent_image_references = next.recent_image_references.map(shrinkPrompt);
     next.recent_uploaded_image_references = next.recent_uploaded_image_references.map(shrinkPrompt);
   }
+  if (routeContextSize(next) > limit && next.file_candidates.length) trimRouteFileCandidatesToSize(next, limit);
   return next;
 }
 

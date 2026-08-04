@@ -98,17 +98,14 @@
   function buildConversationExcerpt(session = {}, options = {}) {
     const maxChars = Math.max(120, Number(options.maxChars) || 820);
     const rounds = collectConversationRounds(session, options);
-    if (!rounds.length) return '最近会话：暂无可用的用户消息或助手答复。';
-    const totalRounds = conversationSource(session).filter(message => String(message?.role || '').toLowerCase() === 'user' && messageText(message)).length || rounds.length;
-    const startIndex = Math.max(1, totalRounds - rounds.length + 1);
-    const lines = [`最近 ${rounds.length} 轮会话（自动填写）`];
-    rounds.forEach((round, index) => {
-      lines.push(`第 ${startIndex + index} 轮`);
+    if (!rounds.length) return '暂无可用的会话内容。';
+    const blocks = rounds.map(round => {
+      const lines = [];
       if (round.user) lines.push(`用户：${round.user}`);
-      if (round.assistants.length) lines.push(`助手：${round.assistants.join(' / ')}`);
-      else lines.push('助手：[本轮未产生正常答复]');
+      lines.push(round.assistants.length ? `助手：${round.assistants.join(' / ')}` : '助手：[未产生正常答复]');
+      return lines.join('\n');
     });
-    return truncateText(lines.join('\n'), maxChars);
+    return truncateText(blocks.join('\n\n'), maxChars);
   }
 
   function responseMessage(text = '') {
@@ -173,13 +170,14 @@
 
   function buildIncidentReproduction(incident = {}, session = {}, options = {}) {
     const normalized = normalizeIncident(incident);
+    const summary = [
+      new Date(normalized.occurredAt).toISOString(),
+      normalized.method || normalized.url ? [normalized.method, normalized.url].filter(Boolean).join(' ') : '',
+      normalized.status ? `HTTP ${normalized.status}${normalized.statusText ? ` ${normalized.statusText}` : ''}` : '',
+    ].filter(Boolean).join(' · ');
     const details = [
-      '【自动捕获信息，可在提交前编辑】',
-      `时间：${new Date(normalized.occurredAt).toISOString()}`,
-      normalized.source ? `来源：${normalized.source}` : '',
-      normalized.method || normalized.url ? `请求：${[normalized.method, normalized.url].filter(Boolean).join(' ')}` : '',
-      normalized.status ? `状态：HTTP ${normalized.status}${normalized.statusText ? ` ${normalized.statusText}` : ''}` : '',
-      normalized.message ? `异常：${normalized.message}` : '',
+      summary,
+      normalized.message,
       '',
       buildConversationExcerpt(session, {
         maxRounds: options.maxRounds || DEFAULT_RECENT_ROUNDS,

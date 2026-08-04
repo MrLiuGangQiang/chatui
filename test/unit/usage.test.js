@@ -201,7 +201,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
   assert.ok(index.includes('client/services/usage-stats.js?v=1.2.79-feedback-reason'), 'feedback rejection reasons should ship with a fresh service cache version');
-  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.1-feedback-draft'), 'feedback form should ship with a fresh UI cache version');
+  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.2-manual-context'), 'feedback form should ship with a fresh UI cache version');
   assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
   assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
   assert.ok(ui.includes('id="usageStatsIconGradient"') && ui.includes('class="usage-stats-pulse"'), 'the usage launcher must use the neon dashboard icon');

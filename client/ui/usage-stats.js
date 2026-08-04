@@ -403,6 +403,14 @@ ${incoming}`
     saveFeedbackFormDraft();
   }
 
+  function applyManualConversationDraft() {
+    if (String($('usageFeedbackReproduction')?.value || '').trim()) return;
+    const draft = problemFeedback?.createManualDraft?.();
+    if (!draft?.reproduction) return;
+    setFeedbackFieldFromIncident('usageFeedbackReproduction', draft.reproduction);
+    saveFeedbackFormDraft();
+  }
+
   function openFeedbackPanel(options = {}) {
     closePanel();
     restoreFeedbackFormDraft();
@@ -410,6 +418,8 @@ ${incoming}`
     if (incident) {
       applyIncidentDraft(incident);
       problemFeedback?.acknowledge?.(incident.id);
+    } else {
+      applyManualConversationDraft();
     }
     const configured = Boolean(currentApiKey() && currentModel());
     setFeedbackStatus(configured ? '' : '请先在模型配置中填写 API Key 并选择聊天模型', !configured);
@@ -856,6 +866,7 @@ ${incoming}`
     feedbackContentFromFields,
     setFeedbackFieldFromIncident,
     applyIncidentDraft,
+    applyManualConversationDraft,
     saveFeedbackFormDraft,
     restoreFeedbackFormDraft,
     clearFeedbackFormDraft,

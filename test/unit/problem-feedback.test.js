@@ -73,9 +73,9 @@ function testProblemFeedbackBuildsRecentConversationExcerptAndRedactsSecrets() {
   assert.deepStrictEqual(rounds[2], { user: '第四轮触发异常', assistants: [] });
 
   const excerpt = problemFeedbackCore.buildConversationExcerpt(sampleSession(), { maxRounds: 3, maxChars: 900 });
-  assert.ok(excerpt.includes('最近 3 轮会话'));
+  assert.ok(!excerpt.includes('自动填写') && !excerpt.includes('最近 3 轮') && !excerpt.includes('第 1 轮'));
   assert.ok(excerpt.includes('用户：第四轮触发异常'));
-  assert.ok(excerpt.includes('助手：[本轮未产生正常答复]'));
+  assert.ok(excerpt.includes('助手：[未产生正常答复]'));
   assert.ok(!excerpt.includes('第一轮问题'));
 }
 
@@ -93,9 +93,11 @@ function testProblemFeedbackDraftIncludesIncidentAndFitsFeedbackField() {
 
   assert.ok(draft.problem.includes('HTTP 502'));
   assert.ok(draft.problem.includes('上游服务异常'));
-  assert.ok(draft.reproduction.includes('请求：POST https://example.test/v1/chat/completions'));
+  assert.ok(draft.reproduction.includes('POST https://example.test/v1/chat/completions · HTTP 502 Bad Gateway'));
   assert.ok(!draft.reproduction.includes('api_key=secret'));
+  assert.ok(draft.reproduction.includes('助手：第三轮答复'));
   assert.ok(draft.reproduction.includes('第四轮触发异常'));
+  assert.ok(!draft.reproduction.includes('自动填写') && !draft.reproduction.includes('最近 3 轮') && !draft.reproduction.includes('第 2 轮'));
   assert.ok(draft.reproduction.length <= problemFeedbackCore.DEFAULT_REPRODUCTION_MAX);
   assert.ok(draft.expected.includes('保留当前会话内容'));
 }
@@ -126,7 +128,7 @@ async function testProblemFeedbackWorkflowReportsNonOkResponsesAndBuildsDraft() 
   assert.strictEqual(events[0].url, '/api/chat/completions');
 
   const draft = workflow.createDraft(events[0]);
-  assert.ok(draft.reproduction.includes('最近 3 轮会话'));
+  assert.ok(draft.reproduction.includes('用户：第二轮问题'));
   assert.ok(draft.reproduction.includes('模型服务暂时不可用'));
   assert.strictEqual(workflow.consumePending().length, 1);
 }
@@ -158,6 +160,52 @@ async function testProblemFeedbackWorkflowIgnoresFeedbackRecursionAndAbort() {
   mode = 'abort';
   await assert.rejects(browser.fetch('/api/chat/completions'), error => error?.name === 'AbortError');
   assert.strictEqual(events.length, 0, 'normal request cancellation must not be reported as an incident');
+}
+
+function testProblemFeedbackManualDraftUsesRecentConversationWithoutFakeError() {
+  const browser = createFakeBrowser(async () => ({ ok: true, status: 200 }));
+  const workflow = createProblemFeedbackWorkflow({ root: browser });
+  workflow.configure({ getActiveSession: sampleSession });
+  const draft = workflow.createManualDraft();
+  assert.strictEqual(draft.problem, '');
+  assert.strictEqual(draft.expected, '');
+  assert.ok(draft.reproduction.includes('用户：第二轮问题'));
+  assert.ok(draft.reproduction.includes('第四轮触发异常'));
+  assert.ok(!draft.reproduction.includes('第一轮问题'));
+  assert.ok(!draft.reproduction.includes('异常：') && !draft.reproduction.includes('自动捕获'), 'manual feedback must not invent an error or explanatory headings');
+}
+
+async function testProblemFeedbackWorkflowIgnoresResourceNoiseAndMonitorsApiFailures() {
+  const browser = createFakeBrowser(async () => ({
+    ok: false,
+    status: 404,
+    statusText: 'Not Found',
+    clone() { return { text: async () => 'missing' }; },
+  }));
+  const events = [];
+  browser.addEventListener(EVENT_NAME, event => events.push(event.detail));
+  const workflow = createProblemFeedbackWorkflow({ root: browser }).install();
+
+  await browser.fetch('/optional-image.png', { method: 'GET' });
+  await flushAsyncWork();
+  assert.strictEqual(browser.runTimers().length, 0, 'ordinary resource GET failures must not schedule feedback');
+  browser.emit('error', {
+    target: {
+      tagName: 'IMG',
+      currentSrc: '',
+      src: 'http://localhost:8765/',
+      getAttribute: name => name === 'src' ? '' : null,
+    },
+  });
+  assert.strictEqual(events.length, 0, 'element resource errors must not open functional feedback');
+  assert.strictEqual(workflow.report({ kind: 'resource', message: '资源未能加载：/' }), null);
+
+  await browser.fetch('/api/models', { method: 'GET' });
+  await flushAsyncWork();
+  const timers = browser.runTimers();
+  assert.strictEqual(timers.length, 1, 'API failures remain functional incidents');
+  assert.strictEqual(events.length, 1);
+  assert.strictEqual(events[0].url, '/api/models');
 }
 
 function testProblemFeedbackDraftSurvivesCloseAndReopenStorageCycle() {
@@ -220,8 +268,9 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   const appIndex = index.indexOf('./app.js?v=2.3.0-auto-incident-feedback');
 
-  assert.ok(index.includes('problem-feedback-workflow.js?v=1.1.0-delayed'));
-  assert.ok(index.includes('usage-stats.js?v=1.3.1-feedback-draft'));
+  assert.ok(index.includes('client/core/problem-feedback.js?v=1.1.0-clean-format'));
+  assert.ok(index.includes('problem-feedback-workflow.js?v=1.2.1-clean-format'));
+  assert.ok(index.includes('usage-stats.js?v=1.3.2-manual-context'));
   assert.ok(coreIndex > -1 && workflowIndex > coreIndex && workflowIndex < serviceIndex, 'fetch monitoring must install before application services issue requests');
   assert.ok(uiIndex > workflowIndex && appIndex > uiIndex, 'feedback UI and session provider must load after the incident workflow');
   assert.ok(app.includes('reportProblem(t,{source:"run",sessionId:e})'), 'final run errors must reach the incident reporter');
@@ -229,8 +278,13 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   assert.ok(ui.includes('最近几轮会话自动填入复现描述'));
   assert.ok(ui.includes("openFeedbackPanel({ incident })"));
   assert.ok(ui.includes('saveFeedbackFormDraft') && ui.includes('restoreFeedbackFormDraft') && ui.includes('sessionStorage'));
+  assert.ok(ui.includes('applyManualConversationDraft') && ui.includes('createManualDraft'));
   assert.ok(ui.includes('consumeReadyPending'));
-  assert.ok(fs.readFileSync(path.join(__dirname, '../../client/app/problem-feedback-workflow.js'), 'utf8').includes('FEEDBACK_DELAY_MS = 5000'));
+  const feedbackWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/problem-feedback-workflow.js'), 'utf8');
+  const imagePreviewWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-preview-workflow.js'), 'utf8');
+  assert.ok(feedbackWorkflow.includes('FEEDBACK_DELAY_MS = 5000'));
+  assert.ok(feedbackWorkflow.includes("input.kind === 'resource'") && feedbackWorkflow.includes('isFunctionalRequest'));
+  assert.ok(imagePreviewWorkflow.includes('removeAttribute("src")') && !imagePreviewWorkflow.includes('e.src=""'));
 }
 
 module.exports = [
@@ -238,6 +292,8 @@ module.exports = [
   testProblemFeedbackDraftIncludesIncidentAndFitsFeedbackField,
   testProblemFeedbackWorkflowReportsNonOkResponsesAndBuildsDraft,
   testProblemFeedbackWorkflowIgnoresFeedbackRecursionAndAbort,
+  testProblemFeedbackManualDraftUsesRecentConversationWithoutFakeError,
+  testProblemFeedbackWorkflowIgnoresResourceNoiseAndMonitorsApiFailures,
   testProblemFeedbackDraftSurvivesCloseAndReopenStorageCycle,
   testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent,
 ];

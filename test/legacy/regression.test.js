@@ -2959,7 +2959,7 @@ function testImagePreviewWheelZoom() {
   assert.ok(workflow.includes('dblclick') && workflow.includes('resetPreviewZoom()'), 'double click should provide a quick reset path');
   assert.ok(css.includes('cursor:zoom-in') && css.includes('.image-preview img.is-zoomed{cursor:zoom-out}'), 'base CSS should no longer show zoom-out before the image is actually zoomed');
   assert.ok(flatCss.includes('.image-preview img') && flatCss.includes('cursor: zoom-in !important') && flatCss.includes('.image-preview img.is-zoomed') && flatCss.includes('cursor: zoom-out !important'), 'flat theme should mirror the functional zoom cursor states');
-  assert.ok(index.includes('image-preview-workflow.js?v=1.2.67') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'image preview zoom should bump cache-busting versions');
+  assert.ok(index.includes('image-preview-workflow.js?v=1.2.68-safe-clear') && index.includes('chatui.bundle.js?v=1.3.160-code-action-motion') && index.includes('styles/flat-theme.css?v=2.2.3-code-action-motion'), 'image preview zoom should bump cache-busting versions');
   assert.ok(bundleSource.includes("BUNDLE_VERSION = '1.3.160-code-action-motion'"), 'server bundle version should match image preview zoom bundle cache-busting');
 }
 

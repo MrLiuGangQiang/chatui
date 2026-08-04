@@ -31,10 +31,19 @@
       try { return getActiveSession?.() || null; } catch { return null; }
     }
 
+    function isFunctionalRequest(input = {}) {
+      const method = String(input.method || 'GET').trim().toUpperCase();
+      const url = core.sanitizeRequestUrl?.(input.url || '', browser?.location?.href || '') || String(input.url || '');
+      if (/^\/api(?:\/|$)/.test(url)) return true;
+      return !['GET', 'HEAD', 'OPTIONS'].includes(method);
+    }
+
     function shouldIgnore(input = {}) {
       const error = input.error;
       const message = String(input.message || error?.message || error || '');
       if (error?.name === 'AbortError' || /\babort(?:ed)?\b|用户停止|主动停止|页面卸载/i.test(message)) return true;
+      if (input.kind === 'resource') return true;
+      if (input.source === 'fetch' && !isFunctionalRequest(input)) return true;
       const url = core.sanitizeRequestUrl?.(input.url || '', browser?.location?.href || '') || String(input.url || '');
       return /\/api\/usage\/feedback(?:\/|$)/.test(url);
     }
@@ -100,6 +109,19 @@
       return core.buildIncidentDraft?.(incident, currentSession()) || { problem: '', reproduction: '', expected: '' };
     }
 
+    function createManualDraft() {
+      const reproduction = core.buildConversationExcerpt?.(currentSession(), {
+        maxRounds: core.DEFAULT_RECENT_ROUNDS || 3,
+        maxChars: 1320,
+        messageMaxChars: 180,
+      }) || '';
+      return {
+        problem: '',
+        reproduction,
+        expected: '',
+      };
+    }
+
     function acknowledge(id = '') {
       const index = pending.findIndex(item => item.id === id);
       if (index >= 0) pending.splice(index, 1);
@@ -135,7 +157,7 @@
         const request = requestDetails(resource, init);
         try {
           const response = await originalFetch(resource, init);
-          if (!response?.ok && !shouldIgnore(request)) {
+          if (!response?.ok) {
             const base = {
               kind: 'http',
               source: 'fetch',
@@ -143,6 +165,7 @@
               status: response?.status,
               statusText: response?.statusText,
             };
+            if (shouldIgnore(base)) return response;
             try {
               const clone = response.clone?.();
               if (clone?.text) {
@@ -171,11 +194,9 @@
           reportError(event.error, { source: event.filename || 'window.error', kind: 'runtime' });
           return;
         }
-        const target = event?.target;
-        if (target && target !== browser) {
-          const url = target.currentSrc || target.src || target.href || '';
-          report({ kind: 'resource', source: String(target.tagName || 'resource').toLowerCase(), url, message: `资源未能加载：${core.sanitizeRequestUrl?.(url, browser?.location?.href || '') || url}` });
-        }
+        // Element resource failures are intentionally ignored here. Images,
+        // styles, and optional dependencies have their own recovery paths and are
+        // not reliable evidence of a user-visible functional failure.
       }, true);
       browser.addEventListener('unhandledrejection', event => {
         reportError(event?.reason || new Error('未处理的 Promise 拒绝'), { source: 'unhandledrejection', kind: 'runtime' });
@@ -198,9 +219,11 @@
       reportError,
       reportUserVisibleMessage,
       createDraft,
+      createManualDraft,
       acknowledge,
       consumePending,
       consumeReadyPending,
+      isFunctionalRequest,
       shouldIgnore,
     });
     return api;

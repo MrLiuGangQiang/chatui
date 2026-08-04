@@ -2,10 +2,10 @@
   'use strict';
 
   const DEFAULT_BASE_URL = 'https://ingress.lfans.cn/v1';
-  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', headerParams: [], chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
+  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
 
   function createConfigWorkflow(deps = {}) {
-    const { state, getElement, localStorage, document, window, crypto, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, getActiveSession, saveSessionsMeta, toast } = deps;
+    const { state, getElement, localStorage, document, window, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, saveSessionsMeta, toast } = deps;
     const CONFIG_KEY = deps.CONFIG_KEY;
     const API_KEY_STORAGE_KEY = `${CONFIG_KEY}:api-key`;
     const sessionStorage = deps.sessionStorage || window?.sessionStorage;
@@ -32,15 +32,7 @@
 
     function loadConfig(){const e=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{})),legacyApiKey=String(e.apiKey||""),persistedApiKey=readPersistedApiKey()||readLegacySessionApiKey();legacyApiKey&&delete e.apiKey;const t={...defaults,...e,apiKey:persistedApiKey||legacyApiKey};t.apiKey&&!readPersistedApiKey()&&writePersistedApiKey(t.apiKey);getElement("baseUrl").value=t.baseUrl||defaults.baseUrl,getElement("baseUrl").readOnly=!1,getElement("apiKey").value=t.apiKey||"",getElement("imageSize").value=t.imageSize||defaults.imageSize,updateCustomSelect(getElement("imageSize")),getElement("systemPrompt").value=t.systemPrompt||"",getElement("imageStylePrompt")&&(getElement("imageStylePrompt").value=t.imageStylePrompt||""),state.models=Array.isArray(t.models)?t.models:[],state.modelMeta=normalizeModelMeta(state.models,t.modelMeta||{});const n=new Set(state.models),a=n.has(t.chatModel)?t.chatModel:"",i=n.has(t.routeModel)?t.routeModel:"",o=n.has(t.imageModel)?t.imageModel:"";renderModelOptions(a,o,i),(legacyApiKey||t.chatModel!==a||t.routeModel!==i||t.imageModel!==o)&&saveConfig(!0),void loadPublicContext()}
 
-    function getConfig(){const e=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),sizeEl=getElement("imageSize"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");const storedModels=Array.isArray(e.models)?e.models:[],models=Array.isArray(state.models)&&state.models.length?state.models:storedModels,context=state.publicContext&&"object"==typeof state.publicContext?state.publicContext:e.context&&"object"==typeof e.context?e.context:{};return{baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, ""),apiKey:String(apiEl?.value||readPersistedApiKey()||"").trim(),headerParams:normalizeHeaderParamConfig(e.headerParams),chatModel:String(chatEl?chatEl.value:e.chatModel||"").trim(),routeModel:String(routeEl?routeEl.value:e.routeModel||"").trim(),imageModel:String(imageEl?imageEl.value:e.imageModel||"").trim(),imageSize:sizeEl?.value||e.imageSize||defaults.imageSize,systemPrompt:String(systemEl?.value||e.systemPrompt||"").trim(),imageStylePrompt:String(styleEl?.value||e.imageStylePrompt||"").trim(),models,context}}
-
-    function normalizeHeaderParamConfig(e=[]){return(Array.isArray(e)?e:[]).map(e=>({name:String(e?.name||"").trim(),mode:["manual","session_short_uuid","message_short_uuid"].includes(e?.mode)?e.mode:"manual",value:String(e?.value||"")})).filter(e=>e.name)}
-
-    function generateShortUuid(){try{const e=new Uint8Array(8);crypto.getRandomValues(e);return[...e].map(e=>e.toString(16).padStart(2,"0")).join("").slice(0,12)}catch{return`${Date.now().toString(36)}${Math.random().toString(36).slice(2,8)}`.slice(0,12)}}
-
-    function ensureSessionHeaderValues(e=state.activeSessionId){const t=state.sessions.find(t=>t.id===e)||getActiveSession();return t.headerValues&&"object"==typeof t.headerValues||(t.headerValues={}),t}
-
-    function buildRequestHeaders(e="message",t=state.activeSessionId){const s=normalizeHeaderParamConfig(getConfig().headerParams),n=ensureSessionHeaderValues(t);const a={};let i=!1;for(const o of s){let s="";"manual"===o.mode?s=o.value:"session_short_uuid"===o.mode?(n.headerValues[o.name]||(n.headerValues[o.name]=generateShortUuid(),i=!0),s=n.headerValues[o.name]):"message_short_uuid"===o.mode&&(s=generateShortUuid()),o.name&&s&&(a[o.name]=s)}return i&&saveSessionsMeta(),a}
+    function getConfig(){const e=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),sizeEl=getElement("imageSize"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");const storedModels=Array.isArray(e.models)?e.models:[],models=Array.isArray(state.models)&&state.models.length?state.models:storedModels,context=state.publicContext&&"object"==typeof state.publicContext?state.publicContext:e.context&&"object"==typeof e.context?e.context:{};return{baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, ""),apiKey:String(apiEl?.value||readPersistedApiKey()||"").trim(),chatModel:String(chatEl?chatEl.value:e.chatModel||"").trim(),routeModel:String(routeEl?routeEl.value:e.routeModel||"").trim(),imageModel:String(imageEl?imageEl.value:e.imageModel||"").trim(),imageSize:sizeEl?.value||e.imageSize||defaults.imageSize,systemPrompt:String(systemEl?.value||e.systemPrompt||"").trim(),imageStylePrompt:String(styleEl?.value||e.imageStylePrompt||"").trim(),models,context}}
 
     function cleanupLegacyConfigCache(){localStorage.removeItem("openapi-chat-image-config"),localStorage.removeItem("openapi-chat-image-config-v1")}
 
@@ -48,7 +40,7 @@
 
     function restoreSavedRoutingModels(saved={}){for(const id of ["chatModel","routeModel"]){const element=getElement(id);if(!element)continue;element.value=String(saved[id]||"");updateCustomSelect(element)}}
 
-    function saveConfig(e=!1){cleanupLegacyConfigCache();const previous=readJsonStorage(CONFIG_KEY,{}),t=getConfig(),routingModelChanged=String(previous.chatModel||"").trim()!==t.chatModel||String(previous.routeModel||"").trim()!==t.routeModel;if(routingModelChanged&&hasBusySession())return restoreSavedRoutingModels(previous),toast?.("\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b"),!1;writePersistedApiKey(t.apiKey),localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,headerParams:normalizeHeaderParamConfig(t.headerParams),chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal();return!0}
+    function saveConfig(e=!1){cleanupLegacyConfigCache();const previous=readJsonStorage(CONFIG_KEY,{}),t=getConfig(),routingModelChanged=String(previous.chatModel||"").trim()!==t.chatModel||String(previous.routeModel||"").trim()!==t.routeModel;if(routingModelChanged&&hasBusySession())return restoreSavedRoutingModels(previous),toast?.("\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b"),!1;writePersistedApiKey(t.apiKey),localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal();return!0}
 
     function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)}
 
@@ -70,7 +62,7 @@
 
     setTimeout?.(bindBackupControls,0);
 
-    return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, copyConfigField, readPersistedApiKey, writePersistedApiKey, loadPublicContext, loadConfig, getConfig, normalizeHeaderParamConfig, generateShortUuid, ensureSessionHeaderValues, buildRequestHeaders, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
+    return Object.freeze({ readJsonStorage, normalizeModelMeta, setApiKeyVisible, toggleApiKeyVisibility, copyConfigField, readPersistedApiKey, writePersistedApiKey, loadPublicContext, loadConfig, getConfig, cleanupLegacyConfigCache, saveConfig, openConfigModal, closeConfigModal });
   }
 
   const api = Object.freeze({ createConfigWorkflow, defaults, DEFAULT_BASE_URL });

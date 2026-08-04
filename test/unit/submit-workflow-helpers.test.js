@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const helpers = require('../../client/app/submit-workflow.helpers');
+const messagePrimitives = require('../../client/core/message-primitives');
 const attachments = require('../../client/core/attachments');
 const routeService = require('../../client/services/route-service');
 
@@ -8,6 +9,8 @@ function testSubmitHelpersParseAndPreviewQuoteContext() {
   assert.deepStrictEqual(helpers.parseContextValue('{"role":"user","content":" hello  world "}'), { role: 'user', content: ' hello  world ' });
   assert.strictEqual(helpers.parseContextValue('{bad'), null);
   assert.deepStrictEqual(helpers.parseContextValue({ ok: true }), { ok: true });
+  assert.strictEqual(helpers.parseContextValue, messagePrimitives.parseContext, 'submit helpers should reuse the shared context parser');
+  assert.strictEqual(helpers.parseContextValue('[]'), null, 'non-object context payloads should fail closed');
   const preview = helpers.previewQuoteText('  第一行\n第二行  '.repeat(10));
   assert.strictEqual(preview.length, 48);
   assert.ok(preview.startsWith('第一行 第二行 第一行 第二行'));
@@ -17,6 +20,43 @@ function testSubmitHelpersParseAndPreviewQuoteContext() {
   assert.ok(html.includes('&lt;b&gt;结果&lt;/b&gt;'));
   assert.ok(html.endsWith('<p>正文</p>'));
   assert.strictEqual(helpers.withPendingQuotePreview('<button class="sent-quote-preview"></button>', { role: 'user', content: 'x' }), '<button class="sent-quote-preview"></button>');
+}
+
+function testQuotedRouteContextUsesOneCanonicalIdentityPolicy() {
+  const quotedMessage = {
+    role: 'assistant',
+    content: '  参考这张产品图  ',
+    display_item_id: 'quote-message-1',
+  };
+  const persistedImage = {
+    image_id: 'img_imgref_product_2',
+    filename: '产品参考.png',
+    type: 'image/png',
+  };
+  const result = helpers.buildQuotedRouteContext({
+    quotedMessage,
+    quotedImageContext: {
+      target: 'uploaded',
+      attachments: [persistedImage],
+      prompt: '旧提示词',
+    },
+    restoredImageAttachments: [],
+    quotedFileCandidates: [{ index: 1, id: 'file-1', name: '规格书.pdf' }],
+    currentInput: '按这个风格生成海报',
+    cleanQuotedContent: routeService.cleanQuotedContent,
+    buildQuotedRouteContent: routeService.buildQuotedRouteContent,
+  });
+
+  assert.strictEqual(result.hasQuotedMessage, true);
+  assert.strictEqual(result.hasQuotedImage, true, 'persisted image metadata must remain routable when IndexedDB restoration is unavailable');
+  assert.strictEqual(result.context.quoted_message.id, 'quote-message-1');
+  assert.strictEqual(result.context.image_candidates[0].image_id, 'img_imgref_product_2');
+  assert.strictEqual(result.context.image_candidates[0].reference_id, 'imgref_product');
+  assert.strictEqual(result.context.image_candidates[0].filename, '产品参考.png');
+  assert.strictEqual(result.context.latest_uploaded_image.reference_id, 'imgref_product');
+  assert.strictEqual(result.context.latest_assistant_image_result, null);
+  assert.deepStrictEqual(result.context.file_candidates, [{ index: 1, id: 'file-1', name: '规格书.pdf' }]);
+  assert.match(result.context.suggested_contextual_image_prompt, /参考这张产品图[\s\S]*按这个风格生成海报/);
 }
 
 function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
@@ -146,6 +186,7 @@ function testContinuationAttachmentPoolReachesTheCanonicalChatRequest() {
 
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
+  testQuotedRouteContextUsesOneCanonicalIdentityPolicy,
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
   testRouteMessageContextProjectionUsesOnlyResolvedBindings,
   testRouteExecutionMediaProjectionIsCanonicalAndRoleAware,

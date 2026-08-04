@@ -35,7 +35,7 @@ const formatting = require('../../client/app/formatting');
 const routeDiagramWorkflow = require('../../client/app/route-diagram-workflow');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
 const markdownSourceNormalizer = require('../../client/app/markdown/source-normalizer');
-const sourceAssertions = require('../../client/testing/source-assertions');
+const sourceAssertions = require('../helpers/source-assertions');
 const staticHttp = require('../../server/http/static');
 
 function stripLargeDataUrlsFromText(text = '') {
@@ -1218,7 +1218,8 @@ function testStreamingTailRendersWithoutCursor() {
   assert.ok(renderer.includes('tailTextNode.appendData') && renderer.includes('container.appendChild(node)'), 'streaming tail should update a text node instead of rerendering the whole tail DOM');
   assert.ok(renderer.includes('removeTailNode();') && renderer.includes('final(container'), 'streaming tail should be removed during final render');
   assert.ok(renderer.includes('tailNode.appendChild(tailTextNode)') && !renderer.includes('markdown-stream-caret') && !renderer.includes('keepCursor'), 'streaming renderer should contain only tail text and no cursor-specific DOM or options');
-  assert.ok(sanitizer.includes('ALLOW_DATA_ATTR: true'), 'sanitizer should still allow data attributes if streamed Markdown is sanitized elsewhere');
+  const sanitizerPolicy = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/sanitizer-policy.js'), 'utf8');
+  assert.ok(sanitizerPolicy.includes('data-copy-text') && sanitizerPolicy.includes('data-mermaid-rendered'), 'sanitizer policy should still allow data attributes if streamed Markdown is sanitized elsewhere');
   assert.ok(!css.includes('.markdown-stream-caret') && !css.includes('markdown-stream-caret-pulse'), 'flat theme should not contain streaming cursor styles or animation');
   assert.ok(!css.includes('.message[data-streaming="1"] .content::after'), 'streaming messages should not synthesize a cursor with a pseudo-element');
   assert.ok(message.includes('dataset.lastStreamingRaw') && message.includes('e.dataset.lastStreamingRaw === rawValue'), 'message workflow should skip duplicate streaming payloads before touching Markdown DOM');
@@ -2480,8 +2481,9 @@ function testMarkdownTableAlignmentUsesRendererSemantics() {
 function testMarkdownDetailsPreserveOpenAttribute() {
   const browserSanitizer = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/browser-sanitizer.js'), 'utf8');
   const nodeSanitizer = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/sanitizer.js'), 'utf8');
-  assert.ok(browserSanitizer.includes("'details', 'summary'") && browserSanitizer.includes("'open'"), 'browser sanitizer should preserve details/summary and open attribute');
-  assert.ok(nodeSanitizer.includes("'details', 'summary'") && nodeSanitizer.includes("'open'"), 'node sanitizer should preserve details/summary and open attribute');
+  const sanitizerPolicy = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/sanitizer-policy.js'), 'utf8');
+  assert.ok(sanitizerPolicy.includes("'details', 'summary'") && sanitizerPolicy.includes("'open'"), 'browser sanitizer should preserve details/summary and open attribute');
+  assert.ok(nodeSanitizer.includes("require('./sanitizer-policy')") || sanitizerPolicy.includes("'details', 'summary'"), 'node sanitizer should preserve details/summary and open attribute');
 }
 
 function testMarkdownDetailsUseNativeCollapsedSemantics() {
@@ -2761,7 +2763,7 @@ function testArchitectureBoundaryScaffolding() {
   const index = sourceAssertions.readSource('index.html');
   sourceAssertions.assertInOrder(index, './client/core/browser.js', './client/config/storage-keys.js', 'config should load after core browser primitives');
   sourceAssertions.assertInOrder(index, './client/config/storage-keys.js', './client/app/state.js', 'config should load before app state and app bootstrap');
-  sourceAssertions.assertInOrder(index, './client/domain/types.js', './client/app/state.js', 'domain typedefs should load before app state and app bootstrap');
+  sourceAssertions.assertNotIncludes(index, './client/domain/types.js', 'domain typedefs must not be loaded as a browser runtime asset');
 
   const app = sourceAssertions.readSource('app.js');
   sourceAssertions.assertIncludes(app, 'storageKeys=window.ChatUIConfig?.storageKeys||{}', 'app should read storage keys through the config boundary with fallbacks');
@@ -2842,7 +2844,7 @@ function testConfigBaseUrlDefault() {
     state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
     getElement: id => elements.get(id), localStorage: storage, sessionStorage: storage,
     document: { body: { classList: { add() {}, remove() {} } } }, window: { sessionStorage: storage, setTimeout }, crypto: { getRandomValues() {} }, CONFIG_KEY: 'config',
-    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({ headerValues: {} }), saveSessionsMeta() {}, toast() {},
+    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({}), saveSessionsMeta() {}, toast() {},
   });
   workflow.loadConfig();
   assert.strictEqual(elements.get('baseUrl').value, 'https://gateway.example/v1/', 'loadConfig should preserve a saved Endpoint Base URL');
@@ -2884,7 +2886,7 @@ function testSensitiveConfigAndIntentTraceAreNotPersisted() {
     state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
     getElement: id => elements.get(id), localStorage, sessionStorage, document: { body: { classList: { add() {}, remove() {} } } },
     window: { sessionStorage, setTimeout }, crypto: { getRandomValues() {} }, CONFIG_KEY: 'test-config',
-    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({ headerValues: {} }), saveSessionsMeta() {}, toast() {},
+    renderModelOptions() {}, updateCustomSelect() {}, enhanceConfigSelects() {}, closeAllCustomSelects() {}, getActiveSession: () => ({}), saveSessionsMeta() {}, toast() {},
   });
   elements.get('apiKey').value = 'sk-session-only';
   config.saveConfig(true);

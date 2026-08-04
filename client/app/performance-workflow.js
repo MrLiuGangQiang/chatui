@@ -1,6 +1,10 @@
 (function initChatUIAppPerformanceWorkflow(root) {
   'use strict';
 
+  const textHash = root?.[Symbol.for('chatui.module-registry.v1')]?.get('textHash')
+    || (typeof require === 'function' ? require('../core/text-hash') : {});
+  const contentHash = textHash.contentHash || (value => `${String(value || '').length}:0`);
+
   function createPerformanceWorkflow(deps = {}) {
     const {
       state,
@@ -30,15 +34,7 @@
       if (window.__chatuiPerfLog.length > 120) window.__chatuiPerfLog.shift();
       console.warn('[ChatUI perf]', entry);
     }
-    function chatuiContentHash(value = '') {
-      const text = String(value || '');
-      let hash = 2166136261;
-      for (let index = 0; index < text.length; index += 1) {
-        hash ^= text.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-      }
-      return `${text.length}:${(hash >>> 0).toString(36)}`;
-    }
+    const chatuiContentHash = contentHash;
     function chatuiPlainPreview(value = '') {
       const text = String(value || '');
       return `<div class="plain-text markdown-lazy-placeholder">${escapeHtml(text.slice(0, 1600))}${text.length > 1600 ? '\n\n…（滚动到此处后继续渲染 Markdown）' : ''}</div>`;

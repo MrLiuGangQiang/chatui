@@ -188,14 +188,13 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
       getSessionChatModel: () => 'gpt-4.1-mini',
       ensureActiveRun: () => run,
       getActiveSession: () => session,
-      buildRequestHeaders: () => headers,
       prepareChatAttachments: async (attachments, options) => {
         events.push('prepare-attachments');
         assert.strictEqual(attachments[0].fileData, undefined);
         assert.strictEqual(options.config, config);
         assert.strictEqual(options.signal, run.abortController.signal);
         assert.strictEqual(options.sessionId, session.id);
-        assert.strictEqual(options.headers, headers);
+        assert.deepStrictEqual(options.headers, {});
         return attachments.map(item => ({
           ...item,
           inputFile: true,

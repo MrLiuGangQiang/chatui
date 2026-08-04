@@ -1,6 +1,9 @@
 (function initChatUIAppSessionPersistence(root) {
   'use strict';
 
+  const { messageIdentity } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (typeof require === 'function' ? require('../core/message-primitives') : {});
+
   function parseMessageOrderIndex(value) {
     if (value === null || value === undefined) return NaN;
     if (typeof value === 'string' && !value.trim()) return NaN;
@@ -104,11 +107,6 @@
       ...(!current.attachmentContext && next.attachmentContext ? { attachmentContext: next.attachmentContext } : {}),
       ...(!current.reasoning_content && next.reasoning_content ? { reasoning_content: next.reasoning_content } : {}),
     } : current;
-  }
-  function messageIdentity(message) {
-    if (!message || !['user', 'assistant'].includes(message.role)) return '';
-    const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
-    return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
   }
   function isDurableImageMessage(message) {
     return /^\[图片(生成|编辑|修改)完成\]/.test(String(message?.content || message?.rawText || ''))

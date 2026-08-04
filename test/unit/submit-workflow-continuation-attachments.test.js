@@ -133,7 +133,7 @@ async function testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndC
         return finalRoute;
       },
       createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
-      buildRequestHeaders: () => ({}), updateModeUi: () => {}, warnMissingModel: () => false,
+      updateModeUi: () => {}, warnMissingModel: () => false,
       updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; }, updateSessionDisplayItem: () => {},
       sendChat: async (_prompt, files, _node, options) => { sent.push(files); options.onDurableHandoff(); },
       sendImage: async () => {}, getLatestUploadedImageContext: () => null, getUploadedImageContext: () => null,
@@ -281,7 +281,7 @@ async function testPendingAssistancePersistsAndDisplaysCandidateImageCards() {
         return recoveredRoute;
       },
       createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
-      buildRequestHeaders: () => ({}), updateModeUi: () => {}, warnMissingModel: () => false,
+      updateModeUi: () => {}, warnMissingModel: () => false,
       updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; },
       sendChat: async () => {}, sendImage: async () => {},
       getLatestUploadedImageContext: () => null, getUploadedImageContext: () => null,

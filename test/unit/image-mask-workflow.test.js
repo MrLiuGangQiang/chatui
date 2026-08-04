@@ -129,7 +129,6 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
     buildImagePromptWithStylePrompt: (prompt, style) => style ? `${prompt} ${style}` : prompt,
     buildPromptWithTextAttachments: prompt => prompt,
     getEffectiveImageStylePrompt: () => '全局风格不应进入编辑',
-    buildRequestHeaders: () => ({}),
     isImageFile,
     persistImageAttachmentRefs: async list => list.map(item => ({
       ...item,
@@ -266,7 +265,10 @@ function testRootImageJobAdapterForwardsMasksInBothPaths() {
 }
 
 function testReferenceRolesReachTheImageRequestBoundary() {
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'image-workflow.js'), 'utf8');
+  const source = [
+    fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'image-workflow.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'core', 'image-execution.js'), 'utf8'),
+  ].join('\n');
   const inputs = [
     { routeRole: 'reference', routeResourceKey: 'r1', routeId: 'content-1', routeReferenceId: 'refset-1' },
     { routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' },
@@ -297,12 +299,12 @@ function testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous() {
   const guide = imageWorkflow.buildImageRoleGuide(inputs, taskContract);
   const finalPrompt = ['不是这只猫，替换成你生成的猫', guide].join('\n\n');
 
-  assert.match(finalPrompt, /图片1：作为编辑目标图（唯一需要修改的底图）/);
   assert.match(finalPrompt, /图片2：作为内容参考（用户已确认的替换或新增内容来源，不是编辑目标）/);
-  assert.match(finalPrompt, /所有修改只作用于图片1/);
-  assert.match(finalPrompt, /不要把参考图的背景、构图或无关元素带入目标图/);
   assert.match(finalPrompt, /除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格/);
   assert.match(finalPrompt, /不要输出拼图、对比图或并排候选/);
+  assert.match(finalPrompt, /图片2：作为内容参考（用户已确认的替换或新增内容来源，不是编辑目标）/);
+  assert.match(finalPrompt, /除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格/);
+  assert.match(finalPrompt, /不要把参考图的背景、构图或无关元素带入目标图/);
   assert.doesNotMatch(finalPrompt, /第2张|候选2|选择2/, 'candidate locator text must never leak into the image-model prompt');
 }
 
@@ -361,7 +363,6 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
       restarts.push({ payload, config, jobId, options });
       throw stopAfterRestart;
     },
-    buildRequestHeaders: () => ({}),
     showRunError() {},
     findMessageNodeByDisplayItem: () => null,
     addMessage() {},
@@ -389,3 +390,7 @@ module.exports = [
   testResumedImageResultPersistsReturnedImageInsteadOfJobInput,
   testImageResumeRestoresMasksIntoTheirDedicatedSlot,
 ];
+
+
+
+

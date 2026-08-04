@@ -6,17 +6,14 @@
     (typeof require === "function"
       ? require("../core/execution-resources")
       : {});
-
-  function parseContextValue(value) {
-    if (!value) return null;
-    if (typeof value === "string") {
-      try {
-        return JSON.parse(value);
-      } catch {
-        return null;
-      }
-    }
-    return typeof value === "object" ? value : null;
+  const messagePrimitives =
+    root?.[Symbol.for("chatui.module-registry.v1")]?.get("messagePrimitives") ||
+    (typeof require === "function"
+      ? require("../core/message-primitives")
+      : {});
+  const parseContextValue = messagePrimitives.parseContext;
+  if (typeof parseContextValue !== "function") {
+    throw new Error("ChatUI message primitives are not loaded");
   }
 
   function escapeHtml(value) {
@@ -97,8 +94,130 @@
 
   function messageIdentity(message = {}) {
     return String(
-      message?.displayItemId || message?.id || message?.messageId || "",
+      message?.displayItemId ||
+        message?.display_item_id ||
+        message?.id ||
+        message?.messageId ||
+        message?.message_id ||
+        "",
     );
+  }
+
+  function imageReferenceFromItem(item = {}) {
+    const explicit = String(item?.referenceId || item?.reference_id || "");
+    if (explicit) return explicit;
+    const imageId = String(item?.imageId || item?.image_id || item?.id || "");
+    return imageId.match(/^img_(imgref_.+)_\d+$/)?.[1] || "";
+  }
+
+  function buildQuotedRouteContext({
+    quotedMessage = null,
+    quotedImageContext = null,
+    restoredImageAttachments = [],
+    quotedFileCandidates = [],
+    currentInput = "",
+    cleanQuotedContent = (value) => String(value || "").trim(),
+    buildQuotedRouteContent = ({ text = "", images = [] } = {}) =>
+      [String(text || "").trim(), images.length ? "[quoted_image]" : ""]
+        .filter(Boolean)
+        .join("\n"),
+  } = {}) {
+    const contextAttachments = Array.isArray(quotedImageContext?.attachments)
+      ? quotedImageContext.attachments
+      : [];
+    const restored = Array.isArray(restoredImageAttachments)
+      ? restoredImageAttachments
+      : [];
+    const imageAttachments = restored.length ? restored : contextAttachments;
+    const imageSource =
+      quotedImageContext?.target === "uploaded" ||
+      quotedImageContext?.mode === "edit_image"
+        ? "uploaded"
+        : "previous";
+    const contextReferenceId = String(
+      quotedImageContext?.referenceId ||
+        quotedImageContext?.reference_id ||
+        quotedImageContext?.selectedReferenceId ||
+        "",
+    );
+    const messageText = cleanQuotedContent(
+      quotedMessage?.content || quotedMessage?.rawText || "",
+    );
+    const contextPrompt = cleanQuotedContent(
+      quotedImageContext?.prompt ||
+        quotedImageContext?.userPrompt ||
+        quotedImageContext?.originalPrompt ||
+        "",
+    );
+    const cleanText = messageText || contextPrompt;
+    const routeContent = buildQuotedRouteContent({
+      text: cleanText || quotedMessage?.content || quotedMessage?.rawText || "",
+      images: imageAttachments,
+    });
+    const defaultReferenceId =
+      contextReferenceId || imageReferenceFromItem(imageAttachments[0]) || "imgref_quote";
+    const referenceSummary = {
+      reference_id: defaultReferenceId,
+      source: "quoted",
+      target: imageSource,
+      count: imageAttachments.length,
+    };
+    const imageCandidates = imageAttachments.map((item, index) => {
+      const imageId = String(item?.imageId || item?.image_id || item?.id || "");
+      return {
+        index: index + 1,
+        image_id: imageId,
+        reference_id:
+          contextReferenceId ||
+          imageReferenceFromItem(item) ||
+          defaultReferenceId,
+        target: imageSource,
+        source: "quoted",
+        filename: String(item?.name || item?.filename || item?.file?.name || ""),
+        prompt: cleanText,
+      };
+    });
+    const hasQuotedImage = imageCandidates.length > 0;
+    const context = {
+      quoted_message: {
+        index: 1,
+        role: quotedMessage?.role || "user",
+        id: messageIdentity(quotedMessage),
+      },
+      recent_messages: [
+        {
+          index: 1,
+          role: quotedMessage?.role || "user",
+          content: routeContent || "[quoted_message]",
+        },
+      ],
+      suggested_contextual_image_prompt: [cleanText, currentInput]
+        .filter(Boolean)
+        .join("\n\n"),
+      latest_user_image_request: null,
+      latest_assistant_image_result:
+        hasQuotedImage && imageSource === "previous" ? referenceSummary : null,
+      image_candidates: imageCandidates,
+      file_candidates: Array.isArray(quotedFileCandidates)
+        ? quotedFileCandidates
+        : [],
+      last_generated_image: null,
+      latest_uploaded_image:
+        hasQuotedImage && imageSource === "uploaded" ? referenceSummary : null,
+      latest_image_reference: hasQuotedImage ? referenceSummary : null,
+      recent_image_references: [],
+      recent_uploaded_image_references: [],
+    };
+    return Object.freeze({
+      context,
+      cleanText,
+      routeContent,
+      imageAttachments,
+      imageSource,
+      referenceId: defaultReferenceId,
+      hasQuotedMessage: !!quotedMessage,
+      hasQuotedImage,
+    });
   }
 
   function projectRouteMessageContext(
@@ -357,6 +476,8 @@
     originalImageIndex,
     imageAttachmentIndexGuide,
     messageIdentity,
+    imageReferenceFromItem,
+    buildQuotedRouteContext,
     projectRouteMessageContext,
     projectRouteExecutionMedia,
     mediaIdentity,

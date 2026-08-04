@@ -2,11 +2,7 @@
 
 const { splitStableTail } = require('./stable-boundary');
 
-function appendHtml(container, html = '') {
-  const tpl = document.createElement('template');
-  tpl.innerHTML = String(html || '');
-  container.append(...tpl.content.childNodes);
-}
+
 
 function insertHtmlBefore(container, html = '', beforeNode = null) {
   const tpl = document.createElement('template');
@@ -37,26 +33,11 @@ function wrapCompletedStreamingCodeBlocks(root) {
   return root;
 }
 
-function normalizedHtml(value = '') {
-  return String(value || '').replace(/\s+/g, ' ').trim();
-}
 
-function finalMarkupMatchesCurrent(container, finalHtml = '') {
-  const tpl = document.createElement('template');
-  tpl.innerHTML = String(finalHtml || '');
-  return normalizedHtml(container.innerHTML) === normalizedHtml(tpl.innerHTML);
-}
 
-function projectedIncrementalFinalMatches(container, finalHtml = '', finalDelta = '', renderMarkdown = null) {
-  if (typeof renderMarkdown !== 'function') return false;
-  const tpl = document.createElement('template');
-  tpl.innerHTML = String(finalHtml || '');
-  const current = container.cloneNode(true);
-  const delta = document.createElement('template');
-  delta.innerHTML = renderMarkdown(finalDelta);
-  current.append(...delta.content.childNodes);
-  return normalizedHtml(current.innerHTML) === normalizedHtml(tpl.innerHTML);
-}
+
+
+
 
 function createStreamingRenderer({ renderMarkdown, enhance } = {}) {
   if (typeof renderMarkdown !== 'function') throw new TypeError('createStreamingRenderer requires renderMarkdown');

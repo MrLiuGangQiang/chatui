@@ -7,6 +7,8 @@ module.exports = {
   imageReferences: require('./image-references'),
   imageRouteContext: require('./image-route-context'),
   attachments: require('./attachments'),
+  routeProtocol: require('./route-protocol'),
+  messagePrimitives: require('./message-primitives'),
   fileInputs: require('../../shared/file-inputs'),
   contextBudget: require('./context-budget'),
   taskState: require('./task-state'),

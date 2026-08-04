@@ -5,6 +5,7 @@ const path = require('path');
 
 const staticBundle = require('../../server/services/static-bundle.service');
 const staticHttp = require('../../server/http/static');
+const staticPathUtils = require('../../server/http/static-path-utils');
 
 function withTempBundleRoot(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-static-bundle-'));
@@ -26,6 +27,15 @@ function withTempBundleRoot(run) {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+}
+
+function testStaticPathUtilitiesPreserveTraversalAndHashingGuards() {
+  const root = path.join(os.tmpdir(), 'chatui-static-root');
+  const rootWithSep = `${root}${path.sep}`;
+  assert.strictEqual(staticPathUtils.safeJoin(root, rootWithSep, '/client/app.js?v=1'), path.join(root, 'client/app.js'));
+  assert.strictEqual(staticPathUtils.safeJoin(root, rootWithSep, '/%2e%2e/secret.txt'), null);
+  assert.strictEqual(staticPathUtils.safeJoin(root, rootWithSep, '/%E0%A4%A'), null, 'malformed encoded paths must fail closed');
+  assert.strictEqual(staticPathUtils.sha1('abc'), 'a9993e364706816aba3e25717850c26c9cd0d89d');
 }
 
 function testStaticBundleManifestParsesLocalEntriesOnly() {
@@ -95,18 +105,39 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const root = path.join(__dirname, '../..');
   const entries = staticBundle.parseAssetManifest(root, `${root}${path.sep}`, 'js');
   const paths = entries.map(entry => entry.urlPath);
+  const registryIndex = paths.indexOf('/client/runtime/module-registry.js');
+  const textHashIndex = paths.indexOf('/client/core/text-hash.js');
   const coreIndex = paths.indexOf('/client/core/browser.js');
+  const imageExecutionIndex = paths.indexOf('/client/core/image-execution.js');
+  const messagePrimitivesIndex = paths.indexOf('/client/core/message-primitives.js');
+  const submitHelpersIndex = paths.indexOf('/client/app/submit-workflow.helpers.js');
+  const routeServiceIndex = paths.indexOf('/client/services/route-service.js');
+  const routePayloadIndex = paths.indexOf('/client/services/route-payload.js');
+  const routeCompilerIndex = paths.indexOf('/client/services/route-decision-compiler.js');
+  const routeLegacyIndex = paths.indexOf('/client/services/route-legacy-adapter.js');
+  const sessionRecoveryIndex = paths.indexOf('/client/services/session-snapshot-recovery.js');
+  const sessionDisplayIndex = paths.indexOf('/client/app/session-display.js');
+  const submitPolicyIndex = paths.indexOf('/client/app/submit-workflow-policy.js');
+  const submitWorkflowIndex = paths.indexOf('/client/app/submit-workflow.js');
   const contractIndex = paths.indexOf('/shared/file-inputs.js');
   const chatServiceIndex = paths.indexOf('/client/services/chat-service.js');
   const workflowIndex = paths.indexOf('/client/app/attachments-workflow.js');
 
+  assert.ok(registryIndex >= 0 && registryIndex < textHashIndex, 'the hidden module registry must load before registered browser modules');
+  assert.ok(textHashIndex >= 0 && textHashIndex < coreIndex, 'shared text hashing must load before performance/render consumers');
   assert.ok(coreIndex >= 0 && contractIndex > coreIndex, 'the shared file-input contract must register after ChatUICore exists');
+  assert.ok(imageExecutionIndex >= 0 && imageExecutionIndex < paths.indexOf('/client/app/image-workflow.js'), 'image execution policy must load before image workflow');
+  assert.ok(messagePrimitivesIndex >= 0 && messagePrimitivesIndex < submitHelpersIndex, 'shared message primitives must load before submit workflow helpers');
+  assert.ok(routePayloadIndex < routeCompilerIndex && routeCompilerIndex < routeLegacyIndex && routeLegacyIndex < routeServiceIndex, 'route policy modules must load before route service composition');
+  assert.ok(sessionRecoveryIndex >= 0 && sessionRecoveryIndex < sessionDisplayIndex, 'session snapshot recovery must load before session display composition');
+  assert.ok(submitPolicyIndex >= 0 && submitPolicyIndex < submitWorkflowIndex, 'submit policy must load before submit workflow composition');
   assert.ok(contractIndex < chatServiceIndex, 'the contract must load before chat payload construction');
   assert.ok(contractIndex < workflowIndex, 'the contract must load before attachment selection and upload workflows');
   assert.ok(!paths.includes('/client/services/attachment-service.js'), 'the removed local extraction service must not be bundled');
 }
 
 module.exports = [
+  testStaticPathUtilitiesPreserveTraversalAndHashingGuards,
   testStaticBundleManifestParsesLocalEntriesOnly,
   testStaticBundleHelpersBuildExpectedBodyAndMetadata,
   testHeavyMarkdownEnhancementsAreDeferredFromPrimaryBundle,

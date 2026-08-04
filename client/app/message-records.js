@@ -11,13 +11,8 @@
   const OMITTED_MEDIA_RE = /\[(?:attachment|image)-data-omitted\]/i;
   const GENERIC_ATTACHMENT_TEXT_RE = /^(?:\u5df2\u53d1\u9001\u9644\u4ef6|\u9644\u4ef6)$/;
 
-  function parseContext(value) {
-    if (!value) return null;
-    if (typeof value === 'string') {
-      try { return parseContext(JSON.parse(value)); } catch { return null; }
-    }
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-  }
+  const { parseContext } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (typeof require === 'function' ? require('../core/message-primitives') : {});
 
   function stringifyContext(value) {
     if (!value) return '';

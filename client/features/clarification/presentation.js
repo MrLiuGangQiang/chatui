@@ -15,18 +15,13 @@
       try { return typeof require === 'function' ? require('../../core/image-references') : {}; } catch { return {}; }
     })();
 
+  const { parseContext } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (() => { try { return typeof require === 'function' ? require('../../core/message-primitives') : {}; } catch { return {}; } })();
+
   function escapeHtml(value = '') {
     return String(value ?? '').replace(/[&<>"'`]/g, character => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;',
     }[character]));
-  }
-
-  function parseContext(value) {
-    if (!value) return null;
-    if (typeof value === 'string') {
-      try { return parseContext(JSON.parse(value)); } catch { return null; }
-    }
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   }
 
   function contextImages(value) {

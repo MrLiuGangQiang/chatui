@@ -223,7 +223,7 @@
                   mode: "edit_image",
                   files: uploadFiles,
                   masks: uploadMasks,
-                  headers: s.headers || buildRequestHeaders("message", e),
+                  headers: {},
                   sessionId: e,
                 }),
                   (n = await waitImageGenerationJob(s.id, l)));
@@ -244,7 +244,7 @@
                   t.baseUrl &&
                   (await startImageGenerationJob(s.payload, t, s.id, {
                     mode: "image",
-                    headers: s.headers || buildRequestHeaders("message", e),
+                    headers: {},
                     sessionId: e,
                   })),
                   (n = await waitImageGenerationJob(s.id, l)));
@@ -558,7 +558,7 @@
                 await registerChatStreamJob(restoredPayload, t, s.id, {
                   start: !0,
                   api: s.api || "chat",
-                  headers: s.headers || buildRequestHeaders("message", e),
+                  headers: {},
                   sessionId: e,
                 }),
               )),

@@ -114,7 +114,6 @@ async function testActiveImageCompletionKeepsInsertedCanonicalReplyBeforeTheShif
     clearPendingFeedback: noop,
     buildImagePromptWithStylePrompt: prompt => prompt,
     getEffectiveImageStylePrompt: () => '',
-    buildRequestHeaders: () => ({}),
     persistImageAttachmentRefs: async attachments => attachments,
     normalizeImageContextForStorage: value => value,
     makeImageItemId: (_referenceId, ordinal) => `image-${ordinal}`,

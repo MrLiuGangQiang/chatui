@@ -170,7 +170,7 @@ function testFollowSelectionClearsPersistedExplicitRouteModel() {
     updateCustomSelect() {},
     enhanceConfigSelects() {},
     closeAllCustomSelects() {},
-    getActiveSession: () => ({ headerValues: {} }),
+    getActiveSession: () => ({}),
     saveSessionsMeta() {},
     toast() {},
   });
@@ -210,7 +210,7 @@ function testEmptyVisibleModelSelectionsOverrideStaleStoredModels() {
     updateCustomSelect() {},
     enhanceConfigSelects() {},
     closeAllCustomSelects() {},
-    getActiveSession: () => ({ headerValues: {} }),
+    getActiveSession: () => ({}),
     saveSessionsMeta() {},
     toast() {},
   });
@@ -249,7 +249,6 @@ function createRouteHarness({ config, sessions, requestJson, buildRouteAttachmen
     getConfig: () => ({ ...config }),
     getSessionChatModel: (sessionId, currentConfig) => sessionConfig.getSessionChatModel({ session: getSession(sessionId), config: currentConfig, models: config.models }),
     getSessionRouteModel: (sessionId, currentConfig) => sessionConfig.getSessionRouteModel({ session: getSession(sessionId), config: currentConfig, models: config.models }),
-    buildRequestHeaders: () => ({}),
     buildRouteAttachmentMetadata,
     requestJson,
     parseRouteResult: routeService.parseRouteResult,
@@ -314,7 +313,6 @@ async function testExplicitRouteModelSwitchUsesLatestSelection() {
     getConfig: () => ({ ...config }),
     getSessionChatModel: () => 'chat-model',
     getSessionRouteModel: (_sessionId, currentConfig) => currentConfig.routeModel || currentConfig.chatModel,
-    buildRequestHeaders: () => ({}),
     buildRouteAttachmentMetadata: () => [],
     requestJson: async (_url, payload) => { requestedModels.push(payload.model); return responseFor(); },
     parseRouteResult: routeService.parseRouteResult,
@@ -1184,7 +1182,7 @@ function testBusyTaskCannotSwitchGlobalRouteModel() {
     updateCustomSelect() {},
     enhanceConfigSelects() {},
     closeAllCustomSelects() {},
-    getActiveSession: () => ({ headerValues: {} }),
+    getActiveSession: () => ({}),
     saveSessionsMeta() {},
     isSessionBusy: () => true,
     toast: message => notices.push(message),
@@ -1227,7 +1225,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(submit.includes(resolution), 'submit preflight must resolve follow mode against the target session before checking route availability');
   assert.ok(!app.includes(resolution), 'the root entry must not retain a duplicate submit preflight implementation');
   assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate to the canonical submit workflow');
-  assert.ok(app.includes('getSessionChatModel,getSessionRouteModel,buildRequestHeaders'), 'route workflow dependencies must receive both canonical session model resolvers');
+  assert.ok(app.includes('getSessionChatModel,getSessionRouteModel'), 'route workflow dependencies must receive both canonical session model resolvers');
   const continuationResolution = 'const cfg=getConfig(),model=typeof getSessionRouteModel==="function"?getSessionRouteModel(sessionId,cfg):cfg.routeModel||cfg.chatModel';
   assert.ok(submit.includes(continuationResolution), 'pending clarification classification must use the target session route model');
   assert.ok(!app.includes(continuationResolution), 'the root entry must not retain a duplicate pending-clarification classifier');

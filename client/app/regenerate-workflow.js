@@ -15,7 +15,7 @@
       sendImage, showRunError, resetActionButtonState, finishSessionTask,
       updateResumeStreamButton, getSubmitWorkflow, createRouteRecognitionUi,
       getMessageWorkflow, parseImageContext, restoreImageAttachmentsFromContext,
-      quotedFileCandidatesFromContext, buildRequestHeaders,
+      quotedFileCandidatesFromContext,
       sendChat, dispatchTaskEvent,
       makeClientChatJobId, makeClientImageJobId, resumeSessionJobs,
       getPreviousImageAttachments,
@@ -216,21 +216,17 @@
         const h=u?await restoreUserAttachmentsFromContext(u):[];
         const quoteRaw=t.dataset.quoteContext||t.__displayItem?.quoteContext||userMessage.quoteContext||"";
         const quotedMessage=quoteRaw?getMessageWorkflow().readQuoteContext(quoteRaw):null;
-        const cleanQuotedContent=routeUtils.cleanQuotedContent;
-        const buildQuotedRouteContent=routeUtils.buildQuotedRouteContent;
         const quotedImageContext=quotedMessage?.imageContext?parseImageContext(quotedMessage.imageContext):null;
         let quotedImageAttachments=[];
         if(quotedImageContext?.attachments?.length)try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err),quotedImageAttachments=[]}
-        const hasQuotedImage=quotedImageAttachments.length>0,quotedImageSource=(quotedImageContext?.target==="uploaded"||quotedImageContext?.mode==="edit_image")?"uploaded":"previous",quotedReferenceId=quotedImageContext?.referenceId||quotedImageContext?.reference_id||quotedImageContext?.selectedReferenceId||"";
-        const quotedFileCandidates=quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||""),quotedCleanText=cleanQuotedContent(quotedMessage?.content||quotedImageContext?.prompt||quotedImageContext?.userPrompt||quotedImageContext?.originalPrompt||""),quotedRouteContent=buildQuotedRouteContent({text:quotedCleanText||quotedMessage?.content||"",images:quotedImageAttachments});
-        const quotedReferenceSummary=()=>({reference_id:quotedReferenceId||"imgref_quote",source:"quoted",target:quotedImageSource,count:quotedImageAttachments.length});
-        const quotedImageCandidates=()=>quotedImageAttachments.map((item,index)=>({index:index+1,image_id:item.imageId||item.image_id||"",reference_id:quotedReferenceId||"imgref_quote",target:quotedImageSource,source:"quoted",filename:item.name||"",prompt:quotedCleanText||""}));
-        const buildQuotedRouteContext=()=>({quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""},recent_messages:[{index:1,role:quotedMessage?.role||"user",content:quotedRouteContent||"[quoted_message]"}],suggested_contextual_image_prompt:[quotedCleanText,s].filter(Boolean).join("\n\n"),latest_user_image_request:null,latest_assistant_image_result:hasQuotedImage&&quotedImageSource==="previous"?quotedReferenceSummary():null,image_candidates:hasQuotedImage?quotedImageCandidates():[],file_candidates:quotedFileCandidates,last_generated_image:null,latest_uploaded_image:hasQuotedImage&&quotedImageSource==="uploaded"?quotedReferenceSummary():null,latest_image_reference:hasQuotedImage?quotedReferenceSummary():null,recent_image_references:[],recent_uploaded_image_references:[]});
+        const quotedFileCandidates=quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||"");
+        const quotedRoute=submitHelpers.buildQuotedRouteContext({quotedMessage,quotedImageContext,restoredImageAttachments:quotedImageAttachments,quotedFileCandidates,currentInput:s,cleanQuotedContent:routeUtils.cleanQuotedContent,buildQuotedRouteContent:routeUtils.buildQuotedRouteContent});
+        const buildQuotedRouteContext=()=>quotedRoute.context;
         task.captured();task.routing();
         let p,g;
-        try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),replay.clarificationRouteContext),g=p.mode}
-        else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),buildQuotedRouteContext()),g=p.mode}
-        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,buildRequestHeaders("message",l),null),g=p.mode}}catch(err){throw err}
+        try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},replay.clarificationRouteContext),g=p.mode}
+        else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},buildQuotedRouteContext()),g=p.mode}
+        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null),g=p.mode}}catch(err){throw err}
         if(p.needClarification){
           const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
           const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;

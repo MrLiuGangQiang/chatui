@@ -1,105 +1,22 @@
 (function initChatUIAppSubmitWorkflow(root) {
   // Intentionally not strict: submit body is migrated from app.js and resolved through a deps scope.
-
-  function parseOptionalMessageIndex(value) {
-    if (value === null || value === undefined || typeof value === 'string' && !value.trim()) return null;
-    const index = Number(value);
-    return Number.isFinite(index) && index >= 0 ? index : null;
+  const requestCompatibility = root?.[Symbol.for('chatui.module-registry.v1')]?.get('requestCompatibility')
+    || (typeof require === 'function' ? require('../services/request-compatibility') : {});
+  const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
+  if (typeof requestJsonWithStructuredOutputFallback !== 'function') {
+    throw new Error('ChatUI request compatibility service is not loaded');
   }
 
-  const INTENT_PIPELINE_DEADLINE_MS = 60000;
 
-  function createIntentPipelineTimeout() {
-    const error = new Error('ROUTE_INTENT_TIMEOUT');
-    error.code = 'ROUTE_INTENT_TIMEOUT';
-    error.routeTimedOut = true;
-    error.timeoutMs = INTENT_PIPELINE_DEADLINE_MS;
-    return error;
-  }
-
-  function createBoundedIntentRequest(parentSignal = null, deadlineAt = 0) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    let disposed = false;
-    let rejectTerminal = null;
-    const abortFromParent = () => controller?.abort?.();
-    if (parentSignal?.aborted) abortFromParent();
-    else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
-    const terminal = new Promise((resolve, reject) => { rejectTerminal = reject; });
-    terminal.catch(() => {});
-    const remaining = Math.max(0, Number(deadlineAt) - Date.now());
-    const timer = setTimeout(() => {
-      if (disposed) return;
-      controller?.abort?.();
-      rejectTerminal?.(createIntentPipelineTimeout());
-    }, remaining);
-    return {
-      signal: controller?.signal || parentSignal || null,
-      race: promise => Promise.race([Promise.resolve(promise), terminal]),
-      dispose() {
-        if (disposed) return;
-        disposed = true;
-        clearTimeout(timer);
-        parentSignal?.removeEventListener?.('abort', abortFromParent);
-      },
-    };
-  }
-
-  function structuredOutputUnsupported(error) {
-    const text = String(error?.message || error || '').toLowerCase();
-    return /response_format|json_schema|structured.?output/.test(text)
-      && /unsupported|not support|unknown|invalid parameter|unrecognized/.test(text);
-  }
-
-  async function requestJsonWithStructuredOutputFallback(request, payload) {
-    try {
-      return await request(payload);
-    } catch (error) {
-      if (!payload?.response_format || !structuredOutputUnsupported(error)) throw error;
-      if (payload.response_format?.type !== 'json_object') {
-        const jsonObjectPayload = { ...payload, response_format: { type: 'json_object' } };
-        try {
-          return await request(jsonObjectPayload);
-        } catch (jsonObjectError) {
-          if (!structuredOutputUnsupported(jsonObjectError)) throw jsonObjectError;
-        }
-      }
-      const plainJsonPayload = { ...payload };
-      delete plainJsonPayload.response_format;
-      return request(plainJsonPayload);
-    }
-  }
-
-  function createPendingTransition(pending = null, decision = null) {
-    return Object.freeze({
-      pendingId: String(pending?.id || ''),
-      consumeOnHandoff: !!pending && decision?.shouldClearPending === true,
-    });
-  }
-
-  function buildPendingAssistancePresentation({
-    pending = null,
-    assistantReply = '',
-    clarificationService = null,
-    presentationApi = null,
-    presentationOptions = {},
-  } = {}) {
-    const fallbackText = String(assistantReply || '').trim();
-    const routeInfo = clarificationService?.pendingClarificationRouteInfo?.(pending);
-    const presentation = fallbackText && routeInfo
-      ? presentationApi?.buildClarificationPresentation?.({
-        ...routeInfo,
-        clarificationQuestion: fallbackText,
-      }, presentationOptions)
-      : null;
-    const html = presentation?.hasImageChoices === true ? String(presentation.html || '') : '';
-    const rawText = String(presentation?.rawText || fallbackText);
-    return Object.freeze({
-      displayContent: html || rawText,
-      rawText,
-      html,
-      hasImageChoices: !!html,
-    });
-  }
+  const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
+    || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
+  const {
+    parseOptionalMessageIndex,
+    createBoundedIntentRequest,
+    createPendingTransition,
+    buildPendingAssistancePresentation,
+    INTENT_PIPELINE_DEADLINE_MS,
+  } = submitWorkflowPolicy;
 
   function createSubmitWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -290,8 +207,6 @@
             };
             if(attachmentCaptureIncomplete)return finishPreflightReply("页面刷新发生在附件保存完成之前，附件内容无法安全恢复。请重新上传附件后再试。",{metaText:"未发送到模型"});
             const preflightText=String(promptText||"").trim(),preflightGuard=root?.ChatUICorePreflightGuards||window.ChatUICorePreflightGuards||{};
-            const preflightCounts=preflightGuard.attachmentCounts?.(attachments,typeof isImageFile==="function"?isImageFile:void 0)||{imageCount:attachments.filter(item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/")).length,fileCount:attachments.length};
-            const hasCurrentImage=preflightCounts.imageCount>0,wantsImagePreflight=!!preflightGuard.wantsImageGeneration?.(preflightText);
             const hasPreviousFileContext=()=>{const messages=targetSession.messages||state.messages||[];return messages.some(message=>{const context=parseContextValue(message?.attachmentContext);return Array.isArray(context?.attachments)&&context.attachments.some(item=>item&&!String(item.type||item.mime||'').startsWith('image/'))})};
             const hasQuotedImageContext=!!(quotedImageContext?.attachments?.length);
             const preflightConfig=typeof getConfig==="function"?getConfig():{};if(typeof getSessionRouteModel==="function"&&!String(preflightConfig.routeModel||"").trim())preflightConfig.routeModel=getSessionRouteModel(sessionId,preflightConfig);const preflightDecision=preflightGuard.buildPreflightDecision?.({input:preflightText,attachments,previousAssistantCount:(targetSession.messages||[]).filter(m=>m&&m.role==="assistant").length,config:preflightConfig,isImageFile:typeof isImageFile==="function"?isImageFile:void 0,hasPreviousEditableImage:!!(typeof getLatestUploadedImageContext==="function"&&getLatestUploadedImageContext(sessionId)),hasPreviousFileContext:hasPreviousFileContext(),hasQuotedImageContext,recentMessages:targetSession.messages||state.messages||[]});
@@ -301,13 +216,9 @@
             }
             let requestAttachments=quotedImageAttachments.length?[...quotedImageAttachments,...attachments]:attachments;
             const routeUtils=root?.ChatUIRouteService||root?.ChatUIServices?.route||(typeof require==="function"?require("../services/route-service"):{});
-            const buildQuotedRouteContent=routeUtils.buildQuotedRouteContent,cleanQuotedContent=routeUtils.cleanQuotedContent;
-            const quotedContextAttachments=Array.isArray(quotedImageContext?.attachments)?quotedImageContext.attachments:[],quotedCandidateAttachments=quotedImageAttachments.length?quotedImageAttachments:quotedContextAttachments;
-            const hasQuotedMessage=!!quotedMessage,hasQuotedImage=quotedCandidateAttachments.length>0,quotedReferenceId=quotedImageContext?.referenceId||quotedImageContext?.reference_id||quotedImageContext?.selectedReferenceId||"",quotedImageSource=(quotedImageContext?.target==="uploaded"||quotedImageContext?.mode==="edit_image")?"uploaded":"previous",quotedFileCandidates=typeof deps?.quotedFileCandidatesFromContext==="function"?deps.quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||""):[],quotedTextFromMessage=cleanQuotedContent(quotedMessage?.content||""),quotedPromptFromContext=cleanQuotedContent(quotedImageContext?.prompt||quotedImageContext?.userPrompt||quotedImageContext?.originalPrompt||""),quotedCleanText=quotedTextFromMessage||quotedPromptFromContext,quotedRouteContent=buildQuotedRouteContent({text:quotedCleanText||quotedMessage?.content||"",images:quotedCandidateAttachments});
-            const quotedReferenceFromImageId=id=>String(id||"").match(/^img_(imgref_.+)_\d+$/)?.[1]||"";
-            const quotedReferenceSummary=()=>({reference_id:quotedReferenceId||quotedReferenceFromImageId(quotedCandidateAttachments[0]?.imageId||quotedCandidateAttachments[0]?.image_id)||"imgref_quote",source:"quoted",target:quotedImageSource,count:quotedCandidateAttachments.length});
-            const quotedImageCandidates=()=>quotedCandidateAttachments.map((e,i)=>{const imageId=e.imageId||e.image_id||e.id||"";return{index:i+1,image_id:imageId,reference_id:quotedReferenceId||e.referenceId||e.reference_id||quotedReferenceFromImageId(imageId)||"imgref_quote",target:quotedImageSource,source:"quoted",filename:e.name||e.filename||"",prompt:quotedCleanText||""}});
-            const buildQuotedRouteContext=()=>({quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""},recent_messages:[{index:1,role:quotedMessage?.role||"user",content:quotedRouteContent||"[quoted_message]"}],suggested_contextual_image_prompt:[quotedCleanText,promptText].filter(Boolean).join("\n\n"),latest_user_image_request:null,latest_assistant_image_result:hasQuotedImage&&quotedImageSource==="previous"?quotedReferenceSummary():null,image_candidates:hasQuotedImage?quotedImageCandidates():[],file_candidates:quotedFileCandidates,last_generated_image:null,latest_uploaded_image:hasQuotedImage&&quotedImageSource==="uploaded"?quotedReferenceSummary():null,latest_image_reference:hasQuotedImage?quotedReferenceSummary():null,recent_image_references:[],recent_uploaded_image_references:[]});
+            const quotedFileCandidates=typeof deps?.quotedFileCandidatesFromContext==="function"?deps.quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||""):[];
+            const quotedRoute=submitHelpers.buildQuotedRouteContext({quotedMessage,quotedImageContext,restoredImageAttachments:quotedImageAttachments,quotedFileCandidates,currentInput:promptText,cleanQuotedContent:routeUtils.cleanQuotedContent,buildQuotedRouteContent:routeUtils.buildQuotedRouteContent});
+            const hasQuotedMessage=quotedRoute.hasQuotedMessage,quotedCleanText=quotedRoute.cleanText||"",buildQuotedRouteContext=()=>quotedRoute.context;
             const originalImageIndex=submitHelpers.originalImageIndex;
             const isImageAttachment=item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/");
             const clarification=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},intentDeadlineAt=Date.now()+INTENT_PIPELINE_DEADLINE_MS;
@@ -324,7 +235,7 @@
               const cfg=getConfig(),model=typeof getSessionRouteModel==="function"?getSessionRouteModel(sessionId,cfg):cfg.routeModel||cfg.chatModel;
                if(cfg.baseUrl&&model){const classifierDeadline=createBoundedIntentRequest(run.abortController?.signal,intentDeadlineAt);try{
                  const payload=clarification.buildContinuationClassifierPayload({model,pending:storedPending,currentInput:promptText,attachments:currentTurnAttachments,quoteText:quotedCleanText,recentMessages:targetSession.messages||state.messages||[]});
-                 const requestClassifier=body=>classifierDeadline.race(requestJson(`${cfg.baseUrl}/chat/completions`,body,cfg.apiKey,{headers:buildRequestHeaders("message",sessionId),signal:classifierDeadline.signal}));
+                 const requestClassifier=body=>classifierDeadline.race(requestJson(`${cfg.baseUrl}/chat/completions`,body,cfg.apiKey,{headers:{},signal:classifierDeadline.signal}));
                  const requestCompatibleClassifier=body=>requestJsonWithStructuredOutputFallback(requestClassifier,body);
                  let result=await requestCompatibleClassifier(payload),classifierText=result?.choices?.[0]?.message?.content||result?.output_text||"";
                  pendingDecision=clarification.parseContinuationClassifierResult(classifierText,{pending:storedPending});
@@ -343,7 +254,7 @@
               if(retainedPending&&retainedRouteInfo?.clarificationDegraded===!0&&retainedRouteInfo?.requiresRerouteAfterClarification===!0&&!retainedSlots.length){
                 try{
                   const recoveryContextBuilder=typeof deps?.buildRouteContext==="function"?deps.buildRouteContext:typeof root?.buildRouteContext==="function"?root.buildRouteContext:null;
-                  const recoveredRoute=await getEffectiveRouteWithSlowNotice(retainedPending.originalText,[],buildRequestHeaders("message",sessionId),recoveryContextBuilder?recoveryContextBuilder(sessionId):{}, {deadlineAt:intentDeadlineAt,currentTurn:null});
+                  const recoveredRoute=await getEffectiveRouteWithSlowNotice(retainedPending.originalText,[],{},recoveryContextBuilder?recoveryContextBuilder(sessionId):{}, {deadlineAt:intentDeadlineAt,currentTurn:null});
                   if(recoveredRoute?.needClarification){
                     const recoveredPending=clarification.normalizePendingClarification?.({...retainedPending,clarificationText:recoveredRoute.clarificationQuestion||retainedPending.clarificationText,routeInfo:recoveredRoute,updatedAt:Date.now()});
                     const recoveredInfo=clarification.pendingClarificationRouteInfo?.(recoveredPending);
@@ -423,10 +334,10 @@
               await persistTargetMessages()
             }
             if(pendingMerge?.merged){
-               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,buildRequestHeaders("message",sessionId),clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
+               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
             }else if(hasQuotedMessage){
-               try{routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
-             }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
+               try{routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,{},buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
+             }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,{},null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
             if(routeInfo.needClarification){
               const e=routeInfo.clarificationQuestion||"请补充完成当前任务所需的信息后继续。";
               const presentationApi=root?.ChatUIApp?.appContext?.getWorkflowModule?.("clarificationPresentation");

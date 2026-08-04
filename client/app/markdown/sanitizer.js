@@ -1,96 +1,34 @@
+'use strict';
+
+const policy = require('./sanitizer-policy');
 const { isSafeMarkdownLink } = require('./link-policy');
-
-const MATH_TAGS = ['math', 'mi', 'mn', 'mo', 'msup', 'msub', 'mrow', 'semantics', 'annotation'];
-const SAFE_HTML_TAGS = [
-  'div', 'span', 'br', 'details', 'summary', 'kbd', 'sub', 'sup', 'mark', 'small', 'ins', 'del',
-  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
-];
-const SAFE_ATTRS = [
-  'target', 'rel', 'class', 'id', 'data-copy-text', 'data-mermaid-rendered', 'aria-hidden', 'aria-label',
-  'title', 'type', 'checked', 'disabled', 'for', 'href', 'src', 'alt', 'role', 'fill', 'viewBox', 'style', 'open',
-];
-const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'form', 'input', 'button', 'textarea', 'select', 'option'];
-const URI_ATTRS = new Set(['href', 'src', 'xlink:href']);
-const SAFE_URI_PATTERN = /^(?:(?:(?:https?|mailto|tel):)|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$)|data:image\/(?:png|gif|jpeg|jpg|webp|avif);base64,)/i;
-const SAFE_STYLE_PROPERTIES = new Set([
-  'border', 'border-color', 'border-style', 'border-width', 'border-radius',
-  'border-top', 'border-top-color', 'border-top-style', 'border-top-width',
-  'border-right', 'border-right-color', 'border-right-style', 'border-right-width',
-  'border-bottom', 'border-bottom-color', 'border-bottom-style', 'border-bottom-width',
-  'border-left', 'border-left-color', 'border-left-style', 'border-left-width',
-  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-  'color', 'background-color', 'text-align', 'font-weight', 'font-style', 'font-size', 'line-height',
-  // KaTeX emits these layout-only inline styles for matrices, cases, aligned
-  // equations, radicals and large operators. Without them the sanitized HTML
-  // collapses vertically and formulas are visually clipped.
-  'height', 'top', 'vertical-align',
-]);
-const UNSAFE_STYLE_VALUE = /url\s*\(|expression\s*\(|javascript\s*:|vbscript\s*:|data\s*:\s*text\/html|@import|-moz-binding/iu;
-
-function sanitizeStyleValue(style = '') {
-  const declarations = String(style || '').split(';');
-  const safe = [];
-  for (const declaration of declarations) {
-    const colon = declaration.indexOf(':');
-    if (colon === -1) continue;
-    const property = declaration.slice(0, colon).trim().toLowerCase();
-    const value = declaration.slice(colon + 1).trim();
-    if (!property || !value || property.startsWith('--')) continue;
-    if (!SAFE_STYLE_PROPERTIES.has(property)) continue;
-    if (UNSAFE_STYLE_VALUE.test(value)) continue;
-    safe.push(`${property}: ${value}`);
-  }
-  return safe.join('; ');
-}
-
-function domPurifyOptions() {
-  return {
-    ADD_TAGS: [...MATH_TAGS, ...SAFE_HTML_TAGS],
-    ADD_ATTR: SAFE_ATTRS,
-    ALLOW_DATA_ATTR: true,
-    FORBID_TAGS,
-    FORBID_ATTR: [/^on/i],
-    ALLOWED_URI_REGEXP: SAFE_URI_PATTERN,
-  };
-}
 
 function createSanitizer() {
   if (typeof window !== 'undefined' && window.DOMPurify) {
-    window.DOMPurify.addHook?.('uponSanitizeAttribute', (_node, data) => {
-      if (URI_ATTRS.has(String(data.attrName || '').toLowerCase()) && !isSafeMarkdownLink(data.attrValue)) {
-        data.keepAttr = false;
-        return;
-      }
-      if (data.attrName === 'style') {
-        const safe = sanitizeStyleValue(data.attrValue);
-        if (safe) data.attrValue = safe;
-        else data.keepAttr = false;
-      }
-    });
-    return html => window.DOMPurify.sanitize(String(html || ''), domPurifyOptions());
+    policy.installSanitizerHooks(window.DOMPurify, isSafeMarkdownLink);
+    return html => window.DOMPurify.sanitize(String(html || ''), policy.domPurifyOptions());
   }
 
   try {
     const { JSDOM } = require('jsdom');
     const createDOMPurify = require('dompurify');
     const purify = createDOMPurify(new JSDOM('').window);
-    purify.addHook('uponSanitizeAttribute', (_node, data) => {
-      if (URI_ATTRS.has(String(data.attrName || '').toLowerCase()) && !isSafeMarkdownLink(data.attrValue)) {
-        data.keepAttr = false;
-        return;
-      }
-      if (data.attrName === 'style') {
-        const safe = sanitizeStyleValue(data.attrValue);
-        if (safe) data.attrValue = safe;
-        else data.keepAttr = false;
-      }
-    });
-    return html => purify.sanitize(String(html || ''), domPurifyOptions());
+    policy.installSanitizerHooks(purify, isSafeMarkdownLink);
+    return html => purify.sanitize(String(html || ''), policy.domPurifyOptions());
   } catch (err) {
     throw new Error(`DOMPurify sanitizer unavailable: ${err && err.message || err}`);
   }
 }
 
 const sanitizeHtml = createSanitizer();
-module.exports = { MATH_TAGS, SAFE_HTML_TAGS, SAFE_ATTRS, FORBID_TAGS, SAFE_STYLE_PROPERTIES, sanitizeStyleValue, domPurifyOptions, createSanitizer, sanitizeHtml };
+module.exports = {
+  MATH_TAGS: policy.MATH_TAGS,
+  SAFE_HTML_TAGS: policy.SAFE_HTML_TAGS,
+  SAFE_ATTRS: policy.SAFE_ATTRS,
+  FORBID_TAGS: policy.FORBID_TAGS,
+  SAFE_STYLE_PROPERTIES: policy.SAFE_STYLE_PROPERTIES,
+  sanitizeStyleValue: policy.sanitizeStyleValue,
+  domPurifyOptions: policy.domPurifyOptions,
+  createSanitizer,
+  sanitizeHtml,
+};

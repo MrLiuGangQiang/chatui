@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const zlib = require('zlib');
 const { send } = require('./response');
+const { safeJoin, sha1 } = require('./static-path-utils');
 const {
   BUNDLE_PATHS,
   bundleMetadata,
@@ -46,17 +46,6 @@ function isPublicStaticPath(urlPath) {
   return PUBLIC_ROOT_FILES.has(pathname) || PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix));
 }
 
-function safeJoin(root, rootWithSep, urlPath) {
-  try {
-    const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
-    const filePath = path.normalize(path.join(root, cleanPath === '/' ? 'index.html' : cleanPath));
-    if (filePath !== root && !filePath.startsWith(rootWithSep)) return null;
-    return filePath;
-  } catch {
-    return null;
-  }
-}
-
 function pickCompressedStaticFile(req, filePath) {
   const encoding = String(req.headers['accept-encoding'] || '');
   const ext = path.extname(filePath);
@@ -83,10 +72,6 @@ function parseRequestUrl(req) {
   } catch {
     return null;
   }
-}
-
-function sha1(value) {
-  return crypto.createHash('sha1').update(value).digest('hex');
 }
 
 function isFresh(req, etag) {

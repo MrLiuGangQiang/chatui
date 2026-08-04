@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const { safeJoin, sha1 } = require('../http/static-path-utils');
 
 const ASSET_MANIFEST_ID = 'chatuiAssetManifest';
 // Kept as a bundle namespace for compatibility metadata. Browser URLs use the
@@ -36,21 +36,6 @@ const DEFERRED_MARKDOWN_SCRIPT_PATHS = Object.freeze([
 ]);
 
 const manifestCache = new Map();
-
-function sha1(value) {
-  return crypto.createHash('sha1').update(value).digest('hex');
-}
-
-function safeJoin(root, rootWithSep, urlPath) {
-  try {
-    const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
-    const filePath = path.normalize(path.join(root, cleanPath === '/' ? 'index.html' : cleanPath));
-    if (filePath !== root && !filePath.startsWith(rootWithSep)) return null;
-    return filePath;
-  } catch {
-    return null;
-  }
-}
 
 function attrValue(source, name) {
   const pattern = new RegExp(`(?:^|\\s)${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i');

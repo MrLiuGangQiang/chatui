@@ -53,10 +53,40 @@
    * @property {string=} dataUrl
    * @property {string=} text
    *
+   * @typedef {'plain_chat'|'file_qa'|'multimodal_qa'|'image_qa'|'image_compare'|'ocr'|'text_to_image'|'image_reference_gen'|'edit_image'} RouteOperation
+   * @typedef {'new'|'followup'|'correction'|'continuation'} RouteRelation
+   * @typedef {'source'|'target'|'reference'|'style_reference'|'mask'|'compare_a'|'compare_b'|'attachment'|'context'} RouteResourceRole
+   *
+   * @typedef {Object} RouteBinding
+   * @property {string} candidate_key Application-provided iN/fN/mN candidate key.
+   * @property {RouteResourceRole} role
+   *
+   * @typedef {Object} RouteChange
+   * @property {'preserve'|'add'|'replace'|'remove'} op
+   * @property {string} target
+   * @property {string} value Empty for preserve/remove operations.
+   *
+   * @typedef {Object} RouteUnresolvedResource
+   * @property {'image'|'file'|'text'|'message'} type
+   * @property {RouteResourceRole} role
+   * @property {'missing'|'ambiguous'|'unavailable'} reason
+   * @property {Array<string>} candidate_keys
+   *
+   * @typedef {Object} RouteClarification
+   * @property {string} question
+   * @property {Array<RouteUnresolvedResource>} unresolved
+   *
    * @typedef {Object} RouteDecision
-   * @property {'chat'|'vision'|'image_generate'|'image_edit'|'unclear'|'unsafe'} route
-   * @property {string=} operation_type
-   * @property {string=} rewritten_prompt
+   * @property {'route_decision.v1'} schema_version
+   * @property {'ready'|'needs_clarification'} readiness
+   * @property {RouteOperation} operation
+   * @property {RouteRelation} relation
+   * @property {Array<RouteBinding>} bindings
+   * @property {Array<RouteChange>} changes
+   * @property {Array<string>} constraints
+   * @property {RouteClarification} clarification
+   * @property {number} confidence Number from 0 through 1.
+   * @property {string} rationale
    */
 
   const typeNames = Object.freeze([

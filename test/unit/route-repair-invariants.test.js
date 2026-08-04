@@ -152,7 +152,6 @@ function createDeadlineHarness(requestJson) {
     getConfig: () => ({ baseUrl: 'https://example.test/v1', apiKey: 'key', routeModel: 'route-model', chatModel: 'chat-model' }),
     getSessionRouteModel: () => 'route-model',
     getSessionChatModel: () => 'chat-model',
-    buildRequestHeaders: () => ({}),
     buildRouteAttachmentMetadata: () => [],
     requestJson,
     parseRouteResult: routeService.parseRouteResult,

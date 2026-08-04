@@ -25,7 +25,6 @@ function sampleSession(id = 'session-1') {
     imageStylePrompt: '',
     hasImageStylePromptOverride: false,
     chatModel: 'gpt-test',
-    headerValues: { 'X-Session': 'abc' },
     promptDraft: '未发送草稿',
     reasoningMode: true,
     reasoningType: 'high',
@@ -49,7 +48,6 @@ function testArchiveContainsOnlyConversationAndMedia() {
       apiKey: 'secret-key',
       context: { tenant: 'server-only' },
       models: ['gpt-test'],
-      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'header-secret' }],
     },
     sessions: [sampleSession()],
     activeSessionId: 'session-1',
@@ -61,7 +59,6 @@ function testArchiveContainsOnlyConversationAndMedia() {
   assert.strictEqual(Object.hasOwn(archive, 'configuration'), false);
   assert.strictEqual(Object.hasOwn(archive, 'includesSecrets'), false);
   assert.strictEqual(Object.hasOwn(archive.sessions[0], 'chatModel'), false);
-  assert.strictEqual(Object.hasOwn(archive.sessions[0], 'headerValues'), false);
   const serialized = JSON.stringify(archive);
   assert.ok(!serialized.includes('secret-key'));
   assert.ok(!serialized.includes('header-secret'));
@@ -79,7 +76,6 @@ function testArchiveIgnoresConfigurationEvenWhenCallerProvidesIt() {
     config: {
       baseUrl: 'https://example.test/v1',
       apiKey: 'secret-key',
-      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'header-secret' }],
     },
     sessions: [sampleSession()],
     activeSessionId: 'session-1',
@@ -103,7 +99,6 @@ function testParseAcceptsLegacyUnmarkedBackupBodyAndScrubsSecrets() {
     config: {
       baseUrl: 'https://example.test/v1',
       apiKey: 'legacy-key',
-      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'legacy-header' }],
     },
     sessions: [sampleSession()],
     activeSessionId: 'session-1',
@@ -251,7 +246,6 @@ async function testRestoreReplacesSnapshotsAndActiveSessionWithoutChangingConfig
   const storage = createStorage({
     config: {
       baseUrl: 'https://old.test/v1',
-      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'local-header' }],
     },
     'config:api-key': 'old-key',
   });
@@ -282,7 +276,6 @@ async function testRestoreReplacesSnapshotsAndActiveSessionWithoutChangingConfig
       baseUrl: 'https://new.test/v1',
       apiKey: 'new-key',
       models: ['gpt-test'],
-      headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'archive-header' }],
     },
     sessions: [sampleSession('session-1')],
     activeSessionId: 'session-1',
@@ -301,7 +294,6 @@ async function testRestoreReplacesSnapshotsAndActiveSessionWithoutChangingConfig
   assert.strictEqual(state.disposedSessionIds.size, 0, 'restored IDs must not remain blocked by old deletion markers');
   assert.deepStrictEqual(JSON.parse(storage.values.get('config')), {
     baseUrl: 'https://old.test/v1',
-    headerParams: [{ name: 'X-Manual-Secret', mode: 'manual', value: 'local-header' }],
   });
   assert.strictEqual(storage.values.get('config:api-key'), 'old-key');
 }

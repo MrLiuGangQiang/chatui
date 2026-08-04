@@ -40,32 +40,21 @@ function isFence(line) {
   return line.match(/^\s{0,3}>\s?(`{3,}|~{3,})([^`]*)$/);
 }
 function isMathFence(line) { return /^\s*\$\$\s*$/.test(line); }
-function isContainerFence(line) { return /^\s*:{3,}\s*\S*/.test(line); }
-function isDetailsOpen(line) { return /^\s*<details(?:\s|>|$)/i.test(line); }
-function isDetailsClose(line) { return /^\s*<\/details\s*>/i.test(line); }
+
+
+
 function detailsTagDelta(line = '') {
   const source = String(line || '');
   return (source.match(/<details(?:\s|>|$)/gi) || []).length - (source.match(/<\/details\s*>/gi) || []).length;
 }
 function isDetailsContainerOpen(line = '') { return /^\s*:::\s*(?:details|detail|fold|collapse|collapsible)\b/i.test(String(line || '')); }
 function isDetailsContainerClose(line = '') { return /^\s*:::\s*$/.test(String(line || '')); }
-function isListLine(line) { return /^\s{0,3}(?:[-+*]|\d{1,9}[.)])\s+/.test(line); }
-function isTableSeparator(line) { return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line); }
-function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line) || /^\s*\S.*\|.*\S\s*$/.test(line); }
-function isAdmonitionStart(line) { return /^\s*!!!\s+\S+/.test(line); }
-function isIndentedContinuation(line) { return /^\s{2,}\S/.test(line); }
-function isBlockStart(line) {
-  return /^\s{0,3}#{1,6}\s+/.test(line)
-    || /^\s{0,3}>\s?/.test(line)
-    || /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)
-    || isListLine(line)
-    || isTableRow(line)
-    || isAdmonitionStart(line)
-    || isContainerFence(line)
-    || isDetailsOpen(line)
-    || isFence(line)
-    || isMathFence(line);
-}
+
+
+
+
+
+
 
 function findStableBoundary(text = '') {
   const { src, lines } = splitLinesWithOffsets(text);

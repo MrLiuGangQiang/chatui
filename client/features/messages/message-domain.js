@@ -8,20 +8,15 @@
     try { return typeof require === 'function' ? require('./message-model') : {}; } catch { return {}; }
   })();
 
+  const { stripReasoningQuoteText } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (() => { try { return typeof require === 'function' ? require('../../core/message-primitives') : {}; } catch { return {}; } })();
+
   function messageRoleLabel(role = '') {
     return role === 'user' ? '我' : role === 'assistant' ? 'AI' : '消息';
   }
 
   function messageRoleFromNode(node) {
     return node?.classList?.contains('assistant') ? 'assistant' : node?.classList?.contains('user') ? 'user' : 'error';
-  }
-
-    function stripReasoningQuoteText(text = '') {
-    return String(text || '')
-      .replace(/思考中\s*/g, '')
-      .replace(/思考完成\s*/g, '')
-      .replace(/未返回思考内容\s*/g, '')
-      .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
   function normalizeQuoteText(text = '', limit = 1200) {

@@ -288,18 +288,7 @@ function compactCandidateSemanticText(values = [], max = 720) {
   return parts.join(' | ').slice(0, max);
 }
 
-function compactImageReferenceSummary(reference = {}) {
-  if (!reference || typeof reference !== 'object') return null;
-  return {
-    reference_id: reference.reference_id || '',
-    target: reference.target || '',
-    source: reference.source || '',
-    message_index: reference.message_index || null,
-    count: Number(reference.count) || (Array.isArray(reference.candidates) ? reference.candidates.length : 0),
-    prompt: String(reference.prompt || reference.user_prompt || '').slice(0, 120),
-    updated_at: reference.updated_at || null,
-  };
-}
+
 
 function compactLatestUploadedImage(value = null, uploadedLatest = null) {
   if (!value && !uploadedLatest) return null;

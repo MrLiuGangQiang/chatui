@@ -14,7 +14,6 @@
       imageStylePrompt: '',
       hasImageStylePromptOverride: false,
       chatModel: '',
-      headerValues: {},
       promptDraft: '',
       reasoningMode: false,
       reasoningType: 'none',
@@ -40,7 +39,6 @@
     }
     session.messages ||= [];
     session.display ||= [];
-    session.headerValues ||= {};
     session.promptDraft ||= '';
     session.systemPrompt ||= '';
     session.imageStylePrompt ||= '';

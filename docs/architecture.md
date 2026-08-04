@@ -52,6 +52,17 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - 输入和输出应是普通数据或显式传入的依赖；
 - `client/core/browser.js` 是把 core 能力注册到浏览器命名空间的兼容适配层，不代表 core 逻辑可以依赖浏览器全局。
 
+### 3.1.1 稳定原语与协议模块
+
+以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
+
+- `client/core/route-protocol.js`：作为 `route_decision.v1` 版本、操作、关系、资源类型、角色、修复原因和变更枚举的校验事实来源；执行模块应直接消费这些集合，面向模型展开的 prompt/schema 文本必须由回归测试保持同一语义；
+- `client/core/message-primitives.js`：统一上下文解析、消息稳定身份和 reasoning 引用文本清理；
+- `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
+- `client/core/text-hash.js`：统一渲染缓存、性能统计和使用量视图的文本哈希实现，调用方只能通过公开格式使用哈希，不能再复制 FNV-1a 变体。
+
+这些模块不应直接依赖 DOM、`fetch`、应用 session 状态或上游 API；浏览器注册只属于装配层。
+
 ### 3.2 `client/services/`
 
 `client/services/` 负责浏览器侧 API 调用、请求 payload 组合和响应解析，包括模型、聊天、路由、图片、Job、运行时版本和使用统计服务。
@@ -64,6 +75,20 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - 不绕过 core 契约自行推断资源身份、任务状态或路由语义。
 
 `client/services/browser.js` 和 `composition.js` 是现有浏览器命名空间的组合适配层。
+
+### 3.2.1 路由与请求服务的拆分边界
+
+`client/services/route-service.js` 保留路由服务的公共兼容 API，但内部职责已经按以下边界拆分：
+
+- `route-candidates.js`：从当前输入、消息、文件和图片元数据建立有序候选资源目录；
+- `route-payload.js`：压缩上下文、当前轮次和附件描述，构造路由与修复请求 payload；
+- `route-decision-compiler.js`：将模型输出编译为严格的 canonical route decision，并验证选择答案是否仍绑定原候选；
+- `route-legacy-adapter.js`：只负责读取历史 `task_contract`/兼容输入并适配到新协议，不应被新业务路径反向依赖；
+- `route-repair-policy.js`：限制网络修复只能保持既有语义和资源绑定；
+- `route-dispatch-gate.js`：在提交执行前做版本、资源角色、模式和任务契约的最终门禁；
+- `request-compatibility.js`：对 Structured Output 按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改。
+
+路由服务只能输出可验证的 canonical decision；提交工作流和图片工作流不得自行重建另一套路由协议。
 
 ### 3.3 `client/ui/` 与 `client/features/`
 
@@ -82,11 +107,35 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 允许依赖 `client/core/`、`client/services/`、`client/ui/`、`client/features/` 和 `shared/`，但不应把这些层已有的底层规则复制到 workflow 中。工作流应通过显式依赖或应用 registry 组合能力，避免继续增加浏览器全局和 `with (...)` 注入范围。
 
+### 3.4.1 应用策略与 Markdown 边界
+
+- `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线 60 秒截止时间、可取消请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
+- `client/services/session-snapshot-recovery.js`：会话快照的降级存储、配额错误恢复、部分快照合并和 revision 保护；它不能替代 canonical message/session store，也不能让 pending display 覆盖已提交消息；
+- `client/app/markdown/engine-primitives.js`：统一 task-list fallback、表格对齐 class、blockquote fence 规范化、实体解码和高亮结果校验；Node 与 Browser Markdown engine 都复用它；
+- `client/app/markdown/sanitizer-policy.js`：统一 DOMPurify 标签、属性、URI 和 style 白名单及 hook。`browser-sanitizer.js` 与 `sanitizer.js` 只负责注入运行时依赖和调用策略，不能各自维护安全白名单。
+
+Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/dependency loader 提供；将其从 Node 生产依赖移出不等于移除浏览器功能。
+
 ### 3.5 其他浏览器目录
 
 - `client/config/`：公开、非敏感的浏览器配置常量和 storage key；
-- `client/domain/`：领域类型或兼容契约；
-- `client/testing/`：当前遗留的 Node-only 源码断言辅助代码，仅供测试使用，不是浏览器运行契约，也不得被生产模块依赖。
+- `client/domain/`：领域类型或兼容契约；其中仅供类型文档/测试使用的文件不得加入浏览器资产清单；
+- `test/helpers/`：Node-only 测试源码断言与测试辅助代码，不属于浏览器运行契约，也不得被生产模块依赖。
+
+### 3.6 浏览器模块注册表与静态加载顺序
+
+`client/runtime/module-registry.js` 在 `Symbol.for('chatui.module-registry.v1')` 下提供隐藏的模块注册表。新拆出的模块通过 registry 注册并按名称解析，避免继续增加 `window.ChatUI*` 顶层导出；旧 namespace 仅为现有兼容入口保留。注册表不是业务状态，也不能成为跨模块的隐式可变容器。
+
+`index.html` 的脚本顺序是运行契约，原则上应保持以下依赖先后：
+
+1. `module-registry.js`、纯 core 原语和 Markdown policy/primitives；
+2. core/browser、配置和服务端无关的共享契约；
+3. route candidates/payload/compiler/legacy/repair/dispatch 等路由服务拆分模块；
+4. `route-service.js`、`request-compatibility.js` 及其他 service 组合层；
+5. `submit-workflow-policy.js`、`session-snapshot-recovery.js` 等 app policy，再加载对应 workflow；
+6. 兼容启动和根 `app.js`。
+
+变更加载顺序时必须同时运行静态 bundle 顺序测试，并确认根页面、`pages/route.html` 和 `pages/files.html` 的独立资源没有被误纳入或删除。
 
 ## 4. 服务端代码
 
@@ -104,7 +153,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 ### 4.4 `server/http/`
 
-负责 body 限制、响应、安全头、静态文件、压缩、ETag、缓存和公开路径。它不负责上游模型语义或浏览器工作流。
+负责 body 限制、响应、安全头、静态文件、压缩、ETag、缓存和公开路径。它不负责上游模型语义或浏览器工作流。`server/http/static-path-utils.js` 集中提供静态服务与 bundle 服务共同使用的安全路径拼接和内容哈希，两个入口不得再各自维护路径穿越校验。
 
 ### 4.5 `server/proxy/` 与 `server/security/`
 
@@ -133,6 +182,10 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 `server/app.js` 是服务端 composition root：创建数据库连接、JobStore、代理、路由和 HTTP server，并在 server 关闭时释放 sweeper 和数据库池。
 
+### 4.8 生产依赖与浏览器 vendor 边界
+
+根 `package.json` 的生产依赖只保留服务端运行所需的 `jszip`、`pg` 和显式锁定的 `undici`。Markdown 渲染器、DOMPurify、jsdom、KaTeX、highlight.js、Mermaid 及 markdown-it 插件属于开发/测试依赖或已提交的浏览器 vendor 资源；服务端入口不得在无 devDependencies 的生产安装中 require 它们。`server/jobs/common.js` 等 Node 运行路径应直接引用显式生产依赖，不能依赖开发依赖的传递安装。
+
 ## 5. `shared/` 边界
 
 `shared/` 只用于浏览器和服务端都可以安全加载的稳定契约或纯函数。
@@ -146,6 +199,8 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - 只能由一侧理解的内部状态。
 
 共享模块可以使用兼容 CommonJS/浏览器注册的外壳，但核心结果必须在两端保持一致。
+
+Node-only 源码断言、fixture builder 和测试环境装配应放在 `test/helpers/` 或测试文件中，不得通过静态入口加载。
 
 当前 `shared/usage/ranges.js` 同时包含展示标签和 SQL filter/bounds 字符串，是已知历史边界债务。新改动不得继续扩大该模式；目标边界是把浏览器安全的范围标识/标签留在 `shared/`，把 SQL 留在 `server/usage/`。
 
@@ -230,7 +285,7 @@ GET /
 - 浏览器仍保留多个 `window.ChatUI*` 兼容 namespace；
 - `index.html` 清单仍含逐文件手工 query version，尽管最终 bundle URL 使用内容 ETag；
 - `test/legacy/regression.test.js` 仍承载大量历史覆盖；
-- `client/testing/` 尚位于会被 Docker 复制的 `client/` 目录；
+- Node-only 测试辅助代码已移出 Docker 会复制的 `client/` 静态目录；
 - `shared/usage/ranges.js` 尚含 server-only SQL 字符串；
 - vendor 的来源、版本和 License 更新尚未由统一 manifest 完全自动化；
 - Docker 会复制 `docs/releases/`，但当前 runtime source revision 的目录列表不包含该目录；

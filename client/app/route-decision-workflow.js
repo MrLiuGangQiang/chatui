@@ -1,5 +1,12 @@
 (function initChatUIAppRouteDecisionWorkflow(root) {
   // Intentionally not strict: route decision bodies are migrated from app.js and resolved through a deps scope.
+  const requestCompatibility = root?.[Symbol.for('chatui.module-registry.v1')]?.get('requestCompatibility')
+    || (typeof require === 'function' ? require('../services/request-compatibility') : {});
+  const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
+  if (typeof requestJsonWithStructuredOutputFallback !== 'function') {
+    throw new Error('ChatUI request compatibility service is not loaded');
+  }
+
 
   function createRouteDecisionWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -47,24 +54,12 @@
       return routeSvc?.extractRouteText ? routeSvc.extractRouteText(response) : response?.choices?.[0]?.message?.content || response?.output_text || '';
     }
 
-    function structuredOutputUnsupported(error) {
-      const text = String(error?.message || error || '').toLowerCase();
-      return /response_format|json_schema|structured.?output/.test(text)
-        && /unsupported|not support|unknown|invalid parameter|unrecognized/.test(text);
-    }
-
     async function requestRouteDecision(payload, config, headers, signal) {
       with (deps) {
-        try {
-          return await requestJson(`${config.baseUrl}/chat/completions`, payload, config.apiKey, { headers, signal });
-        } catch (error) {
-          // Strict JSON Schema is primary.  A gateway that lacks it may use
-          // JSON-object mode for the same compact semantic protocol, but route
-          // recognition never drops response_format and accepts arbitrary text.
-          if (!payload?.response_format || !structuredOutputUnsupported(error)) throw error;
-          const jsonPayload = { ...payload, response_format: { type: 'json_object' } };
-          return await requestJson(`${config.baseUrl}/chat/completions`, jsonPayload, config.apiKey, { headers, signal });
-        }
+        return requestJsonWithStructuredOutputFallback(
+          nextPayload => requestJson(`${config.baseUrl}/chat/completions`, nextPayload, config.apiKey, { headers, signal }),
+          payload,
+        );
       }
     }
 
@@ -266,7 +261,7 @@
           await intentDeadline.race(loadPublicContext?.());
           throwIfRouteCancelled(parentSignal);
           const config = getConfig();
-          const requestHeaders = headers || buildRequestHeaders('message', sessionId);
+          const requestHeaders = headers || {};
           const { primaryModel, sessionChatModel } = resolveRouteModels(sessionId, config);
           const routeSvc = window.ChatUIServices?.route || window.ChatUIRouteService;
           const attachmentMeta = buildRouteAttachmentMetadata(attachments);

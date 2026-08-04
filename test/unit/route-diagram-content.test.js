@@ -190,9 +190,13 @@ function testRouteDiagramHighlightsOnlyLatestSessionProgress() {
 
 function testRouteDiagramClaimsStayAnchoredToRuntimeSource() {
   const routeService = read('client/services/route-service.js');
+  const routeProtocol = read('client/core/route-protocol.js');
+  const requestCompatibility = read('client/services/request-compatibility.js');
+  const dispatchGate = read('client/services/route-dispatch-gate.js');
   const routeWorkflow = read('client/app/route-decision-workflow.js');
   const clarificationService = read('client/services/clarification-service.js');
   const submitWorkflow = read('client/app/submit-workflow.js');
+  const submitPolicy = read('client/app/submit-workflow-policy.js');
   const taskState = read('client/core/task-state.js');
   const taskLifecycle = read('client/app/task-lifecycle.js');
 
@@ -244,12 +248,13 @@ function testRouteDiagramClaimsStayAnchoredToRuntimeSource() {
   const inspectContract = routeService.slice(routeService.indexOf('function inspectTaskContract'), routeService.indexOf('function inspectRouteDecision'));
   assert.ok(inspectContract.includes('taskContractToExecutionPlan'));
 
-  assert.ok(routeService.includes("const ROUTE_DECISION_VERSION = 'route_decision.v1'"));
+  assert.ok(routeProtocol.includes("const ROUTE_DECISION_VERSION = 'route_decision.v1'"));
+  assert.ok(routeService.includes("get('routeProtocol')") && routeService.includes('routeDecisionCompiler'));
   assert.ok(routeService.includes("schema_version: 'task_contract.v5'"));
-  assert.ok(routeService.includes("const EXECUTION_RESOURCES_VERSION = 'execution_resources.v1'"));
-  assert.ok(routeWorkflow.includes("response_format: { type: 'json_object' }") && routeWorkflow.includes('sessionChatModel !== primaryModel'));
+  assert.ok(dispatchGate.includes("executionResourcesVersion = 'execution_resources.v1'"));
+  assert.ok(requestCompatibility.includes("response_format: { type: 'json_object' }") && routeWorkflow.includes('sessionChatModel !== primaryModel'));
   assert.ok(clarificationService.includes("const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v6'"));
-  assert.ok(submitWorkflow.includes('const INTENT_PIPELINE_DEADLINE_MS = 60000'));
+  assert.ok(submitWorkflow.includes('submitWorkflowPolicy') && submitPolicy.includes('const INTENT_PIPELINE_DEADLINE_MS = 60000'));
   assert.ok(taskState.includes("RUNNING: 'running'") && taskState.includes('JOB_COMPLETED_COMMITTED'));
   assert.ok(taskLifecycle.includes('TASK_EVENTS?.JOB_COMPLETED_COMMITTED'));
 }

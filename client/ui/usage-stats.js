@@ -1,4 +1,7 @@
 (() => {
+  const textHash = (typeof window !== 'undefined' && window[Symbol.for('chatui.module-registry.v1')]?.get('textHash'))
+    || (typeof require === 'function' ? require('../core/text-hash') : {});
+  const shortHash = textHash.fnv1aBase36 || (value => String(value || ''));
   const format = (typeof window !== 'undefined' && window.ChatUIUsageStatsFormat) || (typeof require === 'function' ? require('./usage-stats-format') : {});
   const auth = (typeof window !== 'undefined' && window.ChatUIUsageStatsAuth) || (typeof require === 'function' ? require('./usage-stats-auth') : {});
   const view = (typeof window !== 'undefined' && window.ChatUIUsageStatsViewHelpers) || (typeof require === 'function' ? require('../features/usage-stats/view-helpers') : {});
@@ -149,13 +152,7 @@
     document.body.append(button, feedbackButton, panel, feedbackPanel);
   }
 
-  function tokenColumns(row) {
-    return viewHelpers.tokenColumns(row);
-  }
-
-  function rawTokenColumns(row) {
-    return viewHelpers.rawTokenColumns(row);
-  }
+  const tokenColumns = viewHelpers.tokenColumns;
 
   function renderPersonal(personal, hasApiKey) {
     const el = $('usagePersonal');
@@ -192,25 +189,17 @@
     `;
   }
 
-  function rangeLabel(range) {
-    return viewHelpers.rangeLabel(range);
-  }
+  const rangeLabel = viewHelpers.rangeLabel;
 
   function tabLabel(range) {
     return viewHelpers.tabLabel(range, activeMode);
   }
 
-  function renderTokenBadges(row, options = {}) {
-    return viewHelpers.renderTokenBadges(row, options);
-  }
+  const renderTokenBadges = viewHelpers.renderTokenBadges;
 
-  function renderRankIcon(rank) {
-    return viewHelpers.renderRankIcon(rank);
-  }
+  const renderRankIcon = viewHelpers.renderRankIcon;
 
-  function renderRankIndex(index) {
-    return viewHelpers.renderRankIndex(index);
-  }
+  const renderRankIndex = viewHelpers.renderRankIndex;
 
   function renderTabs() {
     const tabs = activeMode === 'department' ? DEPARTMENT_TABS : RANKING_TABS;
@@ -278,16 +267,6 @@
 
   function markFetched(key) {
     cache.fetchedAt[key] = Date.now();
-  }
-
-  function shortHash(value = '') {
-    const text = String(value || '');
-    let hash = 2166136261;
-    for (let index = 0; index < text.length; index += 1) {
-      hash ^= text.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0).toString(36);
   }
 
   function personalCacheKey(range, apiKey = currentApiKey()) {

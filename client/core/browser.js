@@ -7,6 +7,7 @@
   const imageReferences = global.ChatUICoreImageReferences || {};
   const imageRouteContext = global.ChatUICoreImageRouteContext || {};
   const attachments = global.ChatUICoreAttachments || {};
+  const routeProtocol = global?.[Symbol.for('chatui.module-registry.v1')]?.get('routeProtocol') || {};
   const contextBudget = global.ChatUICoreContextBudget || {};
   const storage = global.ChatUICoreStorage || {};
   const registeredModules = new Map();
@@ -66,6 +67,7 @@
     imageReferences: Object.freeze(imageReferences),
     imageRouteContext: Object.freeze(imageRouteContext),
     attachments: Object.freeze(attachments),
+    routeProtocol: Object.freeze(routeProtocol),
     contextBudget: Object.freeze(contextBudget),
     storage: Object.freeze(storage),
     registerModule,

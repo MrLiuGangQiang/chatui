@@ -31,7 +31,7 @@ function createConfigHarness(stored = {}) {
     updateCustomSelect() {},
     enhanceConfigSelects() {},
     closeAllCustomSelects() {},
-    getActiveSession: () => ({ headerValues: {} }),
+    getActiveSession: () => ({}),
     saveSessionsMeta() {},
     toast() {},
   });
@@ -45,6 +45,8 @@ function testLegacyDirectModeIsIgnoredAndRemovedFromPersistedConfiguration() {
   assert.strictEqual(Object.hasOwn(JSON.parse(storage.getItem('config')), 'directMode'), false);
   assert.strictEqual(Object.hasOwn(configModule.defaults, 'directMode'), false);
 }
+
+
 
 async function testChatJsonRequestsAlwaysUseTheValidatedLocalProxy() {
   const calls = [];
@@ -134,6 +136,11 @@ async function testImageDownloadsNeverSendApiKeysFromTheBrowserToReturnedUrls() 
 
 module.exports = [
   testLegacyDirectModeIsIgnoredAndRemovedFromPersistedConfiguration,
+
   testChatJsonRequestsAlwaysUseTheValidatedLocalProxy,
   testImageDownloadsNeverSendApiKeysFromTheBrowserToReturnedUrls,
 ];
+
+
+
+

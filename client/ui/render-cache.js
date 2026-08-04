@@ -1,15 +1,9 @@
 (function initChatUIRenderCache(global) {
   'use strict';
 
-  function fnv1a(value = '') {
-    const text = String(value || '');
-    let hash = 2166136261;
-    for (let i = 0; i < text.length; i += 1) {
-      hash ^= text.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    return `${text.length}:${(hash >>> 0).toString(36)}`;
-  }
+  const textHash = global?.[Symbol.for('chatui.module-registry.v1')]?.get('textHash')
+    || (typeof require === 'function' ? require('../core/text-hash') : {});
+  const fnv1a = textHash.contentHash || (value => String(value || ''));
 
   function createLRUCache(maxEntries = 180, maxChars = 3_000_000) {
     const limit = Math.max(20, Number(maxEntries) || 180);

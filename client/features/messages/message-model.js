@@ -5,6 +5,9 @@
     try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
   })();
 
+  const { stripReasoningQuoteText } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (() => { try { return typeof require === 'function' ? require('../../core/message-primitives') : {}; } catch { return {}; } })();
+
   function normalizeRole(role = '', fallback = 'user') {
     return role === 'assistant' ? 'assistant' : role === 'user' ? 'user' : fallback;
   }
@@ -20,14 +23,6 @@
   function hasUsableImageContext(value) {
     const context = parseMaybeJsonContext(value);
     return !!(context && !Array.isArray(context) && Array.isArray(context.attachments) && context.attachments.length);
-  }
-
-  function stripReasoningQuoteText(text = '') {
-    return String(text || '')
-      .replace(/思考中\s*/g, '')
-      .replace(/思考完成\s*/g, '')
-      .replace(/未返回思考内容\s*/g, '')
-      .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
   function defaultNormalizeQuoteText(text = '', limit = 1200) {

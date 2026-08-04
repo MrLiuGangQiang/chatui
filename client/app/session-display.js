@@ -1,6 +1,9 @@
 (function initChatUIAppSessionDisplay(root) {
   'use strict';
 
+  const snapshotRecoveryModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('sessionSnapshotRecovery')
+    || (typeof require === 'function' ? require('../services/session-snapshot-recovery') : {});
+
   function createSessionDisplayWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const getActiveSession = deps.getActiveSession;
@@ -31,6 +34,42 @@
     const setTimeoutRef = deps.setTimeout || root.setTimeout || globalThis.setTimeout;
     const clearTimeoutRef = deps.clearTimeout || root.clearTimeout || globalThis.clearTimeout;
 
+    const snapshotRecovery = snapshotRecoveryModule.createSessionSnapshotRecovery({
+      getState,
+      getActiveSession,
+      deriveSessionTitle,
+      localStorageRef,
+      sessionStoreApi,
+      snapshotStore,
+      sessionsKey: SESSIONS_KEY,
+      snapshotFallbackTailCount,
+      logger,
+      snapshotCommitWaitMs,
+      setTimeoutRef,
+      clearTimeoutRef,
+      compactAdjacentDuplicateMessages,
+      sanitizeStoredDisplayItem,
+      sanitizeStoredMessage,
+      messageIdentity: typeof require === 'function'
+        ? require('../core/message-primitives').messageIdentity
+        : root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')?.messageIdentity || (() => ''),
+      saveSessionsMeta: () => saveSessionsMeta(),
+    });
+    const {
+      buildSnapshot,
+      nextPersistenceRevision,
+      isCurrentSnapshot,
+      isQuotaError,
+      readSnapshotFallback,
+      writeSnapshotFallback,
+      clearSnapshotFallback,
+      retainRecoverableSnapshot,
+      createSessionPersistenceError,
+      mergePartialFallbackMessages,
+      mergeSnapshotFallback,
+      readLatestSnapshot,
+    } = snapshotRecovery;
+
     function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
       return {
         id: id || makeDisplayItemId(),
@@ -48,265 +87,6 @@
         metaText: metaText || '',
         pending: pending ? '1' : '',
       };
-    }
-
-    function buildSnapshot(session) {
-      if (sessionStoreApi.buildSessionSnapshot) return sessionStoreApi.buildSessionSnapshot(session);
-      return {
-        id: session.id,
-        snapshotVersion: 2,
-        updatedAt: session.updatedAt || Date.now(),
-        messages: session.messages || [],
-        pendingDisplay: (session.display || []).filter(item => item?.pending === '1'),
-        lastGeneratedImage: session.lastGeneratedImage || null,
-      };
-    }
-
-    function nextPersistenceRevision(session) {
-      const previous = Math.max(
-        Number(session?.persistenceUpdatedAt || 0),
-        Number(session?.snapshotUpdatedAt || 0)
-      );
-      const revision = Math.max(Date.now(), previous + 1);
-      session.persistenceUpdatedAt = revision;
-      return revision;
-    }
-
-    function snapshotFallbackKey(sessionId) {
-      return `${SNAPSHOT_FALLBACK_PREFIX}${sessionId || ''}`;
-    }
-
-    function isCurrentSnapshot(snapshot) {
-      return snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages);
-    }
-
-    function isQuotaError(error) {
-      return /quota|exceed/i.test(String(error?.name || error?.message || error || ''));
-    }
-
-    function compactFallbackMessage(message, minimal = false) {
-      const clean = sanitizeStoredMessage(message || {});
-      const compact = { ...clean };
-      delete compact.html;
-      if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
-        compact.presentation = { ...compact.presentation };
-        delete compact.presentation.html;
-      }
-      if (!minimal) return compact;
-      const essential = {};
-      [
-        'role', 'content', 'messageIndex', 'responseIndex', 'id', 'displayItemId',
-        'jobId', 'imageJobId', 'reasoning_content', 'name', 'tool_call_id', 'tool_calls',
-      ].forEach(key => {
-        if (compact[key] !== undefined && compact[key] !== null && compact[key] !== '') essential[key] = compact[key];
-      });
-      if ((!Object.prototype.hasOwnProperty.call(essential, 'content') || typeof compact.content !== 'string') && compact.rawText) {
-        essential.rawText = compact.rawText;
-      }
-      return essential;
-    }
-
-    function compactFallbackDisplayItem(item, minimal = false) {
-      const clean = sanitizeStoredDisplayItem(item || {});
-      const compact = { ...clean };
-      delete compact.html;
-      if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
-        compact.presentation = { ...compact.presentation };
-        delete compact.presentation.html;
-      }
-      if (!minimal) return compact;
-      const essential = {};
-      ['id', 'role', 'rawText', 'messageIndex', 'responseIndex', 'jobId', 'pending', 'metaText'].forEach(key => {
-        if (compact[key] !== undefined && compact[key] !== null && compact[key] !== '') essential[key] = compact[key];
-      });
-      return essential;
-    }
-
-    function buildFallbackCandidate(snapshot, { partial = false, tailCount = snapshotFallbackTailCount, minimal = false, baseUpdatedAt = 0 } = {}) {
-      const messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
-      const selectedMessages = partial ? messages.slice(-Math.max(1, tailCount)) : messages;
-      return {
-        id: snapshot.id,
-        snapshotVersion: 2,
-        fallbackVersion: SNAPSHOT_FALLBACK_VERSION,
-        partial: !!partial,
-        baseUpdatedAt: Number(baseUpdatedAt || 0),
-        updatedAt: Number(snapshot.updatedAt || 0),
-        messages: selectedMessages.map(message => compactFallbackMessage(message, minimal)),
-        pendingDisplay: (snapshot.pendingDisplay || []).map(item => compactFallbackDisplayItem(item, minimal)),
-        lastGeneratedImage: snapshot.lastGeneratedImage || null,
-      };
-    }
-
-    function readSnapshotFallback(sessionId) {
-      if (!sessionId) return null;
-      const key = snapshotFallbackKey(sessionId);
-      try {
-        const raw = localStorageRef.getItem(key);
-        const parsed = raw ? JSON.parse(raw) : null;
-        if (!raw || isCurrentSnapshot(parsed) && (!parsed.id || parsed.id === sessionId)) return parsed;
-        try { localStorageRef.removeItem(key); } catch {}
-        return null;
-      } catch {
-        try { localStorageRef.removeItem(key); } catch {}
-        return null;
-      }
-    }
-
-    function writeSnapshotFallback(snapshot, baseUpdatedAt = 0) {
-      if (!isCurrentSnapshot(snapshot) || !snapshot.id) return false;
-      const previous = readSnapshotFallback(snapshot.id);
-      if (Number(previous?.updatedAt || 0) > Number(snapshot.updatedAt || 0)) return true;
-
-      const partialTailCount = Math.min(snapshotFallbackTailCount, Math.max(1, snapshot.messages.length));
-      const candidateFactories = [
-        () => buildFallbackCandidate(snapshot, { baseUpdatedAt }),
-        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: partialTailCount, baseUpdatedAt }),
-        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(6, partialTailCount), minimal: true, baseUpdatedAt }),
-        () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(2, partialTailCount), minimal: true, baseUpdatedAt }),
-      ];
-
-      let quotaError = null;
-      for (const createCandidate of candidateFactories) {
-        try {
-          const candidate = createCandidate();
-          localStorageRef.setItem(snapshotFallbackKey(snapshot.id), JSON.stringify(candidate));
-          return true;
-        } catch (error) {
-          if (!isQuotaError(error)) {
-            logger?.warn?.('save session snapshot fallback failed', error);
-            return false;
-          }
-          quotaError = error;
-        }
-      }
-      logger?.warn?.('save session snapshot fallback quota exceeded; retaining the previous recoverable revision', quotaError);
-      return false;
-    }
-
-    function clearSnapshotFallback(sessionId, throughRevision = Infinity) {
-      if (!sessionId) return;
-      try {
-        const fallback = readSnapshotFallback(sessionId);
-        if (!fallback || Number(fallback.updatedAt || 0) <= Number(throughRevision)) {
-          localStorageRef.removeItem(snapshotFallbackKey(sessionId));
-        }
-      } catch {}
-    }
-
-    function hasStoredSessionMetadata(sessionId) {
-      if (!sessionId) return false;
-      try {
-        const raw = localStorageRef.getItem(SESSIONS_KEY);
-        const stored = raw ? JSON.parse(raw) : null;
-        return Array.isArray(stored) && stored.some(item => item?.id === sessionId);
-      } catch {
-        return false;
-      }
-    }
-
-    function retainRecoverableSnapshot(snapshot, baseUpdatedAt = 0, reason = '') {
-      // Metadata is written before the fallback so a quota boundary cannot leave
-      // a brand-new snapshot without a session index entry. Both writes are
-      // synchronous, which makes a completed in-memory reply refresh-safe while
-      // its IndexedDB transaction is still pending.
-      const metadataSaved = saveSessionsMeta();
-      const metadataAvailable = metadataSaved || hasStoredSessionMetadata(snapshot?.id);
-      const fallbackRetained = writeSnapshotFallback(snapshot, baseUpdatedAt);
-      return {
-        recoverable: !!fallbackRetained && !!metadataAvailable,
-        fallbackRetained: !!fallbackRetained,
-        metadataAvailable: !!metadataAvailable,
-        metadataSaved: !!metadataSaved,
-        reason: String(reason || ''),
-      };
-    }
-
-    function createSessionPersistenceError(snapshot, reason, cause = null, recovery = null) {
-      const error = new Error('消息未能写入浏览器持久化存储，请勿刷新页面，并检查浏览器存储权限或空间后重试。');
-      error.name = 'SessionPersistenceError';
-      error.code = 'SESSION_PERSISTENCE_FAILED';
-      error.persistenceFailure = true;
-      error.reason = String(reason || 'unknown');
-      error.sessionId = String(snapshot?.id || '');
-      error.revision = Number(snapshot?.updatedAt || 0);
-      error.fallbackRetained = !!recovery?.fallbackRetained;
-      error.metadataAvailable = !!recovery?.metadataAvailable;
-      if (cause) error.cause = cause;
-      return error;
-    }
-
-    function messageIdentity(message) {
-      if (!message || !['user', 'assistant'].includes(message.role)) return '';
-      const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
-      return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
-    }
-
-    function mergePartialFallbackMessages(durableMessages = [], fallbackMessages = []) {
-      const replacementIds = new Set(fallbackMessages.map(messageIdentity).filter(Boolean));
-      const retainedDurable = durableMessages.filter(message => {
-        const identity = messageIdentity(message);
-        return !identity || !replacementIds.has(identity);
-      });
-      return compactAdjacentDuplicateMessages([...retainedDurable, ...fallbackMessages]);
-    }
-
-    function withSnapshotSource(snapshot, durableUpdatedAt = 0) {
-      return snapshot ? { ...snapshot, durableUpdatedAt: Number(durableUpdatedAt || 0) } : null;
-    }
-
-    function mergeSnapshotFallback(durable, fallback) {
-      const durableRevision = isCurrentSnapshot(durable) ? Number(durable.updatedAt || 0) : 0;
-      if (!isCurrentSnapshot(fallback)) return withSnapshotSource(durable, durableRevision);
-      if (!fallback.partial) return withSnapshotSource(fallback, durableRevision);
-      if (!isCurrentSnapshot(durable)) return withSnapshotSource(fallback, 0);
-      return withSnapshotSource({
-        ...durable,
-        ...fallback,
-        messages: mergePartialFallbackMessages(durable.messages || [], fallback.messages || []),
-        pendingDisplay: Object.prototype.hasOwnProperty.call(fallback, 'pendingDisplay')
-          ? fallback.pendingDisplay || []
-          : durable.pendingDisplay || [],
-        lastGeneratedImage: fallback.lastGeneratedImage || durable.lastGeneratedImage || null,
-      }, durableRevision);
-    }
-
-    async function readLatestSnapshot(sessionId) {
-      const durableRead = Promise.resolve().then(() => snapshotStore?.getSnapshot?.(sessionId) || null).catch(error => {
-        logger?.warn?.('load session snapshot failed', error);
-        return null;
-      });
-      let durable = null;
-      if (!snapshotCommitWaitMs || typeof setTimeoutRef !== 'function') {
-        durable = await durableRead;
-      } else {
-        let timeoutId = null;
-        const boundedRead = new Promise(resolve => {
-          timeoutId = setTimeoutRef(() => {
-            logger?.warn?.(`load session snapshot is still pending after ${snapshotCommitWaitMs}ms; using recoverable fallback`);
-            resolve(null);
-          }, snapshotCommitWaitMs);
-        });
-        durable = await Promise.race([durableRead, boundedRead]);
-        if (timeoutId !== null && typeof clearTimeoutRef === 'function') clearTimeoutRef(timeoutId);
-      }
-
-      const fallback = readSnapshotFallback(sessionId);
-      const durableRevision = isCurrentSnapshot(durable) ? Number(durable.updatedAt || 0) : -1;
-      const fallbackRevision = isCurrentSnapshot(fallback) ? Number(fallback.updatedAt || 0) : -1;
-      if (durableRevision >= fallbackRevision) {
-        if (durableRevision >= 0) clearSnapshotFallback(sessionId, durableRevision);
-        return withSnapshotSource(durable, Math.max(0, durableRevision));
-      }
-
-      if (!isCurrentSnapshot(durable)) {
-        durableRead.then(lateSnapshot => {
-          const lateRevision = isCurrentSnapshot(lateSnapshot) ? Number(lateSnapshot.updatedAt || 0) : -1;
-          const currentFallback = readSnapshotFallback(sessionId);
-          if (lateRevision >= Number(currentFallback?.updatedAt || Infinity)) clearSnapshotFallback(sessionId, lateRevision);
-        }).catch(() => {});
-      }
-      return mergeSnapshotFallback(durable, fallback);
     }
 
     function commitSession(session) {
@@ -405,7 +185,6 @@
           imageStylePrompt: session.imageStylePrompt || '',
           hasImageStylePromptOverride: !!session.hasImageStylePromptOverride,
           chatModel: state.models?.includes?.(session.chatModel) ? session.chatModel : '',
-          headerValues: session.headerValues && typeof session.headerValues === 'object' ? session.headerValues : {},
           promptDraft: String(session.promptDraft || '').slice(0, 20000),
           reasoningMode: session.reasoningMode === undefined ? null : !!session.reasoningMode,
           reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(session.reasoningType) ? session.reasoningType : '',
@@ -557,7 +336,6 @@
         imageStylePrompt: item.imageStylePrompt || '',
         hasImageStylePromptOverride: !!item.hasImageStylePromptOverride,
         chatModel: state.models?.includes?.(item.chatModel) ? item.chatModel : '',
-        headerValues: item.headerValues && typeof item.headerValues === 'object' ? item.headerValues : {},
         promptDraft: String(item.promptDraft || '').slice(0, 20000),
         reasoningMode: item.reasoningMode === null || item.reasoningMode === undefined ? undefined : !!item.reasoningMode,
         reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(item.reasoningType) ? item.reasoningType : '',

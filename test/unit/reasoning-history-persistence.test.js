@@ -141,7 +141,6 @@ async function testInFlightReasoningPersistsAfterSwitchAndReload() {
       requestOptions.push({ ...options });
       return { model, messages, ...options };
     },
-    buildRequestHeaders: () => ({}),
     shouldUseResponsesReasoning: () => false,
     makeClientChatJobId: () => '',
     createRealtimeRenderer: realtimeRenderer,

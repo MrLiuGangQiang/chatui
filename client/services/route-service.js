@@ -1,6 +1,38 @@
 (function initChatUIRouteService(root) {
   'use strict';
 
+const routeCandidateModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeCandidates')
+  || (typeof require === 'function' ? require('./route-candidates') : {});
+
+const routeDispatchGateModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeDispatchGate')
+  || (typeof require === 'function' ? require('./route-dispatch-gate') : {});
+
+const routeRepairPolicyModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeRepairPolicy')
+  || (typeof require === 'function' ? require('./route-repair-policy') : {});
+
+const routePayloadModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routePayload')
+  || (typeof require === 'function' ? require('./route-payload') : {});
+
+const routeDecisionCompilerModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeDecisionCompiler')
+  || (typeof require === 'function' ? require('./route-decision-compiler') : {});
+
+const routeLegacyAdapterModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeLegacyAdapter')
+  || (typeof require === 'function' ? require('./route-legacy-adapter') : {});
+
+const routeProtocol = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeProtocol')
+  || root?.ChatUICore?.routeProtocol
+  || (typeof require === 'function' ? require('../core/route-protocol') : {});
+const {
+  ROUTE_DECISION_VERSION,
+  ROUTE_OPERATIONS,
+  ROUTE_RELATIONS,
+  ROUTE_ROLES,
+  ROUTE_RESOURCE_TYPES,
+  ROUTE_REASONS,
+  ROUTE_CHANGES,
+  OPERATIONS_BY_FIXED_MODE,
+} = routeProtocol;
+
 const MAX_ROUTE_REPAIR_OUTPUT_CHARS = 12000;
 
 // The model decides semantics only. The application compiles this compact
@@ -147,628 +179,75 @@ function stripJsonFence(text = '') {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
-const ROUTE_DECISION_VERSION = 'route_decision.v1';
-const ROUTE_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']);
-const ROUTE_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
-const ROUTE_ROLES = new Set(['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context']);
-const ROUTE_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
-const ROUTE_REASONS = new Set(['missing', 'ambiguous', 'unavailable']);
-const ROUTE_CHANGES = new Set(['preserve', 'add', 'replace', 'remove']);
-const ROUTE_DECISION_FIELDS = ['schema_version', 'readiness', 'operation', 'relation', 'bindings', 'changes', 'constraints', 'clarification', 'confidence', 'rationale'];
-const OPERATIONS_BY_FIXED_MODE = Object.freeze({
-  chat: new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']),
-  image: new Set(['text_to_image', 'image_reference_gen']),
-  edit_image: new Set(['edit_image']),
+const ROUTE_DECISION_FIELDS = routeProtocol.ROUTE_DECISION_FIELDS;
+
+const routeCandidateDirectory = routeCandidateModule.createRouteCandidateDirectory({
+  intentContract,
+  cleanQuotedContent,
 });
+const {
+  buildRouteResourceCandidates,
+  publicRouteResourceCandidates,
+  messageIdentity,
+  messageBody,
+} = routeCandidateDirectory;
 
-function hasOnlyExactFields(value = {}, fields = []) {
-  return !!value
-    && typeof value === 'object'
-    && !Array.isArray(value)
-    && Object.keys(value).length === fields.length
-    && fields.every(field => Object.prototype.hasOwnProperty.call(value, field));
-}
+const routeRepairPolicy = routeRepairPolicyModule.createRouteRepairPolicy({
+  routeProtocol,
+  stripJsonFence,
+  maxOutputChars: MAX_ROUTE_REPAIR_OUTPUT_CHARS,
+});
+const { repairInvariantSnapshot, repairPreservesInvariants } = routeRepairPolicy;
 
-function routeCandidateLabel(candidate = {}, raw = {}) {
-  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
-  const unique = values => {
-    const seen = new Set();
-    return values.map(normalize).filter(value => {
-      const fingerprint = value.toLocaleLowerCase();
-      if (!value || seen.has(fingerprint)) return false;
-      seen.add(fingerprint);
-      return true;
-    });
-  };
-  const filename = normalize(raw?.name || raw?.filename || candidate?.name || '');
-  const descriptions = unique([
-    raw?.description, raw?.semantic_description, raw?.semanticDescription,
-    raw?.subject, raw?.label,
-  ]);
-  const labels = unique(Array.isArray(raw?.labels) ? raw.labels : []);
-  const semanticParts = unique(String(raw?.semantic_text || '').split(/\s*\|\s*/));
-  const promptParts = unique(String(raw?.prompt || '').split(/\s*\|\s*/));
-  const preferred = candidate.type === 'file'
-    ? [filename, ...descriptions]
-    : [filename, ...descriptions, ...labels];
-  const fallback = [...semanticParts, ...promptParts];
-  const parts = unique((preferred.some(Boolean) ? preferred : fallback)).slice(0, 2);
-  return (parts.join(' · ') || `${candidate.type || 'resource'} ${candidate.index || ''}`).slice(0, 120);
-}
+const routePayloadBuilder = routePayloadModule.createRoutePayloadBuilder({
+  assertInputWithinUnifiedLimit,
+  buildRouteResourceCandidates,
+  publicRouteResourceCandidates,
+  messageIdentity,
+  repairInvariantSnapshot,
+  readRouteReadiness,
+  routeSystemPrompt: ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5,
+  intentRepairSystemPrompt: INTENT_REPAIR_SYSTEM_PROMPT_V5,
+  routeResponseFormat: ROUTE_RESPONSE_FORMAT,
+});
+const {
+  buildFileCandidatesFromAttachments,
+  compactRoutePayloadContext,
+  compactRouteUserPayload,
+  buildRoutePayload,
+  buildIntentRepairPayload,
+  extractRouteText,
+} = routePayloadBuilder;
 
-function routeCandidateSelectionText(candidate = {}, raw = {}) {
-  const specific = [
-    raw?.description, raw?.semantic_description, raw?.semanticDescription,
-    raw?.subject, raw?.label,
-    ...(Array.isArray(raw?.labels) ? raw.labels : []),
-    raw?.name, raw?.filename,
-  ].map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
-  const fallback = [raw?.semantic_text, raw?.prompt, candidate?.label]
-    .map(value => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
-  return (specific.length ? specific : fallback).join(' | ').slice(0, 720);
-}
+const routeDecisionCompiler = routeDecisionCompilerModule.createRouteDecisionCompiler({
+  routeProtocol,
+  buildRouteResourceCandidates,
+  compactRoutePayloadContext,
+});
+const {
+  hasExactRouteDecision,
+  selectedChoiceCandidateMatches,
+  roleMatchesCandidate,
+  operationAllowedByProductMode,
+  compileRouteDecision,
+} = routeDecisionCompiler;
 
-function buildRouteResourceCandidates({ attachments = [], context = {} } = {}) {
-  const catalog = [];
-  const addMedia = (type, prefix) => {
-    const candidates = typeof intentContract?.mediaCandidates === 'function'
-      ? intentContract.mediaCandidates(type, context, attachments)
-      : [];
-    const rawCandidates = Array.isArray(type === 'image' ? context?.image_candidates : context?.file_candidates)
-      ? (type === 'image' ? context.image_candidates : context.file_candidates)
-      : [];
-    const rawAttachments = (Array.isArray(attachments) ? attachments : []).filter(item => {
-      const mime = String(item?.type || item?.mime || '').toLowerCase();
-      const isImage = item?.is_image === true || item?.isImage === true || mime.startsWith('image/');
-      return (type === 'image') === isImage;
-    });
-    candidates.forEach((candidate, index) => {
-      const contextualRaw = rawCandidates.find(item => {
-        const id = String(type === 'image' ? item?.image_id || item?.imageId || '' : item?.file_id || item?.fileId || item?.id || '');
-        const referenceId = String(item?.reference_id || item?.referenceId || '');
-        return candidate.id && id === candidate.id
-          || type === 'image' && candidate.referenceId && referenceId === candidate.referenceId && Number(item?.index) === Number(candidate.index)
-          || Number(item?.index) === Number(candidate.index) && String(item?.source || '') === String(candidate.source || '');
-      });
-      const attachmentRaw = candidate.source === 'current' ? rawAttachments.find((item, attachmentIndex) => {
-        const id = String(type === 'image'
-          ? item?.image_id || item?.imageId || item?.id || item?.attachmentId || item?.attachment_id || ''
-          : item?.file_id || item?.fileId || item?.id || item?.attachmentId || item?.attachment_id || '');
-        const sourceIndex = Number(type === 'image'
-          ? item?.media_index || item?.mediaIndex || item?.source_index || item?.sourceIndex
-          : item?.source_index || item?.sourceIndex || item?.media_index || item?.mediaIndex) || attachmentIndex + 1;
-        return candidate.id && id === candidate.id || sourceIndex === Number(candidate.sourceIndex);
-      }) : null;
-      const raw = contextualRaw || attachmentRaw || {};
-      const catalogCandidate = {
-        candidate_key: `${prefix}${index + 1}`,
-        type,
-        source: String(candidate.source || 'context'),
-        index: Number(candidate.index),
-        id: String(candidate.id || ''),
-        reference_id: type === 'image' ? String(candidate.referenceId || '') : '',
-        label: routeCandidateLabel({ ...candidate, type }, raw),
-        filename: String(raw?.name || raw?.filename || candidate?.name || ''),
-      };
-      catalogCandidate.selection_text = routeCandidateSelectionText(catalogCandidate, raw);
-      catalog.push(catalogCandidate);
-    });
-  };
-  addMedia('image', 'i');
-  addMedia('file', 'f');
-
-  const quote = context?.quoted_message && typeof context.quoted_message === 'object' ? context.quoted_message : null;
-  const quoteIndex = Number(quote?.index);
-  const quoteId = messageIdentity(quote);
-  const messages = typeof intentContract?.messageCandidates === 'function'
-    ? intentContract.messageCandidates(context)
-    : [];
-  messages.forEach((candidate, index) => {
-    const isQuote = Number.isInteger(quoteIndex)
-      && quoteIndex >= 1
-      && Number(candidate.index) === quoteIndex
-      && (!quoteId || !candidate.id || String(candidate.id) === quoteId);
-    const recent = (Array.isArray(context?.recent_messages) ? context.recent_messages : []).find(message => Number(message?.index) === Number(candidate.index));
-    const raw = isQuote && quote ? { ...recent, ...quote } : recent || {};
-    catalog.push({
-      candidate_key: `m${index + 1}`,
-      type: 'message',
-      source: isQuote ? 'quoted' : 'history',
-      index: Number(candidate.index),
-      id: String(candidate.id || (isQuote ? quoteId : '')),
-      reference_id: '',
-      label: String(messageBody(raw) || `${candidate.role || 'message'} message ${candidate.index}`).replace(/\s+/g, ' ').slice(0, 240),
-    });
-  });
-  return catalog;
-}
-
-function publicRouteResourceCandidates(catalog = []) {
-  return catalog.map(candidate => ({
-    candidate_key: candidate.candidate_key,
-    type: candidate.type,
-    source: candidate.source,
-    label: candidate.label,
-  }));
-}
-
-function hasRouteDecisionShape(value = {}) {
-  if (!hasOnlyExactFields(value, ROUTE_DECISION_FIELDS)
-      || value.schema_version !== ROUTE_DECISION_VERSION
-      || !['ready', 'needs_clarification'].includes(value.readiness)
-      || !ROUTE_OPERATIONS.has(value.operation)
-      || !ROUTE_RELATIONS.has(value.relation)
-      || !Array.isArray(value.bindings)
-      || !Array.isArray(value.changes)
-      || !Array.isArray(value.constraints)
-      || !hasOnlyExactFields(value.clarification, ['question', 'unresolved'])
-      || typeof value.clarification.question !== 'string'
-      || !Array.isArray(value.clarification.unresolved)
-      || !Number.isFinite(value.confidence)
-      || value.confidence < 0
-      || value.confidence > 1
-      || typeof value.rationale !== 'string') return false;
-  if (value.bindings.some(binding => !hasOnlyExactFields(binding, ['candidate_key', 'role'])
-      || !/^[ifm][1-9]\d*$/.test(binding.candidate_key)
-      || !ROUTE_ROLES.has(binding.role))) return false;
-  if (value.changes.some(change => {
-    if (!hasOnlyExactFields(change, ['op', 'target', 'value'])
-        || !ROUTE_CHANGES.has(change.op)
-        || typeof change.target !== 'string'
-        || typeof change.value !== 'string') return true;
-    if (['add', 'replace'].includes(change.op)) {
-      return !change.target.trim() || !change.value.trim();
-    }
-    return !change.target.trim() || change.value !== '';
-  })) return false;
-  if (value.constraints.some(constraint => typeof constraint !== 'string' || !constraint.trim())) return false;
-  return !value.clarification.unresolved.some(slot => !hasOnlyExactFields(slot, ['type', 'role', 'reason', 'candidate_keys'])
-    || !ROUTE_RESOURCE_TYPES.has(slot.type)
-    || !ROUTE_ROLES.has(slot.role)
-    || !ROUTE_REASONS.has(slot.reason)
-    || !Array.isArray(slot.candidate_keys)
-    || slot.candidate_keys.some(key => typeof key !== 'string' || !/^[ifm][1-9]\d*$/.test(key)));
-}
-
-function hasExactRouteDecision(value = {}) {
-  return hasRouteDecisionShape(value);
-}
-
-function selectedChoiceCandidateMatches(candidate = {}, selected = {}) {
-  if (!candidate || !selected || String(candidate.type || '') !== String(selected.type || '')) return false;
-  const candidateId = String(candidate.id || '');
-  const selectedId = String(selected.id || '');
-  const candidateReference = String(candidate.reference_id || '');
-  const selectedReference = String(selected.reference_id || '');
-  if (selectedId && candidateId) return selectedId === candidateId;
-  if (selectedReference && candidateReference) {
-    return selectedReference === candidateReference && Number(candidate.index) === Number(selected.index);
-  }
-  if ((selectedId || selectedReference) && (candidateId || candidateReference)) return false;
-  const sameSourceIndex = String(candidate.source || '') === String(selected.source || '')
-    && Number(candidate.index) === Number(selected.index);
-  return sameSourceIndex;
-}
-
-function assertSelectedChoicesAreBound(decision = {}, catalog = [], context = {}) {
-  const selectedChoices = context?.clarification_context?.selected_choices;
-  if (!Array.isArray(selectedChoices) || !selectedChoices.length) return;
-  for (const selected of selectedChoices) {
-    const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, selected));
-    if (matches.length !== 1 || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key && binding.role === selected.role)) {
-      throw new TypeError('A selected clarification resource was not preserved in the rerouted task');
-    }
-  }
-}
-
-function assertPartialAnswerPreservesEstablishedBindings(decision = {}, catalog = [], context = {}) {
-  const clarification = context?.clarification_context;
-  if (clarification?.continuation_relation !== 'partial_answer') return;
-  const priorResources = Array.isArray(clarification?.prior_task_contract?.resources)
-    ? clarification.prior_task_contract.resources
-    : [];
-  const selectedChoices = Array.isArray(clarification?.selected_choices)
-    ? clarification.selected_choices
-    : [];
-  const expectedResources = [...priorResources, ...selectedChoices]
-    .filter(resource => resource && resource.type !== 'text' && resource.missing !== true);
-  const expectedCandidateKeys = new Set();
-  for (const expected of expectedResources) {
-    const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, expected));
-    if (matches.length !== 1
-        || expectedCandidateKeys.has(matches[0].candidate_key)
-        || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key && binding.role === expected.role)) {
-      throw new TypeError('A partial clarification answer cannot drop an established resource binding');
-    }
-    expectedCandidateKeys.add(matches[0].candidate_key);
-  }
-}
-
-function selectionAnswerInvariantContext(context = {}) {
-  const clarification = context?.clarification_context;
-  if (clarification?.continuation_relation !== 'pending_answer') return null;
-  const prior = clarification.prior_task_contract;
-  const unresolved = prior?.clarification?.unresolved_resources;
-  const selected = clarification.selected_choices;
-  if (!prior || !Array.isArray(unresolved) || !unresolved.length
-      || unresolved.some(slot => slot?.reason !== 'ambiguous' || slot?.type === 'text')
-      || !Array.isArray(selected) || selected.length !== unresolved.length) return null;
-  const selectedKeys = new Set(selected.map(item => String(item?.resource_key || '')));
-  if (unresolved.some(slot => !selectedKeys.has(String(slot?.key || '')))) return null;
-  return { prior, selected };
-}
-
-function assertSelectionAnswerPreservesOriginalSemantics(decision = {}, context = {}) {
-  const invariant = selectionAnswerInvariantContext(context);
-  if (!invariant) return;
-  const { prior } = invariant;
-  const priorChanges = Array.isArray(prior.directive?.operations) ? prior.directive.operations : [];
-  const priorConstraints = Array.isArray(prior.directive?.constraints) ? prior.directive.constraints : [];
-  if (decision.operation !== prior.operation
-      || JSON.stringify(sortedSignatures(decision.changes)) !== JSON.stringify(sortedSignatures(priorChanges))
-      || JSON.stringify([...decision.constraints].sort()) !== JSON.stringify([...priorConstraints].sort())) {
-    throw new TypeError('A resource-selection answer cannot replace the original task semantics');
-  }
-}
-
-function assertSelectionAnswerPreservesOriginalBindings(decision = {}, catalog = [], context = {}) {
-  const invariant = selectionAnswerInvariantContext(context);
-  if (!invariant || decision.readiness !== 'ready') return;
-  const expectedResources = [
-    ...(Array.isArray(invariant.prior.resources) ? invariant.prior.resources : []),
-    ...invariant.selected,
-  ].filter(resource => resource && resource.type !== 'text' && resource.missing !== true);
-  const expectedCandidateKeys = new Set();
-  for (const expected of expectedResources) {
-    const matches = catalog.filter(candidate => selectedChoiceCandidateMatches(candidate, expected));
-    if (matches.length !== 1
-        || expectedCandidateKeys.has(matches[0].candidate_key)
-        || !decision.bindings.some(binding => binding.candidate_key === matches[0].candidate_key && binding.role === expected.role)) {
-      throw new TypeError('A resource-selection answer cannot replace an established resource binding');
-    }
-    expectedCandidateKeys.add(matches[0].candidate_key);
-  }
-  if (decision.bindings.length !== expectedCandidateKeys.size
-      || decision.bindings.some(binding => !expectedCandidateKeys.has(binding.candidate_key))) {
-    throw new TypeError('A resource-selection answer cannot add or remove resource bindings');
-  }
-}
-
-function roleMatchesCandidate(type = '', role = '') {
-  if (type === 'file') return role === 'attachment';
-  if (type === 'message') return role === 'context';
-  if (type === 'text') return role === 'source';
-  return type === 'image' && ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b'].includes(role);
-}
-
-function operationAllowedByProductMode(operation = '', currentMode = 'chat', autoMode = true) {
-  if (autoMode !== false) return true;
-  const allowed = OPERATIONS_BY_FIXED_MODE[String(currentMode || 'chat')] || OPERATIONS_BY_FIXED_MODE.chat;
-  return allowed.has(operation);
-}
-
-function compileRouteDecision(decision = {}, options = {}) {
-  if (!hasExactRouteDecision(decision)) throw new TypeError('Invalid route_decision.v1 shape');
-  const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || [], options.currentTurn || null);
-  const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
-  assertSelectedChoicesAreBound(decision, catalog, compilerContext);
-  assertPartialAnswerPreservesEstablishedBindings(decision, catalog, compilerContext);
-  assertSelectionAnswerPreservesOriginalBindings(decision, catalog, compilerContext);
-  assertSelectionAnswerPreservesOriginalSemantics(decision, compilerContext);
-  const candidates = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
-  const usedCandidateKeys = new Set();
-  const resources = decision.bindings.map((binding, index) => {
-    const candidate = candidates.get(binding.candidate_key);
-    if (!candidate || usedCandidateKeys.has(binding.candidate_key) || !roleMatchesCandidate(candidate.type, binding.role)) {
-      throw new TypeError(`Invalid route binding: ${binding.candidate_key}`);
-    }
-    usedCandidateKeys.add(binding.candidate_key);
-    return {
-      key: `r${index + 1}`,
-      type: candidate.type,
-      source: candidate.source,
-      role: binding.role,
-      index: candidate.index,
-      id: candidate.id,
-      reference_id: candidate.reference_id,
-      missing: false,
-    };
-  });
-
-  let nextResourceNumber = resources.length + 1;
-  const unresolvedResources = decision.clarification.unresolved.map(slot => {
-    const keys = [...new Set(slot.candidate_keys)];
-    if (keys.length !== slot.candidate_keys.length
-        || slot.reason === 'ambiguous' && keys.length < 2
-        || slot.reason !== 'ambiguous' && keys.length !== 0
-        || !roleMatchesCandidate(slot.type, slot.role)) throw new TypeError('Invalid unresolved route slot');
-    const choices = keys.map((key, index) => {
-      const candidate = candidates.get(key);
-      if (!candidate || candidate.type !== slot.type || usedCandidateKeys.has(key)) throw new TypeError(`Invalid clarification candidate: ${key}`);
-      return {
-        key: `c${index + 1}`,
-        source: candidate.source,
-        index: candidate.index,
-        id: candidate.id,
-        reference_id: candidate.reference_id,
-        label: candidate.label,
-      };
-    });
-    return {
-      key: `r${nextResourceNumber++}`,
-      type: slot.type,
-      role: slot.role,
-      reason: slot.reason,
-      choices,
-    };
-  });
-
-  if (decision.readiness === 'ready' && (decision.clarification.question || unresolvedResources.length)
-      || decision.readiness === 'needs_clarification' && (!decision.clarification.question.trim() || !unresolvedResources.length)) {
-    throw new TypeError('Decision readiness and clarification disagree');
-  }
-
-  const operationRequiresPatch = ['edit_image', 'image_reference_gen'].includes(decision.operation);
-  const historicalResources = resources.filter(resource => ['quoted', 'history', 'context'].includes(resource.source));
-  const unresolvedNeedsBaseline = decision.readiness === 'needs_clarification'
-    && decision.relation !== 'new'
-    && unresolvedResources.some(slot => slot.type !== 'text');
-  const mode = operationRequiresPatch || historicalResources.length || unresolvedNeedsBaseline ? 'patch' : 'standalone';
-  const referenceResources = resources.filter(resource => resource.type === 'image'
-    && ['reference', 'style_reference'].includes(resource.role));
-  const referenceGenerationAllowsChange = decision.readiness === 'ready'
-    && decision.operation === 'image_reference_gen'
-    && (referenceResources.length > 1 || referenceResources.some(resource => resource.role === 'style_reference'));
-  const unmentionedPolicy = mode === 'standalone' || referenceGenerationAllowsChange ? 'allow_change' : 'preserve';
-  const baselineKeys = [];
-  for (const resource of resources) {
-    if (resource.type === 'text') continue;
-    if (operationRequiresPatch && resource.type === 'image' || ['quoted', 'history', 'context'].includes(resource.source)) baselineKeys.push(resource.key);
-  }
-  if (mode === 'patch' && decision.readiness === 'needs_clarification') {
-    for (const slot of unresolvedResources) if (slot.type !== 'text') baselineKeys.push(slot.key);
-  }
-
-  const taskContract = {
-    schema_version: 'task_contract.v5',
-    readiness: decision.readiness,
-    operation: decision.operation,
-    relation: decision.relation,
-    resources,
-    directive: {
-      mode,
-      base_resource_keys: [...new Set(baselineKeys)],
-      unmentioned_policy: unmentionedPolicy,
-      operations: decision.changes.map(change => ({ ...change })),
-      constraints: decision.constraints.map(constraint => String(constraint)),
-    },
-    clarification: {
-      question: decision.clarification.question,
-      unresolved_resources: unresolvedResources,
-    },
-    confidence: decision.confidence,
-    review_reasons: [],
-    rationale: decision.rationale,
-  };
-  return taskContract;
-}
-
-function implicitCurrentTextResource(resource = {}) {
-  return resource?.type === 'text'
-    && resource?.source === 'current'
-    && resource?.role === 'source'
-    && !String(resource?.id || '')
-    && !String(resource?.reference_id || '');
-}
-
-function legacyDecisionBindingRole(resource = {}, operation = '') {
-  // task_contract.v4/v5 historically allowed a quoted message to use
-  // role=reference for text-to-image. The compact decision protocol models all
-  // message bindings as context, so preserve the behavior through an explicit
-  // compatibility alias instead of widening the native decision grammar.
-  if (resource?.type === 'message' && resource?.role === 'reference' && operation === 'text_to_image') return 'context';
-  return String(resource?.role || '');
-}
-
-function legacyResourceCandidate(resource = {}, catalog = [], usedKeys = new Set(), operation = '') {
-  const decisionRole = legacyDecisionBindingRole(resource, operation);
-  const matches = catalog.filter(candidate => !usedKeys.has(candidate.candidate_key)
-    && roleMatchesCandidate(candidate.type, decisionRole)
-    && selectedChoiceCandidateMatches(candidate, resource));
-  return matches.length === 1 ? matches[0] : null;
-}
-
-function contractSemanticSnapshot(task = {}) {
-  const resources = (Array.isArray(task.resources) ? task.resources : [])
-    .filter(resource => !implicitCurrentTextResource(resource))
-    .map(resource => ({
-      type: resource.type,
-      source: resource.source,
-      role: resource.role,
-      index: Number(resource.index),
-      id: String(resource.id || ''),
-      reference_id: String(resource.reference_id || ''),
-    }));
-  const unresolved = (Array.isArray(task.clarification?.unresolved_resources) ? task.clarification.unresolved_resources : [])
-    .map(slot => ({
-      type: slot.type,
-      role: slot.role,
-      reason: slot.reason,
-      choices: (Array.isArray(slot.choices) ? slot.choices : []).map(choice => ({
-        source: choice.source,
-        index: Number(choice.index),
-        id: String(choice.id || ''),
-        reference_id: String(choice.reference_id || ''),
-      })),
-    }));
-  return {
-    readiness: task.readiness,
-    operation: task.operation,
-    relation: task.relation,
-    resources,
-    directive: {
-      // mode, base_resource_keys, and unmentioned_policy are mechanical fields
-      // that route_decision.v1 deliberately leaves to the compiler. Legacy
-      // contracts may retain a valid historical policy after their identities
-      // and decision-expressible semantics have been proven equivalent.
-      operations: Array.isArray(task.directive?.operations) ? task.directive.operations.map(operation => ({ ...operation })) : [],
-      constraints: Array.isArray(task.directive?.constraints) ? task.directive.constraints.map(constraint => String(constraint)) : [],
-    },
-    clarification: {
-      question: String(task.clarification?.question || ''),
-      unresolved,
-    },
-  };
-}
-
-function convertLegacyTaskContractToDecision(value = {}, options = {}) {
-  try {
-    const normalized = typeof intentContract?.normalizeContractVersion === 'function'
-      ? intentContract.normalizeContractVersion(value)
-      : value;
-    const canonical = typeof intentContract?.canonicalizeContractBindings === 'function'
-      ? intentContract.canonicalizeContractBindings(normalized, options)
-      : normalized;
-    if (!intentContract?.hasExactContractShape?.(canonical)) return null;
-
-    const compilerContext = compactRoutePayloadContext(options.context || {}, options.input || '', options.attachments || [], options.currentTurn || null);
-    const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
-    const usedCandidateKeys = new Set();
-    const bindings = [];
-    const comparisonResources = [];
-    for (const resource of canonical.resources) {
-      if (implicitCurrentTextResource(resource)) {
-        comparisonResources.push({ ...resource });
-        continue;
-      }
-      const decisionRole = legacyDecisionBindingRole(resource, canonical.operation);
-      const candidate = legacyResourceCandidate(resource, catalog, usedCandidateKeys, canonical.operation);
-      if (!candidate) return null;
-      usedCandidateKeys.add(candidate.candidate_key);
-      bindings.push({ candidate_key: candidate.candidate_key, role: decisionRole });
-      comparisonResources.push({
-        ...resource,
-        source: candidate.source,
-        role: decisionRole,
-        index: candidate.index,
-        id: candidate.id,
-        reference_id: candidate.reference_id,
-      });
-    }
-
-    const comparisonUnresolved = [];
-    const unresolved = canonical.clarification.unresolved_resources.map(slot => {
-      const decisionRole = legacyDecisionBindingRole({ type: slot.type, role: slot.role }, canonical.operation);
-      const candidateKeys = [];
-      const comparisonChoices = [];
-      for (const choice of slot.choices) {
-        const candidate = legacyResourceCandidate({ ...choice, type: slot.type, role: slot.role }, catalog, usedCandidateKeys, canonical.operation);
-        if (!candidate || candidateKeys.includes(candidate.candidate_key)) return null;
-        candidateKeys.push(candidate.candidate_key);
-        comparisonChoices.push({
-          ...choice,
-          source: candidate.source,
-          index: candidate.index,
-          id: candidate.id,
-          reference_id: candidate.reference_id,
-        });
-      }
-      comparisonUnresolved.push({ ...slot, role: decisionRole, choices: comparisonChoices });
-      return {
-        type: slot.type,
-        role: decisionRole,
-        reason: slot.reason,
-        candidate_keys: candidateKeys,
-      };
-    });
-
-    const decision = {
-      schema_version: ROUTE_DECISION_VERSION,
-      readiness: canonical.readiness,
-      operation: canonical.operation,
-      relation: canonical.relation,
-      bindings,
-      changes: canonical.directive.operations.map(operation => ({ ...operation })),
-      constraints: canonical.directive.constraints.map(constraint => String(constraint)),
-      clarification: {
-        question: canonical.clarification.question,
-        unresolved,
-      },
-      confidence: canonical.confidence,
-      rationale: canonical.rationale,
-    };
-    if (!hasExactRouteDecision(decision)) return null;
-    const compiled = compileRouteDecision(decision, options);
-    const compiledCanonical = typeof intentContract?.canonicalizeContractBindings === 'function'
-      ? intentContract.canonicalizeContractBindings(compiled, options)
-      : compiled;
-    const comparisonCanonical = {
-      ...canonical,
-      resources: comparisonResources,
-      clarification: {
-        ...canonical.clarification,
-        unresolved_resources: comparisonUnresolved,
-      },
-    };
-    const comparisonResolved = typeof intentContract?.canonicalizeContractBindings === 'function'
-      ? intentContract.canonicalizeContractBindings(comparisonCanonical, options)
-      : comparisonCanonical;
-    if (JSON.stringify(contractSemanticSnapshot(comparisonResolved)) !== JSON.stringify(contractSemanticSnapshot(compiledCanonical))) return null;
-    return decision;
-  } catch {
-    return null;
-  }
-}
-
-function preserveLegacyClarificationLabels(route = null, legacyTask = {}) {
-  if (!route?.needClarification || !route.taskContract) return route;
-  const legacySlots = Array.isArray(legacyTask?.clarification?.unresolved_resources)
-    ? legacyTask.clarification.unresolved_resources
-    : [];
-  const compiledSlots = Array.isArray(route.taskContract?.clarification?.unresolved_resources)
-    ? route.taskContract.clarification.unresolved_resources
-    : [];
-  if (legacySlots.length !== compiledSlots.length) return route;
-  const unresolvedResources = compiledSlots.map((slot, slotIndex) => {
-    const legacyChoices = Array.isArray(legacySlots[slotIndex]?.choices) ? legacySlots[slotIndex].choices : [];
-    if (legacyChoices.length !== slot.choices.length) return slot;
-    return {
-      ...slot,
-      choices: slot.choices.map((choice, choiceIndex) => ({
-        ...choice,
-        label: String(legacyChoices[choiceIndex]?.label || choice.label || '').trim() || choice.label,
-      })),
-    };
-  });
-  const taskContract = {
-    ...route.taskContract,
-    clarification: {
-      ...route.taskContract.clarification,
-      unresolved_resources: unresolvedResources,
-    },
-  };
-  return {
-    ...route,
-    taskContract,
-    clarificationSlots: unresolvedResources,
-  };
-}
-
-function safeLegacyExplicitQuoteRoute(task = {}, options = {}, route = null) {
-  const quote = options.context?.quoted_message;
-  const resources = Array.isArray(task?.resources) ? task.resources : [];
-  const operations = Array.isArray(task?.directive?.operations) ? task.directive.operations : [];
-  const constraints = Array.isArray(task?.directive?.constraints) ? task.directive.constraints : [];
-  if (!route || !quote || task.operation !== 'plain_chat' || task.relation !== 'followup'
-      || resources.length !== 1 || operations.length || constraints.length) return null;
-  const resource = resources[0];
-  const quoteId = messageIdentity(quote);
-  if (resource?.type !== 'message' || resource?.role !== 'context'
-      || !['history', 'quoted'].includes(resource?.source)
-      || Number(resource?.index) !== Number(quote.index)
-      || quoteId && String(resource?.id || '') !== quoteId) return null;
-  return { ...route, legacyExplicitQuoteBound: true };
-}
+const routeLegacyAdapter = routeLegacyAdapterModule.createRouteLegacyAdapter({
+  intentContract,
+  routeDecisionVersion: ROUTE_DECISION_VERSION,
+  roleMatchesCandidate,
+  selectedChoiceCandidateMatches,
+  compactRoutePayloadContext,
+  buildRouteResourceCandidates,
+  hasExactRouteDecision,
+  compileRouteDecision,
+  messageIdentity,
+});
+const {
+  convertLegacyTaskContractToDecision,
+  preserveLegacyClarificationLabels,
+  safeLegacyExplicitQuoteRoute,
+} = routeLegacyAdapter;
 
 function inspectLegacyTaskContract(value = {}, options = {}) {
   const decision = convertLegacyTaskContractToDecision(value, options);
@@ -832,98 +311,6 @@ function inspectLegacyTaskContract(value = {}, options = {}) {
   return legacyInspection;
 }
 
-function sortedSignatures(values = []) {
-  return values.map(value => JSON.stringify(value)).sort();
-}
-
-function orderedSignatures(values = []) {
-  return values.map(value => JSON.stringify(value));
-}
-
-function repairInvariantSnapshot(value = '') {
-  try {
-    if (typeof value === 'string' && value.length > MAX_ROUTE_REPAIR_OUTPUT_CHARS) return null;
-    const raw = typeof value === 'string' ? JSON.parse(stripJsonFence(value)) : value;
-    // Network repair is intentionally limited to the compact semantic protocol.
-    // A model-authored task_contract can contain mechanical resource identities;
-    // repairing it would let a second model response swap those identities while
-    // appearing semantically equivalent. Exact legacy contracts may still be
-    // read by the compatibility parser, but malformed ones fail closed here.
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.schema_version !== ROUTE_DECISION_VERSION) return null;
-    if (!ROUTE_OPERATIONS.has(raw.operation)
-        || !ROUTE_RELATIONS.has(raw.relation)
-        || !['ready', 'needs_clarification'].includes(raw.readiness)
-        || !Array.isArray(raw.bindings)
-        || !Array.isArray(raw.changes)
-        || !Array.isArray(raw.constraints)
-        || typeof raw.clarification?.question !== 'string'
-        || !Array.isArray(raw.clarification?.unresolved)) return null;
-    const bindings = raw.bindings.map(binding => {
-      const candidateKey = String(binding?.candidate_key || '');
-      const role = String(binding?.role || '');
-      if (!/^[ifm][1-9]\d*$/.test(candidateKey) || !ROUTE_ROLES.has(role)) throw new TypeError('incomplete binding invariant');
-      return { candidate_key: candidateKey, role };
-    });
-    const unresolved = raw.clarification.unresolved.map(slot => {
-      const type = String(slot?.type || '');
-      const role = String(slot?.role || '');
-      const reason = String(slot?.reason || '');
-      if (!ROUTE_RESOURCE_TYPES.has(type) || !ROUTE_ROLES.has(role) || !ROUTE_REASONS.has(reason) || !Array.isArray(slot?.candidate_keys)) {
-        throw new TypeError('incomplete unresolved invariant');
-      }
-      const candidateKeys = slot.candidate_keys.map(key => String(key || ''));
-      if (candidateKeys.some(key => !/^[ifm][1-9]\d*$/.test(key))) throw new TypeError('incomplete unresolved candidates');
-      return { type, role, reason, candidate_keys: candidateKeys };
-    });
-    const changes = raw.changes.map(change => {
-      const op = String(change?.op || '');
-      if (!ROUTE_CHANGES.has(op) || typeof change?.target !== 'string' || typeof change?.value !== 'string') {
-        throw new TypeError('incomplete change invariant');
-      }
-      return { op, target: change.target, value: change.value };
-    });
-    const constraints = raw.constraints.map(constraint => {
-      if (typeof constraint !== 'string') throw new TypeError('incomplete constraint invariant');
-      return constraint;
-    });
-    return Object.freeze({
-      protocol: ROUTE_DECISION_VERSION,
-      operation: raw.operation,
-      relation: raw.relation,
-      readiness: raw.readiness,
-      resource_count: bindings.length,
-      // Order is semantic: it determines canonical r-keys and same-role media
-      // projections. Candidate order also determines clarification c-keys.
-      resources: orderedSignatures(bindings),
-      changes,
-      constraints,
-      clarification_question: raw.clarification.question,
-      unresolved_count: unresolved.length,
-      unresolved: orderedSignatures(unresolved),
-    });
-  } catch {
-    return null;
-  }
-}
-
-function repairPreservesInvariants(invariants = null, repairedValue = null) {
-  if (!invariants || invariants.protocol !== ROUTE_DECISION_VERSION || !repairedValue) return false;
-  const candidate = repairedValue?.routeDecision || repairedValue;
-  const repaired = repairInvariantSnapshot(candidate);
-  if (!repaired) return false;
-  return repaired.protocol === invariants.protocol
-    && repaired.operation === invariants.operation
-    && repaired.relation === invariants.relation
-    && repaired.readiness === invariants.readiness
-    && repaired.resource_count === invariants.resource_count
-    && repaired.unresolved_count === invariants.unresolved_count
-    && JSON.stringify(repaired.resources) === JSON.stringify(invariants.resources)
-    && JSON.stringify(repaired.changes || []) === JSON.stringify(invariants.changes || [])
-    && JSON.stringify(repaired.constraints || []) === JSON.stringify(invariants.constraints || [])
-    && String(repaired.clarification_question || '') === String(invariants.clarification_question || '')
-    && JSON.stringify(repaired.unresolved) === JSON.stringify(invariants.unresolved);
-}
-
 function routeReadiness(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
   if (value.readiness === 'ready' || value.readiness === 'needs_clarification') return value.readiness;
@@ -969,100 +356,8 @@ function routeSatisfiesReadiness(route = {}, requiredReadiness = '') {
   return routePlanReadiness(route) === 'needs_clarification';
 }
 
-const EXECUTION_RESOURCES_VERSION = 'execution_resources.v1';
-
-function orderedResourceKeys(resources = []) {
-  return Array.isArray(resources) ? resources.map(resource => String(resource?.key || '')) : null;
-}
-
-function sameOrderedResourceKeys(actual = [], expected = []) {
-  const actualKeys = orderedResourceKeys(actual);
-  const expectedKeys = orderedResourceKeys(expected);
-  return !!actualKeys
-    && !!expectedKeys
-    && actualKeys.length === expectedKeys.length
-    && actualKeys.every((key, index) => key && key === expectedKeys[index]);
-}
-
-function projectedResourceMatchesContract(resource = {}, expected = {}, type = '') {
-  if (!resource || typeof resource !== 'object' || Array.isArray(resource)) return false;
-  if (resource.type !== type || resource.key !== expected.key) return false;
-  if (resource.source !== expected.source || (type !== 'message' && resource.role !== expected.role)) return false;
-  if (!Number.isInteger(Number(resource.index)) || Number(resource.index) < 1) return false;
-  if (String(resource.id || '') !== String(expected.id || '')) return false;
-  if (String(resource.reference_id || '') !== String(expected.reference_id || '')) return false;
-  if (!Array.isArray(resource.identity_aliases) || resource.identity_aliases.some(value => typeof value !== 'string')) return false;
-  if (!Array.isArray(resource.index_aliases) || resource.index_aliases.some(value => !Number.isInteger(Number(value)) || Number(value) < 1)) return false;
-  return true;
-}
-
-function projectedResourceMatchesRouteRef(resource = {}, routeRef = {}, type = '') {
-  if (!resource || !routeRef || resource.key !== routeRef.key || resource.role !== routeRef.role || resource.source !== routeRef.source) return false;
-  const routeId = type === 'image' ? routeRef.image_id : type === 'file' ? routeRef.file_id : routeRef.message_id;
-  const routeReferenceId = type === 'image' ? routeRef.reference_id : '';
-  return String(resource.id || '') === String(routeId || '')
-    && String(resource.reference_id || '') === String(routeReferenceId || '')
-    && Number(resource.index) === Number(routeRef.index);
-}
-
-function hasConsistentExecutionResources(route = {}, task = {}, expectedApi = '') {
-  const projection = route.executionResources;
-  if (!projection || typeof projection !== 'object' || Array.isArray(projection)) return false;
-  if (projection.version !== EXECUTION_RESOURCES_VERSION
-      || projection.operation !== task.operation
-      || projection.api !== expectedApi
-      || projection.relation !== task.relation) return false;
-
-  const expectedImages = task.resources.filter(resource => resource.type === 'image');
-  const expectedFiles = task.resources.filter(resource => resource.type === 'file');
-  const expectedMessages = task.resources.filter(resource => resource.type === 'message');
-  const images = projection.images;
-  const files = projection.files;
-  const messages = projection.messages;
-  if (!Array.isArray(images) || !Array.isArray(files) || !Array.isArray(messages)) return false;
-  if (!sameOrderedResourceKeys(images, expectedImages)
-      || !sameOrderedResourceKeys(files, expectedFiles)
-      || !sameOrderedResourceKeys(messages, expectedMessages)) return false;
-  if (images.some((resource, index) => !projectedResourceMatchesContract(resource, expectedImages[index], 'image'))) return false;
-  if (files.some((resource, index) => !projectedResourceMatchesContract(resource, expectedFiles[index], 'file'))) return false;
-  if (messages.some((resource, index) => !projectedResourceMatchesContract(resource, expectedMessages[index], 'message'))) return false;
-
-  const routeImageRefs = Array.isArray(route.imageRefs) ? route.imageRefs : null;
-  const routeFileRefs = Array.isArray(route.fileRefs) ? route.fileRefs : null;
-  const routeMessageRefs = Array.isArray(route.messageRefs) ? route.messageRefs : null;
-  if (!sameOrderedResourceKeys(routeImageRefs, images)
-      || !sameOrderedResourceKeys(routeFileRefs, files)
-      || !sameOrderedResourceKeys(routeMessageRefs, messages)) return false;
-  if (images.some((resource, index) => !projectedResourceMatchesRouteRef(resource, routeImageRefs[index], 'image'))) return false;
-  if (files.some((resource, index) => !projectedResourceMatchesRouteRef(resource, routeFileRefs[index], 'file'))) return false;
-  if (messages.some((resource, index) => !projectedResourceMatchesRouteRef(resource, routeMessageRefs[index], 'message'))) return false;
-
-  const targets = images.filter(resource => resource.role === 'target');
-  const masks = images.filter(resource => resource.role === 'mask');
-  const references = images.filter(resource => ['reference', 'style_reference'].includes(resource.role));
-  const imageInputs = [...targets, ...references];
-  return sameOrderedResourceKeys(projection.targets, targets)
-    && sameOrderedResourceKeys(projection.masks, masks)
-    && sameOrderedResourceKeys(projection.references, references)
-    && sameOrderedResourceKeys(projection.imageInputs, imageInputs)
-    && sameOrderedResourceKeys(projection.chatImages, images)
-    && sameOrderedResourceKeys(projection.chatFiles, files)
-    && sameOrderedResourceKeys(projection.selectedMessageRefs, messages);
-}
-
-function isRouteDispatchable(route = {}) {
-  if (!route || typeof route !== 'object' || Array.isArray(route)) return false;
-  if (route.needClarification === true || route.api === 'clarify' || route.dispatchAuthorized !== true) return false;
-  const task = route.taskContract;
-  if (!task || task.schema_version !== 'task_contract.v5') return false;
-  if (!intentContract?.hasExactContractShape?.(task) || task.readiness !== 'ready' || route.readiness !== 'ready') return false;
-  const expectedApi = intentContract?.contractApi?.(task) || '';
-  if (!expectedApi || route.api !== expectedApi || route.operationApi !== expectedApi) return false;
-  if (route.operationType !== task.operation || route.relation !== task.relation) return false;
-  const expectedMode = intentContract?.contractMode?.(task) || '';
-  if (!expectedMode || route.operationMode !== expectedMode) return false;
-  return route.mode === expectedMode && hasConsistentExecutionResources(route, task, expectedApi);
-}
+const routeDispatchGate = routeDispatchGateModule.createRouteDispatchGate({ intentContract });
+const { isRouteDispatchable } = routeDispatchGate;
 
 
 function buildQuotedImagePlaceholders(images = []) {
@@ -1086,30 +381,6 @@ function attachComposedPrompt(route = {}, taskContract = {}, options = {}) {
     next = { ...next, editInstruction: executionPrompt(input) };
   }
   return next;
-}
-
-function messageIdentity(message = {}) {
-  return String(
-    message?.display_item_id
-    || message?.displayItemId
-    || message?.id
-    || message?.message_id
-    || message?.messageId
-    || ''
-  );
-}
-
-function messageBody(message = {}) {
-  const raw = Array.isArray(message?.content)
-    ? message?.rawText || ''
-    : message?.content || message?.rawText || '';
-  const text = cleanQuotedContent(String(raw || '').trim())
-    .replace(/\[quoted_image[^\]]*\]/gi, '')
-    .replace(/\[quoted_message\]/gi, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  // This is the compact-context sentinel, not user-authored prompt text.
-  return /^\[quoted_message\]$/i.test(text) ? '' : text;
 }
 
 function boundMessageBody(resource = {}, context = {}) {
@@ -1431,229 +702,6 @@ function createExplicitTextToImageRoute(input = '') {
   return isRouteDispatchable(route) ? route : null;
 }
 
-function routeAttachmentType(item = {}) {
-  const mime = String(item?.type || item?.mime || item?.file?.type || '').toLowerCase();
-  const isImage = item?.is_image === true || item?.isImage === true || mime.startsWith('image/');
-  return isImage ? 'image' : 'file';
-}
-
-function routeAttachmentDescriptor(item = {}, type = routeAttachmentType(item), fallbackIndex = 0) {
-  const image = type === 'image';
-  return {
-    type,
-    id: String(image
-      ? item?.image_id || item?.imageId || item?.id || item?.attachmentId || item?.attachment_id || ''
-      : item?.file_id || item?.fileId || item?.id || item?.attachmentId || item?.attachment_id || ''),
-    referenceId: String(item?.reference_id || item?.referenceId || ''),
-    sourceIndex: Number(image
-      ? item?.media_index || item?.mediaIndex || item?.source_index || item?.sourceIndex
-      : item?.source_index || item?.sourceIndex || item?.media_index || item?.mediaIndex) || fallbackIndex,
-    name: String(item?.name || item?.filename || item?.file?.name || '').trim().toLocaleLowerCase(),
-  };
-}
-
-function routeContextCandidateDescriptor(item = {}, type = '') {
-  return {
-    type,
-    id: String(type === 'image'
-      ? item?.image_id || item?.imageId || ''
-      : item?.file_id || item?.fileId || item?.id || ''),
-    referenceId: String(item?.reference_id || item?.referenceId || ''),
-    sourceIndex: Number(item?.source_index || item?.sourceIndex || item?.index) || 0,
-    name: String(item?.name || item?.filename || '').trim().toLocaleLowerCase(),
-  };
-}
-
-function routeAttachmentMatchesCandidate(attachment = {}, candidate = {}) {
-  if (attachment.type !== candidate.type) return false;
-  if (attachment.id && candidate.id && attachment.id === candidate.id) return true;
-  if (attachment.referenceId && candidate.referenceId
-      && attachment.referenceId === candidate.referenceId
-      && attachment.sourceIndex === candidate.sourceIndex) return true;
-  return attachment.sourceIndex > 0
-    && attachment.sourceIndex === candidate.sourceIndex
-    && !!attachment.name
-    && attachment.name === candidate.name;
-}
-
-function markedCurrentUserMessageIndex(messages = [], currentTurn = null) {
-  if (!currentTurn || typeof currentTurn !== 'object') return 0;
-  const expectedIndex = Number(currentTurn.message_index ?? currentTurn.messageIndex);
-  const expectedId = String(currentTurn.message_id || currentTurn.messageId || currentTurn.id || '');
-  if (expectedId) {
-    const byId = messages.find(message => message?.role === 'user' && messageIdentity(message) === expectedId);
-    if (byId && (!Number.isInteger(expectedIndex) || expectedIndex < 1 || Number(byId.index) === expectedIndex)) {
-      return Number(byId.index) || 0;
-    }
-  }
-  if (!Number.isInteger(expectedIndex) || expectedIndex < 1) return 0;
-  const byIndex = messages.find(message => message?.role === 'user' && Number(message?.index) === expectedIndex);
-  // Context trimming may remove the message row before its media candidates.
-  // An explicit caller marker still identifies those candidates by stable index.
-  if (!byIndex) return expectedIndex;
-  const actualId = messageIdentity(byIndex);
-  return expectedId && actualId && expectedId !== actualId ? 0 : expectedIndex;
-}
-
-function exactInputCurrentUserMessageIndex(messages = [], input = '') {
-  const currentInput = String(input || '').trim();
-  if (!currentInput) return 0;
-  const latestUser = [...messages].reverse().find(message => message?.role === 'user');
-  if (!latestUser || String(latestUser.content || '').trim() !== currentInput) return 0;
-  const messageIndex = Number(latestUser.index);
-  return Number.isInteger(messageIndex) && messageIndex > 0 ? messageIndex : 0;
-}
-
-function attachmentMatchedCurrentUserMessageIndex(context = {}, messages = [], attachments = []) {
-  const descriptors = (Array.isArray(attachments) ? attachments : [])
-    .map((item, index) => routeAttachmentDescriptor(item, routeAttachmentType(item), index + 1));
-  if (!descriptors.length) return 0;
-  const latestUser = [...messages].reverse().find(message => message?.role === 'user');
-  const messageIndex = Number(latestUser?.index);
-  if (!Number.isInteger(messageIndex) || messageIndex < 1) return 0;
-  const contextual = [
-    ...(Array.isArray(context?.image_candidates) ? context.image_candidates.map(item => ({ item, type: 'image' })) : []),
-    ...(Array.isArray(context?.file_candidates) ? context.file_candidates.map(item => ({ item, type: 'file' })) : []),
-  ].filter(({ item }) => Number(item?.message_index || item?.messageIndex) === messageIndex)
-    .map(({ item, type }) => routeContextCandidateDescriptor(item, type));
-  if (!contextual.length) return 0;
-  const used = new Set();
-  for (const attachment of descriptors) {
-    const matchIndex = contextual.findIndex((candidate, index) => !used.has(index) && routeAttachmentMatchesCandidate(attachment, candidate));
-    if (matchIndex < 0) return 0;
-    used.add(matchIndex);
-  }
-  return messageIndex;
-}
-
-function currentTurnCandidate(candidate = {}, type = '', currentMessageIndex = 0, attachments = []) {
-  const messageIndex = Number(candidate?.message_index || candidate?.messageIndex) || 0;
-  if (currentMessageIndex && messageIndex === currentMessageIndex) return true;
-  if (String(candidate?.source || '') !== 'current') return false;
-  const descriptor = routeContextCandidateDescriptor(candidate, type);
-  return (Array.isArray(attachments) ? attachments : []).some((item, index) => (
-    routeAttachmentMatchesCandidate(routeAttachmentDescriptor(item, routeAttachmentType(item), index + 1), descriptor)
-  ));
-}
-
-function buildFileCandidatesFromAttachments(attachments = []) {
-  return (attachments || [])
-    .filter(item => item && routeAttachmentType(item) === 'file')
-    .map((item, index) => {
-      const extractedText = item.has_extracted_text ?? item.hasExtractedText;
-      const inputFileAvailable = item.input_file_available === true || item.inputFileAvailable === true;
-      return {
-        index: Number(item.media_index || item.mediaIndex) || index + 1,
-        source_index: Number(item.source_index || item.sourceIndex) || index + 1,
-        source: 'current',
-        target: 'uploaded',
-        file_id: item.file_id || item.id || item.attachmentId || item.attachment_id || '',
-        name: item.name || 'attachment',
-        type: item.type || '',
-        size: Number(item.size) || 0,
-        ...(extractedText !== undefined ? { has_extracted_text: !!extractedText } : {}),
-        ...(inputFileAvailable ? { input_file_available: true } : {}),
-        unsupported_reason: item.unsupported_reason || item.unsupportedReason || '',
-      };
-    });
-}
-
-function compactRoutePayloadContext(context = {}, input = '', attachments = [], currentTurn = null) {
-  const next = context && typeof context === 'object' ? { ...context } : {};
-  const currentFiles = buildFileCandidatesFromAttachments(attachments);
-  let messages = Array.isArray(next.recent_messages) ? [...next.recent_messages] : [];
-  // The caller-supplied turn marker is authoritative. Attachment identity is a
-  // safe fallback for direct service callers and attachment-only turns. Prompt
-  // attachment placeholders or prefixes are deliberately not parsed as identity:
-  // empty text and formatting differences must not turn the current upload into history.
-  // Exact text equality remains only as a compatibility fallback for direct callers.
-  const currentMessageIndex = markedCurrentUserMessageIndex(messages, currentTurn)
-    || attachmentMatchedCurrentUserMessageIndex(next, messages, attachments)
-    || exactInputCurrentUserMessageIndex(messages, input);
-  if (currentMessageIndex) {
-    messages = messages.filter(message => !(message?.role === 'user' && Number(message?.index) === currentMessageIndex));
-  }
-  const historicalImages = Array.isArray(next.image_candidates)
-    ? next.image_candidates
-      .filter(candidate => !currentTurnCandidate(candidate, 'image', currentMessageIndex, attachments))
-      .map(candidate => candidate?.source === 'user_message'
-        ? { ...candidate, source: 'history' }
-        : candidate)
-    : [];
-  const historicalFiles = Array.isArray(next.file_candidates)
-    ? next.file_candidates
-      .filter(candidate => !currentTurnCandidate(candidate, 'file', currentMessageIndex, attachments))
-      .map(candidate => candidate?.source === 'user_message'
-        ? { ...candidate, source: 'history' }
-        : candidate)
-    : [];
-  // Current attachments are catalogued from the authoritative attachment list.
-  // Their persisted message candidates are removed above so candidate keys stay
-  // stable and one physical upload cannot appear as both history and current.
-  next.image_candidates = historicalImages;
-  next.file_candidates = currentFiles.length ? [...historicalFiles, ...currentFiles] : historicalFiles;
-  next.recent_messages = messages;
-  return next;
-}
-
-function compactRouteUserPayload({ input = '', attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null } = {}) {
-  const currentInput = String(input || '');
-  assertInputWithinUnifiedLimit(currentInput);
-  const routeContext = compactRoutePayloadContext(context, currentInput, attachments, currentTurn);
-  const payload = { current_input: currentInput };
-  const normalizedMode = ['chat', 'image', 'edit_image'].includes(currentMode) ? currentMode : 'chat';
-  if (autoMode === false) {
-    payload.current_mode = normalizedMode;
-    payload.auto_mode = false;
-  }
-  if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
-  const resourceCandidates = buildRouteResourceCandidates({ attachments, context: routeContext });
-  if (resourceCandidates.length) payload.resource_candidates = publicRouteResourceCandidates(resourceCandidates);
-  const compactContext = Object.fromEntries(Object.entries(routeContext || {}).filter(([, value]) => {
-    if (Array.isArray(value)) return value.length > 0;
-    if (!value) return false;
-    if (typeof value === 'object') return Object.keys(value).length > 0;
-    return true;
-  }));
-  if (Object.keys(compactContext).length) payload.context = compactContext;
-  return payload;
-}
-
-function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt = ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5, responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
-  const userPayload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode, currentTurn });
-  return {
-    model,
-    temperature: 0,
-    ...(responseFormat ? { response_format: responseFormat } : {}),
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: JSON.stringify(userPayload) },
-    ],
-  };
-}
-
-function buildIntentRepairPayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, previousOutput = '', validationReason = 'contract_shape', expectedReadiness = '', responseFormat = ROUTE_RESPONSE_FORMAT } = {}) {
-  const payload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode, currentTurn });
-  const repairInvariants = repairInvariantSnapshot(previousOutput);
-  if (!repairInvariants) throw new TypeError('A complete route semantic invariant is required for repair');
-  payload.previous_route_output = String(previousOutput || '');
-  payload.contract_validation_error = String(validationReason || 'contract_shape');
-  payload.required_readiness = expectedReadiness || readRouteReadiness(previousOutput) || '';
-  payload.repair_invariants = repairInvariants;
-  return {
-    model,
-    temperature: 0,
-    ...(responseFormat ? { response_format: responseFormat } : {}),
-    messages: [
-      { role: 'system', content: `${INTENT_REPAIR_SYSTEM_PROMPT_V5}\n\n${ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5}` },
-      { role: 'user', content: JSON.stringify(payload) },
-    ],
-  };
-}
-
-function extractRouteText(response = {}) {
-  return response && response.choices && response.choices[0] && response.choices[0].message && response.choices[0].message.content || response && response.output_text || '';
-}
 
 const api = Object.freeze({
   ROUTE_SYSTEM_PROMPT: ROUTE_SYSTEM_PROMPT_V5,

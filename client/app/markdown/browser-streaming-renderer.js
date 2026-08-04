@@ -114,21 +114,7 @@
   function hasConservativeInlineMathTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const tail = src.slice(Math.max(0, src.lastIndexOf('\n') + 1)); let escaped = false; for (let i = 0; i < tail.length; i += 1) { const ch = tail[i]; if (escaped) { escaped = false; continue; } if (ch === '\\') { escaped = true; continue; } if (ch === '$' && tail[i + 1] !== '$' && tail[i - 1] !== '$') return true; } return false; }
   function splitLines(src) { const lines = []; let start = 0; for (let i = 0; i < src.length; i += 1) if (src[i] === '\n') { lines.push({ text: src.slice(start, i), start, end: i + 1, hasNl: true }); start = i + 1; } if (start < src.length) lines.push({ text: src.slice(start), start, end: src.length, hasNl: false }); return lines; }
   function fenceOfLine(line = '') { return String(line || '').match(/^\s{0,3}(`{3,}|~{3,})(.*)$/) || String(line || '').match(/^\s{0,3}>\s?(`{3,}|~{3,})(.*)$/); }
-  function hasOpenFenceTail(text = '') {
-    const src = String(text || '').replace(/\r\n?/g, '\n');
-    let inFence = false, fenceChar = '', fenceLen = 0;
-    for (const item of splitLines(src)) {
-      const fence = fenceOfLine(item.text);
-      if (!fence) continue;
-      const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim();
-      if (inFence) {
-        if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; }
-      } else {
-        inFence = true; fenceChar = ch; fenceLen = marker.length;
-      }
-    }
-    return inFence;
-  }
+
   function activeStreamingFence(text = '') {
     const src = String(text || '').replace(/\r\n?/g, '\n');
     let active = null;

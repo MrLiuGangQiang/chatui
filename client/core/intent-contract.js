@@ -4,16 +4,23 @@
   const attachmentsCore = root?.ChatUICoreAttachments
     || (typeof require === 'function' ? require('./attachments') : {});
 
-  const SCHEMA_VERSION = 'task_contract.v5';
-  const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
-  const VALID_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']);
-  const VALID_READINESS = new Set(['ready', 'needs_clarification']);
-  const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
-  const VALID_RESOURCE_SOURCES = new Set(['current', 'quoted', 'history', 'context']);
-  const VALID_RESOURCE_ROLES = new Set(['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context']);
+  const routeProtocol = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeProtocol')
+    || root?.ChatUICore?.routeProtocol
+    || (typeof require === 'function' ? require('./route-protocol') : {});
+  const {
+    SCHEMA_VERSION,
+    VALID_RELATIONS,
+    VALID_OPERATIONS,
+    VALID_READINESS,
+    VALID_RESOURCE_TYPES,
+    VALID_RESOURCE_SOURCES,
+    VALID_RESOURCE_ROLES,
+    VALID_PATCH_OPERATIONS,
+    VALID_UNRESOLVED_REASONS,
+  } = routeProtocol;
+
   const VALID_DIRECTIVE_MODES = new Set(['standalone', 'patch']);
   const VALID_UNMENTIONED_POLICIES = new Set(['preserve', 'allow_change']);
-  const VALID_PATCH_OPERATIONS = new Set(['preserve', 'add', 'replace', 'remove']);
   const MEDIA_TYPES = new Set(['image', 'file']);
   const EXECUTION_BOUND_RESOURCE_TYPES = new Set(['image', 'file', 'message']);
   const EXECUTION_RESOURCE_PROJECTION_VERSION = 'execution_resources.v1';
@@ -25,7 +32,6 @@
   const CLARIFICATION_FIELDS = ['question', 'unresolved_resources'];
   const UNRESOLVED_RESOURCE_FIELDS = ['key', 'type', 'role', 'reason', 'choices'];
   const CLARIFICATION_CHOICE_FIELDS = ['key', 'source', 'index', 'id', 'reference_id', 'label'];
-  const VALID_UNRESOLVED_REASONS = new Set(['missing', 'ambiguous', 'unavailable']);
 
   const API_BY_OPERATION = Object.freeze({
     plain_chat: 'chat',

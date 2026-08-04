@@ -1,7 +1,16 @@
 (function initChatUIMarkdownBrowserEngine(global) {
   'use strict';
 
-  const MERMAID_LANGS = new Set(['mermaid', 'flowchart', 'graph', 'sequencediagram', 'classdiagram', 'statediagram', 'erdiagram', 'gantt', 'pie', 'journey', 'gitgraph', 'mindmap', 'timeline', 'quadrantchart', 'xychart-beta', 'xychart', 'sankey-beta', 'sankey', 'radar-beta', 'architecture-beta']);
+  const enginePrimitives = global?.[Symbol.for('chatui.module-registry.v1')]?.get('markdownEnginePrimitives')
+    || (typeof require === 'function' ? require('./engine-primitives') : {});
+  const {
+    MERMAID_LANGS,
+    applyTaskListFallback,
+    normalizeTableAlignToken,
+    normalizeBlockquoteFencedCodeContent,
+    decodeHtmlEntities,
+    highlightedTextMatchesSource,
+  } = enginePrimitives;
   const sourceNormalizer = global.ChatUIMarkdownSourceNormalizer || {};
   const linkPolicy = global.ChatUIMarkdownLinkPolicy || {};
   const normalizeMarkdownSource = sourceNormalizer.normalizeMarkdownSource || (markdown => String(markdown || ''));
@@ -15,11 +24,6 @@
   function pluginExport(mod) { return mod && (mod.default || mod.full || mod); }
   function pluginGlobal(name) { return global[name] || (name === 'markdownItTaskLists' ? global.markdownitTaskLists : name === 'markdownitMultimdTable' ? (global.markdownitMultimdTable || global.markdownItMultimdTable || global.markdownItMultiMdTable) : name === 'markdownItTexmath' ? (global.markdownItTexmath || global.texmath) : null); }
   function applyMathPlugin(md) { const plugin = pluginExport(pluginGlobal('markdownItTexmath') || pluginGlobal('texmath')); if (!plugin) return false; try { md.use(plugin, { engine: global.katex, delimiters: ['dollars', 'brackets', 'beg_end'], katexOptions: { throwOnError: false, strict: false, trust: false, output: 'htmlAndMathml' } }); return true; } catch (err) { console.warn('[markdown] math plugin failed: markdown-it-texmath', err); return false; } }
-  function applyTaskListFallback(html = '') { return String(html || '').replace(/<li>(\[[ xX]\]\s*)([\s\S]*?)<\/li>/g, (_all, marker, body) => `<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled${/x/i.test(marker) ? ' checked' : ''}> ${body}</li>`).replace(/<ul>\s*<li class="task-list-item">/g, '<ul class="contains-task-list">\n<li class="task-list-item">'); }
-  function normalizeTableAlignToken(token) { const style = token.attrGet('style') || ''; const match = style.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*(?:;|$)/i); if (match) { const nextStyle = style.replace(/(?:^|;)\s*text-align\s*:\s*(?:left|center|right)\s*;?/ig, '').trim(); if (nextStyle) token.attrSet('style', nextStyle); else { const styleIndex = token.attrIndex('style'); if (styleIndex >= 0) token.attrs.splice(styleIndex, 1); } } const cls = `md-align-${match ? match[1].toLowerCase() : 'left'}`; const current = token.attrGet('class') || ''; if (!current.split(/\s+/).some(name => /^md-align-(?:left|center|right)$/.test(name))) token.attrSet('class', [current, cls].filter(Boolean).join(' ')); }
-  function normalizeBlockquoteFencedCodeContent(code = '') { const src = String(code || '').replace(/\r\n?/g, '\n'); const lines = src.split('\n'); const contentLines = lines.filter(line => line.length > 0); if (!contentLines.length) return code; const quotePrefixed = contentLines.filter(line => /^\s{0,3}> ?/.test(line)); if (quotePrefixed.length !== contentLines.length) return code; const nonReplQuotePrefixed = quotePrefixed.filter(line => !/^\s{0,3}>>>/.test(line)); if (!nonReplQuotePrefixed.length) return code; return lines.map(line => line.replace(/^(\s{0,3})> ?/, '$1')).join('\n'); }
-  function decodeHtmlEntities(html = '') { return String(html || '').replace(/&(?:#x([0-9a-f]+)|#(\d+)|amp|lt|gt|quot|#39|apos|#96);/gi, (all, hex, dec) => { if (hex) return String.fromCodePoint(parseInt(hex, 16)); if (dec) return String.fromCodePoint(parseInt(dec, 10)); return ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&#96;': '`' }[all.toLowerCase()] || all); }); }
-  function highlightedTextMatchesSource(highlighted = '', source = '') { return decodeHtmlEntities(String(highlighted || '').replace(/<[^>]*>/g, '')) === String(source || ''); }
   function hasCriticalMarkdownPlugins() { return !!(global.markdownit || global.markdownIt || global.MarkdownIt) && !!global.katex?.renderToString && !!pluginGlobal('markdownItTexmath') && !!pluginGlobal('markdownitMultimdTable'); }
 
   function createMarkdownEngine() {

@@ -9,14 +9,19 @@ const createDOMPurify = require('dompurify');
 const linkPolicy = require('../../client/app/markdown/link-policy');
 const sanitizer = require('../../client/app/markdown/sanitizer');
 
+const MODULE_REGISTRY_SOURCE = fs.readFileSync(path.join(__dirname, '../../client/runtime/module-registry.js'), 'utf8');
 const BROWSER_SANITIZER_SOURCE = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/browser-sanitizer.js'), 'utf8');
+const SANITIZER_POLICY_SOURCE = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/sanitizer-policy.js'), 'utf8');
 
 function loadBrowserSanitizer() {
   const window = {
     DOMPurify: createDOMPurify(new JSDOM('').window),
     ChatUIMarkdownLinkPolicy: linkPolicy,
   };
-  vm.runInNewContext(BROWSER_SANITIZER_SOURCE, { window }, { filename: 'client/app/markdown/browser-sanitizer.js' });
+  const context = { window };
+  vm.runInNewContext(MODULE_REGISTRY_SOURCE, context, { filename: 'client/runtime/module-registry.js' });
+  vm.runInNewContext(SANITIZER_POLICY_SOURCE, context, { filename: 'client/app/markdown/sanitizer-policy.js' });
+  vm.runInNewContext(BROWSER_SANITIZER_SOURCE, context, { filename: 'client/app/markdown/browser-sanitizer.js' });
   return window.ChatUIMarkdownSanitizer;
 }
 

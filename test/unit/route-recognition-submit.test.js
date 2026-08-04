@@ -18,15 +18,15 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
     'the route UI wrapper must forward headers, context, cancellation, and the absolute pipeline deadline without an argument shift'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,buildRequestHeaders("message",sessionId),null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
+    submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,{},null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
     'normal submissions must pass request headers as the third route argument, not the session ID'
   );
   assert.ok(
-    submit.includes('getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,buildRequestHeaders("message",sessionId),buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
+    submit.includes('getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,{},buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn})'),
     'quoted submissions must preserve both their structured quote context and the current-turn attachment candidates'
   );
-  assert.ok(submit.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'an explicit quote must be forwarded as a structured route binding, not only as background history');
-  assert.ok(regenerate.includes('quoted_message:{index:1,role:quotedMessage?.role||"user",id:quotedMessage?.displayItemId||""}'), 'regenerating from a quote must preserve the same structured route binding');
+  assert.ok(submit.includes('submitHelpers.buildQuotedRouteContext({quotedMessage'), 'an explicit quote must be normalized by the shared route-context helper');
+  assert.ok(regenerate.includes('submitHelpers.buildQuotedRouteContext({quotedMessage'), 'regenerating from a quote must use the same route-context helper');
   assert.ok(regenerate.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(p,state.messages||[],quotedMessage)||null'), 'regeneration must use the same route-message execution projection as normal submission');
   assert.ok(
     !submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,sessionId,'),
@@ -263,3 +263,7 @@ module.exports = [
   testChatRerouteAllocatesRecoveryIdAfterImageMode,
   testForceImageUsesExplicitCanonicalContract,
 ];
+
+
+
+

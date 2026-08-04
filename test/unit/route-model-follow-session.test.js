@@ -1237,7 +1237,7 @@ function testSubmitPreflightUsesEffectiveSessionRouteModel() {
   assert.ok(index.includes('config-workflow.js?v=1.2.78-secret-free-backup'));
   assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction'));
   assert.ok(index.includes('route-decision-workflow.js?v=3.4.1-current-turn-identity'));
-  assert.ok(index.includes('app.js?v=2.2.0-native-file-inputs'));
+  assert.ok(index.includes('app.js?v=2.3.0-auto-incident-feedback'));
   assert.ok(index.includes('chatui.bundle.js?v=1.3.160-code-action-motion'));
 }
 

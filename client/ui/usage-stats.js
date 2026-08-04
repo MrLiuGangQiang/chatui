@@ -6,6 +6,7 @@
   const auth = (typeof window !== 'undefined' && window.ChatUIUsageStatsAuth) || (typeof require === 'function' ? require('./usage-stats-auth') : {});
   const view = (typeof window !== 'undefined' && window.ChatUIUsageStatsViewHelpers) || (typeof require === 'function' ? require('../features/usage-stats/view-helpers') : {});
   const viewHelpers = typeof view.createUsageStatsViewHelpers === 'function' ? view.createUsageStatsViewHelpers(format) : view;
+  const problemFeedback = (typeof window !== 'undefined' && window[Symbol.for('chatui.module-registry.v1')]?.get('problemFeedbackWorkflow')) || null;
   const RANKING_TABS = viewHelpers.RANKING_TABS || viewHelpers.DEFAULT_RANKING_TABS || [];
   const DEPARTMENT_TABS = viewHelpers.DEPARTMENT_TABS || viewHelpers.DEFAULT_DEPARTMENT_TABS || [];
 
@@ -42,6 +43,7 @@
   const FEEDBACK_MODEL_CONTEXT_HEADING = '【模型信息（自动填写）】';
   const FEEDBACK_USER_TEMPLATE = '【问题描述】\n\n【复现描述】\n\n【期望结果】';
   const FEEDBACK_USER_MAX_LENGTH = 3700;
+  const FEEDBACK_DRAFT_KEY = 'chatui-problem-feedback-draft-v1';
   const USAGE_STATS_ICON_SVG = `<svg class="neon-entry-icon usage-stats-entry-icon" viewBox="0 0 24 24" aria-hidden="true">
     <defs><linearGradient id="usageStatsIconGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#60a5fa"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
     <path class="usage-stats-orbit" d="M4.1 13.4a8.2 8.2 0 0 1 13.8-6M19.9 10.6a8.2 8.2 0 0 1-13.8 6" stroke="url(#usageStatsIconGradient)" opacity=".48"/>
@@ -137,7 +139,7 @@
           <button id="usageFeedbackClose" type="button" aria-label="关闭反馈">×</button>
         </div>
         <div class="usage-feedback-body">
-          <p class="usage-feedback-intro">按下面三步补充信息，提交前会由当前聊天模型检查内容是否足够清楚。</p>
+          <p id="usageFeedbackIntro" class="usage-feedback-intro">按下面三步补充信息，提交前会由当前聊天模型检查内容是否足够清楚。</p>
           <div class="usage-feedback-fields">
             <label class="usage-feedback-field" for="usageFeedbackProblem"><span class="usage-feedback-step">1</span><span><strong>问题描述</strong><em>发生了什么？</em></span><textarea id="usageFeedbackProblem" maxlength="1400" placeholder="例如：移动端点击会话后，页面仍停留在原会话。"></textarea></label>
             <label class="usage-feedback-field" for="usageFeedbackReproduction"><span class="usage-feedback-step">2</span><span><strong>复现描述</strong><em>怎样可以再次出现？</em></span><textarea id="usageFeedbackReproduction" maxlength="1400" placeholder="例如：打开会话侧栏，点击任意其他会话。"></textarea></label>
@@ -307,6 +309,50 @@
     };
   }
 
+  function feedbackDraftStorage() {
+    try { return typeof window !== 'undefined' ? window.sessionStorage : null; } catch { return null; }
+  }
+
+  function saveFeedbackFormDraft(fields = feedbackFields()) {
+    const storage = feedbackDraftStorage();
+    if (!storage) return false;
+    try {
+      storage.setItem(FEEDBACK_DRAFT_KEY, JSON.stringify({
+        ...fields,
+        autoPrefilled: {
+          problem: $('usageFeedbackProblem')?.dataset.autoPrefilled === '1',
+          reproduction: $('usageFeedbackReproduction')?.dataset.autoPrefilled === '1',
+          expected: $('usageFeedbackExpected')?.dataset.autoPrefilled === '1',
+        },
+      }));
+      return true;
+    } catch { return false; }
+  }
+
+  function restoreFeedbackFormDraft() {
+    const storage = feedbackDraftStorage();
+    if (!storage) return false;
+    let draft = null;
+    try { draft = JSON.parse(storage.getItem(FEEDBACK_DRAFT_KEY) || 'null'); } catch { return false; }
+    if (!draft || typeof draft !== 'object') return false;
+    const definitions = [
+      ['usageFeedbackProblem', 'problem'],
+      ['usageFeedbackReproduction', 'reproduction'],
+      ['usageFeedbackExpected', 'expected'],
+    ];
+    definitions.forEach(([id, key]) => {
+      const field = $(id);
+      if (!field || String(field.value || '').trim()) return;
+      field.value = String(draft[key] || '').slice(0, Number(field.maxLength) > 0 ? Number(field.maxLength) : undefined);
+      if (draft.autoPrefilled?.[key]) field.dataset.autoPrefilled = '1';
+    });
+    return true;
+  }
+
+  function clearFeedbackFormDraft() {
+    try { feedbackDraftStorage()?.removeItem(FEEDBACK_DRAFT_KEY); } catch {}
+  }
+
   function renderFeedbackModels() {
     const el = $('usageFeedbackModels');
     if (!el) return;
@@ -331,10 +377,48 @@
     return missing.length ? `请补充：${missing.map(([, , label]) => label).join('、')}` : '';
   }
 
-  function openFeedbackPanel() {
+  function setFeedbackFieldFromIncident(id, value, { append = false } = {}) {
+    const field = $(id);
+    const incoming = String(value || '').trim();
+    if (!field || !incoming) return;
+    const current = String(field.value || '').trim();
+    const canReplace = !current || field.dataset.autoPrefilled === '1';
+    const next = canReplace
+      ? incoming
+      : append && !current.includes(incoming)
+        ? `${current}
+
+${incoming}`
+        : current;
+    field.value = next.slice(0, Number(field.maxLength) > 0 ? Number(field.maxLength) : next.length);
+    if (canReplace) field.dataset.autoPrefilled = '1';
+  }
+
+  function applyIncidentDraft(incident) {
+    const draft = problemFeedback?.createDraft?.(incident);
+    if (!draft) return;
+    setFeedbackFieldFromIncident('usageFeedbackProblem', draft.problem);
+    setFeedbackFieldFromIncident('usageFeedbackReproduction', draft.reproduction, { append: true });
+    setFeedbackFieldFromIncident('usageFeedbackExpected', draft.expected);
+    saveFeedbackFormDraft();
+  }
+
+  function openFeedbackPanel(options = {}) {
     closePanel();
+    restoreFeedbackFormDraft();
+    const incident = options?.incident || null;
+    if (incident) {
+      applyIncidentDraft(incident);
+      problemFeedback?.acknowledge?.(incident.id);
+    }
     const configured = Boolean(currentApiKey() && currentModel());
     setFeedbackStatus(configured ? '' : '请先在模型配置中填写 API Key 并选择聊天模型', !configured);
+    const title = $('usageFeedbackTitle');
+    const intro = $('usageFeedbackIntro');
+    if (title) title.textContent = incident ? '检测到异常，请反馈问题' : '提交问题反馈';
+    if (intro) intro.textContent = incident
+      ? '系统已把异常信息和最近几轮会话自动填入复现描述；你可以检查、补充或删除后再提交。'
+      : '按下面三步补充信息，提交前会由当前聊天模型检查内容是否足够清楚。';
     renderFeedbackModels();
     clearFeedbackFieldErrors();
     updateFeedbackCount();
@@ -346,6 +430,7 @@
   }
 
   function closeFeedbackPanel() {
+    saveFeedbackFormDraft();
     $('usageFeedbackPanel')?.classList.remove('show');
     $('usageFeedbackPanel')?.setAttribute('aria-hidden', 'true');
     setFeedbackStatus();
@@ -367,7 +452,14 @@
     setFeedbackStatus('正在调用模型审核反馈内容…');
     try {
       await usageService()?.submitFeedback(content, currentApiKey(), currentModel(), currentRouteModel());
-      ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => { const field = $(id); if (field) field.value = ''; });
+      ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => {
+        const field = $(id);
+        if (field) {
+          field.value = '';
+          delete field.dataset.autoPrefilled;
+        }
+      });
+      clearFeedbackFormDraft();
       updateFeedbackCount();
       setFeedbackStatus('反馈已发送，感谢你的反馈。');
       setTimeout(closeFeedbackPanel, 900);
@@ -713,6 +805,18 @@
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'true');
   }
 
+  let feedbackUiReady = false;
+
+  function handleProblemFeedback(event) {
+    if (!feedbackUiReady) return;
+    const incident = event?.detail;
+    if (incident) openFeedbackPanel({ incident });
+  }
+
+  if (typeof window !== 'undefined' && problemFeedback?.EVENT_NAME) {
+    window.addEventListener(problemFeedback.EVENT_NAME, handleProblemFeedback);
+  }
+
   function bind() {
     ensureDom();
     updateModeUi();
@@ -726,12 +830,19 @@
     $('usageFeedbackCancel')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackSubmit')?.addEventListener('click', submitFeedback);
     ['usageFeedbackProblem', 'usageFeedbackReproduction', 'usageFeedbackExpected'].forEach(id => $(id)?.addEventListener('input', () => {
-      $(id)?.classList.remove('is-invalid');
+      const field = $(id);
+      field?.classList.remove('is-invalid');
+      if (field) delete field.dataset.autoPrefilled;
+      saveFeedbackFormDraft();
       updateFeedbackCount();
     }));
     $('usageFeedbackPanel')?.addEventListener('click', event => { if (event.target?.id === 'usageFeedbackPanel') closeFeedbackPanel(); });
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
+    feedbackUiReady = true;
+    const pendingIncidents = problemFeedback?.consumeReadyPending?.() || [];
+    const latestIncident = pendingIncidents[pendingIncidents.length - 1];
+    if (latestIncident) openFeedbackPanel({ incident: latestIncident });
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = {
@@ -743,6 +854,11 @@
     feedbackModelContext,
     feedbackDraft,
     feedbackContentFromFields,
+    setFeedbackFieldFromIncident,
+    applyIncidentDraft,
+    saveFeedbackFormDraft,
+    restoreFeedbackFormDraft,
+    clearFeedbackFormDraft,
   };
 
   if (typeof document === 'undefined') return;

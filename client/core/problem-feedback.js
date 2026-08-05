@@ -193,7 +193,8 @@
     return {
       problem: incidentProblem(normalized),
       reproduction: buildIncidentReproduction(normalized, session, options),
-      expected: '当前操作应正常完成并返回可用结果；若确实无法完成，应给出明确且可恢复的提示，并保留当前会话内容。',
+      // “期望结果”需要由用户按实际业务场景填写，不能从异常信息推断或自动生成。
+      expected: '',
     };
   }
 

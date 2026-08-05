@@ -99,7 +99,7 @@ function testProblemFeedbackDraftIncludesIncidentAndFitsFeedbackField() {
   assert.ok(draft.reproduction.includes('第四轮触发异常'));
   assert.ok(!draft.reproduction.includes('自动填写') && !draft.reproduction.includes('最近 3 轮') && !draft.reproduction.includes('第 2 轮'));
   assert.ok(draft.reproduction.length <= problemFeedbackCore.DEFAULT_REPRODUCTION_MAX);
-  assert.ok(draft.expected.includes('保留当前会话内容'));
+  assert.strictEqual(draft.expected, '', 'incident drafts must leave expected result for the reporter to provide');
 }
 
 async function testProblemFeedbackWorkflowReportsNonOkResponsesAndBuildsDraft() {
@@ -268,7 +268,7 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   const appIndex = index.indexOf('./app.js?v=2.3.0-auto-incident-feedback');
 
-  assert.ok(index.includes('client/core/problem-feedback.js?v=1.1.0-clean-format'));
+  assert.ok(index.includes('client/core/problem-feedback.js?v=1.1.1-expected-result-manual'));
   assert.ok(index.includes('problem-feedback-workflow.js?v=1.2.1-clean-format'));
   assert.ok(index.includes('usage-stats.js?v=1.3.2-manual-context'));
   assert.ok(coreIndex > -1 && workflowIndex > coreIndex && workflowIndex < serviceIndex, 'fetch monitoring must install before application services issue requests');

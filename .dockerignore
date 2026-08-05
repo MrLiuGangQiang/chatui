@@ -26,3 +26,6 @@ scripts/
 .editorconfig
 .gitattributes
 .nvmrc
+
+!docs/announcements/
+!docs/announcements/*.md

@@ -58,8 +58,9 @@
       }
       const size = await deps.settleWithin(deps.imageSrcSize(persistedSrc, config), 2000, null)
         || await deps.settleWithin(deps.imageSrcSize(item.src, config), 2000, null);
-      const subjectLabels = deps.splitPromptSubjects(options.routePrompt || options.prompt || '', images.length)[index] || [];
-      const labels = [...new Set([...subjectLabels, ...deps.imageCandidateLabels(`${item.raw || ''} ${filename}`)])];
+      const labels = Array.isArray(item.labels)
+        ? item.labels.map(value => String(value || '').trim()).filter(Boolean).slice(0, 12)
+        : [];
       const description = String(item.revisedPrompt || item.prompt || options.routePrompt || options.prompt || '').trim();
       const imageId = deps.makeImageItemId ? deps.makeImageItemId(referenceId, ordinal) : `img_${referenceId}_${ordinal}`;
       storedImages.push({

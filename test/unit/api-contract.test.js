@@ -111,6 +111,11 @@ async function testApiContractCoreEndpointsKeepShape() {
     assertCorsJson(changelog);
     assert.ok(Array.isArray(changelog.json.releases));
     assert.ok(changelog.json.releases.some(item => item.version === 'v1.10.4'));
+    const announcements = await request(baseUrl, '/api/announcements');
+    assert.strictEqual(announcements.res.status, 200);
+    assertCorsJson(announcements);
+    assert.ok(Array.isArray(announcements.json.announcements));
+    assert.ok(announcements.json.announcements.some(item => item.version === 'v1.0.0'));
   });
 }
 

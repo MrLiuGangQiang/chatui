@@ -164,9 +164,10 @@ function testQuotedClarificationTextQuestionRoutesAsPlainChat() {
     },
   };
   const payload = routeService.buildRoutePayload({ model: 'route-model', ...options });
-  assert.ok(payload.messages[0].content.includes('询问显式引用文本本身'));
-  assert.ok(payload.messages[0].content.includes('current_input="有几个颜色"'));
-  assert.ok(payload.messages[0].content.includes('不得返回 edit_image'));
+  assert.ok(payload.messages[0].content.includes('quoted_message'));
+  assert.ok(payload.messages[0].content.includes('respond'));
+  assert.ok(!payload.messages[0].content.includes('current_input="有几个颜色"'));
+  assert.ok(!payload.messages[0].content.includes('不得返回 edit_image'));
 
   const semantic = decision({
     operation: 'plain_chat', relation: 'followup',
@@ -453,7 +454,8 @@ function testCompilerRejectsMissingEditValueWithoutLocalClarification() {
   const changeVariants = schema.properties.changes.items.anyOf;
   assert.ok(changeVariants.some(variant => variant.properties.value.pattern === '\\S'), 'structured output must require a non-empty add/replace value');
   const prompt = routeService.buildRoutePayload({ model: 'router', input: 'change the cat color' }).messages[0].content;
-  assert.match(prompt, /value=""/);
+  assert.match(prompt, /missing slot/);
+  assert.ok(!prompt.includes('把猫的颜色换一下'), 'the generic semantic prompt must not embed scenario-specific counterexamples');
 }
 
 function testSelfContainedImageFollowupDoesNotInheritPriorPrompt() {

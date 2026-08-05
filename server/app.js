@@ -12,6 +12,7 @@ const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.s
 const { createFeedbackReviewer } = require('./services/feedback-review.service');
 const { createUsageAccessValidator } = require('./services/usage-access.service');
 const { readReleaseNotes } = require('./services/release-notes.service');
+const { readAnnouncements } = require('./services/announcements.service');
 const { createRequestTraceLogger } = require('./logging/request-trace');
 
 function createApp() {
@@ -56,6 +57,7 @@ function createApp() {
     buildIdentity: BUILD_IDENTITY,
     readPublicConfig,
     readChangelog: () => readReleaseNotes({ root: ROOT }),
+    readAnnouncements: () => readAnnouncements({ root: ROOT }),
     send,
     sendJson,
     sendMethodNotAllowed,

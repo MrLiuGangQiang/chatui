@@ -76,8 +76,17 @@
    * @property {string} question
    * @property {Array<RouteUnresolvedResource>} unresolved
    *
+   * @typedef {Object} SemanticTask
+   * @property {'semantic_task.v2'} schema_version
+   * @property {Array<'respond'|'extract_text'|'compare'|'generate'|'edit'>} actions
+   * @property {'independent'|'followup'|'correction'|'continuation'} discourse
+   * @property {'none'|'answer'|'partial'|'revision'|'continuation'|'assistance'|'new_task'|'unclear'} pending_effect
+   * @property {Array<Object>} slots Model-observed resource requirements.
+   * @property {Array<RouteChange>} changes
+   * @property {Array<string>} constraints
+   *
    * @typedef {Object} RouteDecision
-   * @property {'route_decision.v1'} schema_version
+   * @property {'route_decision.v1'} schema_version Internal compiler output.
    * @property {'ready'|'needs_clarification'} readiness
    * @property {RouteOperation} operation
    * @property {RouteRelation} relation

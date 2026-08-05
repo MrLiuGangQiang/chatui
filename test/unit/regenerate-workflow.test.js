@@ -126,8 +126,8 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
   assert.ok(source.includes('clarificationApi.createPendingClarification'), 'a regenerate clarification must become persisted pending state instead of an exception');
   assert.ok(source.includes('task.completePreflight()'), 'clarification must finish as a terminal preflight without inventing a managed job handoff');
-  assert.ok(source.includes('["compare_a","compare_b"].includes(item.routeRole)'), 'regenerate must preserve compare_a/compare_b roles in the chat prompt');
-  assert.ok(source.includes('submitHelpers.imageAttachmentIndexGuide?.(chatH'), 'regenerate must preserve the original image numbering map');
+  assert.ok(source.includes('submitHelpers.buildMediaMapContext?.(executionMedia.chatImages'), 'regenerate must preserve image roles in compact system context');
+  assert.ok(source.includes('systemContext:mediaMapContext?[mediaMapContext]:[]'), 'regenerate must preserve the original image numbering map at the system-context boundary');
   assert.ok(source.includes('await sendChat(chatPrompt,chatH'), 'regenerate must send the same role-aware prompt shape as ordinary submit');
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
 }

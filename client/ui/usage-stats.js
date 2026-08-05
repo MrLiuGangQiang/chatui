@@ -83,7 +83,7 @@
     if ($('usageStatsButton')) return;
     const button = document.createElement('button');
     button.id = 'usageStatsButton';
-    button.className = 'usage-stats-button';
+    button.className = 'topbar-utility-button usage-stats-button';
     button.type = 'button';
     button.title = '使用统计';
     button.setAttribute('aria-label', '使用统计');
@@ -91,7 +91,7 @@
 
     const feedbackButton = document.createElement('button');
     feedbackButton.id = 'usageFeedbackOpen';
-    feedbackButton.className = 'usage-feedback-open';
+    feedbackButton.className = 'topbar-utility-button usage-feedback-open';
     feedbackButton.type = 'button';
     feedbackButton.title = '问题反馈';
     feedbackButton.setAttribute('aria-label', '问题反馈');
@@ -151,7 +151,10 @@
         </div>
         <div class="usage-feedback-foot"><button id="usageFeedbackCancel" type="button">取消</button><button id="usageFeedbackSubmit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>提交反馈</button></div>
       </div>`;
-    document.body.append(button, feedbackButton, panel, feedbackPanel);
+    const utilityActions = $('topbarUtilityActions');
+    if (utilityActions) utilityActions.append(feedbackButton, button);
+    else document.body.append(feedbackButton, button);
+    document.body.append(panel, feedbackPanel);
   }
 
   const tokenColumns = viewHelpers.tokenColumns;

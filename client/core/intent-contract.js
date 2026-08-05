@@ -396,7 +396,7 @@
         sourceIndex: type === 'image'
           ? Number(attachment?.media_index || attachment?.mediaIndex || attachment?.source_index || attachment?.sourceIndex) || index
           : Number(attachment?.source_index || attachment?.sourceIndex || attachment?.media_index || attachment?.mediaIndex) || index,
-        source: 'current',
+        source: normalizeCandidateSource(attachment?.routeSource || attachment?.route_source || 'current'),
         target: 'uploaded',
         name: String(attachment?.name || attachment?.filename || attachment?.file?.name || ''),
         unavailable: type === 'file' && fileCandidateUnavailable(attachment),

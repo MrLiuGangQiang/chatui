@@ -356,19 +356,6 @@ function buildImageCandidates(references = []) {
   return result;
 }
 
-function latestUserImageRequest(messages = []) {
-  const allMessages = Array.isArray(messages) ? messages : [];
-  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
-    const message = allMessages[index];
-    if (message?.role !== 'user') continue;
-    const text = messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, '').trim();
-    if (/画|生成|图片|图|图纸|展开图|模板|可打印|涂色|裁剪|剪裁|折叠|组装|骰子|六面体|立方体|卡片|贴纸|海报|头像|插画|logo|图标|猫|狗|牛|人物|风景|背景|独立|分别|分开|拆成|修改|编辑|改/.test(text)) {
-      return { index: index + 1, content: text.slice(0, 800) };
-    }
-  }
-  return null;
-}
-
 function latestAssistantImageResult(messages = []) {
   const allMessages = Array.isArray(messages) ? messages : [];
   for (let index = allMessages.length - 1; index >= 0; index -= 1) {
@@ -388,7 +375,6 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
   for (const reference of uploadedReferences) if (!mergedReferences.some(item => item?.reference_id === reference.reference_id)) mergedReferences.push(reference);
   const context = {
     recent_messages: allMessages.map((message, index) => compactRouteMessage(message, index + 1)),
-    latest_user_image_request: latestUserImageRequest(allMessages),
     latest_assistant_image_result: latestAssistantImageResult(allMessages),
     image_candidates: buildImageCandidates(mergedReferences),
     file_candidates: buildFileCandidates(allMessages),
@@ -401,35 +387,6 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
   return trimRouteContextToSize(trimRouteContextToTokenWindow(context, contextWindowTokens), maxChars);
 }
 
-function imageCandidateLabels(text = '') {
-  const value = String(text || '').toLowerCase();
-  const patterns = [
-    ['dog', /狗|犬|dog|puppy/],
-    ['cat', /猫|cat|kitten/],
-    ['cow', /牛|cow|bull|calf/],
-    ['chicken', /鸡|chicken|hen|rooster/],
-    ['duck', /鸭|duck|duckling/],
-    ['bird', /鸟|bird/],
-    ['person', /人|人物|person|human/],
-  ];
-  const labels = [];
-  for (const [label, pattern] of patterns) if (pattern.test(value)) labels.push(label);
-  return labels;
-}
-
-function splitPromptSubjects(text = '', count = 1) {
-  const parts = String(text || '').split(/(?:，|,|、|和|与|及|\band\b|\n|；|;)/i).map(item => item.trim()).filter(Boolean);
-  const subjects = [];
-  for (const part of parts) {
-    const labels = imageCandidateLabels(part);
-    if (labels.length) subjects.push(labels);
-  }
-  if (subjects.length >= count) return subjects.slice(0, count);
-  const labels = imageCandidateLabels(text);
-  while (subjects.length < count) subjects.push(labels);
-  return subjects;
-}
-
 function normalizeLastGeneratedImage(value) {
   if (!value) return null;
   const normalizeItem = item => {
@@ -438,7 +395,7 @@ function normalizeLastGeneratedImage(value) {
       ...item,
       description,
       semantic_text: compactCandidateSemanticText([item.semantic_text, description, item.prompt, item.filename, item.raw, ...(Array.isArray(item.labels) ? item.labels : [])]),
-      labels: Array.isArray(item.labels) ? item.labels : imageCandidateLabels(`${item.prompt || ''} ${item.filename || ''} ${item.raw || ''} ${item.label || ''} ${item.subject || ''}`),
+      labels: Array.isArray(item.labels) ? item.labels.slice(0, 12) : [],
     };
   };
   if (!Array.isArray(value.images)) {
@@ -525,12 +482,11 @@ function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []
     ? messageText(messages[messageIndex - 1])
     : '';
   const routePrompt = String(imageContext?.routePrompt || previousUser || '').trim();
-  const subjects = splitPromptSubjects(routePrompt || prompt, attachments.length);
   const candidates = attachments.map((item, index) => {
     const description = String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || routePrompt || prompt).trim();
     const labels = Array.isArray(item.labels) && item.labels.length
       ? item.labels.slice(0, 12)
-      : subjects[index] || imageCandidateLabels(`${prompt} ${item.name || item.filename || ''}`);
+      : [];
     return {
       index: index + 1,
       image_id: makeImageItemId(referenceId, index + 1),
@@ -839,15 +795,12 @@ const api = Object.freeze({
   trimRouteContextToSize,
   buildRouteContext,
   compactCandidateSemanticText,
-  imageCandidateLabels,
-  splitPromptSubjects,
   normalizeLastGeneratedImage,
   extractPersistedImageRefs,
   latestImageReferenceMeta,
   uploadedReferenceIdForMessageIndex,
   collectRecentUploadedImageReferences,
   collectRecentImageReferences,
-  latestUserImageRequest,
   latestAssistantImageResult,
   findImageReferenceById,
   normalizePlanInputImages,

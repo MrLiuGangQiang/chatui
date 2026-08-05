@@ -99,11 +99,11 @@
         if (canonicalExecution.imageInputs.length > 1) {
           u.image_role_map = JSON.stringify(buildImageRoleMap(canonicalExecution.imageInputs));
         }
-        if (
-          canonicalExecution.api === "image_edit" &&
-          !String(u.prompt || "").trim()
-        )
-          u.prompt = routeFallbackPrompt || P || "请根据用户要求编辑图片";
+        if (!String(u.prompt || "").trim()) {
+          const error = new Error("图片任务缺少明确的执行指令，已停止发送；请重新描述要生成或修改的内容");
+          error.code = "IMAGE_EXECUTION_PROMPT_MISSING";
+          throw error;
+        }
         s.imageSize &&
           "auto" !== s.imageSize &&
           !u.size &&

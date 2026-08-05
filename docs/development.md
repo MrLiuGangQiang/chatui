@@ -216,6 +216,30 @@ CI 结果只对它检出的确切 commit 有效。脏工作区、另一 worktree
 
 分支保护、tag ruleset、required check 配置属于 GitHub 仓库设置，不由本地脚本自动证明；发布者仍需确认这些外部设置和 check 状态。
 
+## 9. 版本化强制公告
+
+重要公告使用独立目录维护，不复用 Release Notes：
+
+```text
+docs/announcements/vMAJOR.MINOR.PATCH.md
+```
+
+- 文件版本按语义版本排序，最新版本作为当前公告；
+- 只新增，不删除历史公告；
+- front matter 支持 `published_at`、`badge`、`summary`；
+- 浏览器以 `chatui-announcements-read-v1` 保存已读版本；
+- 最新公告未读时，首屏使用 fail-closed 遮罩并将主应用设为 `inert`，直到用户确认已读；
+- 新增更高版本公告后，当前最新版本不在已读集合中，遮罩自动重新出现；
+- 历史公告通过公告中心的“查看历史公告”展开，不影响最新公告确认流程。
+
+新增公告后至少运行：
+
+```bash
+npm run check
+```
+
+公告目录会被 Docker 复制到 `/app/docs/announcements`，并参与 runtime source revision，避免公告内容与已验证镜像不一致。
+
 ## 9. 完整 Release 流程
 
 “推送 tag”不是完整发布。正式 release 必须执行全部步骤。

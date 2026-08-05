@@ -10,6 +10,10 @@
 
   function createRouteDecisionWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
+    // Production always requires semantic_task.v2 at the model boundary. The
+    // opt-in compatibility flag exists only for migration harnesses that still
+    // exercise persisted/legacy model fixtures; it is never set by app wiring.
+    const allowLegacyModelOutput = deps.allowLegacyModelOutput === true;
 
     function buildRouteContext(t=state.activeSessionId) {
       with (deps) {
@@ -64,9 +68,19 @@
     }
 
     function inspectRoute(routeSvc, raw, options) {
-      if (typeof routeSvc?.inspectRouteResult === 'function') return routeSvc.inspectRouteResult(raw, options);
-      const route = parseRouteResult(raw, options);
-      return { route, reason: route ? '' : 'contract_shape' };
+      if (allowLegacyModelOutput) {
+        if (typeof routeSvc?.inspectRouteResult === 'function') return routeSvc.inspectRouteResult(raw, options);
+        const route = parseRouteResult(raw, options);
+        return { route, reason: route ? '' : 'contract_shape' };
+      }
+      if (typeof routeSvc?.inspectModelRouteResult === 'function') return routeSvc.inspectModelRouteResult(raw, options);
+      if (typeof routeSvc?.inspectRouteResult === 'function') {
+        return routeSvc.inspectRouteResult(raw, { ...options, modelBoundary: true });
+      }
+      const route = typeof parseModelRouteResult === 'function'
+        ? parseModelRouteResult(raw, options)
+        : parseRouteResult(raw, { ...options, modelBoundary: true });
+      return { route, reason: route ? '' : 'semantic_task_required' };
     }
 
     async function parseOrRepairRoute(routeSvc, { model, input, attachments, context, currentMode = 'chat', autoMode = true, currentTurn = null, raw, config, headers, signal, requiredReadiness = '' }) {
@@ -81,7 +95,10 @@
       const initial = inspectRoute(routeSvc, raw, options);
       if (readinessRequirement === 'needs_clarification') {
         const terminalRoute = initial.route
-          || routeSvc?.terminalClarificationRouteFromResult?.(raw, options)
+          || routeSvc?.terminalClarificationRouteFromResult?.(raw, {
+            ...options,
+            ...(allowLegacyModelOutput ? {} : { modelBoundary: true }),
+          })
           || invalidContractClarificationRoute();
         return {
           route: terminalRoute,
@@ -99,7 +116,9 @@
       if (typeof routeSvc?.buildIntentRepairPayload !== 'function') {
         return { route: null, reason: initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }
-      const repairInvariants = routeSvc?.repairInvariantSnapshot?.(raw) || null;
+      const repairInvariants = routeSvc?.repairInvariantSnapshot?.(raw, {
+        semanticOnly: !allowLegacyModelOutput,
+      }) || null;
       if (!repairInvariants) {
         return { route: null, reason: 'repair_invariants_unavailable', initialReason, repaired: false, repairRaw: '', requiredReadiness: readinessRequirement };
       }

@@ -82,13 +82,13 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 - `route-candidates.js`：从当前输入、消息、文件和图片元数据建立有序候选资源目录；
 - `route-payload.js`：压缩上下文、当前轮次和附件描述，构造路由与修复请求 payload；
-- `route-decision-compiler.js`：将模型输出编译为严格的 canonical route decision，并验证选择答案是否仍绑定原候选；
+- `route-decision-compiler.js`：将模型输出的 `semantic_task.v2` 事实编译为内部 `route_decision.v1`，再生成严格的 `task_contract.v5`，并验证选择答案是否仍绑定原候选；
 - `route-legacy-adapter.js`：只负责读取历史 `task_contract`/兼容输入并适配到新协议，不应被新业务路径反向依赖；
-- `route-repair-policy.js`：限制网络修复只能保持既有语义和资源绑定；
+- `route-repair-policy.js`：限制结构修复只能保持既有 `semantic_task.v2` 语义和资源绑定；
 - `route-dispatch-gate.js`：在提交执行前做版本、资源角色、模式和任务契约的最终门禁；
-- `request-compatibility.js`：对 Structured Output 按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改。
+- `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做协议能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改。
 
-路由服务只能输出可验证的 canonical decision；提交工作流和图片工作流不得自行重建另一套路由协议。
+路由服务的模型边界只接受 `semantic_task.v2` 语义事实；应用本地确定性编译为 `route_decision.v1` 和 `task_contract.v5`。提交工作流和图片工作流不得自行重建另一套路由协议，也不得在资源或操作不确定时猜测。
 
 ### 3.3 `client/ui/` 与 `client/features/`
 
@@ -276,6 +276,8 @@ GET /
 
 服务端可以依赖 `shared/`；浏览器 core/services/app/ui 可以依赖 `shared/`。高层编排可以依赖低层契约，低层契约不能反向依赖高层工作流。
 
+- `docs/announcements` 由服务端 `announcements.service.js` 读取并通过 `/api/announcements` 提供给浏览器；`announcement-center.js` 负责未读判定、强制遮罩和历史展开。
+
 ## 9. 已知演进边界
 
 以下是当前事实，不应被误写为已经完成的重构：
@@ -288,7 +290,7 @@ GET /
 - Node-only 测试辅助代码已移出 Docker 会复制的 `client/` 静态目录；
 - `shared/usage/ranges.js` 尚含 server-only SQL 字符串；
 - vendor 的来源、版本和 License 更新尚未由统一 manifest 完全自动化；
-- Docker 会复制 `docs/releases/`，但当前 runtime source revision 的目录列表不包含该目录；
+- Docker 会复制 `docs/releases/` 与 `docs/announcements/`；公告目录参与 runtime source revision，Release Notes 仍保持文档归档语义；
 - 当前 architecture check 主要冻结 `app.js` 大小、legacy `with` 和浏览器全局增长，并不是完整的依赖图验证器。
 
 处理这些边界需要独立、可回归的重构，不应在无关功能改动中顺手改写。

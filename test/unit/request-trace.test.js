@@ -39,9 +39,9 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       targetPath: '/chat/completions',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_pending_continuation_v6', strict: true } },
+        response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2', strict: true } },
         messages: [
-          { role: 'system', content: 'private classifier system prompt' },
+          { role: 'system', content: 'private semantic router system prompt' },
           { role: 'user', content: `{"current_input":"有几个颜色","credential":"${apiKey}","image":"data:image/png;base64,${'A'.repeat(5000)}"}` },
         ],
       },
@@ -53,7 +53,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       response: {
         choices: [{
           message: {
-            content: '{"relation":"pending_assistance","assistant_reply":"共有 8 种颜色"}',
+            content: '{"schema_version":"semantic_task.v2","actions":["respond"],"discourse":"followup","pending_effect":"assistance","slots":[],"changes":[],"constraints":[]}',
             reasoning_content: 'never persist private reasoning',
           },
         }],
@@ -65,11 +65,11 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     assert.strictEqual(events[0].event, 'request.started');
     assert.strictEqual(events[1].event, 'request.completed');
     assert.strictEqual(events[0].trace_id, events[1].trace_id);
-    assert.strictEqual(events[0].kind, 'pending_continuation');
+    assert.strictEqual(events[0].kind, 'route_decision');
     assert.strictEqual(events[0].target, 'https://example.com/v1/chat/completions');
     assert.deepStrictEqual(events[0].header_names, ['X-Trace-Id']);
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
-    assert.match(events[1].response.choices[0].message.content.text, /共有 8 种颜色/);
+    assert.match(events[1].response.choices[0].message.content.text, /semantic_task\.v2/);
     assert.deepStrictEqual(events[1].response.choices[0].message.reasoning, {
       present: true, chars: 'never persist private reasoning'.length, omitted: true,
     });
@@ -77,7 +77,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     const raw = fs.readFileSync(file, 'utf8');
     assert.ok(!raw.includes(apiKey));
     assert.ok(!raw.includes('password@example.com'));
-    assert.ok(!raw.includes('private classifier system prompt'));
+    assert.ok(!raw.includes('private semantic router system prompt'));
     assert.ok(!raw.includes('never persist private reasoning'));
     assert.ok(!raw.includes('data:image/png;base64'));
     assert.ok(!raw.includes('A'.repeat(1000)));
@@ -113,12 +113,12 @@ function testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries()
 
 function testRequestKindRecognizesStructuredRouteFallbacks() {
   assert.strictEqual(requestKind('/chat/completions', {
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_decision_v1' } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2' } },
   }), 'route_decision');
   assert.strictEqual(requestKind('/chat/completions', {
     response_format: { type: 'json_object' },
-    messages: [{ role: 'system', content: '只返回 pending_continuation.v6 JSON' }],
-  }), 'pending_continuation');
+    messages: [{ role: 'system', content: '只返回 semantic_task.v2 JSON' }],
+  }), 'route_decision');
   assert.strictEqual(requestKind('/images/generations', { model: 'gpt-image-2' }), 'image_generation');
 }
 

@@ -13,10 +13,16 @@
         document.documentElement.classList.add('session-sidebar-collapsed-boot');
       }
     } catch {}
+    try {
+      const readAnnouncements = JSON.parse(localStorage.getItem('chatui-announcements-read-v1') || '[]');
+      if (Array.isArray(readAnnouncements) && readAnnouncements.some(version => String(version || '').trim())) {
+        document.documentElement.classList.add('announcement-acknowledged-boot');
+      }
+    } catch {}
   </script>
 </head>
-<body class="app-booting">
-  <div class="app shell-app">
+<body class="app-booting announcement-pending">
+  <div class="app shell-app" data-announcement-app inert aria-hidden="true">
     <aside id="sessionRail" class="session-rail" aria-label="收起后的会话栏">
       <button id="railExpandBtn" class="rail-icon-btn" type="button" title="展开会话栏" aria-label="展开会话栏">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
@@ -186,6 +192,77 @@
         </div>
       </form>
     </main>
+    <div id="topbarUtilityActions" class="topbar-utility-actions" aria-label="快捷功能">
+      <button id="announcementToolbarBtn" class="topbar-utility-button announcement-toolbar-button announcement-launcher" data-announcement-open type="button" title="公告中心" aria-label="查看公告">
+        <svg class="neon-entry-icon announcement-entry-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <defs><linearGradient id="announcementEntryGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#38bdf8"/><stop offset=".52" stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
+          <path class="announcement-entry-body" d="M4 13.5v-3l11-4.5v12L4 13.5Z" fill="url(#announcementEntryGradient)" fill-opacity=".08" stroke="url(#announcementEntryGradient)"/>
+          <path class="announcement-entry-wave" d="M15 9.2a4 4 0 0 1 0 5.6" stroke="url(#announcementEntryGradient)"/>
+          <path class="announcement-entry-handle" d="m6.5 14.5 1.2 4h3.1l-1.5-2.8" stroke="url(#announcementEntryGradient)"/>
+          <circle class="announcement-entry-pulse" cx="19.2" cy="6" r="1.15" fill="#67e8f9" stroke="none"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="announcementModal" class="announcement-modal show is-forced is-loading" aria-hidden="false">
+    <div class="announcement-backdrop" data-close-announcement aria-hidden="true"></div>
+    <button id="closeAnnouncementBtn" class="announcement-overlay-close" type="button" aria-label="关闭公告" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      <span>关闭公告</span>
+    </button>
+    <section class="announcement-dialog" role="dialog" aria-modal="true" aria-labelledby="announcementTitle" aria-describedby="announcementSummary" tabindex="-1">
+      <aside class="announcement-hero" aria-hidden="true">
+        <div class="announcement-brand">
+          <span class="announcement-brand-mark">
+            <svg viewBox="0 0 24 24"><path d="M4 13.5v-3l11-4.5v12L4 13.5Z"/><path d="M15 9.2a4 4 0 0 1 0 5.6"/><path d="m6.5 14.5 1.2 4h3.1l-1.5-2.8"/></svg>
+          </span>
+          <span>CHATUI ANNOUNCEMENT</span>
+        </div>
+        <div class="announcement-hero-copy">
+          <span class="announcement-hero-kicker">IMPORTANT NOTICE</span>
+          <h2>重要信息<br />不应被错过</h2>
+          <p>最新公告会在完成阅读前持续置顶。确认已读后，你可以继续使用 ChatUI 的全部功能。</p>
+        </div>
+        <div class="announcement-hero-note">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.3c0 4.6 3.2 8.2 7.5 9.7 4.3-1.5 7.5-5.1 7.5-9.7V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>公告按版本永久累计保存，新版本发布后会重新提醒。</span>
+        </div>
+      </aside>
+      <div class="announcement-surface">
+        <header class="announcement-head">
+          <div>
+            <div class="announcement-meta">
+              <span id="announcementBadge" class="announcement-badge">系统公告</span>
+              <span id="announcementVersion" class="announcement-version">--</span>
+              <time id="announcementPublishedAt" class="announcement-published-at" hidden></time>
+            </div>
+            <h1 id="announcementTitle" class="announcement-title">正在加载最新公告</h1>
+            <p id="announcementSummary" class="announcement-summary">请稍候，正在确认是否有需要阅读的重要信息。</p>
+          </div>
+        </header>
+        <div class="announcement-scroll">
+          <article id="announcementLatest" class="announcement-latest" hidden>
+            <div id="announcementBody" class="announcement-body markdown-body"></div>
+          </article>
+          <div id="announcementStatus" class="announcement-status is-loading" role="status" aria-live="polite">
+            <span class="announcement-loading-mark" aria-hidden="true"></span>
+            <span>正在获取最新公告…</span>
+          </div>
+          <section id="announcementHistoryPanel" class="announcement-history-panel" aria-labelledby="announcementHistoryTitle" hidden>
+            <div class="announcement-history-heading">
+              <h4 id="announcementHistoryTitle">历史公告</h4>
+              <span>公告只累计，不删除</span>
+            </div>
+            <div id="announcementHistoryList" class="announcement-history-list"></div>
+          </section>
+        </div>
+        <footer class="announcement-footer">
+          <button id="announcementHistoryBtn" class="announcement-history-btn" type="button" aria-expanded="false" aria-controls="announcementHistoryPanel" hidden>查看历史公告</button>
+          <button id="acknowledgeAnnouncementBtn" class="announcement-acknowledge-btn" type="button" disabled>我已阅读，进入 ChatUI</button>
+        </footer>
+      </div>
+    </section>
   </div>
 
   <div id="changelogModal" class="modal changelog-modal" aria-hidden="true">
@@ -477,8 +554,9 @@
   <link rel="stylesheet" href="./styles.css?v=1.3.4-execution-map-compact-secret-free-backup-connection-right-code-collapse-classic-icon-aligned-v2" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.4.0-native-file-inputs" />
   <link rel="stylesheet" href="./styles/messages.css?v=1.3.44-stable-clarification-height" />
-  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.7" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall-code-expand-hover-lock-bottom-overlay" />
+  <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.8-utility-actions" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall-code-expand-hover-lock-bottom-overlay-announcement-entry" />
+  <link rel="stylesheet" href="./styles/announcement.css?v=1.0.3-toolbar" />
   <script src="./client/runtime/module-registry.js?v=1.0.0"></script>
   <script src="./client/core/text-hash.js?v=1.0.0"></script>
   <script src="./client/app/markdown/source-normalizer.js?v=1.2.67"></script>
@@ -501,10 +579,10 @@
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.66-multi-reference"></script>
   <script src="./client/core/image-execution.js?v=1.0.0"></script>
-  <script src="./client/core/image-route-context.js?v=2.2.2-clarification-preview-filter&native-file-routing=1"></script>
-  <script src="./client/core/route-protocol.js?v=1.0.0"></script>
+  <script src="./client/core/image-route-context.js?v=2.2.2-clarification-preview-filter&native-file-routing=1&semantic-task-v2"></script>
+  <script src="./client/core/route-protocol.js?v=1.0.0&semantic-task-v2"></script>
   <script src="./client/core/intent-contract.js?v=3.4.5-edit-target-references&native-file-routing=1"></script>
-  <script src="./client/core/attachments.js?v=1.3.1-image-result-descriptors&native-file-routing=1"></script>
+  <script src="./client/core/attachments.js?v=1.3.2-source-aware-route-metadata&native-file-routing=1&semantic-task-v2"></script>
   <script src="./client/core/preflight-guards.js?v=2.0.0-preinsert-guard"></script>
   <script src="./shared/config/context-budget.js?v=1.1.0-required-boundary"></script>
   <script src="./shared/file-names.js?v=1.0.1"></script>
@@ -521,20 +599,20 @@
   <script src="./client/config/feature-flags.js?v=1.0.0"></script>
   <script src="./client/services/model-service.js?v=1.2.65"></script>
   <script src="./client/services/job-service.js?v=1.3.0-image-mask-resources"></script>
-  <script src="./client/services/chat-service.js?v=1.3.1-base64-file-data"></script>
+  <script src="./client/services/chat-service.js?v=1.3.1-base64-file-data&system-context-v2"></script>
   <script src="./client/services/prompt-composer-service.js?v=2.2.0-full-input"></script>
   <script src="./client/services/route-candidates.js?v=1.0.0"></script>
   <script src="./client/services/route-dispatch-gate.js?v=1.0.0"></script>
-  <script src="./client/services/route-repair-policy.js?v=1.0.0"></script>
-  <script src="./client/services/route-payload.js?v=1.0.0"></script>
-  <script src="./client/services/route-decision-compiler.js?v=1.0.0"></script>
+  <script src="./client/services/route-repair-policy.js?v=1.0.0&semantic-task-v2"></script>
+  <script src="./client/services/route-payload.js?v=1.0.0&semantic-task-v2"></script>
+  <script src="./client/services/route-decision-compiler.js?v=1.0.0&semantic-task-v2"></script>
   <script src="./client/services/route-legacy-adapter.js?v=1.0.0"></script>
-  <script src="./client/services/route-service.js?v=3.6.6-target-reference-clarification&native-file-routing=1"></script>
-  <script src="./client/services/image-generation-service.js?v=1.4.0-image-mask-resources"></script>
+  <script src="./client/services/route-service.js?v=3.6.6-target-reference-clarification&native-file-routing=1&semantic-task-v2-single-router"></script>
+  <script src="./client/services/image-generation-service.js?v=1.4.0-image-mask-resources&fail-closed-attachments"></script>
   <script src="./client/services/image-service.js?v=1.8.0-role-preservation"></script>
   <script src="./client/services/runtime-service.js?v=1.1.1-semver-label"></script>
-  <script src="./client/services/clarification-service.js?v=1.5.3-stable-pending-id&completed-replay=1"></script>
-  <script src="./client/services/request-compatibility.js?v=1.0.0"></script>
+  <script src="./client/services/clarification-service.js?v=1.5.3-stable-pending-id&completed-replay=1&semantic-task-v2"></script>
+  <script src="./client/services/request-compatibility.js?v=1.0.0&semantic-task-v2"></script>
   <script src="./client/services/composition.js?v=1.5.0-file-inputs"></script>
   <script src="./client/services/usage-stats.js?v=1.2.79-feedback-reason"></script>
   <script src="./client/ui/usage-stats-format.js?v=1.0.0"></script>
@@ -578,14 +656,14 @@
   <script src="./client/app/composer-layout-workflow.js?v=1.3.0-large-input-layout"></script>
   <script src="./client/app/performance-workflow.js?v=1.2.71"></script>
   <script src="./client/app/job-workflow.js?v=1.2.71-message-order"></script>
-  <script src="./client/app/image-result-workflow.js?v=1.7.1-image-semantics"></script>
+  <script src="./client/app/image-result-workflow.js?v=1.7.1-image-semantics&explicit-labels-only"></script>
   <script src="./client/app/job-resume-workflow.js?v=1.3.0-execution-resources"></script>
-  <script src="./client/app/submit-workflow.helpers.js?v=1.3.0-pending-source-attachments"></script>
+  <script src="./client/app/submit-workflow.helpers.js?v=1.3.0-pending-source-attachments&semantic-task-v2"></script>
   <script src="./client/app/submit-workflow-policy.js?v=1.0.0"></script>
-  <script src="./client/app/submit-workflow.js?v=1.5.2-pending-transaction&completed-replay=1"></script>
-  <script src="./client/app/chat-workflow.js?v=1.5.0-native-file-inputs&native-file-routing=1"></script>
-  <script src="./client/app/image-workflow.js?v=1.6.1-precise-role-prompt&completed-replay=1"></script>
-  <script src="./client/app/regenerate-workflow.js?v=1.2.2-stable-pending-id&completed-replay=1"></script>
+  <script src="./client/app/submit-workflow.js?v=1.5.2-pending-transaction&completed-replay=1&semantic-task-v2-single-router"></script>
+  <script src="./client/app/chat-workflow.js?v=1.5.0-native-file-inputs&native-file-routing=1&system-context-v2"></script>
+  <script src="./client/app/image-workflow.js?v=1.6.1-precise-role-prompt&completed-replay=1&semantic-task-v2"></script>
+  <script src="./client/app/regenerate-workflow.js?v=1.2.2-stable-pending-id&completed-replay=1&semantic-task-v2"></script>
   <script src="./client/app/message-workflow.js?v=1.3.41-stream-settle-binding"></script>
   <script src="./client/app/display-history-workflow.js?v=2.0.5-pending-session-continuity"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
@@ -603,16 +681,17 @@
   <script src="./client/ui/render-cache.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/ui/render-scheduler.js?v=1.2.67-reasoning-cleanup"></script>
   <script src="./client/ui/message-virtualizer.js?v=1.2.67-reasoning-cleanup"></script>
-  <script src="./client/ui/usage-stats.js?v=1.3.2-manual-context"></script>
+  <script src="./client/ui/usage-stats.js?v=1.3.3-utility-actions"></script>
   <script src="./client/app/browser.js?v=1.2.65"></script>
   <script src="./client/app/runtime.js?v=1.2.69-semver-label"></script>
+  <script src="./client/ui/announcement-center.js?v=1.0.2-read-refresh"></script>
   <script src="./client/ui/version-changelog.js?v=1.1.0-cards"></script>
   <script src="./client/app/media-workflow.js?v=1.2.70-clarification-media-isolation"></script>
   <script src="./client/app/session-resources.js?v=1.1.1-session-draft-cleanup"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
   <script src="./client/app/bootstrap-workflow.js?v=2.1.2-ime-platform-guard"></script>
   <script src="./client/app/image-result-reconciliation.js?v=1.0.0"></script>
-  <script src="./app.js?v=2.3.0-auto-incident-feedback"></script>
+  <script src="./app.js?v=2.3.0-auto-incident-feedback&explicit-labels-only&semantic-task-v2"></script>
   </template>
 </body>
 </html>

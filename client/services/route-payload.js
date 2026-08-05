@@ -126,7 +126,9 @@
         return {
           index: Number(item.media_index || item.mediaIndex) || index + 1,
           source_index: Number(item.source_index || item.sourceIndex) || index + 1,
-          source: 'current',
+          source: ['quoted', 'history', 'context'].includes(String(item.routeSource || item.route_source || ''))
+            ? String(item.routeSource || item.route_source)
+            : 'current',
           target: 'uploaded',
           file_id: item.file_id || item.id || item.attachmentId || item.attachment_id || '',
           name: item.name || 'attachment',
@@ -177,6 +179,100 @@
     return next;
   }
 
+  function catalogCandidateMatchesResource(candidate = {}, resource = {}) {
+    if (String(candidate.type || '') !== String(resource.type || '')) return false;
+    const candidateId = String(candidate.id || '');
+    const resourceId = String(resource.id || '');
+    if (candidateId && resourceId) return candidateId === resourceId;
+    const candidateReference = String(candidate.reference_id || '');
+    const resourceReference = String(resource.reference_id || '');
+    if (candidateReference && resourceReference) {
+      return candidateReference === resourceReference
+        && Number(candidate.index) === Number(resource.index);
+    }
+    if ((candidateId || candidateReference) && (resourceId || resourceReference)) return false;
+    return String(candidate.source || '') === String(resource.source || '')
+      && Number(candidate.index) === Number(resource.index);
+  }
+
+  function pendingPublicContext(clarification = {}, catalog = []) {
+    const pending = clarification?.pending_task && typeof clarification.pending_task === 'object'
+      ? clarification.pending_task
+      : null;
+    if (!pending) return null;
+    const prior = pending.prior_task_contract && typeof pending.prior_task_contract === 'object'
+      ? pending.prior_task_contract
+      : null;
+    const priorSemantic = pending.prior_semantic_task && typeof pending.prior_semantic_task === 'object'
+      ? pending.prior_semantic_task
+      : null;
+    const candidateFor = resource => {
+      const matches = catalog.filter(candidate => catalogCandidateMatchesResource(candidate, resource));
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const bindings = (Array.isArray(prior?.resources) ? prior.resources : [])
+      .filter(resource => resource && resource.type !== 'text' && resource.missing !== true)
+      .map(resource => ({ resource, candidate: candidateFor(resource) }))
+      .filter(item => item.candidate)
+      .map(({ resource, candidate }) => ({
+        kind: String(resource.type || ''),
+        purpose: String(resource.role || ''),
+        candidate_key: candidate.candidate_key,
+      }));
+    const unresolvedSource = Array.isArray(pending.unresolved_resources)
+      ? pending.unresolved_resources
+      : Array.isArray(prior?.clarification?.unresolved_resources) ? prior.clarification.unresolved_resources : [];
+    const unresolved = unresolvedSource.map(slot => {
+      const choices = (Array.isArray(slot?.choices) ? slot.choices : [])
+        .map(choice => candidateFor({ ...choice, type: slot.type }))
+        .filter(Boolean)
+        .map(candidate => ({ candidate_key: candidate.candidate_key, label: candidate.label }));
+      return {
+        kind: String(slot?.type || ''),
+        purpose: String(slot?.role || ''),
+        resolution: choices.length >= 2 ? 'ambiguous' : String(slot?.reason || 'missing'),
+        candidate_keys: choices.map(choice => choice.candidate_key),
+        labels: choices.map(choice => choice.label),
+      };
+    });
+    const requirements = (Array.isArray(priorSemantic?.slots) ? priorSemantic.slots : [])
+      .filter(slot => slot && slot.resolution !== 'bound')
+      .map(slot => ({
+        kind: String(slot.kind || ''),
+        purpose: String(slot.purpose || ''),
+        label: String(slot.label || ''),
+        resolution: String(slot.resolution || ''),
+      }));
+    return {
+      schema_version: String(clarification.schema_version || ''),
+      pending_task: {
+        base_input: String(pending.base_input || ''),
+        supplements: Array.isArray(pending.supplements) ? pending.supplements.map(value => String(value || '')) : [],
+        question: String(pending.question || ''),
+        prior_actions: Array.isArray(priorSemantic?.actions) ? priorSemantic.actions.map(value => String(value || '')) : [],
+        established_bindings: bindings,
+        requirements,
+        unresolved,
+        established_changes: Array.isArray(prior?.directive?.operations)
+          ? prior.directive.operations.map(change => ({ ...change }))
+          : [],
+        established_constraints: Array.isArray(prior?.directive?.constraints)
+          ? prior.directive.constraints.map(value => String(value || ''))
+          : [],
+      },
+    };
+  }
+
+  function publicRouteContext(context = {}, catalog = []) {
+    const next = context && typeof context === 'object' ? { ...context } : {};
+    if (next.clarification_context) {
+      const clarification = pendingPublicContext(next.clarification_context, catalog);
+      if (clarification) next.clarification_context = clarification;
+      else delete next.clarification_context;
+    }
+    return next;
+  }
+
   function compactRouteUserPayload({ input = '', attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null } = {}) {
     const currentInput = String(input || '');
     assertInputWithinUnifiedLimit(currentInput);
@@ -190,7 +286,8 @@
     if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
     const resourceCandidates = buildRouteResourceCandidates({ attachments, context: routeContext });
     if (resourceCandidates.length) payload.resource_candidates = publicRouteResourceCandidates(resourceCandidates);
-    const compactContext = Object.fromEntries(Object.entries(routeContext || {}).filter(([, value]) => {
+    const modelContext = publicRouteContext(routeContext, resourceCandidates);
+    const compactContext = Object.fromEntries(Object.entries(modelContext || {}).filter(([, value]) => {
       if (Array.isArray(value)) return value.length > 0;
       if (!value) return false;
       if (typeof value === 'object') return Object.keys(value).length > 0;
@@ -213,20 +310,20 @@
     };
   }
 
-  function buildIntentRepairPayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, previousOutput = '', validationReason = 'contract_shape', expectedReadiness = '', responseFormat = routeResponseFormat } = {}) {
-    const payload = compactRouteUserPayload({ input, attachments, context, currentMode, autoMode, currentTurn });
+  function buildIntentRepairPayload({ model, previousOutput = '', validationReason = 'contract_shape', responseFormat = routeResponseFormat } = {}) {
     const repairInvariants = repairInvariantSnapshot(previousOutput);
-    if (!repairInvariants) throw new TypeError('A complete route semantic invariant is required for repair');
-    payload.previous_route_output = String(previousOutput || '');
-    payload.contract_validation_error = String(validationReason || 'contract_shape');
-    payload.required_readiness = expectedReadiness || readRouteReadiness(previousOutput) || '';
-    payload.repair_invariants = repairInvariants;
+    if (!repairInvariants) throw new TypeError('A complete semantic invariant is required for repair');
+    const payload = {
+      previous_semantic_output: String(previousOutput || ''),
+      validation_error: String(validationReason || 'contract_shape'),
+      repair_invariants: repairInvariants,
+    };
     return {
       model,
       temperature: 0,
       ...(responseFormat ? { response_format: responseFormat } : {}),
       messages: [
-        { role: 'system', content: `${intentRepairSystemPrompt}\n\n${routeSystemPrompt}` },
+        { role: 'system', content: intentRepairSystemPrompt },
         { role: 'user', content: JSON.stringify(payload) },
       ],
     };
@@ -239,6 +336,7 @@
     return Object.freeze({
       buildFileCandidatesFromAttachments,
       compactRoutePayloadContext,
+      publicRouteContext,
       compactRouteUserPayload,
       buildRoutePayload,
       buildIntentRepairPayload,

@@ -59,13 +59,20 @@ function buildUserContentWithAttachments(prompt = '', attachments = []) {
     if (isNativeFileAttachment(item)) return !inputFileData(item);
     return !String(item?.text || '').trim();
   });
+  if (unavailable.length) {
+    const error = new Error(`附件内容不可用，已停止发送：${unavailable.map(item => item.name || 'attachment').join('、')}`);
+    error.code = 'ATTACHMENT_CONTENT_UNAVAILABLE';
+    error.attachments = unavailable.map(item => ({
+      name: String(item.name || 'attachment'),
+      type: String(item.type || 'application/octet-stream'),
+      reason: String(item.unsupportedReason || ''),
+    }));
+    throw error;
+  }
   const text = [
     String(prompt || '').trim(),
     inlineTextFiles.length
       ? inlineTextFiles.map(item => `[附件：${item.name || 'attachment'}]\n${String(item.text || '').trim()}`).join('\n\n')
-      : '',
-    unavailable.length
-      ? `[以下附件无法发送给模型：\n${unavailable.map(item => `- ${item.name || 'attachment'} (${item.type || 'application/octet-stream'})：${item.unsupportedReason || '文件内容不可用，请重新上传'}`).join('\n')}\n]`
       : '',
   ].filter(Boolean).join('\n\n');
 

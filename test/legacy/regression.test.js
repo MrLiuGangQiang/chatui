@@ -330,15 +330,16 @@ function testRouteContextIsCompactAndIndexed() {
   }]);
   assert.ok(!(parsedRouteUser.context?.recent_messages || []).some(item => item.role === 'user' && String(item.content || '').startsWith('提取文字')), 'route payload should not duplicate current_input in recent_messages');
   assert.ok(body.length < 1600, `route body too large: ${body.length}`);
-  assert.ok(payload.messages[0].content.includes('"schema_version":"route_decision.v1"'));
-  assert.ok(payload.messages[0].content.includes('"bindings"'));
-  assert.ok(payload.messages[0].content.includes('"changes"'));
+  assert.ok(payload.messages[0].content.includes('semantic_task.v2'));
+  assert.ok(payload.messages[0].content.includes('actions'));
+  assert.ok(payload.messages[0].content.includes('changes'));
   assert.ok(payload.messages[0].content.includes('resource_candidates'));
+  assert.ok(!payload.messages[0].content.includes('\"bindings\"'), 'model prompt must not expose compiler-derived bindings');
   const payloadJson = JSON.stringify(payload);
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking|thinking_budget|thinkingConfig)/i.test(payloadJson), 'route recognition payload should not send thinking/reasoning params');
   const minimalPayload = routeService.buildRoutePayload({ model: 'deepseek-v4-pro', input: '解释一下 JavaScript 里的 Promise 是什么。', attachments: [], context: {}, currentMode: 'chat', autoMode: true });
   assert.strictEqual(minimalPayload.messages[1].content, JSON.stringify({ current_input: '解释一下 JavaScript 里的 Promise 是什么。' }));
-  assert.ok(minimalPayload.messages[0].content.length < 6000, `v5 route system prompt too large: ${minimalPayload.messages[0].content.length}`);
+  assert.ok(minimalPayload.messages[0].content.length < 6000, `semantic route system prompt too large: ${minimalPayload.messages[0].content.length}`);
 }
 
 function testImageCandidatesUseGlobalIndexesAndExecuteSourceIndexes() {
@@ -465,18 +466,19 @@ function testPendingClarificationMergesFollowupSupplements() {
     clarificationText: '请上传要修改的图片。',
   });
   assert.ok(pending);
-  const rejected = clarificationService.mergePendingInput(pending, { promptText: '已上传' });
-  assert.strictEqual(rejected.merged, false, 'local text concatenation must never authorize a continuation');
-  const merged = clarificationService.mergePendingInput(pending, {
+  const first = clarificationService.mergePendingInput(pending, { promptText: '已上传' });
+  assert.strictEqual(first.merged, true);
+  assert.strictEqual(first.promptText, '把这张图改成红色背景\n\n已上传');
+  const merged = clarificationService.mergePendingInput(first.pending, {
     promptText: '背景用深红色，保留主体',
-    resolvedInput: '把这张图改成深红色背景，保留主体',
+    resolvedInput: '模型不得重写任务',
   });
   assert.strictEqual(merged.merged, true);
-  assert.strictEqual(merged.promptText, '把这张图改成深红色背景，保留主体');
-  assert.strictEqual(merged.pending.originalText, merged.promptText);
+  assert.strictEqual(merged.promptText, '把这张图改成红色背景\n\n已上传\n\n背景用深红色，保留主体');
+  assert.strictEqual(merged.pending.originalText, '把这张图改成红色背景');
+  assert.deepStrictEqual(merged.pending.supplements, ['已上传', '背景用深红色，保留主体']);
   assert.ok(!/本轮补充|原始任务|附件 \d+ 个/.test(merged.promptText));
 }
-
 function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
   const pending = clarificationService.createPendingClarification({
     messages: [
@@ -490,48 +492,34 @@ function testPendingClarificationModelFinalPromptIsMinimalAndWins() {
   });
   assert.ok(pending);
   assert.strictEqual(pending.originalText, '不满意，帮我改', 'pending state must not rewrite history through local image keywords');
-
-  const payload = clarificationService.buildContinuationClassifierPayload({
-    model: 'gpt-5.5',
-    pending,
-    currentInput: '山巅的',
-  });
-  assert.strictEqual(payload.temperature, 0);
-  assert.strictEqual(payload.response_format.json_schema.name, 'chatui_pending_continuation_v6');
-  assert.ok(payload.messages[0].content.includes('无权决定'));
-  assert.ok(payload.messages[0].content.includes('最小语义补全'));
-  assert.ok(payload.messages[0].content.includes('operation、API、mode'));
-
-  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer',
-    confidence: 0.97,
-    resolved_input: '山巅的晚霞图',
-    selections: [],
-    assistant_reply: '',
-    reason: '用户正在补充未完成的图片任务',
-  }));
-  assert.strictEqual(decision.resolvedInput, '山巅的晚霞图');
+  for (const name of ['buildContinuationClassifierPayload', 'parseContinuationClassifierResult', 'CONTINUATION_SCHEMA_VERSION']) {
+    assert.strictEqual(clarificationService[name], undefined, `${name} must remain removed`);
+  }
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '山巅的',
-    resolvedInput: decision.resolvedInput,
+    resolvedInput: '模型擅自改写的晚霞图',
   });
-  assert.strictEqual(merged.promptText, '山巅的晚霞图');
-  assert.ok(!merged.promptText.includes('本轮补充'), 'resolved_input must prevent internal transaction text from entering execution input');
+  assert.strictEqual(merged.promptText, '不满意，帮我改\n\n山巅的');
+  assert.strictEqual(merged.resolvedInput, merged.promptText);
+  assert.ok(!merged.promptText.includes('本轮补充'));
 }
-
 function testPendingClarificationDoesNotTreatOrdinaryQuestionsAsFollowup() {
   assert.strictEqual(clarificationService.findPendingFromHistory, undefined, 'ordinary conversation must never create pending state through a keyword scan');
   assert.strictEqual(clarificationService.isClarificationResponse, undefined);
-  const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'new_task', confidence: 1, resolved_input: '', selections: [],
-    assistant_reply: '', reason: 'independent question',
-  }));
-  assert.ok(newTask);
-  assert.strictEqual(newTask.shouldMerge, false);
+  assert.strictEqual(clarificationService.shouldApplyPending, undefined);
+  const pending = clarificationService.createPendingClarification({
+    messages: [{ role: 'user', content: '画一只狗' }], clarificationText: '想要什么品种？',
+  });
+  const context = clarificationService.buildClarificationRouteContext({ baseContext: {}, pending });
+  const route = routeService.parseRouteResult(JSON.stringify({
+    schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'independent', pending_effect: 'new_task',
+    slots: [], changes: [], constraints: [],
+  }), { input: 'Promise 是什么？', context, attachments: [] });
+  assert.ok(route);
+  assert.strictEqual(route.operationType, 'plain_chat');
+  assert.strictEqual(route.relation, 'new');
+  assert.deepStrictEqual(route.taskContract.resources, []);
 }
-
 function testPendingClarificationCanMergeTextFileAndQuote() {
   const pending = clarificationService.createPendingClarification({
     messages: [
@@ -541,23 +529,20 @@ function testPendingClarificationCanMergeTextFileAndQuote() {
     clarificationText: '请上传或引用要总结的文件。',
   });
   assert.ok(pending);
-  const merged = clarificationService.mergePendingInput(pending, {
-    promptText: '重点关注结论部分',
-    resolvedInput: '总结引用的 demo.txt，重点关注结论部分',
-  });
-  assert.strictEqual(merged.promptText, '总结引用的 demo.txt，重点关注结论部分');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '重点关注结论部分' });
+  assert.strictEqual(merged.promptText, '总结这个文件\n\n重点关注结论部分');
   const context = clarificationService.buildClarificationRouteContext({
     baseContext: { recent_messages: [{ index: 1, id: 'm1', role: 'user', content: '总结这个文件' }], file_candidates: [{ index: 1, source: 'history', file_id: 'old-file' }] },
     quotedContext: { quoted_message: { index: 1, id: 'm1', role: 'user' }, recent_messages: [{ index: 1, id: 'm1', role: 'user', content: '[quoted_message]' }], file_candidates: [{ index: 1, source: 'quoted', file_id: 'quote-file' }] },
-    pending, currentInput: '重点关注结论部分', resolvedInput: merged.promptText, selections: [],
-    attachments: [{ id: 'new-file', name: 'demo.txt', type: 'text/plain' }], quoteText: '引用文件 demo.txt',
+    pending,
   });
-  assert.strictEqual(context.clarification_context.schema_version, 'clarification_context.v1');
-  assert.strictEqual(context.clarification_context.attachments.current[0].source, 'current');
+  assert.strictEqual(context.clarification_context.schema_version, 'clarification_context.v3');
+  assert.deepStrictEqual(Object.keys(context.clarification_context), ['schema_version', 'pending_task']);
+  assert.strictEqual(context.clarification_context.pending_task.base_input, '总结这个文件');
   assert.ok(context.file_candidates.some(item => item.source === 'history'));
   assert.ok(context.file_candidates.some(item => item.source === 'quoted'));
+  assert.strictEqual(Object.hasOwn(context.clarification_context, 'source_policy'), false);
 }
-
 function testPendingClarificationCarriesOriginalMultiImageContext() {
   const pending = clarificationService.createPendingClarification({
     messages: [
@@ -579,9 +564,9 @@ function testPendingClarificationCarriesOriginalMultiImageContext() {
   assert.ok(pending.sourceAttachmentContext.includes('老板.png'));
   const merged = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
-    resolvedInput: '把原消息第一张图改一下',
+    resolvedInput: '模型不得改写',
   });
-  assert.strictEqual(merged.promptText, '把原消息第一张图改一下');
+  assert.strictEqual(merged.promptText, '把这张图改一下\n\n第一张');
   assert.ok(!merged.promptText.includes('本轮补充'));
 }
 
@@ -594,10 +579,9 @@ function testPendingClarificationAcceptsShortImageVariantAnswer() {
     clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
   });
   assert.ok(pending);
-  const withoutModel = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉' });
-  assert.strictEqual(withoutModel.merged, false);
-  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '生成弯轨交叉窗帘轨道图片' });
-  assert.strictEqual(merged.promptText, '生成弯轨交叉窗帘轨道图片');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '模型不得改写' });
+  assert.strictEqual(merged.merged, true);
+  assert.strictEqual(merged.promptText, '窗帘的交叉轨道给我一个图片\n\n弯轨交叉');
 }
 
 function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRound() {
@@ -608,13 +592,14 @@ function testPendingClarificationStateMachineClearsNewTaskAndRecomputesMultiRoun
     ],
     clarificationText: '你想要哪一种窗帘交叉轨道图片？请补充一下具体样式或用途，比如：俯视结构图、安装示意图、实物照片风格、双轨交叉、弯轨交叉、酒店窗帘轨道等。',
   });
-  const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '生成弯轨交叉窗帘轨道图片' });
+  const firstAnswer = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉' });
   const nextQuestion = '弯轨交叉要做成什么风格？';
   const nextPending = clarificationService.normalizePendingClarification({
     ...firstAnswer.pending,
     clarificationText: nextQuestion,
   });
-  assert.strictEqual(nextPending.originalText, '生成弯轨交叉窗帘轨道图片');
+  assert.strictEqual(nextPending.originalText, '窗帘的交叉轨道给我一个图片');
+  assert.deepStrictEqual(nextPending.supplements, ['弯轨交叉']);
   assert.strictEqual(nextPending.clarificationText, nextQuestion);
   assert.strictEqual(clarificationService.expectedAnswerTypes, undefined, 'multi-round state must not reintroduce local answer-type heuristics');
 }
@@ -632,8 +617,8 @@ function testPendingClarificationUsesPreviousImageRequestForVagueFeedback() {
   });
   assert.ok(pending);
   assert.strictEqual(pending.originalText, '不是这个啊', 'local keywords must not silently replace the pending base task with older history');
-  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '重新生成弯轨交叉窗帘轨道图片' });
-  assert.strictEqual(merged.promptText, '重新生成弯轨交叉窗帘轨道图片');
+  const merged = clarificationService.mergePendingInput(pending, { promptText: '弯轨交叉', resolvedInput: '模型不得改写' });
+  assert.strictEqual(merged.promptText, '不是这个啊\n\n弯轨交叉');
 }
 
 function testPendingClarificationClearsAfterMergedSend() {
@@ -641,14 +626,14 @@ function testPendingClarificationClearsAfterMergedSend() {
   assert.ok(!submit.includes('targetSession.pendingClarification=pendingMerge.pending'), 'merged clarification should not stay pending after the answer has been sent');
   assert.ok(!submit.includes('findPendingFromHistory?.(targetSession.messages||state.messages||[])'), 'pending clarification must be an explicit one-shot state, not inferred repeatedly from history');
   assert.ok(submit.includes('const rawStoredPending=targetSession.pendingClarification;') && submit.includes('(clarification.migratePendingClarification||clarification.normalizePendingClarification)?.(rawStoredPending)'), 'pending clarification should only come from explicit session state and legacy identity migration');
-  assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'a classifier failure must keep pending clarification instead of silently starting a new task');
+  assert.ok(submit.includes('semanticPendingEffect==="unclear"') && submit.includes('原任务已保留'), 'an unclear semantic relation must keep pending clarification instead of silently starting a new task');
   assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'), 'a merged clarification should be consumed only after durable handoff');
   assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a merged answer must create an explicit clarification route context');
   assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a merged answer must be fully rerouted with its restored source attachments');
   assert.ok(!submit.includes('resolveClarificationRoute'), 'no structured choice may bypass full intent routing');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction'), 'submit workflow cache version should include pending source attachments');
-  assert.ok(index.includes('clarification-service.js?v=1.5.3-stable-pending-id'), 'clarification service cache version should include pending source attachments');
+  assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction') && index.includes('semantic-task-v2-single-router'), 'submit workflow cache version should include the unified semantic router');
+  assert.ok(index.includes('clarification-service.js?v=1.5.3-stable-pending-id') && index.includes('semantic-task-v2'), 'clarification service cache version should include semantic pending context');
   assert.ok(!submit.includes('expectedAnswerTypes'), 'multi-round clarification must remain model-routed');
 }
 
@@ -664,10 +649,10 @@ function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
 
   const firstAnswer = clarificationService.mergePendingInput(pending, {
     promptText: '第一张',
-    resolvedInput: '把这几张图中的第一张改成头像',
+    resolvedInput: '模型不得改写',
   });
   assert.ok(firstAnswer.merged);
-  assert.strictEqual(firstAnswer.promptText, '把这几张图中的第一张改成头像');
+  assert.strictEqual(firstAnswer.promptText, '把这几张图改成头像\n\n第一张');
 
   const nextPending = {
     ...firstAnswer.pending,
@@ -675,10 +660,10 @@ function testPendingClarificationOneShotMissAndMultiRoundContinuity() {
   };
   const secondAnswer = clarificationService.mergePendingInput(nextPending, {
     promptText: '改成漫画风，保留脸部特征',
-    resolvedInput: '把这几张图中的第一张改成漫画风头像，保留脸部特征',
+    resolvedInput: '模型不得改写',
   });
   assert.ok(secondAnswer.merged, 'a new explicit pending clarification should continue the multi-round chain');
-  assert.strictEqual(secondAnswer.promptText, '把这几张图中的第一张改成漫画风头像，保留脸部特征');
+  assert.strictEqual(secondAnswer.promptText, '把这几张图改成头像\n\n第一张\n\n改成漫画风，保留脸部特征');
   assert.strictEqual(secondAnswer.pending.rounds, 3);
 }
 
@@ -784,8 +769,9 @@ function testFilePlaceholderSemanticsAndFileUnderstanding() {
   const system = payload.messages[0].content;
   const body = payload.messages[1].content;
   assert.ok(system.includes('resource_candidates'));
-  assert.ok(system.includes('不能编造 key'));
-  assert.ok(system.includes('bindings'));
+  assert.ok(system.includes('candidate_key'));
+  assert.ok(system.includes('绝不编造或改写 key'));
+  assert.ok(system.includes('slots'));
   assert.ok(body.includes('"is_image":false'));
   assert.ok(body.includes('"file_candidates"'));
   assert.ok(body.includes('"has_extracted_text":true'));
@@ -805,7 +791,7 @@ function testQuotedFileAttachmentTextIsIncluded() {
   assert.strictEqual(base.length, 1);
   assert.ok(base[0].content.includes('[引用附件：doc.txt]'));
   assert.ok(base[0].content.includes('引用附件正文内容'));
-  assert.ok(base[0].content.includes('引用消息带有非图片文件附件'));
+  assert.ok(base[0].content.includes('<quoted_message role="user">'));
 }
 
 function testHistoryFileAttachmentTextIsIncludedInChatContext() {
@@ -2389,7 +2375,7 @@ function testRouteDiagramLauncherUsesModal() {
   assert.strictEqual(staticHttp.isPublicStaticPath('/pages/route.html'), true, 'the diagram page should be available through the static server');
   const routeDiagram = fs.readFileSync(routePath, 'utf8');
   assert.strictEqual((routeDiagram.match(/<article class="node [^"]+" data-step="\d{2}"/g) || []).length, 12, 'the runtime map should expose exactly twelve numbered nodes');
-  assert.ok(routeDiagram.includes('route_decision.v1') && routeDiagram.includes('task_contract.v5') && routeDiagram.includes('execution_resources.v1'), 'the map should name the model decision, compiled contract, and execution projection boundaries');
+  assert.ok(routeDiagram.includes('semantic_task.v2') && routeDiagram.includes('route_decision.v1') && routeDiagram.includes('task_contract.v5') && routeDiagram.includes('execution_resources.v1'), 'the map should name semantic extraction, compiler decision, contract, and execution projection boundaries');
   assert.ok(routeDiagram.includes('class="flow-track"') && routeDiagram.includes('class="flow-runner"') && routeDiagram.includes('<animateMotion') && routeDiagram.includes('id="mainRouteGuide"') && routeDiagram.includes('class="sequence-links"') && routeDiagram.includes('clarification-track') && routeDiagram.includes('@media (prefers-reduced-motion: reduce)'), 'the redesigned map should keep the ordered main flow, unnumbered conditional exits, and a reduced-motion fallback');
   assert.ok(routeDiagram.indexOf('stage=accepted') < routeDiagram.indexOf('stage=captured') && routeDiagram.indexOf('stage=captured') < routeDiagram.indexOf('stage=routing'), 'durable acceptance, attachment capture, and routing commit must remain in source order');
   assert.ok(routeDiagram.includes('进行中不等于完成') && routeDiagram.includes('JOB_COMPLETED_COMMITTED') && routeDiagram.includes('data-sequence="01 02 03 04 05 06 07 08 09 10 11 12"') && !routeDiagram.includes('deliberately bypassed'), 'the map must distinguish running from completion and keep every numbered node on the source-ordered main track');
@@ -2654,7 +2640,7 @@ function testRegenerateSavesEarlyPendingSubmitBeforeRoute() {
   assert.ok(regenerate.includes("if (!savePending({ stage: 'accepted' }))") && regenerate.includes('emitTaskEvent(sessionId, taskEvents.TASK_ACCEPTED'), 'regenerate task acceptance should couple durable pending ownership with the canonical event');
   assert.ok(regenerate.includes('requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a'), 'regenerate pending-submit should keep base messages and original response index');
   assert.ok(app.includes('getWorkflowModule?.("regenerate")'), 'root app should resolve regenerate through explicit workflow composition');
-  assert.ok(submit.includes('resumePendingSubmit?.attachmentContext&&typeof restoreUserAttachmentsFromContext'), 'pending-submit resume should restore persisted attachment context');
+  assert.ok(submit.includes('if(resumePendingSubmit?.attachmentContext){') && submit.includes('restoreUserAttachmentsFromContext(resumePendingSubmit.attachmentContext)'), 'pending-submit resume should restore persisted attachment context');
   assert.ok(submit.includes('requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages'), 'pending-submit resume should reuse regenerate base messages');
   assert.ok(submit.includes('const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>'), 'pending-submit resume should dispatch back to original response index even without a replacement object');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');

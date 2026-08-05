@@ -15,74 +15,37 @@ function currentTextResource(key = 'r9') {
   return { key, type: 'text', source: 'current', role: 'source', index: 1, id: '', reference_id: '', missing: false };
 }
 
-function testClientContractUsesOneTaskContractRouteProtocol() {
+function testClientContractUsesOneSemanticRouteProtocol() {
   for (const key of [
-    'ROUTE_SYSTEM_PROMPT',
-    'INTENT_REPAIR_SYSTEM_PROMPT',
-    'ROUTE_RESPONSE_FORMAT',
-    'buildRouteResourceCandidates',
-    'compileRouteDecision',
-    'inspectRouteResult',
-    'isTaskContractResult',
-    'parseRouteResult',
-    'terminalClarificationRouteFromResult',
-    'mergeRouteReadinessRequirement',
-    'isRouteDispatchable',
-    'buildRoutePayload',
+    'ROUTE_SYSTEM_PROMPT', 'INTENT_REPAIR_SYSTEM_PROMPT', 'ROUTE_RESPONSE_FORMAT',
+    'SEMANTIC_TASK_VERSION', 'hasExactSemanticTask', 'analyzeSemanticTask', 'semanticTaskToRouteDecision',
+    'compileSemanticTask', 'buildRouteResourceCandidates', 'compileRouteDecision',
+    'inspectRouteResult', 'isTaskContractResult', 'parseRouteResult',
+    'terminalClarificationRouteFromResult', 'mergeRouteReadinessRequirement',
+    'isRouteDispatchable', 'buildRoutePayload',
   ]) {
     assert.ok(key in routeService, `missing canonical route export: ${key}`);
   }
+  assert.strictEqual(routeService.SEMANTIC_TASK_VERSION, 'semantic_task.v2');
   assert.ok(!('apiRouteToExecutionRoute' in routeService));
   assert.ok(!('taskContractForRoute' in routeService));
-  assert.ok(!('reconcileMultiImageCompositionContract' in routeService), 'valid model contracts must not be overridden by local keyword routing');
-  assert.ok(!('semanticallySelectedCompositionCandidates' in routeService), 'image candidate matching belongs to the model contract, not a local fallback');
-  assert.ok(!('resolveClarificationRoute' in routeService), 'clarification choices must return through the full router instead of a local execution path');
-  assert.ok(!('buildIntentReviewPayload' in routeService), 'a valid first decision must not retain an obsolete independent-review request path');
-  const intentContract = require('../../client/core/intent-contract');
-  assert.deepStrictEqual({
-    plain_chat: intentContract.contractMode({ operation: 'plain_chat' }),
-    file_qa: intentContract.contractMode({ operation: 'file_qa' }),
-    multimodal_qa: intentContract.contractMode({ operation: 'multimodal_qa' }),
-    image_qa: intentContract.contractMode({ operation: 'image_qa' }),
-    image_compare: intentContract.contractMode({ operation: 'image_compare' }),
-    ocr: intentContract.contractMode({ operation: 'ocr' }),
-    text_to_image: intentContract.contractMode({ operation: 'text_to_image' }),
-    image_reference_gen: intentContract.contractMode({ operation: 'image_reference_gen' }),
-    edit_image: intentContract.contractMode({ operation: 'edit_image' }),
-  }, {
-    plain_chat: 'chat', file_qa: 'chat', multimodal_qa: 'chat', image_qa: 'chat', image_compare: 'chat', ocr: 'chat',
-    text_to_image: 'image', image_reference_gen: 'image', edit_image: 'edit_image',
-  });
+  assert.ok(!('reconcileMultiImageCompositionContract' in routeService));
+  assert.ok(!('semanticallySelectedCompositionCandidates' in routeService));
+  assert.ok(!('resolveClarificationRoute' in routeService));
+  assert.ok(!('buildIntentReviewPayload' in routeService));
 }
 
-function testRoutePromptIsOneOrderedDecisionSpecification() {
+function testRoutePromptIsOneSemanticSpecification() {
   const system = routeService.ROUTE_SYSTEM_PROMPT;
-  for (const section of ['一、只做语义决策', '二、operation 与资源槽', '三、关系、澄清与修改']) {
-    assert.ok(system.includes(section), `missing ordered route section: ${section}`);
-  }
-  assert.ok(system.includes('context.quoted_message'), 'an explicit UI quote must be part of the routing specification');
-  assert.ok(system.includes('再画一只狗，换个品种') && system.includes('必须 bindings=[]'), 'a self-contained image followup must not inherit the prior prompt');
-  assert.ok(system.includes('应用不会在本地替你增删 bindings'), 'the first route must own semantics without local correction');
-  assert.ok(system.includes('必须选择对应 m key') && system.includes('不是 resources 为空的新任务'), 'quoted text must be selected semantically on the first route');
-  assert.ok(system.includes('应用会把你的决策确定性编译为 task_contract.v5'), 'the model must not author the execution contract');
-  assert.ok(!system.includes('边界示例'), 'the production prompt must not grow into a second rulebook of examples');
-  assert.ok(system.length < 6500, 'the complete primary routing specification must stay cognitively compact');
-  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'ocr', 'text_to_image', 'image_compare', 'edit_image', 'image_reference_gen']) {
-    assert.ok(system.includes(operation), `the contract self-check must cover ${operation}`);
-  }
-  assert.ok(system.includes('不可解析文件') && system.includes('unavailable'), 'unusable files must be a first-class non-executing state');
-  assert.ok(system.includes('跨执行族多任务') && system.includes('不得部分执行'), 'cross-API multi-task input must fail into clarification instead of partial execution');
-  assert.ok(system.includes('附件无指令') && system.includes('text/source/missing'), 'attachment-only input must have an explicit safe policy');
-  assert.ok(system.includes('auto_mode=false') && system.includes('current_mode'), 'manual and automatic routing modes must be defined');
-  assert.ok(system.includes('“生成提示词”绝不是“生成图片”') && system.includes('属于 image_qa'), 'image-to-prompt requests must remain text-producing vision tasks');
-  assert.ok(system.includes('image 允许 text_to_image/image_reference_gen') && system.includes('edit_image 允许 edit_image'), 'reference generation must remain allowed in the image product mode');
-  assert.ok(system.includes('恰好 1 个 target') && system.includes('绝不能把“全部”解释为多个 target'), 'image editing must select exactly one target');
-  assert.ok(system.includes('prior_task_contract 为空') && system.includes('不得把降级槽视为执行授权'),
-    'degraded candidate snapshots must help rerouting without authorizing execution');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.length < 450, 'the final check should remain a compact invariant list, not duplicate the routing rules');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('输出前自检'), 'the first route request must require a complete decision even when the intent is simple');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('空数组也输出 []'), 'the first route request must explicitly retain empty decision fields');
-  assert.ok(routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('只选 resource_candidates 中的 key') && routeService.ROUTE_OUTPUT_CONTRACT_CHECK.includes('引用文字生图必须绑定 m key'), 'the final check must state candidate and quote-selection invariants');
+  assert.ok(system.includes('semantic_task.v2'));
+  assert.ok(system.includes('current_input') && system.includes('resource_candidates'));
+  assert.ok(system.includes('slots') && system.includes('pending_effect'));
+  assert.ok(system.includes('引用和历史只是证据'));
+  assert.ok(system.includes('应用会确定性计算 operation') && system.includes('task_contract.v5'));
+  assert.ok(!system.includes('再画一只狗，换个品种'));
+  assert.ok(!system.includes('猫狗') && !system.includes('上下文边界强制对照'));
+  assert.ok(system.length < 1800, `semantic router prompt should remain compact: ${system.length}`);
+  assert.ok(!('ROUTE_OUTPUT_CONTRACT_CHECK' in routeService), 'the removed duplicated protocol prompt must not remain as an empty compatibility field');
 }
 
 function testClientContractRoutePayloadKeepsCompactShape() {
@@ -104,13 +67,14 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   assert.strictEqual(payload.response_format?.type, 'json_schema');
   assert.strictEqual(payload.response_format?.json_schema?.strict, true);
   assert.strictEqual(payload.response_format?.json_schema?.schema?.additionalProperties, false);
-  assert.strictEqual(payload.response_format?.json_schema?.name, 'chatui_route_decision_v1');
-  const unresolvedReason = payload.response_format?.json_schema?.schema?.properties?.clarification?.properties?.unresolved?.items?.properties?.reason;
-  assert.ok(unresolvedReason?.enum?.includes('unavailable'), 'strict output schema must represent an unusable attachment without pretending it is missing or selectable');
-  const bindingSchema = payload.response_format?.json_schema?.schema?.properties?.bindings?.items;
-  assert.deepStrictEqual(Object.keys(bindingSchema?.properties || {}), ['candidate_key', 'role']);
-  assert.ok(!('resources' in payload.response_format.json_schema.schema.properties), 'the model must not author task_contract resources');
-  assert.ok(!('directive' in payload.response_format.json_schema.schema.properties), 'the model must not author task_contract directives');
+  assert.strictEqual(payload.response_format?.json_schema?.name, 'chatui_semantic_task_v2');
+  const resolutionSchema = payload.response_format?.json_schema?.schema?.properties?.slots?.items?.properties?.resolution;
+  assert.ok(resolutionSchema?.enum?.includes('unavailable'), 'strict semantic schema must represent an unusable resource without pretending it is missing');
+  assert.ok(!('operation' in payload.response_format.json_schema.schema.properties));
+  assert.ok(!('readiness' in payload.response_format.json_schema.schema.properties));
+  assert.ok(!('bindings' in payload.response_format.json_schema.schema.properties));
+  assert.ok(!('resources' in payload.response_format.json_schema.schema.properties));
+  assert.ok(!('directive' in payload.response_format.json_schema.schema.properties));
   assert.strictEqual(payload.messages.length, 2);
   assert.strictEqual(payload.messages[0].role, 'system');
   assert.strictEqual(payload.messages[1].role, 'user');
@@ -122,7 +86,7 @@ function testClientContractRoutePayloadKeepsCompactShape() {
   assert.ok(Array.isArray(user.context.file_candidates));
   assert.ok(!('ignored_empty' in user.context));
   assert.ok(!payload.messages[0].content.includes('attachments.media_index'), 'mechanical candidate indexes belong to the compiler, not model instructions');
-  assert.ok(payload.messages[0].content.includes(routeService.ROUTE_OUTPUT_CONTRACT_CHECK), 'the first route request must carry the complete-contract output constraint');
+  assert.ok(payload.messages[0].content.includes('semantic_task.v2'));
   assert.ok(payload.messages[0].content.length < 7000, 'the route prompt must remain within its compact context budget');
   assert.ok(!/(reasoning|thinking|reasoning_effort|enable_thinking)/i.test(JSON.stringify(payload)));
 
@@ -679,113 +643,44 @@ function testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes() {
   assert.strictEqual(routeService.isTaskContractResult(structuredClarification), true, 'clarification must preserve the directive of the task that resumes after resource binding');
 }
 
-function testStructuredClarificationSelectionResumesTheOriginalCompositionContract() {
-  const contract = {
-    schema_version: 'task_contract.v4',
-    operation: 'clarify',
-    relation: 'followup',
-    resources: [{ key: 'r1', type: 'image', source: 'history', role: 'reference', index: 4, id: 'img-cat', reference_id: 'imgref-cat', missing: false }],
-    directive: {
-      mode: 'patch',
-      base_resource_keys: ['r1', 'r2'],
-      unmentioned_policy: 'preserve',
-      operations: [{ op: 'add', target: 'composition', value: 'combine the cat and selected fish' }],
-      constraints: ['natural composition'],
-    },
-    clarification: {
-      question: 'Which fish image should be combined with the cat?',
-      resume_operation: 'image_reference_gen',
-      unresolved_resources: [{
-        key: 'r2',
-        type: 'image',
-        role: 'reference',
-        reason: 'ambiguous',
-        choices: [
-          { key: 'c1', source: 'history', index: 1, id: 'img-fish-sketch', reference_id: 'imgref-fish-sketch', label: 'hand-drawn fish' },
-          { key: 'c2', source: 'history', index: 2, id: 'img-fish-color', reference_id: 'imgref-fish-color', label: 'colorful fish' },
-        ],
-      }],
-    },
-    confidence: 0.9,
-    review_reasons: [],
-    rationale: 'the cat is unique but two fish candidates remain',
+function testPendingSelectionReroutesThroughSemanticTaskWithoutLocalClassifier() {
+  const initialSemantic = {
+    schema_version: 'semantic_task.v2', actions: ['generate'], discourse: 'independent', pending_effect: 'none',
+    slots: [
+      { kind: 'image', purpose: 'reference', label: '鱼图', resolution: 'ambiguous', candidate_keys: ['i1', 'i2'] },
+    ], changes: [{ op: 'add', target: 'composition', value: '把猫和鱼合并成一张图' }], constraints: [],
   };
-  const context = { image_candidates: [
-    { index: 4, source_index: 4, source: 'history', image_id: 'img-cat', reference_id: 'imgref-cat', target: 'previous' },
-    { index: 1, source_index: 1, source: 'history', image_id: 'img-fish-sketch', reference_id: 'imgref-fish-sketch', target: 'previous' },
-    { index: 2, source_index: 2, source: 'history', image_id: 'img-fish-color', reference_id: 'imgref-fish-color', target: 'previous' },
-  ] };
-  const clarificationRoute = routeService.parseRouteResult(JSON.stringify(contract), { input: 'combine the cat and fish', context });
-  assert.ok(clarificationRoute);
-  assert.strictEqual(clarificationRoute.needClarification, true);
-  assert.strictEqual(clarificationRoute.api, 'clarify');
-  assert.strictEqual(clarificationRoute.dispatchAuthorized, false);
-  assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
-  assert.strictEqual(clarificationRoute.clarificationQuestion, contract.clarification.question);
-  assert.deepStrictEqual(clarificationRoute.clarificationSlots[0].choices.map(choice => choice.label), ['hand-drawn fish', 'colorful fish']);
-
+  const initialContract = routeService.compileSemanticTask(initialSemantic, {
+    input: '把猫和鱼合并成一张图',
+    context: { image_candidates: [
+      { index: 1, source: 'history', image_id: 'fish-a', reference_id: 'fish-a-ref', description: '手绘鱼' },
+      { index: 2, source: 'history', image_id: 'fish-b', reference_id: 'fish-b-ref', description: '彩色鱼' },
+    ] },
+  }).taskContract;
   const pending = clarificationService.createPendingClarification({
-    messages: [{ role: 'user', content: 'combine the cat and fish' }, { role: 'assistant', content: clarificationRoute.clarificationQuestion }],
-    clarificationText: clarificationRoute.clarificationQuestion,
-    routeInfo: clarificationRoute,
+    messages: [{ role: 'user', content: '把猫和鱼合并成一张图' }],
+    clarificationText: '请选择鱼图。',
+    routeInfo: { taskContract: initialContract, semanticTask: initialSemantic },
   });
-  assert.deepStrictEqual(pending.routeInfo.taskContract, routeService.decodeTaskContract(contract), 'the pending state must retain the validated canonical contract instead of only its question text');
-
-  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer',
-    confidence: 0.99,
-    resolved_input: 'combine the cat and colorful fish',
-    selections: [{ resource_key: 'r2', choice_key: 'c2' }],
-    assistant_reply: '',
-    reason: 'the user selected the colorful fish option',
-  }), { pending });
-  assert.ok(decision);
-  const rerouteContext = clarificationService.buildClarificationRouteContext({
-    baseContext: context,
-    pending,
-    currentInput: 'the colorful fish',
-    resolvedInput: decision.resolvedInput,
-    selections: decision.selections,
-    attachments: [],
+  const context = clarificationService.buildClarificationRouteContext({
+    baseContext: { image_candidates: [
+      { index: 1, source: 'history', image_id: 'fish-a', reference_id: 'fish-a-ref', description: '手绘鱼' },
+      { index: 2, source: 'history', image_id: 'fish-b', reference_id: 'fish-b-ref', description: '彩色鱼' },
+    ] }, pending,
   });
-  assert.ok(rerouteContext, 'a valid choice must become non-executing context for a fresh route request');
-  assert.strictEqual(rerouteContext.clarification_context.selected_choices[0].id, 'img-fish-color');
-  assert.strictEqual(rerouteContext.clarification_context.prior_task_contract.readiness, 'needs_clarification');
-  const reroutePayload = routeService.buildRoutePayload({ model: 'route-model', input: decision.resolvedInput, context: rerouteContext });
-  const rerouteUser = JSON.parse(reroutePayload.messages[1].content);
-  assert.strictEqual(rerouteUser.context.clarification_context.resolved_input, decision.resolvedInput);
-  assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false, 'the prior clarification route must remain non-executable');
-  assert.strictEqual(clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer', confidence: 0.99, resolved_input: 'combine them',
-    selections: [{ resource_key: 'r2', choice_key: 'c9' }], assistant_reply: '', reason: 'unknown choice',
-  }), { pending }), null, 'an unknown choice must never enter the reroute context');
-
-  const missingUpload = {
-    schema_version: 'task_contract.v4',
-    operation: 'clarify',
-    relation: 'followup',
-    resources: [],
-    directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: 'background', value: 'red' }], constraints: [] },
-    clarification: { question: 'Please upload the image to edit.', resume_operation: 'edit_image', unresolved_resources: [{ key: 'r1', type: 'image', role: 'target', reason: 'missing', choices: [] }] },
-    confidence: 0.8,
-    review_reasons: [],
-    rationale: 'the required image is absent',
+  const reroutedSemantic = {
+    schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'continuation', pending_effect: 'answer',
+    slots: [{ kind: 'image', purpose: 'reference', label: '鱼图', resolution: 'bound', candidate_keys: ['i2'] }],
+    changes: [], constraints: [],
   };
-  const missingRoute = routeService.parseRouteResult(JSON.stringify(missingUpload), { input: 'make the background red', context: {} });
-  const uploadPending = clarificationService.createPendingClarification({
-    messages: [{ role: 'user', content: 'make the background red' }],
-    clarificationText: missingRoute.clarificationQuestion,
-    routeInfo: missingRoute,
+  const rerouted = routeService.inspectRouteResult(JSON.stringify(reroutedSemantic), {
+    input: '第二张', attachments: [], context,
   });
-  const uploadContext = clarificationService.buildClarificationRouteContext({
-    baseContext: {}, pending: uploadPending, currentInput: 'uploaded', resolvedInput: 'make the uploaded image background red', selections: [],
-    attachments: [{ id: 'upload-1', image_id: 'upload-1', name: 'photo.png', type: 'image/png', is_image: true }],
-  });
-  assert.strictEqual(uploadContext.clarification_context.attachments.current[0].id, 'upload-1');
-  assert.strictEqual(uploadContext.clarification_context.attachments.current[0].source, 'current');
-  assert.strictEqual(missingRoute.dispatchAuthorized, false, 'an upload answer still requires a full route result before dispatch');
+  assert.ok(rerouted.route, rerouted.reason);
+  assert.strictEqual(rerouted.route.operationType, 'image_reference_gen');
+  assert.strictEqual(rerouted.route.needClarification, false);
+  assert.strictEqual(rerouted.route.taskContract.resources[0].id, 'fish-b');
+  assert.deepStrictEqual(rerouted.route.taskContract.directive.operations, initialContract.directive.operations);
 }
 
 function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingForTheUser() {
@@ -865,7 +760,8 @@ function testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingFor
     selections: [{ resource_key: 'r2', choice_key: 'c2' }], attachments: [],
   });
   assert.ok(rerouteContext);
-  assert.strictEqual(rerouteContext.clarification_context.selected_choices[0].id, contract.clarification.unresolved_resources[0].choices[1].id);
+  assert.strictEqual(rerouteContext.clarification_context.pending_task.prior_task_contract.readiness, 'needs_clarification');
+  assert.ok(!('selected_choices' in rerouteContext.clarification_context));
   assert.strictEqual(route.dispatchAuthorized, false, 'candidate canonicalization must not turn the first route into an executable one');
 }
 
@@ -926,8 +822,8 @@ function testClientContractChatAndSseParsingShape() {
 }
 
 module.exports = [
-  testClientContractUsesOneTaskContractRouteProtocol,
-  testRoutePromptIsOneOrderedDecisionSpecification,
+  testClientContractUsesOneSemanticRouteProtocol,
+  testRoutePromptIsOneSemanticSpecification,
   testClientContractRoutePayloadKeepsCompactShape,
   testRouteResultInspectionSeparatesShapeAndResourceFailures,
   testClientContractRoutePayloadRetainsHistoricalFilesAlongsideCurrentFiles,
@@ -946,7 +842,7 @@ module.exports = [
   testClientContractAcceptsHistoricalStyleReferenceForHtmlChat,
   testClientContractAcceptsTheCurrentUploadAttachmentIdAsACanonicalAlias,
   testClientContractEnforcesOperationSpecificResourcesAndTypedIndexes,
-  testStructuredClarificationSelectionResumesTheOriginalCompositionContract,
+  testPendingSelectionReroutesThroughSemanticTaskWithoutLocalClassifier,
   testStableResourceIdentityCanonicalizesDisplayIndexesWithoutChoosingForTheUser,
   testClarificationPresentationNeverExposesInternalResourceKeys,
   testClientContractServiceExportsStayStable,

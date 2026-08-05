@@ -24,6 +24,7 @@ const routeProtocol = root?.[Symbol.for('chatui.module-registry.v1')]?.get('rout
   || (typeof require === 'function' ? require('../core/route-protocol') : {});
 const {
   ROUTE_DECISION_VERSION,
+  SEMANTIC_TASK_VERSION,
   ROUTE_OPERATIONS,
   ROUTE_RELATIONS,
   ROUTE_ROLES,
@@ -35,46 +36,24 @@ const {
 
 const MAX_ROUTE_REPAIR_OUTPUT_CHARS = 12000;
 
-// The model decides semantics only. The application compiles this compact
-// decision into the sole executable task_contract.v5; the model never copies
-// ids, indexes, sources, directive base keys, or other mechanical fields.
-const ROUTE_SYSTEM_PROMPT_V5 = `你是 ChatUI 的语义路由器。只输出严格的 route_decision.v1 JSON；不要回答用户，不要输出分析、Markdown、代码围栏或未定义字段。应用会把你的决策确定性编译为 task_contract.v5，你绝不能手写完整合同或复制资源 id/index/source。
+// The model extracts semantic facts only. Product operations, readiness,
+// clarification wording and task_contract fields are compiled locally.
+const ROUTE_SYSTEM_PROMPT_V6 = `把 current_input 解析为 semantic_task.v2。只输出 schema 规定的 JSON，不回答用户，不输出分析或 Markdown。
 
-唯一结构：
-{"schema_version":"route_decision.v1","readiness":"ready|needs_clarification","operation":"plain_chat|file_qa|multimodal_qa|image_qa|image_compare|ocr|text_to_image|image_reference_gen|edit_image","relation":"new|followup|correction|continuation","bindings":[{"candidate_key":"i1|f1|m1","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context"}],"changes":[{"op":"preserve|add|replace|remove","target":"","value":""}],"constraints":[],"clarification":{"question":"","unresolved":[{"type":"image|file|text|message","role":"source|target|reference|style_reference|mask|compare_a|compare_b|attachment|context","reason":"missing|ambiguous|unavailable","candidate_keys":[]}]},"confidence":0,"rationale":""}
+语义原则：
+1. current_input 决定本轮行为；引用和历史只是证据，不能自动成为执行指令。
+2. 仅在当前表达存在明确指代、省略或延续依赖时使用历史；语义完整的当前请求不继承历史任务。
+3. 用 slots 表达任务所需的外部资源及其用途和解析状态。current_input 自身是隐式文本源；改写、总结、优化或翻译当前输入时必须 slots=[]，不得创建 text/source 槽位。candidate_keys 只能引用 resource_candidates 中已有的 candidate_key，绝不编造或改写 key。
+4. resolution 必须与 candidate_keys 数量一致：bound 恰好 1 个，ambiguous 至少 2 个，missing/unavailable 必须为空；存在歧义时不替用户选择。
+5. quoted_message、pending_task 和 confirmed selections 是上下文事实。询问这些内容时仍是 respond；只有 current_input 明确要求执行时才生成或编辑。
+6. 只记录用户明确表达的 changes 和 constraints；执行必需信息未提供时增加 missing slot，不虚构值。
+7. action 表示用户意图：respond=回答/理解，extract_text=提取图片文字，compare=比较图片，generate=生成新图，edit=修改现有图。
+8. 有 pending_task 时，pending_effect=answer/partial/continuation 表示补充原任务，revision 表示修正原任务，assistance 只回答本轮问题，new_task 表示独立新任务，无法判断用 unclear；没有 pending_task 时必须为 none。
+9. 同一执行流程可完成的多个要求合并为一个 action；需要不同执行流程时按出现顺序列出多个 actions，由应用请求用户选择。
 
-一、只做语义决策
-1. current_input 是本轮指令；resource_candidates 是应用给出的唯一可选资源目录。bindings 只能选择其中的 candidate_key 并赋予语义 role，不能编造 key。current_input 本身是隐式文本，不需要 binding。
-2. attachments 只代表本轮上传；context 只提供明确指代证据。完整独立的新请求不得继承历史。只有“这张、那个文件、基于这个描述、继续、还是不对”等明确指代才选择历史/引用候选。
-3. context.quoted_message 是用户显式引用。引用文字生成图片时必须选择对应 m key，role=context；不能因 text_to_image 不消费图片就丢弃引用消息。“基于这个描述再生成一张图片”是 text_to_image + followup，不是 resources 为空的新任务。relation=followup 不等于必须绑定历史消息：当前指令已明确生成动作和主体时不得选择历史 m key，例如“再画一只狗，换个品种”必须 bindings=[]，不能与“画一只狗”拼接；只有“再生成一张”“基于这个描述再来一张”等缺少主体或明确指向前文的指令才绑定历史消息。若 current_input 是在询问显式引用文本本身（例如数量、列举、含义、理由、改写或核对），必须按 plain_chat 问答处理并绑定该 m key；即使被引用文本是一条图片编辑澄清建议或包含“请选择/改成”等措辞，也不得把引用文本当成本轮执行指令。只有 current_input 自己明确选择、回答或要求执行时，才进入相应图片任务。
-4. clarification_context.v1 只是本轮重判证据，continuation classifier 不授权执行。selected_choices 是外部候选的结构化选择：按稳定身份绑定 resource_candidate，并原样保留 selected_choices.role；reference 不得改为 style_reference、target 或其他角色。候选编号等只用于定位资源，绝不能解释成图片内部的序号、宫格、图层或空间区域，也不能成为 changes.target。continuation_relation=pending_answer 且 prior_task_contract 仅余 ambiguous 资源待选时，base_task 不可覆盖；operation、changes、constraints 必须完全一致，只补资源 binding。prior_task_contract 为空而 unresolved_resources 存在时，仅保留候选身份；必须从 base_task 决定执行语义，不得把降级槽视为执行授权。
+应用会确定性计算 operation、readiness、bindings、澄清文案、产品模式和 task_contract.v5。`;
 
-上下文边界强制对照（这些是第一次且最终的语义决策，应用不会在本地替你增删 bindings）：
-- recent m1="画一只狗"，current_input="再画一只狗，换个品种"：operation=text_to_image，relation=followup，bindings=[]，changes=[]，readiness=ready。当前句已有动作、数量和主体；“再”只表达另生成一张，不授权继承 m1。
-- recent m1="画一只狗"，current_input="再生成一张"：operation=text_to_image，relation=followup，bindings=[{"candidate_key":"m1","role":"context"}]，readiness=ready。当前句缺少主体，必须使用 m1。
-- quoted m1="银白色小猫坐在木地板上"，current_input="基于这个描述再生成一张图片"：operation=text_to_image，relation=followup，bindings=[{"candidate_key":"m1","role":"context"}]，readiness=ready。显式引用必须保留。
-- quoted m1="请选择狸花色、橘色、白色、黑色、三花色、玳瑁色、灰色或奶牛色"，current_input="有几个颜色"：operation=plain_chat，relation=followup，bindings=[{"candidate_key":"m1","role":"context"}]，changes=[]，readiness=ready。用户是在询问引用文本，共有 8 种；不得返回 edit_image 或再次澄清颜色选择。
-- history i1/i2 都是狗，current_input="把狗改成黑色"：operation=edit_image，relation=followup，bindings=[]，changes=[{"op":"replace","target":"狗的颜色","value":"黑色"}]，readiness=needs_clarification，unresolved 必须包含 image/target/ambiguous 和 ["i1","i2"]；不得默认 i1。
-- history i1=最近合成图、i2/i3=候选猫图，current_input="不是这只猫，替换成你生成的猫"：operation=edit_image，bindings=[{"candidate_key":"i1","role":"target"}]，changes=[{"op":"replace","target":"目标图中的猫","value":"用户选择的参考猫"}]，readiness=needs_clarification，unresolved=image/reference/ambiguous:["i2","i3"]。选择后仍为 edit_image，保留 i1=target，选中图=reference。
-
-二、operation 与资源槽
-5. plain_chat=普通文本任务；file_qa=读取文件；multimodal_qa=同时读取图片和文件；image_qa=描述/分析图片；ocr=提取图片文字；image_compare=比较两图。
-6. text_to_image=文字生成新图片，不选择 image；引用文字可选择 message(context)。image_reference_gen=选择已有图片作 reference/style_reference 并生成一张没有编辑 target 的新图；合并多图属于它，即使传输走编辑接口也不是 edit_image。edit_image=修改一个明确 target，可同时使用 reference/style_reference 提供要替换的内容、主体身份、外观或风格，也可有一个 mask。只要用户要求保留某张底图并替换其中内容，就必须是 edit_image，而不是 image_reference_gen。图片反推/逆向/提取提示词属于 image_qa 文本任务，“生成提示词”绝不是“生成图片”。
-7. 槽位固定：file 只能 attachment；message 只能 context；image_qa/ocr 图片为 source；image_compare 恰好 compare_a+compare_b；edit_image 恰好 1 个 target、至多 1 个 mask，并可有 reference/style_reference；bindings 中 target 必须排在所有 reference/style_reference 之前，以便上传时目标图始终是图片1。target 必须是要被修改并保留为底图的图片，reference/style_reference 不是编辑目标，绝不能把“全部”解释为多个 target。image_reference_gen 图片只用 reference/style_reference，绝不能包含 target。plain_chat 的非当前图片只能 reference/style_reference。
-8. 不可解析文件不能进入 bindings 或 ambiguous 候选；若任务依赖它，输出 file/attachment/unavailable 且 candidate_keys=[]。附件无指令时按附件类型保留暂定 operation，并增加 text/source/missing。
-
-三、关系、澄清与修改
-9. relation 只描述对话关系：new=独立新任务；followup=基于已有内容扩展；correction=修正结果；continuation=继续未完成任务。选择 quoted/history/context 候选时 relation 不能是 new；只选 current 候选也可按真实语义为 followup/correction/continuation。
-10. ready 时 clarification.question="" 且 unresolved=[]。缺资源、候选歧义、文件不可用、目标不明、固定模式冲突、附件无指令或跨执行族多任务时 needs_clarification；ambiguous 至少两个 candidate_keys，missing/unavailable 必须 []，不得替用户选择。尤其是 edit_image：若多个图片候选都符合“狗、产品、人物”等同一泛称，用户又未引用、编号或明确描述其中一张，必须澄清，绝不能默认最新图片。
-11. auto_mode=true 或缺省时自由选择 operation，不受上轮界面模式影响。auto_mode=false 时 current_mode 固定产品族：chat 允许聊天/理解类，image 允许 text_to_image/image_reference_gen，edit_image 允许 edit_image；冲突时 needs_clarification + text/source/missing，不要求用户理解内部接口。
-12. changes 只记录用户明确修改：add/replace 的 target/value 非空；preserve/remove 的 target 非空且 value=""。constraints 只写明确约束。多项要求可由同一 operation 一次完成才合并，否则 needs_clarification，不得部分执行。`;
-
-const ROUTE_OUTPUT_CONTRACT_CHECK_V5 = `输出前自检：这是第一次且最终的语义决定，不能假设应用会在本地纠错；恰好 10 个顶层字段，空数组也输出 []；只选 resource_candidates 中的 key；ready 无 unresolved；引用文字生图必须绑定 m key；自包含生图追问不得绑定历史 m key；bindings 的类型/role 满足 operation；只输出 route_decision.v1 JSON。`;
-const ROUTE_MISSING_DETAIL_GUIDANCE_V5 = `关键反例：“把猫的颜色换一下”没有给出目标颜色，不能 ready，也不能输出 value=""。必须保持 edit_image 和已明确的 target binding，输出 needs_clarification，changes=[]，clarification.question 询问目标颜色，并声明 text/source/missing、candidate_keys=[]。只有“把猫改成黑色”这类目标值明确的指令才能输出非空 replace.value。`;
-const ROUTE_NATIVE_INPUT_FILE_GUIDANCE_V5 = `原生 input_file 即使 has_extracted_text=false，也可能由执行模型直接读取；只要文件出现在 resource_candidates 中，就视为可读取并允许绑定。`;
-const ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5 = `${ROUTE_SYSTEM_PROMPT_V5}\n\n${ROUTE_MISSING_DETAIL_GUIDANCE_V5}\n\n${ROUTE_NATIVE_INPUT_FILE_GUIDANCE_V5}\n\n${ROUTE_OUTPUT_CONTRACT_CHECK_V5}`;
-
-const INTENT_REPAIR_SYSTEM_PROMPT_V5 = `你是 route_decision.v1 格式修复器。repair_invariants 是不可变边界：operation、relation、readiness、bindings、changes、constraints、clarification.question 和 unresolved 语义不可改变；bindings、unresolved 及 candidate_keys 的数组顺序也不可改变。只能补齐非语义结构字段，不能增删候选、改角色、改约束、替用户选择或改变是否执行。只输出严格 JSON。`;
+const INTENT_REPAIR_SYSTEM_PROMPT_V6 = `你只修复 semantic_task.v2 的 JSON 结构。previous_semantic_output 中已经明确的 actions、discourse、pending_effect、slots、changes 和 constraints 都是不可变语义；不得重新判断任务、增删资源、改变角色或替用户选择。只返回符合 response schema 的 JSON。`;
 
 function strictObject(properties) {
   return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
@@ -95,42 +74,83 @@ const ROUTE_CHANGE_SCHEMA = Object.freeze({
   ],
 });
 
+const ROUTE_CANDIDATE_KEY_SCHEMA = Object.freeze({ type: 'string', pattern: '^[ifm][1-9][0-9]*$' });
+const ROUTE_SLOT_COMMON_PROPERTIES = Object.freeze({
+  kind: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
+  purpose: {
+    type: 'string',
+    description: '资源在任务中的语义用途；change_value 表示修改值，不是可上传资源。',
+    enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context', 'change_value'],
+  },
+  label: { type: 'string' },
+});
+
+function routeSlotSchema(resolution, candidateKeys) {
+  return strictObject({
+    ...ROUTE_SLOT_COMMON_PROPERTIES,
+    resolution,
+    candidate_keys: candidateKeys,
+  });
+}
+
+const ROUTE_SLOT_SCHEMA = Object.freeze({
+  ...strictObject({
+    ...ROUTE_SLOT_COMMON_PROPERTIES,
+    resolution: {
+      type: 'string',
+      description: 'bound=唯一匹配，ambiguous=多个候选，missing=尚未提供，unavailable=已知资源无法恢复。',
+      enum: ['bound', 'ambiguous', 'missing', 'unavailable'],
+    },
+    candidate_keys: { type: 'array', items: ROUTE_CANDIDATE_KEY_SCHEMA },
+  }),
+  anyOf: [
+    routeSlotSchema(
+      { type: 'string', const: 'bound', description: '唯一匹配，candidate_keys 必须恰好包含一个候选。' },
+      { type: 'array', minItems: 1, maxItems: 1, items: ROUTE_CANDIDATE_KEY_SCHEMA },
+    ),
+    routeSlotSchema(
+      { type: 'string', const: 'ambiguous', description: '多个候选，candidate_keys 必须至少包含两个候选。' },
+      { type: 'array', minItems: 2, items: ROUTE_CANDIDATE_KEY_SCHEMA },
+    ),
+    routeSlotSchema(
+      { type: 'string', enum: ['missing', 'unavailable'], description: '未提供或无法恢复，candidate_keys 必须为空。' },
+      { type: 'array', maxItems: 0, items: ROUTE_CANDIDATE_KEY_SCHEMA },
+    ),
+  ],
+});
+
 const ROUTE_RESPONSE_FORMAT = Object.freeze({
   type: 'json_schema',
   json_schema: {
-    name: 'chatui_route_decision_v1',
+    name: 'chatui_semantic_task_v2',
     strict: true,
     schema: strictObject({
-      schema_version: { type: 'string', const: 'route_decision.v1' },
-      readiness: { type: 'string', enum: ['ready', 'needs_clarification'] },
-      operation: { type: 'string', enum: ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image'] },
-      relation: { type: 'string', enum: ['new', 'followup', 'correction', 'continuation'] },
-      bindings: {
+      schema_version: { type: 'string', const: 'semantic_task.v2' },
+      actions: {
+        type: 'array', minItems: 1,
+        description: '用户本轮要完成的语义动作；respond=回答，extract_text=图片文字，compare=图片比较，generate=新图，edit=改图。',
+        items: { type: 'string', enum: ['respond', 'extract_text', 'compare', 'generate', 'edit'] },
+      },
+      discourse: {
+        type: 'string',
+        description: '本轮相对既有内容的关系；独立请求用 independent，依赖既有内容才用 followup/correction/continuation。',
+        enum: ['independent', 'followup', 'correction', 'continuation'],
+      },
+      pending_effect: {
+        type: 'string',
+        description: '仅在上下文存在 pending_task 时使用；answer/partial/continuation 补充，revision 修正，assistance 只回答当前问题，new_task 开新任务，unclear 保留原任务。',
+        enum: ['none', 'answer', 'partial', 'revision', 'continuation', 'assistance', 'new_task', 'unclear'],
+      },
+      slots: {
         type: 'array',
-        items: strictObject({
-          candidate_key: { type: 'string', pattern: '^[ifm][1-9][0-9]*$' },
-          role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
-        }),
+        items: ROUTE_SLOT_SCHEMA,
       },
       changes: { type: 'array', items: ROUTE_CHANGE_SCHEMA },
-      constraints: { type: 'array', items: { type: 'string' } },
-      clarification: strictObject({
-        question: { type: 'string' },
-        unresolved: {
-          type: 'array',
-          items: strictObject({
-            type: { type: 'string', enum: ['image', 'file', 'text', 'message'] },
-            role: { type: 'string', enum: ['source', 'target', 'reference', 'style_reference', 'mask', 'compare_a', 'compare_b', 'attachment', 'context'] },
-            reason: { type: 'string', enum: ['missing', 'ambiguous', 'unavailable'] },
-            candidate_keys: { type: 'array', items: { type: 'string', pattern: '^[ifm][1-9][0-9]*$' } },
-          }),
-        },
-      }),
-      confidence: { type: 'number', minimum: 0, maximum: 1 },
-      rationale: { type: 'string' },
+      constraints: { type: 'array', items: { type: 'string', pattern: '\\S' } },
     }),
   },
 });
+
 const intentContract = root?.ChatUICoreIntentContract
   || root?.ChatUICore?.intentContract
   || root?.window?.ChatUICoreIntentContract
@@ -206,8 +226,8 @@ const routePayloadBuilder = routePayloadModule.createRoutePayloadBuilder({
   messageIdentity,
   repairInvariantSnapshot,
   readRouteReadiness,
-  routeSystemPrompt: ROUTE_SYSTEM_PROMPT_WITH_OUTPUT_CHECK_V5,
-  intentRepairSystemPrompt: INTENT_REPAIR_SYSTEM_PROMPT_V5,
+  routeSystemPrompt: ROUTE_SYSTEM_PROMPT_V6,
+  intentRepairSystemPrompt: INTENT_REPAIR_SYSTEM_PROMPT_V6,
   routeResponseFormat: ROUTE_RESPONSE_FORMAT,
 });
 const {
@@ -226,11 +246,44 @@ const routeDecisionCompiler = routeDecisionCompilerModule.createRouteDecisionCom
 });
 const {
   hasExactRouteDecision,
+  hasExactSemanticTask,
+  analyzeSemanticTask,
+  semanticTaskToRouteDecision,
+  compileSemanticTask,
   selectedChoiceCandidateMatches,
   roleMatchesCandidate,
   operationAllowedByProductMode,
   compileRouteDecision,
 } = routeDecisionCompiler;
+
+function isImplicitCurrentInputTextSlot(slot = {}) {
+  return !!slot
+    && typeof slot === 'object'
+    && !Array.isArray(slot)
+    && Object.keys(slot).length === 5
+    && slot.kind === 'text'
+    && slot.purpose === 'source'
+    && typeof slot.label === 'string'
+    && slot.resolution === 'bound'
+    && Array.isArray(slot.candidate_keys)
+    && slot.candidate_keys.length === 0;
+}
+
+function normalizeModelSemanticTask(task = {}, options = {}) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)
+      || task.schema_version !== SEMANTIC_TASK_VERSION
+      || !String(options.input || '').trim()
+      || !Array.isArray(task.actions)
+      || task.actions.length !== 1
+      || task.actions[0] !== 'respond'
+      || !Array.isArray(task.slots)
+      || !task.slots.some(isImplicitCurrentInputTextSlot)) return task;
+  const normalized = {
+    ...task,
+    slots: task.slots.filter(slot => !isImplicitCurrentInputTextSlot(slot)),
+  };
+  return hasExactSemanticTask(normalized) ? normalized : task;
+}
 
 const routeLegacyAdapter = routeLegacyAdapterModule.createRouteLegacyAdapter({
   intentContract,
@@ -313,6 +366,16 @@ function inspectLegacyTaskContract(value = {}, options = {}) {
 
 function routeReadiness(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  if (value.schema_version === SEMANTIC_TASK_VERSION) {
+    if (!hasExactSemanticTask(value)) return '';
+    const unresolved = Array.isArray(value.slots)
+      && value.slots.some(slot => slot.resolution !== 'bound');
+    const actions = Array.isArray(value.actions) ? value.actions : [];
+    const families = new Set(actions.map(action => ['generate', 'edit'].includes(action) ? action : 'understand'));
+    return unresolved || families.size > 1 || value.pending_effect === 'unclear'
+      ? 'needs_clarification'
+      : 'ready';
+  }
   if (value.readiness === 'ready' || value.readiness === 'needs_clarification') return value.readiness;
   const clarification = value.clarification;
   const declaresClarification = value.operation === 'clarify'
@@ -531,6 +594,100 @@ function inspectTaskContract(taskContract = {}, options = {}) {
   }
 }
 
+const SEMANTIC_OPERATION_API = Object.freeze({
+  plain_chat: 'chat',
+  file_qa: 'chat',
+  multimodal_qa: 'chat',
+  image_qa: 'vision',
+  image_compare: 'vision',
+  ocr: 'vision',
+  text_to_image: 'image_generation',
+  image_reference_gen: 'image_edit',
+  edit_image: 'image_edit',
+});
+
+const SEMANTIC_OPERATION_MODE = Object.freeze({
+  plain_chat: 'chat',
+  file_qa: 'chat',
+  multimodal_qa: 'chat',
+  image_qa: 'chat',
+  image_compare: 'chat',
+  ocr: 'chat',
+  text_to_image: 'image',
+  image_reference_gen: 'image',
+  edit_image: 'edit_image',
+});
+
+function semanticTaskClarificationRoute(task = {}, analysis = {}) {
+  const operation = String(analysis.operation || '');
+  const relation = ROUTE_RELATIONS.has(analysis.relation) ? analysis.relation : 'new';
+  const question = String(analysis.issue?.question || '请明确本轮要先完成的任务。').trim();
+  const clarificationSlots = [{
+    key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [],
+  }];
+  return {
+    api: 'clarify',
+    operationApi: SEMANTIC_OPERATION_API[operation] || '',
+    operationMode: SEMANTIC_OPERATION_MODE[operation] || 'chat',
+    readiness: 'needs_clarification',
+    dispatchAuthorized: false,
+    relation,
+    resources: [],
+    imageRefs: [],
+    fileRefs: [],
+    messageRefs: [],
+    executionResources: null,
+    directiveAudit: null,
+    operationType: operation,
+    confidence: 1,
+    evidence: '',
+    needClarification: true,
+    clarificationQuestion: question,
+    clarificationSlots,
+    selectedIndexes: [],
+    selectedImageIndexes: [],
+    selectedFileIndexes: [],
+    selectedReferenceId: '',
+    selectedImageIds: [],
+    usePreviousImage: false,
+    contextualImagePrompt: '',
+    editInstruction: '',
+    mode: 'chat',
+    target: 'none',
+    intent: 'clarify',
+    resumeOperation: operation,
+    resumeApi: SEMANTIC_OPERATION_API[operation] || '',
+    taskContract: null,
+    routeDecision: null,
+    semanticTask: task,
+    semanticClarification: true,
+    requiresRerouteAfterClarification: true,
+    localClarification: false,
+  };
+}
+
+function inspectSemanticTask(task = {}, options = {}) {
+  if (!hasExactSemanticTask(task)) return { route: null, reason: 'semantic_task_shape' };
+  try {
+    const analysis = typeof analyzeSemanticTask === 'function' ? analyzeSemanticTask(task, options) : null;
+    if (analysis?.issue) return { route: semanticTaskClarificationRoute(task, analysis), reason: '' };
+    const decision = semanticTaskToRouteDecision(task, options);
+    const inspected = inspectRouteDecision(decision, options);
+    if (!inspected.route) return inspected;
+    return {
+      ...inspected,
+      route: {
+        ...inspected.route,
+        semanticTask: task,
+        routeDecision: decision,
+      },
+    };
+  } catch (error) {
+    const message = String(error?.message || '');
+    return { route: null, reason: /binding|candidate|resource/i.test(message) ? 'resource_binding' : 'semantic_task_semantics' };
+  }
+}
+
 function inspectRouteDecision(decision = {}, options = {}) {
   if (!hasExactRouteDecision(decision)) return { route: null, reason: 'decision_shape' };
   try {
@@ -639,6 +796,11 @@ function inspectDeclaredClarification(task = {}, options = {}, { preserveCompile
 function terminalClarificationRouteFromResult(text = '', options = {}) {
   try {
     const parsed = JSON.parse(stripJsonFence(text));
+    if (parsed?.schema_version === SEMANTIC_TASK_VERSION) {
+      if (routeReadiness(parsed) !== 'needs_clarification') return null;
+      return inspectSemanticTask(parsed, options).route;
+    }
+    if (options.modelBoundary === true) return null;
     if (parsed?.schema_version === ROUTE_DECISION_VERSION) {
       if (routeReadiness(parsed) !== 'needs_clarification') return null;
       return inspectRouteDecision(parsed, options).route;
@@ -656,6 +818,11 @@ function inspectRouteResult(text = '', options = {}) {
   if (!value) return { route: null, reason: 'empty_response' };
   try {
     const parsed = JSON.parse(stripJsonFence(value));
+    if (parsed?.schema_version === SEMANTIC_TASK_VERSION) {
+      const semanticTask = options.modelBoundary === true ? normalizeModelSemanticTask(parsed, options) : parsed;
+      return inspectSemanticTask(semanticTask, options);
+    }
+    if (options.modelBoundary === true) return { route: null, reason: 'semantic_task_required' };
     if (parsed?.schema_version === ROUTE_DECISION_VERSION) return inspectRouteDecision(parsed, options);
     const decoded = bindExplicitQuotedMessage(decodeTaskContract(parsed), options.context);
     return inspectLegacyTaskContract(decoded, options);
@@ -664,8 +831,16 @@ function inspectRouteResult(text = '', options = {}) {
   }
 }
 
+function inspectModelRouteResult(text = '', options = {}) {
+  return inspectRouteResult(text, { ...options, modelBoundary: true });
+}
+
 function parseRouteResult(text = '', options = {}) {
   return inspectRouteResult(text, options).route;
+}
+
+function parseModelRouteResult(text = '', options = {}) {
+  return inspectModelRouteResult(text, options).route;
 }
 
 function createExplicitTextToImageRoute(input = '') {
@@ -704,11 +879,11 @@ function createExplicitTextToImageRoute(input = '') {
 
 
 const api = Object.freeze({
-  ROUTE_SYSTEM_PROMPT: ROUTE_SYSTEM_PROMPT_V5,
-  ROUTE_OUTPUT_CONTRACT_CHECK: ROUTE_OUTPUT_CONTRACT_CHECK_V5,
-  INTENT_REPAIR_SYSTEM_PROMPT: INTENT_REPAIR_SYSTEM_PROMPT_V5,
+  ROUTE_SYSTEM_PROMPT: ROUTE_SYSTEM_PROMPT_V6,
+  INTENT_REPAIR_SYSTEM_PROMPT: INTENT_REPAIR_SYSTEM_PROMPT_V6,
   ROUTE_RESPONSE_FORMAT,
   ROUTE_DECISION_VERSION,
+  SEMANTIC_TASK_VERSION,
   cleanQuotedContent,
   buildQuotedImagePlaceholders,
   buildQuotedRouteContent,
@@ -716,6 +891,10 @@ const api = Object.freeze({
   stripJsonFence,
   buildRouteResourceCandidates,
   hasExactRouteDecision,
+  hasExactSemanticTask,
+  analyzeSemanticTask,
+  semanticTaskToRouteDecision,
+  compileSemanticTask,
   compileRouteDecision,
   convertLegacyTaskContractToDecision,
   inspectLegacyTaskContract,
@@ -732,7 +911,9 @@ const api = Object.freeze({
   isClarificationCandidate,
   terminalClarificationRouteFromResult,
   inspectRouteResult,
+  inspectModelRouteResult,
   parseRouteResult,
+  parseModelRouteResult,
   createExplicitTextToImageRoute,
   buildFileCandidatesFromAttachments,
   compactRoutePayloadContext,

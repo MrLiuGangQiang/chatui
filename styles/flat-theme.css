@@ -4967,10 +4967,10 @@ body{
 .route-map-fab:hover .fab-route-orbit{transform:rotate(12deg)!important;opacity:.8!important}
 .route-map-fab:hover .fab-route-comet{animation:route-fab-comet .85s ease-in-out infinite alternate!important}
 @keyframes route-fab-comet{to{transform:translate(3px,4px) scale(1.2)}}
-.usage-stats-button{border-color:#bfdbfe!important;background:#eff6ff!important;color:#1d4ed8!important;box-shadow:0 1px 3px rgba(0,0,0,.08)!important}
-.usage-stats-button:hover{background:#dbeafe!important;box-shadow:0 4px 12px rgba(37,99,235,.18)!important}
-.usage-stats-button .neon-entry-icon,.usage-feedback-open .neon-entry-icon{width:22px!important;height:22px!important;overflow:visible!important;fill:none!important;stroke:currentColor!important;stroke-width:1.55!important;stroke-linecap:round!important;stroke-linejoin:round!important;filter:drop-shadow(0 0 0 rgba(34,211,238,0))!important;transition:filter .2s ease!important}
-.usage-stats-button:hover .neon-entry-icon,.usage-feedback-open:hover .neon-entry-icon{filter:drop-shadow(0 0 5px rgba(34,211,238,.55))!important}
+.usage-stats-button,.announcement-toolbar-button{border-color:#bfdbfe!important;background:#eff6ff!important;color:#1d4ed8!important;box-shadow:0 1px 3px rgba(0,0,0,.08)!important}
+.usage-stats-button:hover,.announcement-toolbar-button:hover{background:#dbeafe!important;box-shadow:0 4px 12px rgba(37,99,235,.18)!important}
+.usage-stats-button .neon-entry-icon,.usage-feedback-open .neon-entry-icon,.announcement-toolbar-button .neon-entry-icon{width:22px!important;height:22px!important;overflow:visible!important;fill:none!important;stroke:currentColor!important;stroke-width:1.55!important;stroke-linecap:round!important;stroke-linejoin:round!important;filter:drop-shadow(0 0 0 rgba(34,211,238,0))!important;transition:filter .2s ease!important}
+.usage-stats-button:hover .neon-entry-icon,.usage-feedback-open:hover .neon-entry-icon,.announcement-toolbar-button:hover .neon-entry-icon{filter:drop-shadow(0 0 5px rgba(34,211,238,.55))!important}
 .usage-stats-orbit,.usage-stats-grid,.usage-stats-pulse,.usage-feedback-back,.usage-feedback-wave,.usage-feedback-spark{transform-box:fill-box!important;transform-origin:center!important;transition:transform .28s ease,opacity .28s ease!important}
 .usage-stats-button:hover .usage-stats-orbit{transform:rotate(14deg)!important;opacity:.78!important}
 .usage-stats-button:hover .usage-stats-grid{transform:translateY(-1px)!important}

@@ -161,16 +161,28 @@ function getLatestImageReferenceTarget({ display = [], messages = [], lastGenera
 function buildRouteAttachmentMetadata(attachments = []) {
   let imageIndex = 0;
   let fileIndex = 0;
+  const validSources = new Set(['current', 'quoted', 'history', 'context']);
   return (attachments || []).map((item, index) => {
     const isImage = isImageFile(item);
     const mediaIndex = isImage ? ++imageIndex : ++fileIndex;
     const id = item.imageId || item.image_id || item.attachmentId || item.attachment_id || item.id || '';
+    const referenceId = item.referenceId || item.reference_id || '';
+    const declaredSource = String(item.routeSource || item.route_source || item.source || '').trim();
+    const source = validSources.has(declaredSource) ? declaredSource : 'current';
+    const sourceIndex = Number(
+      item.sourceIndex || item.source_index || item.routeIndex || item.route_index,
+    ) || index + 1;
     return {
       index: index + 1,
-      source_index: index + 1,
+      source_index: sourceIndex,
       media_index: mediaIndex,
+      source,
+      route_source: source,
       id,
-      ...(isImage ? { image_id: id } : { file_id: id }),
+      ...(isImage ? {
+        image_id: id,
+        ...(referenceId ? { reference_id: referenceId } : {}),
+      } : { file_id: id }),
       name: item.name || (item.file && item.file.name) || 'attachment',
       type: item.type || (item.file && item.file.type) || '',
       size: Number(item.size || (item.file && item.file.size)) || 0,

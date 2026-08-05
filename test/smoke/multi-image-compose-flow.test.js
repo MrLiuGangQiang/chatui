@@ -105,32 +105,34 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
   assert.strictEqual(routeService.isRouteDispatchable(clarificationRoute), false);
   assert.deepStrictEqual(clarificationRoute.taskContract.directive.base_resource_keys, ['r1', 'r2']);
   const colorFishChoice = clarificationRoute.taskContract.clarification.unresolved_resources[0].choices.find(choice => choice.label === '画一条彩色鱼');
+  const catalog = routeService.buildRouteResourceCandidates({ context });
+  const catKey = catalog.find(candidate => candidate.id === catCandidate.image_id)?.candidate_key;
+  const fishKeys = fishCandidates.map(candidate => catalog.find(item => item.id === candidate.image_id)?.candidate_key);
+  const colorFishKey = catalog.find(candidate => candidate.id === colorFishChoice.id)?.candidate_key;
+  assert.ok(catKey && colorFishKey && fishKeys.every(Boolean));
   const pending = clarificationService.createPendingClarification({
     messages: [...messages, { role: 'user', content: input }],
     clarificationText: clarificationRoute.clarificationQuestion,
-    routeInfo: clarificationRoute,
+    routeInfo: {
+      ...clarificationRoute,
+      semanticTask: {
+        schema_version: 'semantic_task.v2', actions: ['generate'], discourse: 'followup', pending_effect: 'none',
+        slots: [
+          { kind: 'image', purpose: 'reference', label: '猫图', resolution: 'bound', candidate_keys: [catKey] },
+          { kind: 'image', purpose: 'reference', label: '鱼图', resolution: 'ambiguous', candidate_keys: fishKeys },
+        ],
+        changes: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
+        constraints: [],
+      },
+    },
   });
-  const decision = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer', confidence: 0.99, resolved_input: input,
-    selections: [{ resource_key: 'r2', choice_key: colorFishChoice.key }],
-    assistant_reply: '', reason: 'selected the colorful fish',
-  }), { pending });
-  const rerouteContext = clarificationService.buildClarificationRouteContext({
-    baseContext: context, pending, currentInput: '彩色鱼', resolvedInput: decision.resolvedInput,
-    selections: decision.selections, attachments: [],
-  });
-  const readyContract = {
-    schema_version: 'task_contract.v5', readiness: 'ready', operation: 'image_reference_gen', relation: 'followup',
-    resources: [
-      { ...clarificationRoute.taskContract.resources[0], key: 'r1' },
-      { key: 'r2', type: 'image', source: colorFishChoice.source, role: 'reference', index: colorFishChoice.index, id: colorFishChoice.id, reference_id: colorFishChoice.reference_id, missing: false },
-    ],
-    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }], constraints: [] },
-    clarification: { question: '', unresolved_resources: [] },
-    confidence: 0.99, review_reasons: [], rationale: 'the user explicitly selected the colorful fish',
+  const rerouteContext = clarificationService.buildClarificationRouteContext({ baseContext: context, pending });
+  const selectedSemanticTask = {
+    schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'continuation', pending_effect: 'answer',
+    slots: [{ kind: 'image', purpose: 'reference', label: '鱼图', resolution: 'bound', candidate_keys: [colorFishKey] }],
+    changes: [], constraints: [],
   };
-  const route = routeService.parseRouteResult(JSON.stringify(readyContract), { input: decision.resolvedInput, context: rerouteContext, attachments: [] });
+  const route = routeService.parseRouteResult(JSON.stringify(selectedSemanticTask), { input: '彩色鱼', context: rerouteContext, attachments: [] });
 
   assert.strictEqual(route.operationType, 'image_reference_gen');
   assert.strictEqual(route.mode, 'image');
@@ -174,7 +176,8 @@ async function testClarifiedMultiImageCompositionReachesImageEditsWithBothSelect
   assert.deepStrictEqual(new Set(files.map(file => file.name)), new Set(['cat-result.png', 'fish-color-result.png']));
   assert.deepStrictEqual(files.map(file => file.routeResourceKey), ['r1', 'r2']);
   const imageRoleMap = imageWorkflow.buildImageRoleMap(roleBoundAttachments);
-  const roleAwarePrompt = [route.editInstruction, imageWorkflow.buildImageRoleGuide(roleBoundAttachments)].filter(Boolean).join('\n\n');
+  const executionPrompt = [pending.baseTaskText || pending.originalText, ...(pending.supplements || [])].filter(Boolean).join('\n\n');
+  const roleAwarePrompt = [executionPrompt, imageWorkflow.buildImageRoleGuide(roleBoundAttachments, route.taskContract)].filter(Boolean).join('\n\n');
 
   let captured = null;
   const upstreamServer = http.createServer((req, res) => {

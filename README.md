@@ -53,10 +53,10 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
   - `chat`：普通聊天。
   - `image`：文本生成图片。
   - `edit_image`：编辑一个明确目标图，可同时使用内容参考图、风格参考图和 mask。
-- 可配置独立路由模型；未配置时使用聊天模型。
+- 可配置独立路由模型；未配置时使用聊天模型。模型只抽取 `semantic_task.v2` 语义事实，应用本地确定性编译为执行合同，不让模型直接填写操作、资源绑定或澄清合同。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
 - 非图片附件上传时直接走聊天，通过 Responses API 的 Base64 原生文件输入发送，不进入图片路由。
-- 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据；目标图与内容/风格参考图使用稳定角色绑定，不依赖候选顺序猜测。
+- 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据；目标图与内容/风格参考图使用稳定角色绑定，不依赖候选顺序猜测。澄清回复会重新进入同一语义路由，不使用独立的续问分类器或本地关键词拼接。
 
 ### 图片能力
 
@@ -138,6 +138,13 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 前端采用懒加载：打开弹窗只查当前范围，切换到哪个范围才查询哪个范围，已查询数据会在前端缓存。
 - 后端使用独立 PostgreSQL 连接池，连接串、连接池大小、超时和 SSL 均通过环境变量配置。
 - 统计模块与聊天、图片、附件和 OpenAI 代理解耦，独立路由为 `/api/usage/*`。
+
+### 公告中心
+
+- 支持独立的版本化公告目录：`docs/announcements/vMAJOR.MINOR.PATCH.md`；
+- 最新公告未读时会以强制遮罩展示，遮罩期间不能使用 ChatUI 的其他功能；
+- 点击“我已阅读，进入 ChatUI”后，当前及历史公告不会再次自动弹出；
+- 新增更高版本公告会自动重置阅读状态；历史公告永久累计，并可在公告中心展开查看。
 
 ### 部署与工程能力
 
@@ -700,10 +707,14 @@ $$
 ````md
 ```mermaid
 flowchart TD
-  A[输入] --> B{路由}
-  B --> C[聊天]
-  B --> D[生图]
-  B --> E[修图]
+  A[输入] --> B[抽取 semantic_task.v2]
+  B --> C[本地编译 task_contract.v5]
+  C --> D{执行门禁}
+  D --> E[聊天]
+  D --> F[生图]
+  D --> G[修图]
+  B --> H[需要补充信息]
+  H --> B
 ```
 ````
 
@@ -801,6 +812,7 @@ PGPASSWORD=password
 | API | 方法 | 说明 |
 | --- | --- | --- |
 | `/api/version` | GET | 返回当前应用版本，来自根目录唯一版本源 `version.json` |
+| `/api/announcements` | GET | 返回按公告版本倒序排列的累计公告；前端据此判断最新公告是否需要强制阅读 |
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
 | `/api/usage/overview` | POST | 一次查询排行榜与个人统计，body 包含 `api_key`、`model` 和范围 |
@@ -1109,6 +1121,31 @@ Docker Hub: liugangqiang/chatui
 | `latest` | `liugangqiang/chatui:latest` | 最新正式版本 |
 | `MAJOR.MINOR.PATCH` | `liugangqiang/chatui:1.2.3` | 精确版本标签 |
 | `vMAJOR.MINOR.PATCH` | `liugangqiang/chatui:v1.2.3` | 与 Git tag 一致的精确版本标签 |
+
+### 公告发布规范
+
+公告与 Release Notes 分开维护。每次发布重要公告时，只新增一个更高版本的文件，不删除历史公告：
+
+```text
+docs/announcements/v1.0.0.md
+docs/announcements/v1.0.1.md
+docs/announcements/v1.0.2.md
+```
+
+公告文件可使用以下 front matter：
+
+```markdown
+---
+published_at: 2026-08-05
+badge: 重要公告
+summary: 一句话摘要
+---
+# 公告标题
+
+公告正文支持 Markdown。
+```
+
+最新版本未被确认阅读时，客户端会 fail-closed 地显示强制公告遮罩；确认阅读后会记录当前公告版本。新增版本会自动触发下一次强制阅读，历史文件只累计、不删除。
 
 ### Release Notes 规范
 

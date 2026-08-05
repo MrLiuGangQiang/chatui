@@ -118,7 +118,7 @@ function selectedMessages(messages = [], limit = DEFAULT_MESSAGE_LIMIT) {
 }
 
 function summarizeMessages(messages = [], { kind = '', includeText = true, secrets = [] } = {}) {
-  const routeLike = ['route_decision', 'pending_continuation'].includes(kind);
+  const routeLike = ['route_decision', 'semantic_task'].includes(kind);
   const { messages: selected, omitted } = selectedMessages(messages, routeLike ? ROUTE_MESSAGE_LIMIT : DEFAULT_MESSAGE_LIMIT);
   return {
     count: Array.isArray(messages) ? messages.length : 0,
@@ -195,8 +195,7 @@ function requestKind(targetPath = '', payload = {}, fallback = '') {
   const systemText = Array.isArray(payload?.messages)
     ? payload.messages.filter(message => message?.role === 'system').map(message => String(message?.content || '')).join('\n')
     : '';
-  if (/pending_continuation/.test(schemaName) || /pending_continuation\.v\d+/i.test(systemText)) return 'pending_continuation';
-  if (/route|intent/.test(schemaName) || /route_decision\.v\d+|语义路由器/.test(systemText)) return 'route_decision';
+  if (/semantic_task|route|intent/.test(schemaName) || /semantic_task\.v\d+|route_decision\.v\d+|语义路由器/.test(systemText)) return 'route_decision';
   if (pathText.includes('/responses')) return 'chat_responses';
   if (pathText.includes('/chat/completions')) return 'chat_completions';
   return 'upstream_request';

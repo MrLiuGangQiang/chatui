@@ -10,7 +10,14 @@ function buildPromptWithTextAttachments(prompt = '', attachments = [], isImageFi
     parts.push(textAttachments.map(item => `[附件：${item.name}]\n${item.text}`).join('\n\n'));
   }
   if (unsupportedAttachments.length) {
-    parts.push(`[以下附件已上传到页面，但未能解析正文，因此不会直接发送二进制文件给模型，避免接口报错：\n${unsupportedAttachments.map(item => `- ${item.name} (${item.type})：${item.unsupportedReason || '暂不支持解析，请转换为文本/Markdown/CSV 后再上传'}`).join('\n')}\n]`);
+    const error = new Error(`附件内容不可用，已停止发送：${unsupportedAttachments.map(item => item.name || 'attachment').join('、')}`);
+    error.code = 'ATTACHMENT_CONTENT_UNAVAILABLE';
+    error.attachments = unsupportedAttachments.map(item => ({
+      name: String(item.name || 'attachment'),
+      type: String(item.type || 'application/octet-stream'),
+      reason: String(item.unsupportedReason || ''),
+    }));
+    throw error;
   }
   return parts.filter(Boolean).join('\n\n') || prompt;
 }

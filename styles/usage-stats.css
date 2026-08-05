@@ -2,58 +2,44 @@
  * Clean flat design, no gradients, minimal shadows
  */
 
-.usage-stats-button {
+.topbar-utility-actions {
   position: fixed;
   top: max(14px, env(safe-area-inset-top));
   right: max(18px, env(safe-area-inset-right));
   z-index: 46;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-utility-button {
+  position: relative;
   width: 40px;
   height: 40px;
   display: inline-flex;
+  flex: 0 0 40px;
   align-items: center;
   justify-content: center;
   border: 1px solid #bfdbfe;
   border-radius: 12px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  cursor: pointer;
-  transition: transform .14s, background .14s, box-shadow .14s;
-}
-
-.usage-feedback-open {
-  position: fixed;
-  top: max(14px, env(safe-area-inset-top));
-  right: max(68px, calc(env(safe-area-inset-right) + 50px));
-  z-index: 46;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #bfdbfe;
-  border-radius: 12px;
-  padding: 0 12px;
+  padding: 0;
   background: #eff6ff;
   color: #1d4ed8;
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
   transition: transform .14s, background .14s, box-shadow .14s;
 }
 
-.usage-feedback-open { width: 40px; justify-content: center; padding: 0; }
-.usage-feedback-open::after { content: none; }
-.usage-feedback-open:hover { transform: translateY(-1px); background: #dbeafe; box-shadow: 0 4px 12px rgba(37,99,235,.18); }
-.usage-feedback-open svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-.usage-stats-button:hover {
+.topbar-utility-button:hover,
+.topbar-utility-button:focus-visible {
   transform: translateY(-1px);
+  border-color: #93c5fd;
   background: #dbeafe;
   box-shadow: 0 4px 12px rgba(37,99,235,.18);
+  outline: none;
 }
 
-.usage-stats-button svg {
+.topbar-utility-button svg {
   width: 21px;
   height: 21px;
   fill: none;
@@ -629,7 +615,7 @@
 }
 
 @media (max-width: 840px) {
-  .usage-stats-button { top: 12px; right: 12px; }
+  .topbar-utility-actions { top: 12px; right: 12px; gap: 8px; }
   .usage-stats-panel { padding: 14px; align-items: flex-end; }
   .usage-stats-card { width: 100%; height: min(94dvh, 900px); max-height: 94dvh; border-radius: 20px 20px 0 0; }
   .usage-stats-head { padding: 15px 16px 11px; }

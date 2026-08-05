@@ -151,11 +151,12 @@ function testRelationSurvivesCanonicalExecutionPlan() {
   assert.ok(!('taskContractToRouteInput' in intentContract));
 }
 
-function testRoutePromptsDeclarePatchAndContextBoundary() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('relation 只描述对话关系'));
+function testRoutePromptsDeclareSemanticContextBoundary() {
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('semantic_task.v2'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('引用和历史只是证据'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('语义完整的当前请求不继承历史'));
+  assert.ok(!routeService.ROUTE_SYSTEM_PROMPT.includes('task_contract.v5"'));
   assert.ok(!routeService.ROUTE_SYSTEM_PROMPT.includes('unmentioned_policy'), 'mechanical directive fields must not be model output');
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('完整独立的新请求') && routeService.ROUTE_SYSTEM_PROMPT.includes('不得继承历史'));
 }
 
 module.exports = [
@@ -168,5 +169,5 @@ module.exports = [
   testCorrectionTaskKeepsOnlyTheCurrentExecutionRequest,
   testImageEditKeepsOnlyTheCurrentExecutionRequest,
   testRelationSurvivesCanonicalExecutionPlan,
-  testRoutePromptsDeclarePatchAndContextBoundary,
+  testRoutePromptsDeclareSemanticContextBoundary,
 ];

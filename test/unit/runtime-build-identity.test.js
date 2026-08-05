@@ -33,13 +33,19 @@ function testRuntimeSourceRevisionTracksExactlyDockerRuntimeCode() {
 
     fs.writeFileSync(path.join(root, 'vendor', 'chunks', 'ignored.js'), 'ignored');
     fs.writeFileSync(path.join(root, 'client', 'notes.md'), 'ignored');
-    assert.strictEqual(computeRuntimeSourceRevision(root), before, 'Docker-excluded files must not change runtime identity');
+    fs.mkdirSync(path.join(root, 'docs', 'announcements'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'announcements', 'v1.0.0.md'), '# Notice\n');
+    const withAnnouncement = computeRuntimeSourceRevision(root);
+    assert.notStrictEqual(withAnnouncement, before, 'versioned announcements are part of the Docker runtime identity');
+    assert.strictEqual(isDockerRuntimeFile('docs/announcements/v1.0.0.md'), true);
+    assert.strictEqual(isDockerRuntimeFile('docs/releases/v1.10.20.md'), false);
+    assert.strictEqual(computeRuntimeSourceRevision(root), withAnnouncement, 'Docker-excluded files must not change runtime identity');
 
     fs.writeFileSync(path.join(root, 'client', 'app.js'), 'window.ChatUI = {};\r\n');
-    assert.strictEqual(computeRuntimeSourceRevision(root), before, 'platform line endings must not make identical source look like a different image');
+    assert.strictEqual(computeRuntimeSourceRevision(root), withAnnouncement, 'platform line endings must not make identical source look like a different image');
 
     fs.writeFileSync(path.join(root, 'client', 'app.js'), 'window.ChatUI = { fixed: true };');
-    assert.notStrictEqual(computeRuntimeSourceRevision(root), before, 'a browser runtime change must change image identity');
+    assert.notStrictEqual(computeRuntimeSourceRevision(root), withAnnouncement, 'a browser runtime change must change image identity');
     assert.strictEqual(isDockerRuntimeFile('vendor/chunks/a.js'), false);
     assert.strictEqual(isDockerRuntimeFile('client/app.js'), true);
   } finally {

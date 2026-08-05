@@ -61,11 +61,11 @@ function testRouteDiagramDocumentsCanonicalIntentChain() {
     '先保存这次内容',
     '把附件和消息放在一起',
     '确认基本内容没问题',
-    '看看是不是接着刚才的问题',
+    '判断是否依赖待完成任务',
     '把相关资料找齐',
     '弄清楚你想做什么',
     '看看有没有理解错',
-    '不清楚时再想一遍',
+    '结构无效时只修复格式',
     '决定先问你，还是直接做',
     '备齐要用的内容',
     '正式开始处理任务',
@@ -92,15 +92,15 @@ function testRouteDiagramDocumentsCanonicalIntentChain() {
   assert.ok(cardText(document, '02').includes('保存好 → 再继续') && cardText(document, '02').includes('刷新后也能接着处理'));
   assert.ok(cardText(document, '03').includes('文字 + 附件 → 放在一起') && cardText(document, '03').includes('继续往下'));
   assert.ok(cardText(document, '04').includes('附件 · 文字 · 设置') && cardText(document, '04').includes('有问题 → 告诉你'));
-  assert.ok(cardText(document, '05').includes('接着上一次 / 新请求') && cardText(document, '05').includes('接着刚才'));
+  assert.ok(cardText(document, '05').includes('补充 / 修正 / 协助 / 新任务') && cardText(document, '05').includes('接着刚才'));
   assert.ok(cardText(document, '06').includes('这次内容 + 相关资料') && cardText(document, '06').includes('资料齐了'));
-  assert.ok(cardText(document, '07').includes('理解你的需求') && cardText(document, '07').includes('明确要做什么'));
-  assert.ok(cardText(document, '08').includes('整理成清楚的做法') && cardText(document, '08').includes('确认清楚了吗？'));
-  assert.ok(cardText(document, '09').includes('先重新整理 → 再换方式') && cardText(document, '09').includes('再试一次'));
+  assert.ok(cardText(document, '07').includes('根据你说的话') && cardText(document, '07').includes('明确要做什么'));
+  assert.ok(cardText(document, '08').includes('本地确定性编译') && cardText(document, '08').includes('确认清楚了吗？'));
+  assert.ok(cardText(document, '09').includes('只修结构，不改语义') && cardText(document, '09').includes('再试一次'));
   assert.ok(cardText(document, '10').includes('还不清楚') && cardText(document, '10').includes('已清楚'));
   assert.ok(cardText(document, '11').includes('图片、文件、前面内容') && cardText(document, '11').includes('准备好了'));
   assert.ok(cardText(document, '12').includes('开始处理 → 进行中') && cardText(document, '12').includes('收到结果 → 已完成'));
-  assert.ok(html.includes('title="pending_continuation.v6"') && html.includes('title="route_decision.v1"') && html.includes('title="JOB_COMPLETED_COMMITTED"'));
+  assert.ok(html.includes('title="pending_effect · discourse"') && html.includes('title="semantic_task.v2"') && html.includes('route_decision.v1') && html.includes('title="JOB_COMPLETED_COMMITTED"'));
 
   for (const node of nodes) {
     const summary = node.querySelector('.node-summary')?.textContent.trim() || '';
@@ -209,7 +209,8 @@ function testRouteDiagramClaimsStayAnchoredToRuntimeSource() {
     'stage:"routing"',
     'taskEvents.ROUTING_STARTED',
     'const rawStoredPending=',
-    'buildContinuationClassifierPayload',
+    'const pendingMerge=',
+    'clarification.buildClarificationRouteContext?.(',
     'getEffectiveRouteWithSlowNotice',
     'if(routeInfo.needClarification)',
     'isRouteDispatchable?.(routeInfo)',
@@ -240,20 +241,27 @@ function testRouteDiagramClaimsStayAnchoredToRuntimeSource() {
     'repairPreservesInvariants',
   ], 'route repair workflow');
 
+  const inspectSemantic = routeService.slice(routeService.indexOf('function inspectSemanticTask'), routeService.indexOf('function inspectRouteDecision'));
+  assertSourceOrder(inspectSemantic, [
+    'semanticTaskToRouteDecision(task, options)',
+    'inspectRouteDecision(decision, options)',
+  ], 'semantic task inspection');
   const inspectDecision = routeService.slice(routeService.indexOf('function inspectRouteDecision'), routeService.indexOf('function declaredClarificationQuestion'));
   assertSourceOrder(inspectDecision, [
     'compileRouteDecision(decision, options)',
     'inspectTaskContract(taskContract, options)',
   ], 'route decision inspection');
-  const inspectContract = routeService.slice(routeService.indexOf('function inspectTaskContract'), routeService.indexOf('function inspectRouteDecision'));
+  const inspectContract = routeService.slice(routeService.indexOf('function inspectTaskContract'), routeService.indexOf('function inspectSemanticTask'));
   assert.ok(inspectContract.includes('taskContractToExecutionPlan'));
 
+  assert.ok(routeProtocol.includes("const SEMANTIC_TASK_VERSION = 'semantic_task.v2'"));
   assert.ok(routeProtocol.includes("const ROUTE_DECISION_VERSION = 'route_decision.v1'"));
   assert.ok(routeService.includes("get('routeProtocol')") && routeService.includes('routeDecisionCompiler'));
   assert.ok(routeService.includes("schema_version: 'task_contract.v5'"));
   assert.ok(dispatchGate.includes("executionResourcesVersion = 'execution_resources.v1'"));
   assert.ok(requestCompatibility.includes("response_format: { type: 'json_object' }") && routeWorkflow.includes('sessionChatModel !== primaryModel'));
-  assert.ok(clarificationService.includes("const CONTINUATION_SCHEMA_VERSION = 'pending_continuation.v6'"));
+  assert.ok(clarificationService.includes("const CLARIFICATION_CONTEXT_VERSION = 'clarification_context.v3'"));
+  assert.ok(!clarificationService.includes('pending_continuation.v6') && !clarificationService.includes('buildContinuationClassifierPayload'));
   assert.ok(submitWorkflow.includes('submitWorkflowPolicy') && submitPolicy.includes('const INTENT_PIPELINE_DEADLINE_MS = 60000'));
   assert.ok(taskState.includes("RUNNING: 'running'") && taskState.includes('JOB_COMPLETED_COMMITTED'));
   assert.ok(taskLifecycle.includes('TASK_EVENTS?.JOB_COMPLETED_COMMITTED'));

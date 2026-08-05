@@ -74,22 +74,31 @@
     } = {},
   ) {
     const images = (list || []).filter((item) => isImageFile(item));
-    if (!images.length) return "";
+    if (!images.length) return '';
     const rows = images.map((item, index) => ({
-      sent: index + 1,
+      part: index + 1,
       source: originalIndex(item, index),
-      id: item.imageId || item.image_id || item.id || "",
-      name: item.name || item.file?.name || "",
+      role: String(item?.routeRole || item?.route_role || item?.role || '').trim(),
+      id: String(item?.imageId || item?.image_id || item?.id || '').trim(),
     }));
-    if (rows.every((row) => row.sent === row.source)) return "";
+    const needsMap = rows.length > 1
+      || rows.some(row => row.role && row.role !== 'source')
+      || rows.some(row => row.part !== row.source);
+    if (!needsMap) return '';
     return [
-      "图片引用说明：本轮实际随附的图片可能只是原消息图片的一部分，用户说“第N张”时按原消息里的图片编号理解，不按当前随附图片顺序重新编号。",
-      ...rows.map(
-        (row) =>
-          `- 当前随附图片${row.sent} = 原消息第${row.source}张${row.id ? `，image_id=${row.id}` : ""}${row.name ? `，文件名=${row.name}` : ""}`,
-      ),
-      "请按这个编号映射回答用户问题。",
-    ].join("\n");
+      '<media_map>',
+      ...rows.map(row => [
+        `image_part_${row.part}`,
+        `source_index=${row.source}`,
+        row.role ? `role=${row.role}` : '',
+        row.id ? `id=${row.id}` : '',
+      ].filter(Boolean).join(': ')),
+      '</media_map>',
+    ].join('\n');
+  }
+
+  function buildMediaMapContext(list = [], options = {}) {
+    return imageAttachmentIndexGuide(list, options);
   }
 
   function messageIdentity(message = {}) {
@@ -191,10 +200,6 @@
           content: routeContent || "[quoted_message]",
         },
       ],
-      suggested_contextual_image_prompt: [cleanText, currentInput]
-        .filter(Boolean)
-        .join("\n\n"),
-      latest_user_image_request: null,
       latest_assistant_image_result:
         hasQuotedImage && imageSource === "previous" ? referenceSummary : null,
       image_candidates: imageCandidates,
@@ -321,6 +326,25 @@
       merged.push(item);
     }
     return merged;
+  }
+
+  function partitionExecutionAttachmentsBySource(
+    list = [],
+    { isImageFile = defaultIsImageFile } = {},
+  ) {
+    const pools = { current: [], quoted: [], history: [], context: [] };
+    for (const item of Array.isArray(list) ? list : []) {
+      if (!item) continue;
+      const declared = String(item?.routeSource || item?.route_source || item?.source || '').trim();
+      const source = ['quoted', 'history', 'context'].includes(declared) ? declared : 'current';
+      pools[source].push(item);
+    }
+    return Object.freeze({
+      current: mergeContinuationAttachments({ pending: pools.current, isImageFile }),
+      quoted: mergeContinuationAttachments({ pending: pools.quoted, isImageFile }),
+      history: mergeContinuationAttachments({ pending: pools.history, isImageFile }),
+      context: mergeContinuationAttachments({ pending: pools.context, isImageFile }),
+    });
   }
 
   function decorateExecutionPool(
@@ -475,6 +499,7 @@
     withPendingQuotePreview,
     originalImageIndex,
     imageAttachmentIndexGuide,
+    buildMediaMapContext,
     messageIdentity,
     imageReferenceFromItem,
     buildQuotedRouteContext,
@@ -482,6 +507,7 @@
     projectRouteExecutionMedia,
     mediaIdentity,
     mergeContinuationAttachments,
+    partitionExecutionAttachmentsBySource,
     decorateExecutionPool,
     buildExecutionResourcePools,
     routeMediaResources,

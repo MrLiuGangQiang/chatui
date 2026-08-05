@@ -110,7 +110,7 @@ function testRepairRejectsLegacyTaskContractAndIncompleteDecisionBoundary() {
     'oversized malformed output must fail closed instead of being silently truncated for repair');
   assert.throws(
     () => routeService.buildIntentRepairPayload({ model: 'route-model', input: 'request', previousOutput: JSON.stringify(legacy) }),
-    /complete route semantic invariant/,
+    /complete semantic invariant/,
   );
 }
 
@@ -121,11 +121,11 @@ function testRepairPayloadCarriesMachineCheckedInvariantBoundary() {
   });
   const user = JSON.parse(payload.messages[1].content);
   assert.deepStrictEqual(user.repair_invariants, routeService.repairInvariantSnapshot(previous));
-  assert.strictEqual(user.current_mode, 'edit_image');
-  assert.strictEqual(user.auto_mode, false);
-  assert.ok(payload.messages[0].content.includes('repair_invariants 是不可变边界'));
-  assert.ok(payload.messages[0].content.includes('增删候选'));
-  assert.ok(payload.messages[0].content.includes('数组顺序也不可改变'));
+  assert.strictEqual(Object.hasOwn(user, 'current_mode'), false);
+  assert.strictEqual(Object.hasOwn(user, 'auto_mode'), false);
+  assert.ok(payload.messages[0].content.includes('semantic_task.v2'));
+  assert.ok(payload.messages[0].content.includes('不可变语义'));
+  assert.ok(payload.messages[0].content.includes('增删资源'));
 }
 
 function hangingRequest(signal) {
@@ -235,6 +235,50 @@ async function testStructuredOutputCompatibilityRetrySharesTheSameDeadline() {
   }
 }
 
+function testSemanticRepairRejectsInvalidCandidateCardinality() {
+  const loggedInvalid = {
+    schema_version: 'semantic_task.v2',
+    actions: ['respond'],
+    discourse: 'independent',
+    pending_effect: 'none',
+    slots: [{ kind: 'text', purpose: 'source', label: '待优化的公告描述', resolution: 'bound', candidate_keys: [] }],
+    changes: [],
+    constraints: ['用于全员公告'],
+  };
+  assert.strictEqual(routeService.repairInvariantSnapshot(loggedInvalid, { semanticOnly: true }), null,
+    'a contradictory bound slot cannot be preserved as a repair invariant');
+
+  const structurallyMalformed = {
+    schema_version: 'semantic_task.v2',
+    actions: ['respond'],
+    discourse: 'independent',
+    pending_effect: 'none',
+    slots: [],
+    changes: [],
+    constraints: ['用于全员公告'],
+    accidental_field: true,
+  };
+  assert.ok(routeService.repairInvariantSnapshot(structurallyMalformed, { semanticOnly: true }),
+    'repair remains available when semantics are complete and only structure is malformed');
+}
+
+function testSemanticOnlyRepairBoundaryRejectsLegacyDecision() {
+  const legacy = {
+    schema_version: 'route_decision.v1',
+    readiness: 'ready',
+    operation: 'plain_chat',
+    relation: 'new',
+    bindings: [],
+    changes: [],
+    constraints: [],
+    clarification: { question: '', unresolved: [] },
+    confidence: 1,
+    rationale: '',
+  };
+  assert.strictEqual(routeService.repairInvariantSnapshot(legacy, { semanticOnly: true }), null);
+  assert.ok(routeService.repairInvariantSnapshot(legacy), 'the compatibility repair snapshot remains available only outside the model boundary');
+}
+
 module.exports = [
   testRepairInvariantSnapshotPermitsOnlyBindingAndStructuralRepair,
   testRepairInvariantSnapshotProtectsUnresolvedChoiceOrder,
@@ -243,4 +287,6 @@ module.exports = [
   testPrimaryAndFallbackShareOneAbsoluteIntentDeadline,
   testRepairConsumesTheSameIntentDeadlineAndCannotStartFallbackAfterExpiry,
   testStructuredOutputCompatibilityRetrySharesTheSameDeadline,
+  testSemanticRepairRejectsInvalidCandidateCardinality,
+  testSemanticOnlyRepairBoundaryRejectsLegacyDecision,
 ];

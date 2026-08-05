@@ -39,7 +39,7 @@ function createProjectFixture() {
     lockfileVersion: 3,
     packages: { '': { name: fixturePackage.name, version: fixturePackage.version } },
   }, null, 2)}\n`);
-  writeFixtureFile(root, 'Dockerfile', 'COPY pages ./pages\n');
+  writeFixtureFile(root, 'Dockerfile', 'COPY pages ./pages\nCOPY docs/announcements ./docs/announcements\n');
   writeFixtureFile(root, 'server/http/static.js', "const PUBLIC_PREFIXES = ['/pages/'];\n");
   for (const file of [...REQUIRED_STATIC_FILES, ...REQUIRED_RUNTIME_FILES, ...REQUIRED_DOCUMENTATION_FILES]) {
     writeFixtureFile(root, file, `${file}\n`);

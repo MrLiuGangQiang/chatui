@@ -213,12 +213,12 @@
       const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});
       try{
         task.accept({capture:!0});
-        const h=u?await restoreUserAttachmentsFromContext(u):[];
+        const h=u?await restoreUserAttachmentsFromContext(u):[];if(u&&!h.length)throw new Error("原消息附件当前无法恢复，为避免缺少资源时继续执行，请重新上传附件后再试");
         const quoteRaw=t.dataset.quoteContext||t.__displayItem?.quoteContext||userMessage.quoteContext||"";
         const quotedMessage=quoteRaw?getMessageWorkflow().readQuoteContext(quoteRaw):null;
         const quotedImageContext=quotedMessage?.imageContext?parseImageContext(quotedMessage.imageContext):null;
         let quotedImageAttachments=[];
-        if(quotedImageContext?.attachments?.length)try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err),quotedImageAttachments=[]}
+        if(quotedImageContext?.attachments?.length){if(typeof restoreImageAttachmentsFromContext!=="function")throw new Error("引用图片恢复服务不可用");try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err);throw new Error("引用消息中的图片当前无法恢复，为避免脱离引用内容继续执行，请重新发送或重新上传图片后再试")}if(!Array.isArray(quotedImageAttachments)||quotedImageAttachments.length<quotedImageContext.attachments.length)throw new Error("引用消息中的图片恢复不完整，为避免脱离引用内容继续执行，请重新发送或重新上传图片后再试")}
         const quotedFileCandidates=quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||"");
         const quotedRoute=submitHelpers.buildQuotedRouteContext({quotedMessage,quotedImageContext,restoredImageAttachments:quotedImageAttachments,quotedFileCandidates,currentInput:s,cleanQuotedContent:routeUtils.cleanQuotedContent,buildQuotedRouteContent:routeUtils.buildQuotedRouteContent});
         const buildQuotedRouteContext=()=>quotedRoute.context;
@@ -296,12 +296,10 @@
         const executionMedia=submitHelpers.projectRouteExecutionMedia(p,executionPools);
          const q=String(p.contextualImagePrompt||p.editInstruction||replayPrompt).trim(),chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
          const originalImageIndex=submitHelpers.originalImageIndex;
-         const imageAttachmentIndexGuide=submitHelpers.imageAttachmentIndexGuide?.(chatH,{isImageFile,originalIndex:originalImageIndex})||"";
-         const comparisonGuide=executionMedia.chatImages.some(item=>["compare_a","compare_b"].includes(item.routeRole))
-           ? executionMedia.chatImages.map((item,index)=>`随附图片${index+1} = ${item.routeRole}`).join("\n") : "";
-         const chatPrompt=[comparisonGuide,imageAttachmentIndexGuide,replayPrompt].filter(Boolean).join("\n\n");
+         const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"";
+         const chatPrompt=replayPrompt;
         const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
-         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,taskContract:p.taskContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,taskContract:p.taskContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }

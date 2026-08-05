@@ -72,6 +72,7 @@ function checkProject({ root = ROOT } = {}) {
     }
   }
   if (!dockerfile.includes('COPY pages ./pages')) fail('Dockerfile must package the standalone pages directory.');
+  if (!dockerfile.includes('COPY docs/announcements ./docs/announcements')) fail('Dockerfile must package versioned announcements.');
   if (!staticServer.includes("'/pages/'")) fail('server/http/static.js must expose the standalone pages directory.');
 
   return {

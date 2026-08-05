@@ -109,7 +109,7 @@ function makeSummaryMessage(omitted = [], maxTokens = SUMMARY_MAX_TOKENS) {
     text = lines.join('\n');
   }
   if (estimateTextTokens(text) > limit) text = `[自动上下文摘要] 较早的 ${omitted.length} 条消息因上下文预算被省略。`;
-  return { role: 'assistant', content: text };
+  return { role: 'system', content: text };
 }
 
 function groupHistoryTurns(entries = []) {

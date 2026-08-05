@@ -28,22 +28,12 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   assert.ok(submit.includes('submitHelpers.buildQuotedRouteContext({quotedMessage'), 'an explicit quote must be normalized by the shared route-context helper');
   assert.ok(regenerate.includes('submitHelpers.buildQuotedRouteContext({quotedMessage'), 'regenerating from a quote must use the same route-context helper');
   assert.ok(regenerate.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(p,state.messages||[],quotedMessage)||null'), 'regeneration must use the same route-message execution projection as normal submission');
-  assert.ok(
-    !submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,sessionId,'),
-    'a session ID must never be shifted into the route request headers slot'
-  );
-  assert.ok(
-    !submit.includes('getEffectiveRouteWithSlowNotice(promptText,[],sessionId,'),
-    'quoted routes must not shift the session ID into the headers slot'
-  );
-  assert.ok(
-    index.includes('submit-workflow.js?v=1.5.2-pending-transaction'),
-    'the browser must fetch the explicit-quote workflow instead of a cached version'
-  );
+  assert.ok(!submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,sessionId,'));
+  assert.ok(!submit.includes('getEffectiveRouteWithSlowNotice(promptText,[],sessionId,'));
+  assert.ok(index.includes('submit-workflow.js?v=1.5.2-pending-transaction') && index.includes('semantic-task-v2-single-router'), 'the browser must fetch the single semantic router workflow');
   assert.ok(submit.includes('signal:run.abortController?.signal'), 'a normal submission must pass its live-run signal into intent recognition');
-  assert.ok(submit.includes('classifierDeadline.race(requestJson('), 'the pending continuation classifier must consume the same bounded intent interval');
-  assert.ok(submit.includes('requestJsonWithStructuredOutputFallback(requestClassifier,body)'), 'continuation classification must use the shared bounded structured-output fallback');
-  assert.ok(submit.includes('{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}'), 'every full-router branch must inherit the absolute deadline and current-turn identity started before continuation classification');
+  assert.ok(submit.includes('{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}'), 'every full-router branch must inherit the same absolute intent deadline and current-turn identity');
+  assert.ok(!submit.includes('classifierDeadline') && !submit.includes('requestClassifier') && !submit.includes('buildContinuationClassifierPayload'), 'pending replies must not create a second classifier request');
   assert.ok(regenerate.includes('signal:d.abortController?.signal'), 'regeneration must pass its live-run signal into intent recognition');
   assert.ok(app.includes('getEffectiveRoute(t,s,e,n,a,{onSlow:l,onStage:l,signal:u})'), 'the root route UI must forward the signal to every route request');
   assert.ok(submit.includes('const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(routeInfo,targetSession.messages||state.messages||[],quotedMessage)||null'), 'every selected message resource must be projected into the outgoing chat base');
@@ -51,7 +41,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   assert.ok(submit.includes('routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0'), 'the execution projection must mark route-selected messages as protected during context budgeting');
   assert.ok(chat.includes('protectedHistoryIndexes(rawMessages,protectedContextMessageCount(n))'), 'chat context budgeting must preserve selected messages and explicit quotes without shared mutable state');
   assert.ok(!chat.includes('nextRequestProtectedMessageCount'), 'concurrent chat requests must not share context-protection state');
-  assert.match(submit, /const sourcePools\s*=\s*\{\s*current:pendingMerge\?\.merged\?continuationRequestAttachments:currentTurnAttachments,\s*quoted:quotedResourceAttachments,\s*history:/, 'all attachment sources must enter distinct execution pools, with a continuation retaining its source attachments');
+  assert.ok(submit.includes('const pendingSourcePools=pendingMerge?.merged') && submit.includes('partitionExecutionAttachmentsBySource') && submit.includes('current:pendingSourcePools?.current||currentTurnAttachments') && submit.includes('history:mergeSourcePool'), 'all attachment sources must enter distinct execution pools, with a continuation retaining its source attachments');
   assert.ok(submit.includes('const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools)'), 'the validated route contract must create the one canonical media projection');
   assert.ok(submit.includes('prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages])'), 'chat dispatch must use only contract-selected files and images');
   assert.ok(submit.includes('const editAttachments=executionMedia.imageInputs'), 'image dispatch must use only contract-selected image inputs');
@@ -60,8 +50,7 @@ function testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift() {
   assert.ok(submit.includes('if(createdPending&&!routeInfo.localClarification)'), 'a local contract-failure notice must not create a fake pending user clarification');
   assert.ok(!submit.includes('我需要确认你的目标：你希望我处理这段内容、生成图片/PPT，还是进行其他操作？'), 'a model contract failure must not be presented as user ambiguity');
 }
-
-async function testContinuationClassifierDeadlineFailsClosed() {
+async function testUnifiedIntentDeadlineFailsClosed() {
   assert.strictEqual(submitWorkflow.INTENT_PIPELINE_DEADLINE_MS, 60000);
   const bounded = submitWorkflow.createBoundedIntentRequest(null, Date.now() + 30);
   const started = Date.now();
@@ -70,16 +59,16 @@ async function testContinuationClassifierDeadlineFailsClosed() {
       () => bounded.race(new Promise(() => {})),
       error => error?.code === 'ROUTE_INTENT_TIMEOUT' && error?.timeoutMs === 60000,
     );
-    assert.ok(Date.now() - started < 500, 'the classifier deadline must reject promptly instead of waiting for an unbounded model request');
+    assert.ok(Date.now() - started < 500, 'the unified intent deadline must reject promptly instead of waiting for an unbounded model request');
   } finally {
     bounded.dispose();
   }
 }
 
-async function testContinuationStructuredOutputFallbackPreservesJsonMode() {
+async function testStructuredOutputCompatibilityFallbackPreservesJsonMode() {
   const strictPayload = {
     model: 'route-model',
-    response_format: { type: 'json_schema', json_schema: { name: 'pending' } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2' } },
     messages: [],
   };
   const attempts = [];
@@ -134,7 +123,8 @@ function testPendingTransitionCommitsOnlyAfterHandoff() {
   );
 
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  assert.ok(submit.includes('const pendingTransition=createPendingTransition(storedPending,pendingDecision);'));
+  assert.ok(submit.includes('let pendingTransition=createPendingTransition(storedPending,{shouldClearPending:false})'));
+  assert.ok(submit.includes('pendingTransition=createPendingTransition(storedPending,{shouldClearPending:true})'));
   assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'));
   assert.strictEqual((submit.match(/clearStoredPendingClarification\(\)/g) || []).length, 1, 'pending may only be consumed by the durable handoff callback');
 }
@@ -169,68 +159,52 @@ function testImageGenerationDoesNotShadowSubmitOptions() {
   );
 }
 
-function testPendingContinuationRequiresStrictModelContract() {
-  assert.strictEqual(clarificationService.shouldApplyPending, undefined, 'the continuation service must not expose a local heuristic fallback');
-  const taskContract = {
-    schema_version: 'task_contract.v4', operation: 'plain_chat', relation: 'new', resources: [],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] }, confidence: 1, review_reasons: [], rationale: 'independent request',
-  };
-  assert.strictEqual(clarificationService.parseContinuationClassifierResult(JSON.stringify(taskContract)), null, 'a route task_contract must never be misread as permission to merge a pending task');
+function testPendingRepliesUseUnifiedSemanticRouteContract() {
+  for (const name of [
+    'buildContinuationClassifierPayload', 'buildContinuationRepairPayload',
+    'parseContinuationClassifierResult', 'CONTINUATION_SCHEMA_VERSION',
+  ]) {
+    assert.strictEqual(clarificationService[name], undefined, `${name} must not remain as a second semantic router`);
+  }
 
-  const newTask = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'new_task', confidence: 1, resolved_input: '', selections: [], assistant_reply: '', reason: 'complete independent request',
-  }));
-  assert.ok(newTask);
-  assert.strictEqual(newTask.shouldMerge, false);
-
-  const continuation = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_answer', confidence: 0.95, resolved_input: '\u751f\u6210\u7ea2\u8272\u80cc\u666f\u7684\u4ea7\u54c1\u56fe', selections: [], assistant_reply: '', reason: 'answers the pending question',
-  }));
-  assert.ok(continuation, 'only a complete, high-confidence continuation contract may authorize a merge');
-
-  const assistance = clarificationService.parseContinuationClassifierResult(JSON.stringify({
-    schema_version: clarificationService.CONTINUATION_SCHEMA_VERSION,
-    relation: 'pending_assistance', confidence: 0.95, resolved_input: '', selections: [], assistant_reply: '可选犬种：沙皮狗、柴犬、金毛、拉布拉多。请选择一种。', reason: 'the user requested choices for the active breed question',
-  }));
-  assert.ok(assistance, 'an assistance reply must preserve the active pending task rather than start a new route');
-  assert.strictEqual(assistance.assistantReply.includes('沙皮狗'), true);
-  const retained = clarificationService.retainPendingAfterAssistance({
-    originalText: '画一只狗', clarificationText: '你想换成什么品种？', rounds: 1,
-  }, { promptText: '列举一些犬种', assistantReply: assistance.assistantReply });
+  const pending = clarificationService.createPendingClarification({
+    messages: [{ role: 'user', content: '画一只狗' }],
+    clarificationText: '你想换成什么品种？',
+  });
+  const merged = clarificationService.mergePendingInput(pending, {
+    promptText: '柴犬',
+    resolvedInput: '模型不得改写成其它任务',
+  });
+  assert.strictEqual(merged.promptText, '画一只狗\n\n柴犬');
+  const retained = clarificationService.retainPendingAfterAssistance(pending, {
+    promptText: '列举一些犬种',
+    assistantReply: '可选犬种：沙皮狗、柴犬、金毛、拉布拉多。请选择一种。',
+  });
   assert.strictEqual(retained.originalText, '画一只狗');
-  assert.strictEqual(retained.clarificationText, '你想换成什么品种？');
-  assert.strictEqual(retained.assistanceHistory[0].reply, assistance.assistantReply);
+  assert.strictEqual(retained.assistanceHistory[0].reply.includes('沙皮狗'), true);
 
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
-  assert.ok(submit.includes('if(storedPending&&clarification.buildContinuationClassifierPayload'), 'every pending clarification reply must use the continuation model');
-  assert.ok(!submit.includes('resolveExplicitImageChoiceAnswer'), 'numbered choices must not bypass model recognition');
-  assert.ok(submit.includes('clarification.buildContinuationRepairPayload(payload,classifierText)'), 'an invalid first model contract must receive one bounded model repair');
-  assert.ok(submit.includes('shouldMergePending=["pending_answer","partial_answer","revision","continuation"].includes(pendingDecision?.relation)&&pendingDecision?.shouldMerge===!0'), 'only a validated continuation decision may merge pending state');
-  assert.ok(submit.includes('const pendingAssistance=pendingDecision?.relation==="pending_assistance"'), 'pending assistance must answer within the active task before route dispatch');
-  assert.ok(submit.includes('if(storedPending&&!pendingDecision)'), 'an invalid or unavailable continuation classifier must fail closed');
-  assert.ok(submit.includes('原任务已保留，请重试'), 'the fail-closed response must tell the user that pending state was retained');
+  assert.ok(!submit.includes('buildContinuationClassifierPayload') && !submit.includes('parseContinuationClassifierResult'));
+  assert.ok(!submit.includes('pendingDecision') && !submit.includes('requestClassifier'));
+  assert.ok(!submit.includes('resolveExplicitImageChoiceAnswer'), 'numbered choices must not bypass semantic recognition');
+  assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a pending reply must become explicit context for the same full router');
+  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a pending reply must reroute with restored original attachments');
+  assert.ok(submit.includes('const semanticTask=routeInfo?.semanticTask||null'));
+  assert.ok(submit.includes('const continuationEffects=new Set(["answer","partial","revision","continuation"])'));
+  assert.ok(submit.includes('semanticPendingEffect==="assistance"') && submit.includes('semanticPendingEffect==="new_task"'));
+  assert.ok(submit.includes('semanticPendingEffect==="unclear"') && submit.includes('原任务已保留'), 'an unclear semantic relation must fail closed and preserve pending state');
   assert.ok(submit.includes('pendingTransition.consumeOnHandoff&&clearStoredPendingClarification()'), 'pending state must be consumed only after durable request handoff');
   assert.strictEqual((submit.match(/clearStoredPendingClarification\(\)/g) || []).length, 1, 'no route or preflight stage may consume pending state before durable handoff');
-  assert.ok(!submit.includes('treating current input as a new task'), 'classifier failure must not silently turn a clarification answer into a new task');
-  assert.ok(!submit.includes('shouldApplyPending?.('), 'no local continuation fallback may be invoked');
-  assert.ok(!submit.includes('fallback to local pending rules'), 'runtime diagnostics must not imply a local fallback exists');
-  assert.ok(!submit.includes('finalTaskMode') && !submit.includes('selectedIndexes'), 'a continuation classifier must expose no operation or media-selection controls');
+  assert.ok(!submit.includes('shouldApplyPending?.(') && !submit.includes('expectedAnswerTypes'), 'no local pending heuristic may be invoked');
   assert.ok(!submit.includes('resolveClarificationRoute') && !submit.includes('pendingResolvedRoute'), 'a structured choice must never bypass canonical intent routing');
-  assert.ok(submit.includes('clarification.buildClarificationRouteContext?.('), 'a continuation must become explicit context for full rerouting');
   assert.ok(submit.includes('clarification.collectPendingAttachmentContexts?.('), 'a continuation must recover the attachments selected by its pending task snapshot');
-  assert.ok(submit.includes('getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments'), 'a continuation must reroute with its restored original attachments');
-  assert.ok(submit.includes('current:pendingMerge?.merged?continuationRequestAttachments:currentTurnAttachments'), 'the final execution pool must use the same restored attachment list that the full router saw');
-  assert.ok(submit.includes('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'), 'submit must apply the canonical execution gate even when a route has no task contract');
-  assert.ok(!submit.includes('if(routeInfo.taskContract&&routeUtils.isRouteDispatchable'), 'the dispatch gate must not be conditional on a contract being present');
-  assert.ok(!submit.includes('引用图片为准，按引用图片执行编辑'), 'quoted routes must not be rewritten after contract validation');
-  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root entry must delegate submission to the canonical workflow');
-  assert.ok(!app.includes('function initChatUIAppSubmitWorkflow'), 'the root entry must not embed a second submit workflow');
+  assert.ok(submit.includes('const pendingSourcePools=pendingMerge?.merged') && submit.includes('current:pendingSourcePools?.current||currentTurnAttachments'), 'the final execution pool must use the same restored attachment list that the full router saw');
+  assert.ok(submit.includes('if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0)'), 'submit must always apply the canonical execution gate');
+  assert.ok(!submit.includes('if(routeInfo.taskContract&&routeUtils.isRouteDispatchable'));
+  assert.ok(app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'));
+  assert.ok(!app.includes('function initChatUIAppSubmitWorkflow'));
 }
-
 function testChatRerouteAllocatesRecoveryIdAfterImageMode() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
@@ -255,9 +229,9 @@ function testForceImageUsesExplicitCanonicalContract() {
 
 module.exports = [
   testRouteRecognitionPassesHeadersAndContextWithoutArgumentShift,
-  testContinuationClassifierDeadlineFailsClosed,
-  testContinuationStructuredOutputFallbackPreservesJsonMode,
-  testPendingContinuationRequiresStrictModelContract,
+  testUnifiedIntentDeadlineFailsClosed,
+  testStructuredOutputCompatibilityFallbackPreservesJsonMode,
+  testPendingRepliesUseUnifiedSemanticRouteContract,
   testPendingTransitionCommitsOnlyAfterHandoff,
   testImageGenerationDoesNotShadowSubmitOptions,
   testChatRerouteAllocatesRecoveryIdAfterImageMode,

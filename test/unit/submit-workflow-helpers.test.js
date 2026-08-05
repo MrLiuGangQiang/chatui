@@ -56,7 +56,7 @@ function testQuotedRouteContextUsesOneCanonicalIdentityPolicy() {
   assert.strictEqual(result.context.latest_uploaded_image.reference_id, 'imgref_product');
   assert.strictEqual(result.context.latest_assistant_image_result, null);
   assert.deepStrictEqual(result.context.file_candidates, [{ index: 1, id: 'file-1', name: '规格书.pdf' }]);
-  assert.match(result.context.suggested_contextual_image_prompt, /参考这张产品图[\s\S]*按这个风格生成海报/);
+  assert.strictEqual(Object.hasOwn(result.context, 'suggested_contextual_image_prompt'), false, 'route context must not synthesize an execution prompt from quote text');
 }
 
 function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
@@ -66,9 +66,9 @@ function testSubmitHelpersImageIndexGuidePreservesOriginalIndexes() {
     { sourceIndex: 2, imageId: 'img_a_2', name: '第二张.png', type: 'image/png' },
     { sourceIndex: 5, imageId: 'img_a_5', name: '第五张.png', type: 'image/png' },
   ]);
-  assert.ok(guide.includes('图片引用说明'));
-  assert.ok(guide.includes('当前随附图片1 = 原消息第2张'));
-  assert.ok(guide.includes('image_id=img_a_5'));
+  assert.ok(guide.includes('<media_map>'));
+  assert.ok(guide.includes('image_part_1: source_index=2'));
+  assert.ok(guide.includes('id=img_a_5'));
   assert.strictEqual(helpers.imageAttachmentIndexGuide([{ imageId: 'img_a_1', type: 'image/png' }]), '');
 }
 
@@ -161,6 +161,8 @@ function testContinuationAttachmentPoolReachesTheCanonicalChatRequest() {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     size: 2048,
     inputFile: true,
+    routeSource: 'history',
+    sourceIndex: 1,
     file: { name: 'low-code-scope.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 2048 },
   };
   const requestAttachments = helpers.mergeContinuationAttachments({
@@ -168,22 +170,25 @@ function testContinuationAttachmentPoolReachesTheCanonicalChatRequest() {
     current: [{ ...originalWorkbook }],
   });
   assert.strictEqual(requestAttachments.length, 1, 'the restored workbook must be carried once even if the answer turn also references it');
+  const partitioned = helpers.partitionExecutionAttachmentsBySource(requestAttachments);
+  assert.deepStrictEqual(partitioned.current, []);
+  assert.deepStrictEqual(partitioned.history.map(item => item.attachmentId), ['workbook-low-code']);
 
   const metadata = attachments.buildRouteAttachmentMetadata(requestAttachments);
   const routePayload = routeService.buildRoutePayload({ model: 'route-model', input: '按人日估算全部适合低代码的功能', attachments: metadata });
   const routeUserPayload = JSON.parse(routePayload.messages[1].content);
-  assert.strictEqual(routeUserPayload.attachments[0].file_id, 'workbook-low-code', 'the full router must receive the restored workbook as a current request attachment');
+  assert.strictEqual(routeUserPayload.resource_candidates[0].source, 'history', 'the full router must preserve the restored workbook origin');
 
   const route = routeService.parseRouteResult(JSON.stringify({
-    schema_version: 'route_decision.v1', readiness: 'ready', operation: 'file_qa', relation: 'continuation',
-    bindings: [{ candidate_key: 'f1', role: 'attachment' }], changes: [], constraints: [],
-    clarification: { question: '', unresolved: [] }, confidence: 0.99, rationale: 'the restored workbook is required for the estimate',
+    schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'continuation', pending_effect: 'none',
+    slots: [{ kind: 'file', purpose: 'attachment', label: '工作簿', resolution: 'bound', candidate_keys: ['f1'] }],
+    changes: [], constraints: [],
   }), { input: '按人日估算全部适合低代码的功能', attachments: metadata, context: {} });
   assert.ok(route);
-  const execution = helpers.projectRouteExecutionMedia(route, helpers.buildExecutionResourcePools({ current: requestAttachments }));
-  assert.deepStrictEqual(execution.chatFiles.map(item => item.attachmentId), ['workbook-low-code'], 'the same restored workbook must be the only file sent to chat execution');
+  assert.strictEqual(route.taskContract.resources[0].source, 'history');
+  const execution = helpers.projectRouteExecutionMedia(route, helpers.buildExecutionResourcePools(partitioned));
+  assert.deepStrictEqual(execution.chatFiles.map(item => [item.attachmentId, item.routeSource]), [['workbook-low-code', 'history']], 'the same restored workbook must retain history identity through chat execution');
 }
-
 module.exports = [
   testSubmitHelpersParseAndPreviewQuoteContext,
   testQuotedRouteContextUsesOneCanonicalIdentityPolicy,

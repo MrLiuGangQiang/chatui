@@ -23,6 +23,7 @@ const RUNTIME_ROOT_DIRECTORIES = Object.freeze([
   'server',
   'shared',
   'vendor',
+  'docs/announcements',
 ]);
 
 function normalizedRelativePath(root, filePath) {
@@ -33,7 +34,8 @@ function isDockerRuntimeFile(relativePath) {
   const normalized = String(relativePath || '').replace(/\\/g, '/').replace(/^\.\//, '');
   const base = path.posix.basename(normalized);
   if (!normalized || normalized === 'vendor/chunks' || normalized.startsWith('vendor/chunks/')) return false;
-  if (base === '.env' || base.startsWith('.env.') || base.endsWith('.local') || base.endsWith('.md')) return false;
+  if (base === '.env' || base.startsWith('.env.') || base.endsWith('.local')) return false;
+  if (base.endsWith('.md') && !normalized.startsWith('docs/announcements/')) return false;
   return true;
 }
 

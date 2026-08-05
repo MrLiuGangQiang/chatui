@@ -55,7 +55,6 @@ async function testImageResultRecordKeepsLiveAndRestoredImageOrder() {
 
 async function testImageResultStorageKeepsLiveGeometryForCanonicalRestore() {
   const deps = imageResultDeps({ width: 900, height: 520 });
-  deps.imageCandidateLabels = () => ['wide-cover'];
   const result = await imageResultWorkflow.imageResultToHtml({
     kind: 'image',
     images: [{
@@ -63,6 +62,7 @@ async function testImageResultStorageKeepsLiveGeometryForCanonicalRestore() {
       raw: 'transient raw response',
       url: 'blob:transient-result',
       prompt: 'wide blue cover',
+      labels: ['wide-cover'],
     }],
   }, '250ms', {
     resultId: 'imgres_wide_geometry',

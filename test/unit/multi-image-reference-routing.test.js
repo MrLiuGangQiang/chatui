@@ -6,7 +6,7 @@ const routeContext = require('../../client/core/image-route-context');
 const routeService = require('../../client/services/route-service');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
 
-function assistantImageMessage(displayItemId, prompt, src) {
+function assistantImageMessage(displayItemId, prompt, src, labels = []) {
   return {
     role: 'assistant',
     displayItemId,
@@ -16,7 +16,7 @@ function assistantImageMessage(displayItemId, prompt, src) {
       prompt,
       mode: 'image',
       target: 'previous',
-      attachments: [{ name: `${displayItemId}.png`, type: 'image/png', src }],
+      attachments: [{ name: `${displayItemId}.png`, type: 'image/png', src, labels }],
     }),
   };
 }
@@ -68,9 +68,9 @@ function imageReferenceContract(candidates) {
 function canonicalAnimalHistory(extra = []) {
   return [
     { role: 'user', content: '画一只猫' },
-    assistantImageMessage('cat-result', '一只猫', 'indexeddb://cat'),
+    assistantImageMessage('cat-result', '一只猫', 'indexeddb://cat', ['cat']),
     { role: 'user', content: '画一头牛' },
-    assistantImageMessage('cow-result', '一头牛', 'indexeddb://cow'),
+    assistantImageMessage('cow-result', '一头牛', 'indexeddb://cow', ['cow']),
     ...extra,
   ];
 }

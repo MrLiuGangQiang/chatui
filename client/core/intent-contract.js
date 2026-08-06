@@ -204,11 +204,15 @@
 
     if (task.operation === 'image_compare') {
       const roles = new Set(images.map(resource => resource.role));
+      // Comparison uses the chat transport. Supporting files can therefore be
+      // supplied with the two explicitly assigned images and must remain bound
+      // instead of being rejected by the semantic compiler.
       return images.length === 2
-        && hasOnlyResourceTypes(boundResources, ['image'])
+        && hasOnlyResourceTypes(boundResources, ['image', 'file'])
         && roles.size === 2
         && roles.has('compare_a')
-        && roles.has('compare_b');
+        && roles.has('compare_b')
+        && hasOnlyResourceRoles(files, ['attachment']);
     }
 
     if (task.operation === 'edit_image') {

@@ -509,7 +509,7 @@ function testClientContractAcceptsCurrentTextResourceForEveryExecutableOperation
     taskContract({ operation: 'multimodal_qa', resources: [currentImage, currentFile, currentTextResource()] }),
     taskContract({ operation: 'image_qa', resources: [currentImage, currentTextResource()] }),
     taskContract({ operation: 'ocr', resources: [currentImage, currentTextResource()] }),
-    taskContract({ operation: 'image_compare', resources: [compareBase, compareImage, currentTextResource()] }),
+    taskContract({ operation: 'image_compare', resources: [compareBase, compareImage, currentFile, currentTextResource()] }),
     taskContract({ operation: 'image_reference_gen', relation: 'followup', resources: [historyReference, currentTextResource()], directive: patch('r4', { op: 'add', target: 'composition', value: 'combine the reference' }) }),
     taskContract({ operation: 'edit_image', relation: 'correction', resources: [historyTarget, currentTextResource()], directive: patch('r5', { op: 'replace', target: 'background', value: 'blue' }) }),
   ];

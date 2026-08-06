@@ -200,7 +200,7 @@ function testCrossExecutionActionsClarifyWithoutPartialDispatch() {
   }
 }
 
-function testSameFamilyUnsupportedResourceCombinationClarifiesLocally() {
+function testImageComparisonAcceptsSupportingFileInOneExecution() {
   const options = {
     input: '比较两张图，并结合文件说明差异',
     attachments: [{ id: 'notes', file_id: 'notes', name: 'notes.md', type: 'text/markdown', is_image: false, text: 'notes', input_file_available: true }],
@@ -219,6 +219,27 @@ function testSameFamilyUnsupportedResourceCombinationClarifiesLocally() {
       { kind: 'file', purpose: 'attachment', label: '说明文件', resolution: 'bound', candidate_keys: ['f1'] },
     ],
   }), options);
+  assert.ok(result.route, `comparison with a supporting file should compile: ${result.reason}`);
+  assert.strictEqual(result.route.needClarification, false);
+  assert.strictEqual(result.route.operationType, 'image_compare');
+  assert.strictEqual(result.route.taskContract.resources.filter(resource => resource.type === 'file').length, 1);
+  assert.strictEqual(result.route.taskContract.resources.find(resource => resource.type === 'file').role, 'attachment');
+  assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
+}
+
+function testUnsupportedComparisonResourceStillClarifiesLocally() {
+  const result = inspect(task({
+    actions: ['compare'],
+    slots: [
+      { kind: 'image', purpose: 'compare_a', label: 'first image', resolution: 'bound', candidate_keys: ['i1'] },
+      { kind: 'image', purpose: 'compare_b', label: 'second image', resolution: 'bound', candidate_keys: ['i2'] },
+      { kind: 'image', purpose: 'source', label: 'third image to analyze', resolution: 'bound', candidate_keys: ['i3'] },
+    ],
+  }), {
+    input: 'Compare the first two images and analyze the third image separately.',
+    attachments: [],
+    context: imageContext([{ id: 'one' }, { id: 'two' }, { id: 'three' }]),
+  });
   assert.ok(result.route);
   assert.strictEqual(result.route.needClarification, true);
   assert.strictEqual(result.route.semanticClarification, true);
@@ -258,6 +279,7 @@ module.exports = [
   testSemanticMissingAndAmbiguousSlotsAreNonExecuting,
   testSemanticContextBoundaryUsesDependencyNotFollowupWord,
   testCrossExecutionActionsClarifyWithoutPartialDispatch,
-  testSameFamilyUnsupportedResourceCombinationClarifiesLocally,
+  testImageComparisonAcceptsSupportingFileInOneExecution,
+  testUnsupportedComparisonResourceStillClarifiesLocally,
   testModelBoundaryRejectsDerivedLegacyProtocols,
 ];

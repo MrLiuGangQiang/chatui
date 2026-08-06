@@ -267,7 +267,9 @@
       file_qa: new Set(['file:attachment']),
       multimodal_qa: new Set(['image:source', 'file:attachment']),
       image_qa: new Set(['image:source']),
-      image_compare: new Set(['image:compare_a', 'image:compare_b']),
+      // Image comparison is dispatched through the chat transport, which preserves both
+      // selected images and supporting document attachments for one grounded answer.
+      image_compare: new Set(['image:compare_a', 'image:compare_b', 'file:attachment']),
       ocr: new Set(['image:source']),
       text_to_image: new Set(['message:context']),
       image_reference_gen: new Set(['image:reference', 'image:style_reference']),

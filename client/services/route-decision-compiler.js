@@ -477,6 +477,18 @@
       return kept;
     }
 
+    function canonicalizeEditTargetSlot(task = {}, operation = '', slots = []) {
+      const next = slots.map(slot => ({ ...slot, candidate_keys: [...slot.candidate_keys] }));
+      if (operation !== 'edit_image' || !Array.isArray(task.actions) || !task.actions.includes('edit')) return next;
+      const hasTarget = next.some(slot => slot.kind === 'image' && slot.purpose === 'target');
+      const sourceSlots = next.filter(slot => slot.kind === 'image' && slot.purpose === 'source');
+      // The semantic schema's `source` is a valid image role, but an edit action
+      // with exactly one image and no target unambiguously means that image is the
+      // edit target. Canonicalize this model-role alias before capability gating.
+      if (hasTarget || sourceSlots.length !== 1) return next;
+      return next.map(slot => slot === sourceSlots[0] ? { ...slot, purpose: 'target' } : slot);
+    }
+
     function ensureRequiredSemanticSlots(operation = '', slots = []) {
       let next = slots.map(slot => ({ ...slot, candidate_keys: [...slot.candidate_keys] }));
       const has = (kind, purpose) => next.some(slot => slot.kind === kind && slot.purpose === purpose);
@@ -537,7 +549,7 @@
       const catalog = buildRouteResourceCandidates({ attachments: options.attachments || [], context: compilerContext });
       const enriched = enrichPendingSemanticTask(task, catalog, compilerContext);
       const operation = enriched.operationOverride || semanticOperation({ ...task, slots: enriched.slots });
-      const slots = ensureRequiredSemanticSlots(operation, enriched.slots);
+      const slots = ensureRequiredSemanticSlots(operation, canonicalizeEditTargetSlot(task, operation, enriched.slots));
       const issue = semanticCapabilityIssue(task, operation, slots, enriched.operationOverride);
       return { compilerContext, catalog, enriched, operation, slots, issue };
     }

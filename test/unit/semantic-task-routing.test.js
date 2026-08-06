@@ -135,6 +135,24 @@ function testSemanticActionsCompileToCanonicalOperations() {
   }
 }
 
+function testEditActionCanonicalizesSingleSourceImageToTarget() {
+  const result = inspect(task({
+    actions: ['edit'],
+    slots: [{ kind: 'image', purpose: 'source', label: 'idle-4.png', resolution: 'bound', candidate_keys: ['i8'] }],
+    changes: [{ op: 'replace', target: '猫的表情', value: '惊讶' }],
+  }), {
+    input: '把猫的表情改成惊讶',
+    attachments: [],
+    context: imageContext(Array.from({ length: 8 }, (_value, index) => ({ id: `idle-${index + 1}.png` }))),
+  });
+  assert.ok(result.route, `a single source image on an edit action must be normalized: ${result.reason}`);
+  assert.strictEqual(result.route.needClarification, false);
+  assert.strictEqual(result.route.operationType, 'edit_image');
+  assert.strictEqual(result.route.taskContract.resources.length, 1);
+  assert.strictEqual(result.route.taskContract.resources[0].role, 'target');
+  assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
+}
+
 function testSemanticMissingAndAmbiguousSlotsAreNonExecuting() {
   const missing = inspect(task({
     actions: ['edit'],
@@ -276,6 +294,7 @@ module.exports = [
   testSemanticPromptAndSchemaEncodeSlotCardinality,
   testModelBoundaryNormalizesLoggedImplicitCurrentInputTextSlot,
   testSemanticActionsCompileToCanonicalOperations,
+  testEditActionCanonicalizesSingleSourceImageToTarget,
   testSemanticMissingAndAmbiguousSlotsAreNonExecuting,
   testSemanticContextBoundaryUsesDependencyNotFollowupWord,
   testCrossExecutionActionsClarifyWithoutPartialDispatch,

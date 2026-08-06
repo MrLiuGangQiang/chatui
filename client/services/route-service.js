@@ -47,7 +47,7 @@ const ROUTE_SYSTEM_PROMPT_V6 = `把 current_input 解析为 semantic_task.v2。�
 4. resolution 必须与 candidate_keys 数量一致：bound 恰好 1 个，ambiguous 至少 2 个，missing/unavailable 必须为空；存在歧义时不替用户选择。
 5. quoted_message、pending_task 和 confirmed selections 是上下文事实。询问这些内容时仍是 respond；只有 current_input 明确要求执行时才生成或编辑。
 6. 只记录用户明确表达的 changes 和 constraints；执行必需信息未提供时增加 missing slot，不虚构值。
-7. action 表示用户意图：respond=回答/理解，extract_text=提取图片文字，compare=比较图片，generate=生成新图，edit=修改现有图。
+7. action 表示用户意图：respond=回答/理解，extract_text=提取图片文字，compare=比较图片，generate=生成新图，edit=修改现有图。edit 仅有一张待处理图片时，该图片必须标为 target，不得标为 source。
 8. 有 pending_task 时，pending_effect=answer/partial/continuation 表示补充原任务，revision 表示修正原任务，assistance 只回答本轮问题，new_task 表示独立新任务，无法判断用 unclear；没有 pending_task 时必须为 none。
 9. 同一执行流程可完成的多个要求合并为一个 action；需要不同执行流程时按出现顺序列出多个 actions，由应用请求用户选择。
 

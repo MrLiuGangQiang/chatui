@@ -115,6 +115,82 @@ function testRouteExecutionMediaProjectionIsCanonicalAndRoleAware() {
   );
 }
 
+async function testRestoreBoundImagePoolCanonicalizesEachRecoveredContractResource() {
+  const route = {
+    executionResources: {
+      version: 'execution_resources.v1',
+      operation: 'edit_image',
+      images: [{
+        key: 'r1', type: 'image', source: 'history', role: 'target', index: 8,
+        id: 'img_imgref_idle_4', reference_id: 'imgref_idle',
+        identity_aliases: [], index_aliases: [],
+      }],
+      files: [],
+    },
+  };
+  const calls = [];
+  const restored = await helpers.restoreBoundImagePool(route, {
+    source: 'history',
+    sessionId: 'session-cat',
+    getPreviousImageAttachments: async (...args) => {
+      calls.push(args);
+      return [{
+        image_id: 'durable-store-id',
+        imageId: 'durable-store-id',
+        attachmentId: 'durable-store-id',
+        reference_id: 'durable-ref',
+        referenceId: 'durable-ref',
+        type: 'image/png',
+        dataUrl: 'data:image/png;base64,AA==',
+      }];
+    },
+  });
+
+  assert.deepStrictEqual(calls, [['session-cat', null, '', ['img_imgref_idle_4']]],
+    'each historical execution resource must be restored by its exact contract ID');
+  assert.strictEqual(restored.length, 1);
+  assert.strictEqual(restored[0].imageId, 'img_imgref_idle_4');
+  assert.strictEqual(restored[0].image_id, 'img_imgref_idle_4');
+  assert.strictEqual(restored[0].attachmentId, 'img_imgref_idle_4');
+  assert.strictEqual(restored[0].referenceId, 'imgref_idle');
+  assert.strictEqual(restored[0].reference_id, 'imgref_idle');
+  assert.deepStrictEqual(restored[0].routeIdAliases, ['durable-store-id'],
+    'the recovered durable identity must survive as an alias, not compete with the contract identity');
+
+  const execution = helpers.projectRouteExecutionMedia(
+    route,
+    helpers.buildExecutionResourcePools({ history: restored }),
+  );
+  assert.deepStrictEqual(execution.targets.map(item => [item.routeResourceKey, item.routeId, item.routeSource]), [
+    ['r1', 'img_imgref_idle_4', 'history'],
+  ], 'the recovered historical image must project to exactly r1');
+}
+
+async function testRestoreBoundImagePoolFailsBeforeAmbiguousProjection() {
+  const route = {
+    executionResources: {
+      version: 'execution_resources.v1',
+      operation: 'edit_image',
+      images: [{
+        key: 'r1', type: 'image', source: 'history', role: 'target', index: 8,
+        id: 'img_imgref_idle_4', reference_id: 'imgref_idle',
+        identity_aliases: [], index_aliases: [],
+      }],
+      files: [],
+    },
+  };
+  await assert.rejects(
+    () => helpers.restoreBoundImagePool(route, {
+      source: 'history',
+      getPreviousImageAttachments: async () => [{ type: 'image/png' }, { type: 'image/png' }],
+    }),
+    error => error.code === 'EXECUTION_RESOURCE_UNRESOLVED'
+      && error.resourceKey === 'r1'
+      && error.resourceSource === 'history',
+    'ambiguous restoration must fail at the restoration boundary instead of reaching generic execution projection',
+  );
+}
+
 async function testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHistoryFiles() {
   const route = {
     executionResources: {
@@ -195,6 +271,8 @@ module.exports = [
   testSubmitHelpersImageIndexGuidePreservesOriginalIndexes,
   testRouteMessageContextProjectionUsesOnlyResolvedBindings,
   testRouteExecutionMediaProjectionIsCanonicalAndRoleAware,
+  testRestoreBoundImagePoolCanonicalizesEachRecoveredContractResource,
+  testRestoreBoundImagePoolFailsBeforeAmbiguousProjection,
   testExecutionResourcePoolsKeepSourcesSeparateAndRestoreSelectedHistoryFiles,
   testContinuationAttachmentPoolReachesTheCanonicalChatRequest,
 ];

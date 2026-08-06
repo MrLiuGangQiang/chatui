@@ -407,6 +407,66 @@
     );
   }
 
+  async function restoreBoundImagePool(
+    route = {},
+    { source = "history", sessionId = "", getPreviousImageAttachments } = {},
+  ) {
+    const required = routeMediaResources(route, "image", source);
+    if (!required.length) return [];
+    if (typeof getPreviousImageAttachments !== "function") {
+      throw new TypeError("Historical image restoration service is unavailable");
+    }
+    const restored = [];
+    for (const resource of required) {
+      const id = String(resource?.id || "").trim();
+      const candidates = id
+        ? await getPreviousImageAttachments(sessionId, null, "", [id])
+        : await getPreviousImageAttachments(
+          sessionId,
+          [Number(resource?.index)],
+          String(resource?.reference_id || ""),
+          [],
+        );
+      if (!Array.isArray(candidates) || candidates.length !== 1) {
+        const error = new TypeError(`Resource ${resource?.key || ""} is not uniquely recoverable for execution`);
+        error.code = "EXECUTION_RESOURCE_UNRESOLVED";
+        error.resourceKey = String(resource?.key || "");
+        error.resourceType = "image";
+        error.resourceSource = source;
+        throw error;
+      }
+      const attachment = candidates[0];
+      const recoveredId = mediaIdentity(attachment, "image");
+      const aliases = [
+        recoveredId,
+        ...(attachment?.routeIdAliases || attachment?.route_id_aliases || []),
+      ].map(value => String(value || "").trim()).filter(Boolean);
+      restored.push({
+        ...attachment,
+        // Execution-resource matching accepts both camelCase and persisted
+        // snake_case image metadata.  Canonicalize every identity-bearing
+        // field here, at restoration time, so projection cannot see the
+        // recovered durable ID as a second, competing identity.
+        imageId: id || recoveredId,
+        image_id: id || recoveredId,
+        attachmentId: id || recoveredId,
+        attachment_id: id || recoveredId,
+        referenceId: String(resource?.reference_id || attachment?.referenceId || attachment?.reference_id || ""),
+        reference_id: String(resource?.reference_id || attachment?.referenceId || attachment?.reference_id || ""),
+        routeIdAliases: [...new Set([
+          ...aliases,
+          ...(resource?.identity_aliases || resource?.identityAliases || []),
+        ].map(value => String(value || "").trim()).filter(value => value && value !== id))],
+        routeSource: source,
+        routeResourceKey: String(resource?.key || ""),
+        routeRole: String(resource?.role || ""),
+        sourceIndex: Number(resource?.index),
+        media_index: Number(resource?.index),
+      });
+    }
+    return restored;
+  }
+
   async function restoreHistoricalFilePool(
     route = {},
     {
@@ -511,6 +571,7 @@
     decorateExecutionPool,
     buildExecutionResourcePools,
     routeMediaResources,
+    restoreBoundImagePool,
     restoreHistoricalFilePool,
   });
 

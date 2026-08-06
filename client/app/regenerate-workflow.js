@@ -273,15 +273,7 @@
         const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(p,state.messages||[],quotedMessage)||null,hasRouteMessageRefs=Array.isArray(p?.messageRefs)&&p.messageRefs.length>0;
         if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error("路由选择的历史消息已不存在或不再匹配，已停止发送以避免脱离指定上下文回答");
         const quoteScopedChat=!!quotedMessage&&(!hasRouteMessageRefs||routeMessageProjection?.usesExplicitQuote),routeBaseMessages=routeMessageProjection?.messages||(quoteScopedChat?[quotedMessage]:baseRequestMessages);
-        const restoreBoundImagePool=async source=>{
-          const resources=submitHelpers.routeMediaResources?.(p,"image",source)||[];
-          if(!resources.length)return[];
-          if(typeof restorePreviousImageAttachments!=="function")throw new Error("无法恢复路由选择的历史图片，已停止发送");
-          const ids=[...new Set(resources.map(resource=>String(resource.id||"")).filter(Boolean))],restored=[];
-          if(ids.length)restored.push(...await restorePreviousImageAttachments(l,null,"",ids));
-          for(const resource of resources.filter(resource=>!resource.id))restored.push(...await restorePreviousImageAttachments(l,[Number(resource.index)],resource.reference_id||"",[]));
-          return restored.map(item=>({...item,routeSource:source}))
-        };
+        const restoreBoundImagePool=source=>submitHelpers.restoreBoundImagePool(p,{source,sessionId:l,getPreviousImageAttachments:restorePreviousImageAttachments});
         const quotedResourceAttachments=[...quotedImageAttachments];
         if(quotedMessage?.attachmentContext&&typeof restoreUserAttachmentsFromContext==="function"){
           const restoredQuote=await restoreUserAttachmentsFromContext(quotedMessage.attachmentContext);

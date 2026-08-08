@@ -64,6 +64,12 @@
   // selector for the eighth image in the session-wide resource catalog.
   const VISUAL_REVIEW_CONTINUATION_PATTERN = /(?:\u518d|\u91cd\u65b0|\u7ee7\u7eed|\u63a5\u7740|\u518d\u6b21).{0,8}(?:\u8bc6\u522b|\u67e5\u770b|\u770b|\u5206\u6790|\u8bfb\u53d6|\u63d0\u53d6|\u5224\u65ad|\u786e\u8ba4|ocr)/i;
   const EXPLICIT_IMAGE_RESOURCE_ORDINAL_PATTERN = /(?:\u5386\u53f2|\u4e4b\u524d|\u4e0a\u6b21|\u521a\u624d|\u524d\u9762|previous|last|history)\s*.*?(?:\u7b2c\s*(?:[1-9]\d*|[\u4e00\u4e8c\u4e24\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341]+)|(?:image|photo|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)\s*\d+)/i;
+  // An explicit historical-image phrase establishes the resource scope even
+  // when the intent model abstains and returns no resource_refs. Without this
+  // boundary normalization, relation=new excludes history candidates and the
+  // user sees the misleading "no available image" fallback instead of an
+  // image-choice clarification.
+  const HISTORICAL_IMAGE_REFERENCE_PATTERN = /(?:\u5386\u53f2|\u4e4b\u524d|\u6b64\u524d|\u4ee5\u524d|\u524d\u9762|\u4e0a\u6b21|\u521a\u624d|\u8fc7\u53bb|previous|last|history)[^\u3002\uff01\uff1f!?\n]{0,24}(?:\u56fe\u7247|\u56fe\u50cf|\u7167\u7247|\u56fe|image|photo)/i;
   const IMAGE_GENERATION_INTENT_PATTERN = /(?:\u751f\u6210|\u753b|\u7ed8\u5236|\u5236\u4f5c|\u521b\u5efa|\bgenerate\b|\bdraw\b|\bcreate\b)/i;
   // A request that explicitly names a historical text prompt/description has a
   // semantic source dependency. It is never safe to treat the current turn as
@@ -2441,6 +2447,12 @@
 
   function canonicalRelationForPlan(plan = {}, resources = [], options = {}) {
     let relation = VALID_RELATIONS.has(stringValue(plan.relation)) ? stringValue(plan.relation) : 'new';
+    const operation = stringValue(plan.operation);
+    const input = stringValue(plan.input || plan.arguments?.prompt || options.input);
+    const explicitHistoricalImage = IMAGE_RELATION_OPERATIONS.has(operation)
+      && (EXPLICIT_IMAGE_RESOURCE_ORDINAL_PATTERN.test(input)
+        || HISTORICAL_IMAGE_REFERENCE_PATTERN.test(input));
+    if (relation === 'new' && explicitHistoricalImage) relation = 'followup';
     if (modelOwnsRouteSemantics(options)) return relation;
     const override = relationOverrideForInput(plan, resources, options);
     if (override) relation = override;

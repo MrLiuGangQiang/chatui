@@ -101,6 +101,50 @@ function testConcreteImageEditCannotFallBackToPlainChatWithoutTarget() {
   assert.strictEqual(route.clarificationSlots[0].reason, 'missing');
 }
 
+function testHistoricalImageEditWithoutModelBindingShowsAvailableImageChoices() {
+  const input = '将历史中的猫的图片换成纯白色';
+  const route = inspect({
+    operation: 'edit_image',
+    relation: 'new',
+    arguments: { prompt: input },
+    bindings: [],
+    constraints: [],
+  }, input, {
+    recent_messages: [],
+    image_candidates: [
+      {
+        index: 1,
+        source_index: 1,
+        source: 'history',
+        image_id: 'img-history-cat-a',
+        resource_id: 'res:image:img-history-cat-a',
+        description: '猫换一个品种',
+      },
+      {
+        index: 2,
+        source_index: 2,
+        source: 'history',
+        image_id: 'img-history-cat-b',
+        resource_id: 'res:image:img-history-cat-b',
+        description: '画一只猫',
+      },
+    ],
+    file_candidates: [],
+  });
+
+  assert.strictEqual(route.relation, 'followup');
+  assert.strictEqual(route.readiness, 'needs_clarification');
+  assert.strictEqual(route.clarificationQuestion, '没有明确要编辑哪张图片，请从下列图片中选择目标图片。');
+  const [slot] = route.clarificationSlots;
+  assert.strictEqual(slot.type, 'image');
+  assert.strictEqual(slot.role, 'target');
+  assert.strictEqual(slot.reason, 'ambiguous');
+  assert.deepStrictEqual(slot.choices.map(choice => choice.id), [
+    'img-history-cat-a',
+    'img-history-cat-b',
+  ]);
+}
+
 function testConcreteImageEditSelectsTheOnlyAvailableTarget() {
   const input = '把刚才那张图的背景换成蓝色。';
   const context = imageContext();
@@ -224,6 +268,7 @@ module.exports = [
   testCorrectionCueWinsOverContinuationWording,
   testNonVisualFollowupIsNotReclassifiedAsContinuation,
   testConcreteImageEditCannotFallBackToPlainChatWithoutTarget,
+  testHistoricalImageEditWithoutModelBindingShowsAvailableImageChoices,
   testConcreteImageEditSelectsTheOnlyAvailableTarget,
   testConcreteMutationWithMultipleMatchedImagesClarifiesInsteadOfKeepingReadOnlyBindings,
   testCurrentFileRequestRemainsAStandaloneNewTask,

@@ -5,12 +5,38 @@
     return `${baseKey}:${sessionId || 'default'}`;
   }
 
+  function isGenericGreeting(text = '') {
+    const value = String(text || '').trim().toLowerCase();
+    if (!value) return false;
+    return /^(?:你好|您好|hello|hi|hey|哈喽|嗨|在吗|在么|早上好|中午好|晚上好|下午好|good\s*morning|good\s*afternoon|good\s*evening)[!！。.，,\s~～]*$/i.test(value);
+  }
+
+  function userText(message = {}) {
+    const content = message?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map(part => String(part?.text || part?.input_text || part?.content || '').trim())
+        .filter(Boolean)
+        .join(' ');
+    }
+    return String(message?.rawText || message?.text || '');
+  }
+
   function deriveSessionTitle(session = {}) {
     const custom = String(session.customTitle || '').replace(/\s+/g, ' ').trim();
     if (custom) return custom.slice(0, 40);
-    const firstUser = session.messages?.find(item => item.role === 'user' && item.content)?.content || '';
-    const title = String(firstUser || session.title || '新对话').replace(/\s+/g, ' ').trim();
-    return title ? title.slice(0, 22) : '新对话';
+    const stored = String(session.title || '').replace(/\s+/g, ' ').trim();
+    const users = (Array.isArray(session.messages) ? session.messages : [])
+      .filter(item => item?.role === 'user' && userText(item).trim());
+    if (!users.length) return stored ? stored.slice(0, 22) : '新对话';
+    // An established descriptive title stays stable; only generic placeholders
+    // (greetings and the default label) are replaced by the first real topic.
+    if (stored && stored !== '新对话' && !isGenericGreeting(stored)) return stored.slice(0, 22);
+    const texts = users.map(item => userText(item).replace(/\s+/g, ' ').trim());
+    const firstReal = texts.find(text => !isGenericGreeting(text));
+    const title = firstReal || texts[texts.length - 1] || stored || '新对话';
+    return title.slice(0, 22);
   }
 
   function getSessionReturnCount({ session, activeSessionId, activeMessages = [], isBusy = false, domCount = 0 } = {}) {

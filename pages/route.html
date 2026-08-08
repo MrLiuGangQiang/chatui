@@ -1,26 +1,34 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <!-- Standalone source-ordered route map loaded by the shared document viewer. -->
-  <title>ChatUI · 你的消息怎样变成任务</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>ChatUI · 一条消息是怎样被处理的</title>
   <style>
     :root {
       color-scheme: dark;
-      --white: #f5f7ff;
-      --muted: #e4e9f3;
-      --blue: #00aaff;
-      --cyan: #65dcff;
-      --green: #10ed8b;
-      --red: #ff3137;
-      --orange: #ff8a09;
-      --purple: #b265ff;
-      --ink: #00040c;
+      --bg: #07111f;
+      --surface: #0d1b2e;
+      --surface-soft: #102238;
+      --ink: #f7f9fc;
+      --muted: #adbacb;
+      --quiet: #718096;
+      --blue: #68c9ff;
+      --violet: #b9a3ff;
+      --green: #71e7b7;
+      --amber: #f3bd6d;
+      --rose: #ff91a1;
+      --line: rgba(178, 198, 224, .16);
     }
 
     * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--ink); }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+    }
     body {
       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -36,712 +44,744 @@
       height: 941px;
       overflow: hidden;
       transform-origin: 0 0;
-      color: var(--white);
-      border: 1px solid rgba(169, 181, 198, 0.7);
+      color: var(--ink);
+      border: 1px solid rgba(183, 204, 228, .24);
       background:
-        radial-gradient(ellipse at 50% 112%, rgba(0, 61, 157, 0.3), transparent 55%),
-        radial-gradient(ellipse at 94% 18%, rgba(178, 101, 255, 0.12), transparent 34%),
-        radial-gradient(ellipse at 3% 45%, rgba(0, 170, 255, 0.12), transparent 32%),
-        linear-gradient(180deg, #02050b 0%, #020817 47%, #020c20 100%);
-      box-shadow: inset 0 0 90px rgba(0, 23, 65, 0.22), inset 0 0 3px rgba(255, 255, 255, 0.16);
+        radial-gradient(circle at 5% -8%, rgba(104, 201, 255, .16), transparent 31%),
+        radial-gradient(circle at 91% 2%, rgba(185, 163, 255, .14), transparent 28%),
+        radial-gradient(circle at 63% 112%, rgba(113, 231, 183, .09), transparent 32%),
+        linear-gradient(145deg, #07111f 0%, #0a1727 52%, #081321 100%);
       isolation: isolate;
     }
-
     #poster::before {
       position: absolute;
       inset: 0;
       z-index: 0;
       pointer-events: none;
       content: "";
-      opacity: 0.34;
-      background-image:
-        linear-gradient(rgba(51, 121, 207, 0.075) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(51, 121, 207, 0.075) 1px, transparent 1px),
-        radial-gradient(circle at 13% 22%, var(--blue) 0 1px, transparent 1.6px),
-        radial-gradient(circle at 43% 68%, var(--cyan) 0 1px, transparent 1.6px),
-        radial-gradient(circle at 74% 28%, var(--green) 0 1px, transparent 1.6px),
-        radial-gradient(circle at 92% 78%, var(--purple) 0 1px, transparent 1.6px);
-      background-size: 42px 42px, 42px 42px, auto, auto, auto, auto;
+      opacity: .46;
+      background:
+        linear-gradient(115deg, transparent 0 42%, rgba(255, 255, 255, .022) 55%, transparent 70%),
+        radial-gradient(circle at 50% 44%, rgba(110, 154, 206, .055), transparent 46%);
     }
-
     #poster::after {
       position: absolute;
-      z-index: 8;
-      left: 0;
-      top: -150px;
-      width: 100%;
-      height: 116px;
+      z-index: 1;
+      left: 44px;
+      right: 44px;
+      top: 143px;
+      height: 1px;
       pointer-events: none;
       content: "";
-      opacity: 0.15;
-      background: linear-gradient(180deg, transparent, rgba(101, 220, 255, 0.2), transparent);
-      animation: scan-poster 8.5s linear infinite;
+      background: linear-gradient(90deg, transparent, rgba(167, 199, 232, .24) 12%, rgba(167, 199, 232, .1) 88%, transparent);
     }
 
-    .ambient { position: absolute; z-index: 0; border-radius: 50%; filter: blur(34px); pointer-events: none; }
-    .ambient.blue { left: -90px; top: 140px; width: 290px; height: 290px; background: rgba(0, 170, 255, 0.1); }
-    .ambient.green { left: 570px; top: 360px; width: 380px; height: 300px; background: rgba(16, 237, 139, 0.055); }
-    .ambient.purple { right: -82px; bottom: 52px; width: 330px; height: 330px; background: rgba(178, 101, 255, 0.09); }
-
-    .poster-header {
+    .hero {
       position: absolute;
-      z-index: 6;
-      left: 38px;
-      right: 38px;
-      top: 21px;
-      height: 120px;
-      border-bottom: 1px solid rgba(101, 220, 255, 0.18);
+      z-index: 5;
+      left: 44px;
+      right: 44px;
+      top: 25px;
+      height: 103px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 30px;
     }
-
-    .poster-header::after {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: -1px;
-      height: 1px;
-      content: "";
-      background: linear-gradient(90deg, var(--blue), rgba(101, 220, 255, 0.12) 52%, rgba(178, 101, 255, 0.62));
-      box-shadow: 0 0 12px rgba(0, 170, 255, 0.28);
+    .identity {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 20px;
     }
-
-    .brand-mark { position: absolute; left: 0; top: 2px; width: 80px; height: 80px; filter: drop-shadow(0 0 18px rgba(0, 170, 255, 0.28)); }
-    .brand-mark .hex { fill: rgba(0, 170, 255, 0.055); stroke: var(--blue); stroke-width: 1.4; }
-    .brand-mark .route-line, .brand-mark .route-node { fill: none; stroke: var(--cyan); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .brand-mark .route-node { fill: #04182a; }
-    .brand-mark .end-node { stroke: var(--green); }
-
-    .title-block { position: absolute; left: 99px; top: 0; width: 1040px; }
+    .brand {
+      width: 62px;
+      height: 62px;
+      flex: 0 0 62px;
+    }
+    .brand rect:first-child {
+      fill: rgba(104, 201, 255, .08);
+      stroke: rgba(104, 201, 255, .72);
+      stroke-width: 1.4;
+    }
+    .brand path,
+    .brand circle {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .brand circle { fill: #0b1e32; }
+    .brand .end { stroke: var(--green); }
+    .hero-copy { min-width: 0; }
     .eyebrow {
       display: flex;
       align-items: center;
       gap: 9px;
-      margin-bottom: 5px;
-      color: var(--cyan);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 12.5px;
-      font-weight: 850;
-      letter-spacing: 1.8px;
+      margin: 0 0 7px;
+      color: #9de5f8;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .7px;
     }
-    .eyebrow-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(16, 237, 139, 0.8); animation: pulse-dot 1.8s ease-in-out infinite; }
-    .main-title { margin: 0; color: #f7f8fc; font-size: 39px; font-weight: 900; line-height: 1.06; letter-spacing: 0.3px; text-shadow: 0 3px 12px rgba(0, 0, 0, 0.68); }
-    .main-title .accent { color: transparent; background: linear-gradient(90deg, var(--blue), var(--cyan) 45%, var(--green)); -webkit-background-clip: text; background-clip: text; }
-    .subtitle { margin: 7px 0 0; color: rgba(228, 233, 243, 0.82); font-size: 15px; line-height: 1.45; letter-spacing: 0.08px; }
-    .subtitle strong { color: var(--white); font-weight: 800; }
-    .subtitle .branch-copy { color: var(--orange); }
-
-    .runtime-card {
-      --state-rgb: 0, 170, 255;
-      position: absolute;
-      right: 0;
-      top: 0;
-      width: 416px;
-      height: 98px;
-      padding: 13px 16px 12px;
-      border: 1px solid rgba(var(--state-rgb), 0.48);
-      border-radius: 13px;
-      background: linear-gradient(135deg, rgba(var(--state-rgb), 0.13), transparent 46%), rgba(1, 8, 20, 0.86);
-      box-shadow: inset 0 0 28px rgba(var(--state-rgb), 0.055), 0 0 24px rgba(var(--state-rgb), 0.08);
-      overflow: hidden;
+    .eyebrow i {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px rgba(113, 231, 183, .65);
+      animation: pulse 1.8s ease-in-out infinite;
     }
-    .runtime-card::after { position: absolute; right: -26px; top: -36px; width: 122px; height: 122px; border-radius: 50%; content: ""; background: rgba(var(--state-rgb), 0.08); filter: blur(14px); }
-    .runtime-card[data-phase="busy"], .runtime-card[data-phase="stopping"], .runtime-card[data-phase="failed"] { --state-rgb: 255, 49, 55; }
-    .runtime-card[data-phase="accepted"], .runtime-card[data-phase="capturing"], .runtime-card[data-phase="routing"] { --state-rgb: 0, 170, 255; }
-    .runtime-card[data-phase="handoff"], .runtime-card[data-phase="clarifying"] { --state-rgb: 178, 101, 255; }
-    .runtime-card[data-phase="running"], .runtime-card[data-phase="recovering"], .runtime-card[data-phase="completed"] { --state-rgb: 16, 237, 139; }
-    .runtime-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; min-width: 0; color: rgba(228, 233, 243, 0.66); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11.5px; font-weight: 850; letter-spacing: 1px; }
-    .runtime-lamp { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: rgb(var(--state-rgb)); box-shadow: 0 0 11px rgba(var(--state-rgb), 0.9); animation: pulse-dot 1.6s ease-in-out infinite; }
-    .session-flag { min-width: 0; max-width: 174px; margin-left: auto; overflow: hidden; color: rgba(228, 233, 243, 0.78); font-size: 10.5px; letter-spacing: 0.35px; text-overflow: ellipsis; white-space: nowrap; }
-    .pending-flag { display: none; flex: 0 0 auto; padding: 2px 7px; border: 1px solid rgba(178, 101, 255, 0.55); border-radius: 999px; color: #d9b8ff; background: rgba(178, 101, 255, 0.1); letter-spacing: 0.8px; }
-    .runtime-card[data-pending-clarification="true"] .pending-flag { display: inline-flex; }
-    .runtime-label { position: relative; z-index: 1; display: block; margin-top: 7px; color: #f7f8fc; font-size: 18px; font-weight: 850; line-height: 1.2; }
-    .runtime-note { position: relative; z-index: 1; margin: 4px 0 0; color: rgba(228, 233, 243, 0.72); font-size: 12.5px; line-height: 1.35; }
-
-    .workflow { position: absolute; z-index: 2; left: 0; top: 148px; width: 1672px; height: 704px; }
-    .source-order-ribbon {
-      position: absolute;
-      z-index: 7;
-      left: 69px;
-      top: 4px;
+    .main-title {
+      margin: 0;
+      color: var(--ink);
+      font-size: 42px;
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: -.8px;
+    }
+    .main-title span {
+      color: transparent;
+      background: linear-gradient(100deg, var(--blue), #8fe8ff 48%, var(--green));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+    .subtitle {
+      max-width: 910px;
+      margin: 9px 0 0;
+      color: rgba(218, 227, 238, .74);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    .subtitle strong { color: var(--ink); }
+    .hero-meta {
       display: flex;
       align-items: center;
-      gap: 9px;
-      height: 35px;
-      padding: 0 14px 0 9px;
-      border: 1px solid rgba(0, 170, 255, 0.38);
-      border-radius: 999px;
-      background: rgba(0, 12, 31, 0.82);
-      color: rgba(228, 233, 243, 0.72);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 11.5px;
-      font-weight: 850;
-      letter-spacing: 0.8px;
-      box-shadow: 0 0 18px rgba(0, 170, 255, 0.08);
+      flex: 0 0 auto;
+      gap: 22px;
     }
-    .source-order-ribbon b { display: inline-flex; align-items: center; height: 21px; padding: 0 8px; border-radius: 999px; color: #00131e; background: linear-gradient(90deg, var(--cyan), var(--green)); font-size: 11.5px; letter-spacing: 0.7px; }
-    .source-order-ribbon strong { color: var(--white); font-size: 12.5px; letter-spacing: 0.8px; }
+    .process-summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: rgba(218, 227, 238, .7);
+      white-space: nowrap;
+    }
+    .process-summary .summary-number {
+      color: var(--blue);
+      font-size: 29px;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .process-summary b {
+      display: block;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .process-summary small {
+      display: block;
+      margin-top: 3px;
+      color: var(--quiet);
+      font-size: 12px;
+    }
+    .runtime {
+      width: 360px;
+      height: 88px;
+      padding: 14px 17px 13px;
+      border: 1px solid rgba(147, 190, 226, .27);
+      border-radius: 18px;
+      background: rgba(8, 23, 40, .82);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, .16), inset 0 1px rgba(255, 255, 255, .035);
+    }
+    .runtime-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(211, 222, 236, .62);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .lamp {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 8px;
+      border-radius: 50%;
+      background: #7c899a;
+    }
+    .session {
+      min-width: 0;
+      max-width: 155px;
+      margin-left: auto;
+      overflow: hidden;
+      color: rgba(211, 222, 236, .52);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .pending {
+      display: none;
+      margin-left: 2px;
+      padding: 3px 8px;
+      border: 1px solid rgba(243, 189, 109, .42);
+      border-radius: 999px;
+      color: #f8d59c;
+      background: rgba(243, 189, 109, .1);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .runtime[data-pending-clarification="true"] .pending { display: inline-flex; }
+    .runtime-label {
+      display: block;
+      margin-top: 7px;
+      color: var(--ink);
+      font-size: 20px;
+      font-weight: 900;
+      line-height: 1.05;
+    }
+    .runtime-note {
+      margin: 5px 0 0;
+      overflow: hidden;
+      color: rgba(211, 222, 236, .63);
+      font-size: 12px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .runtime[data-phase="accepted"] .lamp,
+    .runtime[data-phase="capturing"] .lamp,
+    .runtime[data-phase="routing"] .lamp,
+    .runtime[data-phase="handoff"] .lamp,
+    .runtime[data-phase="running"] .lamp,
+    .runtime[data-phase="recovering"] .lamp {
+      background: var(--green);
+      box-shadow: 0 0 11px rgba(113, 231, 183, .75);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .runtime[data-phase="clarification"] .lamp { background: var(--amber); box-shadow: 0 0 11px rgba(243, 189, 109, .65); }
+    .runtime[data-phase="completed"] .lamp { background: var(--green); }
+    .runtime[data-phase="failed"] .lamp,
+    .runtime[data-phase="stopped"] .lamp { background: var(--rose); }
 
-    .flow-track, .flow-runner { position: absolute; inset: 0; width: 1672px; height: 704px; overflow: visible; pointer-events: none; }
-    .flow-track { z-index: 1; }
-    .flow-runner { z-index: 2; }
-    .track-shadow, .track-core, .sequence-link, .branch-track { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-    .track-shadow { stroke: rgba(0, 170, 255, 0.12); stroke-width: 12; filter: blur(4px); }
-    .track-core { stroke: rgba(101, 220, 255, 0.24); stroke-width: 2; stroke-dasharray: 7 10; animation: dash-run 1.2s linear infinite; }
-    .sequence-link { stroke: rgba(101, 220, 255, 0.78); stroke-width: 2.2; filter: drop-shadow(0 0 5px rgba(0, 170, 255, 0.56)); }
-    .sequence-link.row-wrap { stroke: rgba(0, 170, 255, 0.52); stroke-width: 1.7; stroke-dasharray: 7 7; }
-    .branch-track { stroke: rgba(255, 49, 55, 0.78); stroke-width: 2; stroke-dasharray: 5 5; filter: drop-shadow(0 0 5px rgba(255, 49, 55, 0.42)); }
-    .runner-halo { fill: rgba(101, 220, 255, 0.2); filter: blur(5px); }
-    .runner-core { fill: var(--white); stroke: var(--cyan); stroke-width: 2; filter: drop-shadow(0 0 8px var(--blue)); }
-    .wrap-label { position: absolute; z-index: 5; width: 126px; text-align: center; color: rgba(101, 220, 255, 0.78); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11px; font-weight: 900; letter-spacing: 0.35px; pointer-events: none; }
-    .wrap-label.one { right: 0; top: 232px; }
-    .wrap-label.two { left: 0; top: 447px; }
-
-    .phase-card {
-      --phase-rgb: 0, 170, 255;
+    .journey {
       position: absolute;
       z-index: 4;
-      left: 8px;
-      width: 40px;
-      height: 172px;
+      left: 38px;
+      right: 38px;
+      top: 164px;
+      height: 668px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      overflow: hidden;
+      border: 1px solid rgba(183, 204, 228, .2);
+      border-radius: 28px;
+      background: rgba(8, 20, 35, .72);
+      box-shadow: 0 25px 70px rgba(0, 0, 0, .2), inset 0 1px rgba(255, 255, 255, .035);
+    }
+    .stage {
+      --accent: var(--blue);
+      --accent-rgb: 104, 201, 255;
+      position: relative;
+      min-width: 0;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      border: 1px solid rgba(var(--phase-rgb), 0.38);
-      border-radius: 12px;
-      background: rgba(1, 10, 25, 0.9);
-      box-shadow: inset 0 0 18px rgba(var(--phase-rgb), 0.055), 0 0 20px rgba(var(--phase-rgb), 0.06);
+      padding: 28px 31px 27px;
+      background: linear-gradient(180deg, rgba(13, 30, 50, .42), rgba(8, 20, 35, .12));
+      transition: background .2s ease, box-shadow .2s ease;
     }
-    .phase-card.submit { top: 52px; --phase-rgb: 0, 170, 255; }
-    .phase-card.route { top: 267px; --phase-rgb: 16, 237, 139; }
-    .phase-card.execute { top: 482px; --phase-rgb: 178, 101, 255; }
-    .phase-index { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; color: rgb(var(--phase-rgb)); background: rgba(var(--phase-rgb), 0.1); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11px; font-weight: 900; }
-    .phase-name { color: rgba(228, 233, 243, 0.86); font-family: Consolas, "SFMono-Regular", monospace; font-size: 11.5px; font-weight: 900; letter-spacing: 0.4px; writing-mode: vertical-rl; text-orientation: mixed; }
-    .phase-range { color: rgba(var(--phase-rgb), 0.78); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10px; font-weight: 900; letter-spacing: 0.1px; }
-
-    .node-grid {
+    .stage + .stage { border-left: 1px solid rgba(183, 204, 228, .13); }
+    .stage::after {
       position: absolute;
-      z-index: 3;
-      left: 80px;
-      top: 52px;
-      width: 1550px;
-      display: grid;
-      grid-template-rows: repeat(3, 172px);
-      row-gap: 43px;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 4px;
+      content: "";
+      background: var(--accent);
+      opacity: .75;
     }
-    .node-row { display: grid; min-width: 0; grid-template-columns: repeat(4, 350px); column-gap: 50px; }
-    .node-row.reverse { direction: rtl; }
-    .node-row.reverse > .node { direction: ltr; }
-
-    .node {
-      --rgb: 0, 170, 255;
+    .stage.route { --accent: var(--violet); --accent-rgb: 185, 163, 255; }
+    .stage.execute { --accent: var(--green); --accent-rgb: 113, 231, 183; }
+    .stage.is-current {
+      background: linear-gradient(180deg, rgba(var(--accent-rgb), .11), rgba(8, 20, 35, .14) 46%);
+      box-shadow: inset 0 0 60px rgba(var(--accent-rgb), .045);
+    }
+    .stage-head {
       position: relative;
-      min-width: 0;
-      overflow: hidden;
-      padding: 11px 15px 10px;
-      border: 1px solid rgba(var(--rgb), 0.54);
-      border-radius: 13px;
-      background: linear-gradient(135deg, rgba(var(--rgb), 0.115), transparent 42%), linear-gradient(180deg, rgba(5, 17, 37, 0.96), rgba(1, 9, 23, 0.965));
-      box-shadow: inset 0 0 30px rgba(var(--rgb), 0.042), 0 12px 28px rgba(0, 0, 0, 0.25), 0 0 18px rgba(var(--rgb), 0.055);
-      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+      z-index: 3;
+      height: 159px;
+      flex: 0 0 159px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid rgba(183, 204, 228, .14);
     }
-    .node::before { position: absolute; left: 0; right: 0; top: 0; height: 2px; content: ""; background: linear-gradient(90deg, rgb(var(--rgb)), rgba(var(--rgb), 0.08) 70%, transparent); box-shadow: 0 0 9px rgba(var(--rgb), 0.62); }
-    .node::after { position: absolute; right: -28px; bottom: -38px; width: 112px; height: 112px; border-radius: 50%; content: ""; background: rgba(var(--rgb), 0.045); filter: blur(9px); pointer-events: none; }
-    .node.blue { --rgb: 0, 170, 255; }
-    .node.cyan { --rgb: 101, 220, 255; }
-    .node.green { --rgb: 16, 237, 139; }
-    .node.orange { --rgb: 255, 138, 9; }
-    .node.purple { --rgb: 178, 101, 255; }
-    .node.is-current {
-      z-index: 7;
-      border-color: rgb(var(--rgb));
-      transform: translateY(-2px);
-      box-shadow: inset 0 0 38px rgba(var(--rgb), 0.12), 0 0 0 2px rgba(var(--rgb), 0.24), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 34px rgba(var(--rgb), 0.46);
-      animation: current-node-pulse 1.65s ease-in-out infinite;
+    .stage-marker-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 47px;
     }
-    .node.is-current .node-number { color: #001019; background: rgb(var(--rgb)); box-shadow: 0 0 18px rgba(var(--rgb), 0.72); }
-    .node.is-terminal-current { box-shadow: inset 0 0 38px rgba(16, 237, 139, 0.13), 0 0 0 2px rgba(16, 237, 139, 0.25), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 38px rgba(16, 237, 139, 0.5); }
-    .node.is-error-current { box-shadow: inset 0 0 38px rgba(255, 49, 55, 0.13), 0 0 0 2px rgba(255, 49, 55, 0.3), 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 38px rgba(255, 49, 55, 0.48); }
-
-    .node-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; min-height: 26px; }
-    .node-number {
+    .stage-number {
       display: inline-flex;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
       align-items: center;
       justify-content: center;
-      min-width: 44px;
-      height: 27px;
-      padding: 0 8px;
-      border: 1px solid rgba(var(--rgb), 0.6);
-      border-radius: 7px;
-      color: rgb(var(--rgb));
-      background: rgba(var(--rgb), 0.1);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 14px;
+      border: 1px solid rgba(var(--accent-rgb), .58);
+      border-radius: 14px;
+      color: var(--accent);
+      background: rgba(var(--accent-rgb), .09);
+      font-size: 15px;
       font-weight: 900;
-      letter-spacing: 1px;
-      box-shadow: 0 0 12px rgba(var(--rgb), 0.08);
+      letter-spacing: .5px;
     }
-    .node-kind { color: rgba(228, 233, 243, 0.84); font-size: 12px; font-weight: 900; letter-spacing: 0.1px; }
-    .node-icon { width: 24px; height: 24px; margin-left: auto; color: rgb(var(--rgb)); opacity: 0.9; filter: drop-shadow(0 0 5px rgba(var(--rgb), 0.35)); }
-    .node-icon * { fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
-    .node-title { position: relative; z-index: 1; margin: 6px 0 3px; color: #f7f8fc; font-size: 20px; font-weight: 850; line-height: 1.2; letter-spacing: 0.08px; }
-    .node-summary { position: relative; z-index: 1; min-height: 35px; margin: 0; color: rgba(228, 233, 243, 0.9); font-size: 13px; font-weight: 560; line-height: 1.34; }
-    .node-code {
+    .stage-kicker {
+      color: var(--accent);
+      font-size: 13.5px;
+      font-weight: 850;
+      letter-spacing: .5px;
+    }
+    .stage-title {
+      margin: 18px 0 7px;
+      color: var(--ink);
+      font-size: 29px;
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -.4px;
+    }
+    .stage-desc {
+      max-width: 440px;
+      margin: 0;
+      color: rgba(218, 227, 238, .7);
+      font-size: 16.5px;
+      line-height: 1.48;
+    }
+    .stage-body {
+      min-height: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding-top: 27px;
+    }
+    .story-list {
+      position: relative;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .story-list::before {
+      position: absolute;
+      left: 19px;
+      top: 22px;
+      bottom: 23px;
+      width: 1px;
+      content: "";
+      background: linear-gradient(180deg, rgba(var(--accent-rgb), .52), rgba(var(--accent-rgb), .12));
+    }
+    .story-item {
+      --item-rgb: var(--accent-rgb);
+      position: relative;
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 15px;
+      min-width: 0;
+      padding: 0 0 28px;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .story-item:last-child { padding-bottom: 0; }
+    .submit .story-item:nth-child(2) { --item-rgb: 132, 211, 244; }
+    .submit .story-item:nth-child(3) { --item-rgb: 113, 231, 183; }
+    .route .story-item:nth-child(2) { --item-rgb: 185, 163, 255; }
+    .route .story-item:nth-child(3) { --item-rgb: 113, 231, 183; }
+    .execute .story-item:nth-child(2) { --item-rgb: 113, 231, 183; }
+    .execute .story-item:nth-child(3) { --item-rgb: 132, 211, 244; }
+    .story-dot {
       position: relative;
       z-index: 1;
-      display: flex;
-      align-items: center;
-      min-height: 22px;
-      margin-top: 4px;
-      padding: 3px 7px;
-      overflow: hidden;
-      border-left: 2px solid rgba(var(--rgb), 0.72);
-      color: rgba(212, 238, 255, 0.88);
-      background: rgba(0, 0, 0, 0.2);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 12px;
-      line-height: 1.25;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .node-branches { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; min-height: 20px; margin-top: 3px; overflow: hidden; }
-    .branch-chip {
       display: inline-flex;
+      width: 40px;
+      height: 40px;
       align-items: center;
-      min-width: 0;
-      height: 20px;
-      padding: 0 8px;
-      border: 1px solid rgba(var(--chip-rgb, 101, 220, 255), 0.34);
-      border-radius: 999px;
-      color: rgba(var(--chip-rgb, 101, 220, 255), 0.9);
-      background: rgba(var(--chip-rgb, 101, 220, 255), 0.065);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 11.5px;
+      justify-content: center;
+      border: 1px solid rgba(var(--item-rgb), .43);
+      border-radius: 13px;
+      color: rgb(var(--item-rgb));
+      background: rgba(var(--item-rgb), .08);
+      font-size: 17px;
+      font-weight: 900;
+    }
+    .story-copy { min-width: 0; padding-top: 1px; }
+    .story-copy h3 {
+      margin: 0 0 7px;
+      color: rgba(247, 249, 252, .92);
+      font-size: 19px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+    .story-copy p {
+      margin: 0;
+      color: rgba(218, 227, 238, .68);
+      font-size: 16.5px;
+      line-height: 1.5;
+    }
+    .story-item.is-current {
+      transform: translateX(3px);
+    }
+    .story-item.is-current .story-dot {
+      color: #07111f;
+      border-color: rgb(var(--item-rgb));
+      background: rgb(var(--item-rgb));
+      box-shadow: 0 0 0 5px rgba(var(--item-rgb), .1), 0 0 22px rgba(var(--item-rgb), .24);
+    }
+    .story-item.is-current .story-copy h3 { color: var(--ink); }
+    .story-item[aria-current="step"] .story-copy p { color: rgba(235, 241, 248, .82); }
+    .decision-note,
+    .capability-note {
+      margin-top: auto;
+      padding: 17px 18px;
+      border: 1px solid rgba(var(--note-rgb), .28);
+      border-radius: 17px;
+      background: rgba(var(--note-rgb), .065);
+      transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+    }
+    .decision-note {
+      --note-rgb: 243, 189, 109;
+    }
+    .decision-note.is-current {
+      border-color: rgba(var(--note-rgb), .72);
+      background: rgba(var(--note-rgb), .12);
+      box-shadow: 0 0 26px rgba(var(--note-rgb), .1);
+    }
+    .note-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+    }
+    .note-heading span {
+      color: rgb(var(--note-rgb));
+      font-size: 12px;
       font-weight: 850;
-      letter-spacing: 0.15px;
+      letter-spacing: .4px;
+    }
+    .note-heading strong {
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 900;
       white-space: nowrap;
     }
-    .branch-chip.pass { --chip-rgb: 16, 237, 139; }
-    .branch-chip.warn { --chip-rgb: 255, 138, 9; }
-    .branch-chip.stop { --chip-rgb: 255, 49, 55; }
-    .branch-chip.pending { --chip-rgb: 178, 101, 255; }
-
-    .clarification-exit {
-      position: absolute;
-      z-index: 5;
-      left: 470px;
-      top: 664px;
-      width: 750px;
-      height: 33px;
+    .decision-note p {
+      margin: 0;
+      color: rgba(235, 226, 211, .78);
+      font-size: 14.5px;
+      line-height: 1.5;
+    }
+    .decision-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin-top: 13px;
+    }
+    .decision-options span {
+      display: block;
+      padding-top: 9px;
+      border-top: 1px solid rgba(var(--note-rgb), .2);
+      color: rgba(245, 232, 211, .76);
+      font-size: 13.5px;
+      line-height: 1.42;
+    }
+    .capability-note {
+      --note-rgb: 104, 201, 255;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 9px;
-      padding: 0 11px;
-      border: 1px solid rgba(255, 49, 55, 0.48);
-      border-radius: 9px;
-      color: rgba(245, 247, 255, 0.88);
-      background: linear-gradient(90deg, rgba(255, 49, 55, 0.13), rgba(178, 101, 255, 0.08));
-      box-shadow: 0 0 18px rgba(255, 49, 55, 0.075);
-      font-size: 11.5px;
-      line-height: 1.25;
-      white-space: nowrap;
+      margin-top: auto;
     }
-    .clarification-exit b { flex: 0 0 auto; color: var(--red); font-family: Consolas, "SFMono-Regular", monospace; font-size: 12px; letter-spacing: 0.5px; }
-    .clarification-exit span { color: rgba(228, 233, 243, 0.72); }
-    .clarification-exit.is-current { border-color: rgba(178, 101, 255, 0.86); background: linear-gradient(90deg, rgba(255, 49, 55, 0.18), rgba(178, 101, 255, 0.18)); box-shadow: 0 0 24px rgba(178, 101, 255, 0.28); }
-    .phase-card { transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease; }
-    .phase-card.is-current { border-color: rgba(var(--phase-rgb), 0.86); background: rgba(var(--phase-rgb), 0.13); box-shadow: inset 0 0 22px rgba(var(--phase-rgb), 0.11), 0 0 24px rgba(var(--phase-rgb), 0.3); }
-    .workflow.has-live-progress .flow-runner { opacity: 0.3; }
+    .capability-note > strong {
+      flex: 0 0 100%;
+      color: rgba(232, 240, 248, .72);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .capability {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .capability.good {
+      color: #a9f1d1;
+      border: 1px solid rgba(113, 231, 183, .28);
+      background: rgba(113, 231, 183, .08);
+    }
+    .capability.caution {
+      color: #f5d19b;
+      border: 1px solid rgba(243, 189, 109, .3);
+      background: rgba(243, 189, 109, .08);
+    }
 
-    .poster-footer {
+    .footer {
       position: absolute;
-      z-index: 6;
+      z-index: 5;
       left: 38px;
       right: 38px;
       bottom: 18px;
-      height: 66px;
+      height: 60px;
       display: flex;
       align-items: center;
       gap: 20px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(101, 220, 255, 0.16);
+      padding: 0 21px;
+      border: 1px solid rgba(183, 204, 228, .16);
+      border-radius: 18px;
+      background: rgba(8, 20, 35, .74);
     }
-    .poster-footer::before { position: absolute; left: 0; right: 0; top: -1px; height: 1px; content: ""; background: linear-gradient(90deg, rgba(0, 170, 255, 0.6), rgba(101, 220, 255, 0.08) 58%, rgba(178, 101, 255, 0.44)); }
-    .lifecycle { display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; }
-    .lifecycle-title { margin-right: 4px; color: rgba(228, 233, 243, 0.58); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10.5px; font-weight: 900; letter-spacing: 0.7px; white-space: nowrap; }
-    .lifecycle-item {
-      --life-rgb: 0, 170, 255;
+    .progress-caption {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex: 0 0 auto;
+      color: rgba(218, 227, 238, .62);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .progress-caption .footer-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 10px rgba(113, 231, 183, .5);
+    }
+    .progress-caption b { color: var(--ink); font-size: 13px; }
+    .lifecycle {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: rgba(218, 227, 238, .48);
+    }
+    .life {
+      position: relative;
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      height: 24px;
-      padding: 0 8px;
-      border: 1px solid rgba(var(--life-rgb), 0.25);
-      border-radius: 999px;
-      color: rgba(228, 233, 243, 0.58);
-      background: rgba(var(--life-rgb), 0.035);
-      font-family: Consolas, "SFMono-Regular", monospace;
-      font-size: 10.5px;
-      font-weight: 800;
+      gap: 6px;
+      color: rgba(218, 227, 238, .5);
+      font-size: 13px;
       white-space: nowrap;
-      transition: 160ms ease;
+      transition: color .2s ease;
     }
-    .lifecycle-item i { width: 5px; height: 5px; border-radius: 50%; background: rgba(var(--life-rgb), 0.55); }
-    .lifecycle-item.handoff { --life-rgb: 178, 101, 255; }
-    .lifecycle-item.boundary, .lifecycle-item.terminal { --life-rgb: 16, 237, 139; }
-    .lifecycle-item.past { color: rgba(228, 233, 243, 0.78); border-color: rgba(var(--life-rgb), 0.44); background: rgba(var(--life-rgb), 0.075); }
-    .lifecycle-item.current { color: #f7f8fc; border-color: rgba(var(--life-rgb), 0.78); background: rgba(var(--life-rgb), 0.14); box-shadow: 0 0 13px rgba(var(--life-rgb), 0.18); }
-    .lifecycle-item.current i { background: rgb(var(--life-rgb)); box-shadow: 0 0 8px rgba(var(--life-rgb), 0.9); }
-    .lifecycle-arrow { color: rgba(101, 220, 255, 0.4); font-size: 11px; }
-    .running-note { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border: 1px solid rgba(16, 237, 139, 0.32); border-radius: 7px; color: var(--green); background: rgba(16, 237, 139, 0.065); font-family: Consolas, "SFMono-Regular", monospace; font-size: 10.5px; font-weight: 900; letter-spacing: 0.5px; white-space: nowrap; }
-    .legend { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex: 0 0 auto; }
-    .legend-item { display: inline-flex; align-items: center; gap: 5px; color: rgba(228, 233, 243, 0.58); font-size: 11px; white-space: nowrap; }
-    .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 8px color-mix(in srgb, var(--dot) 70%, transparent); }
+    .life i {
+      width: 7px;
+      height: 7px;
+      border: 1px solid rgba(218, 227, 238, .42);
+      border-radius: 50%;
+      background: transparent;
+      transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+    .life.current { color: var(--ink); font-weight: 850; }
+    .life.current i {
+      border-color: var(--blue);
+      background: var(--blue);
+      box-shadow: 0 0 10px rgba(104, 201, 255, .65);
+    }
+    .life.past { color: rgba(218, 227, 238, .72); }
+    .life.past i { border-color: rgba(113, 231, 183, .7); background: rgba(113, 231, 183, .7); }
+    .life.error { color: var(--rose); }
+    .life.error i { border-color: var(--rose); background: var(--rose); }
+    .arrow { color: rgba(183, 204, 228, .26); font-size: 13px; }
+    .truth {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+      color: rgba(218, 227, 238, .5);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .truth b { color: #f2d3a0; font-size: 11.5px; }
 
-    @keyframes pulse-dot { 0%, 100% { opacity: 0.55; transform: scale(0.88); } 50% { opacity: 1; transform: scale(1.12); } }
-    @keyframes current-node-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.16); } }
-    @keyframes dash-run { to { stroke-dashoffset: -17; } }
-    @keyframes scan-poster { from { transform: translateY(0); } to { transform: translateY(1120px); } }
-
-    @media (prefers-reduced-motion: reduce) {
-      #poster::after, .eyebrow-dot, .runtime-lamp, .track-core, .node.is-current { animation: none !important; }
-      .flow-runner { display: none; }
+    @keyframes pulse { 0%, 100% { opacity: .72; transform: scale(.92); } 50% { opacity: 1; transform: scale(1); } }
+    @media(prefers-reduced-motion:reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
     }
   </style>
 </head>
 <body>
-  <main id="poster" aria-label="ChatUI 从发送到完成的处理流程图">
-    <span class="ambient blue"></span>
-    <span class="ambient green"></span>
-    <span class="ambient purple"></span>
-
-    <header class="poster-header">
-      <svg class="brand-mark" viewBox="0 0 88 88" aria-hidden="true">
-        <path class="hex" d="M44 4 78 23.5v39L44 82 10 62.5v-39Z" />
-        <path class="route-line" d="M24 27h18v16h20v18" />
-        <path class="route-line" d="m55 54 7 7 7-7" />
-        <circle class="route-node" cx="24" cy="27" r="4" />
-        <circle class="route-node" cx="42" cy="43" r="4" />
-        <circle class="route-node end-node" cx="62" cy="61" r="4" />
-      </svg>
-      <div class="title-block">
-        <div class="eyebrow"><span class="eyebrow-dot"></span>从你的消息 · 到任务完成</div>
-        <h1 class="main-title">你的消息怎样变成任务 <span class="accent">01 → 12</span></h1>
-        <p class="subtitle"><strong>按顺序看：</strong>先收到你的消息，再理解你的需求，最后开始处理。</p>
+  <main id="poster" aria-labelledby="routeTitle">
+    <header class="hero">
+      <div class="identity">
+        <svg class="brand" viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="3" y="3" width="58" height="58" rx="18"></rect>
+          <path d="M17 20h15c7 0 11 4 11 11v5c0 6 3 9 9 9"></path>
+          <circle cx="17" cy="20" r="4"></circle>
+          <circle cx="43" cy="31" r="4"></circle>
+          <circle class="end" cx="52" cy="45" r="4"></circle>
+        </svg>
+        <div class="hero-copy">
+          <div class="eyebrow"><i></i>从发送到完成</div>
+          <h1 class="main-title" id="routeTitle">一条消息，<span>怎样变成回答</span></h1>
+          <p class="subtitle">你的消息怎样变成任务：你点击发送后，程序会先收好消息，再判断该怎么处理，最后把结果交回<strong>当前会话</strong>。</p>
+        </div>
       </div>
-      <section class="runtime-card" data-runtime-state data-phase="idle" data-pending-clarification="false" aria-live="polite">
-        <div class="runtime-top"><span class="runtime-lamp"></span>现在的状态<span class="session-flag" data-runtime-session>当前会话</span><span class="pending-flag">需要补充</span></div>
-        <strong class="runtime-label" data-runtime-label>现在可以发送</strong>
-        <p class="runtime-note" data-runtime-note>这里只展示处理顺序</p>
-      </section>
+      <div class="hero-meta">
+        <div class="process-summary" aria-label="流程阶段数量">
+          <span class="summary-number">3</span>
+          <span><b>个阶段</b><small>看懂消息去向</small></span>
+        </div>
+        <section class="runtime" data-runtime-state="" data-phase="idle" data-route-stage="idle" data-pending-clarification="false" aria-live="polite">
+          <div class="runtime-top"><span class="lamp"></span>实时状态<span class="session" data-runtime-session="">当前会话</span><span class="pending">需要补充</span></div>
+          <strong class="runtime-label" data-runtime-label="">等你发送消息</strong>
+          <p class="runtime-note" data-runtime-note="">还没有开始处理</p>
+        </section>
+      </div>
     </header>
 
-    <section class="workflow" aria-label="按 01 到 12 顺序处理你的消息">
-      <div class="source-order-ribbon"><b>处理顺序</b><strong>01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11 → 12</strong></div>
-
-      <svg class="flow-track" data-layout="serpentine-s" viewBox="0 0 1672 704" aria-hidden="true">
-        <defs>
-          <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#65dcff" /></marker>
-          <marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff3137" /></marker>
-        </defs>
-        <path class="track-shadow" d="M58 138H1630Q1658 138 1658 166V325Q1658 353 1630 353H80Q58 353 58 375V546Q58 568 80 568H1648" />
-        <path class="track-core" id="mainRouteGuide" data-sequence="01 02 03 04 05 06 07 08 09 10 11 12" d="M58 138H1630Q1658 138 1658 166V325Q1658 353 1630 353H80Q58 353 58 375V546Q58 568 80 568H1648" />
-        <g class="sequence-links" aria-label="严格顺序连接">
-          <path class="sequence-link" data-from="01" data-to="02" d="M430 138H476" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="02" data-to="03" d="M830 138H876" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="03" data-to="04" d="M1230 138H1276" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link row-wrap" data-from="04" data-to="05" d="M1630 138Q1658 138 1658 166V325Q1658 353 1630 353" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="05" data-to="06" d="M1280 353H1234" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="06" data-to="07" d="M880 353H834" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="07" data-to="08" d="M480 353H434" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link row-wrap" data-from="08" data-to="09" d="M80 353Q58 353 58 375V546Q58 568 80 568" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="09" data-to="10" d="M430 568H476" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="10" data-to="11" d="M830 568H876" marker-end="url(#arrowBlue)" />
-          <path class="sequence-link" data-from="11" data-to="12" d="M1230 568H1276" marker-end="url(#arrowBlue)" />
-        </g>
-        <path class="branch-track clarification-track" data-branch-from="10" d="M655 654V662" marker-end="url(#arrowRed)" />
-      </svg>
-
-      <svg class="flow-runner" viewBox="0 0 1672 704" aria-hidden="true">
-        <circle class="runner-halo" r="10"><animateMotion dur="18s" repeatCount="indefinite" rotate="auto"><mpath href="#mainRouteGuide" /></animateMotion></circle>
-        <circle class="runner-core" r="4"><animateMotion dur="18s" repeatCount="indefinite" rotate="auto"><mpath href="#mainRouteGuide" /></animateMotion></circle>
-      </svg>
-
-      <span class="wrap-label one">下一步：04 → 05</span>
-      <span class="wrap-label two">下一步：08 → 09</span>
-
-      <aside class="phase-card submit" aria-label="阶段一，收到并检查，步骤 01 到 04"><span class="phase-index">一</span><strong class="phase-name">收到</strong><span class="phase-range">01—04</span></aside>
-      <aside class="phase-card route" aria-label="阶段二，理解需求，步骤 05 到 08"><span class="phase-index">二</span><strong class="phase-name">理解</strong><span class="phase-range">05—08</span></aside>
-      <aside class="phase-card execute" aria-label="阶段三，开始处理，步骤 09 到 12"><span class="phase-index">三</span><strong class="phase-name">处理</strong><span class="phase-range">09—12</span></aside>
-
-      <div class="node-grid">
-        <div class="node-row" data-row-layout="forward" data-visual-order="01 02 03 04">
-          <article class="node blue" data-step="01" data-row="1">
-          <div class="node-head"><span class="node-number">01</span><span class="node-kind">先确认</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M6 12h10"/><path d="m13 9 3 3-3 3"/></svg></div>
-          <h2 class="node-title">先确认能不能发送</h2>
-          <p class="node-summary">如果还有任务在进行，就先不开始新的；内容不完整也会先停下来。</p>
-          <div class="node-code" title="busy / pendingSubmit">已有任务 → 先等一等</div>
-          <div class="node-branches"><span class="branch-chip stop">先停一下，不开新任务</span></div>
-        </article>
-
-        <article class="node blue" data-step="02" data-row="1">
-          <div class="node-head"><span class="node-number">02</span><span class="node-kind">先保存</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></div>
-          <h2 class="node-title">先保存这次内容</h2>
-          <p class="node-summary">先把你这次说的话保存好，途中中断也不会丢。</p>
-          <div class="node-code" title="stage=accepted">保存好 → 再继续</div>
-          <div class="node-branches"><span class="branch-chip pass" data-event="TASK_ACCEPTED ATTACHMENT_CAPTURE_STARTED">刷新后也能接着处理</span></div>
-        </article>
-
-        <article class="node cyan" data-step="03" data-row="1">
-          <div class="node-head"><span class="node-number">03</span><span class="node-kind">收好内容</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5l2 2h9v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M7 4h8l2 3"/><path d="M8 14h8"/><path d="M12 11v6"/></svg></div>
-          <h2 class="node-title">把附件和消息放在一起</h2>
-          <p class="node-summary">把你发来的文字和附件收好，准备继续处理。</p>
-          <div class="node-code" data-event="ATTACHMENT_CAPTURED" title="stage=captured · ATTACHMENT_CAPTURED">文字 + 附件 → 放在一起</div>
-          <div class="node-branches"><span class="branch-chip pass">继续往下</span></div>
-        </article>
-
-        <article class="node orange" data-step="04" data-row="1">
-          <div class="node-head"><span class="node-number">04</span><span class="node-kind">先检查</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5c0 5-3.2 8.4-8 10-4.8-1.6-8-5-8-10V6Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></div>
-          <h2 class="node-title">确认基本内容没问题</h2>
-          <p class="node-summary">看看附件、文字和必要设置是否正常。</p>
-          <div class="node-code" data-event="ROUTING_STARTED" title="stage=routing · ROUTING_STARTED">附件 · 文字 · 设置</div>
-          <div class="node-branches"><span class="branch-chip warn">有问题 → 告诉你</span></div>
-        </article>
-
+    <section class="journey" aria-label="一条消息从发送到完成的三个阶段">
+      <section class="stage submit" data-phase-panel="submit" aria-labelledby="submitPhaseTitle">
+        <header class="stage-head">
+          <div class="stage-marker-row"><span class="stage-number">01</span><span class="stage-kicker">收好内容</span></div>
+          <h2 class="stage-title phase-title" id="submitPhaseTitle">先把你的消息收好</h2>
+          <p class="stage-desc">先确认这次发送能正常开始，再把文字、图片和文件整理到一起。</p>
+        </header>
+        <div class="stage-body">
+          <ol class="story-list" aria-label="收好消息会做的事">
+            <li class="story-item" data-live-stage="accepted">
+              <span class="story-dot">收</span>
+              <div class="story-copy"><h3>检查并记住这次发送</h3><p>有任务没结束、内容为空或附件没准备好时，会先等一等；可以发送后，先记住这次请求。</p></div>
+            </li>
+            <li class="story-item" data-live-stage="capturing">
+              <span class="story-dot">整</span>
+              <div class="story-copy"><h3>准备图片和文件</h3><p>把附件和相关内容整理好，后面需要时还能找到。</p></div>
+            </li>
+            <li class="story-item" data-live-stage="captured">
+              <span class="story-dot">存</span>
+              <div class="story-copy"><h3>保存消息，准备判断</h3><p>把消息放进当前会话，再整理相关对话和附件线索。</p></div>
+            </li>
+          </ol>
         </div>
-        <div class="node-row reverse" data-row-layout="reverse" data-visual-order="08 07 06 05">
-          <article class="node purple" data-step="05" data-row="2">
-          <div class="node-head"><span class="node-number">05</span><span class="node-kind">看前文</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h6v6H5z"/><path d="M13 13h6v6h-6z"/><path d="M11 8h3a3 3 0 0 1 3 3v2"/><path d="m15 11 2 2 2-2"/></svg></div>
-          <h2 class="node-title">判断是否依赖待完成任务</h2>
-          <p class="node-summary">只判断本轮对待完成任务的作用；完整的新请求不会自动继承旧任务。</p>
-          <div class="node-code" title="pending_effect · discourse">补充 / 修正 / 协助 / 新任务</div>
-          <div class="node-branches"><span class="branch-chip pass">接着刚才</span><span class="branch-chip pending">新的事情</span></div>
-        </article>
+      </section>
 
-        <article class="node cyan" data-step="06" data-row="2">
-          <div class="node-head"><span class="node-number">06</span><span class="node-kind">整理资料</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16"/><path d="M6 4h12l2 4-2 12H6L4 8Z"/><path d="M9 12h6"/><path d="M12 10v4"/></svg></div>
-          <h2 class="node-title">把相关资料找齐</h2>
-          <p class="node-summary">把这次消息、你引用的内容和前面相关信息放在一起。</p>
-          <div class="node-code" title="resource_candidates">这次内容 + 相关资料</div>
-          <div class="node-branches"><span class="branch-chip pending">资料齐了</span></div>
-        </article>
-        <article class="node blue" data-step="07" data-row="2">
-          <div class="node-head"><span class="node-number">07</span><span class="node-kind">理解需求</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></div>
-          <h2 class="node-title">弄清楚你想做什么</h2>
-          <p class="node-summary">根据你说的话，判断你想完成什么，以及需要哪些资料。</p>
-          <div class="node-code" title="semantic_task.v2">抽取语义事实</div>
-          <div class="node-branches"><span class="branch-chip warn">明确要做什么</span></div>
-        </article>
-
-        <article class="node green" data-step="08" data-row="2">
-          <div class="node-head"><span class="node-number">08</span><span class="node-kind">再确认</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5"/><path d="M12 12v9"/></svg></div>
-          <h2 class="node-title">看看有没有理解错</h2>
-          <p class="node-summary">把刚才理解到的内容整理好，再看看有没有遗漏。</p>
-          <div class="node-code" title="semantic_task.v2 → route_decision.v1 → task_contract.v5">本地确定性编译</div>
-          <div class="node-branches"><span class="branch-chip pass" title="task_contract.v5 · execution_resources.v1">确认清楚了吗？</span></div>
-        </article>
-
+      <section class="stage route" data-phase-panel="route" aria-labelledby="routePhaseTitle">
+        <header class="stage-head">
+          <div class="stage-marker-row"><span class="stage-number">02</span><span class="stage-kicker">判断方向</span></div>
+          <h2 class="stage-title phase-title" id="routePhaseTitle">判断你想做什么</h2>
+          <p class="stage-desc">模型只判断意图和候选，本地再核对资源、参数与执行方向。</p>
+        </header>
+        <div class="stage-body">
+          <ol class="story-list route-story" data-live-stage="routing" aria-label="判断消息会做的事">
+            <li class="story-item">
+              <span class="story-dot">理</span>
+              <div class="story-copy"><h3>整理消息和线索</h3><p>把当前消息、相关对话和附件名称放在一起。</p></div>
+            </li>
+            <li class="story-item">
+              <span class="story-dot">判</span>
+              <div class="story-copy"><h3>判断你的需求</h3><p>模型只给出处理方向和候选，不直接决定具体接口、提示内容或实际文件。</p></div>
+            </li>
+            <li class="story-item">
+              <span class="story-dot">选</span>
+              <div class="story-copy"><h3>本地核对资源</h3><p>你点名的序号或文件名优先，图片和文件确认无误后才会交给右边的任务。</p></div>
+            </li>
+          </ol>
+          <aside class="decision-note" data-live-stage="clarification" aria-label="判断不确定时的处理">
+            <div class="note-heading"><span>遇到不确定的情况</span><strong>先问清楚，再继续</strong></div>
+            <p>不会把不确定的意思直接当成结论，也不会再调用一次模型改写追问。</p>
+            <div class="decision-options"><span><b>没判断出来</b><br>换一种判断。判断失败时，会按普通聊天回答。</span><span><b>出现多个可能</b><br>请你补充图片、大小或操作。</span></div>
+          </aside>
         </div>
-        <div class="node-row" data-row-layout="forward" data-visual-order="09 10 11 12">
-          <article class="node orange" data-step="09" data-row="3">
-          <div class="node-head"><span class="node-number">09</span><span class="node-kind">再试一次</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="m16 4 3 3-3 3"/></svg></div>
-          <h2 class="node-title">结构无效时只修复格式</h2>
-          <p class="node-summary">修复只能保留已抽取的语义；无法保留时停止，不猜测操作或资源。</p>
-          <div class="node-code" title="repair once · preserve semantic facts">只修结构，不改语义</div>
-          <div class="node-branches"><span class="branch-chip warn">再试一次</span><span class="branch-chip stop">不改变你的意思</span></div>
-        </article>
+      </section>
 
-        <article class="node green" data-step="10" data-row="3">
-          <div class="node-head"><span class="node-number">10</span><span class="node-kind">做决定</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h6v6H5z"/><path d="M13 13h6v6h-6z"/><path d="M11 8h3a3 3 0 0 1 3 3v2"/><path d="M17 13v-2"/></svg></div>
-          <h2 class="node-title">决定先问你，还是直接做</h2>
-          <p class="node-summary">还缺信息就先问你；都清楚了才继续。</p>
-          <div class="node-code" title="needClarification · isRouteDispatchable">还不清楚 ↘ · 已清楚 → 11</div>
-          <div class="node-branches"><span class="branch-chip pass">直接开始</span><span class="branch-chip stop">先问你</span></div>
-        </article>
-
-        <article class="node cyan" data-step="11" data-row="3">
-          <div class="node-head"><span class="node-number">11</span><span class="node-kind">准备开始</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h6v5H4z"/><path d="M14 13h6v5h-6z"/><path d="M10 8.5h4a3 3 0 0 1 3 3V13"/><path d="m15 11 2 2 2-2"/></svg></div>
-          <h2 class="node-title">备齐要用的内容</h2>
-          <p class="node-summary">按刚才的理解，找好真正要用的图片、文件和前面相关内容。</p>
-          <div class="node-code" title="buildExecutionResourcePools · projectRouteExecutionMedia">图片、文件、前面内容</div>
-          <div class="node-branches"><span class="branch-chip pass">准备好了</span></div>
-        </article>
-
-        <article class="node purple" data-step="12" data-row="3">
-          <div class="node-head"><span class="node-number">12</span><span class="node-kind">开始处理</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4c3 0 5 1 6 2-1 5-3.8 8.7-8 11l-5-5c2.3-4.2 6-7 11-8Z"/><path d="m9 15-4 1-2 3 5-1"/><path d="m12 18-1 4 3-2 1-4"/><circle cx="15.5" cy="8.5" r="1.5"/></svg></div>
-          <h2 class="node-title">正式开始处理任务</h2>
-          <p class="node-summary">任务开始后会显示“进行中”；收到结果后，才算完成。</p>
-          <div class="node-code" title="stage=handoff · HANDOFF_COMMITTED">开始处理 → 进行中</div>
-          <div class="node-branches" title="JOB_COMPLETED_COMMITTED"><span class="branch-chip pass">收到结果 → 已完成</span></div>
-        </article>
+      <section class="stage execute" data-phase-panel="execute" aria-labelledby="executePhaseTitle">
+        <header class="stage-head">
+          <div class="stage-marker-row"><span class="stage-number">03</span><span class="stage-kicker">完成处理</span></div>
+          <h2 class="stage-title phase-title" id="executePhaseTitle">交给任务处理</h2>
+          <p class="stage-desc">方向明确后，交给聊天或图片任务，并把结果放回当前会话。</p>
+        </header>
+        <div class="stage-body">
+          <ol class="story-list" aria-label="交给任务后会发生的事">
+            <li class="story-item">
+              <span class="story-dot">确</span>
+              <div class="story-copy"><h3>确认可以继续</h3><p>方向清楚、信息够用，才会进入真正处理。</p></div>
+            </li>
+            <li class="story-item" data-live-stage="handoff">
+              <span class="story-dot">交</span>
+              <div class="story-copy"><h3>交给聊天或图片任务</h3><p>创建对应任务，并记住进度，方便继续、恢复或停止。</p></div>
+            </li>
+            <li class="story-item" data-live-stages="running recovering completed failed stopping stopped">
+              <span class="story-dot">回</span>
+              <div class="story-copy"><h3>处理完成，结果回到会话</h3><p>中途出问题会尝试恢复；完成后把结果放回当前会话。</p></div>
+            </li>
+          </ol>
+          <aside class="capability-note" aria-label="当前功能状态">
+            <strong>现在的情况</strong>
+            <span class="capability good">普通聊天：可以继续</span>
+            <span class="capability caution">图片和文件：少数新功能可能暂时接不上</span>
+          </aside>
         </div>
-      </div>
-
-      <aside class="clarification-exit" aria-label="需要补充信息">
-        <b>还需要你补充</b>
-        <span>先问你，记住当前进度，补充后再继续。</span>
-      </aside>
+      </section>
     </section>
 
-    <footer class="poster-footer">
-      <div class="lifecycle" aria-label="任务进度">
-        <span class="lifecycle-title">任务进度</span>
-        <span class="lifecycle-item" data-lifecycle-phase="accepted"><i></i>已收到</span>
-        <span class="lifecycle-arrow">→</span>
-        <span class="lifecycle-item" data-lifecycle-phase="routing"><i></i>正在理解</span>
-        <span class="lifecycle-arrow">→</span>
-        <span class="lifecycle-item handoff" data-lifecycle-phase="handoff"><i></i>准备开始</span>
-        <span class="lifecycle-arrow">→</span>
-        <span class="lifecycle-item boundary" data-lifecycle-phase="running"><i></i>进行中</span>
-        <span class="lifecycle-arrow">→</span>
-        <span class="lifecycle-item terminal" data-lifecycle-phase="completed"><i></i>已完成</span>
-        <span class="running-note">进行中不等于完成</span>
+    <footer class="footer">
+      <div class="progress-caption"><span class="footer-dot"></span><b>处理进度</b></div>
+      <div class="lifecycle" aria-label="当前处理状态">
+        <span class="life" data-lifecycle-stage="accepted"><i></i>已收到</span><span class="arrow">→</span>
+        <span class="life" data-lifecycle-stage="capturing"><i></i>准备内容</span><span class="arrow">→</span>
+        <span class="life" data-lifecycle-stage="routing"><i></i>判断中</span><span class="arrow">/</span>
+        <span class="life" data-lifecycle-stage="clarification"><i></i>等你补充</span><span class="arrow">→</span>
+        <span class="life" data-lifecycle-stage="handoff"><i></i>交给任务</span><span class="arrow">→</span>
+        <span class="life" data-lifecycle-stage="running"><i></i>处理中</span><span class="arrow">→</span>
+        <span class="life" data-lifecycle-stage="completed"><i></i>已结束</span>
       </div>
-      <div class="legend" aria-label="颜色图例">
-        <span class="legend-item"><i class="legend-dot" style="--dot: var(--blue)"></i>必经步骤</span>
-        <span class="legend-item"><i class="legend-dot" style="--dot: var(--green)"></i>可以继续</span>
-        <span class="legend-item"><i class="legend-dot" style="--dot: var(--orange)"></i>重新判断</span>
-        <span class="legend-item"><i class="legend-dot" style="--dot: var(--red)"></i>暂时停下</span>
-        <span class="legend-item"><i class="legend-dot" style="--dot: var(--purple)"></i>需要补充 / 准备开始</span>
-      </div>
+      <div class="truth"><b>实时同步</b><span>状态跟随当前会话变化</span></div>
     </footer>
   </main>
-
   <script>
-    const BASE_WIDTH = 1672;
-    const BASE_HEIGHT = 941;
-    const ROUTE_STATE_MESSAGE = "chatui:route-task-state";
-    const poster = document.getElementById("poster");
-    const workflow = document.querySelector(".workflow");
-    const runtimeState = document.querySelector("[data-runtime-state]");
-    const runtimeLabel = runtimeState?.querySelector("[data-runtime-label]");
-    const runtimeNote = runtimeState?.querySelector("[data-runtime-note]");
-    const runtimeSession = runtimeState?.querySelector("[data-runtime-session]");
-    let lastSyncSequence = -1;
-
-    function fitPoster() {
-      const scale = Math.min(window.innerWidth / BASE_WIDTH, window.innerHeight / BASE_HEIGHT);
-      const left = (window.innerWidth - BASE_WIDTH * scale) / 2;
-      const top = (window.innerHeight - BASE_HEIGHT * scale) / 2;
-      poster.style.left = left + "px";
-      poster.style.top = top + "px";
-      poster.style.transform = `scale(${scale})`;
-    }
-
-    const runtimeLabels = {
-      idle: ["现在可以发送", "这里只展示处理顺序"],
-      busy: ["有任务正在进行", "当前会话正在处理任务，不会同时开始第二个任务"],
-      accepted: ["已收到你的消息", "内容已保存，马上继续处理"],
-      capturing: ["正在整理你的消息", "正在收好附件和消息"],
-      routing: ["正在理解你的需求", "正在判断下一步怎么做"],
-      handoff: ["准备开始处理", "已经理解你的需求，马上开始"],
-      running: ["正在处理", "任务还在进行，收到结果后才算完成"],
-      recovering: ["正在继续处理", "正在接着之前的任务继续"],
-      stopping: ["正在停止", "停止完成后才能再次发送"],
-      completed: ["已经完成", "结果已收到，可以开始下一件事"],
-      failed: ["暂时没能完成", "这次没有成功，可以重新发送"],
-      stopped: ["已停止", "可以重新发送"],
-      clarifying: ["等待你补充", "当前会话的任务已保留，补充后会从这里继续"],
-    };
-    const fallbackStepByPhase = {
-      busy: "12",
-      accepted: "02",
-      capturing: "03",
-      routing: "07",
-      handoff: "12",
-      running: "12",
-      recovering: "12",
-      stopping: "12",
-      completed: "12",
-      failed: "12",
-      stopped: "12",
-    };
-
-    function normalizeStep(value) {
-      const raw = String(value ?? "").trim();
-      if (!raw) return "";
-      const normalized = /^\d+$/.test(raw) ? raw.padStart(2, "0") : raw;
-      return /^(0[1-9]|1[0-2])$/.test(normalized) ? normalized : "";
-    }
-
-    function activeStepFor(detail, phase) {
-      if (detail.pendingClarification) return "10";
-      const queryStep = new URLSearchParams(window.location.search).get("taskStep") || "";
-      const explicit = normalizeStep(detail.activeStep || queryStep);
-      return explicit || fallbackStepByPhase[phase] || "";
-    }
-
-    function applyRuntimeState(detail = {}) {
-      if (!runtimeState) return false;
-      const syncSequence = Number(detail.syncSequence);
-      if (Number.isFinite(syncSequence) && syncSequence >= 0) {
-        if (syncSequence <= lastSyncSequence) return false;
-        lastSyncSequence = syncSequence;
-      }
-
-      const queryPhase = new URLSearchParams(window.location.search).get("taskPhase") || "";
-      const taskPhase = String(detail.phase || queryPhase || "idle").toLowerCase();
-      const pendingClarification = !!detail.pendingClarification;
-      const displayPhase = pendingClarification ? "clarifying" : taskPhase;
-      const copy = runtimeLabels[displayPhase] || runtimeLabels.idle;
-      const sessionId = String(detail.sessionId || "");
-      const sessionTitle = String(detail.sessionTitle || "当前会话").trim() || "当前会话";
-      const activeStep = activeStepFor(detail, taskPhase);
-      const isTerminal = taskPhase === "completed" && !pendingClarification;
-      const isError = ["failed", "stopped", "stopping"].includes(taskPhase);
-
-      runtimeState.dataset.phase = displayPhase;
-      runtimeState.dataset.taskPhase = taskPhase;
-      runtimeState.dataset.pendingClarification = pendingClarification ? "true" : "false";
-      runtimeState.dataset.sessionId = sessionId;
-      runtimeState.dataset.activeStep = activeStep;
-      poster.dataset.sessionId = sessionId;
-      poster.dataset.activeStep = activeStep;
-      if (runtimeLabel) runtimeLabel.textContent = copy[0];
-      if (runtimeNote) runtimeNote.textContent = copy[1];
-      if (runtimeSession) {
-        runtimeSession.textContent = sessionId ? `会话 · ${sessionTitle}` : "当前会话";
-        runtimeSession.title = sessionId ? `${sessionTitle} · ${sessionId}` : "当前会话";
-      }
-
-      document.querySelectorAll(".node[data-step]").forEach(node => {
-        const current = !!activeStep && node.dataset.step === activeStep;
-        node.classList.toggle("is-current", current);
-        node.classList.toggle("is-terminal-current", current && isTerminal);
-        node.classList.toggle("is-error-current", current && isError);
-        if (current) node.setAttribute("aria-current", "step");
-        else node.removeAttribute("aria-current");
-      });
-      document.querySelectorAll(".phase-card").forEach(card => {
-        const currentNode = activeStep ? document.querySelector(`.node[data-step="${activeStep}"]`) : null;
-        card.classList.toggle("is-current", !!currentNode && card.classList.contains(
-          currentNode.dataset.row === "1" ? "submit" : currentNode.dataset.row === "2" ? "route" : "execute"
-        ));
-      });
-      document.querySelector(".clarification-exit")?.classList.toggle("is-current", pendingClarification);
-      workflow?.classList.toggle("has-live-progress", !!activeStep && taskPhase !== "idle");
-
-      const lifecycleRank = { accepted: 0, capturing: 0, routing: 1, handoff: 2, running: 3, recovering: 3, completed: 4 };
-      const lifecyclePhase = pendingClarification ? "routing" : taskPhase;
-      const currentRank = Object.prototype.hasOwnProperty.call(lifecycleRank, lifecyclePhase) ? lifecycleRank[lifecyclePhase] : -1;
-      document.querySelectorAll("[data-lifecycle-phase]").forEach(item => {
-        const itemRank = lifecycleRank[item.dataset.lifecyclePhase] ?? -1;
-        item.classList.toggle("current", currentRank >= 0 && itemRank === currentRank);
-        item.classList.toggle("past", currentRank >= 0 && itemRank < currentRank);
-      });
-      return true;
-    }
-
-    window.addEventListener("message", event => {
-      if (event.source !== window.parent || event.data?.type !== ROUTE_STATE_MESSAGE) return;
-      if (event.origin && event.origin !== "null" && event.origin !== window.location.origin) return;
-      applyRuntimeState(event.data);
-    });
-
-    fitPoster();
-    applyRuntimeState();
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPoster);
-    window.addEventListener("resize", fitPoster);
-  </script>
+"use strict";
+const BASE_WIDTH=1672,BASE_HEIGHT=941,ROUTE_STATE_MESSAGE="chatui:route-task-state";
+const poster=document.getElementById("poster"),runtimeState=document.querySelector("[data-runtime-state]"),runtimeLabel=document.querySelector("[data-runtime-label]"),runtimeNote=document.querySelector("[data-runtime-note]"),runtimeSession=document.querySelector("[data-runtime-session]");
+let lastSyncSequence=-1;
+const knownStages=new Set(["idle","accepted","capturing","captured","routing","clarification","handoff","running","recovering","stopping","completed","failed","stopped","busy"]);
+const runtimeLabels={
+ idle:["等你发送消息","还没有开始处理"],
+ accepted:["已经收到消息","这次请求已经记下来了"],
+ capturing:["正在准备附件","正在整理图片和文件"],
+ captured:["内容已准备好","正在保存到当前会话"],
+ routing:["正在判断怎么处理","正在选择聊天、看图或图片任务"],
+ clarification:["需要你补充一点","请先选清楚，再继续处理"],
+ handoff:["正在交给任务","聊天或图片任务马上开始"],
+ running:["正在处理","任务正在运行"],
+ recovering:["正在恢复","正在尝试继续刚才的任务"],
+ stopping:["正在停止","请稍等一下"],
+ completed:["已经完成","结果已经放回当前会话"],
+ failed:["这次没有完成","可以检查提示后再试一次"],
+ stopped:["已经停止","这次处理已经结束"],
+ busy:["正在处理","当前会话还有任务在运行"]
+};
+const lifecycleRank={accepted:0,capturing:1,captured:1,routing:2,clarification:3,handoff:4,running:5,recovering:5,stopping:5,completed:6,failed:6,stopped:6,busy:5};
+function normalizeStage(value){const stage=String(value||"").trim().toLowerCase();return knownStages.has(stage)?stage:""}
+function deriveStage(detail={}){if(detail.pendingClarification)return"clarification";const explicit=normalizeStage(detail.routeStage||detail.activeNode);if(explicit)return explicit;const phase=normalizeStage(detail.phase),pendingStage=String(detail.pendingStage||"").trim().toLowerCase();if(phase==="routing"&&pendingStage==="captured")return"captured";if(phase)return phase;if(["accepted","captured","routing","handoff"].includes(pendingStage))return pendingStage;return"idle"}
+function phaseForStage(stage){if(["accepted","capturing","captured"].includes(stage))return"submit";if(["routing","clarification"].includes(stage))return"route";if(["handoff","running","recovering","stopping","completed","failed","stopped","busy"].includes(stage))return"execute";return""}
+function fitPoster(){const scale=Math.min(window.innerWidth/BASE_WIDTH,window.innerHeight/BASE_HEIGHT),left=Math.max(0,(window.innerWidth-BASE_WIDTH*scale)/2),top=Math.max(0,(window.innerHeight-BASE_HEIGHT*scale)/2);poster.style.transform=`translate(${left}px, ${top}px) scale(${scale})`}
+function tracks(node,stage){if(node.dataset.liveStage===stage)return true;return String(node.dataset.liveStages||"").split(/\s+/).filter(Boolean).includes(stage)}
+function applyRuntimeState(detail={}){
+ const sequence=Number(detail.syncSequence);if(Number.isFinite(sequence)){if(sequence<=lastSyncSequence)return false;lastSyncSequence=sequence}
+ const phase=normalizeStage(detail.phase)||"idle",stage=deriveStage(detail),pendingClarification=Boolean(detail.pendingClarification),sessionTitle=String(detail.sessionTitle||"当前会话").trim()||"当前会话",labels=runtimeLabels[stage]||runtimeLabels[phase]||runtimeLabels.idle;
+ runtimeState.dataset.phase=phase;runtimeState.dataset.routeStage=stage;runtimeState.dataset.pendingClarification=String(pendingClarification);runtimeLabel.textContent=labels[0];runtimeNote.textContent=labels[1];runtimeSession.textContent=sessionTitle;
+ document.querySelectorAll("[data-live-stage],[data-live-stages]").forEach(node=>{const current=tracks(node,stage);node.classList.toggle("is-current",current);if(current)node.setAttribute("aria-current","step");else node.removeAttribute("aria-current")});
+ const activePhase=phaseForStage(stage);document.querySelectorAll("[data-phase-panel]").forEach(panel=>panel.classList.toggle("is-current",Boolean(activePhase)&&panel.dataset.phasePanel===activePhase));
+ const rank=lifecycleRank[stage]??-1;document.querySelectorAll("[data-lifecycle-stage]").forEach(item=>{const itemStage=item.dataset.lifecycleStage,itemRank=lifecycleRank[itemStage]??-1,current=itemStage===stage||(stage==="captured"&&itemStage==="capturing")||(["recovering","stopping","busy"].includes(stage)&&itemStage==="running")||(["failed","stopped"].includes(stage)&&itemStage==="completed");item.classList.toggle("current",rank>=0&&current);item.classList.toggle("past",rank>=0&&itemRank<rank);item.classList.toggle("error",["failed","stopped"].includes(stage)&&itemStage==="completed")});
+ return true;
+}
+window.addEventListener("message",event=>{if(event.data?.type!==ROUTE_STATE_MESSAGE)return;if(event.source&&event.source!==window.parent)return;if(event.origin&&event.origin!=="null"&&event.origin!==window.location.origin)return;applyRuntimeState(event.data)});
+fitPoster();applyRuntimeState();if(document.fonts?.ready)document.fonts.ready.then(fitPoster);window.addEventListener("resize",fitPoster);
+</script>
 </body>
 </html>

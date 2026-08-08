@@ -1,6 +1,16 @@
 (function initChatUIImageExecution(root) {
   'use strict';
 
+  const MODULE_REGISTRY_SYMBOL = Symbol.for('chatui.module-registry.v1');
+  const dispatchContractContract = root?.[MODULE_REGISTRY_SYMBOL]?.get('dispatchContract')
+    || root?.ChatUIDispatchContract
+    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
+  function currentDispatchContractContract() {
+    return root?.[MODULE_REGISTRY_SYMBOL]?.get('dispatchContract')
+      || root?.ChatUIDispatchContract
+      || dispatchContractContract;
+  }
+
   function imageRoleLabel(role = "") {
     return role === "target"
       ? "作为编辑目标图（唯一需要修改的底图）"
@@ -20,16 +30,13 @@
     return positions.map(position => `图片${position}`).join("、");
   }
 
-  function buildImageRoleGuide(imageInputs = [], taskContract = null) {
+  function buildImageRoleGuide(imageInputs = [], dispatchContract = null) {
     if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return "";
     const lines = [
       "随附图片角色（按上传顺序）：",
       ...imageInputs.map((item, index) => `- 图片${index + 1}：${imageRoleLabel(item?.routeRole)}`),
     ];
-    const operation = String(taskContract?.operation || "");
-    const directive = taskContract?.directive && typeof taskContract.directive === "object"
-      ? taskContract.directive
-      : {};
+    const operation = String(dispatchContract?.operation || "");
     const targets = imagePositionsWithRole(imageInputs, ["target"]);
     const references = imagePositionsWithRole(imageInputs, ["reference"]);
     const styleReferences = imagePositionsWithRole(imageInputs, ["style_reference"]);
@@ -41,9 +48,7 @@
       if (styleReferences.length) {
         lines.push(`- 风格来源：${imagePositionList(styleReferences)}只提供视觉风格，不替换目标图中的主体身份或内容。`);
       }
-      if (directive.unmentioned_policy === "preserve") {
-        lines.push("- 保留边界：除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格。 ");
-      }
+      lines.push("- 保留边界：除用户明确要求修改的部分外，保留目标图中的其他主体、背景、构图、文字、光线、色彩与风格。 ");
       if (references.length || styleReferences.length) {
         lines.push("- 融合要求：让修改后的尺度、透视、光照、阴影和遮挡关系与目标图自然一致，不要输出拼图、对比图或并排候选。 ");
       }
@@ -67,7 +72,7 @@
     }));
   }
 
-  function createImageExecutionPolicy({ intentContract = {} } = {}) {
+  function createImageExecutionPolicy({ dispatchContract = null } = {}) {
     function routeResourceKeys(resources = []) {
       return Array.isArray(resources)
         ? resources.map((resource) => String(resource?.routeResourceKey || ""))
@@ -85,19 +90,30 @@
         && actualKeys.every((key, index) => key && key === expectedKeys[index]);
     }
 
-    function requireCanonicalImageExecution(taskContract = {}, executionMedia = {}) {
-      if (taskContract?.schema_version !== "task_contract.v5"
-          || taskContract.readiness !== "ready"
-          || !intentContract?.hasExactContractShape?.(taskContract)) {
-        throw new TypeError("A ready task_contract.v5 is required for image execution");
+    function executionAuthorization(contract = {}) {
+      const planContract = dispatchContract?.hasExactDispatchContract
+        ? dispatchContract
+        : currentDispatchContractContract();
+      if (!planContract?.hasExactDispatchContract?.(contract)) return null;
+      return {
+        operation: String(contract.operation || ''),
+        api: String(contract.api || ''),
+        resources: Array.isArray(contract.bindings) ? contract.bindings : [],
+      };
+    }
+
+    function requireCanonicalImageExecution(contract = {}, executionMedia = {}) {
+      const authorization = executionAuthorization(contract);
+      if (!authorization) {
+        throw new TypeError("A validated dispatch_contract.v1 image execution contract is required");
       }
-      const api = intentContract?.contractApi?.(taskContract) || "";
+      const { operation, api, resources } = authorization;
       if (!['image_generation', 'image_edit'].includes(api)) {
-        throw new TypeError("The task contract does not authorize an image request");
+        throw new TypeError("The execution contract does not authorize an image request");
       }
-      if (executionMedia?.version !== "execution_resources.v1"
-          || executionMedia.operation !== taskContract.operation) {
-        throw new TypeError("A matching execution_resources.v1 projection is required");
+      if (executionMedia?.version !== "execution_resources.v2"
+          || executionMedia.operation !== operation) {
+        throw new TypeError("A matching execution_resources.v2 projection is required");
       }
       const images = executionMedia.images;
       const files = executionMedia.files;
@@ -108,8 +124,8 @@
       if (![images, files, imageInputs, masks, targets, references].every(Array.isArray)) {
         throw new TypeError("The image execution projection is incomplete");
       }
-      const expectedImages = taskContract.resources.filter((resource) => resource.type === "image");
-      const expectedFiles = taskContract.resources.filter((resource) => resource.type === "file");
+      const expectedImages = resources.filter((resource) => resource.type === "image");
+      const expectedFiles = resources.filter((resource) => resource.type === "file");
       const expectedInputs = expectedImages.filter((resource) => ["target", "reference", "style_reference"].includes(resource.role));
       const expectedMasks = expectedImages.filter((resource) => resource.role === "mask");
       const expectedTargets = expectedImages.filter((resource) => resource.role === "target");
@@ -120,23 +136,25 @@
           || !sameRouteResourceKeys(masks, expectedMasks)
           || !sameRouteResourceKeys(targets, expectedTargets)
           || !sameRouteResourceKeys(references, expectedReferences)) {
-        throw new TypeError("The image execution projection does not match its task contract");
+        throw new TypeError("The image execution projection does not match its execution contract");
       }
       for (let index = 0; index < images.length; index += 1) {
         const actual = images[index];
         const expected = expectedImages[index];
+        const expectedResourceId = String(expected?.resource_id || expected?.resourceId || '');
         if (actual?.routeRole !== expected.role
             || actual?.routeSource !== expected.source
-            || String(actual?.routeId || "") !== String(expected.id || "")
-            || String(actual?.routeReferenceId || "") !== String(expected.reference_id || "")) {
-          throw new TypeError("An image execution binding no longer matches its task contract");
+            || expectedResourceId && String(actual?.routeResourceId || '') !== expectedResourceId
+            || !expectedResourceId && String(actual?.routeId || "") !== String(expected.id || "")
+            || !expectedResourceId && String(actual?.routeReferenceId || "") !== String(expected.reference_id || "")) {
+          throw new TypeError("An image execution binding no longer matches its execution contract");
         }
       }
       if (files.length || masks.length > 1) {
         throw new TypeError("The image execution projection contains unsupported media");
       }
       return Object.freeze({
-        operation: taskContract.operation,
+        operation,
         api,
         imageInputs: [...imageInputs],
         masks: [...masks],

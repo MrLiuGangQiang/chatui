@@ -20,6 +20,47 @@
     const settleSessionTask =
       deps.settleSessionTask ||
       ((sessionId, options = {}) => finishSessionTask(sessionId, options));
+    const dispatchContractContract =
+      root?.[Symbol.for("chatui.module-registry.v1")]?.get("dispatchContract") ||
+      root?.ChatUIDispatchContract ||
+      (typeof require === "function" ? require("../../shared/dispatch-contract") : {});
+
+    function invalidResumeContract(message) {
+      const error = makeTerminalJobError(message);
+      error.code = "RESUME_EXECUTION_CONTRACT_INVALID";
+      error.statusCode = 400;
+      return error;
+    }
+
+    function assertResumableExecutionContract(snapshot = {}, kind = "") {
+      const plan = snapshot?.dispatchContract;
+      if (String(snapshot?.requestPurpose || "").trim() !== "final_execution"
+          || typeof dispatchContractContract?.hasExactDispatchContract !== "function"
+          || !dispatchContractContract.hasExactDispatchContract(plan)) {
+        throw invalidResumeContract("恢复任务缺少合法的 final_execution dispatch_contract.v1，已停止恢复并清理任务");
+      }
+      if (kind === "chat") {
+        if (plan.api !== "chat" || !Array.isArray(snapshot.bindingEvidence)) {
+          throw invalidResumeContract("恢复聊天任务的 dispatch_contract 或 binding evidence 不合法，已停止恢复并清理任务");
+        }
+        try {
+          dispatchContractContract.assertBindingEvidence(plan, snapshot.bindingEvidence);
+        } catch {
+          throw invalidResumeContract("恢复聊天任务的 binding evidence 与 dispatch_contract 不一致，已停止恢复并清理任务");
+        }
+        return plan;
+      }
+      const expectedApi = snapshot?.mode === "edit_image" ? "image_edit" : "image_generation";
+      if (plan.api !== expectedApi || !Array.isArray(snapshot.bindingEvidence)) {
+        throw invalidResumeContract("恢复图片任务的 dispatch_contract 与模式不一致，已停止恢复并清理任务");
+      }
+      try {
+        dispatchContractContract.assertBindingEvidence(plan, snapshot.bindingEvidence);
+      } catch {
+        throw invalidResumeContract("恢复图片任务的 binding evidence 与 dispatch_contract 不一致，已停止恢复并清理任务");
+      }
+      return plan;
+    }
 
     function makeTerminalJobError(message) {
       const factory = root?.ChatUIAppJobWorkflow?.makeTerminalJobError;
@@ -189,6 +230,7 @@
             taskError = null;
           l();
           try {
+            assertResumableExecutionContract(s, "image");
             const t = getConfig();
             let n;
             if (a) {
@@ -221,6 +263,10 @@
                   );
                 (await startImageGenerationJob(s.payload, t, s.id, {
                   mode: "edit_image",
+                  requestPurpose: s.requestPurpose || "final_execution",
+                  dispatchContract: s.dispatchContract,
+                  bindingEvidence: s.bindingEvidence || [],
+                  submissionId: s.submissionId || "",
                   files: uploadFiles,
                   masks: uploadMasks,
                   headers: {},
@@ -244,6 +290,10 @@
                   t.baseUrl &&
                   (await startImageGenerationJob(s.payload, t, s.id, {
                     mode: "image",
+                    requestPurpose: s.requestPurpose || "final_execution",
+                    dispatchContract: s.dispatchContract,
+                    bindingEvidence: s.bindingEvidence || [],
+                    submissionId: s.submissionId || "",
                     headers: {},
                     sessionId: e,
                   })),
@@ -517,6 +567,7 @@
             l = setInterval(r, 1e3);
           r();
           try {
+            assertResumableExecutionContract(s, "chat");
             const t = getConfig(),
               i = (t) => {
                 const s = extractChatJobText(t.data);
@@ -558,6 +609,10 @@
                 await registerChatStreamJob(restoredPayload, t, s.id, {
                   start: !0,
                   api: s.api || "chat",
+                  requestPurpose: s.requestPurpose || "final_execution",
+                  dispatchContract: s.dispatchContract,
+                  bindingEvidence: s.bindingEvidence || [],
+                  submissionId: s.submissionId || "",
                   headers: {},
                   sessionId: e,
                 }),

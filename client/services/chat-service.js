@@ -1,4 +1,4 @@
-(function initChatUIChatService(root) {
+﻿(function initChatUIChatService(root) {
   'use strict';
 
 const fileInputs = root?.ChatUICore?.fileInputs
@@ -31,6 +31,15 @@ function isImageAttachment(item = {}) {
   const type = String(item?.type || item?.file?.type || '').toLowerCase();
   const name = String(item?.name || item?.file?.name || '').toLowerCase();
   return type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function normalizedImageDetail(value = '') {
+  const detail = String(value || '').trim().toLowerCase();
+  return ['low', 'high', 'auto'].includes(detail) ? detail : '';
+}
+
+function imageDetail(item = {}) {
+  return normalizedImageDetail(item?.imageDetail || item?.image_detail || item?.visionDetail || item?.vision_detail);
 }
 
 function isNativeFileAttachment(item = {}) {
@@ -88,7 +97,16 @@ function buildUserContentWithAttachments(prompt = '', attachments = []) {
     parts.push(part);
   }
   if (text) parts.push({ type: 'text', text });
-  for (const item of images) parts.push({ type: 'image_url', image_url: { url: item.dataUrl } });
+  for (const item of images) {
+    const detail = imageDetail(item);
+    parts.push({
+      type: 'image_url',
+      image_url: {
+        url: item.dataUrl,
+        ...(detail ? { detail } : {}),
+      },
+    });
+  }
   return parts;
 }
 
@@ -99,7 +117,14 @@ function responsesInputFromChatMessages(messages = []) {
     if (!Array.isArray(content)) return { role, content: String(content ?? '') };
     const parts = content.map(part => {
       if (part?.type === 'text') return { type: 'input_text', text: String(part.text || '') };
-      if (part?.type === 'image_url') return { type: 'input_image', image_url: String(part.image_url?.url || part.image_url || '') };
+      if (part?.type === 'image_url') {
+        const detail = normalizedImageDetail(part.image_url?.detail || part.detail);
+        return {
+          type: 'input_image',
+          image_url: String(part.image_url?.url || part.image_url || ''),
+          ...(detail ? { detail } : {}),
+        };
+      }
       if (part?.type === 'input_file' && part.file_data) {
         const includeDetail = !!part.detail && isPdfInputFilePart(part);
         return {
@@ -122,6 +147,12 @@ function messagesHaveInputFiles(messages = []) {
 
 function buildResponsesPayload(model, messages, options = {}) {
   const payload = { model, input: responsesInputFromChatMessages(messages) };
+  // Native file extraction is an evidence-retrieval operation. Responses
+  // models can otherwise vary between reading the same input_file and saying
+  // that it is unavailable, even when the wire payload and binding contract
+  // are identical. Force deterministic decoding at this boundary; the chat
+  // transport remains unchanged for ordinary non-file conversations.
+  if (messagesHaveInputFiles(messages)) payload.temperature = 0;
   if (options.reasoningEnabled) {
     payload.reasoning = {
       effort: options.reasoningEffort || 'medium',
@@ -132,9 +163,35 @@ function buildResponsesPayload(model, messages, options = {}) {
   return payload;
 }
 
-async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', baseUrl = '', method = 'POST', headers = {}, signal, toProxyUrl, parseResponseJson, normalizeError }) {
+async function requestJson({
+  fetchImpl = fetch,
+  url,
+  payload,
+  apiKey = '',
+  baseUrl = '',
+  method = 'POST',
+  headers = {},
+  signal,
+  requestPurpose = '',
+  dispatchContract,
+  bindingEvidence,
+  submissionId = '',
+  toProxyUrl,
+  parseResponseJson,
+  normalizeError,
+}) {
   const targetUrl = toProxyUrl(url, baseUrl);
-  const body = { baseUrl, apiKey, payload, method, headers };
+  const body = {
+    baseUrl,
+    apiKey,
+    payload,
+    method,
+    headers,
+    ...(requestPurpose ? { requestPurpose } : {}),
+    ...(dispatchContract !== undefined ? { dispatchContract } : {}),
+    ...(bindingEvidence !== undefined ? { bindingEvidence } : {}),
+    ...(submissionId ? { submissionId: String(submissionId) } : {}),
+  };
   let response;
   try {
     response = await fetchImpl(targetUrl, {
@@ -156,6 +213,50 @@ async function requestJson({ fetchImpl = fetch, url, payload, apiKey = '', baseU
   return parsed;
 }
 
+async function reportExecutionRejection({
+  fetchImpl = root?.fetch?.bind?.(root),
+  submissionId = '',
+  jobId = '',
+  stage = 'client_context_projection',
+  requestPurpose = 'final_execution',
+  transportApi = '',
+  dispatchContract = null,
+  bindingEvidence = [],
+  contextProjection = null,
+  error = null,
+} = {}) {
+  if (typeof fetchImpl !== 'function' || (!submissionId && !jobId)) return false;
+  const body = {
+    schema_version: 'client_execution_trace.v1',
+    event: 'execution.rejected',
+    submissionId: String(submissionId || ''),
+    jobId: String(jobId || ''),
+    stage: String(stage || 'client_context_projection'),
+    requestPurpose: String(requestPurpose || 'final_execution'),
+    transportApi: String(transportApi || ''),
+    dispatchContract,
+    bindingEvidence: Array.isArray(bindingEvidence) ? bindingEvidence : [],
+    contextProjection,
+    error: {
+      name: String(error?.name || 'Error'),
+      code: String(error?.code || 'CLIENT_EXECUTION_REJECTED'),
+      statusCode: Number(error?.statusCode) || 400,
+      message: String(error?.message || 'Client execution rejected before dispatch'),
+    },
+  };
+  try {
+    const response = await fetchImpl('/api/client-execution-trace', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return !!response?.ok;
+  } catch {
+    return false;
+  }
+}
+
 function parseSseLine(line, extractStreamDelta) {
   const trimmed = String(line || '').trim();
   if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) return null;
@@ -172,6 +273,7 @@ const api = Object.freeze({
   messagesHaveInputFiles,
   buildResponsesPayload,
   requestJson,
+  reportExecutionRejection,
   parseSseLine,
 });
 

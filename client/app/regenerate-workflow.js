@@ -1,6 +1,9 @@
 (function initChatUIAppRegenerateWorkflow(root) {
   'use strict';
 
+  const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
+    || (typeof require === 'function' ? require('./execution-status') : {});
+
   function createRegenerateWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers
@@ -136,7 +139,7 @@
       if(!Number.isInteger(s)||s<0)return void toast("找不到这条消息上下文，无法强制生图");
       turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;const n=turn.assistantIndex,a=state.activeSessionId,i=ensureActiveRun(a),o=e.nextElementSibling&&(e.nextElementSibling.classList?.contains("assistant")||e.nextElementSibling.classList?.contains("error"))?e.nextElementSibling:null,r=e.querySelector(".force-image-btn"),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},replay=clarificationApi.normalizeClarificationReplay?.(state.messages?.[s]?.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages?.[n]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||t;
       resetMessageActionStates(o||e);r&&(r.classList.add("refreshing"),r.disabled=!0);
-      const l=prepareRegeneratedResponse(e,o,a,n,"正在处理中 请稍后"),startedAt=Date.now();
+      const l=prepareRegeneratedResponse(e,o,a,n,executionStatus.operationStatusText?.("text_to_image","prepare")||"正在准备图片生成参数"),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:a,run:i,readPending:()=>({promptText:replayPrompt,rawPromptText:t,submitMode:"image",messageIndex:s,responseIndex:n,liveItemId:l.liveItem?.id||"",userDisplayItemId:e?.dataset?.displayItemId||e?.__displayItem?.id||"",imageContext:e?.dataset?.imageContext||e?.__displayItem?.imageContext||"",attachmentContext:e?.dataset?.attachmentContext||e?.__displayItem?.attachmentContext||"",requestBaseMessages:state.messages.slice(0,s),regenerate:!0,replaceAssistantIndex:n,startedAt})});
       try{
         task.accept({capture:!0});
@@ -145,12 +148,12 @@
         const routeInfo=routeUtils.createExplicitTextToImageRoute?.(replayPrompt);
         if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0){const err=new Error("强制生图任务未能建立有效执行合同，已停止发送");err.code="ROUTE_NOT_READY";throw err}
         if(warnMissingModel(routeInfo.mode,!0)){task.fail(new Error("missing image model"));return void l.node?.remove()}
-        const executionPools=submitHelpers.buildExecutionResourcePools({current:[],quoted:[],history:[],context:[]},{isImageFile});
+        const executionPools=submitHelpers.buildExecutionResourcePools({current:[],quoted:[],history:[],context:[]},{isImageFile,messages:state.messages||[]});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools);
         const imagePrompt=String(routeInfo.contextualImagePrompt||replayPrompt).trim();
         updateModeUi(routeInfo.mode,state.autoMode);
         const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
-        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }
@@ -159,7 +162,7 @@
       const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
       const session=state.sessions?.find(item=>item?.id===sessionId);
       const rawPending=session?.pendingClarification;
-      const pending=(clarificationApi?.migratePendingClarification||clarificationApi?.normalizePendingClarification)?.(rawPending)||null;
+      const pending=clarificationApi?.normalizePendingClarification?.(rawPending)||null;
       if(session&&pending&&String(rawPending?.id||"")!==String(pending.id||"")){session.pendingClarification=pending;root?.saveSessionsMeta?.()}
       const assistantMessage=Array.isArray(state.messages)?state.messages[assistantIndex]:null;
       if(!clarificationApi?.matchesPendingClarificationMessage?.(pending,{message:assistantMessage,userText}))return!1;
@@ -206,7 +209,7 @@
       if(replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a}))return;
       const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
-      const c=prepareRegeneratedResponse(t,e,l,a,"正在执行：路由预检");e=c.node;let m=c.liveItem;
+      const c=prepareRegeneratedResponse(t,e,l,a,executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文");e=c.node;let m=c.liveItem;
       const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
@@ -244,7 +247,7 @@
             m.content=clarificationHtml||question;m.rawText=question;m.html=clarificationHtml;m.pending=!1;m.responseIndex=a;
             root?.persistSessionDisplay?.(l);
           }
-          const createdPending=!p.localClarification&&clarificationApi?.createPendingClarification?clarificationApi.createPendingClarification({
+          const createdPending=clarificationApi?.createPendingClarification?clarificationApi.createPendingClarification({
             messages:state.messages.slice(0,n+1),clarificationText:question,routeInfo:p,
             sourceImageContext:userMessage.imageContext||null,sourceAttachmentContext:userMessage.attachmentContext||u||null,sourceQuoteContext:userMessage.quoteContext||null,
           }):null;
@@ -284,14 +287,16 @@
         }
         const historyFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"history"});
         const contextFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"context"});
-        const executionPools=submitHelpers.buildExecutionResourcePools({current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]},{isImageFile});
+        const sourcePools={current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]};
+        const restrictedSourcePools=submitHelpers.restrictExecutionResourcePools?.(p,sourcePools)||sourcePools;
+        const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(p,executionPools);
          const q=String(p.contextualImagePrompt||p.editInstruction||replayPrompt).trim(),chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
          const originalImageIndex=submitHelpers.originalImageIndex;
          const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"";
          const chatPrompt=replayPrompt;
         const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
-         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,taskContract:p.taskContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }

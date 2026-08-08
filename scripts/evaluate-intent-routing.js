@@ -1,128 +1,175 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const path = require('path');
-const routeService = require('../client/services/route-service');
+const fs = require("fs");
+const path = require("path");
+const routeService = require("../client/services/route-service");
 const {
   SCHEMA_VERSION,
   loadFixtureSuite,
   evaluateRouteText,
   scoreRouteCase,
+  summarizeCompiledRoute,
   summarizeCaseScores,
-} = require('./lib/intent-routing-evaluation');
+  redactText,
+  redactValue,
+} = require("./lib/intent-routing-evaluation");
 
-const ROOT = path.resolve(__dirname, '..');
-const DEFAULT_FIXTURE = path.join(ROOT, 'test/fixtures/intent-routing-eval.v1.json');
+const ROOT = path.resolve(__dirname, "..");
+const DEFAULT_FIXTURE = path.join(ROOT, "test/fixtures/intent-routing-eval.v1.json");
 
 function usage() {
   return [
-    'Usage: npm run eval:intent -- [options]',
-    '',
-    'Required (or set the matching CHATUI_EVAL_* environment variable):',
-    '  --base-url <url>             CHATUI_EVAL_BASE_URL',
-    '  --api-key <key>              CHATUI_EVAL_API_KEY',
-    '  --model <model>              CHATUI_EVAL_ROUTE_MODEL',
-    '',
-    'Options:',
+    "Usage: npm run eval:intent -- [options]",
+    "",
+    "Required (or set the matching CHATUI_EVAL_* environment variable):",
+    "  --base-url <url>             CHATUI_EVAL_BASE_URL",
+    "  --api-key <key>              CHATUI_EVAL_API_KEY",
+    "  --model <model>              CHATUI_EVAL_ROUTE_MODEL",
+    "",
+    "Options:",
     `  --fixture <path>             Fixture file (default: ${path.relative(process.cwd(), DEFAULT_FIXTURE) || DEFAULT_FIXTURE})`,
-    '  --output <path>              JSON report destination (default: reports/intent-routing/...)',
-    '  --timeout-ms <number>        Per-case timeout in milliseconds (default: 30000)',
-    '  --limit <number>             Evaluate only the first N cases',
-    '  --min-score <0-100>          Fail when average score is lower (default: 90)',
-    '  --min-valid-contract <0-100> Fail when valid-contract rate is lower (default: 100)',
-    '  Safety-critical cases always require a 100% perfect-case rate.',
-    '  --no-write                   Print results without writing a report',
-    '  --help                       Show this help',
-  ].join('\n');
+    "  --output <path>              JSON report destination (default: temp/reports/...)",
+    "  --timeout-ms <number>        Per-case timeout in milliseconds (default: 120000)",
+    "  --limit <number>             Evaluate only the first N cases",
+    "  --min-score <0-100>          Fail when average score is lower (default: 100)",
+    "  --min-valid-route <0-100> Fail when valid-route rate is lower (default: 100)",
+    "  Safety-critical cases always require a 100% perfect-case rate.",
+    "  --no-write                   Print results without writing a report",
+    "  --help                       Show this help",
+  ].join("\n");
 }
 
 function optionValue(argv, index, option) {
   const value = argv[index + 1];
-  if (!value || value.startsWith('--')) throw new Error(`${option} requires a value.`);
+  if (value === undefined || value.startsWith("--")) throw new Error(`${option} requires a value.`);
   return value;
 }
 
 function numberOption(value, option, { min = 0, max = Number.MAX_SAFE_INTEGER, integer = false } = {}) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < min || number > max || (integer && !Number.isInteger(number))) {
-    throw new Error(`${option} must be ${integer ? 'an integer' : 'a number'} between ${min} and ${max}.`);
+    throw new Error(`${option} must be ${integer ? "an integer" : "a number"} between ${min} and ${max}.`);
   }
   return number;
 }
 
+function firstDefined(...values) {
+  return values.find(value => value !== undefined && value !== null && value !== "");
+}
+
 function parseArgs(argv = process.argv.slice(2), environment = process.env) {
   const values = {};
+  const options = {
+    "--base-url": "baseUrl",
+    "--api-key": "apiKey",
+    "--model": "model",
+    "--fixture": "fixture",
+    "--output": "output",
+    "--timeout-ms": "timeoutMs",
+    "--limit": "limit",
+    "--min-score": "minScore",
+    "--min-valid-route": "minValidRoute",
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--help') return { help: true };
-    if (argument === '--no-write') {
+    if (argument === "--help") return { help: true };
+    if (argument === "--no-write") {
       values.noWrite = true;
       continue;
     }
-    const options = {
-      '--base-url': 'baseUrl',
-      '--api-key': 'apiKey',
-      '--model': 'model',
-      '--fixture': 'fixture',
-      '--output': 'output',
-      '--timeout-ms': 'timeoutMs',
-      '--limit': 'limit',
-      '--min-score': 'minScore',
-      '--min-valid-contract': 'minValidContract',
-    };
     const key = options[argument];
     if (!key) throw new Error(`Unknown option: ${argument}`);
     values[key] = optionValue(argv, index, argument);
     index += 1;
   }
 
-  const baseUrl = String(values.baseUrl || environment.CHATUI_EVAL_BASE_URL || '').trim();
-  const apiKey = String(values.apiKey || environment.CHATUI_EVAL_API_KEY || '').trim();
-  const model = String(values.model || environment.CHATUI_EVAL_ROUTE_MODEL || '').trim();
+  const baseUrl = String(firstDefined(values.baseUrl, environment.CHATUI_EVAL_BASE_URL, "") || "").trim();
+  const apiKey = String(firstDefined(values.apiKey, environment.CHATUI_EVAL_API_KEY, "") || "").trim();
+  const model = String(firstDefined(values.model, environment.CHATUI_EVAL_ROUTE_MODEL, "") || "").trim();
   if (!baseUrl || !apiKey || !model) {
-    throw new Error('Route-model credentials are required. Set --base-url, --api-key, and --model (or CHATUI_EVAL_* variables).');
+    throw new Error("Route-model credentials are required. Set --base-url, --api-key, and --model (or CHATUI_EVAL_* variables).");
   }
   return {
     baseUrl,
     apiKey,
     model,
-    fixture: path.resolve(values.fixture || environment.CHATUI_EVAL_FIXTURE || DEFAULT_FIXTURE),
-    output: values.output ? path.resolve(values.output) : '',
-    timeoutMs: numberOption(values.timeoutMs || environment.CHATUI_EVAL_TIMEOUT_MS || 30000, '--timeout-ms', { min: 1000, max: 300000, integer: true }),
-    limit: values.limit ? numberOption(values.limit, '--limit', { min: 1, max: 10000, integer: true }) : 0,
-    minScore: numberOption(values.minScore || environment.CHATUI_EVAL_MIN_SCORE || 90, '--min-score', { min: 0, max: 100 }),
-    minValidContract: numberOption(values.minValidContract || environment.CHATUI_EVAL_MIN_VALID_CONTRACT || 100, '--min-valid-contract', { min: 0, max: 100 }),
-    noWrite: !!values.noWrite,
+    fixture: path.resolve(firstDefined(values.fixture, environment.CHATUI_EVAL_FIXTURE, DEFAULT_FIXTURE)),
+    output: values.output ? path.resolve(values.output) : "",
+    timeoutMs: numberOption(firstDefined(values.timeoutMs, environment.CHATUI_EVAL_TIMEOUT_MS, 120000), "--timeout-ms", { min: 1000, max: 300000, integer: true }),
+    limit: values.limit !== undefined ? numberOption(values.limit, "--limit", { min: 1, max: 10000, integer: true }) : 0,
+    minScore: numberOption(firstDefined(values.minScore, environment.CHATUI_EVAL_MIN_SCORE, 100), "--min-score", { min: 0, max: 100 }),
+    minValidRoute: numberOption(firstDefined(values.minValidRoute, environment.CHATUI_EVAL_MIN_VALID_ROUTE, 100), "--min-valid-route", { min: 0, max: 100 }),
+    noWrite: values.noWrite === true,
   };
 }
 
-function endpointFor(baseUrl = '') {
-  const normalized = String(baseUrl).trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(normalized)) throw new Error('--base-url must start with http:// or https://.');
+function endpointFor(baseUrl = "") {
+  const normalized = String(baseUrl).trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(normalized)) throw new Error("--base-url must start with http:// or https://.");
+  const parsed = new URL(normalized);
+  if (parsed.username || parsed.password) throw new Error("--base-url must not contain credentials.");
   return `${normalized}/chat/completions`;
 }
 
-function safeBaseUrl(baseUrl = '') {
+function safeBaseUrl(baseUrl = "") {
   try {
     const parsed = new URL(baseUrl);
-    return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, '')}`;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, "")}`;
   } catch {
-    return String(baseUrl || '').replace(/\/[^/]*@/, '/[redacted]@');
+    return String(baseUrl || "").replace(/\/[^/]*@/, "/[redacted]@");
   }
 }
 
-function redactErrorMessage(error, apiKey = '') {
-  let message = String(error?.message || error || 'Unknown route-model error');
-  if (apiKey) message = message.split(String(apiKey)).join('[redacted]');
-  return message
-    .replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[redacted]@')
-    .slice(0, 240);
+function redactErrorMessage(error, apiKey = "") {
+  return redactText(String(error?.message || error || "Unknown route-model error"), apiKey).slice(0, 400);
 }
 
 function defaultOutputPath() {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return path.join(ROOT, 'reports', 'intent-routing', `intent-routing-eval-${timestamp}.json`);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(ROOT, "temp", "reports", `intent-routing-eval-${timestamp}.json`);
+}
+
+function summarizeAttachmentForReport(attachment = {}, apiKey = "") {
+  const safe = {};
+  for (const [key, value] of Object.entries(attachment || {})) {
+    if (/^(data|blob|url|content|bytes|base64|buffer|file)$/i.test(key)) {
+      safe[key] = "[redacted]";
+    } else {
+      safe[key] = redactValue(value, apiKey, key);
+    }
+  }
+  return safe;
+}
+
+function summarizeContextForReport(context = {}, apiKey = "") {
+  return redactValue(context, apiKey);
+}
+
+function auditRoutePayload(payload = {}, apiKey = "") {
+  const serialized = JSON.stringify(payload);
+  const keys = [];
+  const walk = (value, pathName = "payload") => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      const childPath = `${pathName}.${key}`;
+      keys.push(childPath);
+      if (child && typeof child === "object") walk(child, childPath);
+    }
+  };
+  walk(payload);
+  const protocolField = keys.find(key => /(?:requestPurpose|dispatchContract|bindingEvidence)/i.test(key));
+  return {
+    payload_bytes: Buffer.byteLength(serialized, "utf8"),
+    message_count: Array.isArray(payload.messages) ? payload.messages.length : 0,
+    contains_api_key: apiKey ? serialized.includes(apiKey) : false,
+    contains_data_url: /data:[^\s"']+;base64,/i.test(serialized),
+    contains_binary_field: /(?:base64|arraybuffer|blob|bytes|buffer)/i.test(serialized),
+    embedded_execution_protocol_field: protocolField || "",
+    user_content_redacted: Array.isArray(payload.messages)
+      ? redactValue(payload.messages.find(message => message?.role === "user")?.content || "", apiKey)
+      : "",
+  };
 }
 
 async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
@@ -130,10 +177,10 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(endpoint, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+        "Content-Type": "application/json",
+        Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(payload),
@@ -144,10 +191,10 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
     try {
       body = await response.json();
     } catch {
-      throw new Error('Route model returned invalid JSON.');
+      throw new Error("Route model returned invalid JSON.");
     }
-    const text = String(routeService.extractRouteText(body) || '').trim();
-    if (!text) throw new Error('Route model returned an empty decision.');
+    const text = String(routeService.extractRouteText(body) || "").trim();
+    if (!text) throw new Error("Route model returned an empty decision.");
     return text;
   } catch (error) {
     if (controller.signal.aborted) throw new Error(`Route model request timed out after ${timeoutMs}ms.`);
@@ -158,23 +205,55 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
 }
 
 function formatCaseResult(result = {}) {
-  const reasons = [...(result.failure_reasons || []), ...(result.transport_error ? ['transport_error'] : [])];
-  return `[${result.perfect ? 'PASS' : 'FAIL'}] ${result.id} | ${Number(result.score || 0).toFixed(1)} | ${reasons.join(', ') || 'all checks passed'}`;
+  const reasons = [...(result.failure_reasons || []), ...(result.transport_error ? ["transport_error"] : [])];
+  return `[${result.perfect ? "PASS" : "FAIL"}] ${result.id} | ${Number(result.score || 0).toFixed(1)} | ${reasons.join(", ") || "all checks passed"}`;
 }
 
 function qualityGate(summary = {}, options = {}) {
   const averageScore = Number(summary.average_score) || 0;
-  const validContractRate = Number(summary.dimension_accuracy?.valid_contract) || 0;
+  const validRouteRate = Number(summary.dimension_accuracy?.valid_route) || 0;
   const safetyCriticalPerfectRate = Number(summary.safety_critical?.perfect_case_rate);
   const safetyCriticalPassed = Number.isFinite(safetyCriticalPerfectRate) && safetyCriticalPerfectRate === 100;
   return {
-    passed: averageScore >= options.minScore && validContractRate >= options.minValidContract && safetyCriticalPassed,
+    passed: averageScore >= options.minScore && validRouteRate >= options.minValidRoute && safetyCriticalPassed,
     average_score: averageScore,
-    valid_contract_rate: validContractRate,
+    valid_route_rate: validRouteRate,
     min_score: options.minScore,
-    min_valid_contract: options.minValidContract,
+    min_valid_route: options.minValidRoute,
     safety_critical_perfect_rate: safetyCriticalPerfectRate,
     min_safety_critical_perfect_rate: 100,
+  };
+}
+
+function buildCaseReport(caseDefinition, result, { rawText = "", apiKey = "", payload = null, durationMs = 0 } = {}) {
+  return {
+    id: result.id,
+    category: result.category,
+    safety_critical: result.safety_critical,
+    input: redactText(caseDefinition.input, apiKey),
+    attachments: (caseDefinition.attachments || []).map(item => summarizeAttachmentForReport(item, apiKey)),
+    context: summarizeContextForReport(caseDefinition.context || {}, apiKey),
+    expected: redactValue(caseDefinition.expected, apiKey),
+    model_output: result.model_output || { format: "text", value: null, text: "" },
+    compiled_result: result.compiled,
+    dispatch_contract: result.compiled?.dispatch_contract || null,
+    evaluation: {
+      score: result.score,
+      perfect: result.perfect,
+      checks: result.checks,
+      failure_reasons: result.failure_reasons,
+      route_validation_errors: result.route_validation_errors,
+      inspection_reason: result.inspection_reason,
+      inspection_error: result.inspection_error,
+    },
+    transport_error: result.transport_error || "",
+    duration_ms: durationMs,
+    route_payload_audit: payload ? auditRoutePayload(payload, apiKey) : null,
+    // Keep the raw text out of the report. `model_output` is parsed and
+    // redacted, which preserves auditability without leaking credentials or
+    // binary content.
+    raw_model_output_retained: false,
+    raw_model_output_sha256: require("crypto").createHash("sha256").update(String(rawText)).digest("hex"),
   };
 }
 
@@ -185,34 +264,60 @@ async function runEvaluation(options, { requestRoute = requestRouteModel, log = 
   const results = [];
 
   for (const caseDefinition of cases) {
+    const started = Date.now();
     let result;
+    let payload = null;
+    let rawText = "";
     try {
-      const payload = routeService.buildRoutePayload({
+      payload = routeService.buildRoutePayload({
         model: options.model,
         input: caseDefinition.input,
         attachments: caseDefinition.attachments,
         context: caseDefinition.context,
-        currentMode: caseDefinition.current_mode || 'chat',
+        currentMode: caseDefinition.current_mode || "chat",
         autoMode: caseDefinition.auto_mode !== false,
       });
-      const rawText = await requestRoute({ endpoint, apiKey: options.apiKey, payload, timeoutMs: options.timeoutMs });
-      result = evaluateRouteText(caseDefinition, rawText);
+      rawText = await requestRoute({ endpoint, apiKey: options.apiKey, payload, timeoutMs: options.timeoutMs });
+      result = evaluateRouteText(caseDefinition, rawText, { apiKey: options.apiKey });
     } catch (error) {
-      result = scoreRouteCase(caseDefinition, null);
+      result = scoreRouteCase(caseDefinition, null, { inspection_reason: "transport_error" });
       result.transport_error = redactErrorMessage(error, options.apiKey);
+      result.model_output = rawText
+        ? require("./lib/intent-routing-evaluation").redactModelOutput(rawText, options.apiKey)
+        : { format: "text", value: null, text: "" };
     }
-    results.push(result);
+    const caseReport = buildCaseReport(caseDefinition, result, {
+      rawText,
+      apiKey: options.apiKey,
+      payload,
+      durationMs: Date.now() - started,
+    });
+    results.push(caseReport);
     log(formatCaseResult(result));
   }
 
-  const summary = summarizeCaseScores(results);
+  const scoreResults = results.map(item => ({
+    id: item.id,
+    category: item.category,
+    safety_critical: item.safety_critical,
+    score: item.evaluation.score,
+    perfect: item.evaluation.perfect,
+    checks: item.evaluation.checks,
+  }));
+  const summary = summarizeCaseScores(scoreResults);
   const gate = qualityGate(summary, options);
   const report = {
     schema_version: SCHEMA_VERSION,
     generated_at: new Date().toISOString(),
-    fixture: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+    fixture: path.relative(ROOT, filePath).replace(/\\/g, "/"),
     model: options.model,
     base_url: safeBaseUrl(options.baseUrl),
+    criteria: {
+      score_weights: require("./lib/intent-routing-evaluation").SCORE_WEIGHTS,
+      valid_route_definition: "compiled route state is internally consistent and every ready route contains an exact dispatch_contract.v1",
+      safety_critical_policy: "every safety-critical case must be perfect; aggregate thresholds cannot trade it away",
+      raw_output_policy: "only parsed, bounded, redacted model output and a SHA-256 evidence hash are retained",
+    },
     summary,
     quality_gate: gate,
     cases: results,
@@ -220,10 +325,10 @@ async function runEvaluation(options, { requestRoute = requestRouteModel, log = 
   const output = options.output || defaultOutputPath();
   if (!options.noWrite) {
     fs.mkdirSync(path.dirname(output), { recursive: true });
-    fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     log(`Intent-routing evaluation report: ${output}`);
   }
-  log(`Intent-routing score: ${summary.average_score}/100; valid contracts: ${summary.dimension_accuracy.valid_contract}%; safety-critical perfect cases: ${summary.safety_critical.perfect_case_rate}%; gate: ${gate.passed ? 'PASS' : 'FAIL'}.`);
+  log(`Intent-routing score: ${summary.average_score}/100; valid routes: ${summary.dimension_accuracy.valid_route}%; safety-critical perfect cases: ${summary.safety_critical.perfect_case_rate}%; gate: ${gate.passed ? "PASS" : "FAIL"}.`);
   return report;
 }
 
@@ -257,9 +362,12 @@ module.exports = {
   usage,
   parseArgs,
   endpointFor,
+  safeBaseUrl,
   redactErrorMessage,
   defaultOutputPath,
+  auditRoutePayload,
   requestRouteModel,
   qualityGate,
+  buildCaseReport,
   runEvaluation,
 };

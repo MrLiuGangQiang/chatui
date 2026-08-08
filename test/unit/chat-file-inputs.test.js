@@ -1,9 +1,11 @@
-const assert = require('assert');
+﻿const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
 const chatService = require('../../client/services/chat-service');
 const chatWorkflow = require('../../client/app/chat-workflow');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
+const dispatchContractContract = require('../../shared/dispatch-contract');
 
 const PDF_DATA = 'data:application/pdf;base64,JVBERi0x';
 const WORKBOOK_DATA = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBAo=';
@@ -91,6 +93,72 @@ function testNonPdfInputFilePayloadOmitsDetail() {
   assert.strictEqual(Object.hasOwn(content[0], 'detail'), false);
 }
 
+function testOcrImageDetailSurvivesBothChatTransports() {
+  const content = chatService.buildUserContentWithAttachments('Read the badge.', [{
+    attachmentId: 'badge-1',
+    name: 'badge.png',
+    type: 'image/png',
+    dataUrl: 'data:image/png;base64,AAAA',
+    imageDetail: ' LOW ',
+  }]);
+
+  assert.deepStrictEqual(content, [
+    { type: 'text', text: 'Read the badge.' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA', detail: 'low' } },
+  ]);
+  assert.deepStrictEqual(chatService.responsesInputFromChatMessages([{ role: 'user', content }]), [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: 'Read the badge.' },
+      { type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: 'low' },
+    ],
+  }]);
+}
+
+function testExecutionImagesUseSelectedAttachmentOrderWithoutPromptAnnotations() {
+  const content = chatService.buildUserContentWithAttachments('第二张和最后一张图片里面的文字是什么', [
+    {
+      name: 'second.png',
+      type: 'image/png',
+      dataUrl: 'data:image/png;base64,SECOND',
+      routeResourceKey: 'r1',
+      routeSource: 'current',
+      routeIndex: 2,
+    },
+    {
+      name: 'last.png',
+      type: 'image/png',
+      dataUrl: 'data:image/png;base64,LAST',
+      routeResourceKey: 'r2',
+      routeSource: 'current',
+      routeIndex: 13,
+    },
+  ]);
+
+  assert.deepStrictEqual(content, [
+    { type: 'text', text: '第二张和最后一张图片里面的文字是什么' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,SECOND' } },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,LAST' } },
+  ]);
+  assert.deepStrictEqual(chatService.responsesInputFromChatMessages([{ role: 'user', content }])[0].content, [
+    { type: 'input_text', text: '第二张和最后一张图片里面的文字是什么' },
+    { type: 'input_image', image_url: 'data:image/png;base64,SECOND' },
+    { type: 'input_image', image_url: 'data:image/png;base64,LAST' },
+  ]);
+}
+
+function testOcrExecutionAddsLiteralReadingGuard() {
+  const workflow = chatWorkflow.createChatWorkflow({ state: {} });
+  const prompt = workflow.composeSystemPrompt({
+    dispatchContract: { operation: 'ocr' },
+    systemContext: '<media_map>image_part_1: source_index=1</media_map>',
+  }, {}, {});
+
+  assert.match(prompt, /逐字 OCR/);
+  assert.match(prompt, /只报告图片中实际可见的文字/);
+  assert.match(prompt, /media_map/);
+}
+
 function testResponsesPayloadOmitsReasoningWhenDisabled() {
   const messages = [{
     role: 'user',
@@ -115,6 +183,7 @@ function testResponsesPayloadOmitsReasoningWhenDisabled() {
         { type: 'input_text', text: 'Read this.' },
       ],
     }],
+    temperature: 0,
   });
   assert.strictEqual(Object.hasOwn(payload, 'reasoning'), false);
   assert.strictEqual(chatService.messagesHaveInputFiles(messages), true);
@@ -195,6 +264,7 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
         assert.strictEqual(options.signal, run.abortController.signal);
         assert.strictEqual(options.sessionId, session.id);
         assert.deepStrictEqual(options.headers, {});
+        assert.strictEqual(options.operation, 'file_qa');
         return attachments.map(item => ({
           ...item,
           inputFile: true,
@@ -253,7 +323,31 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
       formatElapsed: value => String(value),
     });
 
-    await workflow.sendChat('Summarize this PDF.', [localAttachment], null, { sessionId: session.id });
+    const dispatchContract = makeDispatchContract({
+      operation: 'file_qa',
+      prompt: 'Summarize this PDF.',
+      resources: [{
+        key: 'r1',
+        type: 'file',
+        role: 'attachment',
+        source: 'current',
+        id: 'local-pdf-1',
+      }],
+    });
+    const bindingEvidence = [{
+      key: 'r1',
+      type: 'file',
+      role: 'attachment',
+      resource_id: 'res:file:local-pdf-1',
+      source: 'current',
+    }];
+    await workflow.sendChat('Summarize this PDF.', [localAttachment], null, {
+      sessionId: session.id,
+      requestPurpose: 'final_execution',
+      dispatchContract,
+      executionMedia: { files: bindingEvidence },
+      bindingEvidence,
+    });
 
     assert.deepStrictEqual(responseBuildOptions, {
       stream: true,
@@ -273,6 +367,7 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
           { type: 'input_text', text: 'Summarize this PDF.' },
         ],
       }],
+      temperature: 0,
       stream: true,
     });
     assert.ok(events.indexOf('prepare-attachments') < events.indexOf('build-messages'));
@@ -287,6 +382,9 @@ module.exports = [
   testChatJobBase64FileDataUsesIndexedDbMediaReferences,
   testResponsesInputFilePayloadUsesFilenameBase64AndPdfDetail,
   testNonPdfInputFilePayloadOmitsDetail,
+  testOcrImageDetailSurvivesBothChatTransports,
+  testExecutionImagesUseSelectedAttachmentOrderWithoutPromptAnnotations,
+  testOcrExecutionAddsLiteralReadingGuard,
   testResponsesPayloadOmitsReasoningWhenDisabled,
   testNativeFileHistoryNeverProjectsLegacyInlineText,
   testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithoutReasoning,

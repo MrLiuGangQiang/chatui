@@ -5,7 +5,7 @@
     || root?.window?.ChatUICorePreflightGuards
     || (typeof require === 'function' ? require('../core/preflight-guards') : {});
 
-  // The task contract chooses the operation and source media. It must never rewrite the user's
+  // The execution plan authorizes the operation and source media. It must never rewrite the user's
   // request into internal routing or patch language before that request reaches the model.
   function composeExecutionPrompt(input = '') {
     const text = String(input || '').trim();

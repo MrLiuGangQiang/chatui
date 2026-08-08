@@ -55,7 +55,7 @@ function createMarkdownEngine(options = {}) {
   const md = MarkdownIt({
     html: options.allowHtml !== false,
     xhtmlOut: false,
-    breaks: false,
+    breaks: true,
     linkify: true,
     typographer: false,
     highlight(code, lang) {

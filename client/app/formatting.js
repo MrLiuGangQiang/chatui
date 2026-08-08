@@ -1,6 +1,9 @@
 (function initChatUIAppFormatting(root) {
   'use strict';
 
+  const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
+    || (typeof require === 'function' ? require('./execution-status') : {});
+
   function formatElapsed(ms) {
     if (Number.isFinite(ms) && ms < 1000) return ms > 0 && ms < 1 ? '<1ms' : `${Math.max(0, Math.round(ms))}ms`;
     const seconds = ms / 1000;
@@ -39,20 +42,12 @@
   }
 
   function pendingFeedbackHtml(value) {
-    const text = String(value || '正在执行：等待任务开始');
-    const stage = /路由|识别|预检/.test(text) ? 3
-      : /准备|上传|上一张图片/.test(text) ? 4
-        : /处理中|等待模型|连接模型|思考|接收|生成图片|修改图片|已等待/.test(text) ? 5 : 2;
-    const steps = ['接收任务', '保存上下文', '路由预检', '准备请求', '执行并等待响应'];
-    const map = steps.map((label, index) => {
-      const number = index + 1;
-      const state = number < stage ? 'done' : number === stage ? 'active' : '';
-      return `<span class="pending-map-step ${state}"><b>${number}</b>${label}</span>`;
-    }).join('');
-    return `<div class="pending-feedback" data-execution-map="true" aria-live="polite"><div class="pending-feedback-head"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="pending-map" aria-label="执行地图：当前第 ${stage} 步">${map}</div></div>`;
+    const text = String(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务');
+    return `<div class="pending-feedback" data-live-status="true" role="status" aria-live="polite" aria-atomic="true"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
   }
 
   function isChatStatusText(value = '') {
+    if (executionStatus.isExecutionStatusText?.(value)) return true;
     return /正在执行：|正在接收任务|正在准备消息|正在识别任务|正在连接模型|正在启动图片任务|正在处理中 请稍后|正在处理|正在思考|正在恢复聊天任务|恢复任务不存在|已停止恢复|已收到|请稍等|已等待/.test(String(value || ''));
   }
 

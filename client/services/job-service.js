@@ -55,25 +55,34 @@ function postJsonWithUploadProgress({ url, body, signal, onProgress, parseRespon
   });
 }
 
-async function startChatJob({ payload, config, jobId, api = 'chat', headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
+function executionProtocolFields({ requestPurpose = '', dispatchContract, bindingEvidence, submissionId = '' } = {}) {
+  return {
+    ...(requestPurpose ? { requestPurpose } : {}),
+    ...(dispatchContract !== undefined ? { dispatchContract } : {}),
+    ...(bindingEvidence !== undefined ? { bindingEvidence } : {}),
+    ...(submissionId ? { submissionId: String(submissionId) } : {}),
+  };
+}
+
+async function startChatJob({ payload, config, jobId, api = 'chat', headers = {}, signal, requestPurpose = '', dispatchContract, bindingEvidence, submissionId = '', fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/chat-jobs',
     signal,
     parseResponseJson,
     normalizeError,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, headers, ...executionProtocolFields({ requestPurpose, dispatchContract, bindingEvidence, submissionId }) },
   });
 }
 
-async function registerChatStreamJob({ payload, config, jobId, api = 'chat', start = false, headers = {}, signal, fetchImpl, parseResponseJson, normalizeError }) {
+async function registerChatStreamJob({ payload, config, jobId, api = 'chat', start = false, headers = {}, signal, requestPurpose = '', dispatchContract, bindingEvidence, submissionId = '', fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/chat-stream-jobs',
     signal,
     parseResponseJson,
     normalizeError,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, start, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, api, start, headers, ...executionProtocolFields({ requestPurpose, dispatchContract, bindingEvidence, submissionId }) },
   });
 }
 
@@ -120,7 +129,33 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
       try { reader?.cancel(); } catch {}
       fn(value);
     };
-    const handleJob = job => {
+    let aggregateEvent = null;
+    const normalizeCompactUpdate = event => {
+      if (!event || typeof event !== 'object') return event;
+      const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || Object.prototype.hasOwnProperty.call(event, 'ft');
+      if (!isMinimal || event.data) {
+        aggregateEvent = event;
+        return event;
+      }
+      const base = aggregateEvent && typeof aggregateEvent === 'object' ? aggregateEvent : {
+        status: 'running',
+        data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
+        metrics: {},
+      };
+      const message = { ...(base.data?.choices?.[0]?.message || {}) };
+      if (event.d) message.content = String(message.content || '') + String(event.d || '');
+      if (event.r) message.reasoning_content = String(message.reasoning_content || '') + String(event.r || '');
+      aggregateEvent = {
+        ...base,
+        status: event.e ? 'error' : event.done ? 'done' : 'running',
+        data: { choices: [{ message }] },
+        metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}), ...(Number.isFinite(event.rt) ? { durationMs: event.rt } : {}) },
+        error: event.e ? { message: event.e } : base.error || null,
+      };
+      return aggregateEvent;
+    };
+    const handleJob = rawEvent => {
+      const job = normalizeCompactUpdate(rawEvent);
       onUpdate(job);
       if (job.status === 'done') {
         const data = job.data && typeof job.data === 'object' ? { ...job.data, metrics: job.metrics || job.data.metrics || {} } : job.data;
@@ -197,7 +232,7 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
   });
 }
 
-async function startImageGenerationJob({ payload, config, jobId, mode = 'image', files = [], masks = [], headers = {}, signal, onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {
+async function startImageGenerationJob({ payload, config, jobId, mode = 'image', files = [], masks = [], headers = {}, signal, requestPurpose = '', dispatchContract, bindingEvidence, submissionId = '', onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {
   return postJob({
     fetchImpl,
     url: '/api/image-jobs',
@@ -205,7 +240,7 @@ async function startImageGenerationJob({ payload, config, jobId, mode = 'image',
     parseResponseJson,
     normalizeError,
     onUploadProgress,
-    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, mode, files, masks, headers },
+    body: { jobId, baseUrl: config.baseUrl, apiKey: config.apiKey, payload, mode, files, masks, headers, ...executionProtocolFields({ requestPurpose, dispatchContract, bindingEvidence, submissionId }) },
   });
 }
 

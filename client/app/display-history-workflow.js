@@ -4,6 +4,9 @@
   function createDisplayHistoryWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const messageRecords = deps.messageRecords || root.ChatUIMessageRecords || {};
+    const clarificationPresentation = deps.clarificationPresentation
+      || root?.ChatUIApp?.appContext?.getWorkflowModule?.('clarificationPresentation')
+      || {};
 
     function decodeQuoteAttr(value = '') {
       return String(value || '').replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
@@ -323,6 +326,35 @@
       });
     }
 
+    function isClarificationPresentationHtml(html = '') {
+      return /data-clarification-(?:image-choices|choice-options)=/i.test(String(html || ''));
+    }
+
+    function clarificationPresentationForMessage(session = {}, message = {}) {
+      const descriptor = message?.clarification && typeof message.clarification === 'object' && !Array.isArray(message.clarification)
+        ? message.clarification
+        : null;
+      const clarificationId = String(descriptor?.id || message?.clarificationId || message?.clarification_id || '').trim();
+      const activePending = session?.pendingClarification;
+      const pending = String(activePending?.id || '') === clarificationId ? activePending : null;
+      const routeInfo = descriptor?.routeInfo || pending?.routeInfo;
+      if (!clarificationId || !routeInfo || typeof routeInfo !== 'object' || Array.isArray(routeInfo)) return null;
+      const presentation = clarificationPresentation.buildClarificationPresentation?.({
+        ...routeInfo,
+        clarificationQuestion: routeInfo.clarificationQuestion
+          || descriptor?.question
+          || pending?.clarificationText
+          || message.content
+          || '',
+      }, {
+        messages: Array.isArray(session.messages) ? session.messages : [],
+        lastGeneratedImage: session.lastGeneratedImage || null,
+        currentImageContext: descriptor?.sourceImageContext || pending?.sourceImageContext || null,
+        quotedImageContext: descriptor?.sourceQuoteContext || pending?.sourceQuoteContext || null,
+      });
+      return presentation?.hasChoices && String(presentation.html || '').trim() ? presentation : null;
+    }
+
     function attachmentPresentationHtml(message, presentation) {
       if (typeof deps.renderUserMessageWithAttachments !== 'function') return '';
       const attachments = (presentation?.attachments || messageRecords.presentationAttachments?.(message) || []).map(item => ({
@@ -346,6 +378,7 @@
             ? Number(normalized.responseIndex)
             : fallbackIndex;
         const persistedHtml = normalized?.html || presentation.html || '';
+        const clarification = clarificationPresentationForMessage(session, normalized);
         const quoteContext = normalized?.quoteContext || extractQuoteContextFromHtml(persistedHtml) || '';
         // Canonical descriptors are durable semantic data. Persisted HTML is only a
         // compatibility fallback and must never override richer image/file records.
@@ -354,9 +387,15 @@
           : presentation.kind === 'image-result'
             ? imagePresentationHtml(normalized, presentation)
             : '';
-        const html = descriptorHtml || persistedHtml;
+        const html = descriptorHtml || clarification?.html || persistedHtml;
         const displayText = presentation.displayText || (normalized.role === 'user' ? normalized.rawText || normalized.content : normalized.content);
-        const rich = !!html && (displayItemHasRichMedia({ html }) || presentation.kind === 'attachment' || presentation.kind === 'image-result');
+        const rich = !!html && (
+          !!clarification
+          || displayItemHasRichMedia({ html })
+          || presentation.kind === 'attachment'
+          || presentation.kind === 'image-result'
+          || isClarificationPresentationHtml(persistedHtml)
+        );
         const node = rich
           ? addMessage(normalized.role === 'assistant' ? 'assistant' : normalized.role === 'error' ? 'error' : 'user', html, {
               html: true,
@@ -386,6 +425,9 @@
         if (normalized?.reasoning_content && normalized.role === 'assistant') updateReasoning(node, normalized.reasoning_content, { done: true, keepReasoning: true, restoreHistory: true });
         node.dataset.rawText = String(displayText || '');
         if (normalized.id) node.dataset.messageId = normalized.id;
+        if (normalized.clarificationId || normalized.clarification_id) {
+          node.dataset.clarificationId = String(normalized.clarificationId || normalized.clarification_id);
+        }
         if (normalized.role === 'user') node.dataset.messageIndex = String(canonicalIndex);
         if (normalized.role === 'assistant') node.dataset.responseIndex = String(canonicalIndex);
         if (normalized.displayItemId) node.dataset.displayItemId = String(normalized.displayItemId);

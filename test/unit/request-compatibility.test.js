@@ -45,7 +45,7 @@ async function testStructuredOutputFallbackRetriesUnavailableResponseFormat() {
     return { choices: [{ message: { content: '{}' } }] };
   }, {
     model: 'route-model',
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2' } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1' } },
     messages: [],
   });
 
@@ -60,7 +60,7 @@ async function testJsonObjectFallbackIncludesRequiredLowercaseJsonKeyword() {
   const result = await compatibility.requestJsonWithStructuredOutputFallback(async payload => {
     attempts.push(payload);
     if (attempts.length === 1) {
-      const error = new Error("Invalid schema for response_format 'chatui_semantic_task_v2': additionalProperties is required to be supplied and to be false.");
+      const error = new Error("Invalid schema for response_format 'chatui_route_intent_v1': additionalProperties is required to be supplied and to be false.");
       error.code = 'invalid_json_schema';
       throw error;
     }
@@ -70,7 +70,7 @@ async function testJsonObjectFallbackIncludesRequiredLowercaseJsonKeyword() {
     return { choices: [{ message: { content: '{}' } }] };
   }, {
     model: 'route-model',
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2', schema: { type: 'object' } } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', schema: { type: 'object' } } },
     messages: [{ role: 'system', content: 'return json' }],
   });
 
@@ -86,14 +86,14 @@ async function testStructuredOutputFallbackRetriesInvalidProviderSchema() {
   const result = await compatibility.requestJsonWithStructuredOutputFallback(async payload => {
     attempts.push(payload);
     if (attempts.length === 1) {
-      const error = new Error("Invalid schema for response_format 'chatui_semantic_task_v2': 'uniqueItems' is not permitted.");
+      const error = new Error("Invalid schema for response_format 'chatui_route_intent_v1': 'uniqueItems' is not permitted.");
       error.code = 'invalid_json_schema';
       throw error;
     }
     return { choices: [{ message: { content: '{}' } }] };
   }, {
     model: 'route-model',
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2', schema: { type: 'object' } } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', schema: { type: 'object' } } },
     messages: [],
   });
   assert.strictEqual(attempts.length, 2);
@@ -108,7 +108,7 @@ function testStructuredOutputFallbackClassifierRecognizesOnlyProtocolCapabilityE
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error('invalid parameter response_format')), true);
   assert.strictEqual(compatibility.structuredOutputUnsupported({
     code: 'invalid_json_schema',
-    message: "Invalid schema for response_format 'chatui_semantic_task_v2': 'uniqueItems' is not permitted.",
+    message: "Invalid schema for response_format 'chatui_route_intent_v1': 'uniqueItems' is not permitted.",
   }), true);
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error('json_schema is not allowed by this endpoint')), true);
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error("Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'.")), true);

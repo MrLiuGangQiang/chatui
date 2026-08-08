@@ -2,9 +2,10 @@
 
 const assert = require('assert');
 
-const clarification = require('../../client/services/clarification-service');
+const clarification = require('../../shared/clarification-answer');
 const jobWorkflow = require('../../client/app/job-workflow');
 const submitWorkflow = require('../../client/app/submit-workflow');
+const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 function memoryStorage() {
   const values = new Map();
@@ -61,16 +62,17 @@ async function testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndC
       }],
     });
     const clarificationQuestion = 'Estimate in person-days, person-months, or project duration?';
+    const workbookResource = {
+      key: 'r1', type: 'file', source: 'history', role: 'attachment', index: 1,
+      id: workbook.attachmentId, resource_id: 'res:file:workbook-low-code', reference_id: '',
+      identity_aliases: ['res:file:workbook-low-code', workbook.attachmentId], index_aliases: [1], missing: false,
+    };
     const pendingRouteInfo = {
       mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      dispatchAuthorized: false, operationType: 'file_qa', operationApi: 'chat', operationMode: 'chat', relation: 'followup',
+      resources: [workbookResource], executionResources: null, dispatchContract: null,
       clarificationQuestion,
-      taskContract: {
-        schema_version: 'task_contract.v5', readiness: 'needs_clarification', operation: 'file_qa', relation: 'followup',
-        resources: [{ key: 'r1', type: 'file', source: 'history', role: 'attachment', index: 1, id: workbook.attachmentId, reference_id: '', missing: false }],
-        directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [], constraints: [] },
-        clarification: { question: clarificationQuestion, unresolved_resources: [{ key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [] }] },
-        confidence: 0.99, review_reasons: [], rationale: 'the workbook is required for the estimate',
-      },
+      clarificationSlots: [{ key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [] }],
     };
     const messages = [
       { role: 'user', content: 'Analyze this spreadsheet.', rawText: 'Analyze this spreadsheet.', attachmentContext },
@@ -91,22 +93,17 @@ async function testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndC
     const routed = [];
     const sent = [];
     const restored = [];
+    const finalExecution = makeExecutionFixture({
+      operation: 'file_qa', relation: 'continuation', prompt: 'Use person-days.', resources: [workbookResource],
+    });
     const finalRoute = {
-      mode: 'chat', api: 'chat', needClarification: false,
-      semanticTask: {
-        schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'continuation', pending_effect: 'answer',
-        slots: [], changes: [], constraints: [],
-      },
-      executionResources: {
-        version: 'execution_resources.v1', operation: 'file_qa', images: [],
-        files: [{ key: 'r1', type: 'file', source: 'history', role: 'attachment', index: 1, id: workbook.attachmentId, reference_id: '', missing: false, identity_aliases: [], index_aliases: [] }],
-      },
-      taskContract: {
-        schema_version: 'task_contract.v5', readiness: 'ready', operation: 'file_qa', relation: 'continuation',
-        resources: [{ key: 'r1', type: 'file', source: 'history', role: 'attachment', index: 1, id: workbook.attachmentId, reference_id: '', missing: false }],
-        directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [], constraints: [] },
-        clarification: { question: '', unresolved_resources: [] }, confidence: 0.99, review_reasons: [], rationale: 'the restored workbook is selected',
-      },
+      mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
+      operationType: 'file_qa', operationApi: 'chat', operationMode: 'chat', relation: 'continuation',
+      resources: finalExecution.resources, imageRefs: [], fileRefs: [{ key: 'r1', role: 'attachment', file_id: workbook.attachmentId, resource_id: 'res:file:workbook-low-code', index: 1, source: 'history' }], messageRefs: [],
+      selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [1], selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false,
+      contextualImagePrompt: 'Use person-days.', editInstruction: '', localClarification: false,
+      executionResources: finalExecution.executionResources,
+      dispatchContract: finalExecution.dispatchContract,
     };
     const workflow = submitWorkflow.createSubmitWorkflow({
       state,
@@ -161,7 +158,7 @@ async function testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndC
     assert.strictEqual(routed[0].input, 'Use person-days.');
     assert.strictEqual(routed[0].routeContext.clarification_context.pending_task.base_input, 'Estimate all low-code-suitable functions.');
     assert.deepStrictEqual(routed[0].routeAttachments.map(item => [item.attachmentId, item.routeSource]), [[workbook.attachmentId, 'history']]);
-    assert.strictEqual(routed[0].routeContext.clarification_context.schema_version, 'clarification_context.v3');
+    assert.strictEqual(routed[0].routeContext.clarification_context.schema_version, 'clarification_context.v4');
     assert.deepStrictEqual(sent[0].map(item => [item.attachmentId, item.routeSource]), [[workbook.attachmentId, 'history']]);
     assert.strictEqual(session.pendingClarification, undefined, 'the old pending record is consumed only after the workbook-backed handoff');
   } finally {
@@ -169,7 +166,7 @@ async function testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndC
   }
 }
 
-async function testPendingAssistanceUsesChatAndRetainsPendingTask() {
+async function testPendingAssistanceUsesChatAndConsumesPendingOnHandoff() {
   const restoreGlobalState = [
     replaceGlobal('window', global),
     replaceGlobal('localStorage', memoryStorage()),
@@ -182,19 +179,17 @@ async function testPendingAssistanceUsesChatAndRetainsPendingTask() {
     }),
   ];
   try {
-    const clarificationQuestion = '请确认要替换成哪一张你生成的猫。';
-    const pendingContract = {
-      schema_version: 'task_contract.v5', readiness: 'needs_clarification', operation: 'edit_image', relation: 'followup',
-      resources: [],
-      directive: { mode: 'patch', base_resource_keys: ['r1'], unmentioned_policy: 'preserve', operations: [{ op: 'replace', target: '猫', value: '用户选择的猫' }], constraints: [] },
-      clarification: { question: clarificationQuestion, unresolved_resources: [{ key: 'r1', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
-        { key: 'c1', source: 'history', index: 1, id: 'cat-a', reference_id: 'cat-a-ref', label: '猫 A' },
-        { key: 'c2', source: 'history', index: 2, id: 'cat-b', reference_id: 'cat-b-ref', label: '猫 B' },
-      ] }] },
-      confidence: 1, review_reasons: [], rationale: '',
-    };
+    const baseTaskText = 'Replace the cat with the generated cat.';
+    const clarificationQuestion = 'Which generated cat should replace it?';
+    const assistanceText = 'Explain how I should choose.';
+    const clarificationSlots = [{
+      key: 'r1', type: 'image', role: 'reference', reason: 'ambiguous', choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'cat-a', resource_id: 'res:image:cat-a', reference_id: 'cat-a-ref', label: 'Cat A' },
+        { key: 'c2', source: 'history', index: 2, id: 'cat-b', resource_id: 'res:image:cat-b', reference_id: 'cat-b-ref', label: 'Cat B' },
+      ],
+    }];
     const messages = [
-      { role: 'user', content: '不是这只猫，替换成你生成的猫', rawText: '不是这只猫，替换成你生成的猫', messageIndex: 0 },
+      { role: 'user', content: baseTaskText, rawText: baseTaskText, messageIndex: 0 },
       { role: 'assistant', content: clarificationQuestion, rawText: clarificationQuestion, responseIndex: 1 },
     ];
     const pending = clarification.createPendingClarification({
@@ -202,12 +197,9 @@ async function testPendingAssistanceUsesChatAndRetainsPendingTask() {
       clarificationText: clarificationQuestion,
       routeInfo: {
         mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
-        clarificationQuestion, taskContract: pendingContract,
-        semanticTask: {
-          schema_version: 'semantic_task.v2', actions: ['edit'], discourse: 'followup', pending_effect: 'none',
-          slots: [{ kind: 'image', purpose: 'reference', label: '替换猫图', resolution: 'ambiguous', candidate_keys: ['i1', 'i2'] }],
-          changes: pendingContract.directive.operations, constraints: [],
-        },
+        dispatchAuthorized: false, operationType: 'edit_image', operationApi: 'image_edit', operationMode: 'edit_image', relation: 'followup',
+        resources: [], executionResources: null, dispatchContract: null,
+        clarificationQuestion, clarificationSlots,
       },
     });
     const session = { id: 'session-images', messages: [...messages], display: [], pendingClarification: pending };
@@ -215,22 +207,20 @@ async function testPendingAssistanceUsesChatAndRetainsPendingTask() {
       activeSessionId: session.id, sessions: [session], messages: session.messages, attachments: [],
       disposedSessionIds: new Set(), promptDrafts: new Map(), autoMode: true, mode: 'chat', editingIndex: null, editingNode: null,
     };
-    const prompt = { value: '你给我解释一下怎么选', focus() {} };
+    const prompt = { value: assistanceText, focus() {} };
     const run = { stopped: false, abortController: new AbortController() };
     const routed = [];
     const sent = [];
+    const assistanceExecution = makeExecutionFixture({
+      operation: 'plain_chat', relation: 'followup', prompt: assistanceText,
+    });
     const assistanceRoute = {
-      mode: 'chat', api: 'chat', needClarification: false,
-      semanticTask: {
-        schema_version: 'semantic_task.v2', actions: ['respond'], discourse: 'followup', pending_effect: 'assistance',
-        slots: [], changes: [], constraints: [],
-      },
-      executionResources: { version: 'execution_resources.v1', operation: 'plain_chat', images: [], files: [], messages: [] },
-      taskContract: {
-        schema_version: 'task_contract.v5', readiness: 'ready', operation: 'plain_chat', relation: 'followup', resources: [],
-        directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-        clarification: { question: '', unresolved_resources: [] }, confidence: 1, review_reasons: [], rationale: '',
-      },
+      mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
+      operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'followup',
+      resources: [], imageRefs: [], fileRefs: [], messageRefs: [], selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
+      selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false, contextualImagePrompt: assistanceText, editInstruction: '', localClarification: false,
+      executionResources: assistanceExecution.executionResources,
+      dispatchContract: assistanceExecution.dispatchContract,
     };
     const workflow = submitWorkflow.createSubmitWorkflow({
       state,
@@ -272,16 +262,16 @@ async function testPendingAssistanceUsesChatAndRetainsPendingTask() {
     await workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
 
     assert.strictEqual(routed.length, 1);
-    assert.strictEqual(routed[0].input, '你给我解释一下怎么选');
-    assert.strictEqual(routed[0].routeContext.clarification_context.pending_task.base_input, '不是这只猫，替换成你生成的猫');
-    assert.strictEqual(routed[0].routeContext.clarification_context.schema_version, 'clarification_context.v3');
-    assert.deepStrictEqual(sent, [{ chatPrompt: '你给我解释一下怎么选', files: [] }]);
-    assert.strictEqual(session.pendingClarification.id, pending.id, 'assistance must retain the active pending task');
+    assert.strictEqual(routed[0].input, assistanceText);
+    assert.strictEqual(routed[0].routeContext.clarification_context.pending_task.base_input, baseTaskText);
+    assert.strictEqual(routed[0].routeContext.clarification_context.schema_version, 'clarification_context.v4');
+    assert.deepStrictEqual(sent, [{ chatPrompt: assistanceText, files: [] }]);
+    assert.strictEqual(session.pendingClarification, undefined, 'a successful assistance handoff consumes the active pending task');
   } finally {
     restoreGlobalState.reverse().forEach(restore => restore());
   }
 }
 module.exports = [
   testClarificationHandoffRestoresTheOriginalWorkbookForRoutingAndChat,
-  testPendingAssistanceUsesChatAndRetainsPendingTask,
+  testPendingAssistanceUsesChatAndConsumesPendingOnHandoff,
 ];

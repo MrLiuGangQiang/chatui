@@ -197,7 +197,8 @@ function applyContextBudget(messages = [], options = {}) {
   let omittedEntries = omittedGroups.flat();
   let summary = null;
   let summaryInserted = false;
-  if (omittedEntries.length) {
+  const summarizeOmitted = options.summarizeOmitted !== false;
+  if (omittedEntries.length && summarizeOmitted) {
     const availableForSummary = Math.max(32, inputBudgetTokens - used - MESSAGE_OVERHEAD_TOKENS);
     const summaryBudget = Math.min(SUMMARY_MAX_TOKENS, Math.max(32, Math.min(Math.max(SUMMARY_MIN_TOKENS, Math.floor(inputBudgetTokens * 0.03)), availableForSummary)));
     summary = makeSummaryMessage(omittedEntries.map(entry => entry.message), summaryBudget);

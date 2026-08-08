@@ -63,15 +63,17 @@
     messagesHaveInputFiles: messages => chatService.messagesHaveInputFiles(messages),
     buildResponsesPayload: (model, messages, options) => chatService.buildResponsesPayload(model, messages, options),
     requestJson: options => chatService.requestJson({ toProxyUrl, parseResponseJson, normalizeError, fetchImpl: options?.fetchImpl || fetchImpl(), ...options }),
+    reportExecutionRejection: options => chatService.reportExecutionRejection({ fetchImpl: options?.fetchImpl || fetchImpl(), ...options }),
     parseSseLine: line => chatService.parseSseLine(line, reasoning.extractStreamDelta || (() => ({}))),
   });
 
   const route = Object.freeze({
     ROUTE_SYSTEM_PROMPT: routeService.ROUTE_SYSTEM_PROMPT,
-    stripJsonFence: text => routeService.stripJsonFence(text),
-    parseRouteResult: (text, options) => routeService.parseRouteResult(text, options),
     buildRoutePayload: options => routeService.buildRoutePayload(options),
     extractRouteText: response => routeService.extractRouteText(response),
+    inspectModelRouteResult: (text, options) => routeService.inspectModelRouteResult(text, options),
+    cleanQuotedContent: text => routeService.cleanQuotedContent(text),
+    buildQuotedRouteContent: options => routeService.buildQuotedRouteContent(options),
   });
 
   const promptComposer = Object.freeze({

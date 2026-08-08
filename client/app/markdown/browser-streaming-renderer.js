@@ -313,6 +313,7 @@
       const doc = container.ownerDocument || document;
       tailNode = doc.createElement('span');
       tailNode.className = 'markdown-stream-tail';
+      tailNode.style.whiteSpace = 'pre-wrap';
       tailNode.setAttribute('data-markdown-streaming-tail', '1');
       tailNode.setAttribute('aria-live', 'polite');
       tailTextNode = doc.createTextNode('');

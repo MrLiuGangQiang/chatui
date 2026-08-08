@@ -2,6 +2,7 @@ const { sendJson } = require('../http/response');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
+const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 
 const {
   buildImageEditMultipartBody,
@@ -87,12 +88,16 @@ function prepareImageJobRequest(body = {}) {
   return { mode, payload, files: imageFiles, masks };
 }
 
-function createImageJobFromRequestBody(jobId, body = {}, { baseUrl, apiKey, extraHeaders } = {}) {
-  const { mode, payload, files, masks } = prepareImageJobRequest(body);
+function createImageJobFromRequestBody(jobId, body = {}, { baseUrl, apiKey, extraHeaders, prepared = null } = {}) {
+  const { mode, payload, files, masks } = prepared || prepareImageJobRequest(body);
   return {
     id: jobId,
     status: 'running',
     mode,
+    requestPurpose: body.requestPurpose || '',
+    submissionId: String(body.submissionId || ''),
+    dispatchContract: body.dispatchContract || null,
+    bindingEvidence: Array.isArray(body.bindingEvidence) ? body.bindingEvidence.map(item => ({ ...item })) : [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     targetUrl: imageJobTargetUrl(baseUrl, mode, payload),
@@ -157,10 +162,13 @@ function markImageJobFailed(job = {}, err) {
   return job;
 }
 
-async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace } = {}) {
+async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog } = {}) {
   const traceSpan = requestTrace?.begin?.({
+    parentTraceId: job.parentTraceId || '',
+    rootTraceId: job.rootTraceId || '',
     source: 'image_job',
     jobId: job.id,
+    submissionId: job.submissionId || '',
     method: 'POST',
     target: job.targetUrl,
     targetPath: imageJobTargetPath(job.mode, job.payload),
@@ -191,6 +199,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace } =
     markImageJobDone(job, data);
   } catch (err) {
     failure = err;
+    errorLog?.log(err, { source: 'image_job', traceId: traceSpan?.traceId || '' });
     markImageJobFailed(job, err);
   } finally {
     if (timer) clearTimeout(timer);
@@ -205,23 +214,72 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace } =
   }
 }
 
-function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace }) {
+function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace, errorLog }) {
   async function startImageJob(req, res) {
     const extracted = await extractProxyRequest(req, res);
     if (!extracted) return;
     const { body, baseUrl, apiKey, extraHeaders } = extracted;
+    let prepared = null;
+    let jobId = String(body?.jobId || '');
+    let validationStage = 'prepare_request';
+    const traceExecution = (event, extra = {}) => requestTrace?.[event]?.({
+      traceId: req._traceId || '',
+      rootTraceId: req._rootTraceId || '',
+      source: 'managed_image_execution',
+      submissionId: String(body?.submissionId || ''),
+      jobId,
+      body,
+      payload: prepared?.payload || body?.payload || {},
+      mode: prepared?.mode || body?.mode || '',
+      files: prepared?.files || [],
+      masks: prepared?.masks || [],
+      secrets: [apiKey],
+      stage: validationStage,
+      ...extra,
+    });
     try {
-      const jobId = makeJobId(body.jobId);
-      if (imageJobs.has(jobId)) return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
-      const job = createImageJobFromRequestBody(jobId, body, { baseUrl, apiKey, extraHeaders });
+      prepared = prepareImageJobRequest(body);
+      validationStage = 'execution_protocol';
+      const validation = executionProtocolValidator.validateManagedImageRequest(
+        { ...body, mode: prepared.mode, payload: prepared.payload },
+        {
+          payload: prepared.payload,
+          mode: prepared.mode,
+          files: prepared.files,
+          masks: prepared.masks,
+        },
+      );
+      const executionContract = {
+        requestPurpose: validation.requestPurpose,
+        dispatchContract: validation.dispatchContract,
+        bindingEvidence: validation.bindingEvidence,
+      };
+      jobId = makeJobId(body.jobId);
+      if (imageJobs.has(jobId)) {
+        validationStage = 'job_contract';
+        executionProtocolValidator.assertJobExecutionContract(imageJobs.get(jobId), executionContract);
+        traceExecution('executionAccepted', { reused: true });
+        return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+      }
+      validationStage = 'accepted';
+      traceExecution('executionAccepted');
+      const job = createImageJobFromRequestBody(jobId, {
+        ...body,
+        requestPurpose: executionContract.requestPurpose,
+        dispatchContract: executionContract.dispatchContract,
+        bindingEvidence: executionContract.bindingEvidence,
+      }, { baseUrl, apiKey, extraHeaders, prepared });
       imageJobs.set(job.id, job);
-      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace })).catch(err => {
+      job.parentTraceId = req._traceId || '';
+      job.rootTraceId = req._rootTraceId || '';
+      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog })).catch(err => {
         job.status = 'error';
         job.error = err.message || String(err);
         job.updatedAt = Date.now();
       });
       sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
     } catch (err) {
+      traceExecution('executionRejected', { error: err });
       respondJobError(res, err);
     }
   }

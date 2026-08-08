@@ -28,8 +28,16 @@ function publicJob(job, options = {}) {
     const shouldSendFt = Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified && !options.resumeUrl;
     if (shouldSendFt) payload.ft = job.firstTokenMs;
     if (Number.isFinite(job.durationMs) && job.durationMs >= 0) payload.rt = job.durationMs;
+    payload.status = job.status === 'done' ? 'done' : job.status === 'error' ? 'error' : 'running';
+
     if (job.status === 'done') payload.done = 1;
-    if (job.status === 'error') payload.e = job.error || '任务失败';
+
+    if (job.status === 'error') {
+      const message = job.error || '任务失败';
+      payload.e = message;
+      payload.error = { message };
+    }
+
     return payload;
   }
   return {

@@ -79,7 +79,9 @@ function normalizeStoredImageAttachment(item = {}, fallbackRole = '') {
     subject: item.subject || '',
     updatedAt: item.updatedAt || item.updated_at || null,
     routeResourceKey: item.routeResourceKey || item.route_resource_key || '',
+    routeResourceType: item.routeResourceType || item.route_resource_type || '',
     routeRole: item.routeRole || item.route_role || item.role || fallbackRole,
+    routeResourceId: item.routeResourceId || item.route_resource_id || item.resource_id || item.resourceId || '',
     routeSource: item.routeSource || item.route_source || item.source || '',
   };
 }

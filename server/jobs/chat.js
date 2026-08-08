@@ -8,13 +8,14 @@ const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = req
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const { extractResponsesStreamDelta } = require('../proxy/responses-stream');
+const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
   return Math.max(1, elapsed);
 }
 
-function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {}, api = 'chat' } = {}) {
+function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {}, api = 'chat', executionContract = null, submissionId = '' } = {}) {
   const normalizedApi = api === 'responses' ? 'responses' : 'chat';
   const targetPath = normalizedApi === 'responses' ? '/responses' : '/chat/completions';
   return {
@@ -24,6 +25,10 @@ function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHead
     updatedAt: Date.now(),
     api: normalizedApi,
     targetPath,
+    requestPurpose: executionContract?.requestPurpose || '',
+    submissionId: String(submissionId || ''),
+    dispatchContract: executionContract?.dispatchContract || null,
+    bindingEvidence: Array.isArray(executionContract?.bindingEvidence) ? executionContract.bindingEvidence.map(item => ({ ...item })) : [],
     targetUrl: `${baseUrl}${targetPath}`,
     apiKey,
     extraHeaders: normalizeExtraHeaders(extraHeaders),
@@ -73,12 +78,31 @@ function releaseChatJobFileData(job) {
   return parts.length;
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace }) {
+function validateManagedChatExecution(body, payload, api) {
+  return executionProtocolValidator.validateManagedChatRequest({ ...body, payload, api }, {
+    payload,
+    transportApi: api,
+  });
+}
+
+function executionContractFromValidation(validation) {
+  return {
+    requestPurpose: validation.requestPurpose,
+    dispatchContract: validation.dispatchContract,
+    bindingEvidence: validation.bindingEvidence,
+  };
+}
+
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog }) {
 async function runChatJob(job) {
 job.serverStartAtMs = performance.now();
 const traceSpan = requestTrace?.begin?.({
+  parentTraceId: job.parentTraceId || '',
+  rootTraceId: job.rootTraceId || '',
   source: 'chat_job',
+  kind: 'chat',
   jobId: job.id,
+  submissionId: job.submissionId || '',
   method: 'POST',
   target: job.targetUrl,
   targetPath: job.targetPath,
@@ -116,6 +140,7 @@ try {
 } catch (err) {
   failure = err;
   const aborted = err?.name === 'AbortError';
+  errorLog?.log(err, { source: 'chat_job', traceId: traceSpan?.traceId || '' });
   job.status = 'error';
   job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
@@ -138,8 +163,12 @@ job.serverStartAt = Date.now();
 job.serverStartAtMs = performance.now();
 job.firstTokenMs = null;
 const traceSpan = requestTrace?.begin?.({
+  parentTraceId: job.parentTraceId || '',
+  rootTraceId: job.rootTraceId || '',
   source: 'chat_stream_job',
+  kind: 'chat',
   jobId: job.id,
+  submissionId: job.submissionId || '',
   method: 'POST',
   target: job.targetUrl,
   targetPath: job.targetPath,
@@ -200,6 +229,7 @@ try {
 } catch (err) {
   failure = err;
   const aborted = err?.name === 'AbortError';
+  errorLog?.log(err, { source: 'chat_stream_job', traceId: traceSpan?.traceId || '' });
   job.status = 'error';
   job.error = normalizeUpstreamErrorMessage(err, { aborted });
 } finally {
@@ -219,16 +249,46 @@ async function registerChatStreamJob(req, res) {
 const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
+let api = body.api === 'responses' ? 'responses' : 'chat';
+let payload = body.payload || {};
+let jobId = String(body?.jobId || '');
+let validationStage = 'prepare_payload';
+const traceExecution = (event, extra = {}) => requestTrace?.[event]?.({
+  traceId: req._traceId || '',
+  rootTraceId: req._rootTraceId || '',
+  source: 'managed_chat_stream_execution',
+  submissionId: String(body?.submissionId || ''),
+  jobId,
+  body,
+  payload,
+  transportApi: api,
+  secrets: [apiKey],
+  stage: validationStage,
+  ...extra,
+});
 try {
-  const api = body.api === 'responses' ? 'responses' : 'chat';
   const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
-  const payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath });
+  payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath, summarizeOmitted: false });
+  validationStage = 'execution_protocol';
+  const validation = validateManagedChatExecution(body, payload, api);
+  const executionContract = executionContractFromValidation(validation);
   safeLog('[chat-stream-job] upstream payload', { ...summarizeChatPayload(payload), api });
-  const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
+  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
   let job = chatJobs.get(jobId);
+  if (job) {
+    validationStage = 'job_contract';
+    executionProtocolValidator.assertJobExecutionContract(job, executionContract);
+    traceExecution('executionAccepted', { reused: true });
+  }
   if (!job) {
-    job = makeChatJob(jobId, baseUrl, apiKey, payload, { stream: true, extraHeaders, api });
+    validationStage = 'accepted';
+    traceExecution('executionAccepted');
+    job = makeChatJob(jobId, baseUrl, apiKey, payload, {
+      stream: true, extraHeaders, api, executionContract, submissionId: body.submissionId,
+    });
     chatJobs.set(jobId, job);
+    job.parentTraceId = req._traceId || '';
+    job.rootTraceId = req._rootTraceId || '';
   }
   if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(limiter, () => runChatStreamJob(job)).catch(err => {
     job.status = 'error';
@@ -237,6 +297,7 @@ try {
   });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
+  traceExecution('executionRejected', { error: err });
   respondJobError(res, err);
 }
 }
@@ -245,13 +306,39 @@ async function startChatJob(req, res) {
 const extracted = await extractProxyRequest(req, res);
 if (!extracted) return;
 const { body, baseUrl, apiKey, extraHeaders } = extracted;
+let api = body.api === 'responses' ? 'responses' : 'chat';
+let payload = body.payload || {};
+let jobId = String(body?.jobId || '');
+let validationStage = 'prepare_payload';
+const traceExecution = (event, extra = {}) => requestTrace?.[event]?.({
+  traceId: req._traceId || '',
+  rootTraceId: req._rootTraceId || '',
+  source: 'managed_chat_execution',
+  submissionId: String(body?.submissionId || ''),
+  jobId,
+  body,
+  payload,
+  transportApi: api,
+  secrets: [apiKey],
+  stage: validationStage,
+  ...extra,
+});
 try {
-  const api = body.api === 'responses' ? 'responses' : 'chat';
   const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
-  const payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath });
+  payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath, summarizeOmitted: false });
+  validationStage = 'execution_protocol';
+  const validation = validateManagedChatExecution(body, payload, api);
+  const executionContract = executionContractFromValidation(validation);
   safeLog('[chat-job] upstream payload', { ...summarizeChatPayload(payload), api });
-  const jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
-  if (chatJobs.has(jobId)) return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
+  if (chatJobs.has(jobId)) {
+    validationStage = 'job_contract';
+    executionProtocolValidator.assertJobExecutionContract(chatJobs.get(jobId), executionContract);
+    traceExecution('executionAccepted', { reused: true });
+    return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+  }
+  validationStage = 'accepted';
+  traceExecution('executionAccepted');
   const job = {
     id: jobId,
     status: 'running',
@@ -262,11 +349,17 @@ try {
     targetUrl: `${baseUrl}${targetPath}`,
     apiKey,
     extraHeaders,
+    requestPurpose: executionContract.requestPurpose,
+    submissionId: String(body.submissionId || ''),
+    dispatchContract: executionContract.dispatchContract,
+    bindingEvidence: executionContract.bindingEvidence,
     payload: { ...payload, stream: false },
     data: null,
     error: '',
   };
   chatJobs.set(job.id, job);
+  job.parentTraceId = req._traceId || '';
+  job.rootTraceId = req._rootTraceId || '';
   withLimiter(limiter, () => runChatJob(job)).catch(err => {
     job.status = 'error';
     job.error = err.message || String(err);
@@ -274,6 +367,7 @@ try {
   });
   sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
 } catch (err) {
+  traceExecution('executionRejected', { error: err });
   respondJobError(res, err);
 }
 }

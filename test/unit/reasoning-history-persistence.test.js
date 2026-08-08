@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const displayHistory = require('../../client/app/display-history-workflow');
 const messageRecords = require('../../client/app/message-records');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 const sessionDisplay = require('../../client/app/session-display');
 const chatWorkflow = require('../../client/app/chat-workflow');
 
@@ -126,7 +127,8 @@ async function testInFlightReasoningPersistsAfterSwitchAndReload() {
     ensureActiveRun: () => run,
     getActiveSession: () => sessionA,
     ensureChatAttachmentImageDataUrls: async items => items,
-    buildChatMessagesWithAttachments: (prompt, attachments, baseMessages) => [
+    buildChatMessagesWithAttachments: (prompt, attachments, baseMessages, systemPrompt) => [
+      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
       ...baseMessages,
       { role: 'user', content: prompt },
     ],
@@ -164,7 +166,12 @@ async function testInFlightReasoningPersistsAfterSwitchAndReload() {
     formatElapsed: value => `${value}ms`,
   });
 
-  await workflow.sendChat('Question', [], null, { sessionId: sessionA.id });
+  await workflow.sendChat('Question', [], null, {
+    sessionId: sessionA.id,
+    requestPurpose: 'final_execution',
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'Question', relation: 'new' }),
+    bindingEvidence: [],
+  });
   await Promise.resolve();
   persistence.saveSessionsMeta();
 

@@ -158,7 +158,7 @@ async function testActiveImageCompletionKeepsInsertedCanonicalReplyBeforeTheShif
     sessionId: session.id,
     userAlreadyAdded: true,
     replaceAssistantIndex: 1,
-    taskContract: route.taskContract,
+    dispatchContract: route.dispatchContract,
     executionMedia: route.executionResources,
     originalPrompt: 'draw the first answer',
     clientJobId: 'imgjob-position',

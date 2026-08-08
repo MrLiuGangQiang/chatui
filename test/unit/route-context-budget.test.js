@@ -67,6 +67,21 @@ function testRouteContextPreservesCurrentAndQuotedFilesWhenPruningHistory() {
   assert.ok(trimmed.file_candidates.every(candidate => candidate.unsupported_reason.length <= 240));
 }
 
+
+function testBuildRouteContextKeepsAllMessagesThatFitTheConfiguredWindow() {
+  const messages = Array.from({ length: 40 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    id: `message-${index + 1}`,
+    content: `short message ${index + 1} ${'x'.repeat(300)}`,
+  }));
+  const context = imageRouteContext.buildRouteContext({ messages, maxChars: 256 * 1024 });
+  assert.strictEqual(context.recent_messages.length, 40, 'all messages that fit the configured window must be retained');
+  assert.strictEqual(context.recent_messages[context.recent_messages.length - 1].index, 40, 'the latest message keeps its original index');
+  assert.strictEqual(context.recent_messages[0].index, 1, 'the earliest message remains when the window has room');
+  assert.ok(context.recent_messages.every(message => message.content.length <= 240),
+    'route message contents must stay short for intent recognition');
+}
+
 function testBuildRouteContextBoundsHistoricalFileCatalog() {
   const maxChars = 12000;
   const messages = Array.from({ length: 300 }, (_, index) => ({
@@ -95,4 +110,5 @@ module.exports = [
   testRouteContextPrunesOldestHistoricalFilesWithinBudget,
   testRouteContextPreservesCurrentAndQuotedFilesWhenPruningHistory,
   testBuildRouteContextBoundsHistoricalFileCatalog,
+  testBuildRouteContextKeepsAllMessagesThatFitTheConfiguredWindow,
 ];

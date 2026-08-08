@@ -33,4 +33,12 @@
   const api = Object.freeze({ createQuotePreview });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (appContext?.registerWorkflowModule) appContext.registerWorkflowModule('quotePreview', api);
+  // The legacy root entry (app.js) still invokes these as bare globals after
+  // the module split. Expose a default-configured instance so those call sites
+  // keep working instead of throwing ReferenceError.
+  const legacyPreview = createQuotePreview({});
+  if (root) {
+    root.withSentQuotePreview = legacyPreview.withSentQuotePreview;
+    root.renderSentQuotePreview = legacyPreview.renderSentQuotePreview;
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

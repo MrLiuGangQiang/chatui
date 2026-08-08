@@ -3,6 +3,7 @@ const { Readable } = require('stream');
 
 const { createImageJobHandlers, prepareImageJobRequest, createImageJobFromRequestBody, buildImageUpstreamRequest, createImageJobValidationError, formatImageJobError, imageUpstreamBaseHeaders, markImageJobDone, markImageJobFailed, parseImageUpstreamResponse, resolveImageJobMode, runImageJob } = require('../../server/jobs/image');
 const { publicJob } = require('../../server/jobs/common');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 const PNG_1PX = 'iVBORw0KGgo=';
 
@@ -31,6 +32,8 @@ async function invokeStart(body, options = {}) {
     imageJobs,
     notifyJob(job) { notifications.push({ id: job.id, status: job.status, mode: job.mode, data: job.data, error: job.error }); },
     upstreamTimeoutMs: 1000,
+    requestTrace: options.requestTrace,
+    errorLog: options.errorLog,
   });
   const res = createMockResponse();
   const previousFetch = global.fetch;
@@ -54,16 +57,54 @@ async function invokeStart(body, options = {}) {
 }
 
 function imageFile(overrides = {}) {
-  return { name: 'source.png', type: 'image/png', data: PNG_1PX, ...overrides };
+  const name = String(overrides.name || 'source.png');
+  const routeId = String(overrides.routeId || name);
+  return {
+    name,
+    type: 'image/png',
+    data: PNG_1PX,
+    routeResourceKey: overrides.routeResourceKey || 'r1',
+    routeResourceId: overrides.routeResourceId || `res:image:${routeId}`,
+    routeRole: overrides.routeRole || 'target',
+    routeSource: overrides.routeSource || 'current',
+    routeId,
+    routeReferenceId: overrides.routeReferenceId || '',
+    ...overrides,
+  };
+}
+
+function generationPlan(prompt) {
+  return makeDispatchContract({ operation: 'text_to_image', prompt });
+}
+
+function editPlan(prompt, { includeMask = false } = {}) {
+  const resources = [{
+    key: 'r1', type: 'image', role: 'target', source: 'current', id: 'source.png',
+  }];
+  if (includeMask) resources.push({
+    key: 'r2', type: 'image', role: 'mask', source: 'current', id: 'mask.png',
+  });
+  return makeDispatchContract({ operation: 'edit_image', prompt, resources });
+}
+
+function finalImageRequest(body, dispatchContract) {
+  return {
+    ...body,
+    requestPurpose: 'final_execution',
+    dispatchContract,
+    bindingEvidence: dispatchContract.bindings
+      .filter(binding => binding.type !== 'text')
+      .map(({ key, type, role, resource_id, source }) => ({ key, type, role, resource_id, source })),
+  };
 }
 
 async function testImageJobStartGenerationContract() {
-  const result = await invokeStart({
+  const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1',
     apiKey: 'sk-test',
     jobId: 'imgjob-generate1',
     payload: { model: 'gpt-image-1', prompt: '画一只猫', n: 1 },
-  });
+  }, generationPlan('画一只猫')));
 
   assert.strictEqual(result.res.status, 202);
   assert.strictEqual(result.json.id, 'imgjob-generate1');
@@ -75,12 +116,53 @@ async function testImageJobStartGenerationContract() {
   assert.deepStrictEqual(job.masks, []);
 }
 
+async function testImageJobExecutionBoundaryEmitsAcceptedAndRejectedContractEvidence() {
+  const traceCalls = [];
+  const requestTrace = {
+    executionAccepted(details) { traceCalls.push({ event: 'accepted', details }); },
+    executionRejected(details) { traceCalls.push({ event: 'rejected', details }); },
+  };
+  const prompt = '候选 2：美国成年女性纽约街头人像';
+  const accepted = await invokeStart(finalImageRequest({
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-boundary-test',
+    jobId: 'imgjob-boundary-accepted',
+    submissionId: 'submit-choice-2',
+    payload: { model: 'gpt-image-2', prompt },
+  }, generationPlan(prompt)), { requestTrace });
+
+  assert.strictEqual(accepted.res.status, 202);
+  assert.strictEqual(traceCalls[0].event, 'accepted');
+  assert.strictEqual(traceCalls[0].details.submissionId, 'submit-choice-2');
+  assert.strictEqual(traceCalls[0].details.jobId, 'imgjob-boundary-accepted');
+  assert.strictEqual(traceCalls[0].details.payload.prompt, prompt);
+  assert.strictEqual(traceCalls[0].details.body.dispatchContract.arguments.prompt, prompt);
+  assert.strictEqual(traceCalls[0].details.stage, 'accepted');
+  assert.strictEqual(accepted.imageJobs.get('imgjob-boundary-accepted').submissionId, 'submit-choice-2');
+
+  const rejected = await invokeStart(finalImageRequest({
+    baseUrl: 'https://api.example.com/v1',
+    jobId: 'imgjob-boundary-rejected',
+    submissionId: 'submit-choice-2-rejected',
+    payload: { model: 'gpt-image-2', prompt: '1\n\n2' },
+  }, generationPlan(prompt)), { requestTrace });
+
+  assert.strictEqual(rejected.res.status, 400);
+  assert.strictEqual(rejected.fetchCalls.length, 0);
+  assert.strictEqual(traceCalls[1].event, 'rejected');
+  assert.strictEqual(traceCalls[1].details.submissionId, 'submit-choice-2-rejected');
+  assert.strictEqual(traceCalls[1].details.payload.prompt, '1\n\n2');
+  assert.strictEqual(traceCalls[1].details.body.dispatchContract.arguments.prompt, prompt);
+  assert.strictEqual(traceCalls[1].details.error.message, 'Image payload prompt disagrees with the execution plan');
+  assert.strictEqual(traceCalls[1].details.stage, 'execution_protocol');
+}
+
 async function testImageJobAsyncCompletionContract() {
-  const result = await invokeStart({
+  const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-complete1',
     payload: { model: 'gpt-image-1', prompt: '画一只猫' },
-  }, { waitForJob: true });
+  }, generationPlan('画一只猫')), { waitForJob: true });
 
   assert.strictEqual(result.res.status, 202);
   const job = result.imageJobs.get('imgjob-complete1');
@@ -102,11 +184,11 @@ async function testImageJobAsyncCompletionContract() {
 }
 
 async function testImageJobAsyncErrorContract() {
-  const result = await invokeStart({
+  const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-upstreamerr1',
     payload: { model: 'gpt-image-1', prompt: '画一只猫' },
-  }, {
+  }, generationPlan('画一只猫')), {
     waitForJob: true,
     fetch: () => Promise.resolve({ ok: false, status: 429, text: () => Promise.resolve('{"error":{"message":"quota exceeded"}}') }),
   });
@@ -198,11 +280,11 @@ async function testRunImageJobAllowsMissingNotifyContract() {
 }
 
 async function testImageJobStartEditAutoModeContract() {
-  const result = await invokeStart({
+  const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1/',
     jobId: 'imgjob-editauto1',
     payload: { model: 'gpt-image-1', prompt: '改成蓝色', images: [imageFile()] },
-  });
+  }, editPlan('改成蓝色')));
 
   assert.strictEqual(result.res.status, 202);
   const job = result.imageJobs.get('imgjob-editauto1');
@@ -258,13 +340,14 @@ async function testImageJobStartEditValidationContracts() {
 }
 
 async function testImageJobStartDuplicateReturnsExistingJobContract() {
-  const existingJob = { id: 'imgjob-existing', status: 'done', createdAt: 1, updatedAt: 2, data: { data: [] }, error: '', durationMs: 3 };
+  const plan = generationPlan('不会被使用');
+  const existingJob = { id: 'imgjob-existing', status: 'done', requestPurpose: 'final_execution', dispatchContract: plan, createdAt: 1, updatedAt: 2, data: { data: [] }, error: '', durationMs: 3 };
   const fetchCalls = [];
-  const result = await invokeStart({
+  const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-existing',
-    payload: { prompt: '不会被使用' },
-  }, { imageJobs: new Map([['imgjob-existing', existingJob]]), fetch: (...args) => { fetchCalls.push(args); throw new Error('fetch should not be called'); } });
+    payload: { model: 'gpt-image-1', prompt: '不会被使用' },
+  }, plan), { imageJobs: new Map([['imgjob-existing', existingJob]]), fetch: (...args) => { fetchCalls.push(args); throw new Error('fetch should not be called'); } });
 
   assert.strictEqual(result.res.status, 200);
   assert.strictEqual(result.json.id, 'imgjob-existing');
@@ -567,6 +650,7 @@ module.exports = [
   testImageJobPrepareRequestHelperContracts,
   testImageJobFactoryHelperContract,
   testImageJobStartGenerationContract,
+  testImageJobExecutionBoundaryEmitsAcceptedAndRejectedContractEvidence,
   testImageJobAsyncCompletionContract,
   testImageJobAsyncErrorContract,
   testRunImageJobAbortContract,

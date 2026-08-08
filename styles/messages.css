@@ -63,6 +63,11 @@
   .message.error.has-meta .bubble-wrap{min-width:156px!important;}
 }
 
+/* Keep the unfinished streaming tail readable before Markdown can form a block. */
+.markdown-stream-tail{
+  white-space:pre-wrap!important;
+}
+
 /* Message action buttons live in normal flow below the bubble; never overlay content. */
 .bubble-wrap{
   position:relative!important;
@@ -176,6 +181,47 @@
     margin-bottom:18px!important;
   }
 }
+
+.route-execution-preview{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  width:100%!important;
+  max-width:420px!important;
+  margin:0 0 6px!important;
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+}
+.route-execution-preview-media{
+  display:flex!important;
+  flex:0 0 auto!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:42px!important;
+  height:42px!important;
+  overflow:hidden!important;
+  border:1px solid rgba(148,163,184,.32)!important;
+  border-radius:7px!important;
+  background:#f8fafc!important;
+}
+.route-execution-preview-image{
+  display:block!important;
+  width:42px!important;
+  height:42px!important;
+  object-fit:cover!important;
+}
+.route-execution-preview-placeholder{
+  padding:4px!important;
+  color:#64748b!important;
+  font-size:10px!important;
+  line-height:1.25!important;
+  text-align:center!important;
+}
+.route-execution-preview-copy{display:grid!important;min-width:0!important;gap:1px!important;}
+.route-execution-preview-copy strong{color:#475569!important;font-size:12px!important;font-weight:600!important;line-height:1.35!important;}
+.route-execution-preview-copy>span{overflow:hidden!important;color:#64748b!important;font-size:12px!important;line-height:1.35!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+.route-execution-preview-detail{margin:0!important;color:#94a3b8!important;font-size:11px!important;line-height:1.35!important;}
 
 /* Image grids: user uploads and assistant image results share row-first wrapping layout. */
 .user-attachment-preview-grid,
@@ -484,11 +530,88 @@
 }
 .clarification-choice-placeholder{display:grid;order:1;place-items:center;min-width:96px;height:var(--clarification-image-height);padding:8px;border-radius:0 10px 10px 0;background:#f1f5f9;color:#64748b;font-size:11px;line-height:1.35;text-align:center;}
 .clarification-choice-hint{padding-top:1px;color:#64748b;font-size:12px;line-height:1.5;}
+/* Text clarification choices use a dedicated, quiet list layout instead of
+   inheriting the shrink-wrapped image-card geometry. */
+.markdown-body .clarification-choice-list{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr);
+  gap:6px;
+  width:min(460px,100%);
+  margin:0!important;
+  padding:0!important;
+  list-style:none!important;
+  counter-reset:none!important;
+}
+.markdown-body .clarification-choice-list>.clarification-choice-card{
+  display:block!important;
+  width:100%;
+  min-width:0;
+  margin:0!important;
+  padding:0!important;
+  border:0;
+  background:transparent;
+  box-shadow:none;
+  counter-increment:none!important;
+}
+.markdown-body .clarification-choice-list>.clarification-choice-card::before{content:none!important;display:none!important;}
+.markdown-body .clarification-choice-button{
+  display:grid;
+  grid-template-columns:20px minmax(0,1fr);
+  align-items:center;
+  gap:9px;
+  width:100%;
+  min-width:0;
+  padding:8px 10px;
+  border:1px solid #e2e8f0;
+  border-radius:9px;
+  background:#fff;
+  color:#1e293b;
+  font:inherit;
+  font-size:13px;
+  line-height:1.45;
+  text-align:left;
+  cursor:pointer;
+  box-shadow:none;
+  transition:border-color .12s ease,background .12s ease,color .12s ease;
+}
+.clarification-presentation[data-clarification-choice-options="1"] .clarification-choice-number{
+  display:grid;
+  position:static!important;
+  place-items:center;
+  width:20px;
+  height:20px;
+  margin:0!important;
+  padding:0!important;
+  border:0;
+  border-radius:6px;
+  background:#eff6ff;
+  color:#2563eb;
+  font-size:11px;
+  font-weight:750;
+  line-height:1;
+}
+.markdown-body .clarification-choice-button:hover{border-color:#bfdbfe;background:#f8fbff;}
+.markdown-body .clarification-choice-button:focus-visible{outline:2px solid #93c5fd;outline-offset:1px;}
+.markdown-body .clarification-choice-button[aria-pressed="true"],
+.markdown-body .clarification-choice-card.is-selected .clarification-choice-button{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8;}
+.markdown-body .clarification-choice-button:disabled{cursor:default;opacity:.72;}
+.markdown-body .clarification-choice-label{
+  display:-webkit-box;
+  -webkit-line-clamp:3;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  min-width:0;
+  word-break:break-word;
+  white-space:normal;
+}
+@media (max-width:640px){
+  .markdown-body .clarification-choice-button{font-size:12px;padding:8px 9px;}
+}
 @media (max-width:640px){
   .clarification-presentation{width:min(100%,calc(100vw - 58px));gap:10px;}
   .markdown-body .clarification-image-list{--clarification-image-height:60px;--clarification-image-width:80px;gap:7px;}
   .markdown-body .clarification-image-list>.clarification-choice-card{padding:0!important;}
-  .clarification-choice-number{flex-basis:20px;width:20px;font-size:10px;}
+  .clarification-image-list .clarification-choice-number{flex-basis:20px;width:20px;font-size:10px;}
 }
 
 /* Message images are the visual surface themselves. Do not put a generic

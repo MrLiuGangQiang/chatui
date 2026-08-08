@@ -21,50 +21,6 @@ function assistantImageMessage(displayItemId, prompt, src, labels = []) {
   };
 }
 
-function plainChatContract() {
-  return {
-    schema_version: 'task_contract.v4',
-    operation: 'plain_chat',
-    relation: 'new',
-    resources: [],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
-    confidence: 0.92,
-    review_reasons: [],
-    rationale: 'current request is a standalone text request',
-  };
-}
-
-function imageReferenceContract(candidates) {
-  const resources = candidates.map((candidate, index) => ({
-    key: `r${index + 1}`,
-    type: 'image',
-    source: candidate.source,
-    role: 'reference',
-    index: candidate.index,
-    id: candidate.image_id,
-    reference_id: candidate.reference_id,
-    missing: false,
-  }));
-  return {
-    schema_version: 'task_contract.v4',
-    operation: 'image_reference_gen',
-    relation: 'followup',
-    resources,
-    directive: {
-      mode: 'patch',
-      base_resource_keys: resources.map(resource => resource.key),
-      unmentioned_policy: 'allow_change',
-      operations: [{ op: 'add', target: 'composition', value: 'combine the selected references' }],
-      constraints: [],
-    },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
-    confidence: 0.95,
-    review_reasons: [],
-    rationale: 'model selected the referenced images from route context',
-  };
-}
-
 function canonicalAnimalHistory(extra = []) {
   return [
     { role: 'user', content: '画一只猫' },
@@ -115,14 +71,117 @@ function testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics(
     '2、数据列表视图下支持子表数据自动合并行展示/分组。',
     '帮我生成一个回复模板，不需要内容。',
   ].join('\n');
-  const parsed = routeService.parseRouteResult(JSON.stringify(plainChatContract()), { input, attachments: [], context });
+  const intent = {
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '测试用户目标',
+    resource_refs: [],
+  };
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), { input, attachments: [], context });
+  const parsed = inspected.route;
 
+  assert.strictEqual(inspected.reason, '');
   assert.ok(parsed);
   assert.strictEqual(parsed.mode, 'chat');
   assert.strictEqual(parsed.operationType, 'plain_chat');
   assert.strictEqual(parsed.needClarification, false);
   assert.strictEqual(parsed.clarificationQuestion, '');
-  assert.deepStrictEqual(parsed.taskContract, routeService.decodeTaskContract(plainChatContract()));
+  assert.deepStrictEqual(parsed.imageRefs, []);
+  assert.deepStrictEqual(parsed.dispatchContract.bindings, []);
+  assert.strictEqual(parsed.dispatchContract.context_policy.unbound_resources, 'deny');
+  assert.strictEqual(routeService.isRouteDispatchable(parsed), true);
+}
+
+function testModelSelectedHistoricalImageEditSurvivesInterveningTextReply() {
+  const messages = [
+    { role: 'user', content: '画一只猫' },
+    assistantImageMessage('cat-result', '一只猫', 'indexeddb://cat', ['猫']),
+    { role: 'user', content: '这是什么品种' },
+    { role: 'assistant', content: '看起来是家猫。' },
+  ];
+  const context = collectAnimalContext(messages);
+  const cat = candidateByPrompt(context, '一只猫');
+  const input = '帮我把猫的颜色换一下';
+  const candidate = routeService.wireResourceCandidates([], context, input)
+    .find(item => item.id === cat.image_id);
+  assert.ok(candidate, 'the named historical image must cross the model candidate boundary');
+  const goal = '修改所选猫图片的颜色。';
+  const intent = {
+    operation: 'edit_image',
+    relation: 'followup',
+    goal,
+    resource_refs: [{ candidate_key: candidate.candidate_key, role: 'target' }],
+  };
+
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), {
+    input,
+    attachments: [],
+    context,
+  });
+  const route = inspected.route;
+
+  assert.ok(route, inspected.error || inspected.reason);
+  assert.strictEqual(context.conversation_focus.kind, 'text', 'the intervening breed answer establishes text focus');
+  assert.strictEqual(route.operationType, 'edit_image');
+  assert.strictEqual(route.api, 'image_edit');
+  assert.strictEqual(route.relation, 'followup');
+  assert.strictEqual(route.readiness, 'ready');
+  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.strictEqual(route.dispatchContract.bindings.length, 1);
+  assert.strictEqual(route.dispatchContract.bindings[0].role, 'target');
+  assert.strictEqual(route.dispatchContract.bindings[0].resource_id, `res:image:${encodeURIComponent(cat.image_id)}`);
+}
+
+function testOlderNamedImageMemoryCardCanBeSelectedByTheModel() {
+  const messages = [];
+  for (let index = 0; index < 8; index += 1) {
+    const prompt = index === 0 ? '橘猫坐在窗边' : `第${index + 1}张无关图片`;
+    messages.push({ role: 'user', content: `画${prompt}` });
+    messages.push(assistantImageMessage(`result-${index + 1}`, prompt, `indexeddb://result-${index + 1}`, index === 0 ? ['橘猫', '窗边'] : ['无关']));
+  }
+  const recentReferences = routeContext.collectRecentImageReferences({ messages, limit: 6 });
+  const context = routeContext.buildRouteContext({ messages, recentImageReferences: recentReferences });
+  assert.strictEqual(context.image_candidates.length, 6, 'the normal route window stays compact');
+  assert.strictEqual(context.image_candidates.some(item => item.prompt === '橘猫坐在窗边'), false);
+
+  const memoryCards = routeContext.buildImageMemoryCards({ messages, recentImageReferences: recentReferences });
+  assert.strictEqual(memoryCards.length, 8, 'local image memory retains every historical image card');
+  const oldCat = memoryCards.find(item => item.prompt === '橘猫坐在窗边');
+  assert.ok(oldCat, 'the older named image must remain recoverable in the candidate catalog');
+  Object.defineProperty(context, 'image_memory_cards', { value: memoryCards, enumerable: false });
+
+  const input = '把前面窗边的橘猫背景改成雪山';
+  const candidate = routeService.wireResourceCandidates([], context, input)
+    .find(item => item.id === oldCat.image_id);
+  assert.ok(candidate, 'the retrieved memory card must be published to the intent model');
+  const result = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'followup',
+    goal: '把所选橘猫图片的背景改成雪山。',
+    resource_refs: [{ candidate_key: candidate.candidate_key, role: 'target' }],
+  }), { input, attachments: [], context });
+
+  assert.ok(result.route, result.error || result.reason);
+  assert.strictEqual(result.route.operationType, 'edit_image');
+  assert.strictEqual(result.route.readiness, 'ready');
+  assert.strictEqual(result.route.dispatchContract.bindings[0].resource_id, `res:image:${encodeURIComponent(oldCat.image_id)}`);
+}
+
+function testImageMemoryCardsKeepVersionRelationship() {
+  const base = assistantImageMessage('base-cat', '橘猫坐在窗边', 'indexeddb://base-cat', ['橘猫']);
+  const baseReferenceId = imageReferences.makeImageReferenceId('base-cat');
+  const edited = assistantImageMessage('edited-cat', '把背景改成雪山', 'indexeddb://edited-cat', ['橘猫', '雪山']);
+  const editedContext = JSON.parse(edited.imageContext);
+  editedContext.mode = 'edit_image';
+  editedContext.selectedReferenceId = baseReferenceId;
+  editedContext.selectedImageIds = [imageReferences.makeImageItemId(baseReferenceId, 1)];
+  edited.imageContext = JSON.stringify(editedContext);
+
+  const cards = routeContext.buildImageMemoryCards({ messages: [base, edited] });
+  const editedCard = cards.find(item => item.prompt === '把背景改成雪山');
+  assert.strictEqual(editedCard.operation, 'edit_image');
+  assert.strictEqual(editedCard.parent_reference_id, baseReferenceId);
+  assert.deepStrictEqual(editedCard.parent_image_ids, [imageReferences.makeImageItemId(baseReferenceId, 1)]);
 }
 
 function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
@@ -135,17 +194,32 @@ function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
   const context = collectAnimalContext(messages);
   const selected = [candidateByPrompt(context, '一只猫'), candidateByPrompt(context, '一只狗')];
   const input = '把猫和狗合并成一张图，不要牛';
-  const parsed = routeService.parseRouteResult(JSON.stringify(imageReferenceContract(selected)), { input, attachments: [], context });
+  const catalog = routeService.buildResourceCandidates([], context);
+  const intent = {
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    goal: '把所选猫和狗合并成一张新图，并排除牛。',
+    resource_refs: selected.map(candidate => ({
+      candidate_key: catalog.find(item => item.id === candidate.image_id).candidate_key,
+      role: 'reference',
+    })),
+  };
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), { input, attachments: [], context });
+  const parsed = inspected.route;
 
+  assert.strictEqual(inspected.reason, '');
   assert.ok(parsed);
   assert.strictEqual(parsed.operationType, 'image_reference_gen');
   assert.strictEqual(parsed.needClarification, false);
-  assert.strictEqual(parsed.legacyModelOutputConverted, true, 'legacy model output must pass through the candidate-key compiler bridge');
   assert.deepStrictEqual(new Set(parsed.selectedImageIds), new Set(selected.map(item => item.image_id)));
-  assert.deepStrictEqual(new Set(parsed.taskContract.directive.base_resource_keys), new Set(['r1', 'r2']));
-  assert.strictEqual(parsed.taskContract.directive.unmentioned_policy, 'allow_change', 'the bridge must retain valid legacy composition semantics');
+  assert.deepStrictEqual(new Set(parsed.dispatchContract.bindings.map(binding => binding.key)), new Set(['r1', 'r2']));
+  assert.deepStrictEqual(
+    new Set(parsed.dispatchContract.bindings.map(binding => binding.resource_id)),
+    new Set(selected.map(candidate => `res:image:${encodeURIComponent(candidate.image_id)}`)),
+  );
+  assert.strictEqual(parsed.dispatchContract.context_policy.unbound_resources, 'deny');
   assert.strictEqual(routeService.isRouteDispatchable(parsed), true);
-  assert.strictEqual(parsed.editInstruction, input);
+  assert.strictEqual(parsed.editInstruction, '把所选猫和狗合并成一张新图，并排除牛。');
 }
 
 function createWorkflow(messages) {
@@ -218,6 +292,9 @@ module.exports = [
   testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs,
   testCanonicalHistoryExposesEveryCompletedImageWithStableIds,
   testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics,
+  testModelSelectedHistoricalImageEditSurvivesInterveningTextReply,
+  testOlderNamedImageMemoryCardCanBeSelectedByTheModel,
+  testImageMemoryCardsKeepVersionRelationship,
   testModelDeclaredCompositionSelectsOnlyItsContractResources,
   testSelectedImageIdsRestoreAcrossMultipleHistoricalReferences,
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,

@@ -69,7 +69,7 @@
 
     const closeParagraph = () => {
       if (!paragraph.length) return;
-      html.push('<p>' + renderInline(paragraph.join(' ')) + '</p>');
+      html.push('<p>' + paragraph.map(renderInline).join('<br>') + '</p>');
       paragraph = [];
     };
     const closeList = () => {

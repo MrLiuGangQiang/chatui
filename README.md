@@ -53,8 +53,10 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
   - `chat`：普通聊天。
   - `image`：文本生成图片。
   - `edit_image`：编辑一个明确目标图，可同时使用内容参考图、风格参考图和 mask。
-- 可配置独立路由模型；未配置时使用聊天模型。模型只抽取 `semantic_task.v2` 语义事实，应用本地确定性编译为执行合同，不让模型直接填写操作、资源绑定或澄清合同。
+- 可配置独立路由模型；未配置时使用聊天模型。模型只输出最小、非执行性的四字段 `route_intent.v1`：`operation`、`relation`、`goal`、`resource_refs`。`goal` 用一句话表达用户真正想做什么，并结合引用消息与最近会话消解“这个”“第一条”“为什么”等省略表达；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，历史消息角色统一为 `context`。模型不能填写版本字段、API、最终参数、上下文策略、幂等键或规范资源 ID；应用在本地重建绑定并生成不可变的 `dispatch_contract.v1`，它仍是唯一执行授权。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
+- 路由会携带当前消息之前、在受控路由窗口内能够容纳的全部文字历史，并排除正在发送的当前消息；超限时从最早消息开始丢弃。显式引用消息会与最近会话一起提供给意图模型，因此“最近问的是‘这个消息多少字’，引用另一条后再问‘这个呢’”可解析为统计当前引用消息的字数。图片/文件二进制和附件正文仍不会进入路由模型。
+- 最终上下文按三种策略执行：能精确识别一条或多条消息时只发送这些消息；明确独立的新任务不发送历史；其他情况默认发送窗口内会话历史。最终上下文超限时优先丢弃最早消息，不自动插入替代摘要；当前消息和精确绑定消息无法容纳时会停止发送并提示缩短内容。
 - 非图片附件上传时直接走聊天，通过 Responses API 的 Base64 原生文件输入发送，不进入图片路由。
 - 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据；目标图与内容/风格参考图使用稳定角色绑定，不依赖候选顺序猜测。澄清回复会重新进入同一语义路由，不使用独立的续问分类器或本地关键词拼接。
 
@@ -707,8 +709,8 @@ $$
 ````md
 ```mermaid
 flowchart TD
-  A[输入] --> B[抽取 semantic_task.v2]
-  B --> C[本地编译 task_contract.v5]
+  A[输入] --> B[模型生成 route_intent.v1]
+  B --> C[本地绑定资源并编译 dispatch_contract.v1]
   C --> D{执行门禁}
   D --> E[聊天]
   D --> F[生图]
@@ -900,12 +902,12 @@ GET, POST
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |
-| `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；默认关闭。 |
+| `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；managed execution 会记录 `execution.accepted` / `execution.rejected`，客户端在最终请求发出前被上下文绑定校验拦截时也会写入 `source=client_pre_dispatch` 的 `execution.rejected`，同条对照 execution plan、binding evidence、缺失/可用消息资源及校验结果；默认关闭。 |
 | `CHATUI_REQUEST_TRACE_FILE` | `temp/request-trace.ndjson` | 请求追踪文件路径；相对路径以仓库根目录解析。默认目录已被 Git 忽略。 |
 | `CHATUI_REQUEST_TRACE_MAX_BYTES` | `20971520` | 单个请求追踪文件的轮转上限，默认 20 MiB。 |
 | `CHATUI_REQUEST_TRACE_ROTATIONS` | `3` | 保留的历史轮转文件数量。 |
 | `CHATUI_REQUEST_TRACE_TEXT` | `1` | 追踪启用后是否保留脱敏且限长的用户输入与模型输出。设为 `0` 时只记录长度和结构摘要。系统提示词和 reasoning 正文始终不落盘。 |
-| `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时会裁剪较早历史并插入自动上下文摘要/摘录，只影响发给模型的 payload，不删除本地会话记录 |
+| `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时优先裁剪最早历史且不自动插入摘要，只影响发给模型的 payload，不删除本地会话记录；当前消息和精确绑定消息若仍超限则拒绝发送 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
 | `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |

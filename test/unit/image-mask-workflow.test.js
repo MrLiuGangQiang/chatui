@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const coreAttachments = require('../../client/core/attachments');
 const imageGenerationService = require('../../client/services/image-generation-service');
@@ -11,6 +12,7 @@ const imageWorkflow = require('../../client/app/image-workflow');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
 const jobService = require('../../client/services/job-service');
 const submitHelpers = require('../../client/app/submit-workflow.helpers');
+const { makeExecutionFixture, makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 function isImageFile(item = {}) {
   return String(item.type || item.file?.type || '').startsWith('image/');
@@ -58,32 +60,18 @@ async function testImageMaskContextPersistsAndRestoresRoleSeparately() {
 }
 
 function editRoute() {
-  const taskContract = {
-    schema_version: 'task_contract.v5',
-    readiness: 'ready',
+  const fixture = makeExecutionFixture({
     operation: 'edit_image',
     relation: 'new',
+    prompt: 'replace the sky',
     resources: [
-      { key: 'r1', type: 'image', source: 'current', role: 'target', index: 1, id: 'target-1', reference_id: '', missing: false },
-      { key: 'r2', type: 'image', source: 'current', role: 'mask', index: 2, id: 'mask-1', reference_id: '', missing: false },
+      { key: 'r1', type: 'image', source: 'current', role: 'target', index: 1, id: 'target-1', resource_id: 'res:image:target-1' },
+      { key: 'r2', type: 'image', source: 'current', role: 'mask', index: 2, id: 'mask-1', resource_id: 'res:image:mask-1' },
     ],
-    directive: { mode: 'patch', base_resource_keys: ['r1', 'r2'], unmentioned_policy: 'preserve', operations: [], constraints: [] },
-    clarification: { question: '', unresolved_resources: [] },
-    confidence: 1,
-    review_reasons: [],
-    rationale: 'mask edit test',
-  };
+  });
   return {
-    taskContract,
-    executionResources: {
-      version: 'execution_resources.v1',
-      operation: 'edit_image',
-      images: [
-        { key: 'r1', type: 'image', source: 'current', role: 'target', index: 1, id: 'target-1', reference_id: '', identity_aliases: [], index_aliases: [] },
-        { key: 'r2', type: 'image', source: 'current', role: 'mask', index: 2, id: 'mask-1', reference_id: '', identity_aliases: [], index_aliases: [] },
-      ],
-      files: [],
-    },
+    dispatchContract: fixture.dispatchContract,
+    executionResources: fixture.executionResources,
   };
 }
 
@@ -153,6 +141,8 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
       data: `payload:${item.attachmentId || item.id}`,
       routeRole: item.routeRole,
       routeResourceKey: item.routeResourceKey,
+      routeResourceId: item.routeResourceId,
+      routeSource: item.routeSource,
       routeId: item.routeId,
       routeReferenceId: item.routeReferenceId,
     })),
@@ -174,7 +164,7 @@ async function testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings() {
       attachments: executionMedia.imageInputs,
       maskAttachments: executionMedia.masks,
       executionMedia,
-      taskContract: route.taskContract,
+      dispatchContract: route.dispatchContract,
       originalPrompt: 'replace the sky',
       routePrompt: 'replace the sky',
       sessionId: 'session-mask',
@@ -217,19 +207,19 @@ async function testImageWorkflowRejectsNonCanonicalDispatchBeforeRequest() {
 
   await assert.rejects(
     workflow.sendImage('edit', { sessionId: 'session-gate', executionMedia: validRoute.executionResources }),
-    /task_contract\.v5/,
+    /dispatch_contract\.v1/,
   );
   await assert.rejects(
-    workflow.sendImage('edit', { sessionId: 'session-gate', taskContract: validRoute.taskContract }),
-    /execution_resources\.v1/,
+    workflow.sendImage('edit', { sessionId: 'session-gate', dispatchContract: validRoute.dispatchContract }),
+    /execution_resources\.v2/,
   );
   await assert.rejects(
     workflow.sendImage('edit', {
       sessionId: 'session-gate',
-      taskContract: validRoute.taskContract,
+      dispatchContract: validRoute.dispatchContract,
       executionMedia: { ...validRoute.executionResources, operation: 'text_to_image' },
     }),
-    /execution_resources\.v1/,
+    /execution_resources\.v2/,
   );
   assert.strictEqual(dispatches, 0, 'an invalid contract or projection must never reach the image request service');
 }
@@ -240,6 +230,7 @@ async function testImageJobServiceForwardsMasksInManagedRequest() {
     payload: { model: 'gpt-image-1', prompt: 'edit' },
     config: { baseUrl: 'https://api.example.com/v1', apiKey: 'secret' },
     jobId: 'imgjob-mask-service',
+    submissionId: 'submit-mask-service',
     mode: 'edit_image',
     files: [{ name: 'target.png', type: 'image/png', data: 'target' }],
     masks: [{ name: 'mask.png', type: 'image/png', data: 'mask' }],
@@ -252,7 +243,28 @@ async function testImageJobServiceForwardsMasksInManagedRequest() {
   });
   assert.strictEqual(response.id, 'imgjob-mask-service');
   assert.strictEqual(body.url, '/api/image-jobs');
+  assert.strictEqual(body.submissionId, 'submit-mask-service');
   assert.deepStrictEqual(body.masks.map(item => item.name), ['mask.png']);
+}
+
+function testRootImageJobIdFactoryReturnsSynchronousIdentifier() {
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'app.js'), 'utf8');
+  const start = app.indexOf('function makeClientImageJobId');
+  const end = app.indexOf('function makeClientChatJobId', start);
+  assert.ok(start >= 0 && end > start, 'the root image-job ID adapter must be present');
+
+  const factorySource = app.slice(start, end);
+  const delegated = vm.runInNewContext(
+    `${factorySource}; makeClientImageJobId()`,
+    { window: { ChatUIServices: { jobs: { makeClientImageJobId: () => 'imgjob-synchronous1' } } } },
+  );
+  assert.strictEqual(delegated, 'imgjob-synchronous1');
+  assert.strictEqual(typeof delegated, 'string', 'the durable image-job owner must be available synchronously before handoff');
+  assert.strictEqual(typeof delegated?.then, 'undefined', 'the root adapter must never leak a Promise into job ownership state');
+
+  const fallback = vm.runInNewContext(`${factorySource}; makeClientImageJobId()`, { window: {} });
+  assert.strictEqual(typeof fallback, 'string');
+  assert.match(fallback, /^imgjob-[a-z0-9-]{8,80}$/i);
 }
 
 function testRootImageJobAdapterForwardsMasksInBothPaths() {
@@ -262,6 +274,7 @@ function testRootImageJobAdapterForwardsMasksInBothPaths() {
   const adapter = app.slice(start, end);
   assert.ok(start >= 0 && end > start, 'the root image-job adapter must be present');
   assert.strictEqual((adapter.match(/masks:n\.masks\|\|\[\]/g) || []).length, 2, 'both the service path and fetch fallback must forward masks');
+  assert.ok(adapter.includes('submissionId:n.submissionId'), 'both image-job paths must correlate the managed request with its submit lifecycle');
 }
 
 function testReferenceRolesReachTheImageRequestBoundary() {
@@ -282,7 +295,7 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   assert.ok(source.includes('随附图片角色（按上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
   assert.ok(source.includes('u.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
   assert.ok(source.includes('buildImageRoleMap(canonicalExecution.imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
-  assert.ok(source.includes('buildImageRoleGuide(canonicalExecution.imageInputs, t.taskContract)'), 'the final image prompt must derive precise target/reference rules from the validated task contract');
+  assert.ok(source.includes('buildImageRoleGuide(canonicalExecution.imageInputs, t.dispatchContract)'), 'the final image prompt must derive precise target/reference rules from the validated execution contract');
   assert.ok(source.includes('F.length !== f.length'), 'a partially restored multi-image request must fail before handoff');
   assert.ok(source.includes('canonicalExecution.operation === "edit_image" ? ""'), 'global image style must be disabled for preserve-oriented edits');
 }
@@ -292,11 +305,15 @@ function testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous() {
     { routeRole: 'target', routeResourceKey: 'r1', routeId: 'composite-cat', routeReferenceId: 'composite-ref' },
     { routeRole: 'reference', routeResourceKey: 'r2', routeId: 'selected-cat', routeReferenceId: 'selected-cat-ref' },
   ];
-  const taskContract = {
+  const dispatchContract = makeDispatchContract({
     operation: 'edit_image',
-    directive: { unmentioned_policy: 'preserve' },
-  };
-  const guide = imageWorkflow.buildImageRoleGuide(inputs, taskContract);
+    prompt: 'replace the selected subject',
+    resources: [
+      { key: 'r1', type: 'image', role: 'target', source: 'current', id: 'composite-cat' },
+      { key: 'r2', type: 'image', role: 'reference', source: 'current', id: 'selected-cat' },
+    ],
+  });
+  const guide = imageWorkflow.buildImageRoleGuide(inputs, dispatchContract);
   const finalPrompt = ['不是这只猫，替换成你生成的猫', guide].join('\n\n');
 
   assert.match(finalPrompt, /图片2：作为内容参考（用户已确认的替换或新增内容来源，不是编辑目标）/);
@@ -325,6 +342,15 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
   const stopAfterRestart = new Error('stop after restart capture');
   const restoredRoles = [];
   const restarts = [];
+  const resumePlan = makeDispatchContract({
+    operation: 'edit_image',
+    prompt: 'edit',
+    resources: [
+      { key: 'r1', type: 'image', role: 'target', source: 'current', id: 'target-1' },
+      { key: 'r2', type: 'image', role: 'mask', source: 'current', id: 'mask-1' },
+    ],
+  });
+  const resumeEvidence = resumePlan.bindings.map(({ key, type, role, resource_id, source }) => ({ key, type, role, resource_id, source }));
   const state = {
     activeSessionId: 'session-mask',
     sessions: [{ id: 'session-mask', display: [], messages: [] }],
@@ -334,7 +360,15 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
   const workflow = jobResumeWorkflow.createJobResumeWorkflow({
     state,
     window: { ChatUIApp: { runs: {} } },
-    loadImageJob: () => ({ id: 'imgjob-mask-resume', mode: 'edit_image', payload: { prompt: 'edit' }, imageContext: context }),
+    loadImageJob: () => ({
+      id: 'imgjob-mask-resume',
+      mode: 'edit_image',
+      requestPurpose: 'final_execution',
+      dispatchContract: resumePlan,
+      bindingEvidence: resumeEvidence,
+      payload: { prompt: 'edit' },
+      imageContext: context,
+    }),
     clearImageJob() {},
     hasSuccessfulImageResult: () => false,
     isFollowingImageJob: () => false,
@@ -384,6 +418,7 @@ module.exports = [
   testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings,
   testImageWorkflowRejectsNonCanonicalDispatchBeforeRequest,
   testImageJobServiceForwardsMasksInManagedRequest,
+  testRootImageJobIdFactoryReturnsSynchronousIdentifier,
   testRootImageJobAdapterForwardsMasksInBothPaths,
   testReferenceRolesReachTheImageRequestBoundary,
   testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous,

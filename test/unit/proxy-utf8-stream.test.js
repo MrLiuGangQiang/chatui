@@ -52,6 +52,7 @@ async function testManagedProxyDecodesUtf8AcrossNetworkChunkBoundaries() {
     baseUrl: 'http://127.0.0.1:18765/v1',
     method: 'POST',
     jobId: 'chatjob-utf8test',
+    requestPurpose: 'intent_recognition',
     payload: { model: 'test-model', stream: true, messages: [] },
   });
   const request = Readable.from([body]);

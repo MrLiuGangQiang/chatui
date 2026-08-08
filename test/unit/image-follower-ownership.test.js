@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 async function testLiveImageRunPreventsSecondRecoveryFollower() {
   const sessionId = 'session-image-live';
@@ -90,6 +91,9 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
       displayItemId: displayItem.id,
       responseIndex: 1,
       mode: 'image',
+      requestPurpose: 'final_execution',
+      dispatchContract: makeDispatchContract({ operation: 'text_to_image', prompt: 'draw' }),
+      bindingEvidence: [],
       prompt: 'draw',
       startedAt: Date.now() - 1000,
     }),

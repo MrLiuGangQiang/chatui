@@ -281,7 +281,13 @@
       const displayItemId = node.dataset.displayItemId || displayItem?.id || canonical?.displayItemId || '';
       const messageIndex = node.dataset.messageIndex || displayItem?.messageIndex || canonical?.messageIndex || '';
       const responseIndex = node.dataset.responseIndex || displayItem?.responseIndex || canonical?.responseIndex || '';
+      const canonicalId = String(canonical?.id || canonical?.messageId || canonical?.message_id || displayItem?.messageId || displayItem?.message_id || '');
+      const indexedIdentity = role === 'assistant'
+        ? (responseIndex !== '' ? `assistant:${responseIndex}` : '')
+        : (messageIndex !== '' ? `user:${messageIndex}` : '');
+      const quoteIdentity = String(displayItemId || canonicalId || indexedIdentity || '');
       if (displayItemId) quote.displayItemId = String(displayItemId);
+      if (quoteIdentity) quote.id = quoteIdentity;
       if (messageIndex !== '') quote.messageIndex = String(messageIndex);
       if (responseIndex !== '') quote.responseIndex = String(responseIndex);
       if (imageContext) quote.imageContext = imageContext;

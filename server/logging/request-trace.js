@@ -1,9 +1,21 @@
 ﻿'use strict';
 
 const crypto = require('node:crypto');
-const fs = require('node:fs');
 const path = require('node:path');
-const { redactString } = require('./safe-log');
+const {
+  redactString,
+  redactValue,
+  normalizeSecrets,
+  sanitizeTarget,
+  envFlag,
+  positiveInteger,
+  now,
+  traceId,
+  resolveFilePath,
+  createFileWriter,
+  createTraceContext,
+} = require('./logger');
+const dispatchContractContract = require('../../shared/dispatch-contract');
 
 const TRACE_SCHEMA_VERSION = 'request_trace.v1';
 const DEFAULT_TRACE_RELATIVE_PATH = path.join('temp', 'request-trace.ndjson');
@@ -15,56 +27,59 @@ const ROUTE_MESSAGE_LIMIT = 20;
 const BINARY_FIELD_RE = /^(?:b64(?:_json)?|base64|file_data|image_data|audio_data|input_audio|bytes)$/i;
 const CREDENTIAL_FIELD_RE = /api[_-]?key|authorization|secret|password|cookie|set-cookie|access[_-]?token|refresh[_-]?token/i;
 
-function envFlag(value, fallback = false) {
-  if (value === undefined || value === null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
-}
-
-function positiveInteger(value, fallback, minimum = 1, maximum = Number.MAX_SAFE_INTEGER) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < minimum) return fallback;
-  return Math.min(maximum, Math.floor(parsed));
-}
-
 function requestTraceEnabled(env = process.env) {
   return envFlag(env.CHATUI_REQUEST_TRACE, false);
 }
 
-function sanitizeTarget(value = '') {
-  try {
-    const url = new URL(String(value || ''));
-    return `${url.protocol}//${url.host}${url.pathname}`;
-  } catch {
-    return redactString(String(value || '')).split('?')[0].split('#')[0];
-  }
-}
-
-function normalizeSecrets(values = []) {
-  return [...new Set((Array.isArray(values) ? values : [values])
-    .map(value => String(value || ''))
-    .filter(value => value.length >= 4))];
-}
-
-function redactSecrets(value = '', secrets = []) {
-  let text = String(value || '');
-  for (const secret of normalizeSecrets(secrets)) text = text.split(secret).join('[redacted]');
-  return redactString(text);
+function hashText(value = '') {
+  return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex').slice(0, 16);
 }
 
 function traceText(value = '', { maxChars = DEFAULT_TEXT_LIMIT, secrets = [], includeText = true } = {}) {
   const original = String(value ?? '');
-  const redacted = redactSecrets(original, secrets);
+  let text = original;
+  for (const secret of normalizeSecrets(secrets)) text = text.split(secret).join('[redacted]');
+  text = redactString(text);
   const limit = positiveInteger(maxChars, DEFAULT_TEXT_LIMIT);
-  const truncated = redacted.length > limit;
+  const truncated = text.length > limit;
   return {
     chars: original.length,
-    ...(includeText ? { text: truncated ? `${redacted.slice(0, limit)}…[truncated]` : redacted } : {}),
+    ...(includeText ? { text: truncated ? `${text.slice(0, limit)}…[truncated]` : text } : {}),
     truncated,
   };
 }
 
-function hashText(value = '') {
-  return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex').slice(0, 16);
+function traceIdentityList(values = [], limit = 40) {
+  const result = [];
+  const seen = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const normalized = String(value || '').trim().slice(0, 512);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function summarizeContextProjection(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const count = (snake, camel) => {
+    const number = Number(value[snake] ?? value[camel]);
+    return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+  };
+  const list = (snake, camel) => traceIdentityList(value[snake] ?? value[camel]);
+  return {
+    input_message_count: count('input_message_count', 'inputMessageCount'),
+    normalized_message_count: count('normalized_message_count', 'normalizedMessageCount'),
+    selected_message_count: count('selected_message_count', 'selectedMessageCount'),
+    quoted_message_count: count('quoted_message_count', 'quotedMessageCount'),
+    expected_message_resource_ids: list('expected_message_resource_ids', 'expectedMessageResourceIds'),
+    available_message_resource_ids: list('available_message_resource_ids', 'availableMessageResourceIds'),
+    available_message_ids: list('available_message_ids', 'availableMessageIds'),
+    selected_message_resource_ids: list('selected_message_resource_ids', 'selectedMessageResourceIds'),
+    missing_message_resource_ids: list('missing_message_resource_ids', 'missingMessageResourceIds'),
+  };
 }
 
 function summarizeSystemContent(content) {
@@ -117,315 +132,471 @@ function selectedMessages(messages = [], limit = DEFAULT_MESSAGE_LIMIT) {
   return { messages: selected, omitted: Math.max(0, list.length - selected.length) };
 }
 
-function summarizeMessages(messages = [], { kind = '', includeText = true, secrets = [] } = {}) {
-  const routeLike = ['route_decision', 'semantic_task'].includes(kind);
-  const { messages: selected, omitted } = selectedMessages(messages, routeLike ? ROUTE_MESSAGE_LIMIT : DEFAULT_MESSAGE_LIMIT);
+function summarizeMessages(messages = [], options = {}) {
+  const limit = positiveInteger(options.messageLimit, DEFAULT_MESSAGE_LIMIT);
+  const { messages: selected, omitted } = selectedMessages(messages, limit);
+  const summarized = selected.map((msg, idx) => {
+    if (!msg || typeof msg !== 'object') return traceText(msg, options);
+    const role = String(msg.role || '');
+    const isSystem = role === 'system';
+    if (isSystem) {
+      return { index: idx, role, content: summarizeSystemContent(msg.content) };
+    }
+    if (Array.isArray(msg.content)) {
+      return {
+        index: idx,
+        role,
+        content: msg.content.map(part => summarizeContentPart(part, options)),
+        name: String(msg.name || ''),
+      };
+    }
+    return {
+      index: idx,
+      role,
+      content: traceText(msg.content, options),
+      name: String(msg.name || ''),
+    };
+  });
+  return { count: Array.isArray(messages) ? messages.length : 0, omitted, items: summarized };
+}
+
+function summarizeTools(tools = [], options = {}) {
+  if (!Array.isArray(tools)) return { count: 0 };
   return {
-    count: Array.isArray(messages) ? messages.length : 0,
-    omitted,
-    items: selected.map((message, index) => {
-      const role = String(message?.role || '');
-      const content = message?.content;
-      if (role === 'system') return { index, role, content: summarizeSystemContent(content) };
-      if (Array.isArray(content)) {
-        return {
-          index,
-          role,
-          content: content.slice(0, 50).map(part => summarizeContentPart(part, {
-            maxChars: routeLike ? DEFAULT_TEXT_LIMIT : 4096,
-            secrets,
-            includeText,
-          })),
-          omittedParts: Math.max(0, content.length - 50),
-        };
+    count: tools.length,
+    names: tools.slice(0, 50).map(t => {
+      if (!t || typeof t !== 'object') return '';
+      return String(t.function?.name || t.type || '');
+    }).filter(Boolean),
+  };
+}
+
+function traceContractText(value = '', options = {}) {
+  const original = String(value ?? '');
+  return { ...traceText(original, options), sha256: hashText(original) };
+}
+
+function textFromContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map(part => String(part?.text || part?.input_text || part?.content || '')).filter(Boolean).join('\n');
+}
+
+function lastUserPayloadText(payload = {}, transportApi = '') {
+  const api = transportApi === 'responses' || Array.isArray(payload?.input) ? 'responses' : 'chat';
+  const items = api === 'responses' ? payload?.input : payload?.messages;
+  for (let index = (Array.isArray(items) ? items.length : 0) - 1; index >= 0; index -= 1) {
+    if (items[index]?.role === 'user') return textFromContent(items[index].content).trim();
+  }
+  return '';
+}
+
+function normalizedComparableText(value = '') {
+  return String(value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function summarizeBinding(binding = {}) {
+  return {
+    key: String(binding?.key || binding?.resource_key || ''),
+    type: String(binding?.type || ''),
+    role: String(binding?.role || ''),
+    resource_id: String(binding?.resource_id || binding?.resourceId || ''),
+    source: String(binding?.source || ''),
+  };
+}
+
+function sortedBindingSummaries(bindings = []) {
+  return (Array.isArray(bindings) ? bindings : [])
+    .map(summarizeBinding)
+    .sort((left, right) => `${left.key}\u0000${JSON.stringify(left)}`.localeCompare(`${right.key}\u0000${JSON.stringify(right)}`));
+}
+
+function bindingDiff(expected = [], actual = []) {
+  const expectedItems = sortedBindingSummaries(expected);
+  const actualItems = sortedBindingSummaries(actual);
+  const counts = items => {
+    const result = new Map();
+    for (const item of items) {
+      const key = JSON.stringify(item);
+      result.set(key, (result.get(key) || 0) + 1);
+    }
+    return result;
+  };
+  const expectedCounts = counts(expectedItems);
+  const actualCounts = counts(actualItems);
+  const expandDifference = (left, right) => {
+    const items = [];
+    for (const [serialized, count] of left) {
+      const difference = count - (right.get(serialized) || 0);
+      for (let index = 0; index < difference; index += 1) items.push(JSON.parse(serialized));
+    }
+    return items;
+  };
+  return {
+    match: JSON.stringify(expectedItems) === JSON.stringify(actualItems),
+    expected: expectedItems,
+    actual: actualItems,
+    missing: expandDifference(expectedCounts, actualCounts),
+    unexpected: expandDifference(actualCounts, expectedCounts),
+  };
+}
+
+function suppliedImageBindings(files = [], masks = []) {
+  return [
+    ...(Array.isArray(files) ? files : []).map(file => ({
+      key: file?.routeResourceKey || file?.key,
+      type: 'image',
+      role: file?.routeRole || file?.role,
+      resource_id: file?.routeResourceId || file?.resource_id || file?.resourceId,
+      source: file?.routeSource || file?.source,
+    })),
+    ...(Array.isArray(masks) ? masks : []).map(file => ({
+      key: file?.routeResourceKey || file?.key,
+      type: 'image',
+      role: file?.routeRole || file?.role || 'mask',
+      resource_id: file?.routeResourceId || file?.resource_id || file?.resourceId,
+      source: file?.routeSource || file?.source,
+    })),
+  ];
+}
+
+function executionPayloadPrompt(payload = {}, { mode = '', transportApi = '' } = {}) {
+  return mode === 'image' || mode === 'edit_image'
+    ? String(payload?.prompt || '').trim()
+    : lastUserPayloadText(payload, transportApi);
+}
+
+function summarizeDispatchContract(plan = null, options = {}) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+  const prompt = String(plan?.arguments?.prompt || '');
+  return {
+    schema_version: String(plan.schema_version || ''),
+    operation: String(plan.operation || ''),
+    api: String(plan.api || ''),
+    relation: String(plan.relation || ''),
+    idempotency_key: String(plan.idempotency_key || ''),
+    prompt: traceContractText(prompt, { ...options, maxChars: 4096 }),
+    bindings: sortedBindingSummaries(plan.bindings),
+    context_policy: plan.context_policy && typeof plan.context_policy === 'object'
+      ? {
+        history: String(plan.context_policy.history || ''),
+        quoted: plan.context_policy.quoted === true,
+        unbound_resources: String(plan.context_policy.unbound_resources || ''),
+        message_resource_ids: (Array.isArray(plan.context_policy.message_resource_ids)
+          ? plan.context_policy.message_resource_ids : []).map(value => String(value || '')),
       }
-      return {
-        index,
-        role,
-        content: traceText(content, {
-          maxChars: routeLike ? DEFAULT_TEXT_LIMIT : 4096,
-          secrets,
-          includeText,
-        }),
-      };
-    }),
+      : null,
   };
 }
 
-function summarizeResponsesInput(input = [], options = {}) {
-  if (typeof input === 'string') return traceText(input, options);
-  if (!Array.isArray(input)) return { count: 0, items: [] };
-  const { messages, omitted } = selectedMessages(input, DEFAULT_MESSAGE_LIMIT);
+function summarizeExecutionContract({
+  body = {}, payload = body?.payload || {}, mode = '', transportApi = '', files = [], masks = [],
+  includeText = true, secrets = [], validationPassed = false, error = null, payloadAvailable = true,
+} = {}) {
+  const plan = body?.dispatchContract;
+  const evidence = Array.isArray(body?.bindingEvidence) ? body.bindingEvidence : [];
+  const planValid = !!dispatchContractContract.hasExactDispatchContract?.(plan);
+  const planPrompt = String(plan?.arguments?.prompt || '').trim();
+  const payloadPrompt = executionPayloadPrompt(payload, { mode, transportApi });
+  let promptMatch = null;
+  let evidenceMatch = null;
+  if (planValid && payloadAvailable) {
+    promptMatch = plan.api === 'chat'
+      ? !!dispatchContractContract.chatPromptMatchesPlan?.(planPrompt, payloadPrompt)
+      : normalizedComparableText(planPrompt) === normalizedComparableText(payloadPrompt);
+  }
+  if (planValid) {
+    try {
+      dispatchContractContract.assertBindingEvidence?.(plan, evidence);
+      evidenceMatch = true;
+    } catch {
+      evidenceMatch = false;
+    }
+  }
+  const expectedEvidence = planValid
+    ? plan.bindings.filter(binding => binding.type !== 'text')
+    : [];
+  const evidenceComparison = bindingDiff(expectedEvidence, evidence);
+  const expectedImageBindings = planValid
+    ? plan.bindings.filter(binding => binding.type === 'image')
+    : [];
+  const suppliedBindings = suppliedImageBindings(files, masks);
+  const suppliedComparison = bindingDiff(expectedImageBindings, suppliedBindings);
+  const resolvedMode = mode === 'edit_image' ? 'edit_image' : mode === 'image' ? 'image' : '';
+  const resolvedTransportApi = transportApi === 'responses' ? 'responses' : transportApi === 'chat' ? 'chat' : '';
   return {
-    count: input.length,
-    omitted,
-    items: messages.map((item, index) => {
-      const role = String(item?.role || item?.type || '');
-      if (role === 'system') return { index, role, content: summarizeSystemContent(item?.content) };
-      const content = Array.isArray(item?.content) ? item.content : [item?.content];
-      return {
-        index,
-        role,
-        content: content.filter(value => value !== undefined && value !== null).slice(0, 50)
-          .map(part => typeof part === 'object'
-            ? summarizeContentPart(part, options)
-            : traceText(part, { ...options, maxChars: 4096 })),
-      };
-    }),
+    request_purpose: String(body?.requestPurpose || ''),
+    transport: {
+      mode: resolvedMode,
+      api: resolvedTransportApi,
+      model: String(payload?.model || ''),
+    },
+    dispatch_contract: summarizeDispatchContract(plan, { includeText, secrets }),
+    payload: payloadAvailable ? {
+      prompt: traceContractText(payloadPrompt, { includeText, secrets, maxChars: 4096 }),
+      fields: payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? Object.keys(payload).filter(key => !CREDENTIAL_FIELD_RE.test(key))
+        : [],
+    } : {
+      available: false,
+      fields: [],
+    },
+    binding_evidence: {
+      ...evidenceComparison,
+      match: planValid ? evidenceMatch : null,
+    },
+    resource_bindings: resolvedMode
+      ? { ...suppliedComparison, match: planValid ? suppliedComparison.match : null }
+      : null,
+    checks: {
+      validation_passed: validationPassed === true,
+      plan_valid: planValid,
+      prompt_match: promptMatch,
+      binding_evidence_match: evidenceMatch,
+      resource_binding_match: resolvedMode && planValid ? suppliedComparison.match : null,
+    },
+    ...(error ? {
+      error: {
+        name: String(error?.name || 'Error'),
+        code: String(error?.code || ''),
+        status_code: Number(error?.statusCode) || 0,
+        message: traceContractText(error?.message || String(error), { includeText: true, secrets, maxChars: 4096 }),
+      },
+    } : {}),
   };
 }
 
-function responseFormatSummary(value = null) {
-  if (!value || typeof value !== 'object') return null;
-  return {
-    type: String(value.type || ''),
-    name: String(value.json_schema?.name || ''),
-    strict: value.json_schema?.strict === true,
-  };
+function isRouteIntentRequest(payload = {}) {
+  const schemaName = String(payload?.response_format?.json_schema?.name || '');
+  if (/route_intent/i.test(schemaName)) return true;
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  return messages.some(message => /route_intent\.v1/i.test(String(message?.content || '')));
 }
 
-function requestKind(targetPath = '', payload = {}, fallback = '') {
-  const pathText = String(targetPath || '').toLowerCase();
-  if (fallback) return String(fallback);
-  if (pathText.includes('/images/edits') || pathText.includes('/openai/image_edit')) return 'image_edit';
-  if (pathText.includes('/images/generations')) return 'image_generation';
-  if (pathText === '/image' || pathText.endsWith('/api/image')) return 'image_download';
-  if (pathText.includes('/models')) return 'model_list';
-  const schemaName = String(payload?.response_format?.json_schema?.name || '').toLowerCase();
-  const systemText = Array.isArray(payload?.messages)
-    ? payload.messages.filter(message => message?.role === 'system').map(message => String(message?.content || '')).join('\n')
-    : '';
-  if (/semantic_task|route|intent/.test(schemaName) || /semantic_task\.v\d+|route_decision\.v\d+|语义路由器/.test(systemText)) return 'route_decision';
-  if (pathText.includes('/responses')) return 'chat_responses';
-  if (pathText.includes('/chat/completions')) return 'chat_completions';
-  return 'upstream_request';
+function requestKind(targetPath = '', payload = {}, kind = '') {
+  if (kind) return kind;
+  const path = String(targetPath || '').split('?')[0];
+  if (path === '/chat/completions' || path === '/responses') {
+    return isRouteIntentRequest(payload) ? 'route_intent' : 'chat';
+  }
+  if (path === '/images/generations') return 'image_generation';
+  if (path === '/images/edits') return 'image_edit';
+  return 'api_proxy';
 }
 
 function summarizeRequestPayload(payload = {}, {
-  kind = '', targetPath = '', includeText = true, secrets = [], fileCount = 0, maskCount = 0,
+  kind = 'api_proxy',
+  targetPath = '',
+  includeText = true,
+  secrets = [],
+  fileCount = 0,
+  maskCount = 0,
 } = {}) {
-  const resolvedKind = kind || requestKind(targetPath, payload);
-  const out = {
-    model: String(payload?.model || ''),
-    stream: payload?.stream === true,
-    fields: Object.keys(payload || {}).filter(key => !BINARY_FIELD_RE.test(key)).slice(0, 80),
-  };
-  const responseFormat = responseFormatSummary(payload?.response_format);
-  if (responseFormat) out.responseFormat = responseFormat;
-  for (const key of ['n', 'size', 'quality', 'background', 'output_format', 'format', 'seed']) {
-    if (payload?.[key] !== undefined && payload?.[key] !== null && payload?.[key] !== '') out[key] = payload[key];
-  }
-  if (payload?.reasoning && typeof payload.reasoning === 'object') {
-    out.reasoning = {
-      effort: String(payload.reasoning.effort || ''),
-      summary: String(payload.reasoning.summary || ''),
+  if (!payload || typeof payload !== 'object') return traceText(payload, { secrets, includeText });
+
+  const fields = Object.keys(payload).filter(k => !CREDENTIAL_FIELD_RE.test(k));
+  const model = String(payload.model || '');
+
+  if (kind === 'route_intent' || kind === 'chat') {
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const input = Array.isArray(payload.input) ? payload.input : [];
+    const combined = messages.length ? messages : input;
+    const msgSummary = summarizeMessages(combined, {
+      messageLimit: ROUTE_MESSAGE_LIMIT,
+      secrets,
+      includeText,
+    });
+    return {
+      model,
+      messages: msgSummary,
+      tools: summarizeTools(payload.tools, { secrets, includeText }),
+      stream: !!payload.stream,
+      max_tokens: Number(payload.max_tokens || 0) || undefined,
+      temperature: Number.isFinite(payload.temperature) ? payload.temperature : undefined,
+      top_p: Number.isFinite(payload.top_p) ? payload.top_p : undefined,
+      response_format: payload.response_format
+        ? { type: String(payload.response_format.type || '') }
+        : undefined,
+      fields,
     };
   }
-  if (Array.isArray(payload?.messages)) out.messages = summarizeMessages(payload.messages, { kind: resolvedKind, includeText, secrets });
-  if (payload?.input !== undefined) out.input = summarizeResponsesInput(payload.input, { includeText, secrets, maxChars: 4096 });
-  if (payload?.prompt !== undefined) out.prompt = traceText(payload.prompt, { includeText, secrets, maxChars: DEFAULT_TEXT_LIMIT });
-  if (payload?.image_role_map !== undefined) out.imageRoleMap = traceText(
-    typeof payload.image_role_map === 'string' ? payload.image_role_map : JSON.stringify(payload.image_role_map),
-    { includeText, secrets, maxChars: 4096 },
-  );
-  if (Array.isArray(payload?.tools)) {
-    out.tools = payload.tools.slice(0, 30).map(tool => String(tool?.function?.name || tool?.name || tool?.type || ''));
-    out.omittedTools = Math.max(0, payload.tools.length - 30);
+
+  if (kind === 'image_generation') {
+    return {
+      model,
+      prompt: includeText ? traceText(payload.prompt, { secrets, maxChars: 2048 }) : { chars: String(payload.prompt || '').length },
+      n: Number(payload.n || 1),
+      size: String(payload.size || ''),
+      quality: String(payload.quality || ''),
+      style: String(payload.style || ''),
+      fields,
+    };
   }
-  if (fileCount) out.fileCount = Number(fileCount);
-  if (maskCount) out.maskCount = Number(maskCount);
-  return out;
-}
 
-function summarizeReasoning(value) {
-  if (value === undefined || value === null || value === '') return null;
-  let serialized;
-  try { serialized = typeof value === 'string' ? value : JSON.stringify(value); }
-  catch { serialized = String(value || ''); }
-  return { present: true, chars: serialized.length, omitted: true };
-}
-
-function summarizeToolCalls(toolCalls = []) {
-  return (Array.isArray(toolCalls) ? toolCalls : []).slice(0, 20).map(call => ({
-    id: String(call?.id || ''),
-    type: String(call?.type || ''),
-    name: String(call?.function?.name || call?.name || ''),
-    argumentChars: String(call?.function?.arguments || call?.arguments || '').length,
-  }));
-}
-
-function summarizeChoice(choice = {}, options = {}) {
-  const message = choice?.message || choice?.delta || {};
-  const content = message?.content;
-  const summarizedContent = Array.isArray(content)
-    ? content.slice(0, 50).map(part => summarizeContentPart(part, options))
-    : traceText(content ?? message?.text ?? '', options);
-  const reasoning = summarizeReasoning(message?.reasoning_content || message?.reasoning);
-  return {
-    index: Number(choice?.index) || 0,
-    finishReason: String(choice?.finish_reason || ''),
-    message: {
-      role: String(message?.role || ''),
-      content: summarizedContent,
-      ...(reasoning ? { reasoning } : {}),
-      ...(Array.isArray(message?.tool_calls) ? { toolCalls: summarizeToolCalls(message.tool_calls) } : {}),
-    },
-  };
-}
-
-function summarizeImageItem(item = {}, options = {}) {
-  if (typeof item === 'string') return summarizeRemoteValue(item);
-  const b64 = item?.b64_json || item?.b64 || item?.image_base64 || '';
-  const url = item?.url || item?.src || item?.image_url || '';
-  return {
-    ...(b64 ? { image: { source: 'base64', chars: String(b64).length, redacted: true } } : {}),
-    ...(!b64 && url ? { image: summarizeRemoteValue(url) } : {}),
-    ...(item?.revised_prompt ? { revisedPrompt: traceText(item.revised_prompt, options) } : {}),
-    fields: Object.keys(item || {}).filter(key => !BINARY_FIELD_RE.test(key)).slice(0, 30),
-  };
-}
-
-function numericUsage(value = null) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const entries = Object.entries(value).filter(([, item]) => Number.isFinite(Number(item)));
-  return entries.length ? Object.fromEntries(entries.map(([key, item]) => [key, Number(item)])) : null;
-}
-
-function redactTraceEvent(value, depth = 0, key = '') {
-  if (CREDENTIAL_FIELD_RE.test(String(key || ''))) return '[redacted]';
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return redactString(value);
-  if (typeof value !== 'object') return value;
-  if (depth >= 12) return Array.isArray(value) ? `[array:${value.length}]` : '[object]';
-  if (Array.isArray(value)) return value.slice(0, 100).map(item => redactTraceEvent(item, depth + 1));
-  const out = {};
-  for (const [itemKey, itemValue] of Object.entries(value).slice(0, 120)) {
-    if (BINARY_FIELD_RE.test(itemKey)) {
-      out[itemKey] = { chars: typeof itemValue === 'string' ? itemValue.length : 0, redacted: true };
-      continue;
-    }
-    out[itemKey] = redactTraceEvent(itemValue, depth + 1, itemKey);
+  if (kind === 'image_edit') {
+    const files = fileCount || 0;
+    const masks = maskCount || 0;
+    return {
+      model,
+      prompt: includeText ? traceText(payload.prompt, { secrets, maxChars: 2048 }) : { chars: String(payload.prompt || '').length },
+      image_files: files,
+      mask_files: masks,
+      n: Number(payload.n || 1),
+      size: String(payload.size || ''),
+      fields,
+    };
   }
-  return out;
+
+  // Generic: just list fields and model
+  const redacted = redactValue(payload);
+  return includeText ? redacted : { model, fields };
 }
 
-function sanitizeGeneric(value, { secrets = [], depth = 0 } = {}) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return traceText(value, { maxChars: 4096, secrets });
-  if (typeof value !== 'object') return value;
-  if (depth >= 4) return Array.isArray(value) ? { arrayCount: value.length, omitted: true } : { objectOmitted: true };
-  if (Array.isArray(value)) return value.slice(0, 30).map(item => sanitizeGeneric(item, { secrets, depth: depth + 1 }));
-  const out = {};
-  for (const [key, item] of Object.entries(value).slice(0, 60)) {
-    if (BINARY_FIELD_RE.test(key)) {
-      out[key] = { chars: typeof item === 'string' ? item.length : 0, redacted: true };
-      continue;
-    }
-    out[key] = sanitizeGeneric(item, { secrets, depth: depth + 1 });
-  }
-  return redactTraceEvent(out);
-}
-
-function summarizeResponsePayload(value, {
-  kind = '', contentType = '', includeText = true, secrets = [],
+function summarizeResponsePayload(response, {
+  kind = 'api_proxy',
+  contentType = '',
+  includeText = true,
+  secrets = [],
 } = {}) {
-  let data = value;
-  if (typeof data === 'string') {
-    const trimmed = data.trim();
-    if (trimmed && (String(contentType).includes('json') || /^[\[{]/.test(trimmed))) {
-      try { data = JSON.parse(trimmed); } catch {}
+  if (!response) return null;
+
+  // If it''s a string, try to parse or trace as text
+  if (typeof response === 'string') {
+    if (contentType.includes('json') || contentType.includes('javascript')) {
+      try { response = JSON.parse(response); } catch { /* keep as string */ }
     }
   }
-  if (typeof data === 'string') return { body: traceText(data, { includeText, secrets, maxChars: DEFAULT_TEXT_LIMIT }) };
-  if (!data || typeof data !== 'object') return { value: data ?? null };
-  const out = {
-    fields: Object.keys(data).filter(key => !BINARY_FIELD_RE.test(key)).slice(0, 80),
-  };
-  if (data.id) out.id = String(data.id);
-  if (data.model) out.model = String(data.model);
-  if (Array.isArray(data.choices)) {
-    out.choices = data.choices.slice(0, 4).map(choice => summarizeChoice(choice, { includeText, secrets, maxChars: DEFAULT_TEXT_LIMIT }));
-    out.omittedChoices = Math.max(0, data.choices.length - 4);
+
+  if (typeof response === 'string') {
+    return includeText ? traceText(response, { secrets, maxChars: 4096 }) : { chars: response.length };
   }
-  if (data.output_text !== undefined) out.outputText = traceText(data.output_text, { includeText, secrets, maxChars: DEFAULT_TEXT_LIMIT });
-  if (Array.isArray(data.data) || Array.isArray(data.images)) {
-    const images = Array.isArray(data.data) ? data.data : data.images;
-    out.images = { count: images.length, items: images.slice(0, 8).map(item => summarizeImageItem(item, { includeText, secrets, maxChars: 4096 })) };
+
+  if (typeof response !== 'object') return String(response);
+
+  // Standard OpenAI-style response
+  const fields = Object.keys(response);
+  const model = String(response.model || '');
+
+  if (kind === 'route_intent' || kind === 'chat') {
+    const choices = Array.isArray(response.choices) ? response.choices : [];
+    const usage = response.usage || {};
+    const summarizedChoices = choices.slice(0, 4).map((choice, idx) => {
+      if (!choice || typeof choice !== 'object') return traceText(choice, { secrets, includeText });
+      const msg = choice.message || {};
+      const content = msg.content;
+      const reasoning = msg.reasoning_content || msg.reasoning;
+      return {
+        index: choice.index ?? idx,
+        finishReason: String(choice.finish_reason || choice.finishReason || ''),
+        message: {
+          role: String(msg.role || ''),
+          content: traceText(content, { secrets, maxChars: 1024, includeText }),
+          ...(reasoning ? { reasoning: { present: true, chars: String(reasoning).length, omitted: true } } : {}),
+        },
+      };
+    });
+    return {
+      fields,
+      id: String(response.id || ''),
+      model,
+      choices: summarizedChoices,
+      omittedChoices: Math.max(0, choices.length - 4),
+      usage: {
+        prompt_tokens: Number(usage.prompt_tokens || 0),
+        completion_tokens: Number(usage.completion_tokens || 0),
+        total_tokens: Number(usage.total_tokens || 0),
+        ...(Number(usage.prompt_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0)
+          ? { cached_tokens: Number(usage.prompt_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0) }
+          : {}),
+        ...(Number(usage.completion_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0)
+          ? { reasoning_tokens: Number(usage.completion_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0) }
+          : {}),
+      },
+      kind,
+    };
   }
-  if (data.error) out.error = sanitizeGeneric(data.error, { secrets });
-  else if (data.message && !data.choices) out.message = traceText(data.message, { includeText, secrets, maxChars: 4096 });
-  const usage = numericUsage(data.usage);
-  if (usage) out.usage = usage;
-  if (!out.choices && !out.images && out.outputText === undefined && !out.error && !out.message) {
-    out.summary = sanitizeGeneric(data, { secrets });
+
+  if (kind === 'image_generation' || kind === 'image_edit') {
+    const images = Array.isArray(response.data) ? response.data : [];
+    const items = images.slice(0, 20).map(item => {
+      const b64 = String(item?.b64_json || '');
+      const url = String(item?.url || '');
+      return {
+        image: b64
+          ? { source: 'base64', chars: b64.length, redacted: true }
+          : { source: 'url', target: sanitizeTarget(url), chars: url.length },
+      };
+    });
+    return {
+      fields,
+      model,
+      images: {
+        count: images.length,
+        omitted: Math.max(0, images.length - items.length),
+        items,
+      },
+      revised_prompt: includeText
+        ? traceText(images[0]?.revised_prompt || '', { secrets, maxChars: 512 })
+        : { chars: String(images[0]?.revised_prompt || '').length },
+      kind,
+    };
   }
-  if (kind) out.kind = kind;
-  return out;
+
+  if (response.streamed) {
+    return { fields, model, streamed: true, kind };
+  }
+
+  // Generic
+  const redacted = redactValue(response);
+  return includeText ? redacted : { fields, model, kind };
 }
 
-function traceId() {
-  if (typeof crypto.randomUUID === 'function') return `trace-${crypto.randomUUID()}`;
-  return `trace-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`;
+function redactTraceEvent(event = {}) {
+  const redacted = { ...event };
+  // Redact sensitive header names in request/response
+  if (redacted.request && typeof redacted.request === 'object') {
+    if (Array.isArray(redacted.request.messages)) {
+      redacted.request = { ...redacted.request };
+    }
+  }
+  return redacted;
 }
 
-function resolveTraceFile({ root = path.resolve(__dirname, '../..'), env = process.env, filePath = '' } = {}) {
-  const configured = String(filePath || env.CHATUI_REQUEST_TRACE_FILE || DEFAULT_TRACE_RELATIVE_PATH).trim();
-  return path.resolve(root, configured || DEFAULT_TRACE_RELATIVE_PATH);
+function resolveTraceFile(rootPath = process.cwd()) {
+  return resolveFilePath(
+    process.env.CHATUI_REQUEST_TRACE_FILE || DEFAULT_TRACE_RELATIVE_PATH,
+    rootPath,
+  );
 }
 
 function createRequestTraceLogger({
-  root = path.resolve(__dirname, '../..'),
-  env = process.env,
-  enabled = requestTraceEnabled(env),
+  root = process.cwd(),
+  enabled = requestTraceEnabled(),
+  includeText = !envFlag(process.env.CHATUI_REQUEST_TRACE_NO_TEXT),
+  maxBytes = positiveInteger(process.env.CHATUI_REQUEST_TRACE_MAX_BYTES, DEFAULT_TRACE_MAX_BYTES),
+  rotations = positiveInteger(process.env.CHATUI_REQUEST_TRACE_ROTATIONS, DEFAULT_TRACE_ROTATIONS),
   filePath = '',
-  maxBytes = positiveInteger(env.CHATUI_REQUEST_TRACE_MAX_BYTES, DEFAULT_TRACE_MAX_BYTES),
-  rotations = positiveInteger(env.CHATUI_REQUEST_TRACE_ROTATIONS, DEFAULT_TRACE_ROTATIONS, 0, 20),
-  includeText = envFlag(env.CHATUI_REQUEST_TRACE_TEXT, true),
-  now = () => Date.now(),
-  onError = error => console.warn('[request-trace] write failed:', error?.message || error),
+  onError = null,
 } = {}) {
-  const resolvedFile = resolveTraceFile({ root, env, filePath });
-  const normalizedMaxBytes = positiveInteger(maxBytes, DEFAULT_TRACE_MAX_BYTES);
-  const normalizedRotations = positiveInteger(rotations, DEFAULT_TRACE_ROTATIONS, 0, 20);
-  let warned = false;
+  const resolvedFile = filePath ? resolveFilePath(filePath, root) : resolveTraceFile(root);
+  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
 
-  function reportError(error) {
-    if (warned) return;
-    warned = true;
-    try { onError(error); } catch {}
-  }
-
-  function rotate(incomingBytes) {
-    let currentBytes = 0;
-    try { currentBytes = fs.statSync(resolvedFile).size; }
-    catch (error) { if (error?.code !== 'ENOENT') throw error; }
-    if (currentBytes + incomingBytes <= normalizedMaxBytes) return;
-    if (normalizedRotations === 0) {
-      fs.writeFileSync(resolvedFile, '', 'utf8');
-      return;
-    }
-    for (let index = normalizedRotations; index >= 1; index -= 1) {
-      const source = index === 1 ? resolvedFile : `${resolvedFile}.${index - 1}`;
-      const target = `${resolvedFile}.${index}`;
-      if (!fs.existsSync(source)) continue;
-      if (index === normalizedRotations && fs.existsSync(target)) fs.rmSync(target, { force: true });
-      fs.renameSync(source, target);
-    }
+  function reportError(err) {
+    if (typeof onError === 'function') onError(err);
+    else console.error('[request-trace] write error:', err?.message || err);
   }
 
   function write(event = {}) {
     if (!enabled) return false;
     try {
-      fs.mkdirSync(path.dirname(resolvedFile), { recursive: true });
       const timestampMs = Number(event.timestamp_ms) || now();
-      const line = `${JSON.stringify({
+      const line = {
         schema_version: TRACE_SCHEMA_VERSION,
         timestamp: new Date(timestampMs).toISOString(),
         ...redactTraceEvent(event),
         timestamp_ms: timestampMs,
-      })}\n`;
-      rotate(Buffer.byteLength(line, 'utf8'));
-      fs.appendFileSync(resolvedFile, line, 'utf8');
+      };
+      if (!writer.writeLine(line)) throw new Error('writer returned false');
       return true;
     } catch (error) {
       reportError(error);
@@ -434,27 +605,56 @@ function createRequestTraceLogger({
   }
 
   function begin({
-    source = 'proxy', requestId = '', jobId = '', method = 'POST', target = '', targetPath = '',
-    payload = {}, kind = '', headerNames = [], queryKeys = [], fileCount = 0, maskCount = 0, secrets = [],
+    source = 'proxy',
+    requestId = '',
+    jobId = '',
+    submissionId = '',
+    method = 'POST',
+    target = '',
+    targetPath = '',
+    payload = {},
+    kind = '',
+    headerNames = [],
+    queryKeys = [],
+    fileCount = 0,
+    maskCount = 0,
+    secrets = [],
+    // NEW: trace correlation
+    parentSpan = null,
+    parentTraceId = '',
+    rootTraceId = '',
   } = {}) {
     if (!enabled) return null;
     const startedAt = now();
     const resolvedKind = requestKind(targetPath, payload, kind);
+
+    // Determine trace correlation IDs
+    const traceIdValue = String(requestId || traceId());
+    const parentId = String(parentTraceId || parentSpan?.traceId || '');
+    const rootId = String(rootTraceId || parentSpan?.rootTraceId || parentSpan?.traceId || traceIdValue);
+
     const span = {
-      id: String(requestId || traceId()),
+      traceId: traceIdValue,
+      parentTraceId: parentId || null,
+      rootTraceId: rootId,
       startedAt,
       closed: false,
       kind: resolvedKind,
       secrets: normalizeSecrets(secrets),
       source: String(source || 'proxy'),
       jobId: String(jobId || ''),
+      submissionId: String(submissionId || ''),
     };
+
     write({
       event: 'request.started',
-      trace_id: span.id,
+      trace_id: span.traceId,
+      parent_trace_id: span.parentTraceId || undefined,
+      root_trace_id: span.rootTraceId,
       source: span.source,
       kind: resolvedKind,
       ...(span.jobId ? { job_id: span.jobId } : {}),
+      ...(span.submissionId ? { submission_id: span.submissionId } : {}),
       method: String(method || 'POST').toUpperCase(),
       target: sanitizeTarget(target),
       target_path: String(targetPath || ''),
@@ -474,20 +674,29 @@ function createRequestTraceLogger({
   }
 
   function closeSpan(span, event, {
-    status = 0, response = null, responseText = undefined, contentType = '', error = null, durationMs = null,
+    status = 0,
+    response = null,
+    responseText = undefined,
+    contentType = '',
+    error = null,
+    durationMs = null,
   } = {}) {
     if (!enabled || !span || span.closed) return false;
     span.closed = true;
     const finishedAt = now();
-    const duration = Number.isFinite(Number(durationMs))
+    const hasExplicitDuration = durationMs !== null && durationMs !== undefined && Number.isFinite(Number(durationMs));
+    const duration = hasExplicitDuration
       ? Math.max(0, Number(durationMs))
       : Math.max(0, finishedAt - Number(span.startedAt || finishedAt));
     const details = {
       event,
-      trace_id: span.id,
+      trace_id: span.traceId,
+      parent_trace_id: span.parentTraceId || undefined,
+      root_trace_id: span.rootTraceId,
       source: span.source,
       kind: span.kind,
       ...(span.jobId ? { job_id: span.jobId } : {}),
+      ...(span.submissionId ? { submission_id: span.submissionId } : {}),
       status: Number(status) || 0,
       duration_ms: Math.round(duration),
       timestamp_ms: finishedAt,
@@ -505,7 +714,7 @@ function createRequestTraceLogger({
       details.error = {
         name: String(error?.name || ''),
         code: String(error?.code || error?.cause?.code || ''),
-        message: traceText(error?.message || error, { includeText: true, secrets: span.secrets, maxChars: 4096 }),
+        message: traceText(error?.message || String(error), { includeText: true, secrets: span.secrets, maxChars: 4096 }),
       };
     }
     return write(details);
@@ -519,16 +728,55 @@ function createRequestTraceLogger({
     return closeSpan(span, 'request.failed', details);
   }
 
+  function recordExecution(event, {
+    traceId: eventTraceId = '', rootTraceId = '', parentTraceId = '', source = 'managed_execution',
+    submissionId = '', jobId = '', body = {}, payload = body?.payload || {}, mode = '', transportApi = '',
+    files = [], masks = [], secrets = [], reused = false, stage = '', error = null,
+    payloadAvailable = true, contextProjection = null,
+  } = {}) {
+    if (!enabled) return false;
+    const resolvedTraceId = String(eventTraceId || traceId());
+    const contract = summarizeExecutionContract({
+      body, payload, mode, transportApi, files, masks, includeText, secrets,
+      validationPassed: event === 'execution.accepted', error, payloadAvailable,
+    });
+    return write({
+      event,
+      trace_id: resolvedTraceId,
+      ...(parentTraceId ? { parent_trace_id: String(parentTraceId) } : {}),
+      root_trace_id: String(rootTraceId || resolvedTraceId),
+      source: String(source || 'managed_execution'),
+      ...(submissionId ? { submission_id: String(submissionId) } : {}),
+      ...(jobId ? { job_id: String(jobId) } : {}),
+      ...(stage ? { validation_stage: String(stage) } : {}),
+      ...(reused ? { reused: true } : {}),
+      ...contract,
+      ...(contextProjection ? { context_projection: summarizeContextProjection(contextProjection) } : {}),
+    });
+  }
+
+  function executionAccepted(details = {}) {
+    return recordExecution('execution.accepted', details);
+  }
+
+  function executionRejected(details = {}) {
+    return recordExecution('execution.rejected', details);
+  }
+
+  // Startup info logged via server-log instead
+
   return Object.freeze({
     enabled: !!enabled,
     filePath: resolvedFile,
     includeText: !!includeText,
-    maxBytes: normalizedMaxBytes,
-    rotations: normalizedRotations,
+    maxBytes,
+    rotations,
     record: write,
     begin,
     complete,
     fail,
+    executionAccepted,
+    executionRejected,
   });
 }
 
@@ -539,12 +787,13 @@ module.exports = {
   DEFAULT_TRACE_ROTATIONS,
   requestTraceEnabled,
   sanitizeTarget,
-  redactSecrets,
   traceText,
   requestKind,
   summarizeRequestPayload,
   summarizeResponsePayload,
+  summarizeDispatchContract,
+  summarizeExecutionContract,
+  bindingDiff,
   resolveTraceFile,
   createRequestTraceLogger,
 };
-

@@ -1,6 +1,32 @@
 (function initChatUIImageService(root) {
   'use strict';
 
+  const MODULE_REGISTRY_SYMBOL = Symbol.for('chatui.module-registry.v1');
+  const dispatchContractModule = root?.[MODULE_REGISTRY_SYMBOL]?.get('dispatchContract')
+    || root?.ChatUIDispatchContract
+    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
+
+  function currentDispatchContractModule() {
+    return root?.[MODULE_REGISTRY_SYMBOL]?.get('dispatchContract')
+      || root?.ChatUIDispatchContract
+      || dispatchContractModule;
+  }
+
+  function routeBindingTransportFields(attachment = {}) {
+    const contract = currentDispatchContractModule();
+    if (typeof contract?.routeBindingTransportFields !== 'function') {
+      const hasBinding = [
+        attachment?.routeResourceKey, attachment?.route_resource_key,
+        attachment?.routeRole, attachment?.route_role,
+        attachment?.routeResourceId, attachment?.route_resource_id,
+        attachment?.routeSource, attachment?.route_source,
+      ].some(value => String(value || '').trim());
+      if (hasBinding) throw new TypeError('Dispatch-contract binding serializer is unavailable');
+      return {};
+    }
+    return contract.routeBindingTransportFields(attachment);
+  }
+
 function imageItemToResult(item) {
   const rawItem = typeof item === 'string' ? { url: item } : item || {};
   const url = rawItem.url || rawItem.src || rawItem.image_url || rawItem.image || '';
@@ -47,16 +73,14 @@ async function imageFileToJobPayload(attachment, readFileAsDataURL) {
   if (!String(dataUrl || '').startsWith('data:')) return null;
   const data = String(dataUrl || '').split(',')[1] || '';
   if (!data) return null;
-  const routeRole = String(attachment.routeRole || attachment.role || '').trim();
-  const routeResourceKey = String(attachment.routeResourceKey || attachment.resourceKey || '').trim();
+  const binding = routeBindingTransportFields(attachment);
   const routeId = String(attachment.routeId || attachment.imageId || attachment.image_id || attachment.id || '').trim();
   const routeReferenceId = String(attachment.routeReferenceId || attachment.referenceId || attachment.reference_id || '').trim();
   return {
     name: attachment.name || file?.name || 'image.png',
     type: attachment.type || file?.type || String(dataUrl).match(/^data:([^;,]+)/)?.[1] || 'image/png',
     data,
-    ...(routeRole ? { routeRole } : {}),
-    ...(routeResourceKey ? { routeResourceKey } : {}),
+    ...binding,
     ...(routeId ? { routeId } : {}),
     ...(routeReferenceId ? { routeReferenceId } : {}),
   };

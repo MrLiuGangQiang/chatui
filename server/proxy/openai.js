@@ -12,6 +12,21 @@ const {
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
+const executionProtocolValidator = require('../validators/dispatch-contract.validator');
+
+function hasExecutionProtocolFields(body = {}) {
+  return Object.prototype.hasOwnProperty.call(body, 'requestPurpose')
+    || Object.prototype.hasOwnProperty.call(body, 'dispatchContract')
+    || Object.prototype.hasOwnProperty.call(body, 'bindingEvidence');
+}
+
+function validateExecutionProtocolOrReject(body = {}, { targetPath = '', method = 'POST' } = {}) {
+  // Every execution target must declare whether it is intent recognition or a
+  // final execution. Leaving the fields out is not a compatibility mode: it
+  // would allow an uncontracted request to reach a real provider.
+  executionProtocolValidator.validateProxyExecutionRequest(body, { targetPath, method });
+  return true;
+}
 
 const MAX_IMAGE_PROXY_BYTES = Math.max(1, Number(process.env.MAX_IMAGE_PROXY_BYTES || 25 * 1024 * 1024));
 
@@ -54,7 +69,14 @@ function withQueryParams(rawUrl, params) {
   return url.toString();
 }
 
-function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths, requestTrace }) {
+function reqTraceContext(req) {
+  return {
+    parentTraceId: String(req?._traceId || ""),
+    rootTraceId: String(req?._rootTraceId || ""),
+  };
+}
+
+function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFromStreamChunk, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, allowedProxyMethods, allowedProxyPaths, requestTrace, errorLog }) {
   async function proxy(req, res) {
   const targetPath = req.url.replace(/^\/api/, '').split('?')[0];
   if (!allowedProxyPaths.some(re => re.test(targetPath))) {
@@ -77,10 +99,21 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const method = String(body.method || 'POST').toUpperCase();
     const proxyJobId = String(body.jobId || '').trim();
 
+    try {
+      validateExecutionProtocolOrReject(body, { targetPath, method });
+    } catch (protocolError) {
+      return sendError(
+        res,
+        Number(protocolError?.statusCode) || 400,
+        protocolError?.message || 'Execution protocol invalid',
+        protocolError?.code || 'EXECUTION_PROTOCOL_INVALID',
+      );
+    }
+
     if (!allowedProxyMethods.has(method)) return sendError(res, 405, '不支持的代理方法', 'PROXY_METHOD_NOT_ALLOWED');
 
     let upstreamPath = targetPath === '/openai/image_edit' ? '/images/edits' : targetPath;
-    let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath: upstreamPath, contextWindowTokens });
+    let outboundPayload = method === 'GET' ? payload : applyContextBudgetToOpenAiPayload(payload, { targetPath: upstreamPath, contextWindowTokens, summarizeOmitted: false });
     if (method !== 'GET' && upstreamPath === '/images/generations') {
       safeLog('[image-generation-proxy] upstream json', { model: outboundPayload.model || '', fields: Object.keys(outboundPayload) });
     }
@@ -89,7 +122,9 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
-      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, { stream: true });
+      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, {
+        stream: true, submissionId: body.submissionId,
+      });
       if (proxyChatJob.streamStarted) proxyChatJob = null;
       else {
         proxyChatJob.updatedAt = Date.now();
@@ -109,8 +144,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     }
     const targetUrl = withQueryParams(`${baseUrl.replace(/\/+$/, '')}${upstreamPath}`, query);
     traceSpan = requestTrace?.begin?.({
+      ...reqTraceContext(req),
       source: 'proxy',
+      kind: body.requestPurpose === 'intent_recognition'
+        ? 'route_intent'
+        : ['/chat/completions', '/responses'].includes(upstreamPath) ? 'chat' : '',
       jobId: proxyJobId,
+      submissionId: String(body.submissionId || ''),
       method,
       target: targetUrl,
       targetPath: upstreamPath,
@@ -214,6 +254,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
   } catch (err) {
     const aborted = err?.name === 'AbortError';
+    errorLog?.log(err, { source: 'proxy', traceId: traceSpan?.traceId || '' });
     const message = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
     requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: err, contentType: traceContentType });
     if (proxyChatJob) {
@@ -247,6 +288,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (imageUrl.origin !== base.origin) return sendError(res, 403, '只允许代理同源图片地址', 'IMAGE_PROXY_ORIGIN_FORBIDDEN');
 
     traceSpan = requestTrace?.begin?.({
+      ...reqTraceContext(req),
       source: 'image_proxy',
       method: 'GET',
       target: imageUrl.toString(),
@@ -283,6 +325,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     });
   } catch (err) {
     const aborted = err?.name === 'AbortError';
+    errorLog?.log(err, { source: 'image_proxy', traceId: traceSpan?.traceId || '' });
     requestTrace?.fail?.(traceSpan, { status: upstreamStatus || err.statusCode || (aborted ? 504 : 500), error: err });
     sendError(res, err.statusCode || (aborted ? 504 : 500), aborted ? '图片下载超时' : (err.message || String(err)), aborted ? 'IMAGE_DOWNLOAD_TIMEOUT' : 'IMAGE_PROXY_FAILED');
   } finally {

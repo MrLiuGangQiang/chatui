@@ -31,15 +31,22 @@
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 
+  // Object-stringified ids (e.g. "[object Object],[object Object]:assistant:1")
+  // are corruption of the canonical `${sessionId}:${role}:${index}` identity
+  // contract and must never be treated as durable identity. Rebuild the id
+  // deterministically from scalar parts instead.
+  const OBJECT_STRINGIFIED_ID_RE = /\[object (?:Object|Undefined|Null|Array)\]/;
+
   function messageId(message = {}, { sessionId = 'session', sequence = 0 } = {}) {
     const existing = String(message.id || message.messageId || '').trim();
-    if (existing) return existing;
+    if (existing && !OBJECT_STRINGIFIED_ID_RE.test(existing)) return existing;
+    const session = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : 'session';
     const role = message.role === 'assistant'
       ? 'assistant'
       : message.role === 'user'
         ? 'user'
         : message.role || 'message';
-    return `${sessionId || 'session'}:${role}:${legacyOrderIndex(message, sequence)}`;
+    return `${session}:${role}:${legacyOrderIndex(message, sequence)}`;
   }
 
   function durableMediaRef(value = '') {

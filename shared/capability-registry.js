@@ -1,0 +1,553 @@
+(function initChatUICapabilityRegistry(root, factory) {
+  'use strict';
+
+  const api = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  const registry = root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry');
+  if (registry?.register) registry.register('capabilityRegistry', api);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function createChatUICapabilityRegistry() {
+  'use strict';
+
+  const REGISTRY_VERSION = 'capability_registry.v1';
+  const IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen', 'edit_image']);
+  const CHAT_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']);
+  const IMAGE_SIZES = Object.freeze(['auto', '1024x1024', '1024x1536', '1536x1024']);
+  const IMAGE_QUALITIES = Object.freeze(['auto', 'low', 'medium', 'high', 'standard', 'hd']);
+  const IMAGE_BACKGROUNDS = Object.freeze(['auto', 'transparent', 'opaque']);
+  const IMAGE_OUTPUT_FORMATS = Object.freeze(['auto', 'png', 'jpeg', 'webp']);
+
+  const IMAGE_ARGUMENTS = Object.freeze({
+    prompt: Object.freeze({ type: 'string', required: true, minLength: 1 }),
+    size: Object.freeze({ type: 'enum', values: IMAGE_SIZES, default: 'auto' }),
+    quality: Object.freeze({ type: 'enum', values: IMAGE_QUALITIES, default: 'auto' }),
+    background: Object.freeze({ type: 'enum', values: IMAGE_BACKGROUNDS, default: 'auto' }),
+    output_format: Object.freeze({ type: 'enum', values: IMAGE_OUTPUT_FORMATS, default: 'auto' }),
+    count: Object.freeze({ type: 'integer', min: 1, max: 4, default: 1, wireName: 'n' }),
+  });
+
+  const CHAT_ARGUMENTS = Object.freeze({
+    prompt: Object.freeze({ type: 'string', required: false }),
+  });
+
+  function capability(operation, api, mode, argumentsSchema) {
+    return Object.freeze({ operation, api, mode, arguments: argumentsSchema });
+  }
+
+  const CAPABILITIES = Object.freeze({
+    plain_chat: capability('plain_chat', 'chat', 'chat', CHAT_ARGUMENTS),
+    file_qa: capability('file_qa', 'chat', 'chat', CHAT_ARGUMENTS),
+    multimodal_qa: capability('multimodal_qa', 'chat', 'chat', CHAT_ARGUMENTS),
+    image_qa: capability('image_qa', 'chat', 'chat', CHAT_ARGUMENTS),
+    image_compare: capability('image_compare', 'chat', 'chat', CHAT_ARGUMENTS),
+    ocr: capability('ocr', 'chat', 'chat', CHAT_ARGUMENTS),
+    text_to_image: capability('text_to_image', 'image_generation', 'image', IMAGE_ARGUMENTS),
+    image_reference_gen: capability('image_reference_gen', 'image_edit', 'image', IMAGE_ARGUMENTS),
+    edit_image: capability('edit_image', 'image_edit', 'edit_image', IMAGE_ARGUMENTS),
+  });
+
+
+  // Explicit directives are user-language facts that the local compiler may
+  // apply before it considers an LLM proposal. They deliberately carry no
+  // executable arguments or identities: the compiler still resolves the
+  // declared resource scope against the canonical candidate catalog.
+  const EXPLICIT_ROUTE_DIRECTIVES = Object.freeze([
+    Object.freeze({
+      operation: 'ocr',
+      relation: 'new',
+      resource_scope: 'current',
+      required_current_resource_type: 'image',
+      input_patterns: Object.freeze([
+        /(?:\u63d0\u53d6|\u8bc6\u522b|\u8bfb\u53d6|\u8bfb\u51fa|ocr|extract|recognize)\s*(?:\u56fe(?:\u7247)?(?:\u91cc|\u4e2d|\u4e0a)?\u7684?)?\s*(?:\u6587\u5b57|\u6587\u672c|\u5b57|text|words?|characters?)/i,
+        /(?:\u56fe(?:\u7247)?|\u56fe\u50cf|\u7167\u7247|image|photo).{0,16}(?:\u6587\u5b57|\u6587\u672c|\u5b57|text|words?|characters?)/i,
+      ]),
+      excluded_input_patterns: Object.freeze([
+        /(?:\u4e0a\u4e00\u5f20\u56fe(?:\u7247)?|\u4e4b\u524d\u7684?\u56fe(?:\u7247)?|\u521a\u624d\u7684?\u56fe(?:\u7247)?|\u4e0a\u6b21\u7684?\u56fe(?:\u7247)?|\u5386\u53f2\u56fe(?:\u7247)?|\u751f\u6210\u7684?\u56fe(?:\u7247)?|(?:previous|last|history|generated|that)\s+(?:image|photo))/i,
+      ]),
+    }),
+    Object.freeze({
+      // Asking for an image prompt is text authoring, not a request to call
+      // an image-generation provider. Keep this ahead of the broad “再生成”
+      // rule so “重新生成提示词” cannot accidentally become a picture job.
+      operation: 'plain_chat',
+      relation: 'followup',
+      resource_scope: 'none',
+      input_patterns: Object.freeze([
+        /(?:^|[，,。！？\s])(?:请|帮我|给我|帮忙)?(?:重新|再|换(?:一个)?场景(?:后)?|换个场景(?:后)?|优化|改写|写|编写|生成|提供).{0,12}(?:(?:生图|绘图|画图|绘画|图片|图像)\s*)?(?:提示词|prompt)/i,
+        /\b(?:write|create|generate|give|improve|rewrite)\b.{0,24}\b(?:image|art|drawing)?\s*prompt\b/i,
+      ]),
+      excluded_input_patterns: Object.freeze([
+        /(?:提示词|prompt).{0,16}(?:生成|画|绘制|制作|创建).{0,8}(?:图片|图像|图|作品)/i,
+        /\b(?:use|using|based on)\b.{0,24}\bprompt\b.{0,24}\b(?:generate|draw|create|make)\b.{0,12}\b(?:an?\s+)?image\b/i,
+      ]),
+    }),
+    Object.freeze({
+      // A standalone generation imperative carries enough semantics to avoid
+      // an LLM classification call. This remains intentionally narrow: asking
+      // for a prompt, an explanation, analysis, or an edit still goes through
+      // the semantic router.
+      operation: 'text_to_image',
+      relation: 'new',
+      resource_scope: 'none',
+      input_patterns: Object.freeze([
+        /^(?:\u8bf7|\u5e2e\u6211|\u7ed9\u6211|\u6211\u8981|\u6211\u60f3|\u60f3\u8981|\u80fd\u5426|\u53ef\u4ee5)?\s*(?:\u751f\u6210|\u753b|\u7ed8\u5236|\u521b\u4f5c|\u5236\u4f5c|\u521b\u5efa)\s*(?:\u4e00|\u4e2a|\u5f20|\u5e45|\u53ea|\u5957)?/i,
+        /^(?:generate|draw|create)\b/i,
+      ]),
+      excluded_input_patterns: Object.freeze([
+        /(?:\u63d0\u793a\u8bcd|prompt|\u6587\u6848|\u63cf\u8ff0|\u5206\u6790|\u89e3\u91ca|\u8bc6\u522b|ocr|\u63d0\u53d6|\u4fee\u6539|\u7f16\u8f91|\u66ff\u6362)/i,
+        /(?:\u53c2\u8003|\u57fa\u4e8e|\u6309\u7167|\u4ee5).{0,24}(?:\u8fd9|\u90a3|\u4e0a\u4e00|\u4e4b\u524d|\u521a\u624d)?(?:\u5f20)?\u56fe(?:\u7247)?/i,
+        /(?:\u753b|draw).{0,20}(?:\u91cc\u9762|\u4e2d\u7684?).{0,12}(?:\u662f\u4ec0\u4e48|\u4ec0\u4e48|what)/i,
+      ]),
+    }),
+    Object.freeze({
+      // “再画…” explicitly requests another generated result. It is a
+      // conversational follow-up, but it does not authorize using a prior
+      // image unless the user separately names that image as a reference.
+      operation: 'text_to_image',
+      relation: 'followup',
+      resource_scope: 'none',
+      input_patterns: Object.freeze([
+        /^(?:\u518d|\u53e6\u5916|\u53e6|\u91cd\u65b0)\s*(?:\u753b|\u7ed8\u5236|\u751f\u6210|\u521b\u4f5c|\u5236\u4f5c)/i,
+      ]),
+      excluded_input_patterns: Object.freeze([
+        /(?:\u53c2\u8003|\u57fa\u4e8e|\u6309\u7167|\u4ee5).{0,24}(?:\u8fd9|\u90a3|\u4e0a\u4e00|\u4e4b\u524d|\u521a\u624d)?(?:\u5f20)?\u56fe(?:\u7247)?/i,
+        /(?:\u4fee\u6539|\u7f16\u8f91|\u66ff\u6362|\u628a).{0,24}(?:\u8fd9|\u90a3|\u4e0a\u4e00|\u4e4b\u524d|\u521a\u624d)?(?:\u5f20)?\u56fe(?:\u7247)?/i,
+      ]),
+    }),
+  ]);
+
+
+  const PRIOR_ORDINAL_RESOURCE_PATTERNS = Object.freeze({
+    image: /(?:\u4e0a\u4e00\u5f20\u56fe(?:\u7247)?|\u4e4b\u524d\u7684?\u56fe(?:\u7247)?|\u521a\u624d\u7684?\u56fe(?:\u7247)?|\u4e0a\u6b21\u7684?\u56fe(?:\u7247)?|\u5386\u53f2\u56fe(?:\u7247)?|\u751f\u6210\u7684?\u56fe(?:\u7247)?|(?:previous|last|history|generated|that)\s+(?:image|photo))/i,
+    file: /(?:(?:\u521a\u624d|\u4e4b\u524d|\u4e0a\u6b21|\u524d\u9762|\u4e0a\u8ff0)(?:\u6587\u4ef6|\u9644\u4ef6|\u6587\u6863)|(?:previous|last|history|that)\s+(?:file|document|pdf|spreadsheet|report))/i,
+  });
+
+
+  // With exactly one current upload, short deictic questions such as “这是什么”
+  // refer to that upload unless the user explicitly points to an earlier or
+  // quoted resource. This is a deterministic turn-boundary fact, not something
+  // the route model may redirect to unrelated historical media.
+  const CURRENT_UPLOAD_DEICTIC_PATTERNS = Object.freeze([
+    /^(?:请|麻烦)?\s*(?:帮我)?\s*(?:这|这个|这是|这个是|它|它是|这里面|这个里面)\s*(?:是)?\s*(?:什么|啥|什么意思|什么东西|什么内容|什么文件|什么类型|做什么的|干什么的|怎么回事)\s*[。！？!?]*$/i,
+    /^(?:请|麻烦)?\s*(?:帮我)?\s*(?:看|看看|查看|读|读一下|分析|分析一下|识别|说明|介绍|解释)(?:一下)?\s*(?:这|这个|它|这里面|这个里面)\s*[。！？!?]*$/i,
+    /^(?:请|麻烦)?\s*(?:帮我)?\s*(?:看|看看|查看|读|读一下|分析|分析一下|识别|说明|介绍|解释)(?:一下)?\s*[。！？!?]*$/i,
+    /^(?:what(?:'s|\s+is)\s+this|what\s+is\s+it|tell\s+me\s+what\s+this\s+is|take\s+a\s+look\s+at\s+this|(?:analy[sz]e|inspect|identify|explain)\s+this)[.!?]*$/i,
+  ]);
+
+  function currentUploadDirective(text = '', catalog = []) {
+    const currentMedia = catalog.filter(candidate => (
+      candidate?.source === 'current' && ['image', 'file'].includes(candidate?.type)
+    ));
+    if (currentMedia.length !== 1) return null;
+    if (catalog.some(candidate => candidate?.source === 'quoted')) return null;
+    if (Object.values(PRIOR_ORDINAL_RESOURCE_PATTERNS).some(pattern => pattern.test(text))) return null;
+    if (!CURRENT_UPLOAD_DEICTIC_PATTERNS.some(pattern => pattern.test(text))) return null;
+    return Object.freeze({
+      operation: currentMedia[0].type === 'image' ? 'image_qa' : 'file_qa',
+      relation: 'new',
+      resource_scope: 'current',
+    });
+  }
+
+
+  function resourceRequirement(type, roles, min = 0, max = Infinity) {
+    return Object.freeze({
+      type,
+      roles: Object.freeze([...(Array.isArray(roles) ? roles : [roles])]),
+      min,
+      max,
+    });
+  }
+
+  const OPTIONAL_MESSAGE_CONTEXT = resourceRequirement('message', ['context']);
+  const RESOURCE_REQUIREMENTS = Object.freeze({
+    plain_chat: Object.freeze([OPTIONAL_MESSAGE_CONTEXT]),
+    file_qa: Object.freeze([
+      resourceRequirement('file', ['attachment'], 1),
+      OPTIONAL_MESSAGE_CONTEXT,
+    ]),
+    multimodal_qa: Object.freeze([
+      resourceRequirement('image', ['source'], 1),
+      resourceRequirement('file', ['attachment'], 1),
+      OPTIONAL_MESSAGE_CONTEXT,
+    ]),
+    image_qa: Object.freeze([
+      resourceRequirement('image', ['source'], 1),
+      OPTIONAL_MESSAGE_CONTEXT,
+    ]),
+    image_compare: Object.freeze([
+      resourceRequirement('image', ['compare_a'], 1, 1),
+      resourceRequirement('image', ['compare_b'], 1, 1),
+      OPTIONAL_MESSAGE_CONTEXT,
+    ]),
+    ocr: Object.freeze([
+      resourceRequirement('image', ['source'], 1),
+      OPTIONAL_MESSAGE_CONTEXT,
+    ]),
+    text_to_image: Object.freeze([OPTIONAL_MESSAGE_CONTEXT]),
+    image_reference_gen: Object.freeze([
+      resourceRequirement('image', ['reference', 'style_reference'], 1),
+    ]),
+    edit_image: Object.freeze([
+      resourceRequirement('image', ['target'], 1, 1),
+      resourceRequirement('image', ['reference']),
+      resourceRequirement('image', ['style_reference']),
+      resourceRequirement('image', ['mask'], 0, 1),
+    ]),
+  });
+
+  function stringValue(value = '') {
+    return String(value ?? '').trim();
+  }
+
+  function capabilityFor(operation = '') {
+    return CAPABILITIES[stringValue(operation)] || null;
+  }
+
+
+  function resourceRequirementsFor(operation = '') {
+    return RESOURCE_REQUIREMENTS[stringValue(operation)] || Object.freeze([]);
+  }
+
+  function explicitRouteDirectiveFor({ input = '', candidates = [] } = {}) {
+    const text = stringValue(input);
+    const catalog = Array.isArray(candidates) ? candidates : [];
+    const uploadDirective = currentUploadDirective(text, catalog);
+    if (uploadDirective) return uploadDirective;
+    for (const directive of EXPLICIT_ROUTE_DIRECTIVES) {
+      if (!directive.input_patterns.some(pattern => pattern.test(text))) continue;
+      if (directive.excluded_input_patterns.some(pattern => pattern.test(text))) continue;
+      if (directive.required_current_resource_type
+          && !catalog.some(candidate => (
+            candidate?.source === 'current'
+            && candidate?.type === directive.required_current_resource_type
+          ))) continue;
+      return Object.freeze({
+        operation: directive.operation,
+        relation: directive.relation,
+        resource_scope: directive.resource_scope,
+      });
+    }
+    return null;
+  }
+
+  function ordinalResourceScopeFor({ input = '', type = '', candidates = [] } = {}) {
+    const resourceType = stringValue(type);
+    const catalog = Array.isArray(candidates) ? candidates : [];
+    if (!catalog.some(candidate => candidate?.type === resourceType && candidate?.source === 'current')) return '';
+    if (PRIOR_ORDINAL_RESOURCE_PATTERNS[resourceType]?.test(stringValue(input))) return '';
+    return 'current';
+  }
+
+  function executionBindingIssues(operation = '', bindings = []) {
+    const normalizedOperation = stringValue(operation);
+    const requirements = resourceRequirementsFor(normalizedOperation);
+    if (!capabilityFor(normalizedOperation)) {
+      return Object.freeze([Object.freeze({ code: 'operation_unsupported', operation: normalizedOperation })]);
+    }
+    if (!Array.isArray(bindings)) {
+      return Object.freeze([Object.freeze({ code: 'bindings_type', operation: normalizedOperation })]);
+    }
+
+    const issues = [];
+    const normalized = bindings.map((binding, index) => ({
+      index,
+      type: stringValue(binding?.type),
+      role: stringValue(binding?.role),
+    }));
+    for (const binding of normalized) {
+      const allowed = requirements.some(requirement => (
+        binding.type === requirement.type && requirement.roles.includes(binding.role)
+      ));
+      if (!allowed) {
+        issues.push(Object.freeze({
+          code: 'binding_unsupported',
+          operation: normalizedOperation,
+          index: binding.index,
+          type: binding.type,
+          role: binding.role,
+        }));
+      }
+    }
+
+    for (const requirement of requirements) {
+      const count = normalized.filter(binding => (
+        binding.type === requirement.type && requirement.roles.includes(binding.role)
+      )).length;
+      if (count < requirement.min) {
+        issues.push(Object.freeze({
+          code: 'binding_missing',
+          operation: normalizedOperation,
+          type: requirement.type,
+          roles: requirement.roles,
+          min: requirement.min,
+          max: requirement.max,
+          count,
+        }));
+      } else if (count > requirement.max) {
+        issues.push(Object.freeze({
+          code: 'binding_cardinality',
+          operation: normalizedOperation,
+          type: requirement.type,
+          roles: requirement.roles,
+          min: requirement.min,
+          max: requirement.max,
+          count,
+        }));
+      }
+    }
+    return Object.freeze(issues);
+  }
+
+  function validateExecutionBindings(operation = '', bindings = []) {
+    return executionBindingIssues(operation, bindings).length === 0;
+  }
+
+  function assertExecutionBindings(operation = '', bindings = []) {
+    const issues = executionBindingIssues(operation, bindings);
+    if (!issues.length) return true;
+    const error = new TypeError(`Invalid execution bindings for ${stringValue(operation) || '<missing>'}`);
+    error.code = 'EXECUTION_BINDING_CONTRACT_INVALID';
+    error.issues = issues;
+    throw error;
+  }
+
+  function normalizeOutputFormat(value = '') {
+    const text = stringValue(value).toLowerCase();
+    return text === 'jpg' ? 'jpeg' : text;
+  }
+
+  function normalizeArgumentValue(name = '', value) {
+    if (name === 'count') {
+      const number = Number(value);
+      return Number.isInteger(number) ? number : value;
+    }
+    const text = stringValue(value);
+    if (name === 'output_format') return normalizeOutputFormat(text);
+    if (['size', 'quality', 'background'].includes(name)) return text.toLowerCase();
+    return text;
+  }
+
+  function argumentError(name, code, value) {
+    return Object.freeze({ name, code, value });
+  }
+
+  function validateArgument(name, value, spec = {}) {
+    if (spec.type === 'string') {
+      if (typeof value !== 'string') return argumentError(name, 'type', value);
+      if (spec.required && value.trim().length < Number(spec.minLength || 0)) return argumentError(name, 'required', value);
+      return null;
+    }
+    if (spec.type === 'enum') {
+      return spec.values.includes(value) ? null : argumentError(name, 'unsupported_value', value);
+    }
+    if (spec.type === 'integer') {
+      if (!Number.isInteger(value)) return argumentError(name, 'type', value);
+      if (value < spec.min || value > spec.max) return argumentError(name, 'range', value);
+      return null;
+    }
+    return argumentError(name, 'unknown_type', value);
+  }
+
+  function validateArguments(operation = '', argumentsValue = {}) {
+    const registered = capabilityFor(operation);
+    if (!registered || !argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) return false;
+    const names = Object.keys(registered.arguments);
+    const required = names.filter(name => registered.arguments[name].required !== false);
+    if (Object.keys(argumentsValue).some(key => !names.includes(key))) return false;
+    if (!required.every(name => Object.prototype.hasOwnProperty.call(argumentsValue, name))) return false;
+    return names.every(name => (
+      !Object.prototype.hasOwnProperty.call(argumentsValue, name)
+      || !validateArgument(name, argumentsValue[name], registered.arguments[name])
+    ));
+  }
+
+  function candidate(name, value, evidence, index = -1) {
+    return Object.freeze({ name, value: normalizeArgumentValue(name, value), evidence: stringValue(evidence), index: Number(index) });
+  }
+
+  function addMatch(target, name, value, match) {
+    if (!match || !stringValue(match[0])) return;
+    target.push(candidate(name, value, match[0], Number(match.index)));
+  }
+
+  function collectPatternMatches(input, pattern, name, value) {
+    const matches = [];
+    const regex = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+    let match;
+    while ((match = regex.exec(input))) {
+      matches.push(candidate(name, typeof value === 'function' ? value(match) : value, match[0], match.index));
+      if (!match[0]) regex.lastIndex += 1;
+    }
+    return matches;
+  }
+
+  function chineseCount(value = '') {
+    return ({ '一': 1, '二': 2, '两': 2, '三': 3, '四': 4 })[value] || Number(value);
+  }
+
+  function parseImageParameterCandidates(input = '', operation = '') {
+    if (!IMAGE_OPERATIONS.has(operation)) return [];
+    const text = stringValue(input);
+    if (!text) return [];
+    const result = [];
+
+    for (const match of text.matchAll(/\b(\d{3,4})\s*[x×*]\s*(\d{3,4})\b/gi)) {
+      addMatch(result, 'size', `${match[1]}x${match[2]}`, match);
+    }
+    [
+      [/\b(?:square|square image)\b|(?:正方形|方形|方图)/gi, '1024x1024'],
+      [/\b(?:portrait|vertical)\b|(?:竖图|竖版|纵向|竖屏)/gi, '1024x1536'],
+      [/\b(?:landscape|horizontal)\b|(?:横图|横版|横向|横屏)/gi, '1536x1024'],
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'size', value)));
+
+    [
+      [/\b(?:low quality|draft quality)\b|(?:低质量|草稿质量|快速预览)/gi, 'low'],
+      [/\b(?:medium quality)\b|(?:中等质量|标准质量)/gi, 'medium'],
+      [/\b(?:high quality|high-quality)\b|(?:高质量|高清质量|精细质量|超清)/gi, 'high'],
+      [/\b(?:hd quality)\b|(?:HD\s*质量)/gi, 'hd'],
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'quality', value)));
+
+    [
+      [/\btransparent background\b|(?:透明背景|背景透明|透明底|去底图)/gi, 'transparent'],
+      [/\bopaque background\b|(?:不透明背景|背景不透明)/gi, 'opaque'],
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'background', value)));
+
+    for (const match of text.matchAll(/(?:输出|导出|保存|格式|format|export)(?:为|成|\s|:：)*\b(png|jpe?g|webp)\b|\b(png|jpe?g|webp)\s*(?:格式|format)/gi)) {
+      addMatch(result, 'output_format', match[1] || match[2], match);
+    }
+
+    if (operation !== 'edit_image') {
+      for (const match of text.matchAll(/(?:生成|画|绘制|制作|创建|来|给我|generate|create|make)\s*([1-4一二三四两])\s*(?:张|幅|个|images?|pictures?)/gi)) {
+        addMatch(result, 'count', chineseCount(match[1]), match);
+      }
+      for (const match of text.matchAll(/\b(?:n|count)\s*[=:：]\s*([1-4])\b/gi)) {
+        addMatch(result, 'count', Number(match[1]), match);
+      }
+    }
+
+    return result.sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
+  }
+
+  function normalizeDefaults(defaults = {}) {
+    return {
+      size: normalizeArgumentValue('size', defaults.size || defaults.imageSize || 'auto') || 'auto',
+      quality: normalizeArgumentValue('quality', defaults.quality || defaults.imageQuality || 'auto') || 'auto',
+      background: normalizeArgumentValue('background', defaults.background || defaults.imageBackground || 'auto') || 'auto',
+      output_format: normalizeArgumentValue('output_format', defaults.output_format || defaults.outputFormat || defaults.format || 'auto') || 'auto',
+      count: normalizeArgumentValue('count', defaults.count ?? defaults.n ?? 1),
+    };
+  }
+
+  function resolveExecutionArguments({ operation = '', input = '', defaults = {}, overrides = {} } = {}) {
+    const registered = capabilityFor(operation);
+    if (!registered) {
+      return Object.freeze({ arguments: null, evidence: Object.freeze({}), conflicts: Object.freeze([]), invalid: Object.freeze([argumentError('operation', 'unsupported_operation', operation)]) });
+    }
+    const candidates = parseImageParameterCandidates(input, operation);
+    const byName = new Map();
+    for (const item of candidates) {
+      const values = byName.get(item.name) || [];
+      values.push(item);
+      byName.set(item.name, values);
+    }
+    const normalizedDefaults = normalizeDefaults(defaults);
+    const resolved = {};
+    const evidence = {};
+    const conflicts = [];
+    const invalid = [];
+
+    for (const [name, spec] of Object.entries(registered.arguments)) {
+      if (name === 'prompt') {
+        resolved.prompt = stringValue(input);
+        evidence.prompt = Object.freeze([]);
+      } else {
+        const hasOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, name);
+        const items = byName.get(name) || [];
+        const distinct = [...new Set(items.map(item => JSON.stringify(item.value)))].map(value => JSON.parse(value));
+        if (!hasOverride && distinct.length > 1) {
+          conflicts.push(Object.freeze({ name, values: Object.freeze(distinct), evidence: Object.freeze(items.map(item => item.evidence)) }));
+          continue;
+        }
+        resolved[name] = hasOverride
+          ? normalizeArgumentValue(name, overrides[name])
+          : distinct.length ? distinct[0] : normalizedDefaults[name] ?? spec.default;
+        evidence[name] = Object.freeze(hasOverride ? ['clarification_answer.v1'] : items.map(item => item.evidence));
+      }
+      const problem = validateArgument(name, resolved[name], spec);
+      if (problem) invalid.push(problem);
+    }
+
+    return Object.freeze({
+      arguments: conflicts.length || invalid.length ? null : Object.freeze({ ...resolved }),
+      evidence: Object.freeze({ ...evidence }),
+      conflicts: Object.freeze(conflicts),
+      invalid: Object.freeze(invalid),
+      candidates: Object.freeze(candidates),
+    });
+  }
+
+
+  function choicesForArgument(name = '', values = []) {
+    const labels = {
+      size: { '1024x1024': '方图 1024 × 1024', '1024x1536': '竖图 1024 × 1536', '1536x1024': '横图 1536 × 1024' },
+      quality: { low: '低质量', medium: '中等质量', high: '高质量', standard: '标准质量', hd: 'HD 质量' },
+      background: { transparent: '透明背景', opaque: '不透明背景' },
+      output_format: { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' },
+      count: { 1: '1 张', 2: '2 张', 3: '3 张', 4: '4 张' },
+    };
+    const registeredValues = name === 'size' ? IMAGE_SIZES
+      : name === 'quality' ? IMAGE_QUALITIES
+        : name === 'background' ? IMAGE_BACKGROUNDS
+          : name === 'output_format' ? IMAGE_OUTPUT_FORMATS
+            : name === 'count' ? [1, 2, 3, 4]
+              : [];
+    const requested = Array.isArray(values) && values.length ? values : registeredValues;
+    return [...new Set(requested.map(value => normalizeArgumentValue(name, value)))]
+      .filter(value => value !== 'auto')
+      .filter(value => !validateArgument(name, value, IMAGE_ARGUMENTS[name] || {}))
+      .map(value => Object.freeze({ value, label: String(labels[name]?.[value] || value) }));
+  }
+
+  function clarificationQuestion(result = {}) {
+    const conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
+    const invalid = Array.isArray(result.invalid) ? result.invalid : [];
+    if (conflicts.length) {
+      const labels = { size: '图片尺寸', quality: '图片质量', background: '背景模式', output_format: '输出格式', count: '生成数量' };
+      const details = conflicts.map(item => `${labels[item.name] || item.name}（${item.values.join(' / ')}）`).join('、');
+      return `检测到图片参数冲突：${details}。请选择其中一项，或直接回复“自动”。`;
+    }
+    if (invalid.length) {
+      const first = invalid[0];
+      if (first.name === 'size') return `图片尺寸“${first.value}”不在当前支持范围内，请选择 auto、1024x1024、1024x1536 或 1536x1024。`;
+      if (first.name === 'count') return '单次图片数量当前支持 1 到 4，请给出范围内的数量。';
+      return `图片参数 ${first.name} 的值“${first.value}”无效，请重新选择。`;
+    }
+    return '';
+  }
+
+  return Object.freeze({
+    REGISTRY_VERSION,
+    CAPABILITIES,
+    RESOURCE_REQUIREMENTS,
+    IMAGE_OPERATIONS,
+    CHAT_OPERATIONS,
+    IMAGE_SIZES,
+    IMAGE_QUALITIES,
+    IMAGE_BACKGROUNDS,
+    IMAGE_OUTPUT_FORMATS,
+    capabilityFor,
+    resourceRequirementsFor,
+    explicitRouteDirectiveFor,
+    ordinalResourceScopeFor,
+    executionBindingIssues,
+    validateExecutionBindings,
+    assertExecutionBindings,
+    normalizeArgumentValue,
+    validateArgument,
+    validateArguments,
+    parseImageParameterCandidates,
+    resolveExecutionArguments,
+    choicesForArgument,
+    clarificationQuestion,
+  });
+});

@@ -3,25 +3,34 @@
 
   const ROUTE_STATE_MESSAGE = 'chatui:route-task-state';
   const ROUTE_STATE_INTERVAL_MS = 250;
-  const ROUTE_STEP_BY_PHASE = Object.freeze({
-    accepted: '02',
-    capturing: '03',
-    routing: '07',
-    handoff: '12',
-    running: '12',
-    recovering: '12',
-    stopping: '12',
-    completed: '12',
-    failed: '12',
-    stopped: '12',
-    busy: '12',
+  const ROUTE_STAGES = new Set([
+    'idle',
+    'accepted',
+    'capturing',
+    'captured',
+    'routing',
+    'clarification',
+    'handoff',
+    'running',
+    'recovering',
+    'stopping',
+    'completed',
+    'failed',
+    'stopped',
+    'busy',
+  ]);
+  const LEGACY_STEP_TO_STAGE = Object.freeze({
+    '02': 'accepted',
+    '03': 'capturing',
+    '04': 'captured',
+    '07': 'routing',
+    '10': 'clarification',
+    '12': 'running',
   });
 
-  function normalizeRouteStep(value) {
-    const raw = String(value ?? '').trim();
-    if (!raw) return '';
-    const normalized = /^\d+$/.test(raw) ? raw.padStart(2, '0') : raw;
-    return /^(0[1-9]|1[0-2])$/.test(normalized) ? normalized : '';
+  function normalizeRouteStage(value) {
+    const stage = String(value ?? '').trim().toLowerCase();
+    return ROUTE_STAGES.has(stage) ? stage : '';
   }
 
   function phaseFromPendingStage(stage = '') {
@@ -34,14 +43,17 @@
     }
   }
 
-  function deriveRouteActiveStep(detail = {}) {
-    if (detail.pendingClarification) return '10';
-    const explicitStep = normalizeRouteStep(detail.activeStep || detail.routeStep || detail.progressStep);
-    if (explicitStep) return explicitStep;
-    const phase = String(detail.phase || '').toLowerCase();
-    const pendingStage = String(detail.pendingStage || '').toLowerCase();
-    if (phase === 'routing' && pendingStage === 'captured') return '04';
-    return ROUTE_STEP_BY_PHASE[phase] || '';
+  function deriveRouteStage(detail = {}) {
+    if (detail.pendingClarification) return 'clarification';
+    const explicitStage = normalizeRouteStage(detail.routeStage || detail.activeNode);
+    if (explicitStage) return explicitStage;
+    const legacyStep = String(detail.activeStep || detail.routeStep || detail.progressStep || '').trim().padStart(2, '0');
+    const phase = normalizeRouteStage(detail.phase);
+    const pendingStage = String(detail.pendingStage || '').trim().toLowerCase();
+    if (phase === 'routing' && pendingStage === 'captured') return 'captured';
+    if (phase) return phase;
+    if (['accepted', 'captured', 'routing', 'handoff'].includes(pendingStage)) return pendingStage;
+    return LEGACY_STEP_TO_STAGE[legacyStep] || 'idle';
   }
 
   function createPageViewerWorkflow(deps = {}) {
@@ -50,8 +62,8 @@
     const launchers = Object.freeze({
       route: Object.freeze({
         triggerId: 'routeDiagramFab',
-        url: deps.routeUrl || './pages/route.html?v=2.7.0-s-track-progress',
-        title: '意图识别流程图',
+        url: deps.routeUrl || './pages/route.html?v=3.4.4-single-character-gate-icon',
+        title: '一条消息是怎样被处理的',
         aspectRatio: '1672 / 941',
         maxWidth: '1672px',
       }),
@@ -109,7 +121,7 @@
       const pendingStage = pendingMatchesTask ? String(pendingSubmit?.stage || '') : '';
       const phase = String(task?.phase || phaseFromPendingStage(pendingStage) || (fallbackBusy ? 'busy' : 'idle')).toLowerCase();
       const pendingClarification = !!session?.pendingClarification;
-      const activeStep = deriveRouteActiveStep({
+      const routeStage = deriveRouteStage({
         phase,
         pendingStage,
         pendingClarification,
@@ -128,7 +140,7 @@
         jobKind: String(task?.jobKind || (pendingMatchesTask ? pendingSubmit?.jobKind : '') || ''),
         pendingStage,
         pendingClarification,
-        activeStep,
+        routeStage,
         taskRevision: Math.max(0, Number(task?.revision || 0) || 0),
       };
     }
@@ -226,7 +238,7 @@
   }
 
   const createRouteDiagramWorkflow = createPageViewerWorkflow;
-  const api = Object.freeze({ createPageViewerWorkflow, createRouteDiagramWorkflow, deriveRouteActiveStep, normalizeRouteStep });
+  const api = Object.freeze({ createPageViewerWorkflow, createRouteDiagramWorkflow, deriveRouteStage, normalizeRouteStage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   const appContext = root?.ChatUIApp?.appContext || (() => {
     try { return typeof require === 'function' ? require('./app-context') : null; } catch { return null; }

@@ -35,7 +35,7 @@ function createConfigHarness(stored = {}) {
     saveSessionsMeta() {},
     toast() {},
   });
-  return { workflow, storage };
+  return { workflow, storage, elements };
 }
 
 function testLegacyDirectModeIsIgnoredAndRemovedFromPersistedConfiguration() {
@@ -47,6 +47,50 @@ function testLegacyDirectModeIsIgnoredAndRemovedFromPersistedConfiguration() {
 }
 
 
+
+
+function testClearingDefaultSystemPromptPersistsAsEmpty() {
+  const { workflow, storage, elements } = createConfigHarness({
+    systemPrompt: '你是一个专业、简洁、准确的中文助手。',
+    imageStylePrompt: '写实摄影风格，柔和自然光。',
+  });
+  elements.get('systemPrompt').value = '';
+  elements.get('imageStylePrompt').value = '';
+  assert.strictEqual(workflow.getConfig().systemPrompt, '', 'an intentionally cleared default prompt must not resurrect the stored value');
+  assert.strictEqual(workflow.getConfig().imageStylePrompt, '', 'an intentionally cleared image style prompt must not resurrect the stored value');
+  workflow.saveConfig(true);
+  const persisted = JSON.parse(storage.getItem('config'));
+  assert.strictEqual(persisted.systemPrompt, '', 'save must persist the cleared default prompt');
+  assert.strictEqual(persisted.imageStylePrompt, '', 'save must persist the cleared image style prompt');
+}
+
+function testClearingApiKeyRemovesThePersistedKey() {
+  const storage = createStorage({
+    config: JSON.stringify({ systemPrompt: 'x' }),
+    'config:api-key': 'sk-stale-secret',
+  });
+  const elements = new Map(['baseUrl', 'apiKey', 'chatModel', 'routeModel', 'imageModel', 'imageSize', 'systemPrompt', 'imageStylePrompt']
+    .map(id => [id, { value: id === 'baseUrl' ? 'https://gateway.example/v1' : '' }]));
+  const workflow = configModule.createConfigWorkflow({
+    state: { models: [], modelMeta: {}, sessions: [], activeSessionId: '' },
+    getElement: id => elements.get(id),
+    localStorage: storage,
+    sessionStorage: storage,
+    document: { body: { classList: { add() {}, remove() {} } } },
+    window: { sessionStorage: storage, setTimeout },
+    CONFIG_KEY: 'config',
+    renderModelOptions() {},
+    updateCustomSelect() {},
+    enhanceConfigSelects() {},
+    closeAllCustomSelects() {},
+    getActiveSession: () => ({}),
+    saveSessionsMeta() {},
+    toast() {},
+  });
+  assert.strictEqual(workflow.getConfig().apiKey, '', 'a cleared api key field must not fall back to the persisted key');
+  workflow.saveConfig(true);
+  assert.strictEqual(storage.getItem('config:api-key'), null, 'saving an empty api key must remove the persisted key');
+}
 
 async function testChatJsonRequestsAlwaysUseTheValidatedLocalProxy() {
   const calls = [];
@@ -61,6 +105,7 @@ async function testChatJsonRequestsAlwaysUseTheValidatedLocalProxy() {
     directMode: true,
     baseUrl: 'https://gateway.example/v1',
     headers: { 'X-Trace': 'trace-1' },
+    submissionId: 'submit-route-1',
     toProxyUrl: () => '/api/chat/completions',
     parseResponseJson: async response => response.body,
     normalizeError: () => 'unexpected',
@@ -75,6 +120,7 @@ async function testChatJsonRequestsAlwaysUseTheValidatedLocalProxy() {
     payload: { model: 'gpt-5' },
     method: 'POST',
     headers: { 'X-Trace': 'trace-1' },
+    submissionId: 'submit-route-1',
   });
 }
 
@@ -136,6 +182,8 @@ async function testImageDownloadsNeverSendApiKeysFromTheBrowserToReturnedUrls() 
 
 module.exports = [
   testLegacyDirectModeIsIgnoredAndRemovedFromPersistedConfiguration,
+  testClearingDefaultSystemPromptPersistsAsEmpty,
+  testClearingApiKeyRemovesThePersistedKey,
 
   testChatJsonRequestsAlwaysUseTheValidatedLocalProxy,
   testImageDownloadsNeverSendApiKeysFromTheBrowserToReturnedUrls,

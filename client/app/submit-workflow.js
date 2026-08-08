@@ -17,6 +17,8 @@
     buildPendingAssistancePresentation,
     INTENT_PIPELINE_DEADLINE_MS,
   } = submitWorkflowPolicy;
+  const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
+    || (typeof require === 'function' ? require('./execution-status') : {});
 
   function createSubmitWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -79,6 +81,57 @@
     }
 
     async function onSubmit(e) {
+      const clarificationAnswerEvent = e?.__chatuiClarificationAnswer;
+      const clarificationRelationEvent = e?.__chatuiClarificationRelationAnswer;
+      if (clarificationAnswerEvent || clarificationRelationEvent) {
+        return handleClarificationMarkerEvent(e, clarificationAnswerEvent, clarificationRelationEvent);
+      }
+      return runSubmit(e);
+    }
+
+    async function handleClarificationMarkerEvent(e, answer, relationAnswer) {
+      const clarification = root?.ChatUIServices?.clarification || root?.ChatUIClarificationService || {};
+      const sessionId = String(deps.state?.activeSessionId || '');
+      const session = (Array.isArray(deps.state?.sessions) ? deps.state.sessions : [])
+        .find(item => item?.id === sessionId) || null;
+      const pending = clarification.normalizePendingClarification?.(session?.pendingClarification) || null;
+      if (!pending) {
+        deps.toast?.('当前没有进行中的澄清任务。');
+        return;
+      }
+      if (relationAnswer) {
+        const resolved = clarification.applyPendingRelationAnswer?.(pending, relationAnswer) || null;
+        if (!resolved) {
+          deps.toast?.('任务关系选项无效，请重新选择。');
+          return;
+        }
+        if (resolved.decision === 'new_task') {
+          if (session) session.pendingClarification = undefined;
+          deps.saveSessionsMeta?.();
+          const currentText = String(deps.$?.('prompt')?.value || '').trim();
+          return runSubmit(e, { promptOverride: currentText });
+        }
+        const baseText = pending.baseTaskText || pending.originalText || '';
+        const routeContext = clarification.buildClarificationRouteContext?.({ baseContext: {}, pending }) || {};
+        return runSubmit(e, { promptOverride: baseText, resolvedClarificationContext: routeContext });
+      }
+      const applied = clarification.applyPendingClarificationAnswer?.(pending, answer) || null;
+      if (!applied) {
+        deps.toast?.('澄清选项无效，请重新选择。');
+        return;
+      }
+      if (!applied.complete) {
+        deps.toast?.('还有未完成的选项，请继续选择。');
+        return;
+      }
+      if (session) session.pendingClarification = undefined;
+      deps.saveSessionsMeta?.();
+      const baseText = applied.pending?.baseTaskText || applied.pending?.originalText || '';
+      const routeContext = clarification.buildClarificationRouteContext?.({ baseContext: {}, pending: applied.pending }) || {};
+      return runSubmit(e, { promptOverride: baseText, resolvedClarificationContext: routeContext });
+    }
+
+    async function runSubmit(e, options = {}) {
       with (deps) {
 
           e.preventDefault();
@@ -91,7 +144,7 @@
           }
           if(hasPendingUploads())return updateSendAvailability(),void toast("文件还在处理中，请等待完成后再发送");
           state.suppressNextSubmitStop=!1;
-          const rawPromptValue=String(resumePendingSubmit?.rawPromptText??resumePendingSubmit?.promptText??$("prompt").value),messageSizeGuard=(root?.ChatUICorePreflightGuards||(typeof window!=='undefined'?window.ChatUICorePreflightGuards:null)||{}).validateMessageSize?.(rawPromptValue);if(messageSizeGuard&&!messageSizeGuard.ok){resumePendingSubmit&&clearPendingSubmit(resumePendingSubmit.sessionId||state.activeSessionId);toast(messageSizeGuard.message||"消息过长，请改为上传文本文件或分段发送");return}const rawPromptText=rawPromptValue.trim();
+          const rawPromptValue=String((options?.promptOverride!==undefined&&options?.promptOverride!==null&&options?.promptOverride!==""?options.promptOverride:(resumePendingSubmit?.rawPromptText??resumePendingSubmit?.promptText??$("prompt").value))),messageSizeGuard=(root?.ChatUICorePreflightGuards||(typeof window!=='undefined'?window.ChatUICorePreflightGuards:null)||{}).validateMessageSize?.(rawPromptValue);if(messageSizeGuard&&!messageSizeGuard.ok){resumePendingSubmit&&clearPendingSubmit(resumePendingSubmit.sessionId||state.activeSessionId);toast(messageSizeGuard.message||"消息过长，请改为上传文本文件或分段发送");return}const rawPromptText=rawPromptValue.trim();
           try { root?.ChatUIApp?.appContext?.getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
           let promptText=rawPromptText;
           const resumeHasInput=jobLifecycle.pendingSubmitHasRecoverableInput?.(resumePendingSubmit)||!!(resumePendingSubmit&&(resumePendingSubmit.promptText||resumePendingSubmit.rawPromptText||resumePendingSubmit.imageContext||resumePendingSubmit.attachmentContext||Number(resumePendingSubmit.attachmentCount)>0));
@@ -122,7 +175,7 @@
             if(!savePendingSubmit(sessionId,{...resumePendingSubmit,submissionId,stage:"captured",promptText,rawPromptText,submitMode,messageIndex,userCommitted:resumeUserCommitted,editExisting:initialEditMessageIndex!==null,editMessageIndex:initialEditMessageIndex,attachmentCount:initialAttachmentCount,quoteContext:resumePendingSubmit?.quoteContext||"",imageContext:initialImageContext,attachmentContext:initialAttachmentContext,startedAt})){clearPendingSubmit(sessionId);toast("无法保存任务恢复状态，请清理浏览器存储空间后重试");return}
             emitTaskEvent(sessionId,taskEvents.ATTACHMENT_CAPTURED,{submissionId});
             const parseContextValue=submitHelpers.parseContextValue;
-            const quotedMessage=resumePendingSubmit?.quoteContext?parseContextValue(resumePendingSubmit.quoteContext):(state.editingIndex===null?getQuotedMessage?.():null),quoteContext=resumePendingSubmit?.quoteContext||(quotedMessage?JSON.stringify(quotedMessage):"");
+            const quotedMessage=resumePendingSubmit?.quoteContext?parseContextValue(resumePendingSubmit.quoteContext):(state.editingIndex===null?getQuotedMessage?.():(state.editingQuoteContext?parseContextValue(state.editingQuoteContext):null)),quoteContext=resumePendingSubmit?.quoteContext||(quotedMessage?JSON.stringify(quotedMessage):"");
             const withPendingQuotePreview=submitHelpers.withPendingQuotePreview;
             const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context,intentOptions={})=>{routeUi.startSlowNotice();return getEffectiveRoute(input,routeAttachments,sessionId,headers,context,{...intentOptions,onSlow:routeUi.showSlowNotice,onStage:routeUi.showSlowNotice,signal:run.abortController?.signal}).finally(()=>routeUi.stopSlowNotice())};
             let quotedImageContext=parseContextValue(quotedMessage?.imageContext),quotedImageAttachments=[],quotedImageRestoreFailure=null;
@@ -148,7 +201,7 @@
             const resumedResponseIndex=parseOptionalMessageIndex(resumePendingSubmit?.responseIndex);
             responseIndex=resumedResponseIndex!==null?resumedResponseIndex:(Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length);
             const prepareManagedChatJobForLiveItem=(jobMode=submitMode)=>{if("chat"!==jobMode)return"";if(!preparedChatJobId){const generatedJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():"";preparedChatJobId=String(generatedJobId||`chatjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`)}if(!liveItem)return preparedChatJobId;liveItem.jobId=preparedChatJobId;liveItem.responseIndex=String(responseIndex);assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=String(responseIndex));persistSessionDisplay(sessionId);return preparedChatJobId};
-            const routingStatus="正在执行：路由预检";
+            const routingStatus=executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文";
             if(resumePendingSubmit){
               const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.(resumePendingSubmit)||resumePendingSubmit.liveItemId||"";
               liveItem=(pendingDisplayId&&displayItems.find(item=>item.id===pendingDisplayId))||displayItems.find(item=>String(item.responseIndex||"")===String(responseIndex)&&item.pending)||null;
@@ -225,7 +278,7 @@
             const isImageAttachment=item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/");
             const clarification=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},intentDeadlineAt=Date.now()+INTENT_PIPELINE_DEADLINE_MS;
             const rawStoredPending=targetSession.pendingClarification;
-            const storedPending=(clarification.migratePendingClarification||clarification.normalizePendingClarification)?.(rawStoredPending)||null;
+            let storedPending=clarification.normalizePendingClarification?.(rawStoredPending)||null;
             if(storedPending&&String(rawStoredPending?.id||"")!==String(storedPending.id||"")){targetSession.pendingClarification=storedPending;sessionForReply&&(sessionForReply.pendingClarification=storedPending);saveSessionsMeta?.()}
             const editedMessage=initialEditMessageIndex!==null
               ? (targetSession.messages||[])[initialEditMessageIndex]||null
@@ -256,9 +309,30 @@
               : null;
             if(revisedClarificationReplay)promptText=revisedClarificationReplay.resolvedInput;
             let effectivePromptText=promptText;
+            let resolvedClarificationContext = options?.resolvedClarificationContext || null;
+            if (!resolvedClarificationContext && storedPending) {
+              const pendingSlots = Array.isArray(storedPending.routeInfo?.clarificationSlots)
+                ? storedPending.routeInfo.clarificationSlots
+                : [];
+              const textAnswer = clarification.parseClarificationAnswer?.(rawPromptText, {
+                clarificationId: storedPending.id,
+                slots: pendingSlots,
+                existingAnswer: storedPending.clarificationAnswer || null,
+              }) || null;
+              if (textAnswer) {
+                const applied = clarification.applyPendingClarificationAnswer?.(storedPending, textAnswer) || null;
+                if (applied?.complete) {
+                  resolvedClarificationContext = clarification.buildClarificationRouteContext?.({ baseContext: {}, pending: applied.pending }) || {};
+                  clearStoredPendingClarification();
+                  storedPending = null;
+                  promptText = applied.pending?.baseTaskText || applied.pending?.originalText || promptText;
+                }
+              }
+            }
+            effectivePromptText = promptText;
             const routeContextBuilder=typeof deps?.buildRouteContext==="function"?deps.buildRouteContext:typeof root?.buildRouteContext==="function"?root.buildRouteContext:null;
-            const clarificationRouteContext=storedPending?clarification.buildClarificationRouteContext?.({baseContext:routeContextBuilder?routeContextBuilder(sessionId):{},quotedContext:hasQuotedMessage?buildQuotedRouteContext():null,pending:storedPending}):null;
-            const currentRouteTurn=!hasQuotedMessage||storedPending?{messageIndex:Number(messageIndex)+1}:null;
+            const clarificationRouteContext=resolvedClarificationContext||(storedPending?clarification.buildClarificationRouteContext?.({baseContext:routeContextBuilder?routeContextBuilder(sessionId):{},quotedContext:hasQuotedMessage?buildQuotedRouteContext():null,pending:storedPending}):null);
+            const currentRouteTurn={messageIndex:Number(messageIndex)+1};
             if(storedPending&&!clarificationRouteContext)throw new Error("澄清上下文未能通过结构化校验，已停止发送");
             let pendingTransition=createPendingTransition(storedPending,{shouldClearPending:false});
             if(!replacement&&(pendingMerge?.merged||(typeof hasImageAttachments==="function"&&hasImageAttachments(attachments))||attachments.some(e=>String(e?.type||e?.file?.type||"").startsWith("image/")))){
@@ -283,38 +357,22 @@
               await persistTargetMessages()
             }
             if(pendingMerge?.merged){
-               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
+               try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId}),routeMode=routeInfo.mode}catch(e){throw e}
             }else if(hasQuotedMessage){
-               try{routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,{},buildQuotedRouteContext(),{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
-             }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,{},null,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn}),routeMode=routeInfo.mode}catch(e){throw e}
-            const semanticTask=routeInfo?.semanticTask||null;
-            let semanticPendingEffect=storedPending?String(semanticTask?.pending_effect||"unclear"):"none";
-            if(storedPending&&semanticPendingEffect==="none")semanticPendingEffect="unclear";
-            const continuationEffects=new Set(["answer","partial","revision","continuation"]);
-            const continuesPending=!!storedPending&&continuationEffects.has(semanticPendingEffect);
-            if(storedPending&&semanticPendingEffect==="unclear"){
-              targetSession.pendingClarification=storedPending;sessionForReply&&(sessionForReply.pendingClarification=storedPending);saveSessionsMeta?.();
-              return finishPreflightReply(routeInfo?.clarificationQuestion||"请明确这条消息是在补充上一个任务，还是要开始新任务。原任务已保留。",{metaText:"等待补充"})
-            }
+               try{
+                 const baseQuoteContext=routeContextBuilder?routeContextBuilder(sessionId):{};
+                 const mergedQuoteContext=submitHelpers.mergeQuotedRouteContext?.(baseQuoteContext,buildQuotedRouteContext())||buildQuotedRouteContext();
+                 routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,{},mergedQuoteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId}),routeMode=routeInfo.mode
+               }catch(e){throw e}
+             }else try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,requestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId}),routeMode=routeInfo.mode}catch(e){throw e}
+            const routeRelation=String(routeInfo?.relation||"new");
+            const continuesPending=!!storedPending&&["followup","correction","continuation"].includes(routeRelation);
             if(continuesPending){
-              const priorContract=storedPending.routeInfo?.taskContract||null,nextContract=routeInfo?.taskContract||null;
-              const priorOperations=Array.isArray(priorContract?.directive?.operations)?priorContract.directive.operations:[];
-              const nextOperations=Array.isArray(nextContract?.directive?.operations)?nextContract.directive.operations:[];
-              const priorConstraints=Array.isArray(priorContract?.directive?.constraints)?priorContract.directive.constraints:[];
-              const nextConstraints=Array.isArray(nextContract?.directive?.constraints)?nextContract.directive.constraints:[];
-              const semanticDelta=JSON.stringify(priorOperations)!==JSON.stringify(nextOperations)||JSON.stringify(priorConstraints)!==JSON.stringify(nextConstraints);
-              const priorUnresolved=Array.isArray(priorContract?.clarification?.unresolved_resources)?priorContract.clarification.unresolved_resources:[];
-              const resourceSelectionOnly=["answer","partial"].includes(semanticPendingEffect)&&priorUnresolved.length>0&&priorUnresolved.every(slot=>slot?.type!=="text"&&slot?.reason==="ambiguous")&&!semanticDelta;
-              effectivePromptText=resourceSelectionOnly
-                ? [storedPending.baseTaskText||storedPending.originalText,...(storedPending.supplements||[])].filter(Boolean).join("\n\n")
-                : pendingMerge?.promptText||promptText;
+              effectivePromptText=pendingMerge?.promptText||promptText;
               pendingTransition=createPendingTransition(storedPending,{shouldClearPending:true})
-            }else if(storedPending&&semanticPendingEffect==="new_task"){
+            }else if(storedPending){
               effectivePromptText=promptText;
               pendingTransition=createPendingTransition(storedPending,{shouldClearPending:true})
-            }else if(storedPending&&semanticPendingEffect==="assistance"){
-              effectivePromptText=promptText;
-              pendingTransition=createPendingTransition(storedPending,{shouldClearPending:false})
             }
             if(routeInfo.needClarification){
               const e=routeInfo.clarificationQuestion||"请补充完成当前任务所需的信息后继续。";
@@ -328,13 +386,14 @@
               })||{rawText:e,html:"",hasImageChoices:!1};
               const clarificationHtml=String(presentation.html||""),displayContent=clarificationHtml||e;
               const createdPending=continuesPending?clarification.normalizePendingClarification?.({...pendingMerge.pending,clarificationText:e,routeInfo,updatedAt:Date.now()}):clarification.createPendingClarification?.({messages:sessionForReply.messages||targetSession.messages||state.messages||[],clarificationText:e,routeInfo,sourceImageContext:imageContext||null,sourceAttachmentContext:attachmentContext||null,sourceQuoteContext:quoteContext||null});
-              const clarificationId=!routeInfo.localClarification?String(createdPending?.id||""):"";
-              const t={role:"assistant",content:e,rawText:e,responseIndex,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{}};
+              const clarificationId=createdPending?String(createdPending?.id||""):"";
+              const clarificationRecord=clarificationId?{schema_version:"clarification_presentation.v1",id:clarificationId,question:e,routeInfo,sourceImageContext:imageContext||null,sourceQuoteContext:quoteContext||null}:null;
+              const t={role:"assistant",content:e,rawText:e,responseIndex,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{},...clarificationRecord?{clarification:clarificationRecord}:{}};
               typeof updateMessage==="function"&&assistantNode?.isConnected&&(delete assistantNode.dataset.jobId,updateMessage(assistantNode,displayContent,{html:!!clarificationHtml,rawText:e,responseIndex}));
               assistantNode?.isConnected&&clarificationId&&(assistantNode.dataset.clarificationId=clarificationId);
               liveItem&&(delete liveItem.jobId,clarificationId&&(liveItem.clarificationId=clarificationId),typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",displayContent,{html:!!clarificationHtml,rawText:e,pending:!1,responseIndex,clarificationId}):(liveItem.content=e,liveItem.rawText=e,liveItem.html=clarificationHtml,liveItem.pending=!1,persistSessionDisplay(sessionId)));
               if(isTargetActive()){state.messages.push(t);sessionForReply.messages=cloneMessageList(state.messages)}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),t]);
-              if(createdPending&&!routeInfo.localClarification){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}
+              if(createdPending){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}
               await persistPendingTerminalMessages();emitTaskEvent(sessionId,taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return
             }
             if(submissionCancelled()){clearPendingSubmit(sessionId);return}
@@ -378,14 +437,23 @@
               history:mergeSourcePool(pendingSourcePools?.history||[],[...await restoreBoundImagePool("history"),...historyFiles]),
               context:mergeSourcePool(pendingSourcePools?.context||[],[...await restoreBoundImagePool("context"),...contextFiles]),
             };
-            const executionPools=submitHelpers.buildExecutionResourcePools(sourcePools,{isImageFile:isImageAttachment});
+            const restrictedSourcePools=submitHelpers.restrictExecutionResourcePools?.(routeInfo,sourcePools)||sourcePools;
+            const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile:isImageAttachment,messages:routeMessageProjection?.messages||targetSession.messages||state.messages||[]});
             const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools);
+            const routeExecutionAnchor=submitHelpers.routeExecutionAnchor?.(routeInfo)||null;
+            if(routeExecutionAnchor){
+              const messages=isTargetActive()?state.messages:targetSession.messages||[],message=messages.find(e=>"user"===e?.role&&String(e.messageIndex)===String(messageIndex))||[...messages].reverse().find(e=>"user"===e?.role);
+              if(message)message.routeExecutionAnchor=routeExecutionAnchor;
+              if(userDisplayItem)userDisplayItem.routeExecutionAnchor=routeExecutionAnchor;
+              await persistTargetMessages();
+              userDisplayItem&&persistSessionDisplay(sessionId)
+            }
             const chatAttachments=await prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages]);
             const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile:isImageAttachment,originalIndex:originalImageIndex})||"";
             const imagePrompt=("image"===routeMode&&routeImagePrompt?routeImagePrompt:quotedMessage&&!continuesPending&&"image"===routeMode?[quotedCleanText,effectivePromptText].filter(Boolean).join("\n\n"):effectivePromptText);
-            const chatPrompt=effectivePromptText;
+            const chatPrompt=String(routeInfo.executionPrompt||routeInfo.dispatchContract?.arguments?.prompt||effectivePromptText).trim()||effectivePromptText;
             const editAttachments=executionMedia.imageInputs;
-            const executionApi=routeInfo.api||("image"===routeMode?"image_generation":"edit_image"===routeMode?"image_edit":"chat");const dispatchMode=executionApi==="image_generation"?"image":executionApi==="image_edit"?"edit_image":"chat";if(isTargetActive()&&liveItem&&(!assistantNode||!assistantNode.isConnected)&&typeof findMessageNodeByDisplayItem==="function")assistantNode=findMessageNodeByDisplayItem(liveItem)||assistantNode;const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;pendingTransition.consumeOnHandoff&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)},completeInterfaceTask=(completion={})=>{const completionSessionId=String(completion.sessionId||""),completionSubmissionId=String(completion.submissionId||""),completionJobId=String(completion.jobId||""),completionJobKind=String(completion.jobKind||"");if(!completionSessionId||!completionSubmissionId||!completionJobId||!completionJobKind)return;if(completionSessionId!==String(sessionId)||completionSubmissionId!==String(submissionId)||completionJobId!==String(activeJobId)||completionJobKind!==String(activeJobKind))return;emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});finishSessionTask(sessionId,{run})};if("chat"===dispatchMode){prepareManagedChatJobForLiveItem("chat");if(!preparedChatJobId)throw new Error("无法创建聊天任务恢复标识，请重试");if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedChatJobId,jobKind:"chat",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedChatJobId;activeJobKind="chat";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,requestBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,clarificationReplay,clientJobId:preparedChatJobId,submissionId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind})}else{const preparedImageJobId=typeof makeClientImageJobId==="function"?makeClientImageJobId():`imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedImageJobId,jobKind:"image",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedImageJobId;activeJobKind="image";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});preparedChatJobId="";liveItem&&(liveItem.jobId=preparedImageJobId,liveItem.pending="1",persistSessionDisplay(sessionId));assistantNode&&(assistantNode.dataset.jobId=preparedImageJobId,clearPendingFeedback?.(assistantNode),clearReasoning?.(assistantNode));await sendImage(imagePrompt,{loadingNode:assistantNode,routePrompt:imagePrompt,originalPrompt:effectivePromptText,attachments:editAttachments,maskAttachments:executionMedia.masks,executionMedia,taskContract:routeInfo.taskContract,clarificationReplay,sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,submissionId,clientJobId:preparedImageJobId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind})}state.editingIndex=null,state.editingNode=null
+            const executionApi=routeInfo.api||("image"===routeMode?"image_generation":"edit_image"===routeMode?"image_edit":"chat");const dispatchMode=executionApi==="image_generation"?"image":executionApi==="image_edit"?"edit_image":"chat";if(isTargetActive()&&liveItem&&(!assistantNode||!assistantNode.isConnected)&&typeof findMessageNodeByDisplayItem==="function")assistantNode=findMessageNodeByDisplayItem(liveItem)||assistantNode;const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>{handoffCommitted=!0;pendingTransition.consumeOnHandoff&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId)},completeInterfaceTask=(completion={})=>{const completionSessionId=String(completion.sessionId||""),completionSubmissionId=String(completion.submissionId||""),completionJobId=String(completion.jobId||""),completionJobKind=String(completion.jobKind||"");if(!completionSessionId||!completionSubmissionId||!completionJobId||!completionJobKind)return;if(completionSessionId!==String(sessionId)||completionSubmissionId!==String(submissionId)||completionJobId!==String(activeJobId)||completionJobKind!==String(activeJobKind))return;emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});finishSessionTask(sessionId,{run})};if("chat"===dispatchMode){prepareManagedChatJobForLiveItem("chat");if(!preparedChatJobId)throw new Error("无法创建聊天任务恢复标识，请重试");if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedChatJobId,jobKind:"chat",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedChatJobId;activeJobKind="chat";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,requestBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:routeInfo.dispatchContract,executionMedia,clarificationReplay,clientJobId:preparedChatJobId,submissionId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind})}else{const preparedImageJobId=typeof makeClientImageJobId==="function"?makeClientImageJobId():`imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedImageJobId,jobKind:"image",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedImageJobId;activeJobKind="image";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});preparedChatJobId="";liveItem&&(liveItem.jobId=preparedImageJobId,liveItem.pending="1",persistSessionDisplay(sessionId));assistantNode&&(assistantNode.dataset.jobId=preparedImageJobId,clearPendingFeedback?.(assistantNode),clearReasoning?.(assistantNode));await sendImage(imagePrompt,{loadingNode:assistantNode,routePrompt:imagePrompt,originalPrompt:effectivePromptText,attachments:editAttachments,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,clarificationReplay,sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,submissionId,clientJobId:preparedImageJobId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind})}state.editingIndex=null,state.editingNode=null,state.editingQuoteContext=""
           }catch(err){
             const preservePendingSubmit=root?.ChatUIAppJobWorkflow?.shouldPreservePendingSubmitOnError?.(err,state,run)||false;
             if(!preservePendingSubmit){clearPendingSubmit(sessionId);const failureEvent=run.stopped?taskEvents.TASK_STOPPED:handoffCommitted&&activeJobId?(err?.terminalJob?taskEvents.JOB_FAILED:taskEvents.JOB_RECOVERY_STARTED):taskEvents.TASK_FAILED;emitTaskEvent(sessionId,failureEvent,{submissionId,jobId:activeJobId,jobKind:activeJobKind,error:err});failureEvent===taskEvents.JOB_RECOVERY_STARTED&&root.setTimeout?.(()=>deps.resumeSessionJobs?.(sessionId),0)}

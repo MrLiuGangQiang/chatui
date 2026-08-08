@@ -70,7 +70,7 @@ async function verifyImageRuntime({
     assert.strictEqual(bundleResponse.status, 200);
     assert.strictEqual(String(bundleResponse.headers.get('etag') || '').replace(/"/g, ''), bundleMatch[1]);
     const bundle = await bundleResponse.text();
-    assert.ok(bundle.includes('semantic_task.v2'), 'container bundle is missing the semantic routing protocol');
+    assert.ok(bundle.includes('dispatch_contract.v1'), 'container bundle is missing the execution plan protocol');
     assert.ok(bundle.includes('g.__displayItem=u'), 'container bundle is missing the stream completion ownership fix');
     return remoteIdentity;
   } finally {

@@ -96,10 +96,9 @@ function compactRouteMessage(message = {}, index = 0) {
     index,
     id: String(message.displayItemId || message.id || ''),
     role: message.role || '',
-    content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 600),
+    content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 240),
   };
 }
-
 function parseJsonObject(value) {
   if (!value) return null;
   if (typeof value === 'object') return value;
@@ -126,10 +125,58 @@ function uploadedAttachmentsFromMessage(message = {}) {
   return [];
 }
 
+function legacyFileAttachmentsFromMessage(message = {}) {
+  const content = String(
+    Array.isArray(message?.content)
+      ? message?.rawText || ''
+      : message?.content || message?.rawText || '',
+  );
+  const files = [];
+  const pattern = /\[file\s+id=([^\s\]]+)\s+name=(.*?)\s+type=([^\s\]]+)\s+size=(\d+)\]/gi;
+  for (const match of content.matchAll(pattern)) {
+    const id = String(match[1] || '').trim();
+    if (!id) continue;
+    const safeId = id.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 96) || 'attachment';
+    const persistedSrc = `indexeddb://attachment-file-${safeId}`;
+    files.push({
+      id,
+      attachmentId: id,
+      name: String(match[2] || 'attachment').trim() || 'attachment',
+      type: String(match[3] || 'application/octet-stream').trim() || 'application/octet-stream',
+      size: Number(match[4]) || 0,
+      inputFile: true,
+      src: persistedSrc,
+      persistedSrc,
+    });
+  }
+  return files;
+}
+
 function uploadedFileAttachmentsFromMessage(message = {}) {
-  const attachmentContext = parseJsonObject(message.attachmentContext);
-  if (!attachmentContext?.attachments?.length) return [];
-  return attachmentContext.attachments.filter(item => item && !isImageAttachmentMeta(item));
+  const attachmentContext = parseJsonObject(message.attachmentContext || message.attachment_context);
+  const contextual = Array.isArray(attachmentContext?.attachments)
+    ? attachmentContext.attachments.filter(item => item && !isImageAttachmentMeta(item))
+    : [];
+  const presented = message?.presentation?.kind === 'attachment' && Array.isArray(message.presentation.attachments)
+    ? message.presentation.attachments.filter(item => item && !isImageAttachmentMeta(item))
+    : [];
+  const legacy = legacyFileAttachmentsFromMessage(message);
+  const merged = new Map();
+  for (const item of [...contextual, ...presented, ...legacy]) {
+    const id = String(item?.id || item?.attachmentId || item?.attachment_id || item?.fileId || item?.file_id || '').trim();
+    const key = id || `${String(item?.name || item?.filename || '')}|${String(item?.type || '')}|${Number(item?.size) || 0}`;
+    if (!key) continue;
+    const existing = merged.get(key) || {};
+    merged.set(key, {
+      ...item,
+      ...existing,
+      id: existing.id || item.id || id,
+      attachmentId: existing.attachmentId || existing.attachment_id || item.attachmentId || item.attachment_id || id,
+      src: existing.src || existing.persistedSrc || existing.persisted_src || item.src || item.persistedSrc || item.persisted_src || '',
+      persistedSrc: existing.persistedSrc || existing.persisted_src || item.persistedSrc || item.persisted_src || item.src || '',
+    });
+  }
+  return [...merged.values()];
 }
 
 function isInputFileAvailable(item = {}) {
@@ -301,14 +348,21 @@ function compactLatestUploadedImage(value = null, uploadedLatest = null) {
   };
 }
 
-function compactLastGeneratedImage(value = null) {
+function compactLastGeneratedImage(value = null, messages = []) {
   if (!value) return null;
+  const allMessages = Array.isArray(messages) ? messages : [];
+  const messageIndex = allMessages.findIndex(message => isImageResultMessage(message) && String(parsedImageContext(message)?.referenceId || parsedImageContext(message)?.reference_id || '') === String(value.reference_id || ''));
+  const ageTurns = messageIndex >= 0
+    ? allMessages.filter((item, itemIndex) => item?.role === 'user' && itemIndex > messageIndex).length
+    : 0;
   return {
     reference_id: value.reference_id || makeImageReferenceId('latest'),
     target: 'previous',
     count: Number(value.count) || (Array.isArray(value.candidates) ? value.candidates.length : 0) || (Array.isArray(value.images) ? value.images.length : 0) || (value.src ? 1 : 0),
     prompt: String(value.prompt || value.user_prompt || '').slice(0, 300),
     updated_at: value.updated_at || value.updatedAt || null,
+    priority_coefficient: ageTurns === 0 ? 1 : Math.max(0.4, Number((1 - ageTurns * 0.28).toFixed(2))),
+    priority_age_turns: ageTurns,
   };
 }
 
@@ -350,6 +404,11 @@ function buildImageCandidates(references = []) {
           reference.prompt || reference.user_prompt,
           reference.assistant_response,
         ]),
+        operation: String(candidate?.operation || reference?.operation || '').trim(),
+        parent_reference_id: String(candidate?.parent_reference_id || candidate?.parentReferenceId || reference?.parent_reference_id || reference?.parentReferenceId || '').trim(),
+        parent_image_ids: Array.isArray(candidate?.parent_image_ids || candidate?.parentImageIds || reference?.parent_image_ids || reference?.parentImageIds)
+          ? (candidate.parent_image_ids || candidate.parentImageIds || reference.parent_image_ids || reference.parentImageIds).map(value => String(value || '').trim()).filter(Boolean).slice(0, 12)
+          : [],
       });
     }
   }
@@ -367,22 +426,310 @@ function latestAssistantImageResult(messages = []) {
   return null;
 }
 
+function parsedImageContext(message = {}) {
+  const raw = message?.imageContext;
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return null; }
+  }
+  return null;
+}
+
+function isImageResultMessage(message = {}) {
+  return /^\[图片(生成|编辑|修改)完成\]/.test(messageText(message));
+}
+
+function executionFromImageMessage(message = {}, index = 0) {
+  const imageContext = parsedImageContext(message);
+  const fallbackMode = String(imageContext?.mode || '');
+  const operation = String(
+    imageContext?.operation
+    || (fallbackMode === 'edit_image' ? 'edit_image' : fallbackMode === 'image' ? 'text_to_image' : ''),
+  );
+  const rawInput = String(
+    imageContext?.executionInput
+    || imageContext?.execution_input
+    || imageContext?.prompt
+    || imageContext?.routePrompt
+    || messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, ''),
+  ).trim();
+  const referenceId = makeImageReferenceId(imageContext?.referenceId || imageContext?.reference_id || '');
+  if (!operation || !referenceId || !rawInput) return null;
+  return {
+    schema_version: 'execution_continuity.v1',
+    operation,
+    family: operation === 'edit_image' ? 'edit' : 'generate',
+    input: rawInput.slice(0, 800),
+    result_kind: 'image',
+    result_reference_id: referenceId,
+    source_message_index: index + 1,
+    source_user_message_index: index,
+    context_role: 'execution_state',
+    instruction_authority: 'application_state',
+  };
+}
+
+function detectTextFormat(text = '') {
+  const value = String(text || '');
+  if (/^(#{1,6}\s+|```|\|.*\|.*\|)/m.test(value) || /\*\*|__|^[-*] \[?\s?\]?/m.test(value)) return 'markdown';
+  return '';
+}
+
+function previousExecutionFor(messages = []) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  let latestImage = null;
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'assistant') continue;
+    if (isImageResultMessage(message)) {
+      latestImage = executionFromImageMessage(message, index);
+      break;
+    }
+    if (String(message.clarificationId || message.clarification_id || '').trim()) continue;
+    // A completed ordinary assistant response shadows older visual execution state.
+    if (messageText(message)) { latestImage = null; break; }
+  }
+  if (!latestImage) return null;
+  const ageTurns = allMessages
+    .filter((item, itemIndex) => item?.role === 'user' && itemIndex + 1 > latestImage.source_message_index)
+    .length;
+  return {
+    ...latestImage,
+    priority_coefficient: ageTurns === 0 ? 1 : Math.max(0.4, Number((1 - ageTurns * 0.28).toFixed(2))),
+    priority_age_turns: ageTurns,
+  };
+}
+
+const READ_ONLY_RESOURCE_OPERATIONS = new Set([
+  'image_qa', 'image_compare', 'ocr', 'file_qa', 'multimodal_qa',
+]);
+
+function routeExecutionAnchorFromMessage(message = {}) {
+  const value = parseJsonObject(message?.routeExecutionAnchor || message?.route_execution_anchor);
+  if (!value || value.schema_version !== 'route_execution_anchor.v1') return null;
+  const operation = String(value.operation || '').trim();
+  if (!READ_ONLY_RESOURCE_OPERATIONS.has(operation)) return null;
+
+  const rawImages = Array.isArray(value.image_bindings) ? value.image_bindings : [];
+  const rawFiles = Array.isArray(value.file_bindings) ? value.file_bindings : [];
+  const images = rawImages.map(binding => ({
+    source: String(binding?.source || '').trim(),
+    resource_id: String(binding?.resource_id || binding?.resourceId || '').trim(),
+    image_id: String(binding?.image_id || binding?.imageId || binding?.id || '').trim(),
+    reference_id: String(binding?.reference_id || binding?.referenceId || '').trim(),
+    index: Number(binding?.index) || 0,
+  })).filter(binding => binding.source && (binding.resource_id || binding.image_id || binding.reference_id || binding.index));
+  const files = rawFiles.map(binding => ({
+    source: String(binding?.source || '').trim(),
+    resource_id: String(binding?.resource_id || binding?.resourceId || '').trim(),
+    file_id: String(binding?.file_id || binding?.fileId || binding?.id || '').trim(),
+    index: Number(binding?.index) || 0,
+  })).filter(binding => binding.source && (binding.resource_id || binding.file_id || binding.index));
+  if (images.length !== rawImages.length || files.length !== rawFiles.length || (!images.length && !files.length)) return null;
+  return { operation, images, files, inferred: false };
+}
+
+function inferredResourceAnchorFromMessage(message = {}) {
+  const imageAttachments = uploadedAttachmentsFromMessage(message);
+  const fileAttachments = uploadedFileAttachmentsFromMessage(message);
+  if (!imageAttachments.length && !fileAttachments.length) return null;
+  const operation = imageAttachments.length && fileAttachments.length
+    ? 'multimodal_qa'
+    : imageAttachments.length ? 'image_qa' : 'file_qa';
+  return {
+    operation,
+    inferred: true,
+    images: imageAttachments.map((item, index) => ({
+      source: 'current',
+      resource_id: String(item?.resource_id || item?.resourceId || '').trim(),
+      image_id: String(item?.image_id || item?.imageId || item?.id || item?.attachmentId || item?.attachment_id || '').trim(),
+      reference_id: String(item?.reference_id || item?.referenceId || '').trim(),
+      index: index + 1,
+    })),
+    files: fileAttachments.map((item, index) => ({
+      source: 'current',
+      resource_id: String(item?.resource_id || item?.resourceId || '').trim(),
+      file_id: String(item?.file_id || item?.fileId || item?.id || item?.attachmentId || item?.attachment_id || '').trim(),
+      index: index + 1,
+    })),
+  };
+}
+
+// The resource focus of a follow-up is the exact input set that produced the
+// immediately preceding answer. New messages persist this as an execution
+// anchor; adjacent persisted attachments provide a migration path for older
+// sessions created before resource anchors included files.
+function previousResourceExecutionFor(messages = []) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  for (let assistantIndex = allMessages.length - 1; assistantIndex >= 0; assistantIndex -= 1) {
+    const assistant = allMessages[assistantIndex];
+    if (assistant?.role !== 'assistant') continue;
+    if (String(assistant.clarificationId || assistant.clarification_id || '').trim()) return null;
+    const userIndex = assistantIndex - 1;
+    const user = allMessages[userIndex];
+    if (user?.role !== 'user') return null;
+
+    const anchor = routeExecutionAnchorFromMessage(user) || inferredResourceAnchorFromMessage(user);
+    if (!anchor) return null;
+    const uploadedFiles = uploadedFileAttachmentsFromMessage(user);
+    const images = anchor.images.map(binding => ({
+      resource_id: binding.resource_id,
+      image_id: binding.image_id,
+      reference_id: binding.reference_id || (binding.source === 'current'
+        ? uploadedReferenceIdForMessageIndex(userIndex)
+        : ''),
+      index: binding.index,
+    })).filter(binding => binding.resource_id || binding.image_id || binding.reference_id);
+    const files = anchor.files.map(binding => {
+      const uploaded = binding.source === 'current' && binding.index > 0
+        ? uploadedFiles[binding.index - 1] || null
+        : null;
+      return {
+        resource_id: binding.resource_id || String(uploaded?.resource_id || uploaded?.resourceId || '').trim(),
+        file_id: binding.file_id || String(uploaded?.file_id || uploaded?.fileId || uploaded?.id || uploaded?.attachmentId || uploaded?.attachment_id || '').trim(),
+        index: binding.index,
+      };
+    }).filter(binding => binding.resource_id || binding.file_id);
+    if (images.length !== anchor.images.length || files.length !== anchor.files.length || (!images.length && !files.length)) return null;
+
+    return {
+      schema_version: 'previous_resource_execution.v1',
+      operation: anchor.operation,
+      source_message_index: userIndex + 1,
+      response_message_index: assistantIndex + 1,
+      image_count: images.length,
+      file_count: files.length,
+      images,
+      files,
+      inferred_from_adjacent_attachments: anchor.inferred === true,
+      context_role: 'execution_state',
+      instruction_authority: 'application_state',
+    };
+  }
+  return null;
+}
+
+// Visual continuity is a projection of the unified resource execution anchor.
+// Image QA/OCR emits text, so output modality alone cannot identify its subject.
+function previousVisualExecutionFor(messages = [], resourceExecution = null) {
+  const execution = resourceExecution || previousResourceExecutionFor(messages);
+  if (!execution || !Array.isArray(execution.images) || !execution.images.length) return null;
+  return {
+    schema_version: 'previous_visual_execution.v1',
+    operation: execution.operation,
+    source_message_index: execution.source_message_index,
+    response_message_index: execution.response_message_index,
+    image_count: execution.images.length,
+    images: execution.images.map(binding => ({
+      reference_id: binding.reference_id,
+      index: binding.index,
+    })),
+    context_role: 'execution_state',
+    instruction_authority: 'application_state',
+  };
+}
+
+function conversationFocusFor(messages = [], resourceExecution = null) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  let latestTextIndex = 0;
+  let latestImageIndex = 0;
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'assistant') continue;
+    if (String(message.clarificationId || message.clarification_id || '').trim()) continue;
+    if (isImageResultMessage(message)) {
+      if (!latestImageIndex) latestImageIndex = index + 1;
+      continue;
+    }
+    if (messageText(message) && !latestTextIndex) latestTextIndex = index + 1;
+  }
+
+  if (resourceExecution) {
+    const kind = resourceExecution.file_count > 0 && resourceExecution.image_count > 0
+      ? 'multimodal'
+      : resourceExecution.file_count > 0 ? 'file' : resourceExecution.image_count > 0 ? 'image' : '';
+    if (kind) {
+      return {
+        schema_version: 'conversation_focus.v1',
+        kind,
+        text_format: kind === 'file' || kind === 'multimodal'
+          ? detectTextFormat(messageText(allMessages[resourceExecution.response_message_index - 1]))
+          : '',
+        source_message_index: resourceExecution.response_message_index,
+        text_message_index: latestTextIndex,
+        image_message_index: latestImageIndex,
+        priority_coefficient: 1,
+        priority_age_turns: 0,
+        context_role: 'conversation_focus',
+        instruction_authority: 'application_state',
+      };
+    }
+  }
+
+  let focus = null;
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'assistant') continue;
+    if (String(message.clarificationId || message.clarification_id || '').trim()) continue;
+    if (isImageResultMessage(message)) {
+      focus = {
+        schema_version: 'conversation_focus.v1',
+        kind: 'image',
+        text_format: '',
+        source_message_index: index + 1,
+        text_message_index: latestTextIndex,
+        image_message_index: latestImageIndex || index + 1,
+        priority_coefficient: 1,
+        priority_age_turns: 0,
+        context_role: 'conversation_focus',
+        instruction_authority: 'application_state',
+      };
+      break;
+    }
+    if (messageText(message)) {
+      focus = {
+        schema_version: 'conversation_focus.v1',
+        kind: 'text',
+        text_format: detectTextFormat(messageText(message)),
+        source_message_index: index + 1,
+        text_message_index: latestTextIndex || index + 1,
+        image_message_index: latestImageIndex,
+        priority_coefficient: 1,
+        priority_age_turns: 0,
+        context_role: 'conversation_focus',
+        instruction_authority: 'application_state',
+      };
+      break;
+    }
+  }
+  return focus;
+}
+
 function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUploadedImage = null, latestImageReference = null, recentImageReferences = [], maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS, contextWindowTokens } = {}) {
   const allMessages = Array.isArray(messages) ? messages : [];
   const uploadedReferences = collectRecentUploadedImageReferences({ messages: allMessages, limit: Number.MAX_SAFE_INTEGER });
   const uploadedLatest = uploadedReferences[0] || null;
   const mergedReferences = Array.isArray(recentImageReferences) ? [...recentImageReferences] : [];
   for (const reference of uploadedReferences) if (!mergedReferences.some(item => item?.reference_id === reference.reference_id)) mergedReferences.push(reference);
+  const resourceExecution = previousResourceExecutionFor(allMessages);
+  const focus = conversationFocusFor(allMessages, resourceExecution);
+  const execution = previousExecutionFor(allMessages);
+  const visualExecution = previousVisualExecutionFor(allMessages, resourceExecution);
   const context = {
     recent_messages: allMessages.map((message, index) => compactRouteMessage(message, index + 1)),
     latest_assistant_image_result: latestAssistantImageResult(allMessages),
     image_candidates: buildImageCandidates(mergedReferences),
     file_candidates: buildFileCandidates(allMessages),
-    last_generated_image: compactLastGeneratedImage(lastGeneratedImage),
+    last_generated_image: compactLastGeneratedImage(lastGeneratedImage, allMessages),
     latest_uploaded_image: compactLatestUploadedImage(latestUploadedImage, uploadedLatest),
     latest_image_reference: latestImageReference && latestImageReference.target !== 'none' ? latestImageReference : null,
     recent_image_references: [],
     recent_uploaded_image_references: [],
+    previous_execution: execution,
+    previous_resource_execution: resourceExecution,
+    previous_visual_execution: visualExecution,
+    conversation_focus: focus,
   };
   return trimRouteContextToSize(trimRouteContextToTokenWindow(context, contextWindowTokens), maxChars);
 }
@@ -476,12 +823,25 @@ function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []
     : contextAttachments;
   if (!attachments.length) return null;
 
-  const referenceId = canonicalImageReferenceId(message, messageIndex);
+  // Result persistence assigns the durable reference ID before the display
+  // item receives its own UI ID. Continuity must use that result ID; otherwise
+  // the execution record and the recoverable candidate describe the same image
+  // with different identities and follow-ups fall back to concatenating text.
+  const referenceId = makeImageReferenceId(
+    imageContext?.referenceId || imageContext?.reference_id || canonicalImageReferenceId(message, messageIndex),
+  );
   const prompt = completedImagePrompt(message, imageContext);
   const previousUser = Array.isArray(messages) && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user'
     ? messageText(messages[messageIndex - 1])
     : '';
   const routePrompt = String(imageContext?.routePrompt || previousUser || '').trim();
+  const parentReferenceId = makeImageReferenceId(
+    imageContext?.selectedReferenceId || imageContext?.selected_reference_id || '',
+  );
+  const parentImageIds = Array.isArray(imageContext?.selectedImageIds || imageContext?.selected_image_ids)
+    ? (imageContext.selectedImageIds || imageContext.selected_image_ids).map(value => String(value || '').trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const operation = String(imageContext?.mode || imageContext?.operation || '').trim();
   const candidates = attachments.map((item, index) => {
     const description = String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || routePrompt || prompt).trim();
     const labels = Array.isArray(item.labels) && item.labels.length
@@ -495,6 +855,9 @@ function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []
       description: description.slice(0, 240),
       semantic_text: compactCandidateSemanticText([item.semantic_text, description, item.prompt, routePrompt, prompt, item.name || item.filename || '', ...labels]),
       labels,
+      ...(operation ? { operation } : {}),
+      ...(parentReferenceId ? { parent_reference_id: parentReferenceId } : {}),
+      ...(parentImageIds.length ? { parent_image_ids: parentImageIds } : {}),
     };
   });
 
@@ -507,6 +870,9 @@ function imageReferenceFromMessage(message = {}, messageIndex = 0, messages = []
     user_prompt: routePrompt.slice(0, 300),
     updated_at: imageContext?.updatedAt || message.updatedAt || null,
     count: candidates.length,
+    operation,
+    ...(parentReferenceId ? { parent_reference_id: parentReferenceId } : {}),
+    ...(parentImageIds.length ? { parent_image_ids: parentImageIds } : {}),
     candidates,
     images: attachments.map((item, index) => ({
       src: item.src,
@@ -551,6 +917,23 @@ function collectRecentImageReferences({ messages = [], lastGeneratedImage = null
     })),
   });
   return references;
+}
+
+function buildImageMemoryCards({ messages = [], lastGeneratedImage = null, recentImageReferences = [] } = {}) {
+  const allReferences = collectRecentImageReferences({
+    messages,
+    lastGeneratedImage,
+    limit: Number.MAX_SAFE_INTEGER,
+  });
+  const merged = Array.isArray(recentImageReferences) ? [...recentImageReferences] : [];
+  for (const reference of allReferences) {
+    if (!merged.some(item => item?.reference_id === reference?.reference_id)) merged.push(reference);
+  }
+  return buildImageCandidates(merged).map((candidate, index) => ({
+    ...candidate,
+    type: 'image',
+    memory_index: index + 1,
+  }));
 }
 
 function findImageReferenceById({ messages = [], referenceId = '' } = {}) {
@@ -628,7 +1011,7 @@ function modeFromImageIntent(intent, fallbackMode = 'chat') {
 
 function canonicalRouteAction(route = {}) {
   const explicitMode = ['chat', 'image', 'edit_image'].includes(route && route.mode) ? route.mode : '';
-  const operationType = String(route?.taskContract?.operation || route?.operationType || route?.operation?.type || '').trim();
+  const operationType = String(route?.dispatchContract?.operation || route?.operationType || route?.operation?.type || '').trim();
   if (['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'clarify', 'refuse'].includes(operationType)) return { mode: 'chat', intent: 'unknown', type: operationType, source: 'operation' };
   if (operationType === 'text_to_image') return { mode: 'image', intent: 'text_to_image', type: operationType, source: 'operation' };
   if (operationType === 'image_edit' || operationType === 'edit_image') return { mode: 'edit_image', intent: 'image_edit', type: operationType, source: 'operation' };
@@ -771,17 +1154,16 @@ function normalizeRoute(route, fallbackMode = 'chat') {
     imageRefs: plan.needClarification ? [] : imageRefs,
     fileRefs: plan.needClarification ? [] : fileRefs,
     confidence,
-    ...(route?.taskContract ? {
+    ...(route?.operationType || route?.dispatchContract ? {
       api: String(route.api || ''),
-      operationType: String(route.operationType || route.taskContract.operation || ''),
-      operationApi: String(route.operationApi || ''),
-      relation: String(route.relation || route.taskContract.relation || ''),
-      readiness: String(route.readiness || route.taskContract.readiness || ''),
+      operationType: String(route.operationType || route.dispatchContract?.operation || ''),
+      operationApi: String(route.operationApi || route.dispatchContract?.api || ''),
+      relation: String(route.relation || route.dispatchContract?.relation || ''),
+      readiness: String(route.readiness || ''),
       dispatchAuthorized: route.dispatchAuthorized === true,
       resumeApi: String(route.resumeApi || ''),
-      taskContract: route.taskContract,
+      dispatchContract: route.dispatchContract || null,
       executionResources: route.executionResources || null,
-      directiveAudit: route.directiveAudit,
       messageRefs: Array.isArray(route.messageRefs) ? route.messageRefs : [],
     } : {}),
   };
@@ -791,9 +1173,11 @@ const api = Object.freeze({
   DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
   routeContextSize,
   compactRouteMessage,
+  uploadedFileAttachmentsFromMessage,
   trimRouteContextToTokenWindow,
   trimRouteContextToSize,
   buildRouteContext,
+  buildImageMemoryCards,
   compactCandidateSemanticText,
   normalizeLastGeneratedImage,
   extractPersistedImageRefs,
@@ -802,6 +1186,8 @@ const api = Object.freeze({
   collectRecentUploadedImageReferences,
   collectRecentImageReferences,
   latestAssistantImageResult,
+  previousResourceExecutionFor,
+  previousVisualExecutionFor,
   findImageReferenceById,
   normalizePlanInputImages,
   normalizeImagePlanTask,

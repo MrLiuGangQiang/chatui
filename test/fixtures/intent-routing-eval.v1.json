@@ -9,16 +9,37 @@
       "input": "请把下面这段项目周报改得更专业：本周完成了登录页开发。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "之前生成了一张橘猫插画" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat", "reference_id": "imgref-history-cat", "target": "previous", "description": "一只橘猫插画" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "之前生成了一张橘猫插画"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-cat",
+            "reference_id": "imgref-history-cat",
+            "target": "previous",
+            "description": "一只橘猫插画"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "media_exact", "items": [] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        }
       }
     },
     {
@@ -28,17 +49,44 @@
       "input": "基于这个描述再生成一张图片。",
       "attachments": [],
       "context": {
-        "quoted_message": { "index": 1, "id": "msg-quoted-cat-description", "role": "assistant", "content": "银白色带灰色条纹的小猫坐在木地板上。" },
-        "recent_messages": [{ "index": 1, "id": "msg-quoted-cat-description", "role": "assistant", "content": "银白色带灰色条纹的小猫坐在木地板上。" }],
+        "quoted_message": {
+          "index": 1,
+          "id": "msg-quoted-cat-description",
+          "role": "assistant",
+          "content": "银白色带灰色条纹的小猫坐在木地板上。"
+        },
+        "recent_messages": [
+          {
+            "index": 1,
+            "id": "msg-quoted-cat-description",
+            "role": "assistant",
+            "content": "银白色带灰色条纹的小猫坐在木地板上。"
+          }
+        ],
         "image_candidates": [],
         "file_candidates": []
       },
       "expected": {
         "operation": "text_to_image",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "message", "source": "quoted", "role": "context", "index": 1, "id": "msg-quoted-cat-description", "reference_id": "", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "message",
+              "source": "quoted",
+              "role": "context",
+              "index": 1,
+              "id": "msg-quoted-cat-description",
+              "reference_id": "",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -48,16 +96,37 @@
       "input": "画一条在珊瑚礁间游动的金鱼，柔和的晨光。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "之前生成了一张橘猫插画" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat", "reference_id": "imgref-history-cat", "target": "previous", "description": "一只橘猫插画" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "之前生成了一张橘猫插画"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-cat",
+            "reference_id": "imgref-history-cat",
+            "target": "previous",
+            "description": "一只橘猫插画"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "text_to_image",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "media_exact", "items": [] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        }
       }
     },
     {
@@ -67,16 +136,28 @@
       "input": "再画一只狗，换个品种。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "id": "prior-dog-prompt", "role": "user", "content": "画一只狗。" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "id": "prior-dog-prompt",
+            "role": "user",
+            "content": "画一只狗。"
+          }
+        ],
         "image_candidates": [],
         "file_candidates": []
       },
       "expected": {
         "operation": "text_to_image",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -84,18 +165,60 @@
       "category": "image-understanding",
       "safety_critical": true,
       "input": "描述这张产品图中的主要物体、配色和拍摄风格。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-product", "image_id": "img-current-product", "name": "product.png", "type": "image/png", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-product",
+          "image_id": "img-current-product",
+          "name": "product.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "描述这张产品图中的主要物体、配色和拍摄风格。" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-product", "reference_id": "imgref-current-product", "target": "uploaded", "description": "白色背景上的黑色耳机" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "描述这张产品图中的主要物体、配色和拍摄风格。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-product",
+            "reference_id": "imgref-current-product",
+            "target": "uploaded",
+            "description": "白色背景上的黑色耳机"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-product", "reference_id": "imgref-current-product", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "source",
+              "index": 1,
+              "id": "img-current-product",
+              "reference_id": "imgref-current-product",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -103,18 +226,60 @@
       "category": "image-understanding",
       "safety_critical": false,
       "input": "提取这张发票截图里的公司名称、金额和日期。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-invoice", "image_id": "img-current-invoice", "name": "invoice.jpg", "type": "image/jpeg", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-invoice",
+          "image_id": "img-current-invoice",
+          "name": "invoice.jpg",
+          "type": "image/jpeg",
+          "is_image": true
+        }
+      ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "提取这张发票截图里的公司名称、金额和日期。" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-invoice", "reference_id": "imgref-current-invoice", "target": "uploaded", "description": "一张中文发票截图" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "提取这张发票截图里的公司名称、金额和日期。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-invoice",
+            "reference_id": "imgref-current-invoice",
+            "target": "uploaded",
+            "description": "一张中文发票截图"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "ocr",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-invoice", "reference_id": "imgref-current-invoice", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "source",
+              "index": 1,
+              "id": "img-current-invoice",
+              "reference_id": "imgref-current-invoice",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -122,18 +287,59 @@
       "category": "file-understanding",
       "safety_critical": true,
       "input": "总结这个合同中的付款节点和违约责任。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-contract", "file_id": "file-current-contract", "name": "contract.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-contract",
+          "file_id": "file-current-contract",
+          "name": "contract.pdf",
+          "type": "application/pdf",
+          "is_image": false,
+          "has_extracted_text": true
+        }
+      ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "总结这个合同中的付款节点和违约责任。" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "总结这个合同中的付款节点和违约责任。"
+          }
+        ],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-contract", "name": "contract.pdf", "has_extracted_text": true }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-contract",
+            "name": "contract.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-contract", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-contract",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -142,23 +348,87 @@
       "safety_critical": true,
       "input": "根据图片和这份商品说明，判断图片中的产品是否符合文档要求。",
       "attachments": [
-        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-bottle", "image_id": "img-current-bottle", "name": "bottle.png", "type": "image/png", "is_image": true },
-        { "index": 2, "source_index": 2, "media_index": 1, "id": "file-current-spec", "file_id": "file-current-spec", "name": "specification.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-bottle",
+          "image_id": "img-current-bottle",
+          "name": "bottle.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 1,
+          "id": "file-current-spec",
+          "file_id": "file-current-spec",
+          "name": "specification.pdf",
+          "type": "application/pdf",
+          "is_image": false,
+          "has_extracted_text": true
+        }
       ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "根据图片和这份商品说明，判断图片中的产品是否符合文档要求。" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-bottle", "reference_id": "imgref-current-bottle", "target": "uploaded", "description": "一只蓝色保温杯" }],
-        "file_candidates": [{ "index": 1, "source_index": 2, "source": "current", "file_id": "file-current-spec", "name": "specification.pdf", "has_extracted_text": true }]
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "根据图片和这份商品说明，判断图片中的产品是否符合文档要求。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-bottle",
+            "reference_id": "imgref-current-bottle",
+            "target": "uploaded",
+            "description": "一只蓝色保温杯"
+          }
+        ],
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 2,
+            "source": "current",
+            "file_id": "file-current-spec",
+            "name": "specification.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "multimodal_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [
-          { "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-bottle", "reference_id": "imgref-current-bottle", "missing": false },
-          { "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-spec", "missing": false }
-        ] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "source",
+              "index": 1,
+              "id": "img-current-bottle",
+              "reference_id": "imgref-current-bottle",
+              "missing": false
+            },
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-spec",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -168,22 +438,65 @@
       "input": "比较第一张和第二张历史产品图的构图与色调差异。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "上一轮生成了两张产品海报" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "上一轮生成了两张产品海报"
+          }
+        ],
         "image_candidates": [
-          { "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-poster-a", "reference_id": "imgref-history-posters", "target": "previous", "description": "第一张暖色产品海报" },
-          { "index": 2, "source_index": 2, "source": "history", "image_id": "img-history-poster-b", "reference_id": "imgref-history-posters", "target": "previous", "description": "第二张冷色产品海报" }
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-poster-a",
+            "reference_id": "imgref-history-posters",
+            "target": "previous",
+            "description": "第一张暖色产品海报"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-history-poster-b",
+            "reference_id": "imgref-history-posters",
+            "target": "previous",
+            "description": "第二张冷色产品海报"
+          }
         ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_compare",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [
-          { "type": "image", "source": "history", "role": "compare_a", "index": 1, "id": "img-history-poster-a", "reference_id": "imgref-history-posters", "missing": false },
-          { "type": "image", "source": "history", "role": "compare_b", "index": 2, "id": "img-history-poster-b", "reference_id": "imgref-history-posters", "missing": false }
-        ] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "compare_a",
+              "index": 1,
+              "id": "img-history-poster-a",
+              "reference_id": "imgref-history-posters",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "history",
+              "role": "compare_b",
+              "index": 2,
+              "id": "img-history-poster-b",
+              "reference_id": "imgref-history-posters",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -193,16 +506,47 @@
       "input": "把上一张产品图的背景改成纯白，产品主体保持不变。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "assistant", "content": "已生成产品图" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-product", "reference_id": "imgref-history-product", "target": "previous", "description": "桌面上的黑色耳机产品图" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "已生成产品图"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-product",
+            "reference_id": "imgref-history-product",
+            "target": "previous",
+            "description": "桌面上的黑色耳机产品图"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "target", "index": 1, "id": "img-history-product", "reference_id": "imgref-history-product", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 1,
+              "id": "img-history-product",
+              "reference_id": "imgref-history-product",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -210,18 +554,60 @@
       "category": "reference-generation",
       "safety_critical": true,
       "input": "参考这张海报的构图，生成一张水彩风格的版本。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-poster", "image_id": "img-current-poster", "name": "poster.png", "type": "image/png", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-poster",
+          "image_id": "img-current-poster",
+          "name": "poster.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "参考这张海报的构图，生成一张水彩风格的版本。" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-poster", "reference_id": "imgref-current-poster", "target": "uploaded", "description": "一张现代产品海报" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "参考这张海报的构图，生成一张水彩风格的版本。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-poster",
+            "reference_id": "imgref-current-poster",
+            "target": "uploaded",
+            "description": "一张现代产品海报"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "reference", "index": 1, "id": "img-current-poster", "reference_id": "imgref-current-poster", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "reference",
+              "index": 1,
+              "id": "img-current-poster",
+              "reference_id": "imgref-current-poster",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -231,18 +617,34 @@
       "input": "把这张图的背景换成蓝色。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "把这张图的背景换成蓝色。" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "把这张图的背景换成蓝色。"
+          }
+        ],
         "image_candidates": [],
         "file_candidates": []
       },
       "expected": {
         "operation": "edit_image",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "image", "role": "target", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "image",
+              "role": "target",
+              "reason": "missing",
+              "choice_count": 0
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -252,16 +654,45 @@
       "input": "总结刚才那份合同中的付款条款。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "刚才上传了一份合同" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "刚才上传了一份合同"
+          }
+        ],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "history", "file_id": "file-history-contract", "name": "previous-contract.pdf", "has_extracted_text": true }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "file_id": "file-history-contract",
+            "name": "previous-contract.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "history", "role": "attachment", "index": 1, "id": "file-history-contract", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "history",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-history-contract",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -271,24 +702,67 @@
       "input": "把猫的背景改成白色。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "assistant", "content": "有两张猫咪图片可供后续编辑" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "有两张猫咪图片可供后续编辑"
+          }
+        ],
         "image_candidates": [
-          { "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-cat-a", "reference_id": "imgref-history-cats", "target": "previous", "description": "一只橘猫" },
-          { "index": 2, "source_index": 2, "source": "history", "image_id": "img-history-cat-b", "reference_id": "imgref-history-cats", "target": "previous", "description": "一只黑猫" }
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-cat-a",
+            "reference_id": "imgref-history-cats",
+            "target": "previous",
+            "description": "一只橘猫"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-history-cat-b",
+            "reference_id": "imgref-history-cats",
+            "target": "previous",
+            "description": "一只黑猫"
+          }
         ],
         "file_candidates": []
       },
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "image", "role": "target", "reason": "ambiguous", "choice_count": 2, "choices": [
-            { "source": "history", "index": 1, "id": "img-history-cat-a", "reference_id": "imgref-history-cats" },
-            { "source": "history", "index": 2, "id": "img-history-cat-b", "reference_id": "imgref-history-cats" }
-          ] }
-        ] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "image",
+              "role": "target",
+              "reason": "ambiguous",
+              "choice_count": 2,
+              "choices": [
+                {
+                  "source": "history",
+                  "index": 1,
+                  "id": "img-history-cat-a",
+                  "reference_id": "imgref-history-cats"
+                },
+                {
+                  "source": "history",
+                  "index": 2,
+                  "id": "img-history-cat-b",
+                  "reference_id": "imgref-history-cats"
+                }
+              ]
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -298,16 +772,47 @@
       "input": "参考引用图片的配色，生成一个更简洁的移动端落地页视觉稿。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "引用了之前的设计稿" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "quoted", "image_id": "img-quoted-design", "reference_id": "imgref-quoted-design", "target": "previous", "description": "蓝紫渐变的移动端设计稿" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "引用了之前的设计稿"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "quoted",
+            "image_id": "img-quoted-design",
+            "reference_id": "imgref-quoted-design",
+            "target": "previous",
+            "description": "蓝紫渐变的移动端设计稿"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "quoted", "role": "style_reference", "index": 1, "id": "img-quoted-design", "reference_id": "imgref-quoted-design", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "quoted",
+              "role": "style_reference",
+              "index": 1,
+              "id": "img-quoted-design",
+              "reference_id": "imgref-quoted-design",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -317,17 +822,54 @@
       "input": "逆向生成这张引用图片的提示词，尽量详细。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "id": "msg-quoted-image", "role": "assistant", "content": "引用的图片消息" }],
-        "quoted_message": { "index": 1, "id": "msg-quoted-image", "role": "assistant", "content": "引用的图片消息" },
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "quoted", "image_id": "img-quoted-prompt-source", "reference_id": "imgref-quoted-prompt-source", "target": "previous", "description": "用户明确引用的一张图片" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "id": "msg-quoted-image",
+            "role": "assistant",
+            "content": "引用的图片消息"
+          }
+        ],
+        "quoted_message": {
+          "index": 1,
+          "id": "msg-quoted-image",
+          "role": "assistant",
+          "content": "引用的图片消息"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "quoted",
+            "image_id": "img-quoted-prompt-source",
+            "reference_id": "imgref-quoted-prompt-source",
+            "target": "previous",
+            "description": "用户明确引用的一张图片"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_qa",
         "relation": "followup",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "quoted", "role": "source", "index": 1, "id": "img-quoted-prompt-source", "reference_id": "imgref-quoted-prompt-source", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "quoted",
+              "role": "source",
+              "index": 1,
+              "id": "img-quoted-prompt-source",
+              "reference_id": "imgref-quoted-prompt-source",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -337,16 +879,47 @@
       "input": "上次参考图生成的版本还是不对，请继续沿用那张参考图，把主色改为墨绿，其他结构保留。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "assistant", "content": "已根据参考图生成上一版" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-layout", "reference_id": "imgref-history-layout", "target": "previous", "description": "上一轮使用的版式参考图" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "已根据参考图生成上一版"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-layout",
+            "reference_id": "imgref-history-layout",
+            "target": "previous",
+            "description": "上一轮使用的版式参考图"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "correction",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "reference", "index": 1, "id": "img-history-layout", "reference_id": "imgref-history-layout", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "reference",
+              "index": 1,
+              "id": "img-history-layout",
+              "reference_id": "imgref-history-layout",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -356,58 +929,156 @@
       "input": "继续用刚才那张草图，再生成一个夜间版本。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "assistant", "content": "已完成日间版本" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-sketch", "reference_id": "imgref-history-sketch", "target": "previous", "description": "建筑日间草图" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "已完成日间版本"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-sketch",
+            "reference_id": "imgref-history-sketch",
+            "target": "previous",
+            "description": "建筑日间草图"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "continuation",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "history", "role": "reference", "index": 1, "id": "img-history-sketch", "reference_id": "imgref-history-sketch", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "reference",
+              "index": 1,
+              "id": "img-history-sketch",
+              "reference_id": "imgref-history-sketch",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
-      "id": "attachment-only-current-image-asks-clarification",
+      "id": "attachment-only-current-image-uses-model-goal",
       "category": "attachment-only",
       "safety_critical": true,
       "input": "",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-only", "image_id": "img-current-only", "name": "photo.png", "type": "image/png", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-only",
+          "image_id": "img-current-only",
+          "name": "photo.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
       "context": {
         "recent_messages": [],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-only", "reference_id": "imgref-current-only", "target": "uploaded", "description": "本轮上传的照片" }],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-only",
+            "reference_id": "imgref-current-only",
+            "target": "uploaded",
+            "description": "本轮上传的照片"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_qa",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "text", "role": "source", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-only", "reference_id": "imgref-current-only", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "source",
+              "index": 1,
+              "id": "img-current-only",
+              "reference_id": "imgref-current-only",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
-      "id": "attachment-only-current-file-asks-clarification",
+      "id": "attachment-only-current-file-uses-model-goal",
       "category": "attachment-only",
       "safety_critical": true,
       "input": "",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-only", "file_id": "file-current-only", "name": "notes.txt", "type": "text/plain", "is_image": false, "has_extracted_text": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-only",
+          "file_id": "file-current-only",
+          "name": "notes.txt",
+          "type": "text/plain",
+          "is_image": false,
+          "has_extracted_text": true
+        }
+      ],
       "context": {
         "recent_messages": [],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-only", "name": "notes.txt", "has_extracted_text": true }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-only",
+            "name": "notes.txt",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "text", "role": "source", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-only", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-only",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -415,20 +1086,53 @@
       "category": "unavailable-attachment",
       "safety_critical": true,
       "input": "总结这个扫描件里的风险条款。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-scan", "file_id": "file-current-scan", "name": "scan.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": false, "unsupported_reason": "扫描件未提取到正文" }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-scan",
+          "file_id": "file-current-scan",
+          "name": "scan.pdf",
+          "type": "application/pdf",
+          "is_image": false,
+          "has_extracted_text": false,
+          "unsupported_reason": "扫描件未提取到正文"
+        }
+      ],
       "context": {
         "recent_messages": [],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-scan", "name": "scan.pdf", "has_extracted_text": false, "unsupported_reason": "扫描件未提取到正文" }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-scan",
+            "name": "scan.pdf",
+            "has_extracted_text": false,
+            "unsupported_reason": "扫描件未提取到正文"
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "file", "role": "attachment", "reason": "unavailable", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "file",
+              "role": "attachment",
+              "reason": "unavailable",
+              "choice_count": 0
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -436,39 +1140,100 @@
       "category": "context-boundary",
       "safety_critical": true,
       "input": "写一封简短的项目延期通知邮件，语气诚恳。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-binary", "file_id": "file-current-binary", "name": "binary.dat", "type": "application/octet-stream", "is_image": false, "has_extracted_text": false, "unsupported_reason": "不支持的二进制格式" }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-binary",
+          "file_id": "file-current-binary",
+          "name": "binary.dat",
+          "type": "application/octet-stream",
+          "is_image": false,
+          "has_extracted_text": false,
+          "unsupported_reason": "不支持的二进制格式"
+        }
+      ],
       "context": {
         "recent_messages": [],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-binary", "name": "binary.dat", "has_extracted_text": false, "unsupported_reason": "不支持的二进制格式" }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-binary",
+            "name": "binary.dat",
+            "has_extracted_text": false,
+            "unsupported_reason": "不支持的二进制格式"
+          }
+        ]
       },
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "media_exact", "items": [] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        }
       }
     },
     {
-      "id": "cross-api-multi-task-requires-one-task",
+      "id": "cross-api-multi-task-follows-model-operation",
       "category": "multi-task",
       "safety_critical": true,
       "input": "先总结这份方案，再根据总结生成一张宣传海报。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-plan", "file_id": "file-current-plan", "name": "plan.md", "type": "text/markdown", "is_image": false, "has_extracted_text": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-plan",
+          "file_id": "file-current-plan",
+          "name": "plan.md",
+          "type": "text/markdown",
+          "is_image": false,
+          "has_extracted_text": true
+        }
+      ],
       "context": {
         "recent_messages": [],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-plan", "name": "plan.md", "has_extracted_text": true }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-plan",
+            "name": "plan.md",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "text", "role": "source", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-plan", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-plan",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -477,20 +1242,73 @@
       "safety_critical": true,
       "input": "只描述图片里的设备外观，不需要读取附件文档。",
       "attachments": [
-        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-device", "image_id": "img-current-device", "name": "device.png", "type": "image/png", "is_image": true },
-        { "index": 2, "source_index": 2, "media_index": 1, "id": "file-current-manual", "file_id": "file-current-manual", "name": "manual.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-device",
+          "image_id": "img-current-device",
+          "name": "device.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 1,
+          "id": "file-current-manual",
+          "file_id": "file-current-manual",
+          "name": "manual.pdf",
+          "type": "application/pdf",
+          "is_image": false,
+          "has_extracted_text": true
+        }
       ],
       "context": {
         "recent_messages": [],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-device", "reference_id": "imgref-current-device", "target": "uploaded", "description": "一台工业设备" }],
-        "file_candidates": [{ "index": 1, "source_index": 2, "source": "current", "file_id": "file-current-manual", "name": "manual.pdf", "has_extracted_text": true }]
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-device",
+            "reference_id": "imgref-current-device",
+            "target": "uploaded",
+            "description": "一台工业设备"
+          }
+        ],
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 2,
+            "source": "current",
+            "file_id": "file-current-manual",
+            "name": "manual.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "image_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "source", "index": 1, "id": "img-current-device", "reference_id": "imgref-current-device", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "source",
+              "index": 1,
+              "id": "img-current-device",
+              "reference_id": "imgref-current-device",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -499,20 +1317,72 @@
       "safety_critical": true,
       "input": "只总结文档中的维护周期，不分析图片。",
       "attachments": [
-        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-cover", "image_id": "img-current-cover", "name": "cover.png", "type": "image/png", "is_image": true },
-        { "index": 2, "source_index": 2, "media_index": 1, "id": "file-current-maintenance", "file_id": "file-current-maintenance", "name": "maintenance.pdf", "type": "application/pdf", "is_image": false, "has_extracted_text": true }
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-cover",
+          "image_id": "img-current-cover",
+          "name": "cover.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 1,
+          "id": "file-current-maintenance",
+          "file_id": "file-current-maintenance",
+          "name": "maintenance.pdf",
+          "type": "application/pdf",
+          "is_image": false,
+          "has_extracted_text": true
+        }
       ],
       "context": {
         "recent_messages": [],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-cover", "reference_id": "imgref-current-cover", "target": "uploaded", "description": "文档封面截图" }],
-        "file_candidates": [{ "index": 1, "source_index": 2, "source": "current", "file_id": "file-current-maintenance", "name": "maintenance.pdf", "has_extracted_text": true }]
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-cover",
+            "reference_id": "imgref-current-cover",
+            "target": "uploaded",
+            "description": "文档封面截图"
+          }
+        ],
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 2,
+            "source": "current",
+            "file_id": "file-current-maintenance",
+            "name": "maintenance.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-maintenance", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-maintenance",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -522,16 +1392,46 @@
       "input": "为团队写三条关于按时提交周报的简洁提醒。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "之前上传了合同并生成了产品图" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "history", "image_id": "img-history-unrelated", "reference_id": "imgref-history-unrelated", "target": "previous", "description": "无关产品图" }],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "history", "file_id": "file-history-unrelated", "name": "contract.pdf", "has_extracted_text": true }]
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "之前上传了合同并生成了产品图"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-unrelated",
+            "reference_id": "imgref-history-unrelated",
+            "target": "previous",
+            "description": "无关产品图"
+          }
+        ],
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "file_id": "file-history-unrelated",
+            "name": "contract.pdf",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "media_exact", "items": [] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        }
       }
     },
     {
@@ -542,15 +1442,29 @@
       "current_mode": "image",
       "auto_mode": false,
       "attachments": [],
-      "context": { "recent_messages": [], "image_candidates": [], "file_candidates": [] },
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [],
+        "file_candidates": []
+      },
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "text", "role": "source", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "text",
+              "role": "source",
+              "reason": "missing",
+              "choice_count": 0
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -561,26 +1475,81 @@
       "current_mode": "image",
       "auto_mode": false,
       "attachments": [
-        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-merge-a", "image_id": "img-current-merge-a", "name": "a.png", "type": "image/png", "is_image": true },
-        { "index": 2, "source_index": 2, "media_index": 2, "id": "img-current-merge-b", "image_id": "img-current-merge-b", "name": "b.png", "type": "image/png", "is_image": true }
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-merge-a",
+          "image_id": "img-current-merge-a",
+          "name": "a.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 2,
+          "id": "img-current-merge-b",
+          "image_id": "img-current-merge-b",
+          "name": "b.png",
+          "type": "image/png",
+          "is_image": true
+        }
       ],
       "context": {
         "recent_messages": [],
         "image_candidates": [
-          { "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-merge-a", "reference_id": "imgref-current-merge-a", "target": "uploaded", "description": "第一张待合并图片" },
-          { "index": 2, "source_index": 2, "source": "current", "image_id": "img-current-merge-b", "reference_id": "imgref-current-merge-b", "target": "uploaded", "description": "第二张待合并图片" }
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-merge-a",
+            "reference_id": "imgref-current-merge-a",
+            "target": "uploaded",
+            "description": "第一张待合并图片"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "current",
+            "image_id": "img-current-merge-b",
+            "reference_id": "imgref-current-merge-b",
+            "target": "uploaded",
+            "description": "第二张待合并图片"
+          }
         ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [
-          { "type": "image", "source": "current", "role": "reference", "index": 1, "id": "img-current-merge-a", "reference_id": "imgref-current-merge-a", "missing": false },
-          { "type": "image", "source": "current", "role": "reference", "index": 2, "id": "img-current-merge-b", "reference_id": "imgref-current-merge-b", "missing": false }
-        ] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "reference",
+              "index": 1,
+              "id": "img-current-merge-a",
+              "reference_id": "imgref-current-merge-a",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "current",
+              "role": "reference",
+              "index": 2,
+              "id": "img-current-merge-b",
+              "reference_id": "imgref-current-merge-b",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -590,18 +1559,54 @@
       "input": "参考这张图的排版，生成一个新的深色版本。",
       "current_mode": "edit_image",
       "auto_mode": false,
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-dark-ref", "image_id": "img-current-dark-ref", "name": "layout.png", "type": "image/png", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-dark-ref",
+          "image_id": "img-current-dark-ref",
+          "name": "layout.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
       "context": {
         "recent_messages": [],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-dark-ref", "reference_id": "imgref-current-dark-ref", "target": "uploaded", "description": "浅色网页排版" }],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-dark-ref",
+            "reference_id": "imgref-current-dark-ref",
+            "target": "uploaded",
+            "description": "浅色网页排版"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "reference", "index": 1, "id": "img-current-dark-ref", "reference_id": "imgref-current-dark-ref", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "reference",
+              "index": 1,
+              "id": "img-current-dark-ref",
+              "reference_id": "imgref-current-dark-ref",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -610,23 +1615,72 @@
       "safety_critical": true,
       "input": "只把第二张图的背景改成浅灰色，第一张不要改。",
       "attachments": [
-        { "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-first", "image_id": "img-current-first", "name": "first.png", "type": "image/png", "is_image": true },
-        { "index": 2, "source_index": 2, "media_index": 2, "id": "img-current-second", "image_id": "img-current-second", "name": "second.png", "type": "image/png", "is_image": true }
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-first",
+          "image_id": "img-current-first",
+          "name": "first.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 2,
+          "id": "img-current-second",
+          "image_id": "img-current-second",
+          "name": "second.png",
+          "type": "image/png",
+          "is_image": true
+        }
       ],
       "context": {
         "recent_messages": [],
         "image_candidates": [
-          { "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-first", "reference_id": "imgref-current-first", "target": "uploaded", "description": "第一张产品图" },
-          { "index": 2, "source_index": 2, "source": "current", "image_id": "img-current-second", "reference_id": "imgref-current-second", "target": "uploaded", "description": "第二张产品图" }
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-first",
+            "reference_id": "imgref-current-first",
+            "target": "uploaded",
+            "description": "第一张产品图"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "current",
+            "image_id": "img-current-second",
+            "reference_id": "imgref-current-second",
+            "target": "uploaded",
+            "description": "第二张产品图"
+          }
         ],
         "file_candidates": []
       },
       "expected": {
         "operation": "edit_image",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "target", "index": 2, "id": "img-current-second", "reference_id": "imgref-current-second", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 2,
+              "id": "img-current-second",
+              "reference_id": "imgref-current-second",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -636,18 +1690,44 @@
       "input": "继续总结刚才那个扫描合同。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "刚才上传了扫描合同" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "刚才上传了扫描合同"
+          }
+        ],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "history", "file_id": "file-history-scan", "name": "scan-contract.pdf", "has_extracted_text": false, "unsupported_reason": "扫描件未提取到正文" }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "file_id": "file-history-scan",
+            "name": "scan-contract.pdf",
+            "has_extracted_text": false,
+            "unsupported_reason": "扫描件未提取到正文"
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "file", "role": "attachment", "reason": "unavailable", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "file",
+              "role": "attachment",
+              "reason": "unavailable",
+              "choice_count": 0
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -657,18 +1737,34 @@
       "input": "总结刚才那个文件的结论。",
       "attachments": [],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "user", "content": "之前提到过一个文件，但当前没有可用附件" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "之前提到过一个文件，但当前没有可用附件"
+          }
+        ],
         "image_candidates": [],
         "file_candidates": []
       },
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
-        "clarification": { "required": true, "unresolved": [
-          { "type": "file", "role": "attachment", "reason": "missing", "choice_count": 0 }
-        ] },
-        "directive": { "mode": "patch" },
-        "resources": { "mode": "exact", "items": [] }
+        "clarification": {
+          "required": true,
+          "unresolved": [
+            {
+              "type": "file",
+              "role": "attachment",
+              "reason": "missing",
+              "choice_count": 0
+            }
+          ]
+        },
+        "resources": {
+          "mode": "exact",
+          "items": []
+        }
       }
     },
     {
@@ -676,18 +1772,60 @@
       "category": "relation-semantics",
       "safety_critical": false,
       "input": "上一版颜色不对，我重新上传了原图；把这张原图的背景改成蓝色。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "img-current-original", "image_id": "img-current-original", "name": "original.png", "type": "image/png", "is_image": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-original",
+          "image_id": "img-current-original",
+          "name": "original.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
       "context": {
-        "recent_messages": [{ "index": 1, "role": "assistant", "content": "上一版已完成" }],
-        "image_candidates": [{ "index": 1, "source_index": 1, "source": "current", "image_id": "img-current-original", "reference_id": "imgref-current-original", "target": "uploaded", "description": "本轮重新上传的原图" }],
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "上一版已完成"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-original",
+            "reference_id": "imgref-current-original",
+            "target": "uploaded",
+            "description": "本轮重新上传的原图"
+          }
+        ],
         "file_candidates": []
       },
       "expected": {
         "operation": "edit_image",
         "relation": "correction",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "patch", "unmentioned_policy": "preserve" },
-        "resources": { "mode": "exact", "items": [{ "type": "image", "source": "current", "role": "target", "index": 1, "id": "img-current-original", "reference_id": "imgref-current-original", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 1,
+              "id": "img-current-original",
+              "reference_id": "imgref-current-original",
+              "missing": false
+            }
+          ]
+        }
       }
     },
     {
@@ -695,18 +1833,53 @@
       "category": "multi-task",
       "safety_critical": false,
       "input": "总结这份会议纪要，并列出其中所有截止日期和负责人。",
-      "attachments": [{ "index": 1, "source_index": 1, "media_index": 1, "id": "file-current-minutes", "file_id": "file-current-minutes", "name": "minutes.md", "type": "text/markdown", "is_image": false, "has_extracted_text": true }],
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "file-current-minutes",
+          "file_id": "file-current-minutes",
+          "name": "minutes.md",
+          "type": "text/markdown",
+          "is_image": false,
+          "has_extracted_text": true
+        }
+      ],
       "context": {
         "recent_messages": [],
         "image_candidates": [],
-        "file_candidates": [{ "index": 1, "source_index": 1, "source": "current", "file_id": "file-current-minutes", "name": "minutes.md", "has_extracted_text": true }]
+        "file_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "file_id": "file-current-minutes",
+            "name": "minutes.md",
+            "has_extracted_text": true
+          }
+        ]
       },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
-        "clarification": { "required": false, "unresolved": [] },
-        "directive": { "mode": "standalone", "unmentioned_policy": "allow_change" },
-        "resources": { "mode": "exact", "items": [{ "type": "file", "source": "current", "role": "attachment", "index": 1, "id": "file-current-minutes", "missing": false }] }
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "file",
+              "source": "current",
+              "role": "attachment",
+              "index": 1,
+              "id": "file-current-minutes",
+              "missing": false
+            }
+          ]
+        }
       }
     }
   ]

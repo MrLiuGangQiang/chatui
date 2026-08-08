@@ -57,45 +57,33 @@
    * @typedef {'new'|'followup'|'correction'|'continuation'} RouteRelation
    * @typedef {'source'|'target'|'reference'|'style_reference'|'mask'|'compare_a'|'compare_b'|'attachment'|'context'} RouteResourceRole
    *
-   * @typedef {Object} RouteBinding
+   * @typedef {Object} RouteIntentResourceRef
    * @property {string} candidate_key Application-provided iN/fN/mN candidate key.
    * @property {RouteResourceRole} role
    *
-   * @typedef {Object} RouteChange
-   * @property {'preserve'|'add'|'replace'|'remove'} op
-   * @property {string} target
-   * @property {string} value Empty for preserve/remove operations.
-   *
-   * @typedef {Object} RouteUnresolvedResource
-   * @property {'image'|'file'|'text'|'message'} type
-   * @property {RouteResourceRole} role
-   * @property {'missing'|'ambiguous'|'unavailable'} reason
-   * @property {Array<string>} candidate_keys
-   *
-   * @typedef {Object} RouteClarification
-   * @property {string} question
-   * @property {Array<RouteUnresolvedResource>} unresolved
-   *
-   * @typedef {Object} SemanticTask
-   * @property {'semantic_task.v2'} schema_version
-   * @property {Array<'respond'|'extract_text'|'compare'|'generate'|'edit'>} actions
-   * @property {'independent'|'followup'|'correction'|'continuation'} discourse
-   * @property {'none'|'answer'|'partial'|'revision'|'continuation'|'assistance'|'new_task'|'unclear'} pending_effect
-   * @property {Array<Object>} slots Model-observed resource requirements.
-   * @property {Array<RouteChange>} changes
-   * @property {Array<string>} constraints
-   *
-   * @typedef {Object} RouteDecision
-   * @property {'route_decision.v1'} schema_version Internal compiler output.
-   * @property {'ready'|'needs_clarification'} readiness
+   * @typedef {Object} RouteIntent
    * @property {RouteOperation} operation
    * @property {RouteRelation} relation
-   * @property {Array<RouteBinding>} bindings
-   * @property {Array<RouteChange>} changes
+   * @property {string} goal Normalized statement of what the user wants to accomplish.
+   * @property {Array<RouteIntentResourceRef>} resource_refs
+   *
+   * @typedef {Object} ExecutionBinding
+   * @property {string} key Local rN execution key.
+   * @property {'image'|'file'|'text'|'message'} type
+   * @property {RouteResourceRole} role
+   * @property {string} resource_id Canonical application resource identity.
+   * @property {'current'|'quoted'|'history'|'context'} source
+   *
+   * @typedef {Object} DispatchContract
+   * @property {'dispatch_contract.v1'} schema_version Locally compiled final execution contract.
+   * @property {RouteOperation} operation
+   * @property {'chat'|'image_generation'|'image_edit'} api
+   * @property {RouteRelation} relation
+   * @property {Object} arguments
+   * @property {Array<ExecutionBinding>} bindings
    * @property {Array<string>} constraints
-   * @property {RouteClarification} clarification
-   * @property {number} confidence Number from 0 through 1.
-   * @property {string} rationale
+   * @property {Object} context_policy
+   * @property {string} idempotency_key
    */
 
   const typeNames = Object.freeze([
@@ -106,7 +94,8 @@
     'ChatJob',
     'ImageJob',
     'AttachmentItem',
-    'RouteDecision',
+    'RouteIntent',
+    'DispatchContract',
   ]);
 
   const api = Object.freeze({ typeNames });

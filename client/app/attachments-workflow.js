@@ -264,6 +264,8 @@
     function needsInputFileData(item = {}) {
       return item.inputFile === true
         || item.input_file === true
+        || /^data:[^,]+;base64,/i.test(String(item.fileData || item.file_data || ''))
+        || !!String(item.text || '').trim()
         || !!(item.file || item.persistedSrc || item.persisted_src || item.src || item.dataUrl || item.data_url);
     }
 
@@ -316,41 +318,120 @@
       return normalizeInputFileDataUrl(dataUrl, mimeType);
     }
 
+    function utf8Bytes(value = '') {
+      const text = String(value || '');
+      const Encoder = root?.TextEncoder || (typeof TextEncoder !== 'undefined' ? TextEncoder : null);
+      if (Encoder) return new Encoder().encode(text);
+      if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(text, 'utf8'));
+      const encoded = unescape(encodeURIComponent(text));
+      return Uint8Array.from(encoded, char => char.charCodeAt(0));
+    }
+
+    function bytesToBase64(bytes = new Uint8Array()) {
+      if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+      if (typeof root?.btoa !== 'function') {
+        throw Object.assign(new Error('Failed to encode the extracted file text as Base64'), { code: 'FILE_DATA_ENCODING_FAILED' });
+      }
+      const chunks = [];
+      const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+      }
+      return root.btoa(chunks.join(''));
+    }
+
+    function extractedTextInputFile(item = {}) {
+      const text = String(item.text || '');
+      if (!text.trim()) return null;
+      const name = String(item.name || 'attachment.txt');
+      const type = inputFileMimeType(name, item.type || 'text/plain');
+      const bytes = utf8Bytes(text);
+      return {
+        name,
+        type,
+        size: bytes.byteLength,
+        fileData: `data:${type};base64,${bytesToBase64(bytes)}`,
+      };
+    }
+
+    function inputFileDataSize(value = '') {
+      const data = String(value || '').split(',', 2)[1] || '';
+      if (!data) return 0;
+      const normalized = data.replace(/\s+/g, '');
+      const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+      return Math.max(0, Math.floor(normalized.length * 3 / 4) - padding);
+    }
+
+    function chatVisionDetail(item = {}, options = {}) {
+      const declared = String(item.imageDetail || item.image_detail || item.visionDetail || item.vision_detail || '').trim().toLowerCase();
+      if (['low', 'high', 'auto'].includes(declared)) return declared;
+      return String(options.operation || options.operationType || '').trim() === 'ocr' ? 'low' : '';
+    }
+
+    function prepareChatImageVision(item = {}, options = {}) {
+      const detail = chatVisionDetail(item, options);
+      return detail ? { ...item, imageDetail: detail } : item;
+    }
+
     async function prepareChatAttachments(list = [], options = {}) {
       const prepared = await ensureChatAttachmentImageDataUrls(list);
       const documents = prepared.filter(item => !isImageFile(item));
-      if (!documents.length) return prepared;
+      if (!documents.length) return prepared.map(item => prepareChatImageVision(item, options));
       const resolvedDocuments = new Map();
       for (const item of documents) {
         if (!needsInputFileData(item)) continue;
         abortIfRequested(options.signal);
+        const existingFileData = String(item.fileData || item.file_data || '');
+        if (/^data:[^,]+;base64,/i.test(existingFileData)) {
+          resolvedDocuments.set(item, {
+            kind: 'data',
+            name: item.name || 'attachment',
+            type: inputFileMimeType(item.name, item.type),
+            size: Number(item.size) || inputFileDataSize(existingFileData),
+            fileData: normalizeInputFileDataUrl(existingFileData, inputFileMimeType(item.name, item.type)),
+          });
+          continue;
+        }
         const file = await attachmentFile(item);
-        if (file) resolvedDocuments.set(item, file);
+        if (file) {
+          resolvedDocuments.set(item, {
+            kind: 'file',
+            file,
+            name: file.name || item.name || 'attachment',
+            type: inputFileMimeType(file.name || item.name, file.type || item.type),
+            size: Number(file.size) || 0,
+          });
+          continue;
+        }
+        const extracted = extractedTextInputFile(item);
+        if (extracted) resolvedDocuments.set(item, { kind: 'text', ...extracted });
       }
-      fileInputs.validateRequestFiles?.([...resolvedDocuments].map(([item, file]) => ({
-        name: file.name || item.name || 'attachment',
-        type: inputFileMimeType(file.name || item.name, file.type || item.type),
-        size: Number(file.size) || 0,
+      fileInputs.validateRequestFiles?.([...resolvedDocuments.values()].map(document => ({
+        name: document.name,
+        type: document.type,
+        size: document.size,
       })));
       const result = [];
       for (const item of prepared) {
         if (isImageFile(item)) {
-          result.push(item);
+          result.push(prepareChatImageVision(item, options));
           continue;
         }
         if (!needsInputFileData(item)) {
           result.push(withoutTransientFileMetadata(item));
           continue;
         }
-        const file = resolvedDocuments.get(item);
-        if (!file) throw Object.assign(new Error(`附件内容不可用，请重新上传：${item.name || 'attachment'}`), { code: 'FILE_CONTENT_UNAVAILABLE' });
-        const fileData = await readInputFileData(file, item, options.signal);
+        const document = resolvedDocuments.get(item);
+        if (!document) throw Object.assign(new Error(`附件内容不可用，请重新上传：${item.name || 'attachment'}`), { code: 'FILE_CONTENT_UNAVAILABLE' });
+        const fileData = document.kind === 'file'
+          ? await readInputFileData(document.file, item, options.signal)
+          : document.fileData;
         result.push({
           ...withoutTransientFileMetadata(item),
-          file,
-          name: file.name || item.name || 'attachment',
-          type: inputFileMimeType(file.name || item.name, file.type || item.type),
-          size: Number(file.size) || 0,
+          ...(document.file ? { file: document.file } : {}),
+          name: document.name,
+          type: document.type,
+          size: document.size,
           inputFile: true,
           fileData,
           text: '',

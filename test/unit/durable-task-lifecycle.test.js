@@ -6,6 +6,7 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 const chatWorkflow = require('../../client/app/chat-workflow');
 const messageWorkflow = require('../../client/app/message-workflow');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 function deferred() {
   let resolve;
@@ -37,7 +38,11 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     ensureActiveRun: () => run,
     getActiveSession: () => session,
     ensureChatAttachmentImageDataUrls: async items => items,
-    buildChatMessagesWithAttachments: (prompt, attachments, base) => [...base, { role: 'user', content: prompt }],
+    buildChatMessagesWithAttachments: (prompt, attachments, base, systemPrompt) => [
+      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+      ...base,
+      { role: 'user', content: prompt },
+    ],
     saveChatHistory: () => {
       saveCount += 1;
       events.push(saveCount === 1 ? 'user-committed' : 'assistant-commit-started');
@@ -101,9 +106,13 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
     formatElapsed: value => String(value),
   });
 
+  const dispatchContract = makeDispatchContract({ operation: 'plain_chat', prompt: 'Question' });
   const sendPromise = workflow.sendChat('Question', [], assistantNode, {
     sessionId: session.id,
     submissionId: 'submit-a',
+    requestPurpose: 'final_execution',
+    dispatchContract,
+    bindingEvidence: [],
     onDurableHandoff: () => events.push('pending-submit-cleared'),
     onInterfaceCompleted: details => {
       interfaceCompletion = details;
@@ -118,6 +127,7 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   assert.strictEqual(persistedJob.payload.marker, 'responses-payload');
   assert.strictEqual(managedOptions.jobId, 'chatjob-durable123');
   assert.strictEqual(managedOptions.options.api, 'responses');
+  assert.strictEqual(managedOptions.options.submissionId, 'submit-a');
   assert.ok(events.indexOf('job-committed') < events.indexOf('pending-submit-cleared'));
   assert.ok(events.indexOf('pending-submit-cleared') < events.indexOf('managed-stream-started'));
 
@@ -156,7 +166,11 @@ async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
     ensureActiveRun: () => run,
     getActiveSession: () => session,
     ensureChatAttachmentImageDataUrls: async items => items,
-    buildChatMessagesWithAttachments: (prompt, attachments, base) => [...base, { role: 'user', content: prompt }],
+    buildChatMessagesWithAttachments: (prompt, attachments, base, systemPrompt) => [
+      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+      ...base,
+      { role: 'user', content: prompt },
+    ],
     saveChatHistory: async () => {},
     saveSessionMessages: async () => {},
     addMessage: () => ({ isConnected: false, dataset: {} }),
@@ -184,7 +198,13 @@ async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
   });
 
   await assert.rejects(
-    workflow.sendChat('Question', [], null, { sessionId: session.id, onDurableHandoff: () => { handoffs += 1; } }),
+    workflow.sendChat('Question', [], null, {
+      sessionId: session.id,
+      requestPurpose: 'final_execution',
+      dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'Question' }),
+      bindingEvidence: [],
+      onDurableHandoff: () => { handoffs += 1; },
+    }),
     error => error.message.includes('\u6062\u590d\u6570\u636e')
   );
   assert.strictEqual(streamStarts, 0, 'an unrestartable local snapshot must block the upstream request');

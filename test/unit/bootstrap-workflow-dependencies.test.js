@@ -53,7 +53,7 @@ function createBootstrapDependencies() {
       document: { body, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], visibilityState: 'visible' },
       loadAppVersion: asyncNoop, loadConfig() {}, loadGlobalImageStyleToSessionInput() {}, loadGlobalPromptToSessionInput() {}, loadLastGeneratedImage: asyncNoop, loadModels: asyncNoop, loadReasoningPreference() {}, loadSessionSidebarCollapsed() {}, loadSessions: asyncNoop,
       markManualMessageScroll() {}, newSession() {}, onSubmit: asyncNoop, openConfigModal() {}, openSessionDrawer() {}, openSessionImageStylePanel() {}, openSessionModelPanel() {}, openSessionPromptPanel() {}, persistBeforePageLeave() {}, refreshActiveSessionOnReturn() {}, renderActiveSession() {}, requestAnimationFrame: callback => callback(), rerenderVisibleMarkdownMessages() {}, resumeActiveOutputFocus() {}, resumeBackgroundSessionJobs() {}, revealNodeAboveComposer() {},
-      saveConfig() {}, saveSessionImageStyle() {}, saveSessionModel() {}, saveSessionPrompt() {}, scheduleAutoResize() {}, scrollPromptByWheel() {}, scrollToBottom() {}, setReasoningMode() {}, setReasoningType() {}, setSessionSidebarCollapsed() {}, state: { activeSessionId: '', autoMode: true, reasoningMode: false }, stopActiveRun: asyncNoop, toggleApiKeyVisibility() {}, toggleReasoningMenu() {}, updateModeUi() {}, updateSendAvailability() {}, waitForMarkdownReady: asyncNoop, window: browserWindow,
+      saveConfig() {}, saveSessionsMeta() {}, saveSessionImageStyle() {}, saveSessionModel() {}, saveSessionPrompt() {}, scheduleAutoResize() {}, scrollPromptByWheel() {}, scrollToBottom() {}, setReasoningMode() {}, setReasoningType() {}, setSessionSidebarCollapsed() {}, state: { activeSessionId: '', autoMode: true, reasoningMode: false }, stopActiveRun: asyncNoop, toast() {}, toggleApiKeyVisibility() {}, toggleReasoningMenu() {}, updateModeUi() {}, updateSendAvailability() {}, waitForMarkdownReady: asyncNoop, window: browserWindow,
     },
     body,
     timerReceivers,
@@ -83,6 +83,48 @@ async function testBootstrapWorkflowUsesExplicitDependenciesAndStartsWithBrowser
   assert.strictEqual(body.classList.contains('app-booting'), false);
 }
 
+
+async function testBootstrapBindsClarificationChoiceWorkflowFromModuleRegistry() {
+  const { deps } = createBootstrapDependencies();
+  const registrySymbol = Symbol.for('chatui.module-registry.v1');
+  const previousRegistry = globalThis[registrySymbol];
+  const registry = previousRegistry instanceof Map ? previousRegistry : new Map();
+  const hadChoice = registry.has('clarificationChoiceWorkflow');
+  const previousChoice = registry.get('clarificationChoiceWorkflow');
+  const previousApp = globalThis.ChatUIApp;
+  let bindCount = 0;
+  let received = null;
+
+  if (!(previousRegistry instanceof Map)) globalThis[registrySymbol] = registry;
+  registry.set('clarificationChoiceWorkflow', {
+    createClarificationChoiceWorkflow(options) {
+      received = options;
+      return { bind() { bindCount += 1; } };
+    },
+  });
+  globalThis.ChatUIApp = { appContext: { getWorkflowModule: () => null } };
+
+  try {
+    await createBootstrapWorkflow(deps).start();
+    await Promise.resolve();
+  } finally {
+    if (hadChoice) registry.set('clarificationChoiceWorkflow', previousChoice);
+    else registry.delete('clarificationChoiceWorkflow');
+    if (!(previousRegistry instanceof Map)) delete globalThis[registrySymbol];
+    if (previousApp === undefined) delete globalThis.ChatUIApp;
+    else globalThis.ChatUIApp = previousApp;
+  }
+
+  assert.strictEqual(bindCount, 1, 'bootstrap must bind the registry-backed clarification choice workflow');
+  assert.strictEqual(received?.state, deps.state);
+  assert.strictEqual(received?.document, deps.document);
+  assert.strictEqual(received?.messages, deps.$('messages'));
+  assert.strictEqual(received?.saveSessionsMeta, deps.saveSessionsMeta);
+  assert.strictEqual(received?.onSubmit, deps.onSubmit);
+  assert.strictEqual(received?.toast, deps.toast);
+}
+
 module.exports = [
   testBootstrapWorkflowUsesExplicitDependenciesAndStartsWithBrowserTimers,
+  testBootstrapBindsClarificationChoiceWorkflowFromModuleRegistry,
 ];

@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const imageService = require('../../client/services/image-service');
+const dispatchContract = require('../../shared/dispatch-contract');
 
 function assertImageSources(result, expectedSources) {
   const extracted = imageService.extractImageResult(result);
@@ -65,14 +66,35 @@ async function testImageFileToJobPayloadContracts() {
   });
   assert.deepStrictEqual(fromFile, { name: 'from-file.webp', type: 'image/webp', data: 'BBBB' });
 
-  const bound = await imageService.imageFileToJobPayload({
+  const boundAttachment = {
     name: 'reference.png', type: 'image/png', dataUrl: 'data:image/png;base64,CCCC',
-    routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'ref-2',
-  }, async () => '');
+    routeRole: 'style_reference', routeResourceKey: 'r2', routeResourceId: 'res:image:style-2',
+    routeSource: 'history', routeId: 'style-2', routeReferenceId: 'ref-2',
+  };
+  const bound = await imageService.imageFileToJobPayload(boundAttachment, async () => '');
   assert.deepStrictEqual(bound, {
     name: 'reference.png', type: 'image/png', data: 'CCCC',
-    routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'ref-2',
-  }, 'image upload serialization must retain the validated role and stable identity');
+    routeResourceKey: 'r2', routeResourceType: 'image', routeRole: 'style_reference',
+    routeResourceId: 'res:image:style-2', routeSource: 'history', routeId: 'style-2', routeReferenceId: 'ref-2',
+  }, 'image upload serialization must retain the complete execution binding');
+
+  const referencePlan = dispatchContract.compileDispatchContract({
+    operation: 'image_reference_gen', relation: 'followup', input: '参考这张图生成新的深色版本',
+    bindings: [{ key: 'r2', type: 'image', role: 'style_reference', resource_id: 'res:image:style-2', source: 'history' }],
+  });
+  assert.strictEqual(dispatchContract.assertPayloadMatchesDispatchContract(referencePlan, {
+    payload: { prompt: referencePlan.arguments.prompt }, mode: 'edit_image', files: [bound], masks: [],
+    bindingEvidence: dispatchContract.bindingEvidenceFromMedia({ images: [boundAttachment] }),
+  }), true, 'the serialized file must remain valid against the exact execution plan');
+
+  await assert.rejects(
+    imageService.imageFileToJobPayload({
+      name: 'partial.png', type: 'image/png', dataUrl: 'data:image/png;base64,DDDD',
+      routeRole: 'reference', routeResourceKey: 'r3',
+    }, async () => ''),
+    error => error?.code === 'EXECUTION_RESOURCE_BINDING_INVALID',
+    'partial route metadata must fail instead of crossing the execution boundary',
+  );
 
   assert.strictEqual(await imageService.imageFileToJobPayload({ name: 'remote.png', src: 'https://img.example/remote.png' }, async () => ''), null);
   assert.strictEqual(await imageService.imageFileToJobPayload({ name: 'empty.png', dataUrl: 'data:image/png;base64,' }, async () => ''), null);

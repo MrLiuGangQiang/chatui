@@ -302,7 +302,7 @@
     <span class="sr-only">查看支持的文件格式</span>
   </button>
 
-  <button id="routeDiagramFab" class="route-diagram-fab route-map-fab" type="button" aria-label="查看意图识别流程图" aria-controls="routeDiagramModal" aria-expanded="false" title="查看意图识别流程图">
+  <button id="routeDiagramFab" class="route-diagram-fab route-map-fab" type="button" aria-label="查看消息处理流程" aria-controls="routeDiagramModal" aria-expanded="false" title="查看消息处理流程">
     <svg class="fab-icon fab-route-icon" viewBox="0 0 24 24" aria-hidden="true">
       <defs>
         <linearGradient id="routeFabGradient" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse">
@@ -547,15 +547,15 @@
     window.CHATUI_RENDER_CACHE_OPTIONS = { maxEntries: 240, maxChars: 5000000 };
     window.CHATUI_RENDER_SCHEDULER_OPTIONS = { budgetMs: 9, batchSize: 3, timeoutMs: 900 };
   </script>
-  <script src="./assets/chatui.bundle.js?v=1.3.160-code-action-motion&revision=native-user-copy-paste-trim"></script>
+  <script src="./assets/chatui.bundle.js?v=1.3.161-live-status&revision=native-user-copy-paste-trim"></script>
   <template id="chatuiAssetManifest">
   <link rel="stylesheet" href="./vendor/katex.min.css" />
   <link rel="stylesheet" href="./vendor/highlight-github.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=1.3.4-execution-map-compact-secret-free-backup-connection-right-code-collapse-classic-icon-aligned-v2" />
+  <link rel="stylesheet" href="./styles.css?v=1.3.5-live-status-compact-secret-free-backup-connection-right-code-collapse-classic-icon-aligned-v2" />
   <link rel="stylesheet" href="./styles/composer.css?v=1.4.0-native-file-inputs" />
-  <link rel="stylesheet" href="./styles/messages.css?v=1.3.44-stable-clarification-height" />
+  <link rel="stylesheet" href="./styles/messages.css?v=1.3.47-clarification-list" />
   <link rel="stylesheet" href="./styles/usage-stats.css?v=1.3.8-utility-actions" />
-  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.3-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall-code-expand-hover-lock-bottom-overlay-announcement-entry" />
+  <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.4-live-status-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall-code-expand-hover-lock-bottom-overlay-announcement-entry" />
   <link rel="stylesheet" href="./styles/announcement.css?v=1.0.3-toolbar" />
   <script src="./client/runtime/module-registry.js?v=1.0.0"></script>
   <script src="./client/core/text-hash.js?v=1.0.0"></script>
@@ -565,11 +565,11 @@
   <script src="./client/app/markdown/engine-primitives.js?v=1.0.0"></script>
   <script src="./client/app/markdown/sanitizer-policy.js?v=1.0.0"></script>
   <script src="./client/app/markdown/browser-sanitizer.js?v=1.2.67-reasoning-cleanup"></script>
-  <script src="./client/app/markdown/browser-engine.js?v=1.2.68-default-table-align"></script>
+  <script src="./client/app/markdown/browser-engine.js?v=1.2.69-preserve-single-line-breaks"></script>
   <script src="./client/app/markdown/enhancer.js?v=1.2.88-code-collapse-hover-overlap-fix"></script>
   <script src="./client/app/markdown/browser-enhancer.js?v=1.2.65"></script>
   <script src="./client/app/image-store.js?v=1.2.66-media-key-scan"></script>
-  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.2.99-large-dispose"></script>
+  <script src="./client/app/markdown/browser-streaming-renderer.js?v=1.3.0-preserve-stream-tail-linebreaks"></script>
   <script src="./client/app/markdown/dependency-loader.js?v=1.2.84"></script>
   <script src="./client/app/markdown/browser.js?v=1.2.75"></script>
   <script src="./client/core/http.js?v=1.2.65"></script>
@@ -579,12 +579,20 @@
   <script src="./client/core/models.js?v=1.2.65"></script>
   <script src="./client/core/image-references.js?v=1.2.66-multi-reference"></script>
   <script src="./client/core/image-execution.js?v=1.0.0"></script>
-  <script src="./client/core/image-route-context.js?v=2.2.2-clarification-preview-filter&native-file-routing=1&semantic-task-v2"></script>
-  <script src="./client/core/route-protocol.js?v=1.0.0&semantic-task-v2"></script>
-  <script src="./client/core/intent-contract.js?v=3.4.5-edit-target-references&native-file-routing=1"></script>
+  <script src="./client/core/image-route-context.js?v=2.4.0-resource-lineage"></script>
+
+
+
+
   <script src="./client/core/attachments.js?v=1.3.2-source-aware-route-metadata&native-file-routing=1&semantic-task-v2"></script>
   <script src="./client/core/preflight-guards.js?v=2.0.0-preinsert-guard"></script>
-  <script src="./shared/config/context-budget.js?v=1.1.0-required-boundary"></script>
+  <script src="./shared/config/context-budget.js?v=1.2.0-oldest-first-no-summary"></script>
+  <script src="./shared/capability-registry.js?v=1.2.0-unified-message-refs"></script>
+  <script src="./shared/route-intent.js?v=1.2.0-goal-field"></script>
+  <script src="./shared/dispatch-contract.js?v=1.1.0-binding-contract"></script>
+  <script src="./shared/clarification-answer.js?v=1.0.1"></script>
+  <script src="./shared/clarification-relation.js?v=1.0.1"></script>
+  <script src="./client/core/resource-identity.js?v=1.0.1"></script>
   <script src="./shared/file-names.js?v=1.0.1"></script>
   <script src="./shared/usage/ranges.js?v=1.0.2"></script>
   <script src="./client/core/context-budget.js?v=1.3.6"></script>
@@ -592,26 +600,30 @@
   <script src="./client/core/browser.js?v=1.4.1-file-inputs"></script>
   <script src="./client/core/message-primitives.js?v=1.0.0"></script>
   <script src="./shared/file-inputs.js?v=1.0.1-base64-mime"></script>
-  <script src="./client/core/execution-resources.js?v=1.0.0-contract-projection"></script>
+  <script src="./client/core/execution-resources.js?v=1.0.1-contract-projection"></script>
   <script src="./client/core/task-state.js?v=1.1.1-terminal-recovery-guard"></script>
   <script src="./client/core/web-preview.js?v=1.0.1-interactive"></script>
   <script src="./client/config/storage-keys.js?v=1.0.0"></script>
   <script src="./client/config/feature-flags.js?v=1.0.0"></script>
   <script src="./client/services/model-service.js?v=1.2.65"></script>
-  <script src="./client/services/job-service.js?v=1.3.0-image-mask-resources"></script>
+  <script src="./client/services/job-service.js?v=1.3.1-compact-events"></script>
   <script src="./client/services/chat-service.js?v=1.3.1-base64-file-data&system-context-v2"></script>
   <script src="./client/services/prompt-composer-service.js?v=2.2.0-full-input"></script>
   <script src="./client/services/route-candidates.js?v=1.0.0"></script>
-  <script src="./client/services/route-dispatch-gate.js?v=1.0.0"></script>
-  <script src="./client/services/route-repair-policy.js?v=1.0.0&semantic-task-v2"></script>
-  <script src="./client/services/route-payload.js?v=1.0.0&semantic-task-v2"></script>
-  <script src="./client/services/route-decision-compiler.js?v=1.0.0&semantic-task-v2"></script>
-  <script src="./client/services/route-legacy-adapter.js?v=1.0.0"></script>
-  <script src="./client/services/route-service.js?v=3.6.6-target-reference-clarification&native-file-routing=1&semantic-task-v2-single-router"></script>
+
+
+
+
+
+
+
+
+  <script src="./client/services/route-service.js?v=4.4.2-resource-lineage"></script>
   <script src="./client/services/image-generation-service.js?v=1.4.0-image-mask-resources&fail-closed-attachments"></script>
   <script src="./client/services/image-service.js?v=1.8.0-role-preservation"></script>
   <script src="./client/services/runtime-service.js?v=1.1.1-semver-label"></script>
-  <script src="./client/services/clarification-service.js?v=1.5.3-stable-pending-id&completed-replay=1&semantic-task-v2"></script>
+
+
   <script src="./client/services/request-compatibility.js?v=1.0.0&semantic-task-v2"></script>
   <script src="./client/services/composition.js?v=1.5.0-file-inputs"></script>
   <script src="./client/services/usage-stats.js?v=1.2.79-feedback-reason"></script>
@@ -621,10 +633,11 @@
   <script src="./client/services/browser.js?v=1.2.65"></script>
   <script src="./client/app/state.js?v=1.2.69-reasoning-levels"></script>
   <script src="./client/app/app-context.js?v=1.1.0-workflow-registry"></script>
-  <script src="./client/features/clarification/presentation.js?v=1.0.8-number-strip"></script>
+  <script src="./client/features/clarification/presentation.js?v=1.2.0-choice-list"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
   <script src="./client/app/session-config.js?v=1.2.66-session-route-model"></script>
-  <script src="./client/app/formatting.js?v=1.2.69-execution-map"></script>
+  <script src="./client/app/execution-status.js?v=1.0.0"></script>
+  <script src="./client/app/formatting.js?v=1.2.70-live-status"></script>
   <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
   <script src="./client/app/display-items.js?v=1.2.71-canonical-insertion-order"></script>
   <script src="./client/app/persistence.js?v=1.2.66-task-lifecycle-state-machine"></script>
@@ -634,7 +647,7 @@
   <script src="./client/app/attachments-workflow.js?v=1.3.1-base64-file-data"></script>
   <script src="./client/app/image-context-workflow.js?v=1.9.2-image-result-descriptors"></script>
   <script src="./client/app/session-persistence.js?v=1.4.4-newest-image-result"></script>
-  <script src="./client/app/message-records.js?v=2.0.1-message-order"></script>
+  <script src="./client/app/message-records.js?v=2.0.1-message-order&object-id-guard=1"></script>
   <script src="./client/app/session-store.js?v=2.0.3-import-reset-tombstone"></script>
   <script src="./client/services/session-snapshot-recovery.js?v=1.0.0"></script>
   <script src="./client/app/session-display.js?v=2.1.11-immediate-refresh-fallback"></script>
@@ -642,33 +655,35 @@
   <script src="./client/features/history-anchor-nav.js?v=1.0.18"></script>
   <script src="./client/features/messages/message-model.js?v=1.0.1"></script>
   <script src="./client/features/messages/message-domain.js?v=1.0.1"></script>
-  <script src="./client/features/messages/quote-preview.js?v=1.0.0"></script>
+  <script src="./client/features/messages/quote-preview.js?v=1.0.1-legacy-global"></script>
   <script src="./client/features/messages/markdown-live-stream.js?v=1.0.4-large-dispose"></script>
-  <script src="./client/features/messages/markdown-preview.js?v=1.0.1-default-table-align"></script>
+  <script src="./client/features/messages/markdown-preview.js?v=1.0.2-preserve-single-line-breaks"></script>
   <script src="./client/features/messages/markdown-final-renderer.js?v=1.0.1-canonical-large"></script>
-  <script src="./client/app/session-ui-workflow.js?v=1.3.16-mode-isolation-mobile-touch-switch"></script>
-  <script src="./client/app/route-diagram-workflow.js?v=2.7.0-s-track-progress"></script>
-  <script src="./client/app/config-workflow.js?v=1.2.78-secret-free-backup"></script>
+  <script src="./client/app/session-ui-workflow.js?v=1.3.16-mode-isolation-mobile-touch-switch&edit-quote-preserved=1"></script>
+  <script src="./client/app/route-diagram-workflow.js?v=3.4.4-single-character-gate-icon"></script>
+  <script src="./client/app/config-workflow.js?v=1.2.78-secret-free-backup&cleared-prompt-persists=1"></script>
   <script src="./client/app/dialog-workflow.js?v=1.2.65"></script>
   <script src="./client/app/image-actions-workflow.js?v=1.2.68"></script>
   <script src="./client/app/image-preview-workflow.js?v=1.2.68-safe-clear"></script>
   <script src="./client/app/custom-select-workflow.js?v=1.2.65"></script>
   <script src="./client/app/composer-layout-workflow.js?v=1.3.0-large-input-layout"></script>
   <script src="./client/app/performance-workflow.js?v=1.2.71"></script>
-  <script src="./client/app/job-workflow.js?v=1.2.71-message-order"></script>
+  <script src="./client/app/job-workflow.js?v=1.2.72-compact-events"></script>
   <script src="./client/app/image-result-workflow.js?v=1.7.1-image-semantics&explicit-labels-only"></script>
-  <script src="./client/app/job-resume-workflow.js?v=1.3.0-execution-resources"></script>
-  <script src="./client/app/submit-workflow.helpers.js?v=1.3.0-pending-source-attachments&semantic-task-v2"></script>
+  <script src="./client/app/job-resume-workflow.js?v=1.3.1-resume-execution-contract"></script>
+  <script src="./client/app/submit-workflow.helpers.js?v=1.5.0-resource-execution-anchor"></script>
   <script src="./client/app/submit-workflow-policy.js?v=1.0.0"></script>
-  <script src="./client/app/submit-workflow.js?v=1.5.2-pending-transaction&completed-replay=1&semantic-task-v2-single-router"></script>
-  <script src="./client/app/chat-workflow.js?v=1.5.0-native-file-inputs&native-file-routing=1&system-context-v2"></script>
-  <script src="./client/app/image-workflow.js?v=1.6.1-precise-role-prompt&completed-replay=1&semantic-task-v2"></script>
-  <script src="./client/app/regenerate-workflow.js?v=1.2.2-stable-pending-id&completed-replay=1&semantic-task-v2"></script>
-  <script src="./client/app/message-workflow.js?v=1.3.41-stream-settle-binding"></script>
+  <script src="./client/app/submit-workflow.js?v=1.5.4-live-status&clarify-persist=1&message-pool-wiring=1&edit-quote-preserved=1&completed-replay=1&semantic-task-v2-single-router=1&intent-goal-v2=1"></script>
+  <script src="./client/app/chat-workflow.js?v=1.6.1-live-status&context-selection=1&native-file-routing=1&system-context-v2=1"></script>
+  <script src="./client/app/image-workflow.js?v=1.6.2-live-status&precise-role-prompt=1&completed-replay=1&semantic-task-v2=1"></script>
+  <script src="./client/app/regenerate-workflow.js?v=1.2.4-live-status&clarify-persist=1&message-pool-wiring=1&completed-replay=1&semantic-task-v2=1"></script>
+  <script src="./client/app/message-workflow.js?v=1.3.42-quote-identity"></script>
   <script src="./client/app/display-history-workflow.js?v=2.0.5-pending-session-continuity"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.33"></script>
-  <script src="./client/app/route-decision-workflow.js?v=3.4.1-current-turn-identity"></script>
+  <script src="./client/app/route-intent-workflow.js?v=4.4.1-live-status&bounded-conversation=1"></script>
+  <script src="./client/app/clarification-choice-workflow.js?v=1.0.0"></script>
+
   <script src="./client/app/reasoning-workflow.js?v=1.3.35-reasoning-persistence"></script>
   <script src="./client/ui/file-actions.js?v=1.2.67"></script>
   <script src="./client/ui/realtime-renderer.js?v=1.2.65"></script>
@@ -691,7 +706,7 @@
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
   <script src="./client/app/bootstrap-workflow.js?v=2.1.2-ime-platform-guard"></script>
   <script src="./client/app/image-result-reconciliation.js?v=1.0.0"></script>
-  <script src="./app.js?v=2.3.0-auto-incident-feedback&explicit-labels-only&semantic-task-v2"></script>
+  <script src="./app.js?v=2.3.1-live-status&auto-incident-feedback=1&explicit-labels-only=1&semantic-task-v2=1&edit-quote-preserved=1"></script>
   </template>
 </body>
 </html>

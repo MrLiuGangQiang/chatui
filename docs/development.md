@@ -36,7 +36,7 @@ CHATUI_REQUEST_TRACE_MAX_BYTES=20971520
 CHATUI_REQUEST_TRACE_ROTATIONS=3
 ```
 
-重启 `npm start` 后，服务启动信息会显示实际日志路径。日志使用 `request_trace.v1` NDJSON，每次上游调用至少包含同一 `trace_id` 的 `request.started` 和 `request.completed`/`request.failed`。它会保留限长且脱敏的用户输入、路由输出和普通模型回复，便于复盘；系统提示词只记录长度与哈希，reasoning 只记录长度。API Key、Authorization、自定义 Header 值、文件 Base64、图片 Base64和签名 URL 查询参数不会落盘。日志可能包含用户对话正文，仅允许保存在受信任的本机环境，不得提交到 Git 或附加到 Release。
+重启 `npm start` 后，服务启动信息会显示实际日志路径。日志使用 `request_trace.v1` NDJSON，每次上游调用至少包含同一 `trace_id` 的 `request.started` 和 `request.completed`/`request.failed`。managed chat/image 请求在服务端执行边界还会写入 `execution.accepted` 或 `execution.rejected`：事件通过 `submission_id`、`job_id` 和 trace ID 关联同一次路由与最终执行，并在同一条记录中对照 execution plan prompt、provider payload prompt、binding evidence、实际资源绑定以及 `prompt_match` / `binding_evidence_match` 等校验结果。若客户端在 provider payload 创建前就因消息上下文绑定不一致而停止发送，会通过受限诊断端点写入 `source=client_pre_dispatch`、`validation_stage=client_context_projection` 的 `execution.rejected`；此时 `payload.available=false`，`context_projection` 会列出 expected、available、selected 和 missing message resource IDs，避免只能从“最终执行事件缺失”反推问题。它会保留限长且脱敏的用户输入、路由输出和普通模型回复，便于复盘；系统提示词只记录长度与哈希，reasoning 只记录长度。API Key、Authorization、自定义 Header 值、文件 Base64、图片 Base64和签名 URL 查询参数不会落盘。日志可能包含用户对话正文，仅允许保存在受信任的本机环境，不得提交到 Git 或附加到 Release。
 
 查看最近记录：
 
@@ -104,7 +104,7 @@ npm test -- --timeout=20000 unit/server-hardening.test.js
 - `test/fixtures/`：稳定、无秘密的测试输入；
 - `test/run-tests.js`：唯一的标准测试入口。
 
-新增测试应进入 `unit/` 或 `smoke/`。修改 legacy 行为时，优先把相关覆盖迁移到聚焦 suite，不要继续扩大 `test/legacy/regression.test.js`。
+新增测试应进入 `unit/` 或 `smoke/`。已删除的聚合 legacy regression suite 不得恢复；历史回归应迁移到聚焦的 unit/smoke 测试。
 
 测试名称应描述可观察行为。优先调用真实导出函数并断言结果；源码字符串断言只适合必须冻结的装配、缓存、发布或兼容约束，不能替代行为测试。
 
@@ -172,10 +172,12 @@ npm run eval:intent -- \
   --base-url https://example.invalid/v1 \
   --api-key "$CHATUI_EVAL_API_KEY" \
   --model route-model \
-  --no-write
+  --output temp/reports/intent-routing-live.json
 ```
 
-不要把真实凭据写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
+评估输入来自 `test/fixtures/intent-routing-eval.v1.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs` 的最小 `route_intent.v1`；`goal` 说明用户真正想完成的任务，历史消息与图片、文件一样通过候选键绑定。评估器随后通过生产 `route-service` 在本地重建资源绑定并编译最终计划，检查本地路由结果和 `dispatch_contract.v1` 的 operation、readiness、relation、资源绑定、澄清、参数与上下文策略。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。
+
+报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 
 ## 7. 本地 Docker release preview
 

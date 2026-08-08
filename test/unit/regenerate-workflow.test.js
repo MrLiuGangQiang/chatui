@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 require('../../client/app/app-context');
 const taskState = require('../../client/core/task-state');
-const clarification = require('../../client/services/clarification-service');
+const clarification = require('../../shared/clarification-answer');
 require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
 
@@ -93,9 +93,11 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   const options = fixture.getSentOptions();
   assert.strictEqual(options.submissionId, 'submit-regenerate-a');
   assert.strictEqual(options.clientJobId, 'imgjob-regenerate-a');
-  assert.strictEqual(options.taskContract.schema_version, 'task_contract.v5');
-  assert.strictEqual(options.taskContract.operation, 'text_to_image');
-  assert.strictEqual(options.executionMedia.version, 'execution_resources.v1');
+  assert.strictEqual(options.executionMedia.version, 'execution_resources.v2');
+  assert.strictEqual(options.dispatchContract.schema_version, 'dispatch_contract.v1');
+  assert.strictEqual(options.dispatchContract.operation, 'text_to_image');
+  assert.strictEqual(options.dispatchContract.arguments.prompt, 'draw a fox');
+  assert.deepStrictEqual(options.dispatchContract.bindings, []);
   assert.deepStrictEqual(options.attachments, []);
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
 }
@@ -132,7 +134,7 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
 }
 
-async function testRegeneratingClarificationReplaysPendingContractWithoutRerouting() {
+async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting() {
   const pending = clarification.createPendingClarification({
     messages: [{ role: 'user', content: '换一下猫的姿势' }],
     clarificationText: '请选择要修改的猫图。',
@@ -148,8 +150,6 @@ async function testRegeneratingClarificationReplaysPendingContractWithoutRerouti
       }],
     },
   });
-  const legacyPending = { ...pending };
-  delete legacyPending.id;
   const userNode = { dataset: { rawText: '换一下猫的姿势', messageIndex: '0' } };
   const contentNode = { textContent: '' };
   const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
@@ -171,7 +171,7 @@ async function testRegeneratingClarificationReplaysPendingContractWithoutRerouti
       { role: 'user', content: '换一下猫的姿势', rawText: '换一下猫的姿势', messageIndex: '0' },
       { role: 'assistant', content: pending.clarificationText, rawText: pending.clarificationText, responseIndex: '1' },
     ],
-    sessions: [{ id: 'session-clarification', pendingClarification: legacyPending, display: [liveItem], messages: [] }],
+    sessions: [{ id: 'session-clarification', pendingClarification: pending, display: [liveItem], messages: [] }],
   };
   state.sessions[0].messages = state.messages.slice();
   let prepareCalls = 0;
@@ -209,7 +209,7 @@ async function testRegeneratingClarificationReplaysPendingContractWithoutRerouti
   assert.strictEqual(prepareCalls, 0, 'replaying a clarification must not replace it with a generic routing placeholder');
   assert.strictEqual(routeCalls, 0, 'replaying a persisted clarification must not ask the route model to guess the task again');
   assert.ok(rendered?.value.includes('clarification-choice-card'));
-  assert.ok(state.messages[1].clarificationId, 'legacy clarification messages must be upgraded with a stable identity');
+  assert.ok(state.messages[1].clarificationId, 'the replayed clarification message must retain the canonical clarification identity');
   assert.strictEqual(state.sessions[0].pendingClarification.id, state.messages[1].clarificationId);
 }
 
@@ -218,5 +218,5 @@ module.exports = [
   testRegeneratePostHandoffFailureEntersRecovery,
   testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal,
   testRegenerateReusesSubmitResourceAndClarificationSemantics,
-  testRegeneratingClarificationReplaysPendingContractWithoutRerouting,
+  testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
 ];

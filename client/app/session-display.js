@@ -33,6 +33,9 @@
     const snapshotCommitWaitMs = Math.max(0, Number(deps.snapshotCommitWaitMs ?? 2000) || 0);
     const setTimeoutRef = deps.setTimeout || root.setTimeout || globalThis.setTimeout;
     const clearTimeoutRef = deps.clearTimeout || root.clearTimeout || globalThis.clearTimeout;
+    const pendingDisplayCheckpointMs = Math.max(0, Number(deps.pendingDisplayCheckpointMs ?? 500) || 0);
+    const pendingDisplayCheckpointTimers = new Map();
+    const pendingDisplayCheckpointDirty = new Set();
 
     const snapshotRecovery = snapshotRecoveryModule.createSessionSnapshotRecovery({
       getState,
@@ -207,7 +210,16 @@
       return compactDisplayItems((items || []).filter(item => item?.pending === '1').map(sanitizeStoredDisplayItem));
     }
 
+    function clearPendingDisplayCheckpoint(sessionId) {
+      const id = String(sessionId || '');
+      const timer = pendingDisplayCheckpointTimers.get(id);
+      if (timer !== undefined && typeof clearTimeoutRef === 'function') clearTimeoutRef(timer);
+      pendingDisplayCheckpointTimers.delete(id);
+      pendingDisplayCheckpointDirty.delete(id);
+    }
+
     function persistSessionDisplay(sessionId) {
+      clearPendingDisplayCheckpoint(sessionId);
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
       if (!session) return Promise.resolve();
@@ -241,7 +253,14 @@
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
       if (!session) return Promise.resolve();
-      const normalized = normalizeMessageList(messages, sessionId);
+      // This is the sole canonical-write boundary, not a message-deletion API.
+      // A late async writer may hold an older complete snapshot while a newer
+      // submit has already appended messages. Merge by stable message identity so
+      // that stale writes cannot erase a completed earlier answer.
+      const normalized = normalizeMessageList([
+        ...(Array.isArray(session.messages) ? session.messages : []),
+        ...(Array.isArray(messages) ? messages : []),
+      ], sessionId);
       session.messages = normalized;
       // Active-session writes are committed through this single boundary so the
       // working state can never drift from the canonical session record.
@@ -292,11 +311,52 @@
       if (options.quoteContext !== undefined) item.quoteContext = options.quoteContext || '';
       if (options.metaText !== undefined) item.metaText = options.metaText || '';
       if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning && !!item.reasoningText; }
-      if (options.pending === false) { item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
+      if (options.pending === false) { clearPendingDisplayCheckpoint(sessionId); item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
       ensurePendingItem(session, item);
       if (options.deferPersist !== true) persistSessionDisplay(sessionId);
     }
 
+    function checkpointSessionDisplayItem(sessionId, item, role, content, options = {}) {
+      const id = String(sessionId || '');
+      if (!id || !item) return null;
+      updateSessionDisplayItem(id, item, role, content, {
+        ...options,
+        pending: true,
+        deferPersist: true,
+      });
+      // Streaming HTML is a render projection, not the durable source. Keep rawText
+      // authoritative so refresh recovery never restores an older status bubble.
+      item.html = options.html === true ? String(content || '') : '';
+      pendingDisplayCheckpointDirty.add(id);
+      if (options.forcePersist === true || !pendingDisplayCheckpointMs || typeof setTimeoutRef !== 'function') {
+        persistSessionDisplay(id);
+        return item;
+      }
+      if (!pendingDisplayCheckpointTimers.has(id)) {
+        const timer = setTimeoutRef(() => {
+          pendingDisplayCheckpointTimers.delete(id);
+          if (!pendingDisplayCheckpointDirty.has(id)) return;
+          persistSessionDisplay(id);
+        }, pendingDisplayCheckpointMs);
+        pendingDisplayCheckpointTimers.set(id, timer);
+      }
+      return item;
+    }
+
+    function flushPendingDisplayCheckpoints(sessionId = '') {
+      const requested = String(sessionId || '');
+      const ids = requested ? [requested] : [...pendingDisplayCheckpointDirty];
+      const writes = [];
+      for (const id of ids) {
+        if (!pendingDisplayCheckpointDirty.has(id)) continue;
+        const timer = pendingDisplayCheckpointTimers.get(id);
+        if (timer !== undefined && typeof clearTimeoutRef === 'function') clearTimeoutRef(timer);
+        pendingDisplayCheckpointTimers.delete(id);
+        pendingDisplayCheckpointDirty.delete(id);
+        writes.push(Promise.resolve(persistSessionDisplay(id)));
+      }
+      return Promise.allSettled(writes);
+    }
     function persistDetachedResponse(sessionId, role, content, options = {}) {
       if (options.pending === true && sessionId !== getState().activeSessionId) return appendSessionDisplayMessage(sessionId, role, content, options);
       return null;
@@ -443,10 +503,12 @@
     }
 
     function deleteSessionSnapshot(sessionId) {
+      clearPendingDisplayCheckpoint(sessionId);
       clearSnapshotFallback(sessionId);
       return snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve();
     }
     function clearSessionSnapshots() {
+      [...pendingDisplayCheckpointTimers.keys()].forEach(clearPendingDisplayCheckpoint);
       (getState().sessions || []).forEach(session => clearSnapshotFallback(session?.id));
       try {
         const staleKeys = [];
@@ -480,6 +542,8 @@
       saveSessionMessages,
       appendSessionDisplayMessage,
       updateSessionDisplayItem,
+      checkpointSessionDisplayItem,
+      flushPendingDisplayCheckpoints,
       persistDetachedResponse,
       replaceLastSessionDisplayMessage,
       syncActiveSession,

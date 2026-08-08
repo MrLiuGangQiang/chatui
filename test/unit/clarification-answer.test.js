@@ -1,0 +1,163 @@
+'use strict';
+
+const assert = require('assert');
+const clarificationAnswer = require('../../shared/clarification-answer');
+
+function slots() {
+  return [
+    {
+      key: 'r1', type: 'image', role: 'target', reason: 'ambiguous', choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'img-a', resource_id: 'res:image:img-a', reference_id: 'ref-a', label: '图片 A' },
+        { key: 'c2', source: 'history', index: 2, id: 'img-b', resource_id: 'res:image:img-b', reference_id: 'ref-b', label: '图片 B' },
+      ],
+    },
+    {
+      key: 'p1', type: 'parameter', role: 'argument', reason: 'ambiguous', parameter_name: 'size', choices: [
+        { key: 'v1', label: '方图', value: '1024x1024' },
+        { key: 'v2', label: '竖图', value: '1024x1536' },
+      ],
+    },
+  ];
+}
+
+function testClarificationAnswerUsesAnExactVersionedShape() {
+  const answer = clarificationAnswer.createClarificationAnswer({
+    clarificationId: 'clarify-1',
+    answers: [{ resource_key: 'r1', choice_key: 'c2' }],
+    freeText: '选择第二张',
+  });
+  assert.strictEqual(clarificationAnswer.hasExactClarificationAnswer(answer), true);
+  assert.strictEqual(Object.isFrozen(answer), true);
+  assert.strictEqual(Object.isFrozen(answer.answers), true);
+  assert.strictEqual(clarificationAnswer.hasExactClarificationAnswer({ ...answer, extra: true }), false);
+  assert.throws(() => clarificationAnswer.createClarificationAnswer({
+    clarificationId: 'clarify-1',
+    answers: [{ resource_key: 'r1', choice_key: 'c1' }, { resource_key: 'r1', choice_key: 'c2' }],
+  }), error => error?.code === 'CLARIFICATION_ANSWER_INVALID');
+}
+
+function testClarificationAnswerRejectsAStaleClarificationId() {
+  const answer = clarificationAnswer.createClarificationAnswer({
+    clarificationId: 'clarify-old', answers: [{ resource_key: 'r1', choice_key: 'c1' }],
+  });
+  assert.throws(
+    () => clarificationAnswer.assertClarificationId(answer, 'clarify-current'),
+    error => error?.code === 'CLARIFICATION_ANSWER_ID_MISMATCH',
+  );
+}
+
+function testSingleChoiceNumericAnswerIsDeterministic() {
+  const answer = clarificationAnswer.parseClarificationAnswer('第 2 张', {
+    clarificationId: 'clarify-1', slots: [slots()[0]],
+  });
+  assert.deepStrictEqual(answer.answers, [{ resource_key: 'r1', choice_key: 'c2' }]);
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer('第二张看起来更好', {
+    clarificationId: 'clarify-1', slots: [slots()[0]],
+  }), null, 'free-form text must not be guessed into a structured choice');
+}
+
+function testMultipleChoiceSlotsRequireExplicitKeysOrGroups() {
+  const keyed = clarificationAnswer.parseClarificationAnswer('r1=c2 p1=v1', {
+    clarificationId: 'clarify-1', slots: slots(),
+  });
+  assert.deepStrictEqual(keyed.answers, [
+    { resource_key: 'r1', choice_key: 'c2' },
+    { resource_key: 'p1', choice_key: 'v1' },
+  ]);
+  const grouped = clarificationAnswer.parseClarificationAnswer('第1组选2，第2组选1', {
+    clarificationId: 'clarify-1', slots: slots(),
+  });
+  assert.deepStrictEqual(grouped.answers, [
+    { resource_key: 'r1', choice_key: 'c2' },
+    { resource_key: 'p1', choice_key: 'v1' },
+  ]);
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer('2', {
+    clarificationId: 'clarify-1', slots: slots(),
+  }), null, 'one bare ordinal cannot choose across multiple slots');
+}
+
+function testApplyingAnswerSeparatesResourceAndParameterSelections() {
+  const answer = clarificationAnswer.parseClarificationAnswer('r1=c2 p1=v2', {
+    clarificationId: 'clarify-1', slots: slots(),
+  });
+  const applied = clarificationAnswer.applyClarificationAnswer(answer, slots(), { clarificationId: 'clarify-1' });
+  assert.strictEqual(applied.complete, true);
+  assert.deepStrictEqual(applied.selectedParameters, { size: '1024x1536' });
+  assert.deepStrictEqual(applied.selectedResources, [{
+    resource_key: 'r1', choice_key: 'c2', type: 'image', role: 'target', source: 'history', index: 2,
+    id: 'img-b', resource_id: 'res:image:img-b', reference_id: 'ref-b', label: '图片 B',
+  }]);
+}
+
+function testClarificationContextSeparatesEstablishedAndSelectedResources() {
+  const established = {
+    key: 'r1', type: 'image', role: 'reference', source: 'history', index: 1,
+    id: 'img-cat', resource_id: 'res:image:img-cat', reference_id: 'ref-cat', label: '猫',
+  };
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-compose',
+    messages: [{ role: 'user', content: '把猫和鱼合并成一张图' }],
+    clarificationText: '请选择鱼。',
+    routeInfo: {
+      operationType: 'image_reference_gen',
+      relation: 'followup',
+      resources: [established],
+      clarificationSlots: [{
+        key: 'r2', type: 'image', role: 'reference', reason: 'ambiguous', choices: [{
+          key: 'c1', source: 'history', index: 2, id: 'img-fish',
+          resource_id: 'res:image:img-fish', reference_id: 'ref-fish', label: '彩色鱼',
+        }],
+      }],
+    },
+  });
+  const answer = clarificationAnswer.createClarificationAnswer({
+    clarificationId: pending.id,
+    answers: [{ resource_key: 'r2', choice_key: 'c1' }],
+    freeText: '彩色鱼',
+  });
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  const context = clarificationAnswer.buildClarificationRouteContext({ pending: applied.pending });
+
+  assert.deepStrictEqual(context.clarification_context.established_resources, [established]);
+  assert.deepStrictEqual(context.clarification_context.selected_resources.map(resource => resource.id), ['img-fish']);
+  assert.deepStrictEqual(context.image_candidates.map(candidate => candidate.image_id), ['img-fish', 'img-cat'],
+    'new selections and pre-clarification bindings must both survive the reroute handoff');
+}
+
+function testAnswerBuildsAResolvedClarificationContext() {
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-1',
+    messages: [{ role: 'user', content: '把背景改成蓝色' }],
+    clarificationText: '请选择目标图片。',
+    routeInfo: {
+      operationType: 'edit_image',
+      relation: 'followup',
+      resources: [],
+      clarificationSlots: [slots()[0]],
+    },
+  });
+  const answer = clarificationAnswer.parseClarificationAnswer('2', {
+    clarificationId: 'clarify-1', slots: [slots()[0]],
+  });
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  const context = clarificationAnswer.buildClarificationRouteContext({ pending: applied.pending });
+  assert.strictEqual(context.clarification_context.schema_version, 'clarification_context.v4');
+  assert.strictEqual(context.clarification_context.operation, 'edit_image');
+  assert.strictEqual(context.clarification_context.relation, 'followup');
+  assert.strictEqual(context.clarification_context.answer_complete, true);
+  assert.deepStrictEqual(context.clarification_context.selected_parameters, {});
+  assert.deepStrictEqual(context.clarification_context.selected_resources, [{
+    resource_key: 'r1', choice_key: 'c2', type: 'image', role: 'target', source: 'history', index: 2,
+    id: 'img-b', resource_id: 'res:image:img-b', reference_id: 'ref-b', label: '图片 B',
+  }]);
+}
+
+module.exports = [
+  testClarificationAnswerUsesAnExactVersionedShape,
+  testClarificationAnswerRejectsAStaleClarificationId,
+  testSingleChoiceNumericAnswerIsDeterministic,
+  testMultipleChoiceSlotsRequireExplicitKeysOrGroups,
+  testApplyingAnswerSeparatesResourceAndParameterSelections,
+  testClarificationContextSeparatesEstablishedAndSelectedResources,
+  testAnswerBuildsAResolvedClarificationContext,
+];

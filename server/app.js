@@ -13,10 +13,10 @@ const { createFeedbackReviewer } = require('./services/feedback-review.service')
 const { createUsageAccessValidator } = require('./services/usage-access.service');
 const { readReleaseNotes } = require('./services/release-notes.service');
 const { readAnnouncements } = require('./services/announcements.service');
-const { createRequestTraceLogger } = require('./logging/request-trace');
+const { createLoggers } = require('./logging');
 
 function createApp() {
-  const requestTrace = createRequestTraceLogger({ root: ROOT });
+  const { accessLog, errorLog, serverLog, requestTrace, newTrace } = createLoggers({ root: ROOT });
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
   const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
@@ -26,7 +26,7 @@ function createApp() {
   const { imageJobs, chatJobs } = createJobStores();
   const jobSubscribers = new Map();
   const sweeper = startJobSweeper([imageJobs, chatJobs]);
-  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace });
+  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace, errorLog });
   const {
     makeChatJob,
     abortJob,
@@ -51,11 +51,18 @@ function createApp() {
     allowedProxyMethods: ALLOWED_PROXY_METHODS,
     allowedProxyPaths: ALLOWED_PROXY_PATHS,
     requestTrace,
+    errorLog,
   });
   const route = createRouter({
     appVersion: APP_VERSION,
     buildIdentity: BUILD_IDENTITY,
     readPublicConfig,
+    // Logging
+    accessLog,
+    errorLog,
+    serverLog,
+    requestTrace,
+    newTrace,
     readChangelog: () => readReleaseNotes({ root: ROOT }),
     readAnnouncements: () => readAnnouncements({ root: ROOT }),
     send,
@@ -83,11 +90,18 @@ function createApp() {
     feedbackSender,
   });
   const server = http.createServer(route);
+
+  serverLog.started({ host: '0.0.0.0', port: 8765 });
+
   server.on('close', () => {
+    serverLog.stopped({ reason: 'server.close' });
     clearInterval(sweeper);
-    postgresPool?.end?.().catch(err => console.error('[postgres] failed to close pool:', err));
+    postgresPool?.end?.().catch(err => {
+      console.error('[postgres] failed to close pool:', err);
+      errorLog.log(err, { source: 'postgres' });
+    });
   });
-  return { server, stores: { imageJobs, chatJobs }, sweeper, requestTrace };
+  return { server, stores: { imageJobs, chatJobs }, sweeper, requestTrace, accessLog, errorLog, serverLog };
 }
 
 module.exports = { createApp };

@@ -46,8 +46,8 @@ function testSupportedFilesLauncherReusesDocumentModalLifecycle() {
   assert.strictEqual(document.activeElement, filesTrigger);
 
   routeTrigger.click();
-  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=2.7.0-s-track-progress');
-  assert.strictEqual(frame.getAttribute('title'), '意图识别流程图');
+  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=3.4.4-single-character-gate-icon');
+  assert.strictEqual(frame.getAttribute('title'), '一条消息是怎样被处理的');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-aspect'), '1672 / 941');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-max-width'), '1672px');
   assert.strictEqual(routeTrigger.getAttribute('aria-expanded'), 'true');
@@ -58,6 +58,9 @@ function testSupportedFilesLauncherReusesDocumentModalLifecycle() {
 
 
 function testRouteDiagramPublishesSessionScopedProgress() {
+  assert.strictEqual(routeDiagramWorkflow.deriveRouteStage({ phase: 'routing', pendingStage: 'captured' }), 'captured');
+  assert.strictEqual(routeDiagramWorkflow.deriveRouteStage({ phase: 'completed', pendingClarification: true }), 'clarification');
+  assert.strictEqual(routeDiagramWorkflow.deriveRouteActiveStep, undefined, 'the public workflow must not expose the retired twelve-step model');
   const dom = createLauncherDom();
   const { document } = dom.window;
   const frame = document.getElementById('routeDiagramFrame');
@@ -126,7 +129,7 @@ function testRouteDiagramPublishesSessionScopedProgress() {
       jobKind: 'chat',
       pendingStage: 'handoff',
       pendingClarification: false,
-      activeStep: '12',
+      routeStage: 'running',
       taskRevision: 7,
       syncSequence: 2,
     });
@@ -146,7 +149,7 @@ function testRouteDiagramPublishesSessionScopedProgress() {
       jobKind: '',
       pendingStage: 'routing',
       pendingClarification: true,
-      activeStep: '10',
+      routeStage: 'clarification',
       taskRevision: 4,
       syncSequence: 3,
     });
@@ -157,7 +160,7 @@ function testRouteDiagramPublishesSessionScopedProgress() {
     const sessionC = messages.at(-1).message;
     assert.strictEqual(sessionC.sessionId, 'session-c');
     assert.strictEqual(sessionC.phase, 'routing');
-    assert.strictEqual(sessionC.activeStep, '07');
+    assert.strictEqual(sessionC.routeStage, 'routing');
     assert.strictEqual(sessionC.pendingStage, '', 'a stale pending submission must not describe a newer task in the same session');
     assert.strictEqual(sessionC.jobId, '');
     assert.strictEqual(sessionC.jobKind, '');
@@ -177,6 +180,8 @@ function testSupportedFilesLauncherShipsItsStaticPage() {
 
   assert.ok(index.indexOf('id="supportedFilesFab"') < index.indexOf('id="routeDiagramFab"'), 'the supported-files button must sit before the route-map button');
   assert.ok(index.includes('aria-controls="routeDiagramModal"'), 'both launchers must share the existing document modal');
+  assert.ok(index.includes('aria-label="查看消息处理流程"'));
+  assert.ok(index.includes('route-diagram-workflow.js?v=3.4.4-single-character-gate-icon'));
   assert.ok(index.includes('id="filesFabGradient"') && index.includes('class="fab-files-spark"'), 'the files launcher must use the layered neon file icon');
   assert.ok(index.includes('id="routeFabGradient"') && index.includes('class="fab-route-comet"'), 'the route launcher must use the animated neon route icon');
   assert.ok(!index.includes('id="routeDiagramTitle"') && !index.includes('id="routeDiagramHint"'), 'the shared viewer must not render a title or description bar');
@@ -193,7 +198,7 @@ function testSupportedFilesLauncherShipsItsStaticPage() {
   assert.strictEqual(staticHttp.isPublicStaticPath('/route.html'), false, 'the retired root route path must not remain public');
   assert.ok(dockerfile.includes('COPY pages ./pages'), 'the Docker runtime must package the shared standalone-page directory');
   assert.ok(fs.readFileSync(path.join(root, 'pages/files.html'), 'utf8').includes('<title>支持的文件格式</title>'));
-  assert.ok(fs.readFileSync(path.join(root, 'pages/route.html'), 'utf8').includes('你的消息怎样变成任务'));
+  assert.ok(fs.readFileSync(path.join(root, 'pages/route.html'), 'utf8').includes('一条消息是怎样被处理的'));
 }
 
 module.exports = [testSupportedFilesLauncherReusesDocumentModalLifecycle, testRouteDiagramPublishesSessionScopedProgress, testSupportedFilesLauncherShipsItsStaticPage];

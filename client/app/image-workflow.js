@@ -7,14 +7,16 @@
     buildImageRoleGuide,
     buildImageRoleMap,
   } = imageExecutionModule;
+  const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
+    || (typeof require === 'function' ? require('./execution-status') : {});
 
   function createImageWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
-    const intentContract = root?.ChatUICoreIntentContract
-      || root?.ChatUICore?.intentContract
-      || (typeof require === "function" ? require("../core/intent-contract") : {});
+    const dispatchContract = root?.[Symbol.for("chatui.module-registry.v1")]?.get("dispatchContract")
+      || root?.ChatUIDispatchContract
+      || (typeof require === "function" ? require("../../shared/dispatch-contract") : {});
 
-    const imageExecutionPolicy = imageExecutionModule.createImageExecutionPolicy({ intentContract });
+    const imageExecutionPolicy = imageExecutionModule.createImageExecutionPolicy({ dispatchContract });
     const { requireCanonicalImageExecution } = imageExecutionPolicy;
 
     function isRecoverableJobSnapshot(savedJob, expectedJob) {
@@ -27,11 +29,27 @@
     async function sendImage(e, t = {}) {
       with (deps) {
         const s = getConfig();
+        // Execution bindings stay in the dispatch contract and media payload.
+        // They are not user-facing result metadata.
+        const pendingImageFeedback = status => pendingFeedbackHtml(status);
         if (!s.baseUrl || !s.imageModel)
           throw new Error("请先配置 Endpoint Base URL 和生图模型");
-        const canonicalExecution = requireCanonicalImageExecution(t.taskContract, t.executionMedia),
+        const executionContract = t.dispatchContract;
+        if (typeof dispatchContract?.hasExactDispatchContract !== 'function'
+            || !dispatchContract.hasExactDispatchContract(executionContract)
+            || !['image_generation', 'image_edit'].includes(String(executionContract.api || ''))) {
+          const error = new TypeError('A validated image dispatch_contract.v1 is required before dispatch');
+          error.code = 'IMAGE_DISPATCH_CONTRACT_REQUIRED';
+          error.statusCode = 400;
+          throw error;
+        }
+        const preparationStatus = executionStatus.operationStatusText?.(executionContract, 'prepare') || '正在准备图片任务';
+        const executionWaitStatus = executionStatus.operationStatusText?.(executionContract, 'execute') || '正在生成图片';
+        const canonicalExecution = requireCanonicalImageExecution(executionContract, t.executionMedia),
+          executionBindingEvidence = dispatchContract.bindingEvidenceFromMedia(t.executionMedia || {}),
           n = t.sessionId || state.activeSessionId,
           a = ensureActiveRun(n);
+        dispatchContract.assertBindingEvidence(executionContract, executionBindingEvidence);
         setActiveOutputForSession(n, null);
         if (a.stopped || a.abortController?.signal?.aborted)
           throw new DOMException("已停止", "AbortError");
@@ -48,8 +66,8 @@
             ? t.loadingNode ||
               addMessage(
                 "assistant",
-                pendingFeedbackHtml("正在处理中 请稍后"),
-                { html: !0, rawText: "正在处理中 请稍后", skipSave: !0 },
+                pendingImageFeedback(preparationStatus),
+                { html: !0, rawText: preparationStatus, skipSave: !0 },
               )
             : null;
         const c =
@@ -57,8 +75,8 @@
           appendSessionDisplayMessage(
             n,
             "assistant",
-            pendingFeedbackHtml("正在处理中 请稍后"),
-            { html: !0, rawText: "正在处理中 请稍后", pending: !0 },
+            pendingImageFeedback(preparationStatus),
+            { html: !0, rawText: preparationStatus, pending: !0 },
           );
         if (d && c) {
           const e = d.dataset?.displayItemId || "",
@@ -71,31 +89,51 @@
               s && (d.dataset.displayItemId = s),
               a && (d.dataset.responseIndex = a));
         }
-        d?.isConnected && clearReasoning?.(d);
+        if (d?.isConnected) {
+          clearReasoning?.(d);
+          updateMessage(d, pendingImageFeedback(preparationStatus), {
+            html: !0,
+            rawText: preparationStatus,
+            skipSave: !0,
+          });
+        }
         if (c) {
           delete c.reasoningText;
           c.keepReasoning = !1;
+          updateLiveDisplay(n, c, 'assistant', pendingImageFeedback(preparationStatus), {
+            html: !0,
+            rawText: preparationStatus,
+            pending: !0,
+          });
           persistSessionDisplay(n);
         }
         const m = canonicalExecution.imageInputs,
           P = String(t.originalPrompt || e || "").trim(),
-          executionPrompt = String(e || P || "").trim();
+          executionPrompt = String(executionContract.arguments?.prompt || e || P || "").trim();
         const routeFallbackPrompt = String(
             t.editInstruction || t.routePrompt || t.originalPrompt || P || "",
           ).trim(),
           E = executionPrompt || routeFallbackPrompt || P,
-          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs, t.taskContract),
+          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs, t.dispatchContract),
           roleAwarePrompt = [E, referenceRoleGuide].filter(Boolean).join("\n\n"),
           stylePrompt = canonicalExecution.operation === "edit_image" ? "" : getEffectiveImageStylePrompt(n, s),
           g = buildImagePromptWithStylePrompt(roleAwarePrompt, stylePrompt),
+          planArguments = executionContract.arguments || {},
+          requestedSize = String(planArguments.size || '').trim() && planArguments.size !== 'auto'
+            ? planArguments.size
+            : s.imageSize,
           q = {},
           u = window.ChatUIServices?.images?.buildImageRequestPayload
             ? window.ChatUIServices.images.buildImageRequestPayload({
                 model: s.imageModel,
                 prompt: g,
-                size: s.imageSize,
+                size: requestedSize,
+                quality: planArguments.quality,
+                background: planArguments.background,
+                output_format: planArguments.output_format,
               })
             : { model: s.imageModel, prompt: g };
+        if (Number(planArguments.count) > 1) u.n = Number(planArguments.count);
         if (canonicalExecution.imageInputs.length > 1) {
           u.image_role_map = JSON.stringify(buildImageRoleMap(canonicalExecution.imageInputs));
         }
@@ -108,6 +146,14 @@
           "auto" !== s.imageSize &&
           !u.size &&
           (u.size = s.imageSize);
+        const materializedDispatchContract = dispatchContract.withArguments(executionContract, {
+          prompt: String(u.prompt || '').trim(),
+          size: u.size || 'auto',
+          quality: u.quality || 'auto',
+          background: u.background || 'auto',
+          output_format: u.output_format || 'auto',
+          count: Number(u.n) || Number(planArguments.count) || 1,
+        });
         let p = "",
           completionJobId = "",
           A = new Set(),
@@ -142,7 +188,7 @@
             maskAttachments = [...canonicalExecution.masks];
           const isRefGen = canonicalExecution.operation === "image_reference_gen",
             requiresImageEdit = canonicalExecution.api === "image_edit",
-            productMode = isRefGen ? "image" : requiresImageEdit ? "edit_image" : "image",
+            productMode = requiresImageEdit ? "edit_image" : "image",
             h = !isRefGen && canonicalExecution.targets.some((item) =>
               ["history", "context"].includes(String(item?.routeSource || "")),
             );
@@ -206,7 +252,7 @@
                 shouldSuppressRunUi(n, a.token) ||
                   (d?.isConnected &&
                     (clearPendingFeedback(d),
-                    updateMessage(d, pendingFeedbackHtml(`${e} 已等待 0 秒`), {
+                    updateMessage(d, pendingImageFeedback(`${e} 已等待 0 秒`), {
                       html: !0,
                       rawText: `${e}… 已等待 0 秒`,
                       skipSave: !0,
@@ -215,7 +261,7 @@
                     n,
                     c,
                     "assistant",
-                    pendingFeedbackHtml(`${e} 已等待 0 秒`),
+                    pendingImageFeedback(`${e} 已等待 0 秒`),
                     {
                       html: !0,
                       rawText: `${e}… 已等待 0 秒`,
@@ -227,7 +273,7 @@
                     if (shouldSuppressRunUi(n, a.token)) return;
                     const t = Math.floor((performance.now() - r) / 1e3),
                       s = `${e}… 已等待 ${t} 秒`,
-                      u = pendingFeedbackHtml(`${e} 已等待 ${t} 秒`);
+                      u = pendingImageFeedback(`${e} 已等待 ${t} 秒`);
                     (d?.isConnected &&
                       updateMessage(d, u, {
                         html: !0,
@@ -242,7 +288,7 @@
                         noScroll: !shouldFollowScroll(),
                       }));
                   }, 1e3))));
-            })(f.length && !isRefGen ? "正在修改图片" : "正在生成图片"),
+            })(executionWaitStatus),
             requiresImageEdit)
           ) {
             const e = clientImageJobId;
@@ -273,11 +319,21 @@
                 "图片编辑任务的 mask 数据无法恢复，请重新上传 mask 后再修改",
               );
             }
+            dispatchContract.assertPayloadMatchesDispatchContract(materializedDispatchContract, {
+              payload: u,
+              mode: "edit_image",
+              files: F,
+              masks: M,
+              bindingEvidence: executionBindingEvidence,
+            });
             const durableImageJob = {
                 id: e,
                 prompt: g,
                 payload: u,
                 mode: "edit_image",
+                requestPurpose: "final_execution",
+                dispatchContract: materializedDispatchContract,
+                bindingEvidence: executionBindingEvidence,
                 imageContext: I,
                 startedAt: Date.now(),
                 displayItemId: c?.id || "",
@@ -299,6 +355,10 @@
             T = performance.now();
             const i = await startImageGenerationJob(u, s, e, {
               mode: "edit_image",
+              requestPurpose: "final_execution",
+              dispatchContract: materializedDispatchContract,
+              bindingEvidence: executionBindingEvidence,
+              submissionId: t.submissionId || "",
               files: F,
               masks: M,
               signal: a.abortController.signal,
@@ -308,12 +368,12 @@
                 if (shouldSuppressRunUi(n, a.token)) return;
                 const t = `正在上传图片… ${e}%`;
                 (d?.isConnected &&
-                  updateMessage(d, pendingFeedbackHtml(t), {
+                  updateMessage(d, pendingImageFeedback(t), {
                     html: !0,
                     rawText: t,
                     skipSave: !0,
                   }),
-                  updateLiveDisplay(n, c, "assistant", pendingFeedbackHtml(t), {
+                  updateLiveDisplay(n, c, "assistant", pendingImageFeedback(t), {
                     html: !0,
                     rawText: t,
                     pending: !0,
@@ -327,6 +387,9 @@
               prompt: g,
               payload: u,
               mode: "edit_image",
+              requestPurpose: "final_execution",
+              dispatchContract: materializedDispatchContract,
+              bindingEvidence: executionBindingEvidence,
               imageContext: I,
               startedAt: i.createdAt || Date.now(),
               displayItemId: c?.id || "",
@@ -349,11 +412,21 @@
             (addActiveRunJob(n, "image", e),
               A.add(e),
               state.followingImageJobs.add(e));
-            const durableImageJob = {
+            dispatchContract.assertPayloadMatchesDispatchContract(materializedDispatchContract, {
+               payload: u,
+               mode: "image",
+               files: [],
+               masks: [],
+               bindingEvidence: executionBindingEvidence,
+             });
+             const durableImageJob = {
                 id: e,
                 prompt: g,
                 payload: u,
                 mode: "image",
+                requestPurpose: "final_execution",
+                dispatchContract: materializedDispatchContract,
+                bindingEvidence: executionBindingEvidence,
                 imageContext: I,
                 startedAt: Date.now(),
                 displayItemId: c?.id || "",
@@ -374,6 +447,10 @@
             completeDurableHandoff();
             T = performance.now();
             const imageJob = await startImageGenerationJob(u, s, e, {
+              requestPurpose: "final_execution",
+              dispatchContract: materializedDispatchContract,
+              bindingEvidence: executionBindingEvidence,
+              submissionId: t.submissionId || "",
               signal: a.abortController.signal,
               headers: q,
               sessionId: n,
@@ -383,6 +460,9 @@
               prompt: g,
               payload: u,
               mode: "image",
+              requestPurpose: "final_execution",
+              dispatchContract: materializedDispatchContract,
+              bindingEvidence: executionBindingEvidence,
               imageContext: I,
               startedAt: imageJob.createdAt || Date.now(),
               displayItemId: c?.id || "",
@@ -407,13 +487,13 @@
                 : null,
             v = formatElapsed(jobDurationMs(x) ?? performance.now() - (T || r)),
             b = await imageResultToHtml(x, v, {
-              prompt: P,
+              prompt: E,
               routePrompt: t.originalPrompt || I.routePrompt || "",
               sessionId: n,
               headers: q,
             });
           if (h && selectedIndexes.length)
-            mergeSelectedGeneratedImages(n, selectedIndexes, P, C);
+            mergeSelectedGeneratedImages(n, selectedIndexes, E, C);
           (h || (!isRefGen && "edit_image" === I.mode)) &&
             (b.html = b.html.replace(
               "生成完成",
@@ -421,12 +501,12 @@
             ));
           const w = window.ChatUIServices?.images?.buildImageCompletionMessage
             ? window.ChatUIServices.images.buildImageCompletionMessage({
-                prompt: P,
+                prompt: E,
                 mode: h || (!isRefGen && "edit_image" === I.mode) ? "edit_image" : "image",
               })
             : h
-              ? `[图片编辑完成] ${P}`
-              : `[图片生成完成] ${P}`;
+              ? `[图片编辑完成] ${E}`
+              : `[图片生成完成] ${E}`;
           const resultImageContext = b.imageContext
               ? normalizeImageContextForStorage({
                   ...b.imageContext,

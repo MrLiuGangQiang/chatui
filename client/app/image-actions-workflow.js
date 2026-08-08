@@ -26,11 +26,19 @@
 
     async function downloadImageActionElement(e){const t=downloadFilename(e.dataset.filename,"generated-image","png");try{const s=await getImageActionBlob(e),n=URL.createObjectURL(s),a=document.createElement("a");a.href=n,a.download=t,a.rel="noreferrer",document.body.appendChild(a),a.click(),a.remove(),setTimeout(()=>URL.revokeObjectURL(n),3e4)}catch(e){toast(e.message||String(e))}}
 
-    function canWriteImageClipboard(){return window.isSecureContext&&!!navigator.clipboard?.write&&"function"==typeof ClipboardItem}
+    const IMAGE_CLIPBOARD_TYPE="image/png";
 
-    function imageClipboardUnsupportedMessage(){return window.isSecureContext?"当前浏览器不支持复制图片到剪切板":"复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持"}
+    function normalizedImageMimeType(e){return String(e||"").split(";",1)[0].trim().toLowerCase()}
 
-    async function copyImageActionElement(e){try{if(!canWriteImageClipboard())throw new Error(imageClipboardUnsupportedMessage());const t=await getImageActionBlob(e),s=t.type&&/^image\//i.test(t.type)?t.type:"image/png",n="image/png"===s?t:await new Promise((e,n)=>{const a=new Image,i=URL.createObjectURL(t);a.onload=()=>{try{const t=document.createElement("canvas");t.width=a.naturalWidth||a.width,t.height=a.naturalHeight||a.height,t.getContext("2d").drawImage(a,0,0),t.toBlob(t=>{URL.revokeObjectURL(i),t?e(t):n(new Error("图片转换失败"))},"image/png")}catch(e){URL.revokeObjectURL(i),n(e)}},a.onerror=()=>{URL.revokeObjectURL(i),n(new Error("图片转换失败"))},a.src=i});await navigator.clipboard.write([new ClipboardItem({[n.type||"image/png"]:n})]),toast("图片已复制")}catch(e){toast(e.message||String(e))}}
+    function clipboardItemSupports(e){try{return typeof ClipboardItem?.supports!=="function"||ClipboardItem.supports(e)}catch{return!1}}
+
+    function canWriteImageClipboard(){return!!window?.isSecureContext&&"function"==typeof navigator?.clipboard?.write&&"function"==typeof ClipboardItem&&clipboardItemSupports(IMAGE_CLIPBOARD_TYPE)}
+
+    function imageClipboardUnsupportedMessage(){return window?.isSecureContext?"当前浏览器不支持复制图片到剪切板":"复制图片需要 HTTPS 或 localhost，当前局域网 HTTP 地址不支持"}
+
+    function imageBlobToClipboardPng(e){if(!e)throw new Error("图片缓存不存在，请重新生成");if(IMAGE_CLIPBOARD_TYPE===normalizedImageMimeType(e.type))return e;return new Promise((t,s)=>{if(typeof Image!=="function"||typeof URL?.createObjectURL!=="function")return s(new Error("图片转换失败"));const n=new Image,a=URL.createObjectURL(e);let i=!1;const o=()=>{a&&URL.revokeObjectURL(a)},r=e=>{if(i)return;i=!0,o(),s(e)},c=e=>{if(i)return;i=!0,o(),t(e)};n.onload=()=>{try{const e=n.naturalWidth||n.width,s=n.naturalHeight||n.height;if(!(e>0&&s>0))throw new Error("图片转换失败");const l=document.createElement("canvas");l.width=e,l.height=s;const a=l.getContext("2d");if(!a)throw new Error("图片转换失败");a.drawImage(n,0,0,e,s),l.toBlob(e=>{e?c(e):r(new Error("图片转换失败"))},IMAGE_CLIPBOARD_TYPE)}catch(e){r(e)}};n.onerror=()=>r(new Error("图片转换失败"));try{n.src=a}catch(e){r(e)}})}
+
+    async function copyImageActionElement(e){try{if(!canWriteImageClipboard())throw new Error(imageClipboardUnsupportedMessage());const t=getImageActionBlob(e).then(imageBlobToClipboardPng),s=new ClipboardItem({[IMAGE_CLIPBOARD_TYPE]:t});await navigator.clipboard.write([s]),toast("图片已复制")}catch(e){toast(e.message||String(e))}}
 
     async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");for(const e of t){const t=document.createElement("button");t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=downloadFilename(e.dataset.filename,"generated-image","png"),await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
 

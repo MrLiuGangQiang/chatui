@@ -128,36 +128,106 @@
     return escapeHtml(question).replace(/\r?\n/g, '<br>');
   }
 
+  function routePreviewResource(routeInfo = {}) {
+    const direct = Array.isArray(routeInfo?.imageRefs) ? routeInfo.imageRefs : [];
+    const target = direct.find(item => item?.role === 'target') || direct.find(item => item?.role === 'reference') || direct[0] || null;
+    const execution = routeInfo?.executionResources;
+    const resources = Array.isArray(execution?.targets) && execution.targets.length
+      ? execution.targets
+      : Array.isArray(execution?.references) ? execution.references : [];
+    const resource = resources.find(item => String(item?.id || item?.image_id || '') === String(target?.image_id || target?.id || ''))
+      || resources[0] || null;
+    return { target, resource };
+  }
+
+  function buildExecutionPreviewPresentation(routeInfo = {}, options = {}) {
+    const operation = String(routeInfo?.operationType || routeInfo?.operation || '').trim();
+    if (!['edit_image', 'image_reference_gen'].includes(operation)) return { text: '', html: '' };
+    const { target, resource } = routePreviewResource(routeInfo);
+    if (!target && !resource) return { text: '', html: '' };
+    const lookup = createImageLookup(options);
+    const item = resolveChoiceImage({
+      id: target?.image_id || target?.id || resource?.id || '',
+      reference_id: target?.reference_id || target?.referenceId || resource?.reference_id || '',
+      index: target?.index || resource?.index || 1,
+      source: target?.source || resource?.source || 'history',
+    }, lookup);
+    const source = imageSource(item || {});
+    const label = compactLabel(
+      resource?.label || resource?.description || resource?.semantic_text || resource?.prompt
+      || item?.description || item?.semantic_description || item?.prompt || item?.name || item?.filename
+      || '已选择的图片',
+      96,
+    ) || '已选择的图片';
+    const instruction = String(
+      routeInfo?.editInstruction || routeInfo?.contextualImagePrompt || routeInfo?.executionPlan?.arguments?.prompt || '',
+    ).replace(/\s+/g, ' ').trim().slice(0, 140);
+    const action = operation === 'edit_image' ? '将修改这张图片' : '将参考这张图片';
+    const text = `${action}：${label}${instruction && operation === 'edit_image' ? `；修改内容：${instruction}` : ''}`;
+    const media = source
+      ? `<img class="route-execution-preview-image" data-route-execution-preview="1" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" alt="本次要使用的图片" />`
+      : '<span class="route-execution-preview-placeholder" aria-label="本次要使用的图片暂时无法预览">图片暂时无法预览</span>';
+    const detail = instruction && operation === 'edit_image'
+      ? `<p class="route-execution-preview-detail">修改内容：${escapeHtml(instruction)}</p>`
+      : '';
+    return {
+      text,
+      html: `<section class="route-execution-preview" data-route-execution-preview="1"><div class="route-execution-preview-media">${media}</div><div class="route-execution-preview-copy"><strong>${escapeHtml(action)}</strong><span>${escapeHtml(label)}</span>${detail}</div></section>`,
+    };
+  }
+
   function buildClarificationPresentation(routeInfo = {}, options = {}) {
     const question = String(routeInfo.clarificationQuestion || '请选择要使用的图片。').trim();
     const slots = (Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [])
       .filter(slot => slot?.type === 'image' && Array.isArray(slot.choices) && slot.choices.length);
-    if (!slots.length) return { rawText: question, html: '', hasImageChoices: false };
-
-    const lookup = createImageLookup(options);
-    const multipleSlots = slots.length > 1;
-    const sections = slots.map((slot, slotIndex) => {
-      const cards = slot.choices.map((choice, choiceIndex) => {
-        const ordinal = choiceIndex + 1;
-        const item = resolveChoiceImage(choice, lookup);
-        const source = imageSource(item || {});
-        const media = source
-          ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" alt="候选图片 ${ordinal}" />`
-          : `<span class="clarification-choice-placeholder" aria-label="候选图片 ${ordinal} 暂时无法预览">图片暂时无法预览</span>`;
-        return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><div class="clarification-choice-media"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span>${media}</div></li>`;
+    if (slots.length) {
+      const lookup = createImageLookup(options);
+      const multipleSlots = slots.length > 1;
+      const sections = slots.map((slot, slotIndex) => {
+        const cards = slot.choices.map((choice, choiceIndex) => {
+          const ordinal = choiceIndex + 1;
+          const item = resolveChoiceImage(choice, lookup);
+          const source = imageSource(item || {});
+          const media = source
+            ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" alt="候选图片 ${ordinal}" />`
+            : `<span class="clarification-choice-placeholder" aria-label="候选图片 ${ordinal} 暂时无法预览">图片暂时无法预览</span>`;
+          return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><div class="clarification-choice-media"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span>${media}</div></li>`;
+        }).join('');
+        const heading = multipleSlots
+          ? `<h4 class="clarification-choice-heading">第 ${slotIndex + 1} 组图片</h4>`
+          : '';
+        return `<section class="clarification-choice-section" aria-label="图片候选组 ${slotIndex + 1}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
       }).join('');
-      const heading = multipleSlots
-        ? `<h4 class="clarification-choice-heading">第 ${slotIndex + 1} 组图片</h4>`
-        : '';
-      return `<section class="clarification-choice-section" aria-label="图片候选组 ${slotIndex + 1}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
-    }).join('');
 
-    const html = `<div class="clarification-presentation" data-clarification-image-choices="1"><p class="clarification-question">${questionHtml(question)}</p>${sections}<p class="clarification-choice-hint">请回复一个编号（如“2”或“第 2 张”）。一次只能选择一张图片。</p></div>`;
-    return { rawText: question, html, hasImageChoices: true };
+      const html = `<div class="clarification-presentation" data-clarification-image-choices="1"><p class="clarification-question">${questionHtml(question)}</p>${sections}<p class="clarification-choice-hint">请回复一个编号（如“2”或“第 2 张”）。一次只能选择一张图片。</p></div>`;
+      return { rawText: question, html, hasImageChoices: true, hasChoices: true };
+    }
+
+    const choiceSlots = (Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [])
+      .filter(slot => Array.isArray(slot.choices) && slot.choices.length);
+    if (choiceSlots.length) {
+      const multipleChoiceSlots = choiceSlots.length > 1;
+      const sections = choiceSlots.map((slot, slotIndex) => {
+        const explicitLabel = String(slot.parameter_label || slot.label || '').trim();
+        const label = explicitLabel || (multipleChoiceSlots ? `选项 ${slotIndex + 1}` : '');
+        const cards = slot.choices.map((choice, choiceIndex) => {
+          const ordinal = choiceIndex + 1;
+          const labelText = String(choice.label || choice.value || `选项 ${ordinal}`);
+          const displayText = compactLabel(labelText, 96);
+          return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><button type="button" class="clarification-choice-button" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}" data-choice-label="${escapeHtml(labelText)}" aria-pressed="false"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span><span class="clarification-choice-label">${escapeHtml(displayText)}</span></button></li>`;
+        }).join('');
+        const heading = label ? `<h4 class="clarification-choice-heading">${escapeHtml(label)}</h4>` : '';
+        return `<section class="clarification-choice-section" aria-label="${escapeHtml(label || '候选选项')}">${heading}<ol class="clarification-choice-list">${cards}</ol></section>`;
+      }).join('');
+      const html = `<div class="clarification-presentation" data-clarification-choice-options="1"><p class="clarification-question">${questionHtml(question)}</p>${sections}</div>`;
+      return { rawText: question, html, hasImageChoices: false, hasChoices: true };
+    }
+    return { rawText: question, html: '', hasImageChoices: false, hasChoices: false };
   }
 
   const api = Object.freeze({
     buildClarificationPresentation,
+    buildExecutionPreviewPresentation,
     compactLabel,
     createImageLookup,
     resolveChoiceImage,

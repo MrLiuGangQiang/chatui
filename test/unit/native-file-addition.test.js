@@ -227,7 +227,7 @@ async function testPrepareChatAttachmentsEncodesBase64WithoutUploading() {
   }
 }
 
-async function testPrepareChatAttachmentsKeepsLegacyTextOnlyFilesInline() {
+async function testPrepareChatAttachmentsMaterializesExtractedTextAsNativeInput() {
   const harness = createHarness();
   const legacy = {
     name: 'legacy-notes.txt',
@@ -235,20 +235,46 @@ async function testPrepareChatAttachmentsKeepsLegacyTextOnlyFilesInline() {
     size: 17,
     text: 'legacy extracted text',
     inputFile: false,
-    fileData: 'data:text/plain;base64,c3RhbGU=',
     status: 'uploaded',
   };
 
   const [prepared] = await harness.workflow.prepareChatAttachments([legacy]);
 
   assert.notStrictEqual(prepared, legacy);
-  assert.strictEqual(prepared.text, legacy.text, 'legacy text-only attachments do not require a missing Blob');
-  assert.strictEqual(Object.hasOwn(prepared, 'fileData'), false);
+  assert.strictEqual(prepared.inputFile, true, 'text-only attachments must use the same native input_file wire path');
+  assert.strictEqual(prepared.name, 'legacy-notes.txt');
+  assert.strictEqual(prepared.type, 'text/plain');
+  assert.strictEqual(prepared.size, Buffer.byteLength(legacy.text));
+  assert.strictEqual(prepared.fileData, `data:text/plain;base64,${Buffer.from(legacy.text, 'utf8').toString('base64')}`);
+  assert.strictEqual(prepared.text, '', 'extracted text must be materialized into input_file rather than duplicated inline');
   assert.strictEqual(Object.hasOwn(prepared, 'status'), false);
-  assert.strictEqual(
+  assert.deepStrictEqual(
     chatService.buildUserContentWithAttachments('Review this.', [prepared]),
-    'Review this.\n\n[附件：legacy-notes.txt]\nlegacy extracted text'
+    [
+      { type: 'input_file', filename: 'legacy-notes.txt', file_data: prepared.fileData },
+      { type: 'text', text: 'Review this.' },
+    ],
   );
+
+}
+
+async function testPrepareChatAttachmentsUsesLowDetailForOcrImagesOnly() {
+  const harness = createHarness();
+  const image = {
+    attachmentId: 'badge-1',
+    name: 'badge.png',
+    type: 'image/png',
+    size: 4,
+    dataUrl: 'data:image/png;base64,AAAA',
+  };
+
+  const [ocrPrepared] = await harness.workflow.prepareChatAttachments([image], { operation: 'ocr' });
+  const [qaPrepared] = await harness.workflow.prepareChatAttachments([image], { operation: 'image_qa' });
+  const [explicitPrepared] = await harness.workflow.prepareChatAttachments([{ ...image, imageDetail: 'high' }], { operation: 'ocr' });
+
+  assert.strictEqual(ocrPrepared.imageDetail, 'low');
+  assert.strictEqual(Object.hasOwn(qaPrepared, 'imageDetail'), false);
+  assert.strictEqual(explicitPrepared.imageDetail, 'high', 'an explicit transport detail must not be overwritten');
 }
 
 async function testPrepareChatAttachmentsValidatesRealBlobMetadataBeforeEncoding() {
@@ -319,7 +345,8 @@ module.exports = [
   testAddFilesRejectsUnsupportedNativeType,
   testAddFilesRejectsAggregateAtExactlyTenMegabytes,
   testPrepareChatAttachmentsEncodesBase64WithoutUploading,
-  testPrepareChatAttachmentsKeepsLegacyTextOnlyFilesInline,
+  testPrepareChatAttachmentsMaterializesExtractedTextAsNativeInput,
+  testPrepareChatAttachmentsUsesLowDetailForOcrImagesOnly,
   testPrepareChatAttachmentsValidatesRealBlobMetadataBeforeEncoding,
   testLegacyLocalExtractionSurfaceIsRemoved,
 ];

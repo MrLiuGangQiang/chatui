@@ -14,6 +14,7 @@ const {
 } = require('../../server/logging/request-trace');
 const { createOpenAiProxy } = require('../../server/proxy/openai');
 const { runImageJob } = require('../../server/jobs/image');
+const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 function withTempTrace(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-request-trace-'));
@@ -39,9 +40,9 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       targetPath: '/chat/completions',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2', strict: true } },
+        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', strict: true } },
         messages: [
-          { role: 'system', content: 'private semantic router system prompt' },
+          { role: 'system', content: 'private route intent system prompt' },
           { role: 'user', content: `{"current_input":"有几个颜色","credential":"${apiKey}","image":"data:image/png;base64,${'A'.repeat(5000)}"}` },
         ],
       },
@@ -53,7 +54,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       response: {
         choices: [{
           message: {
-            content: '{"schema_version":"semantic_task.v2","actions":["respond"],"discourse":"followup","pending_effect":"assistance","slots":[],"changes":[],"constraints":[]}',
+            content: '{"operation":"plain_chat","relation":"followup","goal":"统计颜色数量","resource_refs":[]}',
             reasoning_content: 'never persist private reasoning',
           },
         }],
@@ -65,11 +66,13 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     assert.strictEqual(events[0].event, 'request.started');
     assert.strictEqual(events[1].event, 'request.completed');
     assert.strictEqual(events[0].trace_id, events[1].trace_id);
-    assert.strictEqual(events[0].kind, 'route_decision');
+    assert.strictEqual(events[0].kind, 'route_intent');
     assert.strictEqual(events[0].target, 'https://example.com/v1/chat/completions');
     assert.deepStrictEqual(events[0].header_names, ['X-Trace-Id']);
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
-    assert.match(events[1].response.choices[0].message.content.text, /semantic_task\.v2/);
+    assert.deepStrictEqual(JSON.parse(events[1].response.choices[0].message.content.text), {
+      operation: 'plain_chat', relation: 'followup', goal: '统计颜色数量', resource_refs: [],
+    });
     assert.deepStrictEqual(events[1].response.choices[0].message.reasoning, {
       present: true, chars: 'never persist private reasoning'.length, omitted: true,
     });
@@ -77,10 +80,27 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     const raw = fs.readFileSync(file, 'utf8');
     assert.ok(!raw.includes(apiKey));
     assert.ok(!raw.includes('password@example.com'));
-    assert.ok(!raw.includes('private semantic router system prompt'));
+    assert.ok(!raw.includes('private route intent system prompt'));
     assert.ok(!raw.includes('never persist private reasoning'));
     assert.ok(!raw.includes('data:image/png;base64'));
     assert.ok(!raw.includes('A'.repeat(1000)));
+  });
+}
+
+function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided() {
+  withTempTrace(root => {
+    const file = path.join(root, 'duration.ndjson');
+    const logger = createRequestTraceLogger({ enabled: true, root, filePath: file });
+    const span = logger.begin({
+      target: 'https://example.com/v1/chat/completions',
+      targetPath: '/chat/completions',
+      payload: { model: 'route-model', messages: [] },
+      kind: 'route_intent',
+    });
+    span.startedAt = Date.now() - 25;
+    logger.complete(span, { status: 200, response: {} });
+    const events = readTrace(file);
+    assert.ok(events[1].duration_ms >= 20, `derived duration must reflect elapsed time, got ${events[1].duration_ms}`);
   });
 }
 
@@ -111,14 +131,17 @@ function testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries()
   assert.ok(!JSON.stringify(summary).includes('signature=private'));
 }
 
-function testRequestKindRecognizesStructuredRouteFallbacks() {
+function testRequestKindRecognizesStructuredRouteIntentFallbacks() {
   assert.strictEqual(requestKind('/chat/completions', {
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_semantic_task_v2' } },
-  }), 'route_decision');
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1' } },
+  }), 'route_intent');
   assert.strictEqual(requestKind('/chat/completions', {
     response_format: { type: 'json_object' },
-    messages: [{ role: 'system', content: '只返回 semantic_task.v2 JSON' }],
-  }), 'route_decision');
+    messages: [{ role: 'system', content: '只返回 route_intent.v1 JSON' }],
+  }), 'route_intent');
+  assert.strictEqual(requestKind('/chat/completions', {
+    messages: [{ role: 'user', content: '你好' }],
+  }), 'chat');
   assert.strictEqual(requestKind('/images/generations', { model: 'gpt-image-2' }), 'image_generation');
 }
 
@@ -185,9 +208,11 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
       baseUrl: 'http://127.0.0.1:18765/v1',
       apiKey,
       method: 'POST',
+      requestPurpose: 'intent_recognition',
+      submissionId: 'submit-route-trace',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_decision_v1', strict: true } },
+        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', strict: true } },
         messages: [
           { role: 'system', content: 'route system prompt' },
           { role: 'user', content: '{"current_input":"有几个颜色"}' },
@@ -204,7 +229,9 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
     assert.strictEqual(response.status, 200);
     const events = readTrace(file);
     assert.deepStrictEqual(events.map(event => event.event), ['request.started', 'request.completed']);
-    assert.strictEqual(events[0].kind, 'route_decision');
+    assert.strictEqual(events[0].kind, 'route_intent');
+    assert.strictEqual(events[0].submission_id, 'submit-route-trace');
+    assert.strictEqual(events[1].submission_id, 'submit-route-trace');
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
     assert.match(events[1].response.choices[0].message.content.text, /plain_chat/);
     assert.ok(!fs.readFileSync(file, 'utf8').includes(apiKey));
@@ -214,6 +241,93 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
     else process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM = originalAllowPrivate;
     fs.rmSync(root, { recursive: true, force: true });
   }
+}
+
+function testExecutionBoundaryTraceShowsPromptAndBindingAgreementWithoutSecretsOrBinary() {
+  withTempTrace(root => {
+    const file = path.join(root, 'request-trace.ndjson');
+    const logger = createRequestTraceLogger({ enabled: true, root, filePath: file, onError: error => { throw error; } });
+    const apiKey = 'sk-execution-boundary-secret-12345';
+    const prompt = '候选 2：一位成年美国女性站在纽约街头';
+    const acceptedPlan = makeDispatchContract({ prompt, operation: 'text_to_image' });
+    logger.executionAccepted({
+      traceId: 'trace-managed-image-accepted',
+      rootTraceId: 'trace-managed-image-accepted',
+      source: 'managed_image_execution',
+      submissionId: 'submit-choice-2',
+      jobId: 'imgjob-choice-2',
+      body: {
+        requestPurpose: 'final_execution',
+        dispatchContract: acceptedPlan,
+        bindingEvidence: [],
+      },
+      payload: { model: 'gpt-image-2', prompt },
+      mode: 'image',
+      secrets: [apiKey],
+      stage: 'accepted',
+    });
+
+    const editPlan = makeDispatchContract({
+      prompt: '只修改目标图的天空',
+      operation: 'edit_image',
+      resources: [{ key: 'r1', type: 'image', role: 'target', id: 'target-1' }],
+    });
+    const mismatch = new TypeError('Execution binding evidence disagrees with the execution plan');
+    mismatch.code = 'DISPATCH_CONTRACT_PAYLOAD_MISMATCH';
+    mismatch.statusCode = 400;
+    logger.executionRejected({
+      traceId: 'trace-managed-image-rejected',
+      rootTraceId: 'trace-managed-image-rejected',
+      source: 'managed_image_execution',
+      submissionId: 'submit-binding-mismatch',
+      jobId: 'imgjob-binding-mismatch',
+      body: {
+        requestPurpose: 'final_execution',
+        dispatchContract: editPlan,
+        bindingEvidence: [{ key: 'r2', type: 'image', role: 'target', resource_id: 'res:image:wrong', source: 'current' }],
+      },
+      payload: { model: 'gpt-image-2', prompt: '只修改目标图的天空' },
+      mode: 'edit_image',
+      files: [{
+        routeResourceKey: 'r1', routeRole: 'target', routeResourceId: 'res:image:target-1', routeSource: 'current',
+        data: `data:image/png;base64,${'A'.repeat(6000)}`,
+      }],
+      secrets: [apiKey],
+      stage: 'execution_protocol',
+      error: mismatch,
+    });
+
+    const events = readTrace(file);
+    assert.strictEqual(events.length, 2);
+    const accepted = events[0];
+    assert.strictEqual(accepted.event, 'execution.accepted');
+    assert.strictEqual(accepted.submission_id, 'submit-choice-2');
+    assert.strictEqual(accepted.dispatch_contract.prompt.text, prompt);
+    assert.strictEqual(accepted.payload.prompt.text, prompt);
+    assert.strictEqual(accepted.dispatch_contract.prompt.sha256, accepted.payload.prompt.sha256);
+    assert.deepStrictEqual(accepted.checks, {
+      validation_passed: true,
+      plan_valid: true,
+      prompt_match: true,
+      binding_evidence_match: true,
+      resource_binding_match: true,
+    });
+
+    const rejected = events[1];
+    assert.strictEqual(rejected.event, 'execution.rejected');
+    assert.strictEqual(rejected.validation_stage, 'execution_protocol');
+    assert.strictEqual(rejected.error.code, 'DISPATCH_CONTRACT_PAYLOAD_MISMATCH');
+    assert.strictEqual(rejected.checks.prompt_match, true);
+    assert.strictEqual(rejected.checks.binding_evidence_match, false);
+    assert.deepStrictEqual(rejected.binding_evidence.missing.map(item => item.key), ['r1']);
+    assert.deepStrictEqual(rejected.binding_evidence.unexpected.map(item => item.key), ['r2']);
+    assert.strictEqual(rejected.checks.resource_binding_match, true);
+
+    const raw = fs.readFileSync(file, 'utf8');
+    assert.ok(!raw.includes(apiKey));
+    assert.ok(!raw.includes('data:image/png;base64'));
+    assert.ok(!raw.includes('A'.repeat(1000)));
+  });
 }
 
 async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
@@ -271,10 +385,12 @@ async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
 
 module.exports = [
   testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary,
+  testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided,
   testDisabledRequestTraceDoesNotCreateAFile,
   testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries,
-  testRequestKindRecognizesStructuredRouteFallbacks,
+  testRequestKindRecognizesStructuredRouteIntentFallbacks,
   testRequestTraceRotatesBoundedLocalFiles,
   testDirectProxyWritesRequestAndResponseTrace,
+  testExecutionBoundaryTraceShowsPromptAndBindingAgreementWithoutSecretsOrBinary,
   testManagedImageJobWritesPromptAndBinarySafeResultTrace,
 ];

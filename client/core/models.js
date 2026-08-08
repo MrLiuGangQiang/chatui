@@ -64,6 +64,7 @@
       });
   }
 
+
   const api = Object.freeze({ normalizeModelType, inferModelType, normalizeModelMeta, isModelAllowedFor, extractModels });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -11,6 +11,12 @@
     (typeof require === "function"
       ? require("../core/message-primitives")
       : {});
+  const imageRouteContext =
+    root?.ChatUICore?.imageRouteContext ||
+    root?.ChatUICoreImageRouteContext ||
+    (typeof require === "function"
+      ? require("../core/image-route-context")
+      : {});
   const parseContextValue = messagePrimitives.parseContext;
   if (typeof parseContextValue !== "function") {
     throw new Error("ChatUI message primitives are not loaded");
@@ -119,12 +125,137 @@
     return imageId.match(/^img_(imgref_.+)_\d+$/)?.[1] || "";
   }
 
+  function isEllipticalFollowup(text = '') {
+    const value = String(text || '').trim();
+    return /^(?:这个呢|那个呢|然后呢|还有呢|再呢|这样呢|那样呢|然后|还有|接着|继续|what about|how about|and then|this one|that one)[?？]?$/i.test(value)
+      || /^(?:这个|那个|它|他|她|它们|这些|那些)[呢啊呀]?[?？]?$/.test(value);
+  }
+
+  function deriveConversationContinuity({
+    routeInfo = null,
+    input = '',
+    messages = [],
+    currentMessageIndex = 0,
+  } = {}) {
+    const text = String(input || '').trim();
+    const relation = String(
+      routeInfo?.relation || 'new',
+    ).trim();
+    const contextualPrompt = String(routeInfo?.contextualImagePrompt || '').trim();
+    if (contextualPrompt) {
+      const index = contextualPrompt.lastIndexOf(text);
+      const base = (index > 0 ? contextualPrompt.slice(0, index) : '')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+      return {
+        schema_version: 'conversation_continuity.v1',
+        relation: relation || 'followup',
+        anchor: base || text,
+        inherited: !!base,
+        source: base ? 'history' : 'current',
+      };
+    }
+    const previousMessages = (Array.isArray(messages) ? messages : [])
+      .slice(0, Number(currentMessageIndex) || 0)
+      .filter(message => message?.role === 'user');
+    let previous = null;
+    for (let index = previousMessages.length - 1; index >= 0; index -= 1) {
+      const message = previousMessages[index];
+      const continuity = message?.conversation_continuity;
+      if (continuity?.anchor) { previous = continuity; break; }
+      const textValue = String(message?.rawText || message?.content || '').trim();
+      if (textValue) { previous = { anchor: textValue, inherited: false, source: 'current', relation: 'new' }; break; }
+    }
+    if (!isEllipticalFollowup(text) || !previous?.anchor) {
+      return {
+        schema_version: 'conversation_continuity.v1',
+        relation: relation || 'new',
+        anchor: text,
+        inherited: false,
+        source: 'current',
+      };
+    }
+    return {
+      schema_version: 'conversation_continuity.v1',
+      relation: relation || 'followup',
+      anchor: previous.anchor,
+      inherited: true,
+      source: 'history',
+    };
+  }
+
+  // Persist the exact read-only resource bindings on the originating user
+  // turn. Candidate indexes are presentation locators, not durable conversation
+  // scope, so the next route must inherit identities from executed resources
+  // rather than rescan every historical attachment.
+  function routeExecutionAnchor(route = {}) {
+    const operation = String(route?.operationType || route?.dispatchContract?.operation || '').trim();
+    const readOnlyResourceOperations = new Set([
+      'image_qa', 'image_compare', 'ocr', 'file_qa', 'multimodal_qa',
+    ]);
+    if (!readOnlyResourceOperations.has(operation)) return null;
+
+    const images = Array.isArray(route?.executionResources?.images)
+      ? route.executionResources.images
+      : [];
+    const files = Array.isArray(route?.executionResources?.files)
+      ? route.executionResources.files
+      : [];
+    if (!images.length && !files.length) return null;
+
+    const imageBindings = images.map(resource => {
+      const source = String(resource?.source || '').trim();
+      const resourceId = String(resource?.resource_id || resource?.resourceId || '').trim();
+      const imageId = String(resource?.image_id || resource?.imageId || resource?.id || '').trim();
+      const referenceId = String(resource?.reference_id || resource?.referenceId || '').trim();
+      const index = Number(resource?.index) || 0;
+      return {
+        source,
+        ...(resourceId ? { resource_id: resourceId } : {}),
+        ...(imageId ? { image_id: imageId } : {}),
+        reference_id: referenceId,
+        ...(index ? { index } : {}),
+      };
+    }).filter(binding => binding.source && (binding.resource_id || binding.image_id || binding.reference_id || binding.index));
+    const fileBindings = files.map(resource => {
+      const source = String(resource?.source || '').trim();
+      const resourceId = String(resource?.resource_id || resource?.resourceId || '').trim();
+      const fileId = String(resource?.file_id || resource?.fileId || resource?.id || '').trim();
+      const index = Number(resource?.index) || 0;
+      return {
+        source,
+        ...(resourceId ? { resource_id: resourceId } : {}),
+        ...(fileId ? { file_id: fileId } : {}),
+        ...(index ? { index } : {}),
+      };
+    }).filter(binding => binding.source && (binding.resource_id || binding.file_id || binding.index));
+    if (imageBindings.length !== images.length || fileBindings.length !== files.length) return null;
+
+    return Object.freeze({
+      schema_version: 'route_execution_anchor.v1',
+      operation,
+      ...(imageBindings.length ? { image_bindings: Object.freeze(imageBindings) } : {}),
+      ...(fileBindings.length ? { file_bindings: Object.freeze(fileBindings) } : {}),
+    });
+  }
+
+  function composeContinuityPrompt(input = '', anchor = '') {
+    const text = String(input || '').trim();
+    const base = String(anchor || '').trim();
+    return [
+      base ? `补充问题来自以下原问题：${base}` : '',
+      `本轮输入：${text}`,
+      '本轮显式引用的对象或资源替换此前对象',
+    ].filter(Boolean).join('\n\n');
+  }
+
   function buildQuotedRouteContext({
     quotedMessage = null,
     quotedImageContext = null,
     restoredImageAttachments = [],
     quotedFileCandidates = [],
     currentInput = "",
+    conversationContinuity = null,
     cleanQuotedContent = (value) => String(value || "").trim(),
     buildQuotedRouteContent = ({ text = "", images = [] } = {}) =>
       [String(text || "").trim(), images.length ? "[quoted_image]" : ""]
@@ -192,11 +323,14 @@
         index: 1,
         role: quotedMessage?.role || "user",
         id: messageIdentity(quotedMessage),
+        resource_id: String(quotedMessage?.resourceId || quotedMessage?.resource_id || ""),
+        content: routeContent || "[quoted_message]",
       },
       recent_messages: [
         {
           index: 1,
           role: quotedMessage?.role || "user",
+          id: messageIdentity(quotedMessage),
           content: routeContent || "[quoted_message]",
         },
       ],
@@ -212,6 +346,9 @@
       latest_image_reference: hasQuotedImage ? referenceSummary : null,
       recent_image_references: [],
       recent_uploaded_image_references: [],
+      ...(conversationContinuity && typeof conversationContinuity === 'object'
+        ? { conversation_continuity: conversationContinuity }
+        : {}),
     };
     return Object.freeze({
       context,
@@ -223,6 +360,39 @@
       hasQuotedMessage: !!quotedMessage,
       hasQuotedImage,
     });
+  }
+
+  function mergeQuotedRouteContext(baseContext = {}, quotedContext = {}) {
+    const base = baseContext && typeof baseContext === 'object' ? baseContext : {};
+    const quoted = quotedContext && typeof quotedContext === 'object' ? quotedContext : {};
+    const next = { ...base };
+    for (const [key, value] of Object.entries(quoted)) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value) && value.length === 0 && Array.isArray(base[key]) && base[key].length) continue;
+      next[key] = value;
+    }
+    const mergeCandidates = (left, right) => {
+      const merged = [];
+      const seen = new Set();
+      for (const item of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
+        if (!item || typeof item !== 'object') continue;
+        const identity = String(
+          item.resource_id || item.resourceId || item.image_id || item.imageId
+          || item.file_id || item.fileId || item.id || `${item.source || ''}:${item.index || ''}:${item.filename || item.name || ''}`,
+        );
+        const key = `${item.source || ''}|${identity}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+      }
+      return merged;
+    };
+    const baseRecent = Array.isArray(base.recent_messages) ? base.recent_messages : [];
+    const quotedRecent = Array.isArray(quoted.recent_messages) ? quoted.recent_messages : [];
+    next.recent_messages = baseRecent.length ? [...baseRecent] : [...quotedRecent];
+    next.image_candidates = mergeCandidates(quoted.image_candidates, base.image_candidates);
+    next.file_candidates = mergeCandidates(quoted.file_candidates, base.file_candidates);
+    return next;
   }
 
   function projectRouteMessageContext(
@@ -238,17 +408,23 @@
     const seen = new Set();
     let usesExplicitQuote = false;
 
-    for (const ref of refs) {
+    for (const [selectionOrder, ref] of refs.entries()) {
       const refId = String(ref?.message_id || ref?.id || "");
+      const refSource = String(ref?.source || "");
       const index = Number(ref?.index);
       let message = null;
+      let conversationOrder = Number.isInteger(index) && index >= 1 ? index : Number.MAX_SAFE_INTEGER;
       if (
         explicitQuotedMessage &&
-        (!refId || !quotedId || refId === quotedId) &&
-        index === 1
+        refSource === 'quoted' &&
+        (!refId || !quotedId || refId === quotedId)
       ) {
         message = explicitQuotedMessage;
         usesExplicitQuote = true;
+        const quotedSessionIndex = quotedId
+          ? source.findIndex(item => messageIdentity(item) === quotedId)
+          : -1;
+        if (quotedSessionIndex >= 0) conversationOrder = quotedSessionIndex + 1;
       } else if (Number.isInteger(index) && index >= 1) {
         message = source[index - 1] || null;
         if (
@@ -263,15 +439,38 @@
       const key = refId || messageIdentity(message) || `index:${index}`;
       if (!seen.has(key)) {
         seen.add(key);
-        selected.push(message);
+        selected.push({ message, conversationOrder, selectionOrder });
       }
     }
 
+    selected.sort((left, right) => (
+      left.conversationOrder - right.conversationOrder
+      || left.selectionOrder - right.selectionOrder
+    ));
+    const messages = selected.map(item => item.message);
     return Object.freeze({
-      messages: selected,
+      messages,
       usesExplicitQuote,
-      protectedMessageCount: selected.length,
+      protectedMessageCount: messages.length,
     });
+  }
+
+  function buildExecutionPreviewText(route = {}, executionMedia = {}) {
+    const operation = String(route?.operationType || route?.operation || '').trim();
+    if (!['edit_image', 'image_reference_gen', 'text_to_image'].includes(operation)) return '';
+    const candidates = operation === 'edit_image'
+      ? (Array.isArray(executionMedia?.targets) ? executionMedia.targets : [])
+      : (Array.isArray(executionMedia?.references) ? executionMedia.references : []);
+    const labels = candidates.map((item, index) => String(
+      item?.label || item?.description || item?.semantic_description || item?.semanticDescription
+      || item?.prompt || item?.name || item?.filename || `第${index + 1}张图片`,
+    ).replace(/\s+/g, ' ').trim().slice(0, 72)).filter(Boolean);
+    const subject = labels.length === 1 ? labels[0] : labels.length ? labels.join('、') : '已选择的图片';
+    const instruction = String(
+      route?.editInstruction || route?.contextualImagePrompt || route?.executionPlan?.arguments?.prompt || '',
+    ).replace(/\s+/g, ' ').trim().slice(0, 120);
+    const verb = operation === 'edit_image' ? '将修改' : operation === 'image_reference_gen' ? '将参考' : '将生成';
+    return `${verb}：${subject}${instruction && operation === 'edit_image' ? `；修改内容：${instruction}` : ''}`.slice(0, 220);
   }
 
   function projectRouteExecutionMedia(route = {}, pools = {}) {
@@ -383,18 +582,47 @@
     });
   }
 
+  // Only make resources that the canonical route explicitly declared available
+  // to the execution projection. This is important for regenerate: restoring an
+  // attachment from the original user turn must not make it an implicit
+  // `current` binding when the replayed route is text-only.
+  function restrictExecutionResourcePools(route = {}, sourcePools = {}) {
+    const resources = [
+      ...(Array.isArray(route?.executionResources?.images) ? route.executionResources.images : []),
+      ...(Array.isArray(route?.executionResources?.files) ? route.executionResources.files : []),
+    ];
+    const declaredSources = new Set(resources
+      .map(resource => String(resource?.source || '').trim())
+      .filter(Boolean));
+    const restricted = {};
+    for (const source of ['current', 'quoted', 'history', 'context']) {
+      restricted[source] = declaredSources.has(source)
+        ? (Array.isArray(sourcePools?.[source]) ? sourcePools[source] : [])
+        : [];
+    }
+    return restricted;
+  }
+
   function buildExecutionResourcePools(sourcePools = {}, options = {}) {
     const isImageFile = options.isImageFile || defaultIsImageFile;
     const imagePools = {};
     const filePools = {};
-    for (const source of ["current", "quoted", "history", "context"]) {
+    const messagePools = {};
+    const sources = ["current", "quoted", "history", "context"];
+    for (const source of sources) {
       const decorated = decorateExecutionPool(sourcePools[source], source, {
         isImageFile,
       });
       imagePools[source] = decorated.filter(isImageFile);
       filePools[source] = decorated.filter((item) => !isImageFile(item));
+      messagePools[source] = [];
     }
-    return Object.freeze({ imagePools, filePools });
+    const messages = Array.isArray(options.messages) ? options.messages : [];
+    for (const message of messages) {
+      const declared = String(message?.routeSource || message?.source || 'history').trim();
+      messagePools[sources.includes(declared) ? declared : 'history'].push(message);
+    }
+    return Object.freeze({ imagePools, filePools, messagePools });
   }
 
   function routeMediaResources(route = {}, type = "", source = "") {
@@ -444,7 +672,7 @@
       restored.push({
         ...attachment,
         // Execution-resource matching accepts both camelCase and persisted
-        // snake_case image metadata.  Canonicalize every identity-bearing
+        // snake_case image metadata. Canonicalize every identity-bearing
         // field here, at restoration time, so projection cannot see the
         // recovered durable ID as a second, competing identity.
         imageId: id || recoveredId,
@@ -508,9 +736,21 @@
       const context = parseContextValue(
         message.attachmentContext || message.attachment_context,
       );
-      const metadata = (
+      const contextualMetadata = (
         Array.isArray(context?.attachments) ? context.attachments : []
       ).filter((item) => !isImageFile(item));
+      const recoveredMetadata = typeof imageRouteContext.uploadedFileAttachmentsFromMessage === "function"
+        ? imageRouteContext.uploadedFileAttachmentsFromMessage(message).filter((item) => !isImageFile(item))
+        : [];
+      const metadataById = new Map();
+      for (const item of [...contextualMetadata, ...recoveredMetadata]) {
+        const id = mediaIdentity(item, "file");
+        const key = id || `${String(item?.name || "")}|${String(item?.type || "")}|${Number(item?.size) || 0}`;
+        if (!key) continue;
+        const existing = metadataById.get(key) || {};
+        metadataById.set(key, { ...item, ...existing });
+      }
+      const metadata = [...metadataById.values()];
       if (!metadata.length) continue;
       const candidates = metadata.map((item, index) => ({
         item,
@@ -524,8 +764,11 @@
           (!requiredIds.size && requiredIndexes.has(candidate.candidateIndex)),
       );
       if (!selected.length) continue;
+      const restorationContext = context && Array.isArray(context.attachments)
+        ? { ...context, attachments: metadata }
+        : { prompt: String(message.rawText || message.content || ""), attachments: metadata };
       const restored = (
-        await restoreUserAttachmentsFromContext(context)
+        await restoreUserAttachmentsFromContext(restorationContext)
       ).filter((item) => !isImageFile(item));
       for (const candidate of selected) {
         const exact = restored.filter(
@@ -562,14 +805,20 @@
     buildMediaMapContext,
     messageIdentity,
     imageReferenceFromItem,
+    deriveConversationContinuity,
+    routeExecutionAnchor,
+    composeContinuityPrompt,
     buildQuotedRouteContext,
+    mergeQuotedRouteContext,
     projectRouteMessageContext,
     projectRouteExecutionMedia,
+    buildExecutionPreviewText,
     mediaIdentity,
     mergeContinuationAttachments,
     partitionExecutionAttachmentsBySource,
     decorateExecutionPool,
     buildExecutionResourcePools,
+    restrictExecutionResourcePools,
     routeMediaResources,
     restoreBoundImagePool,
     restoreHistoricalFilePool,

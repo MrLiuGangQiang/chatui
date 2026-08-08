@@ -3,26 +3,21 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
 const TEXT_EXTENSIONS = new Set([
   '.css', '.html', '.js', '.json', '.md', '.mjs', '.svg', '.txt', '.yaml', '.yml',
 ]);
-const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'vendor']);
 const INVALID_TEXT = /[\uE000-\uF8FF\uFFFD]|\?{3,}/g;
 
-function sourceFiles(directory = ROOT) {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    if (entry.isDirectory()) {
-      return IGNORED_DIRECTORIES.has(entry.name)
-        ? []
-        : sourceFiles(path.join(directory, entry.name));
-    }
-    const filePath = path.join(directory, entry.name);
-    return entry.isFile() && TEXT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
-      ? [filePath]
-      : [];
-  });
+function sourceFiles() {
+  const output = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT });
+  return output.toString('utf8').split('\0')
+    .filter(Boolean)
+    .filter(relativePath => TEXT_EXTENSIONS.has(path.extname(relativePath).toLowerCase()))
+    .map(relativePath => path.join(ROOT, relativePath))
+    .filter(filePath => fs.existsSync(filePath) && fs.statSync(filePath).isFile());
 }
 
 function lineNumberAt(source, offset) {

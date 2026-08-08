@@ -1,39 +1,20 @@
-'use strict';
+"use strict";
 
-const assert = require('assert');
-const path = require('path');
-const routeService = require('../../client/services/route-service');
-const evaluation = require('../../scripts/lib/intent-routing-evaluation');
-const evaluationCli = require('../../scripts/evaluate-intent-routing');
+const assert = require("assert");
+const path = require("path");
+const evaluation = require("../../scripts/lib/intent-routing-evaluation");
+const evaluationCli = require("../../scripts/evaluate-intent-routing");
+const routeService = require("../../client/services/route-service");
 
-const FIXTURE_PATH = path.join(__dirname, '../fixtures/intent-routing-eval.v1.json');
+const FIXTURE_PATH = path.join(__dirname, "../fixtures/intent-routing-eval.v1.json");
 
-function imageQaContract(operation = 'image_qa') {
-  return {
-    schema_version: 'task_contract.v4',
+function plan(operation, _prompt = "") {
+  return JSON.stringify({
     operation,
-    relation: 'new',
-    resources: [{ key: 'r1', type: 'image', source: 'current', role: 'source', index: 1, id: 'img-current-product', reference_id: 'imgref-current-product', missing: false }],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
-    confidence: 0.98,
-    review_reasons: [],
-    rationale: 'The request asks to understand the attached image.',
-  };
-}
-
-function plainChatContract(rationale = 'The request is an independent text task.') {
-  return {
-    schema_version: 'task_contract.v4',
-    operation: 'plain_chat',
-    relation: 'new',
-    resources: [],
-    directive: { mode: 'standalone', base_resource_keys: [], unmentioned_policy: 'allow_change', operations: [], constraints: [] },
-    clarification: { question: '', resume_operation: '', unresolved_resources: [] },
-    confidence: 0.98,
-    review_reasons: [],
-    rationale,
-  };
+    relation: "new",
+    goal: _prompt || operation,
+    resource_refs: [],
+  });
 }
 
 function caseById(suite, id) {
@@ -42,146 +23,163 @@ function caseById(suite, id) {
   return fixture;
 }
 
-function testIntentRoutingEvaluationFixtureCoversEverySupportedOperation() {
+function testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
-  assert.ok(suite.cases.length >= 12, 'the starter benchmark must cover a meaningful set of customer requests');
+  assert.strictEqual(suite.schema_version, "intent-routing-eval.v1");
+  assert.strictEqual(suite.cases.length, 34);
   const operations = new Set(suite.cases.map(item => item.expected.operation));
-  for (const operation of ['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image']) {
-    assert.ok(operations.has(operation), `benchmark must cover ${operation}`);
+  for (const operation of evaluation.VALID_OPERATIONS) assert.ok(operations.has(operation), `fixture must cover ${operation}`);
+  assert.ok(suite.cases.every(item => item.expected.clarification && item.expected.resources));
+  assert.ok(suite.cases.every(item => !Object.hasOwn(item.expected, "directive")));
+}
+
+function modelIntentForScenario(fixture) {
+  const catalog = routeService.buildRouteResourceCandidates({
+    attachments: fixture.attachments || [],
+    context: fixture.context || {},
+    input: fixture.input,
+  });
+  const resourceRefs = [];
+
+  for (const expected of fixture.expected.resources.items || []) {
+    const matches = catalog.filter(candidate => (
+      candidate.type === expected.type
+      && candidate.source === expected.source
+      && (!expected.id || candidate.id === expected.id)
+      && (!expected.reference_id || candidate.reference_id === expected.reference_id)
+      && (!expected.index || Number(candidate.index) === Number(expected.index))
+    ));
+    assert.strictEqual(matches.length, 1, `${fixture.id}: expected one catalog match for ${JSON.stringify(expected)}`);
+    resourceRefs.push({ candidate_key: matches[0].candidate_key, role: expected.role });
   }
-  assert.ok(suite.cases.some(item => item.category === 'context-boundary'), 'benchmark must retain context-boundary regressions');
-  assert.ok(suite.cases.some(item => item.category === 'clarification'), 'benchmark must measure appropriate clarification');
-  assert.ok(suite.cases.some(item => item.safety_critical), 'benchmark must identify cases that can never be traded away by an average score');
-  assert.ok(suite.cases.some(item => !item.input && item.attachments.length), 'benchmark must cover attachment-only turns');
-  assert.ok(suite.cases.some(item => item.attachments.some(attachment => attachment.has_extracted_text === false)), 'benchmark must cover explicitly unusable files');
-  assert.ok(suite.cases.some(item => item.current_mode && item.auto_mode === false), 'benchmark must cover fixed manual mode semantics');
+
+  return {
+    operation: fixture.expected.operation,
+    relation: fixture.expected.relation,
+    goal: fixture.input || '处理当前资源请求',
+    resource_refs: resourceRefs,
+  };
 }
 
-function testIntentRoutingEvaluationScoresAValidRouteEndToEnd() {
+function scenarioTestName(id = "") {
+  return `testIntentScenario${String(id).split(/[^A-Za-z0-9]+/).filter(Boolean)
+    .map(part => part[0].toUpperCase() + part.slice(1)).join("")}`;
+}
+
+function createScenarioTest(fixture) {
+  const runScenario = function runIntentScenario() {
+    const intent = modelIntentForScenario(fixture);
+    const result = evaluation.evaluateRouteText(fixture, JSON.stringify(intent));
+    assert.strictEqual(
+      result.perfect,
+      true,
+      `${fixture.id}: ${result.failure_reasons.join(", ")}\nintent=${JSON.stringify(intent)}\ncompiled=${JSON.stringify(result.compiled)}`,
+    );
+    assert.strictEqual(result.score, 100);
+    assert.deepStrictEqual(result.failure_reasons, []);
+    assert.strictEqual(result.compiled.operation, fixture.expected.operation);
+    assert.strictEqual(result.compiled.relation, fixture.expected.relation);
+    assert.strictEqual(result.compiled.readiness, fixture.expected.clarification.required ? "needs_clarification" : "ready");
+    assert.strictEqual(Boolean(result.compiled.dispatch_contract), !fixture.expected.clarification.required);
+  };
+  Object.defineProperty(runScenario, "name", { value: scenarioTestName(fixture.id) });
+  return runScenario;
+}
+
+const { suite: REAL_ROUTING_SCENARIOS } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+const REAL_ROUTING_SCENARIO_TESTS = REAL_ROUTING_SCENARIOS.cases.map(createScenarioTest);
+
+function testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
-  const fixture = caseById(suite, 'current-image-question-uses-current-image');
-  const result = evaluation.evaluateRouteText(fixture, JSON.stringify(imageQaContract()));
-
-  assert.strictEqual(result.score, 100);
-  assert.strictEqual(result.perfect, true);
-  assert.deepStrictEqual(result.failure_reasons, []);
+  const fixture = caseById(suite, "current-image-question-uses-current-image");
+  const result = evaluation.evaluateRouteText(fixture, JSON.stringify({
+    operation: "image_qa",
+    relation: "new",
+    goal: fixture.input,
+    resource_refs: [{ candidate_key: "i2", role: "source" }],
+  }));
+  assert.strictEqual(result.checks.valid_route, true, "the local compiler must return a structurally valid clarification route");
+  assert.strictEqual(result.checks.resources, false);
+  assert.strictEqual(result.checks.dispatch_contract, false);
+  assert.strictEqual(result.compiled.dispatch_contract, null);
+  assert.strictEqual(result.perfect, false);
 }
 
-function testIntentRoutingEvaluationSeparatesOperationAndResourceFailures() {
-  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
-  const fixture = caseById(suite, 'current-image-question-uses-current-image');
-  const wrongOperation = evaluation.evaluateRouteText(fixture, JSON.stringify(imageQaContract('ocr')));
-  assert.strictEqual(wrongOperation.checks.valid_contract, true, 'a different but valid route contract must remain distinguishable from parser failure');
-  assert.strictEqual(wrongOperation.checks.operation, false);
-  assert.strictEqual(wrongOperation.score, 80, 'operation mismatch must lower only its weighted dimension');
-
-  const wrongResource = imageQaContract();
-  wrongResource.resources[0].id = 'img-not-in-fixture';
-  const invalid = evaluation.evaluateRouteText(fixture, JSON.stringify(wrongResource));
-  assert.strictEqual(invalid.checks.valid_contract, false, 'a hallucinated resource identity must fail before scoring execution semantics');
-  assert.strictEqual(invalid.score, 0);
-
-  assert.strictEqual(evaluation.resourcesMatchExpectation({ mode: 'media_exact', items: [] }, [{ type: 'message', source: 'current' }]), true, 'non-executing message annotations must not count as media binding');
-  assert.strictEqual(evaluation.resourcesMatchExpectation({ mode: 'media_exact', items: [] }, [{ type: 'image', source: 'history' }]), false, 'an inherited image must still fail a no-media expectation');
-}
-
-function testIntentRoutingEvaluationSummarizesScoresAndQualityGates() {
-  const perfect = { id: 'a', category: 'chat', safety_critical: true, score: 100, perfect: true, checks: { valid_contract: true, operation: true, readiness: true, relation: true, resources: true, clarification: true, directive: true } };
-  const partial = { id: 'b', category: 'chat', safety_critical: false, score: 80, perfect: false, checks: { valid_contract: true, operation: false, readiness: true, relation: true, resources: true, clarification: true, directive: true } };
-  const summary = evaluation.summarizeCaseScores([perfect, partial]);
+function testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates() {
+  const summary = evaluation.summarizeCaseScores([
+    { id: "safe-pass", category: "x", safety_critical: true, score: 100, perfect: true, checks: Object.fromEntries(Object.keys(evaluation.SCORE_WEIGHTS).map(key => [key, true])) },
+    { id: "ordinary-fail", category: "x", safety_critical: false, score: 80, perfect: false, checks: { ...Object.fromEntries(Object.keys(evaluation.SCORE_WEIGHTS).map(key => [key, true])), operation: false } },
+  ]);
   assert.strictEqual(summary.average_score, 90);
-  assert.strictEqual(summary.dimension_accuracy.operation, 50);
-  assert.strictEqual(summary.dimension_accuracy.valid_contract, 100);
-  assert.strictEqual(summary.by_category.chat.perfect_case_rate, 50);
-  assert.strictEqual(summary.safety_critical.perfect_case_rate, 100);
-
-  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 85, minValidContract: 100 }).passed, true);
-  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 95, minValidContract: 100 }).passed, false);
-
-  const criticalFailure = evaluation.summarizeCaseScores([{ ...partial, id: 'critical-b', safety_critical: true }]);
-  assert.strictEqual(evaluationCli.qualityGate(criticalFailure, { minScore: 0, minValidContract: 0 }).passed, false, 'a safety-critical regression must fail even permissive aggregate thresholds');
-  assert.deepStrictEqual(criticalFailure.safety_critical.failed_case_ids, ['critical-b']);
+  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 100, minValidRoute: 100 }).passed, false, "strict default-quality gate must not accept a partial case");
+  assert.strictEqual(evaluationCli.qualityGate(summary, { minScore: 80, minValidRoute: 100 }).passed, true, "explicitly relaxed aggregate threshold may pass when safety-critical cases remain perfect");
+  assert.deepStrictEqual(summary.safety_critical.failed_case_ids, []);
 }
 
-function testIntentRoutingEvaluationCliUsesExplicitCredentialsAndSafeDefaults() {
+function testIntentRoutingEvaluationRedactsSecretsAndBinaryFromReportValues() {
+  const secret = "sk-test-12345678901234567890";
+  const redacted = evaluation.redactModelOutput(JSON.stringify({ authorization: `Bearer ${secret}`, image: "data:image/png;base64,AAAA" }), secret);
+  const serialized = JSON.stringify(redacted);
+  assert.ok(!serialized.includes(secret));
+  assert.ok(!serialized.includes("AAAA"));
+  assert.ok(serialized.includes("[redacted]"));
+}
+
+function testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBoundary() {
   const options = evaluationCli.parseArgs([
-    '--base-url', 'https://example.test/v1',
-    '--api-key', 'test-key',
-    '--model', 'router-model',
-    '--limit', '3',
-    '--min-score', '88',
-    '--min-valid-contract', '95',
-    '--no-write',
+    "--base-url", "https://example.test/v1",
+    "--api-key", "test-key",
+    "--model", "router-model",
+    "--min-score", "0",
+    "--min-valid-route", "0",
+    "--no-write",
   ], {});
-  assert.strictEqual(options.model, 'router-model');
-  assert.strictEqual(options.limit, 3);
-  assert.strictEqual(options.minScore, 88);
-  assert.strictEqual(options.minValidContract, 95);
-  assert.strictEqual(options.noWrite, true);
-  assert.strictEqual(evaluationCli.endpointFor(options.baseUrl), 'https://example.test/v1/chat/completions');
-  assert.throws(() => evaluationCli.parseArgs(['--model', 'router-model'], {}), /credentials are required/);
-  assert.deepStrictEqual(evaluationCli.parseArgs(['--help'], {}), { help: true });
+  assert.strictEqual(options.minScore, 0);
+  assert.strictEqual(options.minValidRoute, 0);
+  const audit = evaluationCli.auditRoutePayload({
+    model: "router-model",
+    messages: [{ role: "user", content: JSON.stringify({ resource_candidates: [{ type: "image", candidate_key: "i1" }] }) }],
+  }, "test-key");
+  assert.strictEqual(audit.contains_api_key, false);
+  assert.strictEqual(audit.contains_data_url, false);
+  assert.strictEqual(audit.embedded_execution_protocol_field, "");
 }
 
-async function testIntentRoutingEvaluationRunnerUsesProductionPayloadWithoutPersistingRawOutput() {
-  let request = null;
-  const rawMarker = 'raw-model-response-must-not-be-reported';
+async function testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCompilationEvidence() {
+  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+  const fixture = caseById(suite, "plain-chat-does-not-inherit-history-image");
+  const secret = "sensitive-eval-key";
   const report = await evaluationCli.runEvaluation({
-    baseUrl: 'https://example.test/v1',
-    apiKey: 'eval-test-key',
-    model: 'router-model',
+    baseUrl: "https://example.test/v1",
+    apiKey: secret,
+    model: "router-model",
     fixture: FIXTURE_PATH,
     timeoutMs: 1000,
     limit: 1,
-    minScore: 90,
-    minValidContract: 100,
+    minScore: 100,
+    minValidRoute: 100,
     noWrite: true,
   }, {
-    requestRoute: async options => {
-      request = options;
-      return JSON.stringify(plainChatContract(rawMarker));
+    requestRoute: async ({ payload }) => {
+      assert.strictEqual(payload.model, "router-model");
+      return plan("plain_chat", fixture.input);
     },
     log() {},
   });
-
-  assert.strictEqual(request.endpoint, 'https://example.test/v1/chat/completions');
-  assert.strictEqual(request.payload.model, 'router-model');
-  assert.strictEqual(report.summary.average_score, 100);
   assert.strictEqual(report.quality_gate.passed, true);
-  const serializedReport = JSON.stringify(report);
-  assert.ok(!serializedReport.includes('eval-test-key'), 'reports must never retain API keys');
-  assert.ok(!serializedReport.includes(rawMarker), 'reports must not retain raw model responses');
-}
-
-async function testIntentRoutingEvaluationRunnerRedactsCredentialsFromTransportErrors() {
-  const apiKey = 'sensitive-eval-key';
-  const report = await evaluationCli.runEvaluation({
-    baseUrl: 'https://example.test/v1',
-    apiKey,
-    model: 'router-model',
-    fixture: FIXTURE_PATH,
-    timeoutMs: 1000,
-    limit: 1,
-    minScore: 90,
-    minValidContract: 100,
-    noWrite: true,
-  }, {
-    requestRoute: async () => { throw new Error(`upstream rejected ${apiKey} at https://user:password@example.test/v1`); },
-    log() {},
-  });
-
-  const serializedReport = JSON.stringify(report);
-  assert.ok(!serializedReport.includes(apiKey));
-  assert.ok(!serializedReport.includes('user:password'));
-  assert.ok(serializedReport.includes('[redacted]'));
+  assert.strictEqual(report.cases[0].evaluation.perfect, true);
+  assert.ok(report.cases[0].compiled_result);
+  assert.ok(report.cases[0].model_output.text.includes('"operation":"plain_chat"'));
+  assert.ok(!report.cases[0].model_output.text.includes('schema_version'));
+  assert.ok(!JSON.stringify(report).includes(secret));
 }
 
 module.exports = [
-  testIntentRoutingEvaluationFixtureCoversEverySupportedOperation,
-  testIntentRoutingEvaluationScoresAValidRouteEndToEnd,
-  testIntentRoutingEvaluationSeparatesOperationAndResourceFailures,
-  testIntentRoutingEvaluationSummarizesScoresAndQualityGates,
-  testIntentRoutingEvaluationCliUsesExplicitCredentialsAndSafeDefaults,
-  testIntentRoutingEvaluationRunnerUsesProductionPayloadWithoutPersistingRawOutput,
-  testIntentRoutingEvaluationRunnerRedactsCredentialsFromTransportErrors,
+  testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture,
+  ...REAL_ROUTING_SCENARIO_TESTS,
+  testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource,
+  testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates,
+  testIntentRoutingEvaluationRedactsSecretsAndBinaryFromReportValues,
+  testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBoundary,
+  testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCompilationEvidence,
 ];

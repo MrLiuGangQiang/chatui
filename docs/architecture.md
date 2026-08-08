@@ -56,7 +56,11 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
 
-- `client/core/route-protocol.js`：作为 `route_decision.v1` 版本、操作、关系、资源类型、角色、修复原因和变更枚举的校验事实来源；执行模块应直接消费这些集合，面向模型展开的 prompt/schema 文本必须由回归测试保持同一语义；
+- `shared/route-intent.js`：作为模型边界最小协议 `route_intent.v1` 的严格 schema 与校验事实来源；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs` 四个字段，`goal` 表达消歧后的用户目标，协议版本由 schema 名称承载而不在每次结果中重复；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份；
+- `client/services/route-service.js`：负责把 canonical route context 投影为模型输入；当前用户消息不得重复进入历史候选，路由窗口内的既有文字消息与经过结构预算裁剪的图片/文件候选全部可见，超限时按明确的容量策略淘汰。引用消息、会话焦点、上一执行资源组和历史候选都只是模型证据，本地不得再按关键词、焦点或 lineage 隐藏候选并替模型判断语义；图片/文件正文和规范资源身份始终保持本地。
+- `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；
+- `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；
+- `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
 - `client/core/message-primitives.js`：统一上下文解析、消息稳定身份和 reasoning 引用文本清理；
 - `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
 - `client/core/text-hash.js`：统一渲染缓存、性能统计和使用量视图的文本哈希实现，调用方只能通过公开格式使用哈希，不能再复制 FNV-1a 变体。
@@ -80,15 +84,11 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 `client/services/route-service.js` 保留路由服务的公共兼容 API，但内部职责已经按以下边界拆分：
 
-- `route-candidates.js`：从当前输入、消息、文件和图片元数据建立有序候选资源目录；
-- `route-payload.js`：压缩上下文、当前轮次和附件描述，构造路由与修复请求 payload；
-- `route-decision-compiler.js`：将模型输出的 `semantic_task.v2` 事实编译为内部 `route_decision.v1`，再生成严格的 `task_contract.v5`，并验证选择答案是否仍绑定原候选；
-- `route-legacy-adapter.js`：只负责读取历史 `task_contract`/兼容输入并适配到新协议，不应被新业务路径反向依赖；
-- `route-repair-policy.js`：限制结构修复只能保持既有 `semantic_task.v2` 语义和资源绑定；
-- `route-dispatch-gate.js`：在提交执行前做版本、资源角色、模式和任务契约的最终门禁；
-- `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做协议能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改。
+- `route-service.js`：从当前附件和有界上下文建立有序候选资源目录，构造路由请求，解析模型返回的 `route_intent.v1`，并把模型选择的短候选键映射回规范资源；本地只做 schema、候选存在性、角色、数量、可用性与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`，不得重新解释用户文本并覆盖模型的 operation、relation、goal 或 resource refs；
+- `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做协议能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改；
+- `server/validators/dispatch-contract.validator.js`：在服务端最终执行边界再次校验计划、资源证据、参数和上下文策略。
 
-路由服务的模型边界只接受 `semantic_task.v2` 语义事实；应用本地确定性编译为 `route_decision.v1` 和 `task_contract.v5`。提交工作流和图片工作流不得自行重建另一套路由协议，也不得在资源或操作不确定时猜测。
+路由模型输出的 `route_intent.v1` 是唯一语义裁决结果：`operation`、`relation`、`goal` 与 `resource_refs` 都由模型负责。`resource_refs` 非空时，`goal` 必须是已完成资源消解后的自足执行指令，执行层不得再次把原始位置描述交给下游模型重新选择附件。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
 
 ### 3.3 `client/ui/` 与 `client/features/`
 
@@ -110,6 +110,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 ### 3.4.1 应用策略与 Markdown 边界
 
 - `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线 60 秒截止时间、可取消请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
+- `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，等待区原位更新且不记录或展示模型隐藏推理链；
 - `client/services/session-snapshot-recovery.js`：会话快照的降级存储、配额错误恢复、部分快照合并和 revision 保护；它不能替代 canonical message/session store，也不能让 pending display 覆盖已提交消息；
 - `client/app/markdown/engine-primitives.js`：统一 task-list fallback、表格对齐 class、blockquote fence 规范化、实体解码和高亮结果校验；Node 与 Browser Markdown engine 都复用它；
 - `client/app/markdown/sanitizer-policy.js`：统一 DOMPurify 标签、属性、URI 和 style 白名单及 hook。`browser-sanitizer.js` 与 `sanitizer.js` 只负责注入运行时依赖和调用策略，不能各自维护安全白名单。
@@ -129,8 +130,8 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 `index.html` 的脚本顺序是运行契约，原则上应保持以下依赖先后：
 
 1. `module-registry.js`、纯 core 原语和 Markdown policy/primitives；
-2. core/browser、配置和服务端无关的共享契约；
-3. route candidates/payload/compiler/legacy/repair/dispatch 等路由服务拆分模块；
+2. 服务端无关的共享契约，特别是 `capability-registry.js` → `route-intent.js` → `dispatch-contract.js` → clarification 协议；
+3. resource identity、route candidates 和 legacy adapter 等浏览器侧路由依赖；
 4. `route-service.js`、`request-compatibility.js` 及其他 service 组合层；
 5. `submit-workflow-policy.js`、`session-snapshot-recovery.js` 等 app policy，再加载对应 workflow；
 6. 兼容启动和根 `app.js`。
@@ -160,7 +161,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 `server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化。`server/security/` 负责 URL 与网络访问策略。
 
 只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
-本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。
+本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。
 
 ### 4.6 `server/usage/`、`server/db/` 与相关层
 
@@ -286,7 +287,6 @@ GET /
 - 一些 `client/app` 文件仍使用受 architecture baseline 约束的 legacy `with (...)` 注入；
 - 浏览器仍保留多个 `window.ChatUI*` 兼容 namespace；
 - `index.html` 清单仍含逐文件手工 query version，尽管最终 bundle URL 使用内容 ETag；
-- `test/legacy/regression.test.js` 仍承载大量历史覆盖；
 - Node-only 测试辅助代码已移出 Docker 会复制的 `client/` 静态目录；
 - `shared/usage/ranges.js` 尚含 server-only SQL 字符串；
 - vendor 的来源、版本和 License 更新尚未由统一 manifest 完全自动化；

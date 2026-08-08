@@ -273,7 +273,12 @@ function safeParseJson(text) {
 }
 
 function respondJobError(res, err) {
-  sendJson(res, err.statusCode || 500, { error: { message: err.message || String(err) } });
+  sendJson(res, err.statusCode || 500, {
+    error: {
+      message: err.message || String(err),
+      ...(err?.code ? { code: err.code } : {}),
+    },
+  });
 }
 
 function normalizeUpstreamErrorMessage(err, { aborted = false } = {}) {

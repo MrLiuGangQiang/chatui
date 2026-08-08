@@ -115,6 +115,27 @@ async function testImageResultStorageKeepsLiveGeometryForCanonicalRestore() {
   }
 }
 
+function testObjectStringifiedMessageIdsAreRepairedCanonically() {
+  const canonical = messageRecords.normalizeCanonicalMessage({
+    role: 'assistant',
+    id: '[object Object],[object Object]:assistant:1',
+    responseIndex: 1,
+    content: '答案',
+  }, { sessionId: 'chat-session', sequence: 1 });
+  assert.strictEqual(canonical.id, 'chat-session:assistant:1',
+    'object-stringified ids must be rebuilt from the canonical session/role/index parts');
+  assert.strictEqual(
+    messageRecords.messageId({ role: 'assistant', responseIndex: 1 }, { sessionId: [{}, {}] }),
+    'session:assistant:1',
+    'non-scalar session ids must never produce object-stringified identity',
+  );
+  assert.strictEqual(
+    messageRecords.messageId({ role: 'user', id: 'kept-id', messageIndex: 2 }),
+    'kept-id',
+    'valid scalar ids are preserved',
+  );
+}
+
 function testLegacyLatestImageResultGetsStableCompatibilityIdentity() {
   const canonical = messageRecords.normalizeCanonicalMessage({
     role: 'assistant',
@@ -136,4 +157,5 @@ module.exports = [
   testImageResultRecordKeepsLiveAndRestoredImageOrder,
   testImageResultStorageKeepsLiveGeometryForCanonicalRestore,
   testLegacyLatestImageResultGetsStableCompatibilityIdentity,
+  testObjectStringifiedMessageIdsAreRepairedCanonically,
 ];

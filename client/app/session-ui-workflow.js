@@ -151,6 +151,7 @@
       try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
+      state.editingQuoteContext = "";
       const session = createSession();
       state.sessions.unshift(session);
       state.activeSessionId = session.id;
@@ -192,6 +193,7 @@
         clearAttachments();
         state.editingIndex = null;
         state.editingNode = null;
+      state.editingQuoteContext = "";
         state.activeOutputNode = null;
         state.activeSessionId = state.sessions[0].id;
         localStorageRef.setItem(ACTIVE_SESSION_KEY, state.activeSessionId);
@@ -230,6 +232,7 @@
       state.lastGeneratedImage = null;
       state.editingIndex = null;
       state.editingNode = null;
+      state.editingQuoteContext = "";
       state.activeOutputNode = null;
       loadReasoningPreference();
 

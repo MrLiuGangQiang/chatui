@@ -47,6 +47,19 @@ function testPreflightRejectsOversizedInputBeforeConfigurationChecks() {
   assert.strictEqual(result.metaText, '消息过大，未发送');
 }
 
+
+function testRouteCompilerUsesTheCanonicalMessageLimit() {
+  const routeService = require('../../client/services/route-service');
+  const withinLimit = 'a'.repeat(guards.MAX_USER_MESSAGE_CHARS);
+  assert.doesNotThrow(() => routeService.buildRoutePayload({ model: 'route-model', input: withinLimit }));
+  assert.throws(
+    () => routeService.buildRoutePayload({ model: 'route-model', input: `${withinLimit}a` }),
+    error => error?.code === 'INPUT_TOO_LONG'
+      && error?.reasonCode === 'message_too_many_characters'
+      && error?.maxChars === guards.MAX_USER_MESSAGE_CHARS,
+  );
+}
+
 function testLargePromptResizeSkipsSynchronousScrollHeightMeasurement() {
   let scrollHeightReads = 0;
   const styleValues = new Map();
@@ -93,6 +106,7 @@ module.exports = [
   testInsertionGuardAccountsForSelectedReplacement,
   testMessageLimitTruncationDoesNotLeaveHalfSurrogate,
   testPreflightRejectsOversizedInputBeforeConfigurationChecks,
+  testRouteCompilerUsesTheCanonicalMessageLimit,
   testLargePromptResizeSkipsSynchronousScrollHeightMeasurement,
   testPromptInputGuardRunsBeforeTextareaMutationAndRemovesLegacyResizeListeners,
 ];

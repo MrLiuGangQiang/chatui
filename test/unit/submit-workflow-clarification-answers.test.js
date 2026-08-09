@@ -6,6 +6,7 @@ const clarification = require('../../shared/clarification-answer');
 const clarificationRelation = require('../../shared/clarification-relation');
 const jobWorkflow = require('../../client/app/job-workflow');
 const submitWorkflow = require('../../client/app/submit-workflow');
+const taskState = require('../../client/core/task-state');
 const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 const BASE_TASK_TEXT = '把两张图合成一张';
@@ -50,7 +51,7 @@ function makePending() {
   });
 }
 
-function makeFixture({ promptValue = '2' } = {}) {
+function makeFixture({ promptValue = '2', sendChatImpl = null } = {}) {
   const pending = makePending();
   const session = { id: 'session-answer', messages: [], display: [], pendingClarification: pending };
   const state = {
@@ -62,6 +63,7 @@ function makeFixture({ promptValue = '2' } = {}) {
   const run = { stopped: false, abortController: new AbortController() };
   const routed = [];
   const sent = [];
+  const events = [];
   const finalExecution = makeExecutionFixture({
     operation: 'plain_chat',
     relation: 'followup',
@@ -80,6 +82,7 @@ function makeFixture({ promptValue = '2' } = {}) {
   };
   const workflow = submitWorkflow.createSubmitWorkflow({
     state,
+    taskEvents: taskState.TASK_EVENTS,
     $: id => id === 'prompt' ? prompt : { querySelectorAll: () => [] },
     isSessionBusy: () => false,
     stopActiveRun: async () => {}, toast: () => {}, hasPendingUploads: () => false,
@@ -107,18 +110,18 @@ function makeFixture({ promptValue = '2' } = {}) {
     createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
     updateModeUi: () => {}, warnMissingModel: () => false,
     updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; }, updateSessionDisplayItem: () => {},
-    sendChat: async (chatPrompt, files, _node, options) => { sent.push({ chatPrompt, files }); options.onDurableHandoff(); },
+    sendChat: async (chatPrompt, files, _node, options) => { sent.push({ chatPrompt, files }); return sendChatImpl ? sendChatImpl(options) : options.onDurableHandoff(); },
     sendImage: async () => {}, getLatestUploadedImageContext: () => null, getUploadedImageContext: () => null,
     restoreImageAttachmentsFromContext: async () => [], restoreUserAttachmentsFromContext: async () => [],
     getConfig: () => ({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', routeModel: 'route-model' }),
     getSessionRouteModel: () => 'route-model', quotedAttachmentTextFromContext: () => '', quotedFileCandidatesFromContext: () => [],
-    clearActiveRun: () => {}, finishSessionTask: () => {}, dispatchTaskEvent: () => {}, resumeSessionJobs: () => {},
+    clearActiveRun: () => {}, finishSessionTask: () => {}, dispatchTaskEvent: (_sessionId, event) => events.push(event), resumeSessionJobs: () => {},
     makeClientChatJobId: () => 'chatjob-answer', makeClientImageJobId: () => 'imgjob-answer', saveChatJob: () => {}, clearChatJob: () => {},
     shouldPrepareManagedChatJob: () => true, findMessageNodeByDisplayItem: () => null, insertMessageNodeAtDisplayPosition: () => {},
     saveSessionsMeta: () => {}, buildRouteContext: () => ({}),
     requestJson: async () => { throw new Error('a text clarification answer must never invoke an independent classifier'); },
   });
-  return { workflow, state, session, routed, sent, pending, prompt, finalRoute };
+  return { workflow, state, session, routed, sent, events, pending, prompt, finalRoute };
 }
 
 async function testTextAnswerAppliesPendingAndReroutesTheBaseTask() {
@@ -169,6 +172,47 @@ async function testChoiceAnswerMarkerConsumesPendingAndReroutes() {
     assert.strictEqual(fixture.routed[0].input, BASE_TASK_TEXT);
     assert.ok(fixture.routed[0].routeContext?.clarification_context?.pending_task, 'the reroute must carry the answered pending task');
     assert.strictEqual(fixture.sent.length, 1);
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
+
+async function testSubmitCompletionCallbacksPublishOneHandoffAndOneCompletion() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const fixture = makeFixture({
+      promptValue: '2',
+      sendChatImpl: options => {
+        options.onDurableHandoff();
+        options.onInterfaceCompleted({
+          sessionId: 'session-answer',
+          submissionId: fixture.events.find(event => event.type === taskState.TASK_EVENTS.TASK_ACCEPTED)?.submissionId || '',
+          jobId: 'chatjob-answer',
+          jobKind: 'chat',
+        });
+        throw new Error('late failure after canonical completion');
+      },
+    });
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+    assert.strictEqual(
+      fixture.events.filter(event => event.type === taskState.TASK_EVENTS.HANDOFF_COMMITTED).length,
+      1,
+    );
+    assert.strictEqual(
+      fixture.events.filter(event => event.type === taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED).length,
+      1,
+    );
+    assert.strictEqual(
+      fixture.events.some(event => event.type === taskState.TASK_EVENTS.JOB_RECOVERY_STARTED || event.type === taskState.TASK_EVENTS.JOB_FAILED),
+      false,
+    );
   } finally {
     restore.forEach(fn => fn());
   }
@@ -241,6 +285,7 @@ async function testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff()
 module.exports = [
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
+  testSubmitCompletionCallbacksPublishOneHandoffAndOneCompletion,
   testRelationNewTaskClearsPendingAndSubmitsCurrentPrompt,
   testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff,
 ];

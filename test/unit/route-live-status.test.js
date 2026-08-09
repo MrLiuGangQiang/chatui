@@ -100,7 +100,12 @@ async function testRouteLiveStatusReportsBackupModelRetry() {
     getSessionChatModel: () => 'fallback-chat-model',
     requestJson: async (_url, payload) => {
       calls.push(payload.model);
-      if (payload.model === 'primary-route-model') throw new Error('primary unavailable');
+      if (payload.model === 'primary-route-model') {
+        const error = new Error('primary unavailable');
+        error.code = 'NETWORK_REQUEST_FAILED';
+        error.retryable = true;
+        throw error;
+      }
       return { text: '{}' };
     },
   });

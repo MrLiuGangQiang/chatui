@@ -1,3 +1,5 @@
+const { TextDecoder } = require('util');
+
 const DEFAULT_MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
 const MAX_BODY_BYTES = DEFAULT_MAX_BODY_BYTES;
 
@@ -5,6 +7,14 @@ function payloadTooLargeError() {
   const err = new Error('请求体过大');
   err.statusCode = 413;
   err.code = 'PAYLOAD_TOO_LARGE';
+  return err;
+}
+
+function invalidUtf8Error(cause = null) {
+  const err = new Error('请求体不是有效 UTF-8');
+  err.statusCode = 400;
+  err.code = 'INVALID_UTF8';
+  if (cause) err.cause = cause;
   return err;
 }
 
@@ -16,7 +26,7 @@ function normalizeMaxBytes(value) {
 function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
   const limit = normalizeMaxBytes(maxBytes);
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
     let size = 0;
     let settled = false;
 
@@ -33,21 +43,31 @@ function readBody(req, { maxBytes = DEFAULT_MAX_BODY_BYTES } = {}) {
       return;
     }
 
-    req.setEncoding('utf8');
     req.on('data', chunk => {
       if (settled) return;
-      size += Buffer.byteLength(chunk);
+      const buffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : ArrayBuffer.isView(chunk)
+          ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+          : Buffer.from(String(chunk || ''), 'utf8');
+      size += buffer.length;
       if (size > limit) {
         // Keep the stream flowing so a keep-alive connection is not left with unread bytes.
         fail(payloadTooLargeError());
         return;
       }
-      body += chunk;
+      chunks.push(buffer);
     });
     req.on('end', () => {
       if (settled) return;
-      settled = true;
-      resolve(body);
+      try {
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        const body = decoder.decode(Buffer.concat(chunks, size));
+        settled = true;
+        resolve(body);
+      } catch (error) {
+        fail(invalidUtf8Error(error));
+      }
     });
     req.on('aborted', () => {
       const err = new Error('请求已中止');
@@ -71,4 +91,11 @@ function parseJson(text) {
   }
 }
 
-module.exports = { readBody, parseJson, MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES, payloadTooLargeError };
+module.exports = {
+  readBody,
+  parseJson,
+  MAX_BODY_BYTES,
+  DEFAULT_MAX_BODY_BYTES,
+  payloadTooLargeError,
+  invalidUtf8Error,
+};

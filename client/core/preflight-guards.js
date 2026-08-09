@@ -26,6 +26,23 @@
     };
   }
 
+  function createMessageSizeError(input = '', limits = {}) {
+    const result = validateMessageSize(input, limits);
+    if (result.ok) return null;
+    const error = new RangeError(result.message);
+    error.code = 'INPUT_TOO_LONG';
+    error.reasonCode = result.code;
+    error.length = result.length;
+    error.maxChars = result.maxChars;
+    return error;
+  }
+
+  function assertMessageSize(input = '', limits = {}) {
+    const error = createMessageSizeError(input, limits);
+    if (error) throw error;
+    return validateMessageSize(input, limits);
+  }
+
   function normalizeSelection(text = '', selectionStart, selectionEnd) {
     const length = String(text || '').length;
     const start = Number.isInteger(Number(selectionStart)) ? Math.max(0, Math.min(length, Number(selectionStart))) : length;
@@ -72,7 +89,16 @@
     return null;
   }
 
-  const api = { MAX_USER_MESSAGE_CHARS, validateMessageSize, validateMessageInsertion, truncateMessageToLimit, buildPreflightDecision, attachmentCounts };
+  const api = {
+    MAX_USER_MESSAGE_CHARS,
+    validateMessageSize,
+    createMessageSizeError,
+    assertMessageSize,
+    validateMessageInsertion,
+    truncateMessageToLimit,
+    buildPreflightDecision,
+    attachmentCounts,
+  };
   if (root) root.ChatUICorePreflightGuards = api;
   if (root?.window) root.window.ChatUICorePreflightGuards = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -62,6 +62,89 @@ function testCapabilityRegistryParsesTypedImageArguments() {
   assert.strictEqual(capabilities.validateArguments('text_to_image', result.arguments), true);
 }
 
+
+function testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics() {
+  const noTransparent = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: '生成一张猫，不要透明背景',
+  });
+  assert.deepStrictEqual(noTransparent.arguments?.background, 'opaque');
+  assert.strictEqual(noTransparent.conflicts.length, 0);
+
+  const opaque = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: '生成一张猫，使用不透明背景',
+  });
+  assert.deepStrictEqual(opaque.arguments?.background, 'opaque');
+  assert.strictEqual(opaque.conflicts.length, 0, 'the shorter transparent span must not conflict with 不透明背景');
+
+  const noOpaque = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: 'Do not use an opaque background',
+  });
+  assert.deepStrictEqual(noOpaque.arguments?.background, 'transparent');
+
+  for (const [input, expected] of [
+    ['生成一张猫，不是透明背景', 'opaque'],
+    ['生成一张猫，不能使用透明背景', 'opaque'],
+    ['I do not want a transparent background', 'opaque'],
+    ["I don't want an opaque background", 'transparent'],
+  ]) {
+    const result = capabilities.resolveExecutionArguments({ operation: 'text_to_image', input });
+    assert.deepStrictEqual(result.arguments?.background, expected, `negation must apply to: ${input}`);
+  }
+
+  const englishUnderspecifiedNegative = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: 'I do not want high quality',
+  });
+  assert.strictEqual(englishUnderspecifiedNegative.arguments, null);
+  assert.strictEqual(englishUnderspecifiedNegative.conflicts[0].name, 'quality');
+
+  const underspecifiedNegative = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: '生成一张猫，不要高质量',
+  });
+  assert.strictEqual(underspecifiedNegative.arguments, null, 'a negative directive with multiple valid alternatives must clarify instead of falling back to auto');
+  assert.strictEqual(underspecifiedNegative.conflicts[0].name, 'quality');
+  assert.ok(!/自动/.test(capabilities.clarificationQuestion(underspecifiedNegative)),
+    'a clarification for an exclusion must not suggest auto, which could select an excluded value');
+
+  const contradictoryBackground = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: '使用透明背景，但不要透明背景',
+  });
+  assert.strictEqual(contradictoryBackground.arguments, null);
+  assert.deepStrictEqual(contradictoryBackground.conflicts[0].values, ['opaque']);
+  assert.deepStrictEqual(
+    capabilities.choicesForArgument('background', contradictoryBackground.conflicts[0].values).map(choice => choice.value),
+    ['opaque'],
+    'contradictory clarification must not re-offer the explicitly excluded value',
+  );
+
+  const fullyExcludedBackground = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input: '不要透明背景，也不要不透明背景',
+  });
+  assert.strictEqual(fullyExcludedBackground.arguments, null);
+  assert.deepStrictEqual(fullyExcludedBackground.conflicts[0].values, []);
+  assert.deepStrictEqual(
+    capabilities.choicesForArgument('background', fullyExcludedBackground.conflicts[0].values),
+    [],
+    'clarification must not re-offer values that the user explicitly excluded',
+  );
+  assert.ok(/均被排除|没有可用/.test(capabilities.clarificationQuestion(fullyExcludedBackground)));
+}
+
+function testCapabilityRegistryNormalizesFullWidthSyntaxWithoutChangingThePrompt() {
+  const input = '生成２张１０２４×１０２４的猫图片，ｎ：２';
+  const result = capabilities.resolveExecutionArguments({ operation: 'text_to_image', input });
+  assert.strictEqual(result.arguments?.size, '1024x1024');
+  assert.strictEqual(result.arguments?.count, 2);
+  assert.strictEqual(result.arguments?.prompt, input, 'the provider prompt must retain the original user text');
+  assert.ok(result.evidence.size.some(value => value.includes('１０２４×１０２４')));
+}
+
 function testCapabilityRegistryFailsClosedOnConflictingParameters() {
   const result = capabilities.resolveExecutionArguments({
     operation: 'text_to_image',
@@ -185,6 +268,8 @@ function testQuotedMessageBindingUsesCanonicalRuntimeRouteFields() {
 
 module.exports = [
   testCapabilityRegistryParsesTypedImageArguments,
+  testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics,
+  testCapabilityRegistryNormalizesFullWidthSyntaxWithoutChangingThePrompt,
   testCapabilityRegistryFailsClosedOnConflictingParameters,
   testCapabilityRegistryEnforcesOperationBindingSemantics,
   testDispatchContractIsStableValidatedAndImmutable,

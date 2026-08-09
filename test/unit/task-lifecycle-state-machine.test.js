@@ -270,8 +270,8 @@ function testImageHandoffUsesTheSameClientJobIdentity() {
 
 function testTerminalPreflightCommitsBeforeOwnerClear() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
-  assert.ok(submit.includes('await persistPendingTerminalMessages();emitTaskEvent(sessionId,taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId)'),
-    'terminal preflight and clarification responses must emit canonical completion after commit and before pending ownership is cleared');
+  assert.ok(submit.includes('await persistPendingTerminalMessages();commitTerminalEvent(taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId)'),
+    'terminal preflight and clarification responses must pass the terminal guard after commit and before pending ownership is cleared');
   assert.ok(submit.includes('failure.preservePendingSubmit=!0'), 'a failed terminal commit must retain pending ownership for reload recovery');
 }
 

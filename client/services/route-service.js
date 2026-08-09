@@ -14,6 +14,9 @@
   const resourceIdentityModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('resourceIdentity')
     || root?.ChatUICore?.resourceIdentity
     || (typeof require === 'function' ? require('../core/resource-identity') : {});
+  const preflightGuards = root?.ChatUICorePreflightGuards
+    || root?.window?.ChatUICorePreflightGuards
+    || (typeof require === 'function' ? require('../core/preflight-guards') : {});
 
   const {
     hasExactDispatchContract,
@@ -150,11 +153,12 @@
   }
 
   function assertInputWithinUnifiedLimit(input) {
-    if (String(input || '').length > 100000) {
-      const e = new RangeError('输入过长');
-      e.code = 'INPUT_TOO_LONG';
-      throw e;
+    if (typeof preflightGuards.assertMessageSize !== 'function') {
+      const error = new Error('Message size policy is unavailable');
+      error.code = 'MESSAGE_SIZE_POLICY_UNAVAILABLE';
+      throw error;
     }
+    preflightGuards.assertMessageSize(input);
   }
 
   function normalizedSource(value = '', fallback = 'context') {
@@ -2650,7 +2654,7 @@
       reason: problem.code === 'ambiguous' || (argResult.conflicts || []).includes(problem) ? 'ambiguous' : 'missing',
       parameter_name: stringValue(problem.name),
       parameter_label: stringValue(problem.name),
-      choices: choicesForArgument(problem.name, problem.values || []).map((choice, index) => ({
+      choices: choicesForArgument(problem.name, problem.values).map((choice, index) => ({
         key: `v${index + 1}`,
         source: 'clarification',
         label: choice.label,

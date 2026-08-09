@@ -95,7 +95,7 @@ function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = '
   if (hasOuterBindingEvidence(body)) {
     const evidence = body.bindingEvidence;
     if (!Array.isArray(evidence) || evidence.length > 0) {
-      throw executionProtocolError('鎰忓浘璇嗗埆璇锋眰涓嶅緱鎼哄甫璧勬簮缁戝畾璇佹嵁', 'INTENT_RECOGNITION_BINDINGS_FORBIDDEN');
+      throw executionProtocolError('意图识别请求不得携带资源绑定证据', 'INTENT_RECOGNITION_BINDINGS_FORBIDDEN');
     }
   }
   return Object.freeze({ requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION, targetPath: normalizedPath });

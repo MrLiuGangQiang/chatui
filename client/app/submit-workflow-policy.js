@@ -9,32 +9,104 @@
     return Number.isFinite(index) && index >= 0 ? index : null;
   }
 
-  function createIntentPipelineTimeout() {
+  function createIntentPipelineTimeout(deadlineAt = 0) {
     const error = new Error('ROUTE_INTENT_TIMEOUT');
     error.code = 'ROUTE_INTENT_TIMEOUT';
     error.routeTimedOut = true;
-    error.timeoutMs = INTENT_PIPELINE_DEADLINE_MS;
+    error.timeoutMs = Math.max(0, Number(deadlineAt) - Date.now());
+    return error;
+  }
+
+  function createIntentPipelineCancellation() {
+    const error = new Error('Intent recognition cancelled');
+    error.name = 'AbortError';
+    error.code = 'ROUTE_INTENT_CANCELLED';
+    error.routeCancelled = true;
     return error;
   }
 
   function createBoundedIntentRequest(parentSignal = null, deadlineAt = 0) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const normalizedDeadlineAt = Number(deadlineAt) > 0
+      ? Number(deadlineAt)
+      : Date.now() + INTENT_PIPELINE_DEADLINE_MS;
     let disposed = false;
+    let timedOut = false;
+    let cancelled = false;
     let rejectTerminal = null;
-    const abortFromParent = () => controller?.abort?.();
-    if (parentSignal?.aborted) abortFromParent();
-    else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
     const terminal = new Promise((resolve, reject) => { rejectTerminal = reject; });
     terminal.catch(() => {});
-    const remaining = Math.max(0, Number(deadlineAt) - Date.now());
-    const timer = setTimeout(() => {
+
+    const rejectTerminalOnce = error => {
       if (disposed) return;
+      rejectTerminal?.(error);
+      rejectTerminal = null;
+    };
+    const abortFromParent = () => {
+      if (disposed || cancelled || timedOut) return;
+      cancelled = true;
       controller?.abort?.();
-      rejectTerminal?.(createIntentPipelineTimeout());
-    }, remaining);
+      rejectTerminalOnce(createIntentPipelineCancellation());
+    };
+    if (parentSignal?.aborted) abortFromParent();
+    else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
+
+    const expire = () => {
+      if (disposed || cancelled || timedOut) return false;
+      timedOut = true;
+      controller?.abort?.();
+      rejectTerminalOnce(createIntentPipelineTimeout(normalizedDeadlineAt));
+      return true;
+    };
+    const timer = setTimeout(() => {
+      expire();
+    }, Math.max(0, normalizedDeadlineAt - Date.now()));
+
+    const assertActive = () => {
+      if (cancelled || parentSignal?.aborted) {
+        abortFromParent();
+        throw createIntentPipelineCancellation();
+      }
+      if (timedOut || Date.now() >= normalizedDeadlineAt) {
+        expire();
+        throw createIntentPipelineTimeout(normalizedDeadlineAt);
+      }
+    };
     return {
       signal: controller?.signal || parentSignal || null,
-      race: promise => Promise.race([Promise.resolve(promise), terminal]),
+      deadlineAt: normalizedDeadlineAt,
+      get timedOut() { return timedOut; },
+      get cancelled() { return cancelled; },
+      isExpired: () => timedOut || Date.now() >= normalizedDeadlineAt,
+      assertActive,
+      race: promise => {
+        try {
+          assertActive();
+        } catch (error) {
+          // The caller may have created the attempt before this final deadline
+          // check. Observe its rejection so the canonical timeout does not
+          // become an unhandled rejection.
+          if (promise && typeof promise.then === 'function') {
+            try { Promise.resolve(promise).catch(() => {}); } catch {}
+          }
+          return Promise.reject(error);
+        }
+        return Promise.race([Promise.resolve(promise), terminal]);
+      },
+      raceFactory: factory => {
+        try {
+          assertActive();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        let promise;
+        try {
+          promise = typeof factory === 'function' ? factory() : factory;
+        } catch (error) {
+          promise = Promise.reject(error);
+        }
+        return Promise.race([Promise.resolve(promise), terminal]);
+      },
       dispose() {
         if (disposed) return;
         disposed = true;
@@ -79,6 +151,8 @@
   const api = Object.freeze({
     parseOptionalMessageIndex,
     createBoundedIntentRequest,
+    createIntentPipelineTimeout,
+    createIntentPipelineCancellation,
     createPendingTransition,
     buildPendingAssistancePresentation,
     INTENT_PIPELINE_DEADLINE_MS,

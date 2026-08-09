@@ -56,6 +56,9 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 可配置独立路由模型；未配置时使用聊天模型。模型只输出最小、非执行性的四字段 `route_intent.v1`：`operation`、`relation`、`goal`、`resource_refs`。`goal` 用一句话表达用户真正想做什么，并结合引用消息与最近会话消解“这个”“第一条”“为什么”等省略表达；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，历史消息角色统一为 `context`。模型不能填写版本字段、API、最终参数、上下文策略、幂等键或规范资源 ID；应用在本地重建绑定并生成不可变的 `dispatch_contract.v1`，它仍是唯一执行授权。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
 - 路由会携带当前消息之前、在受控路由窗口内能够容纳的全部文字历史，并排除正在发送的当前消息；超限时从最早消息开始丢弃。显式引用消息会与最近会话一起提供给意图模型，因此“最近问的是‘这个消息多少字’，引用另一条后再问‘这个呢’”可解析为统计当前引用消息的字数。图片/文件二进制和附件正文仍不会进入路由模型。
+- 意图识别使用单一绝对 60 秒预算，primary、fallback、兼容请求和响应校验共享该预算；兼容层在每次实际请求前重新校验截止时间，因此底层 adapter 即使忽略 `AbortSignal`，迟到失败也不会在 deadline 后继续发起兼容请求。点击停止会立即以取消语义结束，不会被误报成超时，也不会在停止后写入澄清或重复完成事件。
+- 上下文构建或裁剪失败时会阻止执行；401/403/429 及其他 4xx 不会通过切换第二模型放大请求，只有明确的网络/5xx/可重试故障才允许模型 fallback。
+- 图片参数分析保留原始 prompt，仅在本地 analysis view 中处理全半角、常见中英文否定和重叠候选；否定后无法唯一确定合法值时会要求澄清，不会强行使用 `auto`，也不会重新提供已明确排除的选项。
 - 最终上下文按三种策略执行：能精确识别一条或多条消息时只发送这些消息；明确独立的新任务不发送历史；其他情况默认发送窗口内会话历史。最终上下文超限时优先丢弃最早消息，不自动插入替代摘要；当前消息和精确绑定消息无法容纳时会停止发送并提示缩短内容。
 - 非图片附件上传时直接走聊天，通过 Responses API 的 Base64 原生文件输入发送，不进入图片路由。
 - 多图场景支持图片组、图片序号、图片 ID 和最近图片引用元数据；目标图与内容/风格参考图使用稳定角色绑定，不依赖候选顺序猜测。澄清回复会重新进入同一语义路由，不使用独立的续问分类器或本地关键词拼接。
@@ -179,6 +182,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 中文输入法组合结束后会重新计算输入框高度。
 - 文件可通过附件按钮选择，也可直接粘贴。
 - 单条文本消息最多 120,000 个字符；粘贴或输入超限内容时会在写入输入框和触发布局计算之前拒绝，建议改为上传文本文件或分段发送。
+- 服务端 JSON 请求体按原始字节限制并使用严格 UTF-8 解码；非法 UTF-8 返回 HTTP 400 / `INVALID_UTF8`，不会用替换字符静默改变请求语义。
 - 文件处理过程中发送按钮会禁用或提示等待。
 - 输出过程中发送按钮切换为停止按钮；只有点击停止按钮才会中断，普通 Enter 不会误触停止。
 
@@ -902,6 +906,11 @@ GET, POST
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |
+| `CHATUI_ACCESS_LOG` | `true` | 每个 HTTP 请求写入一条脱敏 access 记录；core、OPTIONS、Job、proxy、static 与异常路径共享同一记录边界。 |
+| `CHATUI_ACCESS_LOG_FILE` | `temp/logs/access.ndjson` | access log 路径；相对路径以仓库根目录解析。 |
+| `CHATUI_ACCESS_LOG_MAX_BYTES` / `CHATUI_ACCESS_LOG_ROTATIONS` | `20971520` / `3` | access log 单文件上限与轮转数量。 |
+| `CHATUI_ERROR_LOG` | `true` | 启用结构化错误日志；access log 写入失败会转交该日志，不改变原 HTTP 响应。 |
+| `CHATUI_ERROR_LOG_FILE` | `temp/logs/error.ndjson` | error log 路径；禁止写入凭据或完整敏感请求内容。 |
 | `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；managed execution 会记录 `execution.accepted` / `execution.rejected`，客户端在最终请求发出前被上下文绑定校验拦截时也会写入 `source=client_pre_dispatch` 的 `execution.rejected`，同条对照 execution plan、binding evidence、缺失/可用消息资源及校验结果；默认关闭。 |
 | `CHATUI_REQUEST_TRACE_FILE` | `temp/request-trace.ndjson` | 请求追踪文件路径；相对路径以仓库根目录解析。默认目录已被 Git 忽略。 |
 | `CHATUI_REQUEST_TRACE_MAX_BYTES` | `20971520` | 单个请求追踪文件的轮转上限，默认 20 MiB。 |

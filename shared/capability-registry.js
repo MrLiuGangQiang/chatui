@@ -361,24 +361,91 @@
     ));
   }
 
-  function candidate(name, value, evidence, index = -1) {
-    return Object.freeze({ name, value: normalizeArgumentValue(name, value), evidence: stringValue(evidence), index: Number(index) });
+  function normalizeParameterSyntax(input = '') {
+    const original = stringValue(input);
+    const analysis = [...original].map(char => {
+      const code = char.charCodeAt(0);
+      if (code === 0x3000) return ' ';
+      if (code >= 0xff01 && code <= 0xff5e) return String.fromCharCode(code - 0xfee0);
+      if (char === '✕' || char === '✖') return '×';
+      return char;
+    }).join('');
+    return Object.freeze({ original, analysis });
   }
 
-  function addMatch(target, name, value, match) {
-    if (!match || !stringValue(match[0])) return;
-    target.push(candidate(name, value, match[0], Number(match.index)));
+  const PARAMETER_NEGATION_SUFFIX = /(?:(?:不要|不用|无需|不需要|不想|不希望|不是|不能|不可(?:以)?|无法|不接受|不采用|不选择|不选|拒绝|别|避免|取消|去掉|排除|禁止|勿|非|无|不)(?:(?:再|使用|采用|用|要|选择|选|接受|允许|设为|设置为)\s*)*|(?:\bdo(?:es)?\s+not\b|\bdon[’']t\b|\bdoesn[’']t\b|\bcannot\b|\bcan[’']t\b|\bwon[’']t\b|\bwould\s+not\b|\bwouldn[’']t\b|\bshould\s+not\b|\bshouldn[’']t\b|\bmust\s+not\b|\bmustn[’']t\b|\bnot\b|\bwithout\b|\bavoid\b|\bexclude\b|\breject\b|\bno\b)(?:\s+(?:want|need|prefer|allow|accept|choose|select|use|using|set|have|make|be|with|a|an|the|to))*)\s*$/i;
+
+  function negationPolarity(analysis = '', index = -1) {
+    if (!(Number(index) >= 0)) return 'positive';
+    const prefix = String(analysis || '').slice(Math.max(0, Number(index) - 72), Number(index));
+    const clause = prefix.split(/[，,。.!！？?；;\n\r]/).at(-1) || '';
+    return PARAMETER_NEGATION_SUFFIX.test(clause) ? 'negative' : 'positive';
   }
 
-  function collectPatternMatches(input, pattern, name, value) {
+  function candidate(name, value, evidence, index = -1, end = -1, polarity = 'positive') {
+    const start = Number(index);
+    const normalizedEvidence = stringValue(evidence);
+    const normalizedEnd = Number(end) > start ? Number(end) : start + normalizedEvidence.length;
+    return Object.freeze({
+      name,
+      value: normalizeArgumentValue(name, value),
+      evidence: normalizedEvidence,
+      index: start,
+      end: normalizedEnd,
+      polarity: polarity === 'negative' ? 'negative' : 'positive',
+    });
+  }
+
+  function candidateFromMatch(view, name, value, match) {
+    if (!match || !stringValue(match[0])) return null;
+    const index = Number(match.index);
+    const end = index + String(match[0]).length;
+    const evidence = view.original.slice(index, end) || match[0];
+    return candidate(name, value, evidence, index, end, negationPolarity(view.analysis, index));
+  }
+
+  function addMatch(target, view, name, value, match) {
+    const item = candidateFromMatch(view, name, value, match);
+    if (item) target.push(item);
+  }
+
+  function collectPatternMatches(view, pattern, name, value) {
     const matches = [];
     const regex = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
     let match;
-    while ((match = regex.exec(input))) {
-      matches.push(candidate(name, typeof value === 'function' ? value(match) : value, match[0], match.index));
+    while ((match = regex.exec(view.analysis))) {
+      const item = candidateFromMatch(view, name, typeof value === 'function' ? value(match) : value, match);
+      if (item) matches.push(item);
       if (!match[0]) regex.lastIndex += 1;
     }
     return matches;
+  }
+
+  function spansOverlap(left, right) {
+    return left.index < right.end && right.index < left.end;
+  }
+
+  function removeShadowedParameterMatches(candidates = []) {
+    const ranked = [...candidates].sort((left, right) => (
+      (right.end - right.index) - (left.end - left.index)
+      || left.index - right.index
+      || left.name.localeCompare(right.name)
+    ));
+    const selected = [];
+    for (const item of ranked) {
+      const overlaps = selected.filter(existing => existing.name === item.name && spansOverlap(existing, item));
+      if (!overlaps.length) {
+        selected.push(item);
+        continue;
+      }
+      const sameSpanConflict = overlaps.some(existing => (
+        existing.index === item.index
+        && existing.end === item.end
+        && JSON.stringify(existing.value) !== JSON.stringify(item.value)
+      ));
+      if (sameSpanConflict) selected.push(item);
+    }
+    return selected.sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
   }
 
   function chineseCount(value = '') {
@@ -387,45 +454,46 @@
 
   function parseImageParameterCandidates(input = '', operation = '') {
     if (!IMAGE_OPERATIONS.has(operation)) return [];
-    const text = stringValue(input);
+    const view = normalizeParameterSyntax(input);
+    const text = view.analysis;
     if (!text) return [];
     const result = [];
 
     for (const match of text.matchAll(/\b(\d{3,4})\s*[x×*]\s*(\d{3,4})\b/gi)) {
-      addMatch(result, 'size', `${match[1]}x${match[2]}`, match);
+      addMatch(result, view, 'size', `${match[1]}x${match[2]}`, match);
     }
     [
       [/\b(?:square|square image)\b|(?:正方形|方形|方图)/gi, '1024x1024'],
       [/\b(?:portrait|vertical)\b|(?:竖图|竖版|纵向|竖屏)/gi, '1024x1536'],
       [/\b(?:landscape|horizontal)\b|(?:横图|横版|横向|横屏)/gi, '1536x1024'],
-    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'size', value)));
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(view, pattern, 'size', value)));
 
     [
       [/\b(?:low quality|draft quality)\b|(?:低质量|草稿质量|快速预览)/gi, 'low'],
       [/\b(?:medium quality)\b|(?:中等质量|标准质量)/gi, 'medium'],
       [/\b(?:high quality|high-quality)\b|(?:高质量|高清质量|精细质量|超清)/gi, 'high'],
       [/\b(?:hd quality)\b|(?:HD\s*质量)/gi, 'hd'],
-    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'quality', value)));
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(view, pattern, 'quality', value)));
 
     [
       [/\btransparent background\b|(?:透明背景|背景透明|透明底|去底图)/gi, 'transparent'],
       [/\bopaque background\b|(?:不透明背景|背景不透明)/gi, 'opaque'],
-    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(text, pattern, 'background', value)));
+    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(view, pattern, 'background', value)));
 
     for (const match of text.matchAll(/(?:输出|导出|保存|格式|format|export)(?:为|成|\s|:：)*\b(png|jpe?g|webp)\b|\b(png|jpe?g|webp)\s*(?:格式|format)/gi)) {
-      addMatch(result, 'output_format', match[1] || match[2], match);
+      addMatch(result, view, 'output_format', match[1] || match[2], match);
     }
 
     if (operation !== 'edit_image') {
       for (const match of text.matchAll(/(?:生成|画|绘制|制作|创建|来|给我|generate|create|make)\s*([1-4一二三四两])\s*(?:张|幅|个|images?|pictures?)/gi)) {
-        addMatch(result, 'count', chineseCount(match[1]), match);
+        addMatch(result, view, 'count', chineseCount(match[1]), match);
       }
       for (const match of text.matchAll(/\b(?:n|count)\s*[=:：]\s*([1-4])\b/gi)) {
-        addMatch(result, 'count', Number(match[1]), match);
+        addMatch(result, view, 'count', Number(match[1]), match);
       }
     }
 
-    return result.sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
+    return removeShadowedParameterMatches(result);
   }
 
   function normalizeDefaults(defaults = {}) {
@@ -436,6 +504,18 @@
       output_format: normalizeArgumentValue('output_format', defaults.output_format || defaults.outputFormat || defaults.format || 'auto') || 'auto',
       count: normalizeArgumentValue('count', defaults.count ?? defaults.n ?? 1),
     };
+  }
+
+  function explicitArgumentValues(spec = {}) {
+    if (spec.type === 'enum') return spec.values.filter(value => value !== 'auto');
+    if (spec.type === 'integer') {
+      return Array.from({ length: Math.max(0, spec.max - spec.min + 1) }, (_, index) => spec.min + index);
+    }
+    return [];
+  }
+
+  function distinctCandidateValues(items = []) {
+    return [...new Set(items.map(item => JSON.stringify(item.value)))].map(value => JSON.parse(value));
   }
 
   function resolveExecutionArguments({ operation = '', input = '', defaults = {}, overrides = {} } = {}) {
@@ -463,15 +543,50 @@
       } else {
         const hasOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, name);
         const items = byName.get(name) || [];
-        const distinct = [...new Set(items.map(item => JSON.stringify(item.value)))].map(value => JSON.parse(value));
-        if (!hasOverride && distinct.length > 1) {
-          conflicts.push(Object.freeze({ name, values: Object.freeze(distinct), evidence: Object.freeze(items.map(item => item.evidence)) }));
+        const positiveItems = items.filter(item => item.polarity !== 'negative');
+        const negativeItems = items.filter(item => item.polarity === 'negative');
+        const positiveValues = distinctCandidateValues(positiveItems);
+        const negativeValues = distinctCandidateValues(negativeItems);
+        const supportedValues = explicitArgumentValues(spec);
+        const allowedAfterNegation = supportedValues.filter(value => !negativeValues.some(excluded => JSON.stringify(excluded) === JSON.stringify(value)));
+        const evidenceItems = items.map(item => item.evidence);
+
+        if (hasOverride) {
+          resolved[name] = normalizeArgumentValue(name, overrides[name]);
+          evidence[name] = Object.freeze(['clarification_answer.v1']);
+        } else if (positiveValues.length > 1) {
+          conflicts.push(Object.freeze({ name, values: Object.freeze(positiveValues), evidence: Object.freeze(evidenceItems) }));
           continue;
+        } else if (positiveValues.length === 1) {
+          const selected = positiveValues[0];
+          const explicitlyExcluded = negativeValues.some(value => JSON.stringify(value) === JSON.stringify(selected));
+          if (explicitlyExcluded) {
+            conflicts.push(Object.freeze({
+              name,
+              values: Object.freeze(allowedAfterNegation),
+              excludedValues: Object.freeze(negativeValues),
+              evidence: Object.freeze(evidenceItems),
+            }));
+            continue;
+          }
+          resolved[name] = selected;
+          evidence[name] = Object.freeze(evidenceItems);
+        } else if (negativeValues.length) {
+          if (allowedAfterNegation.length !== 1) {
+            conflicts.push(Object.freeze({
+              name,
+              values: Object.freeze(allowedAfterNegation),
+              excludedValues: Object.freeze(negativeValues),
+              evidence: Object.freeze(evidenceItems),
+            }));
+            continue;
+          }
+          resolved[name] = allowedAfterNegation[0];
+          evidence[name] = Object.freeze(evidenceItems);
+        } else {
+          resolved[name] = normalizedDefaults[name] ?? spec.default;
+          evidence[name] = Object.freeze([]);
         }
-        resolved[name] = hasOverride
-          ? normalizeArgumentValue(name, overrides[name])
-          : distinct.length ? distinct[0] : normalizedDefaults[name] ?? spec.default;
-        evidence[name] = Object.freeze(hasOverride ? ['clarification_answer.v1'] : items.map(item => item.evidence));
       }
       const problem = validateArgument(name, resolved[name], spec);
       if (problem) invalid.push(problem);
@@ -487,7 +602,7 @@
   }
 
 
-  function choicesForArgument(name = '', values = []) {
+  function choicesForArgument(name = '', values = null) {
     const labels = {
       size: { '1024x1024': '方图 1024 × 1024', '1024x1536': '竖图 1024 × 1536', '1536x1024': '横图 1536 × 1024' },
       quality: { low: '低质量', medium: '中等质量', high: '高质量', standard: '标准质量', hd: 'HD 质量' },
@@ -501,7 +616,7 @@
           : name === 'output_format' ? IMAGE_OUTPUT_FORMATS
             : name === 'count' ? [1, 2, 3, 4]
               : [];
-    const requested = Array.isArray(values) && values.length ? values : registeredValues;
+    const requested = Array.isArray(values) ? values : registeredValues;
     return [...new Set(requested.map(value => normalizeArgumentValue(name, value)))]
       .filter(value => value !== 'auto')
       .filter(value => !validateArgument(name, value, IMAGE_ARGUMENTS[name] || {}))
@@ -513,7 +628,16 @@
     const invalid = Array.isArray(result.invalid) ? result.invalid : [];
     if (conflicts.length) {
       const labels = { size: '图片尺寸', quality: '图片质量', background: '背景模式', output_format: '输出格式', count: '生成数量' };
-      const details = conflicts.map(item => `${labels[item.name] || item.name}（${item.values.join(' / ')}）`).join('、');
+      const hasEmptyDomain = conflicts.some(item => !Array.isArray(item.values) || item.values.length === 0);
+      const hasExclusions = conflicts.some(item => Array.isArray(item.excludedValues) && item.excludedValues.length > 0);
+      const details = conflicts.map(item => {
+        const label = labels[item.name] || item.name;
+        return Array.isArray(item.values) && item.values.length
+          ? `${label}（${item.values.join(' / ')}）`
+          : `${label}（可用选项均被排除）`;
+      }).join('、');
+      if (hasEmptyDomain) return `检测到图片参数冲突：${details}。请重新说明可接受的选项。`;
+      if (hasExclusions) return `检测到图片参数冲突：${details}。请选择未被排除的一项。`;
       return `检测到图片参数冲突：${details}。请选择其中一项，或直接回复“自动”。`;
     }
     if (invalid.length) {

@@ -40,6 +40,7 @@
       let jobId = '';
       let jobKind = '';
       let handoffCommitted = false;
+      let terminalCommitted = false;
       const savePending = patch => getSubmitWorkflow().savePendingSubmit?.(sessionId, {
         ...(typeof readPending === 'function' ? readPending() : {}),
         submissionId,
@@ -48,6 +49,13 @@
       }) !== false;
       const clearPending = () => getSubmitWorkflow().clearPendingSubmit?.(sessionId);
       const details = () => ({ submissionId, jobId, jobKind });
+      const cancelled = () => run?.stopped === true || run?.abortController?.signal?.aborted === true;
+      const commitTerminal = (type, payload = details()) => {
+        if (!type || terminalCommitted) return false;
+        terminalCommitted = true;
+        emitTaskEvent(sessionId, type, payload);
+        return true;
+      };
       const commitHandoff = () => {
         if (handoffCommitted) return;
         handoffCommitted = true;
@@ -66,15 +74,15 @@
           || completionJobId !== String(jobId)
           || completionJobKind !== String(jobKind)
         ) return false;
+        if (terminalCommitted) return false;
         commitHandoff();
-        emitTaskEvent(sessionId, taskEvents.JOB_COMPLETED_COMMITTED, details());
+        if (!commitTerminal(taskEvents.JOB_COMPLETED_COMMITTED, details())) return false;
         finishSessionTask?.(sessionId, { run });
         return true;
       };
 
       const completePreflight = () => {
-        if (handoffCommitted) return false;
-        emitTaskEvent(sessionId, taskEvents.TASK_COMPLETED_COMMITTED, details());
+        if (handoffCommitted || !commitTerminal(taskEvents.TASK_COMPLETED_COMMITTED, details())) return false;
         clearPending();
         return true;
       };
@@ -112,21 +120,27 @@
         interfaceCompleted,
         fail(error) {
           const preserve = jobLifecycle.shouldPreservePendingSubmitOnError?.(error, state, run) || false;
+          const terminalBeforeError = terminalCommitted;
+          const cancelledBeforeError = cancelled();
           let failureEvent = null;
-          if (!preserve) {
+          if (!preserve && !terminalBeforeError) {
             clearPending();
-            failureEvent = run?.stopped
-              ? taskEvents.TASK_STOPPED
-              : handoffCommitted && jobId
+            if (!cancelledBeforeError) {
+              failureEvent = handoffCommitted && jobId
                 ? (error?.terminalJob ? taskEvents.JOB_FAILED : taskEvents.JOB_RECOVERY_STARTED)
                 : taskEvents.TASK_FAILED;
-            emitTaskEvent(sessionId, failureEvent, { ...details(), error });
-            if (failureEvent === taskEvents.JOB_RECOVERY_STARTED) root.setTimeout?.(() => resumeSessionJobs?.(sessionId), 0);
+              if (failureEvent === taskEvents.JOB_RECOVERY_STARTED) {
+                emitTaskEvent(sessionId, failureEvent, { ...details(), error });
+                root.setTimeout?.(() => resumeSessionJobs?.(sessionId), 0);
+              } else {
+                commitTerminal(failureEvent, { ...details(), error });
+              }
+            }
           }
-          return { preserve, failureEvent };
+          return { preserve, failureEvent, terminalBeforeError, cancelled: cancelledBeforeError };
         },
         stopped() {
-          if (run?.stopped) emitTaskEvent(sessionId, taskEvents.TASK_STOPPED, details());
+          if (cancelled()) commitTerminal(taskEvents.TASK_STOPPED, details());
         },
       });
     }
@@ -155,7 +169,7 @@
         const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
         await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
-      }catch(t){const failure=task.fail(t);failure.preserve||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
+      }catch(t){const failure=task.fail(t);failure.preserve||failure.terminalBeforeError||failure.cancelled||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }
 
     function replayPendingClarification(node,{sessionId,userText,assistantIndex}={}){
@@ -230,6 +244,7 @@
         try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},replay.clarificationRouteContext),g=p.mode}
         else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},buildQuotedRouteContext()),g=p.mode}
         else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null),g=p.mode}}catch(err){throw err}
+        if(d.stopped||d.abortController?.signal?.aborted)return;
         if(p.needClarification){
           const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
           const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
@@ -298,7 +313,7 @@
         const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
          "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
-      }catch(t){const failure=task.fail(t);failure.preserve||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
+      }catch(t){const failure=task.fail(t);failure.preserve||failure.terminalBeforeError||failure.cancelled||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }
 
     return Object.freeze({ forceImageFromUserMessage, regenerateAssistantMessage });

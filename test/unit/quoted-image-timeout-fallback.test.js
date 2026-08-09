@@ -76,6 +76,7 @@ async function testQuotedImageTimeoutBlocksExecutionWithoutLocalFallback() {
     const run = { stopped: false, abortController: new AbortController() };
     const sent = [];
     let requestAborted = false;
+    let requestStarted = false;
     const routeWorkflow = routeIntentWorkflow.createRouteIntentWorkflow({
       state,
       getConfig: () => ({
@@ -87,6 +88,7 @@ async function testQuotedImageTimeoutBlocksExecutionWithoutLocalFallback() {
       getSessionRouteModel: () => 'route-model',
       getSessionChatModel: () => 'route-model',
       requestJson: (_url, _payload, _apiKey, options = {}) => new Promise((resolve, reject) => {
+        requestStarted = true;
         const rejectAsAborted = () => {
           requestAborted = true;
           const error = new Error('aborted');
@@ -182,7 +184,7 @@ async function testQuotedImageTimeoutBlocksExecutionWithoutLocalFallback() {
 
     await workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
 
-    assert.strictEqual(requestAborted, true, 'the route model request must time out in this regression case');
+    assert.strictEqual(requestAborted || !requestStarted, true, 'the deadline must prevent a late provider attempt or abort an attempt already in flight');
     assert.strictEqual(sent.length, 0, 'a timeout must not dispatch chat through a local media fallback');
     const finalAssistant = [...state.messages].reverse().find(item => item.role === 'assistant');
     assert.ok(finalAssistant, 'the blocked route must still produce a visible terminal message');

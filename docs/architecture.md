@@ -57,9 +57,9 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
 
 - `shared/route-intent.js`：作为模型边界最小协议 `route_intent.v1` 的严格 schema 与校验事实来源；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs` 四个字段，`goal` 表达消歧后的用户目标，协议版本由 schema 名称承载而不在每次结果中重复；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份；
-- `client/services/route-service.js`：负责把 canonical route context 投影为模型输入；当前用户消息不得重复进入历史候选，路由窗口内的既有文字消息与经过结构预算裁剪的图片/文件候选全部可见，超限时按明确的容量策略淘汰。引用消息、会话焦点、上一执行资源组和历史候选都只是模型证据，本地不得再按关键词、焦点或 lineage 隐藏候选并替模型判断语义；图片/文件正文和规范资源身份始终保持本地。
+- `client/services/route-service.js`：负责把 canonical route context 投影为模型输入；当前用户消息不得重复进入历史候选，路由窗口内的既有文字消息与经过结构预算裁剪的图片/文件候选全部可见，超限时按明确的容量策略淘汰。引用消息、会话焦点、上一执行资源组和历史候选都只是模型证据，本地不得再按关键词、焦点或 lineage 隐藏候选并替模型判断语义；图片/文件正文和规范资源身份始终保持本地。路由输入长度必须复用 `client/core/preflight-guards.js` 的 `MAX_USER_MESSAGE_CHARS`，不得在 service 或 workflow 中复制另一套阈值。
 - `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；
-- `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；
+- `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；确定性图片参数解析只使用与原文等长的 analysis view 做全半角语法归一化，provider prompt 保留原文。候选必须保留 span、原文 evidence 与否定极性，同一参数的重叠命中按最长 span 优先；常见中英文否定后只有一个合法补集时才可确定性选择，否则进入澄清，不能回落到可能违背否定的 `auto`，澄清选项也不得重新提供已排除值；
 - `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
 - `client/core/message-primitives.js`：统一上下文解析、消息稳定身份和 reasoning 引用文本清理；
 - `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
@@ -90,6 +90,13 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 路由模型输出的 `route_intent.v1` 是唯一语义裁决结果：`operation`、`relation`、`goal` 与 `resource_refs` 都由模型负责。`resource_refs` 非空时，`goal` 必须是已完成资源消解后的自足执行指令，执行层不得再次把原始位置描述交给下游模型重新选择附件。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
 
+意图管线的可靠性边界如下：
+
+- `client/app/submit-workflow-policy.js` 是 60 秒意图预算和取消错误工厂的唯一事实源。提交、重生成、primary 模型、fallback 模型、Structured Output 兼容调用以及同步响应校验共同消费同一个绝对 `deadlineAt`；相对 deadline 只能缩短、不能延长已有绝对预算。即使底层 request adapter 忽略 `AbortSignal`，外层 race 也必须按截止时间结算，且兼容层每次实际请求前必须重新校验预算，禁止迟到失败在 deadline 后触发下一次 provider 调用。
+- 用户停止与超时是不同终态：停止抛出 `AbortError` / `ROUTE_INTENT_CANCELLED`，超时使用 `ROUTE_INTENT_TIMEOUT`。工作流在持久化澄清、准备 handoff 和提交终态前必须重新检查取消；handoff 与完成/失败/停止事件都必须幂等，同一尝试只能提交一个终态。
+- 核心上下文的构建、裁剪或结构校验失败统一为 `ROUTE_CONTEXT_BUILD_FAILED`，模型调用前失败关闭为 `route_context_unavailable`；只有本地、非执行必需的图片 memory cards 可以独立降级。日志只记录错误 name/code，不记录对话原文。
+- HTTP 请求错误必须保留 status、provider code 与 retryable 身份。401、403、429 和其他 4xx 不切换第二模型；只有 5xx、明确网络故障或无 4xx status 的明确可重试错误可以尝试模型 fallback。输出非法仍可尝试独立 fallback 模型，但最终仍须通过严格 schema 与执行契约。
+
 ### 3.3 `client/ui/` 与 `client/features/`
 
 `client/ui/` 保存 DOM 渲染、交互、滚动、消息操作、图片操作、实时渲染和使用统计视图辅助代码。`client/features/` 保存边界更集中的界面功能，例如消息 Markdown 展示、引用预览、历史导航和澄清展示。
@@ -109,7 +116,8 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 ### 3.4.1 应用策略与 Markdown 边界
 
-- `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线 60 秒截止时间、可取消请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
+- `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线单一绝对 60 秒截止时间、可取消且可主动 race 的请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
+- `client/app/submit-workflow.js` 与 `client/app/regenerate-workflow.js`：共享任务生命周期不变量；停止后不得持久化 assistant 澄清、发起业务 handoff 或提交完成事件，durable handoff 与 terminal event 必须按 submission/job identity 幂等；
 - `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，等待区原位更新且不记录或展示模型隐藏推理链；
 - `client/services/session-snapshot-recovery.js`：会话快照的降级存储、配额错误恢复、部分快照合并和 revision 保护；它不能替代 canonical message/session store，也不能让 pending display 覆盖已提交消息；
 - `client/app/markdown/engine-primitives.js`：统一 task-list fallback、表格对齐 class、blockquote fence 规范化、实体解码和高亮结果校验；Node 与 Browser Markdown engine 都复用它；
@@ -142,7 +150,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.1 `server/api/`
 
-`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。
+`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。路由器必须在一个统一的 `try/finally` access-log 边界中覆盖 core、OPTIONS、Job、proxy、static、400/405 与异常路径；每个请求恰好记录一次，并同时捕获显式 `writeHead` 与隐式 `res.statusCode`。具体 route 模块拥有其 canonical access-log 分类，router 不得把已匹配的 core endpoint 重新误标为通用 proxy。access log 写入失败必须转交 error log，不能改变原请求结果。
 
 ### 4.2 `server/services/`
 
@@ -154,7 +162,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.4 `server/http/`
 
-负责 body 限制、响应、安全头、静态文件、压缩、ETag、缓存和公开路径。它不负责上游模型语义或浏览器工作流。`server/http/static-path-utils.js` 集中提供静态服务与 bundle 服务共同使用的安全路径拼接和内容哈希，两个入口不得再各自维护路径穿越校验。
+负责 body 限制、响应、安全头、静态文件、压缩、ETag、缓存和公开路径。它不负责上游模型语义或浏览器工作流。请求 body 必须先按原始字节执行上限检查，再用 fatal UTF-8 decoder 一次性解码；非法字节序列返回 HTTP 400 / `INVALID_UTF8`，合法 U+FFFD 与跨 chunk 多字节字符必须保留。任何上游调用方都不得预先对 IncomingMessage 调用 `setEncoding('utf8')` 后再交给该边界。`server/http/static-path-utils.js` 集中提供静态服务与 bundle 服务共同使用的安全路径拼接和内容哈希，两个入口不得再各自维护路径穿越校验。
 
 ### 4.5 `server/proxy/` 与 `server/security/`
 
@@ -243,6 +251,8 @@ GET /
   -> task lifecycle + canonical message commit
   -> UI projection + session persistence
 ```
+
+该链路必须始终满足：原始输入不因参数分析归一化而改变；上下文故障、非法模型输出和低确定性参数失败关闭；路由本身不授权高风险业务操作；停止、超时、失败与完成保持可区分且单终态；最终执行仍需服务端鉴权、参数和 `dispatch_contract.v1` 校验。
 
 浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。
 

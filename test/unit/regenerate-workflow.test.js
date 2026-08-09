@@ -1,4 +1,4 @@
-const assert = require('assert');
+﻿const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 require('../../client/app/app-context');
@@ -118,6 +118,36 @@ async function testRegeneratePostHandoffFailureEntersRecovery() {
   assert.ok(fixture.calls.some(call => call[0] === 'error' && call[2] === 'polling interrupted'));
 }
 
+
+async function testRegenerateCompletionCallbacksPublishOneHandoffAndOneCompletion() {
+  const fixture = createForceImageFixture({
+    sendImageImpl: options => {
+      options.onDurableHandoff();
+      options.onInterfaceCompleted({
+        sessionId: 'session-a',
+        submissionId: 'submit-regenerate-a',
+        jobId: 'imgjob-regenerate-a',
+        jobKind: 'image',
+      });
+      throw new Error('late failure after canonical completion');
+    },
+  });
+  await fixture.workflow.forceImageFromUserMessage(makeMessageNode());
+  assert.strictEqual(
+    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.HANDOFF_COMMITTED).length,
+    1,
+  );
+  assert.strictEqual(
+    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.JOB_COMPLETED_COMMITTED).length,
+    1,
+  );
+  assert.strictEqual(
+    fixture.events.some(event => event.type === taskState.TASK_EVENTS.JOB_RECOVERY_STARTED || event.type === taskState.TASK_EVENTS.JOB_FAILED),
+    false,
+  );
+  assert.strictEqual(fixture.calls.some(call => call[0] === 'error'), false);
+}
+
 function testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal() {
   const registered = global.ChatUIApp?.appContext?.getWorkflowModule?.('regenerate');
   assert.strictEqual(registered, regenerateWorkflow);
@@ -132,6 +162,141 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
   assert.ok(source.includes('systemContext:mediaMapContext?[mediaMapContext]:[]'), 'regenerate must preserve the original image numbering map at the system-context boundary');
   assert.ok(source.includes('await sendChat(chatPrompt,chatH'), 'regenerate must send the same role-aware prompt shape as ordinary submit');
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
+}
+
+
+function createCancelledRegenerateFixture(routeImpl) {
+  const events = [];
+  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const userNode = { dataset: { rawText: 'ambiguous regenerate request', messageIndex: '0', displayItemId: 'user-cancel' } };
+  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
+  const assistantNode = {
+    dataset: { responseIndex: '1' },
+    isConnected: false,
+    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
+  };
+  const liveItem = { id: 'display-cancel', role: 'assistant', content: 'routing', pending: '1', responseIndex: '1' };
+  const session = { id: 'session-cancel-regenerate', messages: [], display: [liveItem] };
+  const state = {
+    activeSessionId: session.id,
+    autoMode: true,
+    messages: [
+      { role: 'user', content: 'ambiguous regenerate request', rawText: 'ambiguous regenerate request', messageIndex: '0' },
+      { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
+    ],
+    sessions: [session],
+  };
+  session.messages = state.messages.slice();
+  const submitWorkflow = {
+    savePendingSubmit: () => true,
+    clearPendingSubmit: () => {},
+  };
+  const workflow = regenerateWorkflow.createRegenerateWorkflow({
+    state,
+    taskEvents: taskState.TASK_EVENTS,
+    jobLifecycle: {
+      makeSubmissionId: () => 'submit-cancel-regenerate',
+      shouldPreservePendingSubmitOnError: () => false,
+    },
+    messageReplacement: {
+      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
+      ensureAssistantReplacementSlot: (_messages, turn) => turn,
+    },
+    dispatchTaskEvent: (_sessionId, event) => events.push(event),
+    isSessionBusy: () => false,
+    findPreviousUserMessageNode: () => userNode,
+    toast: () => {},
+    ensureActiveRun: () => run,
+    resetMessageActionStates: () => {},
+    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
+    getUserAttachmentContextFromNode: () => '',
+    restoreUserAttachmentsFromContext: async () => [],
+    updateModeUi: () => {},
+    warnMissingModel: () => false,
+    isImageFile: () => false,
+    sendImage: async () => { throw new Error('cancelled regeneration must not dispatch an image'); },
+    sendChat: async () => { throw new Error('cancelled regeneration must not dispatch chat'); },
+    showRunError: () => { throw new Error('cancelled regeneration must not render an error'); },
+    resetActionButtonState: () => {},
+    finishSessionTask: () => {},
+    updateResumeStreamButton: () => {},
+    getSubmitWorkflow: () => submitWorkflow,
+    createRouteRecognitionUi: () => ({
+      stopSlowNotice() {},
+      getEffectiveRouteWithSlowNotice: () => routeImpl(run),
+    }),
+    quotedFileCandidatesFromContext: () => [],
+    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
+    parseImageContext: () => null,
+    restoreImageAttachmentsFromContext: async () => [],
+    makeClientChatJobId: () => 'chatjob-cancel-regenerate',
+    makeClientImageJobId: () => 'imgjob-cancel-regenerate',
+    resumeSessionJobs: () => {},
+  });
+  return { workflow, assistantNode, state, events, run };
+}
+
+async function testRegenerateCancellationBeforeClarificationDoesNotCommitCompletion() {
+  const fixture = createCancelledRegenerateFixture(async run => {
+    run.stopped = true;
+    run.abortController.abort();
+    return {
+      mode: 'chat', api: 'clarify', needClarification: true, dispatchAuthorized: false,
+      readiness: 'needs_clarification', relation: 'new', operationType: 'plain_chat',
+      clarificationQuestion: 'This cancelled clarification must not be committed.',
+      clarificationSlots: [], resources: [],
+    };
+  });
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  assert.strictEqual(
+    fixture.state.messages.some(message => /cancelled clarification/.test(String(message?.content || ''))),
+    false,
+  );
+  assert.strictEqual(
+    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_COMPLETED_COMMITTED),
+    false,
+  );
+  assert.strictEqual(
+    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
+    1,
+  );
+}
+
+async function testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent() {
+  const fixture = createCancelledRegenerateFixture(async run => {
+    run.stopped = true;
+    run.abortController.abort();
+    const error = new Error('regeneration cancelled');
+    error.name = 'AbortError';
+    throw error;
+  });
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  assert.strictEqual(
+    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
+    1,
+    'catch and finally must not publish duplicate stopped terminal events',
+  );
+  assert.strictEqual(
+    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_FAILED),
+    false,
+  );
+}
+
+async function testRegenerateAbortSignalSuppressesLateNonAbortError() {
+  const fixture = createCancelledRegenerateFixture(async run => {
+    run.abortController.abort();
+    throw new Error('late adapter failure after cancellation');
+  });
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  assert.strictEqual(
+    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
+    1,
+    'an aborted regenerate run must publish one stopped terminal event even if the adapter throws a generic error',
+  );
+  assert.strictEqual(
+    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_FAILED),
+    false,
+  );
 }
 
 async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting() {
@@ -216,7 +381,11 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
 module.exports = [
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
+  testRegenerateCompletionCallbacksPublishOneHandoffAndOneCompletion,
   testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal,
   testRegenerateReusesSubmitResourceAndClarificationSemantics,
+  testRegenerateCancellationBeforeClarificationDoesNotCommitCompletion,
+  testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent,
+  testRegenerateAbortSignalSuppressesLateNonAbortError,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
 ];

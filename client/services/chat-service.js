@@ -163,6 +163,32 @@ function buildResponsesPayload(model, messages, options = {}) {
   return payload;
 }
 
+function responseErrorCode(parsed, statusCode = 0) {
+  const provider = parsed?.error && typeof parsed.error === 'object' ? parsed.error : parsed;
+  const code = String(provider?.code || provider?.type || '').trim();
+  return code || (statusCode ? `HTTP_${statusCode}` : 'HTTP_REQUEST_FAILED');
+}
+
+function retryableHttpStatus(statusCode = 0) {
+  const status = Number(statusCode) || 0;
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function createRequestError(message, {
+  code = 'REQUEST_FAILED',
+  statusCode = 0,
+  retryable = false,
+  cause = null,
+} = {}) {
+  const error = new Error(String(message || '请求失败'));
+  error.code = String(code || 'REQUEST_FAILED');
+  error.statusCode = Number(statusCode) || 0;
+  error.status = error.statusCode;
+  error.retryable = retryable === true;
+  if (cause) error.cause = cause;
+  return error;
+}
+
 async function requestJson({
   fetchImpl = fetch,
   url,
@@ -205,11 +231,28 @@ async function requestJson({
   } catch (err) {
     if (err?.name === 'AbortError' || signal?.aborted) throw err;
     const msg = String(err?.message || '网络请求失败');
-    if (/Failed to fetch|fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|network/i.test(msg)) throw new Error('连接接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用');
-    throw new Error(`连接接口失败：${msg}`);
+    if (/Failed to fetch|fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|network/i.test(msg)) {
+      throw createRequestError(
+        '连接接口失败：Endpoint 地址不可达或网络连接被拒绝，请检查 Endpoint Base URL、端口和代理服务是否可用',
+        { code: 'NETWORK_REQUEST_FAILED', retryable: true, cause: err },
+      );
+    }
+    throw createRequestError(`连接接口失败：${msg}`, {
+      code: String(err?.code || 'REQUEST_FAILED'),
+      statusCode: Number(err?.statusCode || err?.status) || 0,
+      retryable: err?.retryable === true,
+      cause: err,
+    });
   }
   const parsed = await parseResponseJson(response);
-  if (!response.ok) throw new Error(normalizeError(null, parsed));
+  if (!response.ok) {
+    const statusCode = Number(response?.status) || 0;
+    throw createRequestError(normalizeError(null, parsed), {
+      code: responseErrorCode(parsed, statusCode),
+      statusCode,
+      retryable: retryableHttpStatus(statusCode),
+    });
+  }
   return parsed;
 }
 

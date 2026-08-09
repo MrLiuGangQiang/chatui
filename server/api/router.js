@@ -84,13 +84,17 @@ function createRouter(deps) {
 
   // Wrap res to capture the response status code for access logging
   function instrumentResponse(res) {
+    if (typeof res.getCapturedStatus === 'function') return res;
     const origWriteHead = res.writeHead.bind(res);
-    let capturedStatus = 200;
+    let capturedStatus = Number(res.statusCode) || 200;
+    let wroteHead = false;
     res.writeHead = function (code, ...args) {
-      capturedStatus = code;
+      wroteHead = true;
+      capturedStatus = Number(code) || capturedStatus;
+      res.statusCode = capturedStatus;
       return origWriteHead(code, ...args);
     };
-    res.getCapturedStatus = () => capturedStatus;
+    res.getCapturedStatus = () => wroteHead ? capturedStatus : Number(res.statusCode) || capturedStatus || 200;
     return res;
   }
 
@@ -108,65 +112,89 @@ function createRouter(deps) {
     const startMs = performance.now();
     const reqTraceId = traceId();
 
-    // Attach trace context so downstream handlers can correlate spans
+    // Attach trace context so downstream handlers can correlate spans.
     req._traceId = reqTraceId;
     req._rootTraceId = reqTraceId;
     req._routeStartMs = startMs;
 
-    let pathname;
-    try { pathname = new URL(req.url, 'http://chatui.local').pathname; }
-    catch { return send(res, 400, 'Bad Request'); }
-    req.pathname = pathname;
-
     instrumentResponse(res);
-
-    if (req.method === 'OPTIONS') {
-      const result = send(res, 204, '', {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-      });
-      accessLog?.log(req, res, { statusCode: 204, durationMs: performance.now() - startMs, route: 'options', traceId: reqTraceId });
-      return result;
-    }
-
-    const coreResult = routeCoreApi(req, res);
-    if (coreResult !== false) {
-      res._routeTag = classifyRoute(pathname);
-      // Wait for async handlers to finish before logging
-      if (coreResult && typeof coreResult.then === 'function') {
-        try { await coreResult; } catch { /* access log still runs below */ }
+    let routeTag = 'unknown';
+    let routeError = null;
+    try {
+      let pathname;
+      try {
+        pathname = new URL(req.url, 'http://chatui.local').pathname;
+      } catch {
+        routeTag = 'bad-request';
+        return send(res, 400, 'Bad Request');
       }
-      return coreResult;
-    }
+      req.pathname = pathname;
+      routeTag = classifyRoute(pathname);
 
-    let result;
-    let routeTag = classifyRoute(pathname);
-
-    if (pathname === '/api/chat-jobs' || pathname.startsWith('/api/chat-jobs/')) {
-      result = await routeChatJobs(req, res);
-    } else if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) {
-      result = await routeImageJobs(req, res);
-    } else if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
-      result = await routeUsage(req, res);
-    } else if (pathname.startsWith('/api/')) {
-      if (req.method !== 'POST') {
-        result = sendMethodNotAllowed(res);
-      } else {
-        result = await proxy(req, res);
+      if (req.method === 'OPTIONS') {
+        routeTag = 'options';
+        return send(res, 204, '', {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+        });
       }
-    } else if (!['GET', 'HEAD'].includes(req.method)) {
-      result = send(res, 405, 'Method Not Allowed');
-    } else {
-      result = await serveStatic(req, res, { root, rootWithSep });
+
+      const coreResult = routeCoreApi(req, res);
+      if (coreResult !== false) {
+        routeTag = String(res._routeTag || routeTag);
+        res._routeTag = routeTag;
+        return await coreResult;
+      }
+
+      if (pathname === '/api/chat-jobs' || pathname.startsWith('/api/chat-jobs/')) {
+        return await routeChatJobs(req, res);
+      }
+      if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) {
+        return await routeImageJobs(req, res);
+      }
+      if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
+        return await routeUsage(req, res);
+      }
+      if (pathname.startsWith('/api/')) {
+        return req.method !== 'POST' ? sendMethodNotAllowed(res) : await proxy(req, res);
+      }
+      if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, 'Method Not Allowed');
+      return await serveStatic(req, res, { root, rootWithSep });
+    } catch (error) {
+      routeError = error;
+      throw error;
+    } finally {
+      const capturedStatus = res.getCapturedStatus ? res.getCapturedStatus() : (res.statusCode || 200);
+      const statusCode = routeError && Number(capturedStatus) < 400
+        ? Number(routeError?.statusCode || routeError?.status) || 500
+        : capturedStatus;
+      const reportAccessLogFailure = error => {
+        try {
+          errorLog?.log?.(error, { source: 'access-log', route: routeTag, traceId: reqTraceId });
+        } catch (loggingError) {
+          console.error('[router] failed to report access-log failure', {
+            name: String(loggingError?.name || 'Error'),
+            code: String(loggingError?.code || 'ACCESS_LOG_ERROR_REPORT_FAILED'),
+          });
+        }
+      };
+      try {
+        const logged = accessLog?.log(req, res, {
+          statusCode,
+          durationMs: performance.now() - startMs,
+          route: routeTag,
+          traceId: reqTraceId,
+        });
+        if (accessLog && accessLog.enabled !== false && logged === false) {
+          const error = new Error('Access log write failed');
+          error.code = 'ACCESS_LOG_WRITE_FAILED';
+          reportAccessLogFailure(error);
+        }
+      } catch (error) {
+        reportAccessLogFailure(error);
+      }
     }
-
-    // Access log: record every request with timing and status
-    const statusCode = res.getCapturedStatus ? res.getCapturedStatus() : (res.statusCode || 200);
-    const durationMs = performance.now() - startMs;
-    accessLog?.log(req, res, { statusCode, durationMs, route: routeTag, traceId: reqTraceId });
-
-    return result;
   };
 }
 

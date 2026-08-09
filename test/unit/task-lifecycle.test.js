@@ -397,10 +397,11 @@ function testSubmitButtonUsesCanonicalTaskProjection() {
     'late legacy cleanup must project the current canonical task instead of clearing it');
   assert.ok(app.includes('const e=taskControls(state.activeSessionId)') && app.includes('e?.sendAction'),
     'send/stop button rendering must derive from canonical task controls');
-  assert.ok(submit.includes('emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED')
-    && submit.indexOf('emitTaskEvent(sessionId,taskEvents.JOB_COMPLETED_COMMITTED') < submit.indexOf('finishSessionTask(sessionId,{run'),
-    'canonical completion must be emitted before shared legacy cleanup runs');
-  assert.ok(submit.includes('failureEvent===taskEvents.JOB_RECOVERY_STARTED&&root.setTimeout?.(()=>deps.resumeSessionJobs?.(sessionId),0)'),
+  assert.ok(submit.includes('commitTerminalEvent(taskEvents.JOB_COMPLETED_COMMITTED')
+    && submit.indexOf('commitTerminalEvent(taskEvents.JOB_COMPLETED_COMMITTED') < submit.indexOf('finishSessionTask(sessionId,{run'),
+    'canonical completion must pass the terminal guard before shared legacy cleanup runs');
+  assert.ok(submit.includes('failureEvent===taskEvents.JOB_RECOVERY_STARTED')
+    && submit.includes('root.setTimeout?.(()=>deps.resumeSessionJobs?.(sessionId),0)'),
     'recoverable managed-job errors must schedule the existing recovery workflow');
 }
 

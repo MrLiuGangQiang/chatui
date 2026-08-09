@@ -73,11 +73,13 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readCha
     {
       path: '/api/image',
       method: 'POST',
+      routeTag: 'proxy',
       handler: proxyImage,
     },
     {
       path: '/api/chat-stream-jobs',
       method: 'POST',
+      routeTag: 'chat-job',
       handler: registerChatStreamJob,
     },
     {
@@ -90,6 +92,7 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readCha
   function routeCoreApi(req, res) {
     const route = routes.find(item => item.path === (req.pathname || req.url));
     if (!route) return false;
+    res._routeTag = String(route.routeTag || 'core');
     if (req.method !== route.method) return sendMethodNotAllowed(res);
     return route.handler(req, res);
   }

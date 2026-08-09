@@ -108,6 +108,21 @@ npm test -- --timeout=20000 unit/server-hardening.test.js
 
 测试名称应描述可观察行为。优先调用真实导出函数并断言结果；源码字符串断言只适合必须冻结的装配、缓存、发布或兼容约束，不能替代行为测试。
 
+### 3.1 意图与执行边界聚焦回归
+
+修改用户输入、上下文、意图请求、参数编译、路由、任务生命周期或 HTTP 接入边界时，除受影响模块测试外，至少运行下面的聚焦集合：
+
+```bash
+npm test -- route-resilience route-deadline-fallback route-live-status route-intent-request
+npm test -- submit-workflow-cancellation regenerate-workflow submit-workflow-clarification-answers durable-task-lifecycle task-lifecycle
+npm test -- dispatch-contract message-size-guard
+npm test -- request-body-utf8 server-router-access-log chat-request-error-metadata protocol-message-quality
+```
+
+这些测试分别冻结：共享绝对 deadline、adapter 忽略取消时的主动结算、deadline 后禁止继续 Structured Output 兼容请求、primary/fallback 预算与错误身份、上下文 fail-closed、停止后的单终态、handoff/completion 幂等、常见中英文否定/重叠/全角参数及排除选项、统一 120,000 字符上限、严格 UTF-8、每请求一条且分类正确的 access log 和协议错误消息质量。新增回归不能只断言一个用户样例；应同时包含正例、近邻反例、冲突或边界输入以及失败路径。
+
+聚焦测试通过不等于发布候选通过。最终工作树仍必须重新执行 `npm run check`；涉及真实模型语义时还必须运行第 6 节独立评测，涉及浏览器或容器行为时必须分别取得真实浏览器 E2E 与 exact Docker runtime 证据。
+
 ## 4. 同进程测试的清理要求
 
 runner 不为每项测试创建独立进程。它会在每项测试开始前记录真实 `globalThis` 自有属性的描述符，并在测试结束后（包括失败路径）自动删除新增的直接属性、恢复被替换的直接属性；新增且不可配置的全局属性会让清理失败，防止污染被静默接受。

@@ -7,9 +7,16 @@ const routeService = require('../../client/services/route-service');
 const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
 
 function testRouteDeadlineAllowsSlowContextComposition() {
-  const source = fs.readFileSync(path.join(__dirname, '../../client/app/route-intent-workflow.js'), 'utf8');
-  assert.ok(source.includes('const INTENT_DEADLINE_MS = 60000;'),
-    'the route intent deadline must not abort a working route model that needs time to compose grounded prompts');
+  const workflowSource = fs.readFileSync(path.join(__dirname, '../../client/app/route-intent-workflow.js'), 'utf8');
+  const policySource = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow-policy.js'), 'utf8');
+  assert.ok(policySource.includes('const INTENT_PIPELINE_DEADLINE_MS = 60000;'),
+    'the canonical route pipeline budget must remain long enough for grounded prompt composition');
+  assert.ok(workflowSource.includes('submitWorkflowPolicy.INTENT_PIPELINE_DEADLINE_MS'),
+    'the route workflow must consume the shared pipeline deadline');
+  assert.strictEqual((workflowSource.match(/\b60000\b/g) || []).length, 0,
+    'the route workflow must not duplicate the canonical deadline literal');
+  assert.ok(!workflowSource.includes("error.code = 'ROUTE_INTENT_CANCELLED'"),
+    'the route workflow must not duplicate the canonical cancellation error factory');
 }
 
 function testWorkflowContainsNoLocalIntentFallback() {

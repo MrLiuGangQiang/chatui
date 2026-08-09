@@ -12,6 +12,8 @@ const safeLog = require('../../server/logging/safe-log');
 const { sendError } = require('../../server/http/response');
 const { readResponseBufferWithLimit } = require('../../server/proxy/openai');
 const { AppError, normalizeError, toErrorPayload } = require('../../server/errors/http-error');
+const { bindJobOwner } = require('../../server/security/job-ownership');
+const { attachTestPrincipal, makeTestPrincipal } = require('../helpers/request-principal-fixture');
 
 function createMockResponse() {
   return {
@@ -27,13 +29,13 @@ function createMockResponse() {
   };
 }
 
-function createMockRequest(url) {
-  return {
+function createMockRequest(url, principal = makeTestPrincipal()) {
+  return attachTestPrincipal({
     url,
     listeners: {},
     on(name, fn) { this.listeners[name] = fn; return this; },
     close() { this.listeners.close?.(); },
-  };
+  }, principal);
 }
 
 function parseSseJson(body) {
@@ -78,6 +80,7 @@ function testJobEventsPreserveCompactPublicContract() {
 function testJobEventsSubscribeAndAbortContracts() {
   const subscribers = new Map();
   const { subscribeJob, abortJob, notifyJob } = jobEvents.createJobEvents({ jobSubscribers: subscribers });
+  const principal = makeTestPrincipal();
 
   const missingReq = createMockRequest('/api/chat-jobs/missing-job/events');
   const missingRes = createMockResponse();
@@ -88,15 +91,17 @@ function testJobEventsSubscribeAndAbortContracts() {
   assert.strictEqual(missingRes.ended, true);
   assert.deepStrictEqual(parseSseJson(missingRes.body), { status: 'error', error: { message: '任务不存在或服务已重启' } });
 
-  const doneStore = new Map([['chatjob-done12345', {
+  const doneJob = {
     id: 'chatjob-done12345',
     status: 'done',
     createdAt: 1,
     updatedAt: 2,
     compactStream: true,
     data: { choices: [{ message: { content: 'hello world', reasoning_content: 'think' } }] },
-  }]]);
-  const doneReq = createMockRequest('/api/chat-jobs/chatjob-done12345/events?contentLength=6&reasoningLength=1');
+  };
+  bindJobOwner(doneJob, principal);
+  const doneStore = new Map([['chatjob-done12345', doneJob]]);
+  const doneReq = createMockRequest('/api/chat-jobs/chatjob-done12345/events?contentLength=6&reasoningLength=1', principal);
   const doneRes = createMockResponse();
   subscribeJob(doneReq, doneRes, doneStore);
   assert.strictEqual(doneRes.status, 200);
@@ -113,12 +118,13 @@ function testJobEventsSubscribeAndAbortContracts() {
     compactStream: true,
     controller: { abort: () => { aborted = true; } },
   };
+  bindJobOwner(runningJob, principal);
   const runningStore = new Map([['chatjob-run12345', runningJob]]);
-  const runningReq = createMockRequest('/api/chat-jobs/chatjob-run12345/events');
+  const runningReq = createMockRequest('/api/chat-jobs/chatjob-run12345/events', principal);
   const runningRes = createMockResponse();
   subscribeJob(runningReq, runningRes, runningStore);
-  assert.strictEqual(subscribers.get('chatjob-run12345').has(runningRes), true);
-  const abortedJob = abortJob(runningStore, 'chatjob-run12345');
+  assert.strictEqual([...subscribers.get('chatjob-run12345')].some(subscriber => subscriber.res === runningRes), true);
+  const abortedJob = abortJob(runningStore, 'chatjob-run12345', principal);
   assert.strictEqual(aborted, true);
   assert.strictEqual(abortedJob.status, 'error');
   assert.strictEqual(runningRes.ended, true);
@@ -126,8 +132,9 @@ function testJobEventsSubscribeAndAbortContracts() {
   assert.strictEqual(subscribers.has('chatjob-run12345'), false);
 
   const firstTokenJob = { id: 'chatjob-ft12345', status: 'running', compactStream: true, firstTokenMs: 0, streamDelta: { content: 'a' } };
+  bindJobOwner(firstTokenJob, principal);
   const ftRes = createMockResponse();
-  subscribers.set(firstTokenJob.id, new Set([ftRes]));
+  subscribers.set(firstTokenJob.id, new Set([{ res: ftRes, principal, job: firstTokenJob }]));
   notifyJob(firstTokenJob);
   assert.strictEqual(firstTokenJob.firstTokenNotified, true);
   assert.strictEqual(firstTokenJob.streamDelta, undefined);

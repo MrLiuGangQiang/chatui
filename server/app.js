@@ -14,9 +14,11 @@ const { createUsageAccessValidator } = require('./services/usage-access.service'
 const { readReleaseNotes } = require('./services/release-notes.service');
 const { readAnnouncements } = require('./services/announcements.service');
 const { createLoggers } = require('./logging');
+const { createRequestPrincipalService } = require('./security/request-principal');
 
 function createApp() {
   const { accessLog, errorLog, serverLog, requestTrace, newTrace } = createLoggers({ root: ROOT });
+  const requestPrincipal = createRequestPrincipalService();
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
   const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
@@ -63,6 +65,7 @@ function createApp() {
     serverLog,
     requestTrace,
     newTrace,
+    requestPrincipal,
     readChangelog: () => readReleaseNotes({ root: ROOT }),
     readAnnouncements: () => readAnnouncements({ root: ROOT }),
     send,

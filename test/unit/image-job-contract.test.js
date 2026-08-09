@@ -4,6 +4,8 @@ const { Readable } = require('stream');
 const { createImageJobHandlers, prepareImageJobRequest, createImageJobFromRequestBody, buildImageUpstreamRequest, createImageJobValidationError, formatImageJobError, imageUpstreamBaseHeaders, markImageJobDone, markImageJobFailed, parseImageUpstreamResponse, resolveImageJobMode, runImageJob } = require('../../server/jobs/image');
 const { publicJob } = require('../../server/jobs/common');
 const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
+const { bindJobOwner } = require('../../server/security/job-ownership');
+const { attachTestPrincipal, makeTestPrincipal } = require('../helpers/request-principal-fixture');
 
 const PNG_1PX = 'iVBORw0KGgo=';
 
@@ -17,12 +19,12 @@ function createMockResponse() {
   };
 }
 
-function createJsonRequest(body) {
+function createJsonRequest(body, principal = makeTestPrincipal()) {
   const req = Readable.from([JSON.stringify(body || {})]);
   req.method = 'POST';
   req.url = '/api/image-jobs';
   req.headers = {};
-  return req;
+  return attachTestPrincipal(req, principal);
 }
 
 async function invokeStart(body, options = {}) {
@@ -45,7 +47,7 @@ async function invokeStart(body, options = {}) {
     return Promise.resolve({ ok: true, text: () => Promise.resolve('{"data":[{"url":"https://img.example/out.png"}]}') });
   });
   try {
-    await handlers.startImageJob(createJsonRequest(body), res);
+    await handlers.startImageJob(createJsonRequest(body, options.principal), res);
     await Promise.resolve();
     if (options.waitForJob) await new Promise(resolve => setImmediate(resolve));
   } finally {
@@ -342,12 +344,14 @@ async function testImageJobStartEditValidationContracts() {
 async function testImageJobStartDuplicateReturnsExistingJobContract() {
   const plan = generationPlan('不会被使用');
   const existingJob = { id: 'imgjob-existing', status: 'done', requestPurpose: 'final_execution', dispatchContract: plan, createdAt: 1, updatedAt: 2, data: { data: [] }, error: '', durationMs: 3 };
+  const principal = makeTestPrincipal();
+  bindJobOwner(existingJob, principal);
   const fetchCalls = [];
   const result = await invokeStart(finalImageRequest({
     baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-existing',
     payload: { model: 'gpt-image-1', prompt: '不会被使用' },
-  }, plan), { imageJobs: new Map([['imgjob-existing', existingJob]]), fetch: (...args) => { fetchCalls.push(args); throw new Error('fetch should not be called'); } });
+  }, plan), { principal, imageJobs: new Map([['imgjob-existing', existingJob]]), fetch: (...args) => { fetchCalls.push(args); throw new Error('fetch should not be called'); } });
 
   assert.strictEqual(result.res.status, 200);
   assert.strictEqual(result.json.id, 'imgjob-existing');

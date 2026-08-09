@@ -1,17 +1,18 @@
 const { getJobIdFromUrl, isAbortJobUrl, isJobEventsUrl } = require('../../jobs/job-url');
+const { JOB_RESPONSE_HEADERS, sendJobNotFound } = require('../../jobs/http-contract');
 
 function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed, abortJob, disposeJob, publicJob, subscribeJob, startJob, getJob }) {
   function abortJobByUrl(req, res) {
     const id = getJobIdFromUrl(req);
-    const job = abortJob(store, id);
-    if (!job) return sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
-    return sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+    const job = abortJob(store, id, req.authPrincipal);
+    if (!job) return sendJobNotFound(res);
+    return sendJson(res, 200, publicJob(job), JOB_RESPONSE_HEADERS);
   }
 
   function disposeJobByUrl(req, res) {
     const id = getJobIdFromUrl(req);
-    const job = disposeJob(store, id);
-    return sendJson(res, 200, { disposed: true, existed: !!job }, { 'Access-Control-Allow-Origin': '*' });
+    const job = disposeJob(store, id, req.authPrincipal);
+    return sendJson(res, 200, { disposed: true, existed: !!job }, JOB_RESPONSE_HEADERS);
   }
 
   return function routeJob(req, res) {

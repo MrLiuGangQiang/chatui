@@ -4,6 +4,7 @@ const assert = require('assert');
 const { Readable } = require('stream');
 const { createRouter } = require('../../server/api/router');
 const { send, sendJson, sendMethodNotAllowed } = require('../../server/http/response');
+const { principalService } = require('../helpers/request-principal-fixture');
 
 function response() {
   return {
@@ -57,6 +58,7 @@ function createTestRouter({
     feedbackSender: { async send() { return true; } },
     accessLog: accessLog || { log: (_req, _res, record) => records.push(record) },
     errorLog,
+    requestPrincipal: principalService,
   });
   return { route, records };
 }

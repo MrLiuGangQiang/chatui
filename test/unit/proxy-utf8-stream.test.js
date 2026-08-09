@@ -3,6 +3,7 @@ const { EventEmitter } = require('events');
 const { Readable } = require('stream');
 
 const { createOpenAiProxy } = require('../../server/proxy/openai');
+const { attachTestPrincipal } = require('../helpers/request-principal-fixture');
 
 function createResponse() {
   const response = new EventEmitter();
@@ -55,7 +56,7 @@ async function testManagedProxyDecodesUtf8AcrossNetworkChunkBoundaries() {
     requestPurpose: 'intent_recognition',
     payload: { model: 'test-model', stream: true, messages: [] },
   });
-  const request = Readable.from([body]);
+  const request = attachTestPrincipal(Readable.from([body]));
   request.url = '/api/chat/completions';
   request.headers = { 'content-type': 'application/json' };
   const response = createResponse();

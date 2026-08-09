@@ -117,6 +117,7 @@ npm test -- route-resilience route-deadline-fallback route-live-status route-int
 npm test -- submit-workflow-cancellation regenerate-workflow submit-workflow-clarification-answers durable-task-lifecycle task-lifecycle
 npm test -- dispatch-contract message-size-guard
 npm test -- request-body-utf8 server-router-access-log chat-request-error-metadata protocol-message-quality
+npm test -- job-ownership job-routes server-hardening
 ```
 
 这些测试分别冻结：共享绝对 deadline、adapter 忽略取消时的主动结算、deadline 后禁止继续 Structured Output 兼容请求、primary/fallback 预算与错误身份、上下文 fail-closed、停止后的单终态、handoff/completion 幂等、常见中英文否定/重叠/全角参数及排除选项、统一 120,000 字符上限、严格 UTF-8、每请求一条且分类正确的 access log 和协议错误消息质量。新增回归不能只断言一个用户样例；应同时包含正例、近邻反例、冲突或边界输入以及失败路径。

@@ -7,6 +7,8 @@ const { safeLog, redactUrl } = require('../logging/safe-log');
 const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
 const fileInputs = require('../../shared/file-inputs');
+const { findOwnedJob } = require('../security/job-ownership');
+const { sendJobNotFound } = require('./http-contract');
 
 const CHAT_BODY_BYTES = 2 * 1024 * 1024;
 const CHAT_VISUAL_BODY_BYTES = 12 * 1024 * 1024;
@@ -312,9 +314,9 @@ function normalizeUpstreamErrorMessage(err, { aborted = false } = {}) {
   return `上游请求失败：${message || '未知错误'}`;
 }
 
-function findJobOr404(store, id, res) {
-  const job = store.get(id);
-  if (!job) sendJson(res, 404, { error: { message: '任务不存在或服务已重启' } });
+function findJobOr404(store, id, res, principal) {
+  const job = findOwnedJob(store, id, principal);
+  if (!job) sendJobNotFound(res);
   return job;
 }
 

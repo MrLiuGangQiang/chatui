@@ -42,7 +42,12 @@ function createRouter(deps) {
     serverLog,
     requestTrace,
     newTrace,
+    requestPrincipal,
   } = deps;
+
+  if (!requestPrincipal || typeof requestPrincipal.attach !== 'function') {
+    throw new TypeError('createRouter requires a requestPrincipal service');
+  }
 
   const { routeCoreApi } = createCoreRoutes({
     appVersion,
@@ -130,6 +135,8 @@ function createRouter(deps) {
       }
       req.pathname = pathname;
       routeTag = classifyRoute(pathname);
+
+      if (req.method !== 'OPTIONS') requestPrincipal.attach(req, res);
 
       if (req.method === 'OPTIONS') {
         routeTag = 'options';

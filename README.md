@@ -848,6 +848,10 @@ PGPASSWORD=password
 | `/api/image-jobs/:id/events` | GET | 订阅图片 Job SSE |
 | `/api/image-jobs/:id/abort` | POST | 中止图片 Job |
 
+服务端会为首次请求签发 HMAC 校验的匿名浏览器 principal Cookie，并把 Chat/Image Job 所有权绑定到该 principal 与部署级 tenant。查询、SSE、中止、删除、同 Job ID 复用以及流式代理接管都会重新校验所有权；未授权访问与不存在保持相同的公开结果，owner、tenant 和 Cookie 值不会进入 Job 快照、日志或 trace。内置前端是同源请求，会自动携带 Cookie；独立 API 客户端必须保存创建响应中的 `Set-Cookie` 并在后续 Job 请求中回传。
+
+该 principal 提供浏览器配置文件级的匿名任务隔离，不等同于企业账号登录。需要真实用户/组织身份、单点登录或同一进程内多租户时，应在受信任认证边界接入可验证的 JWT/OIDC principal；不得用客户端自报的 session ID、随机 Header、Job ID 或 CORS 代替授权。
+
 ### OpenAI 兼容代理
 
 所有 `/api/*` 且不属于内部 API 的请求会走代理白名单。
@@ -918,6 +922,11 @@ GET, POST
 | `CHATUI_REQUEST_TRACE_TEXT` | `1` | 追踪启用后是否保留脱敏且限长的用户输入与模型输出。设为 `0` 时只记录长度和结构摘要。系统提示词和 reasoning 正文始终不落盘。 |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时优先裁剪最早历史且不自动插入摘要，只影响发给模型的 payload，不删除本地会话记录；当前消息和精确绑定消息若仍超限则拒绝发送 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
+| `CHATUI_PRINCIPAL_SECRET` | 每个服务进程随机生成 | 匿名 principal Cookie 的 HMAC 密钥；显式配置时至少 32 bytes。不要提交、记录或暴露该值。当前 JobStore 为进程内存，单实例无需持久化；多实例只有在共享同一密钥并配合粘性会话/一致 Job 存储时才有意义。 |
+| `CHATUI_TENANT_ID` | `default` | 部署级 tenant 边界，会参与 Cookie 签名和 Job owner 派生；不是客户端可声明的用户/租户字段。不同安全域应使用不同值。 |
+| `CHATUI_PRINCIPAL_COOKIE_SECURE` | `auto` | `1` 始终添加 `Secure`，`0` 始终不添加，`auto` 仅在 Node 直连 TLS（或受信任代理报告 HTTPS）时添加。生产 HTTPS 反向代理部署建议显式设为 `1`。 |
+| `CHATUI_TRUST_PROXY` | 未设置 | 仅在请求必经受信任反向代理时设为 `1`；此时 Cookie 的 `auto` 模式才读取 `X-Forwarded-Proto`。不要在可直连应用端口时启用。 |
+| `CHATUI_PRINCIPAL_COOKIE_MAX_AGE_SECONDS` | `86400` | principal Cookie 生命周期，范围 3600-2678400 秒；应不短于需要恢复的 Job 生命周期。 |
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
 | `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
 | `NODE_ENV` | Docker 中为 `production` | Node 运行环境 |
@@ -1288,7 +1297,9 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 - 服务端默认阻止代理访问私有地址段以降低 SSRF 风险；不要在公开部署中设置 `CHATUI_ALLOW_PRIVATE_UPSTREAM=1`。
 - 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/images/edits` 和兼容别名 `/openai/image_edit`。
 - 浏览器尝试加载上游返回的公开图片 URL 时不会附带 API Key；需要鉴权的图片统一回退到 `/api/image`，由服务端校验图片 URL 与 Endpoint 同源后再请求。
-- 当前 Job 存储是单实例内存实现，Job 查询、SSE、中止和删除接口尚未绑定用户身份。面向不可信多用户公开部署时，必须在反向代理或应用层增加认证与会话所有权校验，不能把 Job ID 当作授权凭据。
+- Chat/Image Job 已绑定服务端签发、HMAC 校验、`HttpOnly`、`SameSite=Strict` 的匿名 principal Cookie；查询、SSE、中止、删除和 Job ID 复用均按 owner fail-closed，Job ID 本身不是授权凭据。
+- 匿名 principal 的安全边界是浏览器配置文件，不是企业用户账号。真正的用户/组织多租户部署仍需受信任 JWT/OIDC/SSO 身份源；不要用客户端 session ID、自报 tenant 或随机 Header 替代。
+- HTTPS 反向代理部署应设置 `CHATUI_PRINCIPAL_COOKIE_SECURE=1`；只有代理不可绕过时才设置 `CHATUI_TRUST_PROXY=1`。独立 API 客户端必须保存并回传 principal Cookie。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。
 - `vendor/` 是前端公开资源，不要放任何密钥。
 - API Key 保存在当前浏览器 localStorage；清空站点数据会删除配置与历史。

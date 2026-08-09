@@ -9,6 +9,8 @@ const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const { extractResponsesStreamDelta } = require('../proxy/responses-stream');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
+const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
+const { JOB_RESPONSE_HEADERS } = require('./http-contract');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
@@ -267,14 +269,19 @@ const traceExecution = (event, extra = {}) => requestTrace?.[event]?.({
   ...extra,
 });
 try {
+  const principal = assertRequestPrincipal(req);
+  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
+  let job = chatJobs.get(jobId);
+  if (job) {
+    validationStage = 'job_owner';
+    assertJobOwnedBy(job, principal);
+  }
   const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
   payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath, summarizeOmitted: false });
   validationStage = 'execution_protocol';
   const validation = validateManagedChatExecution(body, payload, api);
   const executionContract = executionContractFromValidation(validation);
   safeLog('[chat-stream-job] upstream payload', { ...summarizeChatPayload(payload), api });
-  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
-  let job = chatJobs.get(jobId);
   if (job) {
     validationStage = 'job_contract';
     executionProtocolValidator.assertJobExecutionContract(job, executionContract);
@@ -286,6 +293,7 @@ try {
     job = makeChatJob(jobId, baseUrl, apiKey, payload, {
       stream: true, extraHeaders, api, executionContract, submissionId: body.submissionId,
     });
+    bindJobOwner(job, principal);
     chatJobs.set(jobId, job);
     job.parentTraceId = req._traceId || '';
     job.rootTraceId = req._rootTraceId || '';
@@ -295,7 +303,7 @@ try {
     job.error = err.message || String(err);
     job.updatedAt = Date.now();
   });
-  sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+  sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
 } catch (err) {
   traceExecution('executionRejected', { error: err });
   respondJobError(res, err);
@@ -324,18 +332,24 @@ const traceExecution = (event, extra = {}) => requestTrace?.[event]?.({
   ...extra,
 });
 try {
+  const principal = assertRequestPrincipal(req);
+  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
+  const existingJob = chatJobs.get(jobId);
+  if (existingJob) {
+    validationStage = 'job_owner';
+    assertJobOwnedBy(existingJob, principal);
+  }
   const targetPath = api === 'responses' ? '/responses' : '/chat/completions';
   payload = applyContextBudgetToOpenAiPayload(body.payload || {}, { contextWindowTokens, targetPath, summarizeOmitted: false });
   validationStage = 'execution_protocol';
   const validation = validateManagedChatExecution(body, payload, api);
   const executionContract = executionContractFromValidation(validation);
   safeLog('[chat-job] upstream payload', { ...summarizeChatPayload(payload), api });
-  jobId = makeJobId(body.jobId).replace(/^imgjob-/, 'chatjob-');
-  if (chatJobs.has(jobId)) {
+  if (existingJob) {
     validationStage = 'job_contract';
-    executionProtocolValidator.assertJobExecutionContract(chatJobs.get(jobId), executionContract);
+    executionProtocolValidator.assertJobExecutionContract(existingJob, executionContract);
     traceExecution('executionAccepted', { reused: true });
-    return sendJson(res, 200, publicJob(chatJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+    return sendJson(res, 200, publicJob(existingJob), JOB_RESPONSE_HEADERS);
   }
   validationStage = 'accepted';
   traceExecution('executionAccepted');
@@ -357,6 +371,7 @@ try {
     data: null,
     error: '',
   };
+  bindJobOwner(job, principal);
   chatJobs.set(job.id, job);
   job.parentTraceId = req._traceId || '';
   job.rootTraceId = req._rootTraceId || '';
@@ -365,7 +380,7 @@ try {
     job.error = err.message || String(err);
     job.updatedAt = Date.now();
   });
-  sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+  sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
 } catch (err) {
   traceExecution('executionRejected', { error: err });
   respondJobError(res, err);
@@ -375,9 +390,9 @@ try {
 function getChatJob(req, res) {
 safeLog('[getChatJob]', { path: redactUrl(req.url) });
 const id = getJobIdFromUrl(req);
-const job = findJobOr404(chatJobs, id, res);
+const job = findJobOr404(chatJobs, id, res, req.authPrincipal);
 if (!job) return;
-sendJson(res, 200, publicJob(job, { resumeUrl: req.url }), { 'Access-Control-Allow-Origin': '*' });
+sendJson(res, 200, publicJob(job, { resumeUrl: req.url }), JOB_RESPONSE_HEADERS);
 }
 
 

@@ -1522,6 +1522,12 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **应该输出**：日志为可解析 NDJSON，包含时间、trace ID、method、path、status、duration 等必要诊断字段；Authorization/API Key/密码/Cookie/token 被脱敏；Data URL、Base64 和文件正文只记录长度/hash/省略信息；查询参数和错误对象不泄漏秘密；达到上限时按配置轮转且服务不中断。
 - **评判依据**：实际结果须与“应该输出”逐项一致；以 NDJSON 解析结果、全目录秘密搜索为零、轮转文件列表和相关请求成功结果为判定证据。
 
+### ERR-017 Job principal、所有权与跨客户端隔离｜P0
+- **前置条件**：使用两个独立浏览器配置文件或两个会保留 Cookie 的 API 客户端 A/B；可创建 Chat Job、Image Job 和 chat stream Job；准备测试专用上游。
+- **输入 / 操作**：A 创建任务并记录 Job ID；B 使用该 ID 分别 GET、订阅 SSE、POST abort、DELETE、重复创建/注册，并尝试通过流式 `/api/chat/completions` 接管；再篡改 A 的 principal Cookie、用不同 tenant 配置验证同一 Cookie、并让 A 执行正常恢复/中止/删除。
+- **应该输出**：首次响应签发 `HttpOnly; SameSite=Strict; Path=/` 的服务端签名 Cookie，HTTPS 部署还包含 `Secure`；B 和篡改 Cookie 对 GET/abort 得到与不存在相同的 404，SSE 得到相同 error event，DELETE 返回 `existed:false` 且不删除真实任务，所有复用/接管返回通用 409 且上游零调用；A 的查询、SSE、恢复、中止和删除正常；owner、tenant、Cookie/token 不出现在公开 Job、日志或 trace；签发 Cookie 的响应不可被共享缓存。
+- **评判依据**：以 A/B 完整状态矩阵、B 操作后 A Job 仍存在/未中止、上游访问计数、响应 headers、Cookie 篡改结果及日志秘密搜索为判定证据。
+
 ---
 
 ## 20. 部署运行与候选镜像

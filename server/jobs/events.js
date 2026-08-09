@@ -1,6 +1,8 @@
 const { SECURITY_HEADERS } = require('../http/response');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { getJobIdFromUrl } = require('./job-url');
+const { findOwnedJob, jobOwnedBy } = require('../security/job-ownership');
+const { JOB_NOT_FOUND_MESSAGE, JOB_SSE_HEADERS } = require('./http-contract');
 function publicJob(job, options = {}) {
   const metrics = {
     firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
@@ -60,50 +62,65 @@ function createJobEvents({ jobSubscribers }) {
     const subscribers = jobSubscribers.get(job.id);
     if (!subscribers) return;
     const data = `event: update\ndata: ${JSON.stringify(publicJob(job, { live: true }))}\n\n`;
-    for (const res of subscribers) {
-      res.write(data);
-      res.flushHeaders?.();
+    const terminal = job.status === 'done' || job.status === 'error';
+    let delivered = false;
+    for (const subscriber of [...subscribers]) {
+      if (subscriber?.job !== job) continue;
+      const res = subscriber.res;
+      if (!res || !jobOwnedBy(job, subscriber.principal)) {
+        subscribers.delete(subscriber);
+        try { res?.end(); } catch {}
+        continue;
+      }
+      try {
+        res.write(data);
+        res.flushHeaders?.();
+        delivered = true;
+      } catch {
+        subscribers.delete(subscriber);
+        try { res.end(); } catch {}
+        continue;
+      }
+      if (terminal) {
+        subscribers.delete(subscriber);
+        try { res.end(); } catch {}
+      }
     }
-    if (Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified) job.firstTokenNotified = true;
+    if (delivered && Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified) job.firstTokenNotified = true;
     delete job.streamDelta;
-    if (job.status === 'done' || job.status === 'error') {
-      for (const res of subscribers) res.end();
-      jobSubscribers.delete(job.id);
-    }
+    if (!subscribers.size) jobSubscribers.delete(job.id);
   }
 
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
-    const job = store.get(id);
+    const job = findOwnedJob(store, id, req.authPrincipal);
     safeLog('[subscribeJob]', { id, found: !!job, path: redactUrl(req.url) });
     if (!job) {
-      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' });
-      res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: '任务不存在或服务已重启' } })}\n\n`);
+      res.writeHead(200, { ...SECURITY_HEADERS, ...JOB_SSE_HEADERS });
+      res.write(`event: update\ndata: ${JSON.stringify({ status: 'error', error: { message: JOB_NOT_FOUND_MESSAGE } })}\n\n`);
       res.end();
       return;
     }
     res.writeHead(200, {
       ...SECURITY_HEADERS,
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
+      ...JOB_SSE_HEADERS,
     });
     res.write(`event: update\ndata: ${JSON.stringify(compactResumeSnapshot(job, req))}\n\n`);
     res.flushHeaders?.();
     if (job.status === 'done' || job.status === 'error') return res.end();
     if (!jobSubscribers.has(id)) jobSubscribers.set(id, new Set());
-    jobSubscribers.get(id).add(res);
+    const subscriber = { res, principal: req.authPrincipal, job };
+    jobSubscribers.get(id).add(subscriber);
     req.on('close', () => {
       const set = jobSubscribers.get(id);
       if (!set) return;
-      set.delete(res);
+      set.delete(subscriber);
       if (!set.size) jobSubscribers.delete(id);
     });
   }
 
-  function abortJob(store, id, message = '任务已停止') {
-    const job = store.get(id);
+  function abortJob(store, id, principal, message = '任务已停止') {
+    const job = findOwnedJob(store, id, principal);
     if (!job) return null;
     if (job.status === 'done' || job.status === 'error') return job;
     job.status = 'error';
@@ -114,20 +131,23 @@ function createJobEvents({ jobSubscribers }) {
     return job;
   }
 
-  function disposeJob(store, id, message = '会话已删除，任务已清理') {
-    const job = store.get(id);
-    if (job && job.status !== 'done' && job.status !== 'error') abortJob(store, id, message);
+  function disposeJob(store, id, principal, message = '会话已删除，任务已清理') {
+    const job = findOwnedJob(store, id, principal);
+    if (!job) return null;
+    if (job.status !== 'done' && job.status !== 'error') abortJob(store, id, principal, message);
     else {
       const subscribers = jobSubscribers.get(id);
       if (subscribers) {
-        for (const res of subscribers) {
-          try { res.end(); } catch {}
+        for (const subscriber of [...subscribers]) {
+          if (subscriber?.job !== job) continue;
+          subscribers.delete(subscriber);
+          try { subscriber.res?.end(); } catch {}
         }
-        jobSubscribers.delete(id);
+        if (!subscribers.size) jobSubscribers.delete(id);
       }
     }
     store.delete(id);
-    return job || null;
+    return job;
   }
 
   return { notifyJob, subscribeJob, abortJob, disposeJob };

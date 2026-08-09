@@ -3,6 +3,8 @@ const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstre
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
+const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
+const { JOB_RESPONSE_HEADERS } = require('./http-contract');
 
 const {
   buildImageEditMultipartBody,
@@ -238,6 +240,13 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
       ...extra,
     });
     try {
+      const principal = assertRequestPrincipal(req);
+      jobId = makeJobId(body.jobId);
+      const existingJob = imageJobs.get(jobId);
+      if (existingJob) {
+        validationStage = 'job_owner';
+        assertJobOwnedBy(existingJob, principal);
+      }
       prepared = prepareImageJobRequest(body);
       validationStage = 'execution_protocol';
       const validation = executionProtocolValidator.validateManagedImageRequest(
@@ -254,12 +263,11 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         dispatchContract: validation.dispatchContract,
         bindingEvidence: validation.bindingEvidence,
       };
-      jobId = makeJobId(body.jobId);
-      if (imageJobs.has(jobId)) {
+      if (existingJob) {
         validationStage = 'job_contract';
-        executionProtocolValidator.assertJobExecutionContract(imageJobs.get(jobId), executionContract);
+        executionProtocolValidator.assertJobExecutionContract(existingJob, executionContract);
         traceExecution('executionAccepted', { reused: true });
-        return sendJson(res, 200, publicJob(imageJobs.get(jobId)), { 'Access-Control-Allow-Origin': '*' });
+        return sendJson(res, 200, publicJob(existingJob), JOB_RESPONSE_HEADERS);
       }
       validationStage = 'accepted';
       traceExecution('executionAccepted');
@@ -269,6 +277,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         dispatchContract: executionContract.dispatchContract,
         bindingEvidence: executionContract.bindingEvidence,
       }, { baseUrl, apiKey, extraHeaders, prepared });
+      bindJobOwner(job, principal);
       imageJobs.set(job.id, job);
       job.parentTraceId = req._traceId || '';
       job.rootTraceId = req._rootTraceId || '';
@@ -277,7 +286,7 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         job.error = err.message || String(err);
         job.updatedAt = Date.now();
       });
-      sendJson(res, 202, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+      sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
     } catch (err) {
       traceExecution('executionRejected', { error: err });
       respondJobError(res, err);
@@ -286,9 +295,9 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
 
   function getImageJob(req, res) {
     const id = getJobIdFromUrl(req);
-    const job = findJobOr404(imageJobs, id, res);
+    const job = findJobOr404(imageJobs, id, res, req.authPrincipal);
     if (!job) return;
-    sendJson(res, 200, publicJob(job), { 'Access-Control-Allow-Origin': '*' });
+    sendJson(res, 200, publicJob(job), JOB_RESPONSE_HEADERS);
   }
 
   return { startImageJob, getImageJob };

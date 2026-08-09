@@ -13,6 +13,8 @@ const {
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
+const { JOB_ID_CONFLICT_MESSAGE, assertRequestPrincipal, bindJobOwner, jobOwnedBy } = require('../security/job-ownership');
+const { JOB_RESPONSE_HEADERS } = require('../jobs/http-contract');
 
 function hasExecutionProtocolFields(body = {}) {
   return Object.prototype.hasOwnProperty.call(body, 'requestPurpose')
@@ -122,16 +124,24 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
     const imageEditMasks = isImageEdit ? extractImageEditMasks(body) : [];
     if (targetPath === '/chat/completions' && proxyJobId && wantsStream) {
-      proxyChatJob = chatJobs.get(proxyJobId) || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, {
+      let principal;
+      try { principal = assertRequestPrincipal(req); }
+      catch (error) { return sendError(res, error); }
+      const existingJob = chatJobs.get(proxyJobId);
+      if (existingJob && !jobOwnedBy(existingJob, principal)) {
+        return sendError(res, 409, JOB_ID_CONFLICT_MESSAGE, 'JOB_ID_CONFLICT', null, JOB_RESPONSE_HEADERS);
+      }
+      proxyChatJob = existingJob || makeChatJob(proxyJobId, baseUrl, apiKey, outboundPayload, {
         stream: true, submissionId: body.submissionId,
       });
-      if (proxyChatJob.streamStarted) proxyChatJob = null;
-      else {
-        proxyChatJob.updatedAt = Date.now();
-        proxyChatJob.streamStarted = true;
-        chatJobs.set(proxyJobId, proxyChatJob);
-        notifyJob(proxyChatJob);
+      if (!existingJob) bindJobOwner(proxyChatJob, principal);
+      if (proxyChatJob.streamStarted) {
+        return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, JOB_RESPONSE_HEADERS);
       }
+      proxyChatJob.updatedAt = Date.now();
+      proxyChatJob.streamStarted = true;
+      chatJobs.set(proxyJobId, proxyChatJob);
+      notifyJob(proxyChatJob);
     }
     let upstreamBody = method === 'GET' ? undefined : JSON.stringify(outboundPayload);
     let upstreamContentHeaders = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
@@ -183,18 +193,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
     if (wantsStream || isEventStream) {
       const chatJob = proxyChatJob;
-      if (!chatJob && targetPath === '/chat/completions' && proxyJobId) {
-        // 已有后台流式 job 接管时，当前页面直接通过 SSE 恢复，避免重复请求/重复输出。
-        requestTrace?.fail?.(traceSpan, { status: 409, error: new Error('CHAT_JOB_ALREADY_STREAMING'), contentType });
-        return sendError(res, 409, '任务已在后台继续，请等待恢复连接', 'CHAT_JOB_ALREADY_STREAMING', null, { 'Access-Control-Allow-Origin': '*' });
-      }
       const compactResponses = targetPath === '/responses' && wantsStream;
       const responsesNormalizer = compactResponses ? createResponsesCompactStreamNormalizer({ startedAt: upstreamStartedAt }) : null;
       res.writeHead(upstream.status, {
         ...SECURITY_HEADERS,
         'Content-Type': compactResponses ? 'text/event-stream; charset=utf-8' : contentType,
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-cache, no-transform',
+        'Cache-Control': 'private, no-store, no-transform',
         Connection: 'keep-alive',
       });
       if (!upstream.body) {

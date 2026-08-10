@@ -122,6 +122,22 @@
     return ordinal ? choiceForOrdinal(slot, Number(ordinal[1])) : null;
   }
 
+  function choiceForRelativePosition(slot = {}, token = '') {
+    const normalized = stringValue(token)
+      .trim()
+      .toLowerCase()
+      .replace(/[。．、,，!?！？]+$/g, '')
+      .replace(/[呢啊呀吧嘛]+$/g, '')
+      .trim();
+    if (!normalized) return null;
+    const isLast = /^(?:最后|最末|末尾)(?:\s*(?:第?\s*一\s*)?(?:(?:个|项|张|幅|份|条)\s*)?(?:图片|图像|照片|图|文件|附件|文档|选项)?)?$/.test(normalized)
+      || /^倒数\s*(?:第?\s*)?一(?:\s*(?:(?:个|项|张|幅|份|条)\s*)?(?:图片|图像|照片|图|文件|附件|文档|选项)?)?$/.test(normalized)
+      || /^(?:the\s+)?(?:last|final)(?:\s+(?:one|item|option|image|picture|photo|file|document))?$/.test(normalized);
+    if (!isLast) return null;
+    const choices = Array.isArray(slot?.choices) ? slot.choices : [];
+    return choices[choices.length - 1] || null;
+  }
+
   function parseJsonAnswer(text = '') {
     const value = stringValue(text);
     if (!value.startsWith('{') || !value.endsWith('}')) return null;
@@ -237,8 +253,10 @@
     if (/\b[rlp][1-9]\d*\s*(?:=|:|：|->|→)/i.test(text)) return 'keyed_selection';
     if (/(?:第\s*)?\d+\s*(?:组|项)\s*(?:选|选择|为|是|[:：=])/i.test(text)) return 'grouped_selection';
     const available = slotChoices(slots).filter(slot => slot.choices.length > 0);
-    if (available.length === 1
-        && /^(?:第\s*)?(?:[a-z]|\d+)(?:\s*(?:个|项|张|号))?$/i.test(text)) return 'single_selection';
+    if (available.length === 1 && (
+      /^(?:第\s*)?(?:[a-z]|\d+)(?:\s*(?:个|项|张|号))?$/i.test(text)
+      || !!choiceForRelativePosition(available[0], text)
+    )) return 'single_selection';
     if (/(?:编辑|修改|目标|参考|参照|风格|样式|来源|输入|附件|文件).*(?:选|选择|为|[:：=])\s*(?:第\s*)?(?:[a-z]|\d+|[一二三四五六七八九十])/i.test(text)) {
       return 'labelled_selection';
     }
@@ -273,7 +291,7 @@
     if (!selections?.length) selections = parseGroupedOrdinals(text, available);
     if (!selections?.length) selections = parseInlineMultiSlot(text, slots);
     if (!selections?.length && available.length === 1) {
-      const choice = choiceForToken(available[0], text);
+      const choice = choiceForToken(available[0], text) || choiceForRelativePosition(available[0], text);
       if (choice) selections = [{ resource_key: stringValue(available[0].key), choice_key: stringValue(choice.key) }];
     }
     if (!selections?.length) return null;

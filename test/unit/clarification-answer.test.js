@@ -56,6 +56,31 @@ function testSingleChoiceNumericAnswerIsDeterministic() {
   }), null, 'free-form text must not be guessed into a structured choice');
 }
 
+function testSingleChoiceLastPositionAnswerIsDeterministic() {
+  const imageSlot = {
+    key: 'r1', type: 'image', role: 'target', reason: 'ambiguous',
+    choices: Array.from({ length: 22 }, (_, index) => ({
+      key: `c${index + 1}`, source: 'history', index: index + 1,
+      id: `img-${index + 1}`, resource_id: `res:image:img-${index + 1}`,
+      reference_id: `ref-${index + 1}`, label: `候选图片 ${index + 1}`,
+    })),
+  };
+  const input = '最后一张呢';
+  assert.strictEqual(clarificationAnswer.clarificationAnswerInputKind(input, { slots: [imageSlot] }), 'single_selection',
+    'a last-position reply must stay in the active clarification flow');
+  const answer = clarificationAnswer.parseClarificationAnswer(input, {
+    clarificationId: 'clarify-last', slots: [imageSlot],
+  });
+  assert.deepStrictEqual(answer.answers, [{ resource_key: 'r1', choice_key: 'c22' }],
+    'the last-position reply must select the final presented candidate');
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer('最后一张看起来更好', {
+    clarificationId: 'clarify-last', slots: [imageSlot],
+  }), null, 'free-form commentary must not be guessed into a structured choice');
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer(input, {
+    clarificationId: 'clarify-last', slots: [imageSlot, slots()[1]],
+  }), null, 'a relative position cannot choose across multiple clarification slots');
+}
+
 function testMultipleChoiceSlotsRequireExplicitKeysOrGroups() {
   const keyed = clarificationAnswer.parseClarificationAnswer('r1=c2 p1=v1', {
     clarificationId: 'clarify-1', slots: slots(),
@@ -156,6 +181,7 @@ module.exports = [
   testClarificationAnswerUsesAnExactVersionedShape,
   testClarificationAnswerRejectsAStaleClarificationId,
   testSingleChoiceNumericAnswerIsDeterministic,
+  testSingleChoiceLastPositionAnswerIsDeterministic,
   testMultipleChoiceSlotsRequireExplicitKeysOrGroups,
   testApplyingAnswerSeparatesResourceAndParameterSelections,
   testClarificationContextSeparatesEstablishedAndSelectedResources,

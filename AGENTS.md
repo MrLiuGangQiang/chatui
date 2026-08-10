@@ -30,7 +30,8 @@ For a hotfix that only repairs packaging or deployment, still follow the complet
 
 ## Engineering standards
 
-- Do not use patchwork fixes that merely mask symptoms. Identify and verify the root cause, then implement a complete fix at the appropriate architectural layer, including regression coverage where applicable.
+- Every problem fix must identify and verify the root cause, then correct the underlying logic at the appropriate architectural layer. Symptom masking, special-case bypasses, and patchwork fixes are not acceptable.
+- Every fixed problem must have its own explicit quality gate that prevents recurrence. Add a dedicated automated regression test or deterministic validation for that exact failure mode, prove that it fails without the fix and passes with the fix, and wire it into `npm run check` and CI. A fix is not complete without its corresponding quality gate.
 - Keep browser, server, and shared-code boundaries described in `docs/architecture.md`.
 - Preserve root static-entry assets unless the static server, Docker image, tests, and documentation are updated together.
 - Add new tests to `test/unit/` or `test/smoke/`; do not expand `test/legacy/` unless preserving an existing regression.

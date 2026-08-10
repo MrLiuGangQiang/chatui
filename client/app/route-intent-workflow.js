@@ -4,6 +4,7 @@
   const requestCompatibility = root?.[Symbol.for('chatui.module-registry.v1')]?.get('requestCompatibility')
     || (typeof require === 'function' ? require('../services/request-compatibility') : {});
   const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
+  const requestJsonWithReasoningParamFallback = requestCompatibility.requestJsonWithReasoningParamFallback;
   const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const createBoundedIntentRequest = submitWorkflowPolicy.createBoundedIntentRequest;
@@ -488,9 +489,16 @@
       // Keep structured-output compatibility fallback for endpoints/models that
       // reject json_schema, while preserving the application request adapter's
       // positional contract (url, payload, apiKey, options).
-      return typeof requestJsonWithStructuredOutputFallback === 'function'
-        ? requestJsonWithStructuredOutputFallback(request, payload)
-        : request(payload);
+      let attempt = nextPayload => request(nextPayload);
+      if (typeof requestJsonWithReasoningParamFallback === 'function') {
+        const inner = attempt;
+        attempt = nextPayload => requestJsonWithReasoningParamFallback(inner, nextPayload);
+      }
+      if (typeof requestJsonWithStructuredOutputFallback === 'function') {
+        const inner = attempt;
+        attempt = nextPayload => requestJsonWithStructuredOutputFallback(inner, nextPayload);
+      }
+      return attempt(payload);
     }
 
     // ── Intent trace (for debugging) ──────────────────────────────

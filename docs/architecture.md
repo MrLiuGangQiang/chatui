@@ -91,6 +91,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 路由模型输出的 `route_intent.v1` 是唯一语义裁决结果：`operation`、`relation`、`goal` 与 `resource_refs` 都由模型负责。`resource_refs` 非空时，`goal` 必须是已完成资源消解后的自足执行指令，执行层不得再次把原始位置描述交给下游模型重新选择附件。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
 
 意图管线的可靠性边界如下：
+- 意图识别是延迟敏感路径，`route-service.js` 的 `buildRoutePayload` 对 gpt-5 系列路由模型统一附加浅推理档 `reasoning_effort: low`（`INTENT_REASONING_EFFORT`），历史消息与引用消息内容在 wire 层截断到 240 字符；这些是请求层延迟约束，不改变"路由模型是唯一语义裁决者"的边界，本地不得增加第二套语义系统。
 
 - `client/app/submit-workflow-policy.js` 是 60 秒意图预算和取消错误工厂的唯一事实源。提交、重生成、primary 模型、fallback 模型、Structured Output 兼容调用以及同步响应校验共同消费同一个绝对 `deadlineAt`；相对 deadline 只能缩短、不能延长已有绝对预算。即使底层 request adapter 忽略 `AbortSignal`，外层 race 也必须按截止时间结算，且兼容层每次实际请求前必须重新校验预算，禁止迟到失败在 deadline 后触发下一次 provider 调用。
 - 用户停止与超时是不同终态：停止抛出 `AbortError` / `ROUTE_INTENT_CANCELLED`，超时使用 `ROUTE_INTENT_TIMEOUT`。工作流在持久化澄清、准备 handoff 和提交终态前必须重新检查取消；handoff 与完成/失败/停止事件都必须幂等，同一尝试只能提交一个终态。

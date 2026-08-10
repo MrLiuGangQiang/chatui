@@ -117,6 +117,59 @@ function testStructuredOutputFallbackClassifierRecognizesOnlyProtocolCapabilityE
   assert.deepStrictEqual(compatibility.fallbackPayloads({ answer: 1 }), []);
 }
 
+
+async function testReasoningParamFallbackRetriesOnceWithoutReasoningEffort() {
+  const payload = {
+    model: 'gpt-5.6-luna',
+    reasoning_effort: 'low',
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1' } },
+    messages: [],
+  };
+  const attempts = [];
+  const result = await compatibility.requestJsonWithReasoningParamFallback(async body => {
+    attempts.push(body);
+    if (attempts.length === 1) throw new Error('reasoning_effort is not supported by this endpoint');
+    return { choices: [{ message: { content: '{}' } }] };
+  }, payload);
+  assert.strictEqual(attempts.length, 2);
+  assert.strictEqual(attempts[0].reasoning_effort, 'low');
+  assert.strictEqual(attempts[1].reasoning_effort, undefined);
+  assert.ok(attempts[1].response_format, 'structured output must be preserved on the reasoning retry');
+  assert.deepStrictEqual(result.choices[0].message.content, '{}');
+  assert.strictEqual(payload.reasoning_effort, 'low', 'the original payload must not be mutated');
+}
+
+async function testReasoningParamFallbackDoesNotRetryOrdinaryFailures() {
+  let calls = 0;
+  await assert.rejects(
+    () => compatibility.requestJsonWithReasoningParamFallback(async () => {
+      calls += 1;
+      throw new Error('network unavailable');
+    }, { model: 'gpt-5.6-luna', reasoning_effort: 'low' }),
+    /network unavailable/,
+  );
+  assert.strictEqual(calls, 1);
+}
+
+async function testReasoningParamFallbackSkipsWhenNoReasoningParam() {
+  let calls = 0;
+  const result = await compatibility.requestJsonWithReasoningParamFallback(async payload => {
+    calls += 1;
+    return payload;
+  }, { model: 'deepseek-chat', messages: [] });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.model, 'deepseek-chat');
+}
+
+function testReasoningParamClassifierRecognizesOnlyCapabilityErrors() {
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('reasoning_effort is not supported by this endpoint')), true);
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('invalid parameter: reasoning_effort is not allowed')), true);
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('unknown parameter reasoning_effort')), true);
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('the upstream model rejected reasoning_effort')), true);
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('timeout while waiting for reasoning tokens')), false);
+  assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('network unavailable')), false);
+}
+
 module.exports = [
   testStructuredOutputFallbackUsesStrictJsonObjectAndPlainJsonInOrder,
   testStructuredOutputFallbackDoesNotRetryOrdinaryFailures,
@@ -124,4 +177,8 @@ module.exports = [
   testJsonObjectFallbackIncludesRequiredLowercaseJsonKeyword,
   testStructuredOutputFallbackRetriesInvalidProviderSchema,
   testStructuredOutputFallbackClassifierRecognizesOnlyProtocolCapabilityErrors,
+  testReasoningParamFallbackRetriesOnceWithoutReasoningEffort,
+  testReasoningParamFallbackDoesNotRetryOrdinaryFailures,
+  testReasoningParamFallbackSkipsWhenNoReasoningParam,
+  testReasoningParamClassifierRecognizesOnlyCapabilityErrors,
 ];

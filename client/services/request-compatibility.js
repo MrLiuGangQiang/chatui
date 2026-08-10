@@ -40,6 +40,28 @@
     return payloads;
   }
 
+
+  function reasoningParamUnsupported(error) {
+    const code = String(error?.code || error?.error?.code || '').toLowerCase();
+    const message = String(error?.message || error?.error?.message || error || '').toLowerCase();
+    const text = `${code} ${message}`;
+    if (!/reasoning/.test(text)) return false;
+    return /unsupported|not\s+support(?:ed)?|unknown|unrecognized|invalid|not\s+permitted|not\s+allowed|extra\s+input|unexpected|reject(?:ed|s)?/.test(text);
+  }
+
+  async function requestJsonWithReasoningParamFallback(request, payload) {
+    if (typeof request !== 'function') throw new TypeError('requestJsonWithReasoningParamFallback requires a request function');
+    if (!payload?.reasoning_effort) return request(payload);
+    try {
+      return await request(payload);
+    } catch (error) {
+      if (!reasoningParamUnsupported(error)) throw error;
+      const compatible = { ...payload };
+      delete compatible.reasoning_effort;
+      return request(compatible);
+    }
+  }
+
   async function requestJsonWithStructuredOutputFallback(request, payload) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithStructuredOutputFallback requires a request function');
     try {
@@ -61,10 +83,12 @@
 
   const api = Object.freeze({
     structuredOutputUnsupported,
+    reasoningParamUnsupported,
     fallbackFormatInstruction,
     appendFallbackFormatInstruction,
     fallbackPayloads,
     requestJsonWithStructuredOutputFallback,
+    requestJsonWithReasoningParamFallback,
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('requestCompatibility', api);

@@ -11,6 +11,11 @@
   const createIntentPipelineCancellation = submitWorkflowPolicy.createIntentPipelineCancellation;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
+  const taskConstantsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskConstants')
+    || root?.ChatUITaskConstants
+    || (typeof require === 'function' ? require('../../shared/task-constants') : {});
+
+  const MAX_MODEL_CALLS = Number(taskConstantsModule.MAX_MODEL_CALLS) || 6;
 
   const INTENT_DEADLINE_MS = Number(submitWorkflowPolicy.INTENT_PIPELINE_DEADLINE_MS);
   // Intent recognition receives as much semantic history as the bounded route
@@ -53,6 +58,7 @@
         route_context_unavailable: '本次未执行：当前会话上下文读取失败。为避免错误路由，请刷新后重试。',
         route_input_too_long: '本次未执行：输入内容超过单条消息限制。请改为上传文本文件或分段发送。',
         route_service_unavailable: '本次未执行：意图路由服务当前不可用。请刷新页面后重试。',
+        model_calls_exceeded: '本次未执行：本轮任务模型调用次数已达上限。为避免循环，请切换显式模式或重新描述需求后再试。',
       };
       const normalizedReason = String(reason || 'route_models_unavailable').trim();
       return {
@@ -260,12 +266,24 @@
 
     // ── Main route function ───────────────────────────────────────
     async function getEffectiveRoute(input, attachments = [], sessionId = '', headers = null, routeContextOverride = null, routeOptions = null) {
+      // v2.7 section 11.1 rule 11: per-task hard ceiling on intent model
+      // calls (intent gate + clarification classification + alternative
+      // re-runs). The caller persists route.modelCalls between rounds and
+      // feeds it back through routeOptions.modelCalls.
+      let taskModelCalls = Number(routeOptions?.modelCalls) || 0;
       const routeSvc = root.ChatUIRouteService || root.window?.ChatUIRouteService;
       const emitStage = (stage, details = {}) => executionStatus.emitRouteStage?.(routeOptions, stage, details);
       const completeRoute = (route, source = '') => {
         const operation = route?.operationType || route?.dispatchContract?.operation || '';
         if (route?.needClarification) emitStage('preparing_clarification', { source, operation });
         else emitStage('route_ready', { source, operation });
+        if (route && typeof route === 'object') {
+          try {
+            route.modelCalls = taskModelCalls;
+          } catch (error) {
+            // frozen route objects may reject the write; the counter is best-effort
+          }
+        }
         return route;
       };
 
@@ -390,6 +408,8 @@
         let primaryError = null;
         let invalidModelOutput = false;
         try {
+          taskModelCalls += 1;
+          if (taskModelCalls > MAX_MODEL_CALLS) return failRoute('model_calls_exceeded', 'model_call_budget');
           const response = await requestWithinDeadline(payload);
           const route = response ? inspectResponse(response, 'primary') : null;
           intentDeadline.assertActive();
@@ -417,6 +437,8 @@
             currentTurn: routeOptions?.currentTurn || null,
           });
           try {
+            taskModelCalls += 1;
+            if (taskModelCalls > MAX_MODEL_CALLS) return failRoute('model_calls_exceeded', 'model_call_budget');
             const fallbackResponse = await requestWithinDeadline(fallbackPayload);
             const route = fallbackResponse ? inspectResponse(fallbackResponse, 'fallback') : null;
             intentDeadline.assertActive();

@@ -11,6 +11,8 @@ const { extractResponsesStreamDelta } = require('../proxy/responses-stream');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
+const { executionConsumedError, deriveIdempotencyKey, contentFingerprint } = require('../validators/idempotency.validator');
+const { assertProviderCapability } = require('../validators/provider-capability.validator');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
@@ -95,7 +97,7 @@ function executionContractFromValidation(validation) {
   };
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog }) {
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
 async function runChatJob(job) {
 job.serverStartAtMs = performance.now();
 const traceSpan = requestTrace?.begin?.({
@@ -351,6 +353,32 @@ try {
     traceExecution('executionAccepted', { reused: true });
     return sendJson(res, 200, publicJob(existingJob), JOB_RESPONSE_HEADERS);
   }
+  // Design doc v2.7 10: idempotency dedup before creating a new Job. The
+  // same canonical plan (or the same client-derived key) must not execute
+  // twice. Existing-Job reuse above stays the fast path for identical jobId.
+  let idempotencyEntry = null;
+  if (idempotencyTable && executionContract.dispatchContract) {
+    const plan = executionContract.dispatchContract;
+    const key = deriveIdempotencyKey(plan);
+    const fingerprint = contentFingerprint(plan);
+    const idem = idempotencyTable.check({ key, fingerprint });
+    if (idem.status === 'consumed') {
+      throw executionConsumedError(idem.result);
+    }
+    idempotencyEntry = { key, fingerprint };
+  }
+  // Design doc v2.7 7.1: provider capability gate before Job creation.
+  // Unconfigured provider (null) keeps baseline behavior (allow).
+  if (providerCapabilities && executionContract.dispatchContract) {
+    assertProviderCapability({
+      operation: executionContract.dispatchContract.operation || '',
+      bindings: Array.isArray(executionContract.dispatchContract.bindings)
+        ? executionContract.dispatchContract.bindings
+        : [],
+      argumentsValue: executionContract.dispatchContract.arguments || {},
+      provider: providerCapabilities,
+    });
+  }
   validationStage = 'accepted';
   traceExecution('executionAccepted');
   const job = {
@@ -373,6 +401,9 @@ try {
   };
   bindJobOwner(job, principal);
   chatJobs.set(job.id, job);
+  if (idempotencyEntry && idempotencyTable) {
+    idempotencyTable.consume({ ...idempotencyEntry, result: job.id });
+  }
   job.parentTraceId = req._traceId || '';
   job.rootTraceId = req._rootTraceId || '';
   withLimiter(limiter, () => runChatJob(job)).catch(err => {

@@ -22,7 +22,13 @@ function checkUsageRefreshLimit(req, name, options = {}) {
   const now = typeof options.now === 'number' ? options.now : Date.now();
   const key = `${name}:${getClientKey(req)}`;
   let bucket = buckets.get(key);
-  if (!bucket || now >= bucket.resetAt) {
+  if (bucket && now >= bucket.resetAt) {
+    // B1: remove the expired bucket instead of resetting it in place so the
+    // module-level map cannot grow without bound (memory leak).
+    buckets.delete(key);
+    bucket = null;
+  }
+  if (!bucket) {
     bucket = { count: 0, resetAt: now + windowMs };
     buckets.set(key, bucket);
   }

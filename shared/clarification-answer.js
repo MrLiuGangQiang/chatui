@@ -508,9 +508,30 @@
     const now = Date.now();
     const originalText = stringValue(value.originalText || value.original_text || value.promptText || value.originalPrompt);
     const baseTaskText = stringValue(value.baseTaskText || value.base_task_text) || originalText;
+    // v2.7 §11.1: durable pending fields. state_version starts at 1, every
+    // state change bumps it; idempotency_key = `${id}:${state_version}`;
+    // expires_at defaults to created + CLARIFICATION_TTL_DAYS; consumed_at is
+    // set only after the durable handoff succeeded. A pending that is past
+    // expiry and not yet consumed reports status 'expired' so the UI can offer
+    // a one-click resend with a fresh key (never reusing the old key).
+    const createdAt = Number(value.createdAt || value.created_at || now);
+    const stateVersion = Math.max(1, Number(value.state_version) || 1);
+    const ttlMs = Number(root?.ChatUITaskConstants?.CLARIFICATION_TTL_DAYS || 7) * 24 * 60 * 60 * 1000;
+    const expiresAt = Number(value.expires_at || value.expiresAt) > 0
+      ? Number(value.expires_at || value.expiresAt)
+      : createdAt + ttlMs;
+    const consumedAt = value.consumed_at !== undefined && value.consumed_at !== null
+      ? Number(value.consumed_at)
+      : null;
+    const status = stringValue(value.status) || 'pending';
+    const expired = status === 'pending' && consumedAt === null && expiresAt > 0 && now > expiresAt;
     return {
       ...value,
       id,
+      schema_version: stringValue(value.schema_version) || 'pending_clarification.v2.1',
+      state_version: stateVersion,
+      status: expired ? 'expired' : status,
+      idempotency_key: stringValue(value.idempotency_key) || `${id}:${stateVersion}`,
       originalText,
       baseTaskText,
       supplements: Array.isArray(value.supplements) ? value.supplements.map(stringValue).filter(Boolean) : [],
@@ -523,7 +544,10 @@
       relationClarification: value.relationClarification && typeof value.relationClarification === 'object' && !Array.isArray(value.relationClarification)
         ? value.relationClarification
         : null,
-      createdAt: Number(value.createdAt || value.created_at || now),
+      createdAt,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      consumed_at: consumedAt,
       updatedAt: Number(value.updatedAt || value.updated_at || value.createdAt || value.created_at || now),
     };
   }
@@ -534,8 +558,14 @@
   } = {}) {
     const originalText = latestUserText(messages);
     const now = Date.now();
+    const pendingId = stringValue(id) || randomId('clarify');
+    const ttlMs = Number(root?.ChatUITaskConstants?.CLARIFICATION_TTL_DAYS || 7) * 24 * 60 * 60 * 1000;
     return {
-      id: stringValue(id) || randomId('clarify'),
+      schema_version: 'pending_clarification.v2.1',
+      id: pendingId,
+      state_version: 1,
+      status: 'pending',
+      idempotency_key: `${pendingId}:1`,
       originalText,
       baseTaskText: originalText,
       supplements: [],
@@ -546,8 +576,42 @@
       sourceImageContext: sourceImageContext || null,
       sourceAttachmentContext: sourceAttachmentContext || null,
       sourceQuoteContext: sourceQuoteContext || null,
+      created_at: now,
       createdAt: now,
+      expires_at: now + ttlMs,
+      consumed_at: null,
       updatedAt: now,
+    };
+  }
+
+  // v2.7 §11.1: every pending state change bumps state_version and derives a
+  // fresh idempotency_key; the previous key is never reused.
+  function advancePendingState(pending = null) {
+    const normalized = normalizePendingClarification(pending);
+    if (!normalized) return null;
+    const nextVersion = (Number(normalized.state_version) || 1) + 1;
+    return {
+      ...normalized,
+      state_version: nextVersion,
+      idempotency_key: `${normalized.id}:${nextVersion}`,
+      status: normalized.status === 'expired' ? 'expired' : 'pending',
+      updatedAt: Date.now(),
+    };
+  }
+
+  function isPendingConsumed(pending = null) {
+    const normalized = normalizePendingClarification(pending);
+    return !!normalized && normalized.consumed_at !== null && normalized.consumed_at !== undefined;
+  }
+
+  function consumePendingClarification(pending = null, { consumedAt = Date.now() } = {}) {
+    const normalized = normalizePendingClarification(pending);
+    if (!normalized) return null;
+    return {
+      ...normalized,
+      status: 'consumed',
+      consumed_at: Number(consumedAt) || Date.now(),
+      updatedAt: Date.now(),
     };
   }
 
@@ -560,7 +624,7 @@
     const merged = !!text;
     if (merged && text !== base && !supplements.includes(text)) supplements.push(text);
     return {
-      pending: { ...normalized, supplements, updatedAt: Date.now() },
+      pending: advancePendingState({ ...normalized, supplements, updatedAt: Date.now() }),
       merged,
       // The current user turn is what the router re-parses; the pending base
       // task and any supplements travel inside the clarification context.
@@ -734,7 +798,7 @@
       ? mergeClarificationAnswers(normalized.clarificationAnswer, incremental, { clarificationId: normalized.id })
       : incremental;
     const application = applyClarificationAnswer(merged, clarificationSlotsFor(normalized), { clarificationId: normalized.id });
-    const next = { ...normalized, clarificationAnswer: merged, updatedAt: Date.now() };
+    const next = advancePendingState({ ...normalized, clarificationAnswer: merged, updatedAt: Date.now() });
     return {
       pending: next,
       answer: merged,
@@ -752,7 +816,7 @@
       input: stringValue(input),
       sourceMessageIndex: Number(sourceMessageIndex) || 0,
     });
-    return { ...normalized, relationClarification: relation, updatedAt: Date.now() };
+    return advancePendingState({ ...normalized, relationClarification: relation, updatedAt: Date.now() });
   }
 
   function applyPendingRelationAnswer(pending = null, answer = null) {
@@ -764,7 +828,7 @@
       decision: resolved.decision,
       input: resolved.input,
       source_message_index: resolved.source_message_index,
-      pending: { ...normalized, relationClarification: null, updatedAt: Date.now() },
+      pending: advancePendingState({ ...normalized, relationClarification: null, updatedAt: Date.now() }),
     };
   }
 
@@ -901,6 +965,9 @@
     applyClarificationAnswer,
     createPendingClarification,
     mergePendingInput,
+    advancePendingState,
+    isPendingConsumed,
+    consumePendingClarification,
     findPendingFromHistory,
     isClarificationResponse,
     shouldApplyPending,

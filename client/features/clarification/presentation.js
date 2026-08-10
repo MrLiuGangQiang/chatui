@@ -183,7 +183,7 @@
     if (slots.length) {
       const lookup = createImageLookup(options);
       const multipleSlots = slots.length > 1;
-      const sections = slots.map((slot, slotIndex) => {
+      const imageSections = slots.map((slot, slotIndex) => {
         const cards = slot.choices.map((choice, choiceIndex) => {
           const ordinal = choiceIndex + 1;
           const item = resolveChoiceImage(choice, lookup);
@@ -199,12 +199,30 @@
         return `<section class="clarification-choice-section" aria-label="图片候选组 ${slotIndex + 1}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
       }).join('');
 
-      const html = `<div class="clarification-presentation" data-clarification-image-choices="1"><p class="clarification-question">${questionHtml(question)}</p>${sections}<p class="clarification-choice-hint">请回复一个编号（如“2”或“第 2 张”）。一次只能选择一张图片。</p></div>`;
+      // B2: mixed slots — when non-image option slots coexist with image
+      // slots, render both instead of silently dropping the option slots.
+      const optionSlots = (Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [])
+        .filter(slot => slot?.type !== 'image' && Array.isArray(slot.choices) && slot.choices.length);
+      const optionSections = optionSlots.map((slot, slotIndex) => {
+        const multipleOptionSlots = optionSlots.length > 1;
+        const explicitLabel = String(slot.parameter_label || slot.label || '').trim();
+        const label = explicitLabel || (multipleOptionSlots ? `选项 ${slotIndex + 1}` : '');
+        const cards = slot.choices.map((choice, choiceIndex) => {
+          const ordinal = choiceIndex + 1;
+          const labelText = String(choice.label || choice.value || `选项 ${ordinal}`);
+          const displayText = compactLabel(labelText, 96);
+          return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><button type="button" class="clarification-choice-button" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}" data-choice-label="${escapeHtml(labelText)}" aria-pressed="false"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span><span class="clarification-choice-label">${escapeHtml(displayText)}</span></button></li>`;
+        }).join('');
+        const heading = label ? `<h4 class="clarification-choice-heading">${escapeHtml(label)}</h4>` : '';
+        return `<section class="clarification-choice-section" aria-label="${escapeHtml(label || '候选选项')}">${heading}<ol class="clarification-choice-list">${cards}</ol></section>`;
+      }).join('');
+
+      const html = `<div class="clarification-presentation" data-clarification-image-choices="1"${optionSlots.length ? ' data-clarification-choice-options="1"' : ''}><p class="clarification-question">${questionHtml(question)}</p>${imageSections}${optionSections}${optionSlots.length ? '' : '<p class="clarification-choice-hint">请回复一个编号（如“2”或“第 2 张”）。一次只能选择一张图片。</p>'}</div>`;
       return { rawText: question, html, hasImageChoices: true, hasChoices: true };
     }
 
     const choiceSlots = (Array.isArray(routeInfo.clarificationSlots) ? routeInfo.clarificationSlots : [])
-      .filter(slot => Array.isArray(slot.choices) && slot.choices.length);
+      .filter(slot => slot?.type !== 'image' && Array.isArray(slot.choices) && slot.choices.length);
     if (choiceSlots.length) {
       const multipleChoiceSlots = choiceSlots.length > 1;
       const sections = choiceSlots.map((slot, slotIndex) => {

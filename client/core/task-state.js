@@ -154,7 +154,14 @@ function beginRecovery(state, event) {
   // A committed interface result is terminal. Recovery is only valid before
   // terminal commit; a late observer/error must never resurrect the composer.
   if (isTaskTerminal(state)) return state;
-  if (state.phase !== TASK_PHASES.IDLE && !hasMatchingIdentity(state, event)) return state;
+  // B3: an IDLE state that already carries a task identity must still be
+  // protected from a late recovery event belonging to a different task.
+  // Only a truly empty IDLE state (no job/submission/task identity) may
+  // accept any recovery event as a fresh start.
+  const stateHasIdentity = Boolean(
+    stringValue(state.jobId) || stringValue(state.submissionId) || stringValue(state.taskId),
+  );
+  if (stateHasIdentity && !hasMatchingIdentity(state, event)) return state;
   const identity = eventIdentity(event);
   const jobId = stringValue(event.jobId);
   if (!identity || !jobId) return state;

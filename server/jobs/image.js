@@ -3,6 +3,8 @@ const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstre
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
+const { executionConsumedError, deriveIdempotencyKey, contentFingerprint } = require('../validators/idempotency.validator');
+const { assertProviderCapability } = require('../validators/provider-capability.validator');
 const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
 
@@ -216,7 +218,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
   }
 }
 
-function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace, errorLog }) {
+function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
   async function startImageJob(req, res) {
     const extracted = await extractProxyRequest(req, res);
     if (!extracted) return;
@@ -269,6 +271,29 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         traceExecution('executionAccepted', { reused: true });
         return sendJson(res, 200, publicJob(existingJob), JOB_RESPONSE_HEADERS);
       }
+      // Design doc v2.7 10: idempotency dedup before creating a new Job.
+      let idempotencyEntry = null;
+      if (idempotencyTable && executionContract.dispatchContract) {
+        const plan = executionContract.dispatchContract;
+        const key = deriveIdempotencyKey(plan);
+        const fingerprint = contentFingerprint(plan);
+        const idem = idempotencyTable.check({ key, fingerprint });
+        if (idem.status === 'consumed') {
+          throw executionConsumedError(idem.result);
+        }
+        idempotencyEntry = { key, fingerprint };
+      }
+      // Design doc v2.7 7.1: provider capability gate before Job creation.
+      if (providerCapabilities && executionContract.dispatchContract) {
+        assertProviderCapability({
+          operation: executionContract.dispatchContract.operation || '',
+          bindings: Array.isArray(executionContract.dispatchContract.bindings)
+            ? executionContract.dispatchContract.bindings
+            : [],
+          argumentsValue: executionContract.dispatchContract.arguments || {},
+          provider: providerCapabilities,
+        });
+      }
       validationStage = 'accepted';
       traceExecution('executionAccepted');
       const job = createImageJobFromRequestBody(jobId, {
@@ -279,6 +304,9 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
       }, { baseUrl, apiKey, extraHeaders, prepared });
       bindJobOwner(job, principal);
       imageJobs.set(job.id, job);
+      if (idempotencyEntry && idempotencyTable) {
+        idempotencyTable.consume({ ...idempotencyEntry, result: job.id });
+      }
       job.parentTraceId = req._traceId || '';
       job.rootTraceId = req._rootTraceId || '';
       withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog })).catch(err => {

@@ -18,6 +18,20 @@ const { createBuildIdentity } = require('../build-identity');
 const BUILD_IDENTITY = createBuildIdentity({ root: ROOT, version: APP_VERSION });
 const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS });
 
+// Optional provider capability descriptor (design doc v2.7 7.1). Absent or
+// invalid JSON means "unconfigured" -> server gates treat the provider as
+// unrestricted, preserving baseline behavior for existing deployments.
+const PROVIDER_CAPABILITIES = (() => {
+  const raw = String(process.env.CHATUI_PROVIDER_CAPABILITIES || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+})();
+
 module.exports = {
   PORT,
   HOST,
@@ -27,6 +41,7 @@ module.exports = {
   UPSTREAM_TIMEOUT_MS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   CONTEXT_WINDOW_TOKENS,
+  PROVIDER_CAPABILITIES,
   ALLOWED_PROXY_METHODS,
   ALLOWED_PROXY_PATHS,
   APP_VERSION,

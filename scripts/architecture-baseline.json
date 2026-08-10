@@ -1,6 +1,6 @@
 {
   "appJsMaxBytes": 217662,
-  "maxGlobalNamespaceExports": 164,
+  "maxGlobalNamespaceExports": 168,
   "legacyWithScopes": {
     "client/app/chat-workflow.js": 1,
     "client/app/display-history-workflow.js": 3,

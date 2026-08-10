@@ -150,6 +150,14 @@ function assertFinalExecutionRequest(body = {}, {
     throw executionProtocolError('Final execution requests require a valid dispatch_contract.v1', 'DISPATCH_CONTRACT_REQUIRED');
   }
 
+  // Design doc v2.7 6.7: when the final-execution request carries model-
+  // emitted structured changes, verify the changes path family against the
+  // planned operation before a Job is created. This is a defensive server-side
+  // check; the primary gate lives in the client route service.
+  if (Array.isArray(body.changes) && body.changes.length) {
+    capabilityRegistry.assertChangesFamilyCompatible(candidatePlan.operation, body.changes);
+  }
+
   const plan = candidatePlan;
   const normalizedPath = normalizedTargetPath(targetPath);
   const resolvedTransportApi = transportApiForPath(normalizedPath, transportApi || body.api);

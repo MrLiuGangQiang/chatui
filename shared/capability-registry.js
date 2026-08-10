@@ -29,8 +29,20 @@
     prompt: Object.freeze({ type: 'string', required: false }),
   });
 
-  function capability(operation, api, mode, argumentsSchema) {
-    return Object.freeze({ operation, api, mode, arguments: argumentsSchema });
+  function capability(operation, api, mode, argumentsSchema, options = {}) {
+    return Object.freeze({
+      operation,
+      api,
+      mode,
+      arguments: argumentsSchema,
+      // Design doc v2.7 6.7/7: each capability declares the changes path
+      // family it accepts ('generation' | 'edit' | 'none') and the only legal
+      // source of confirmation-style provider alternatives.
+      changes_family: String(options.changesFamily || 'none'),
+      equivalent_alternatives: Object.freeze(
+        Array.isArray(options.equivalentAlternatives) ? options.equivalentAlternatives.map(item => Object.freeze({ ...item })) : [],
+      ),
+    });
   }
 
   const CAPABILITIES = Object.freeze({
@@ -40,9 +52,17 @@
     image_qa: capability('image_qa', 'chat', 'chat', CHAT_ARGUMENTS),
     image_compare: capability('image_compare', 'chat', 'chat', CHAT_ARGUMENTS),
     ocr: capability('ocr', 'chat', 'chat', CHAT_ARGUMENTS),
-    text_to_image: capability('text_to_image', 'image_generation', 'image', IMAGE_ARGUMENTS),
-    image_reference_gen: capability('image_reference_gen', 'image_edit', 'image', IMAGE_ARGUMENTS),
-    edit_image: capability('edit_image', 'image_edit', 'edit_image', IMAGE_ARGUMENTS),
+    text_to_image: capability('text_to_image', 'image_generation', 'image', IMAGE_ARGUMENTS, { changesFamily: 'generation' }),
+    image_reference_gen: capability('image_reference_gen', 'image_edit', 'image', IMAGE_ARGUMENTS, { changesFamily: 'generation' }),
+    edit_image: capability('edit_image', 'image_edit', 'edit_image', IMAGE_ARGUMENTS, {
+      changesFamily: 'edit',
+      equivalentAlternatives: [
+        Object.freeze({
+          operation: 'image_reference_gen',
+          condition: 'provider_unsupported_mask',
+        }),
+      ],
+    }),
   });
 
 
@@ -649,6 +669,124 @@
     return '';
   }
 
+  // Design doc v2.7 6.7: structured changes path families. The generation
+  // family is bound by generation-style operations (text_to_image /
+  // image_reference_gen), the edit family by edit_image only. Mixing families
+  // is the model-hallucination path the doc forbids: edit_image must never
+  // accept generation paths and vice versa.
+  const CHANGES_FAMILY_GENERATION = 'generation';
+  const CHANGES_FAMILY_EDIT = 'edit';
+  const CHANGES_FAMILY_NONE = 'none';
+
+  const GENERATION_CHANGES_PREFIXES = Object.freeze([
+    'base_description',
+    'subject',
+    'style',
+    'composition',
+    'lighting',
+    'background',
+    'constraints',
+    'output',
+  ]);
+  const EDIT_CHANGES_PREFIXES = Object.freeze([
+    'modifications',
+    'preserve_constraints',
+    'output',
+  ]);
+  const CHANGES_OUTPUT_LEAVES = Object.freeze(['size', 'quality', 'background', 'format', 'count']);
+  const FORBIDDEN_CHANGES_PREFIXES = Object.freeze([
+    'prompt', 'request', 'operation', 'api', 'provider',
+    'credentials', 'resource', 'resources', 'binding', 'bindings', 'lifecycle',
+    '__proto__', 'prototype', 'constructor',
+  ]);
+
+  function changesPathSegments(path = '') {
+    return String(path || '').split('.').map(segment => segment.trim()).filter(Boolean);
+  }
+
+  function changesFamilyForPath(path = '') {
+    const first = changesPathSegments(path)[0];
+    if (!first) return CHANGES_FAMILY_NONE;
+    if (GENERATION_CHANGES_PREFIXES.includes(first)) return CHANGES_FAMILY_GENERATION;
+    if (EDIT_CHANGES_PREFIXES.includes(first)) return CHANGES_FAMILY_EDIT;
+    return CHANGES_FAMILY_NONE;
+  }
+
+  function changesFamilyForOperation(operation = '') {
+    const registered = capabilityFor(operation);
+    return registered?.changes_family || CHANGES_FAMILY_NONE;
+  }
+
+  function equivalentAlternativesFor(operation = '') {
+    const registered = capabilityFor(operation);
+    return registered?.equivalent_alternatives || Object.freeze([]);
+  }
+
+  function changesIssue(code, path, extra = {}) {
+    return Object.freeze({ code, path, ...extra });
+  }
+
+  // Validate one changes batch against the operation family. Returns the
+  // issues list (empty means valid). Covers: family compatibility, forbidden
+  // prefixes, duplicate paths, parent/child conflicts and output-leaf shape.
+  function validateChangesFamily(operation = '', changes = []) {
+    const family = changesFamilyForOperation(operation);
+    const items = Array.isArray(changes) ? changes : [];
+    const issues = [];
+    const seen = new Set();
+
+    if (family === CHANGES_FAMILY_NONE && items.length) {
+      return Object.freeze([changesIssue('changes_unsupported', '', { operation })]);
+    }
+
+    for (const change of items) {
+      const path = String(change?.path || '');
+      const segments = changesPathSegments(path);
+      const first = segments[0];
+      if (!first) {
+        issues.push(changesIssue('changes_path_empty', path));
+        continue;
+      }
+      if (FORBIDDEN_CHANGES_PREFIXES.includes(first)) {
+        issues.push(changesIssue('changes_forbidden_prefix', path, { prefix: first }));
+        continue;
+      }
+      const pathFamily = changesFamilyForPath(path);
+      if (pathFamily === CHANGES_FAMILY_NONE || pathFamily !== family) {
+        issues.push(changesIssue('changes_family_incompatible', path, { operation, family, pathFamily }));
+        continue;
+      }
+      if (seen.has(path)) {
+        issues.push(changesIssue('changes_path_duplicate', path));
+        continue;
+      }
+      seen.add(path);
+      if (first === 'output' && segments.length === 2 && !CHANGES_OUTPUT_LEAVES.includes(segments[1])) {
+        issues.push(changesIssue('changes_output_leaf_invalid', path, { leaf: segments[1] }));
+      }
+    }
+
+    for (const path of seen) {
+      for (const other of seen) {
+        if (path === other) continue;
+        if (other.startsWith(`${path}.`)) {
+          issues.push(changesIssue('changes_parent_child_conflict', other, { parent: path }));
+        }
+      }
+    }
+
+    return Object.freeze(issues);
+  }
+
+  function assertChangesFamilyCompatible(operation = '', changes = []) {
+    const issues = validateChangesFamily(operation, changes);
+    if (!issues.length) return true;
+    const error = new TypeError(`Changes family incompatible for ${stringValue(operation) || '<missing>'}`);
+    error.code = 'EXECUTION_CHANGES_FAMILY_INVALID';
+    error.issues = issues;
+    throw error;
+  }
+
   return Object.freeze({
     REGISTRY_VERSION,
     CAPABILITIES,
@@ -659,6 +797,12 @@
     IMAGE_QUALITIES,
     IMAGE_BACKGROUNDS,
     IMAGE_OUTPUT_FORMATS,
+    CHANGES_FAMILY_GENERATION,
+    CHANGES_FAMILY_EDIT,
+    CHANGES_FAMILY_NONE,
+    GENERATION_CHANGES_PREFIXES,
+    EDIT_CHANGES_PREFIXES,
+    FORBIDDEN_CHANGES_PREFIXES,
     capabilityFor,
     resourceRequirementsFor,
     explicitRouteDirectiveFor,
@@ -673,5 +817,10 @@
     resolveExecutionArguments,
     choicesForArgument,
     clarificationQuestion,
+    changesFamilyForPath,
+    changesFamilyForOperation,
+    equivalentAlternativesFor,
+    validateChangesFamily,
+    assertChangesFamilyCompatible,
   });
 });

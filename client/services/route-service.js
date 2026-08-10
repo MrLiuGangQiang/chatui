@@ -11,6 +11,9 @@
   const routeIntentModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeIntent')
     || root?.ChatUIRouteIntent
     || (typeof require === 'function' ? require('../../shared/route-intent') : {});
+  const taskConstantsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskConstants')
+    || root?.ChatUITaskConstants
+    || (typeof require === 'function' ? require('../../shared/task-constants') : {});
   const resourceIdentityModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('resourceIdentity')
     || root?.ChatUICore?.resourceIdentity
     || (typeof require === 'function' ? require('../core/resource-identity') : {});
@@ -34,7 +37,13 @@
     choicesForArgument,
     explicitRouteDirectiveFor,
     ordinalResourceScopeFor,
+    equivalentAlternativesFor,
+    assertChangesFamilyCompatible,
   } = capabilityRegistry;
+  const {
+    MAX_CLARIFICATION_ROUNDS = 3,
+    MAX_MODEL_CALLS = 6,
+  } = taskConstantsModule;
   const {
     ROUTE_INTENT_VERSION = 'route_intent.v1',
     ROUTE_INTENT_RESPONSE_FORMAT,
@@ -1270,6 +1279,79 @@
     return [{ key: 'r2', type: 'text', role: 'source', reason: 'missing', choices: [] }];
   }
 
+  // ── v2.7 §11.5 semantic_choice: enumerable semantic ambiguity → candidate list ──
+  // The domains below are schematic; the mechanism is generic. A domain matches
+  // an open-ended semantic ask (换颜色 / 换风格), the candidate list is a bounded
+  // deterministic enumeration (≤6, no confidence, no recommended flag), and the
+  // slot stays protocol-compatible with clarification_selection.v1.1 (pN/vN keys).
+  // When the user already named a concrete value, the domain does not fire and the
+  // request keeps its normal route; when nothing enumerates (改得好看点), the
+  // caller falls back to semantic_text via visualDetailSlots().
+  const SEMANTIC_CHOICE_DOMAINS = Object.freeze([
+    Object.freeze({
+      name: 'color',
+      label: '颜色',
+      question: '想换成哪种颜色？',
+      pattern: /(?:换|改成|变成|调成|调|染|用什么)(?:个|成|为)?(?:颜色|色彩|色调)|colou?r/i,
+      candidates: () => [
+        { value: 'red', label: '红色', swatch_ref: 'color:#ff0000' },
+        { value: 'blue', label: '蓝色', swatch_ref: 'color:#0000ff' },
+        { value: 'green', label: '绿色', swatch_ref: 'color:#00ff00' },
+        { value: 'yellow', label: '黄色', swatch_ref: 'color:#ffff00' },
+        { value: 'black', label: '黑色', swatch_ref: 'color:#000000' },
+        { value: 'white', label: '白色', swatch_ref: 'color:#ffffff' },
+      ],
+    }),
+    Object.freeze({
+      name: 'style',
+      label: '风格',
+      question: '想换成什么风格？',
+      pattern: /(?:换|改成|变成|调成|用什么)(?:个|成|为)?(?:风格|画风|样式)|style/i,
+      candidates: () => [
+        { value: 'watercolor', label: '水彩' },
+        { value: 'oil', label: '油画' },
+        { value: 'anime', label: '动漫' },
+        { value: 'realistic', label: '写实' },
+        { value: 'minimal', label: '极简' },
+      ],
+    }),
+  ]);
+
+  function detectSemanticChoice(input = '', context = {}) {
+    const text = stringValue(input);
+    for (const domain of SEMANTIC_CHOICE_DOMAINS) {
+      if (!domain.pattern.test(text)) continue;
+      const candidates = typeof domain.candidates === 'function' ? domain.candidates(context) : [];
+      if (!Array.isArray(candidates) || !candidates.length) continue;
+      // The user already named a concrete value; do not ask for what is given.
+      if (candidates.some(candidate => text.includes(String(candidate.label))
+        || text.includes(String(candidate.value)))) continue;
+      return Object.freeze({
+        domain,
+        slot: Object.freeze({
+          key: 'p1',
+          type: 'parameter',
+          interaction: 'semantic_choice',
+          role: 'argument',
+          reason: 'ambiguous',
+          parameter_name: domain.name,
+          parameter_label: domain.label,
+          question: domain.question,
+          min_select: 1,
+          max_select: 1,
+          allow_free_text: true,
+          choices: Object.freeze(candidates.slice(0, 6).map((candidate, index) => Object.freeze({
+            key: `v${index + 1}`,
+            value: candidate.value,
+            label: candidate.label,
+            swatch_ref: String(candidate.swatch_ref || ''),
+          }))),
+        }),
+      });
+    }
+    return null;
+  }
+
   function clarifyRoute(route, { question, slots }) {
     return {
       ...route,
@@ -1626,9 +1708,21 @@
     // ── Vague visual continuation keeps the previous image bound but
     //    fails closed until the user specifies concrete visual changes ─
     if ((planOp === 'image_reference_gen' || planOp === 'edit_image')
-        && isVagueVisualContinuation(text)
         && (previousExecution || focus?.kind === 'image')) {
-      return clarifyRoute(route, { question: VISUAL_DETAIL_QUESTION, slots: visualDetailSlots() });
+      // v2.7 §11.5 semantic_choice: an enumerable semantic ask (换个颜色 /
+      // 换成什么风格) gets a deterministic candidate list instead of a bare
+      // text slot. detectSemanticChoice already skips inputs that name a
+      // concrete candidate value, so a hit is an open-ended enumerable ask and
+      // must not additionally require the vague-visual pattern (those patterns
+      // describe intensity tweaks, not semantic domains). Non-enumerable asks
+      // (改得好看点) keep the semantic_text fallback below.
+      const semanticChoice = detectSemanticChoice(text, context);
+      if (semanticChoice) {
+        return clarifyRoute(route, { question: semanticChoice.slot.question, slots: [semanticChoice.slot] });
+      }
+      if (isVagueVisualContinuation(text)) {
+        return clarifyRoute(route, { question: VISUAL_DETAIL_QUESTION, slots: visualDetailSlots() });
+      }
     }
 
     // ── Execution-family continuity: corrections/continuations of a
@@ -2534,7 +2628,7 @@
   }
 
   function clarificationQuestionForIssues(issues = [], { operation = '', multiTask = false, manual = false } = {}) {
-    if (multiTask) return '本轮请求包含多个不同执行任务，请先选择本轮只执行其中一个任务，完成后再提交另一个任务。';
+    if (multiTask) return '本轮请求包含多个不同执行任务，为避免静默吞并，请选择分开做（本轮只提交其中一个任务）或合并做（将多个意图合并为一条指令后重发）。';
     if (manual) return '当前处于固定模式，本轮请求与当前模式不一致。请确认是否切换到合适的模式后再继续。';
     const first = issues[0];
     if (!first) return '';
@@ -2555,6 +2649,58 @@
     return '请补充本轮执行所需的信息。';
   }
 
+  // v2.7 section 8.1 Attachment Modality Preflight. Preflight only validates
+  // or deterministically normalizes the resource modality; it never re-runs
+  // keyword intent detection. When the model proposes a read-only analysis
+  // operation whose domain disagrees with the sole current attachment, and the
+  // selector unambiguously points at that attachment, normalize the operation
+  // to the matching analysis operation (visual → document or document →
+  // visual). create/transform/reference/edit operations, mixed image+file
+  // attachments, unresolved selectors, family changes and user-vs-resource
+  // conflicts are never normalized: those cases keep the original operation so
+  // the regular clarification flow explains the owned resource types and the
+  // executable paths instead of overwriting the Intent with keyword rules.
+  function normalizeAttachmentModality(plan = {}, catalog = [], input = '') {
+    const operation = stringValue(plan.operation);
+    // Only analysis operations (answer/inspect/extract) are eligible.
+    // image_compare needs two images and multimodal_qa needs image+file
+    // together; a sole attachment cannot satisfy either, so they stay on the
+    // resource-requirement clarification path instead of being rewritten.
+    const VISUAL_SINGLE_ANALYSIS = new Set(['image_qa', 'ocr']);
+    if (!VISUAL_SINGLE_ANALYSIS.has(operation) && operation !== 'file_qa') return plan;
+    const currentMedia = catalog.filter(candidate => candidate.source === 'current'
+      && (candidate.type === 'image' || candidate.type === 'file'));
+    // A deterministic normalization requires exactly one current attachment.
+    if (currentMedia.length !== 1) return plan;
+    const attachment = currentMedia[0];
+    const attachmentType = stringValue(attachment.type);
+    // The selector must unambiguously point at that attachment.
+    const bindings = Array.isArray(plan.bindings) ? plan.bindings : [];
+    if (bindings.length !== 1) return plan;
+    const binding = bindings[0];
+    if (stringValue(binding.type) !== attachmentType) return plan;
+    const bindingResourceId = stringValue(binding.resource_id);
+    const candidateKey = bindingResourceId.replace(/^res:[a-z]+:/, '');
+    const selectorMatches = bindingResourceId === stringValue(attachment.resource_id)
+      || (candidateKey && candidateKey === stringValue(attachment.candidate_key));
+    if (!selectorMatches) return plan;
+    const text = stringValue(input);
+    if (VISUAL_SINGLE_ANALYSIS.has(operation) && attachmentType === 'file') {
+      // The user explicitly asked for an image while the only attachment is a
+      // document: that is a user-vs-resource conflict, not a model domain
+      // slip. Keep the conflict visible so the clarification explains it.
+      if (EXPLICIT_IMAGE_SUBJECT_PATTERNS.test(text)) return plan;
+      // visual + inspect → document + inspect
+      return { ...plan, operation: 'file_qa' };
+    }
+    if (operation === 'file_qa' && attachmentType === 'image') {
+      if (EXPLICIT_FILE_RESOURCE_PATTERNS.test(text)) return plan;
+      // document + inspect → visual + inspect
+      return { ...plan, operation: 'image_qa' };
+    }
+    return plan;
+  }
+
   function compileLocalRoute(plan, options = {}) {
     const input = Object.prototype.hasOwnProperty.call(options, 'input')
       ? stringValue(options.input)
@@ -2568,12 +2714,21 @@
     const selectorResult = modelOwnsRouteSemantics(options)
       ? { plan: provisionalPlan, issues: [] }
       : reconcileExplicitResourceSelectors(provisionalPlan, initialCatalog, input, options.context || {});
-    const planValue = selectorResult.plan;
+    const planValue = normalizeAttachmentModality(selectorResult.plan, initialCatalog, input);
     const op = stringValue(planValue.operation);
     const registered = capabilityFor(op);
     if (!registered) throw new TypeError('Unsupported operation: ' + op);
 
-    const selectedParameters = resolvedClarificationContext(options.context)?.selected_parameters || {};
+    const clarificationResolution = resolvedClarificationContext(options.context);
+    const selectedParameters = clarificationResolution?.selected_parameters || {};
+    // v2.7 section 11.1 rule 10: a single per-task counter. Every round that
+    // consumes a completed clarification answer advances the counter; the
+    // counter travels on the returned route so the caller can persist it in
+    // the task state and feed it back through options.context.
+    const priorRounds = Number(options.context?.clarification_rounds) || 0;
+    const consumingAnswer = !!clarificationResolution;
+    const clarificationRounds = consumingAnswer ? priorRounds + 1 : priorRounds;
+    const clarificationExhausted = clarificationRounds > MAX_CLARIFICATION_ROUNDS;
     const clarificationOverrides = Object.fromEntries(
       Object.entries(selectedParameters).filter(([name]) => Object.prototype.hasOwnProperty.call(registered.arguments, name)),
     );
@@ -2680,15 +2835,68 @@
       ...argumentClarificationSlots,
     ];
     const hasProblem = canonicalResourceIssues.length > 0 || argumentProblems.length > 0;
-    let finalClarificationQuestion = clarificationQuestionForIssues(canonicalResourceIssues, {
-      operation: op,
-      multiTask,
-      manual: !!manualIssue,
-    }) || (argumentProblems.length ? clarificationQuestion(argResult) : '');
+    // v2.7 section 6.7: changes paths must stay within the operation's
+    // changes family. The client owns the primary gate; the server re-checks
+    // body.changes defensively at dispatch-contract validation time. A
+    // mismatched family never reaches execution: it degrades to a semantic
+    // clarification instead of guessing.
+    const changesValue = planValue.changes || options.changes || null;
+    let changesFamilyInvalid = false;
+    if (changesValue && typeof assertChangesFamilyCompatible === 'function') {
+      // The v2.7 changes wire shape is an array of { path, op, value }. A
+      // non-array is a protocol violation and must fail closed, never be
+      // silently treated as an empty batch.
+      if (!Array.isArray(changesValue)) {
+        changesFamilyInvalid = true;
+      } else {
+        try {
+          assertChangesFamilyCompatible(op, changesValue);
+        } catch (error) {
+          changesFamilyInvalid = true;
+        }
+      }
+    }
+    // v2.7 section 7.1: confirmation-style alternative. When the provider
+    // cannot serve the planned operation but the registry declares an
+    // equivalent alternative, ask for confirmation instead of silently
+    // degrading to plain_chat. The caller re-runs the Intent Gate with the
+    // alternative operation after the user confirms.
+    const providerCapabilities = options.providerCapabilities || null;
+    let providerAlternativePending = null;
+    let providerUnsupported = false;
+    if (providerCapabilities && !hasProblem && !changesFamilyInvalid && !clarificationExhausted) {
+      const providerSpec = providerCapabilities?.operations?.[op] || providerCapabilities?.capabilities?.[op];
+      if (providerSpec && providerSpec.supported === false) {
+        const alternatives = (typeof equivalentAlternativesFor === 'function' ? equivalentAlternativesFor(op) : []) || [];
+        if (alternatives.length) providerAlternativePending = alternatives[0];
+        else providerUnsupported = true;
+      }
+    }
+    const hasBlockingIssue = hasProblem
+      || changesFamilyInvalid
+      || providerUnsupported
+      || !!providerAlternativePending
+      || clarificationExhausted;
+    let finalClarificationQuestion = '';
+    if (clarificationExhausted) {
+      finalClarificationQuestion = '本轮澄清次数已达上限，为避免循环询问，请切换显式模式或重新描述需求后再试。';
+    } else if (changesFamilyInvalid) {
+      finalClarificationQuestion = '当前变更描述与任务类型不兼容，请重新描述要修改的内容。';
+    } else if (providerAlternativePending) {
+      finalClarificationQuestion = `当前服务商不支持「${op}」操作，是否改用等效的「${providerAlternativePending.operation}」操作？`;
+    } else if (providerUnsupported) {
+      finalClarificationQuestion = `当前服务商不支持「${op}」操作，且没有等效替代，请更换操作方式后重试。`;
+    } else {
+      finalClarificationQuestion = clarificationQuestionForIssues(canonicalResourceIssues, {
+        operation: op,
+        multiTask,
+        manual: !!manualIssue,
+      }) || (argumentProblems.length ? clarificationQuestion(argResult) : '');
+    }
 
     let finalDispatchContract = null;
     let executionResources = null;
-    if (!hasProblem) {
+    if (!hasBlockingIssue) {
       try {
         const executionBindings = projectedResources.map(resource => ({
           key: resource.key,
@@ -2762,13 +2970,13 @@
         : 'none';
 
     const compiledRoute = {
-      mode: hasProblem || !finalDispatchContract ? 'chat' : registered.mode,
-      api: hasProblem || !finalDispatchContract ? 'clarify' : registered.api,
-      target: hasProblem || !finalDispatchContract ? 'none' : routeTarget,
-      intent: hasProblem || !finalDispatchContract ? 'clarify' : op,
-      needClarification: hasProblem || !finalDispatchContract,
-      dispatchAuthorized: !!finalDispatchContract && !hasProblem,
-      readiness: finalDispatchContract && !hasProblem ? 'ready' : 'needs_clarification',
+      mode: hasBlockingIssue || !finalDispatchContract ? 'chat' : registered.mode,
+      api: hasBlockingIssue || !finalDispatchContract ? 'clarify' : registered.api,
+      target: hasBlockingIssue || !finalDispatchContract ? 'none' : routeTarget,
+      intent: hasBlockingIssue || !finalDispatchContract ? 'clarify' : op,
+      needClarification: hasBlockingIssue || !finalDispatchContract,
+      dispatchAuthorized: !!finalDispatchContract && !hasBlockingIssue,
+      readiness: finalDispatchContract && !hasBlockingIssue ? 'ready' : 'needs_clarification',
       operationType: op,
       operationApi: registered.api,
       operationMode: registered.mode,
@@ -2790,11 +2998,17 @@
       editInstruction: ['edit_image', 'image_reference_gen'].includes(op) ? (args.prompt || input) : '',
       evidence: 'dispatch_contract.v1',
       executionResources,
-      localClarification: hasProblem || !finalDispatchContract,
+      localClarification: hasBlockingIssue || !finalDispatchContract,
       dispatchContract: finalDispatchContract,
       argumentResult: argResult,
       clarificationQuestion: finalClarificationQuestion,
       clarificationSlots,
+      clarificationRounds,
+      maxClarificationRounds: MAX_CLARIFICATION_ROUNDS,
+      clarificationExhausted,
+      changesFamilyInvalid,
+      providerAlternative: providerAlternativePending,
+      providerUnsupported,
     };
     if (options.skipLocalRouteGates === true || modelOwnsRouteSemantics(options)) return compiledRoute;
     return applyLocalRouteGates(compiledRoute, {

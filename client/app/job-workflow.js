@@ -6,6 +6,9 @@
   }
 
   const PENDING_SUBMIT_VERSION = 2;
+  const dispatchContract = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
+    || root?.ChatUIDispatchContract
+    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
 
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {
     if (deps.isSessionDisposed?.(sessionId)) return null;
@@ -116,7 +119,18 @@
   function isRecoverableJobSnapshot(savedJob, expectedJob = {}) {
     if (!savedJob?.id || savedJob.id !== expectedJob?.id) return false;
     if (expectedJob.submissionId && savedJob.submissionId !== expectedJob.submissionId) return false;
-    return !!savedJob.payload && typeof savedJob.payload === 'object' && !Array.isArray(savedJob.payload);
+    if (!savedJob.payload || typeof savedJob.payload !== 'object' || Array.isArray(savedJob.payload)) return false;
+    const plan = savedJob.dispatchContract;
+    if (String(savedJob.requestPurpose || '').trim() !== 'final_execution'
+        || typeof dispatchContract?.hasExactDispatchContract !== 'function'
+        || !dispatchContract.hasExactDispatchContract(plan)
+        || !Array.isArray(savedJob.bindingEvidence)) return false;
+    try {
+      dispatchContract.assertBindingEvidence(plan, savedJob.bindingEvidence);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function findPendingSubmitHandoffJob(pendingSubmit, { chatJob = null, imageJob = null } = {}) {

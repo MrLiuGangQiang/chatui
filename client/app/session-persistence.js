@@ -368,12 +368,18 @@
   }
   function safeSetJobStorage(key, job, { storage = root.localStorage, stripLargeDataUrlsFromText = text => String(text || '') } = {}) {
     if (!job?.id) return null;
-    const candidates = [
-      compactJobForStorage(job, true, stripLargeDataUrlsFromText),
-      compactJobForStorage(job, false, stripLargeDataUrlsFromText),
-      { id: job.id, prompt: job.prompt || '', startedAt: job.startedAt || Date.now(), displayItemId: job.displayItemId || '', responseIndex: job.responseIndex ?? null, mode: job.mode || '', api: job.api || 'chat', submissionId: job.submissionId || '', imageContext: job.imageContext || null, liveItemRawText: job.liveItemRawText || '' },
-    ];
-    for (const candidate of candidates) try { storage.setItem(key, JSON.stringify(candidate)); return candidate; } catch (err) { if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err; }
+    // A job snapshot participates in final_execution recovery only when its
+    // request payload, dispatch contract, and binding evidence are all present.
+    // Never overwrite a valid prior owner with a payload-less display fallback:
+    // resume correctly rejects such a record, which used to strand quoted-image
+    // edits after a localStorage quota fallback.
+    const candidate = compactJobForStorage(job, true, stripLargeDataUrlsFromText);
+    try {
+      storage.setItem(key, JSON.stringify(candidate));
+      return candidate;
+    } catch (err) {
+      if (!/quota|exceed/i.test(String(err?.name || err?.message || err))) throw err;
+    }
     // A failed best-effort update must not erase the last resumable job. Keeping
     // an older record is safer than converting an in-flight task into an
     // unrecoverable one during a reload. Callers receive null and must keep the

@@ -7,6 +7,19 @@ const jobWorkflow = require('../../client/app/job-workflow');
 const sessionPersistence = require('../../client/app/session-persistence');
 const submitWorkflow = require('../../client/app/submit-workflow');
 const taskState = require('../../client/core/task-state');
+const { makeExecutionFixture, makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
+
+function makeFinalExecutionJob({ id = 'chatjob-a', submissionId = 'submit-a' } = {}) {
+  return {
+    id,
+    api: 'chat',
+    requestPurpose: 'final_execution',
+    submissionId,
+    payload: { model: 'gpt-5-mini', messages: [{ role: 'user', content: 'hello' }] },
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'hello' }),
+    bindingEvidence: [],
+  };
+}
 
 function makeStorage(initial = {}) {
   const data = new Map(Object.entries(initial));
@@ -185,35 +198,53 @@ function testDisposedSessionCannotRecreatePendingOwner() {
   assert.strictEqual(storage.data.size, 0);
 }
 
-function testJobSnapshotMustRetainPayloadBeforeHandoff() {
+function testJobSnapshotMustRetainFinalExecutionContractBeforeHandoff() {
   const storage = makeStorage();
-  const full = sessionPersistence.safeSetJobStorage('chat:session-a', {
-    id: 'chatjob-a',
-    api: 'responses',
-    submissionId: 'submit-a',
-    payload: { model: 'gpt-5-mini', input: 'hello' },
-  }, { storage });
+  const durableJob = makeFinalExecutionJob();
+  const full = sessionPersistence.safeSetJobStorage('chat:session-a', durableJob, { storage });
   assert.strictEqual(jobWorkflow.isRecoverableJobSnapshot(full, { id: 'chatjob-a', submissionId: 'submit-a' }), true);
+  assert.strictEqual(jobWorkflow.isRecoverableJobSnapshot({
+    ...durableJob,
+    dispatchContract: undefined,
+  }, { id: 'chatjob-a', submissionId: 'submit-a' }), false,
+  'a payload alone cannot authorize final_execution recovery');
+}
 
-  let attempts = 0;
-  const fallbackStorage = {
-    setItem() {
-      attempts += 1;
-      if (attempts === 1) {
-        const error = new Error('QuotaExceededError');
-        error.name = 'QuotaExceededError';
-        throw error;
-      }
-    },
+function testQuotaFallbackNeverReplacesARecoverableExecutionContract() {
+  const key = 'image:quoted-edit';
+  const fixture = makeExecutionFixture({
+    operation: 'edit_image',
+    prompt: '将引用图片改成蓝色',
+    resources: [{ type: 'image', role: 'target', source: 'quoted', id: 'quoted-image', reference_id: 'quoted-ref' }],
+  });
+  const durableJob = {
+    id: 'imgjob-quoted-edit',
+    prompt: '将引用图片改成蓝色',
+    mode: 'edit_image',
+    requestPurpose: 'final_execution',
+    submissionId: 'submit-quoted-edit',
+    payload: { model: 'image-model', prompt: '将引用图片改成蓝色' },
+    dispatchContract: fixture.dispatchContract,
+    bindingEvidence: require('../../shared/dispatch-contract').bindingEvidenceFromMedia(fixture.executionResources),
   };
-  const fallback = sessionPersistence.safeSetJobStorage('chat:session-a', {
-    id: 'chatjob-a',
-    api: 'responses',
-    submissionId: 'submit-a',
-    payload: { model: 'gpt-5-mini', input: 'hello' },
-  }, { storage: fallbackStorage });
-  assert.strictEqual(fallback.payload, null, 'the second storage candidate is identity-only, not restartable');
-  assert.strictEqual(jobWorkflow.isRecoverableJobSnapshot(fallback, { id: 'chatjob-a', submissionId: 'submit-a' }), false);
+  const storage = makeStorage({ [key]: JSON.stringify(durableJob) });
+  storage.setItem = (storedKey, value) => {
+    const candidate = JSON.parse(value);
+    if (candidate.dispatchContract) {
+      const error = new Error('QuotaExceededError');
+      error.name = 'QuotaExceededError';
+      throw error;
+    }
+    storage.data.set(storedKey, String(value));
+  };
+
+  const saved = sessionPersistence.safeSetJobStorage(key, durableJob, { storage });
+  assert.strictEqual(saved, null,
+    'quota fallback must fail the update instead of storing a payload-less job shell');
+  const retained = JSON.parse(storage.getItem(key));
+  assert.strictEqual(jobWorkflow.isRecoverableJobSnapshot(retained, {
+    id: durableJob.id, submissionId: durableJob.submissionId,
+  }), true, 'the last valid quoted-image edit owner must remain resumable');
 }
 
 function testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff() {
@@ -224,8 +255,12 @@ function testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff() {
     submissionId: 'submit-a',
     rawPromptText: 'draw',
   };
-  const imageJob = { id: 'imgjob-a', submissionId: 'submit-a', payload: { model: 'image-model', prompt: 'draw' } };
-  const chatJob = { id: 'chatjob-old', submissionId: 'submit-old', payload: { model: 'chat-model', messages: [] } };
+  const imageJob = {
+    id: 'imgjob-a', submissionId: 'submit-a', requestPurpose: 'final_execution',
+    payload: { model: 'image-model', prompt: 'draw' },
+    dispatchContract: makeDispatchContract({ operation: 'text_to_image', prompt: 'draw' }), bindingEvidence: [],
+  };
+  const chatJob = makeFinalExecutionJob({ id: 'chatjob-old', submissionId: 'submit-old' });
   assert.deepStrictEqual(jobWorkflow.findPendingSubmitHandoffJob(pending, { chatJob, imageJob }), { kind: 'image', job: imageJob });
   assert.strictEqual(jobWorkflow.findPendingSubmitHandoffJob(pending, { chatJob, imageJob: { ...imageJob, payload: null } }), null,
     'a payload-less display/local fallback must never outrank pending-submit');
@@ -308,7 +343,8 @@ module.exports = [
   testAcceptedSubmissionIsDurableBeforeCanonicalUserCommit,
   testAttachmentOnlySubmissionRemainsRecoverable,
   testDisposedSessionCannotRecreatePendingOwner,
-  testJobSnapshotMustRetainPayloadBeforeHandoff,
+  testJobSnapshotMustRetainFinalExecutionContractBeforeHandoff,
+  testQuotaFallbackNeverReplacesARecoverableExecutionContract,
   testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff,
   testExplicitCancellationIsNotRecoverablePageLeave,
   testImageHandoffUsesTheSameClientJobIdentity,

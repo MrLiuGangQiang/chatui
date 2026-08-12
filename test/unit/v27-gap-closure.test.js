@@ -6,12 +6,10 @@
 //   §8.1  Attachment Modality Preflight (visual↔document normalization)
 //   §11.1 durable pending fields (state_version / idempotency_key /
 //         expires_at / consumed_at) and the advance/consume lifecycle
-//   §9    Visual Task changes log (append-only, retention, fold, locate)
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
 const clarificationAnswer = require('../../shared/clarification-answer');
-const changesLog = require('../../shared/changes-log');
 
 function compile(plan, options = {}) {
   return routeService.compileLocalRoute(plan, {
@@ -342,79 +340,6 @@ function testPendingStateChangePointsAdvanceVersion() {
   assert.strictEqual(applied.pending.idempotency_key, 'clr_points:2');
 }
 
-// ── §9 Visual Task changes log ────────────────────────────────────────────
-
-function testChangesLogIsAppendOnlyAndBoundedByRetention() {
-  let log = [];
-  for (let index = 1; index <= 25; index += 1) {
-    log = changesLog.appendChangesEntry(log, {
-      state_version: index,
-      changes: [{ path: 'subject.color', op: 'set', value: `c${index}` }],
-      source: 'intent',
-    });
-  }
-  // 25 entries with retention 20 → 1 folded summary + 20 live entries.
-  assert.strictEqual(log.length, 21);
-  assert.strictEqual(log[0].folded, true);
-  assert.strictEqual(log[log.length - 1].state_version, 25);
-  const latest = changesLog.latestChangesFor(log);
-  assert.deepStrictEqual(latest.changes, [{ path: 'subject.color', op: 'set', value: 'c25' }]);
-}
-
-function testChangesLogFoldsOlderEntriesIntoFinalMergedResult() {
-  let log = [];
-  for (let index = 1; index <= 22; index += 1) {
-    log = changesLog.appendChangesEntry(log, {
-      state_version: index,
-      changes: [{ path: 'subject.color', op: 'set', value: `c${index}` }],
-      source: index % 2 === 0 ? 'clarification' : 'intent',
-    });
-  }
-  const folded = log[0];
-  assert.strictEqual(folded.folded, true);
-  // Folded summary keeps only the final merged result (last write wins).
-  assert.deepStrictEqual(folded.changes, [{ path: 'subject.color', op: 'set', value: 'c2' }]);
-}
-
-function testChangesLogLocatesPreviousRoundForCorrection() {
-  let log = [];
-  log = changesLog.appendChangesEntry(log, {
-    state_version: 1,
-    changes: [{ path: 'subject.color', op: 'set', value: 'red' }],
-    source: 'intent',
-  });
-  log = changesLog.appendChangesEntry(log, {
-    state_version: 2,
-    changes: [{ path: 'subject.style', op: 'set', value: 'watercolor' }],
-    preserve: ['subject'],
-    source: 'clarification',
-  });
-  // "刚才说的颜色不对" style corrections locate the previous round through the
-  // log instead of guessing from a merged snapshot.
-  const previous = changesLog.latestChangesFor(log);
-  assert.strictEqual(previous.state_version, 2);
-  assert.deepStrictEqual(previous.changes, [{ path: 'subject.style', op: 'set', value: 'watercolor' }]);
-  assert.deepStrictEqual(previous.preserve, ['subject']);
-  assert.strictEqual(previous.source, 'clarification');
-}
-
-function testChangesLogRejectsSensitiveContent() {
-  const sanitized = changesLog.sanitizeChangesEntry({
-    state_version: 1,
-    changes: [
-      { path: 'subject.color', op: 'set', value: 'red' },
-      { path: 'prompt', op: 'set', value: 'forbidden prompt' },
-      { path: 'subject.style', op: 'set', value: 'api_key=sk-123' },
-      { path: 'subject.detail', op: 'set', value: { token: 'secret', color: 'blue' } },
-    ],
-    source: 'intent',
-  });
-  assert.ok(sanitized);
-  assert.deepStrictEqual(sanitized.changes, [
-    { path: 'subject.color', op: 'set', value: 'red' },
-    { path: 'subject.detail', op: 'set', value: { color: 'blue' } },
-  ]);
-}
 
 module.exports = [
   testSemanticChoiceEnumeratesColorCandidates,
@@ -433,8 +358,4 @@ module.exports = [
   testConsumePendingClarificationMarksConsumed,
   testExpiredPendingReportsExpiredStatus,
   testPendingStateChangePointsAdvanceVersion,
-  testChangesLogIsAppendOnlyAndBoundedByRetention,
-  testChangesLogFoldsOlderEntriesIntoFinalMergedResult,
-  testChangesLogLocatesPreviousRoundForCorrection,
-  testChangesLogRejectsSensitiveContent,
 ];

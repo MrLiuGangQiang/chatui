@@ -128,6 +128,12 @@ jobs:
           platforms: linux/amd64
           push: true
           pull: true
+          # Alibaba Cloud ACR rejects BuildKit's default OCI attestation
+          # manifests (`application/vnd.oci.empty.v1+json`). The candidate
+          # digest is independently verified by the next job, so disable
+          # unsupported side attestations while retaining the immutable image.
+          provenance: false
+          sbom: false
           tags: |
             ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}:candidate-${{ needs.validate.outputs.git_sha }}
           build-args: |

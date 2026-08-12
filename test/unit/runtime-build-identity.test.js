@@ -107,6 +107,10 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
   assert.match(release, /Build and push immutable ACR candidate/);
   assert.match(release, /platforms: linux\/amd64/);
   assert.ok(!release.includes('linux/arm64'), 'release workflow must stay single-platform');
+  assert.match(release, /provenance: false/,
+    'ACR candidate pushes must disable unsupported BuildKit provenance attestations');
+  assert.match(release, /sbom: false/,
+    'ACR candidate pushes must disable unsupported BuildKit SBOM attestations');
   assert.match(release, /Verify the exact ACR candidate digest/);
   assert.match(release, /Promote the verified ACR digest without rebuilding/);
   assert.ok(release.indexOf('Verify the exact ACR candidate digest') < release.indexOf('Promote the verified ACR digest without rebuilding'),

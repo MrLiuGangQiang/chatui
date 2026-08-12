@@ -116,8 +116,8 @@ function testConcreteImageChangesRemainImmediatelyDispatchable() {
 }
 
 function testVagueImageRuleKeepsSemanticsAtTheModelBoundary() {
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /缺失或并列歧义时省略角色不猜/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /生图模型看不到原始对话/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /多候选同等合理省略角色\+设clarification/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal 是下游执行模型唯一指令/);
   assert.doesNotMatch(routeService.ROUTE_SYSTEM_PROMPT, /复杂一点|主体细节|背景和环境/,
     'scenario-specific clarification patches must stay out of the route prompt');
   assert.doesNotMatch(routeService.ROUTE_SYSTEM_PROMPT, /change_value missing/,

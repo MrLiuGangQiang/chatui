@@ -34,8 +34,8 @@ function testRouteContractDeclaresCanonicalBindingRoles() {
   assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs']);
   assert.strictEqual(schema.properties.api, undefined);
   assert.strictEqual(schema.properties.arguments, undefined);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /编辑 target/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /text_to_image 不绑定图片或文件/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /target 要改的图/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /plain_chat\/text_to_image不绑图\/文件/);
 }
 
 function testPlainChatAlwaysCarriesAnEmptyCanonicalProjection() {

@@ -199,9 +199,9 @@ function testExplicitNewImageRequestRemainsModelDirected() {
 }
 
 function testPromptDeclaresContextAsEvidence() {
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates\/context 只是事实证据/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /followup=以历史消息为数据源的新请求或修改纠正上一成果/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /current\/quoted 明确对象优先 history/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates.*context.*事实/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /followup 依赖历史或修改\/纠正\/补充成果/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /当前明确资源优先历史/);
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 1200);
 }
 

@@ -110,14 +110,12 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('严格只输出 operation、relation、goal、resource_refs'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('quoted/history 正文必需时才绑 mN/context'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 复述也要绑；current_input 自足不绑'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是执行模型收到的唯一指令'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('生图模型看不到原始对话'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference=主体/内容/构图'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference=画风/配色/质感'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('判断顺序 operation→relation→resource_refs→goal'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs 只绑必需、最少资源'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是下游执行模型唯一指令'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('反例"把它改成白色"'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference 主体/构图参考'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference 画风/配色参考'));
 }
 
 function testStructuredReferenceSchemaIsStrictProviderCompatible() {

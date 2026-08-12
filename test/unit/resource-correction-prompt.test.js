@@ -106,8 +106,8 @@ function testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent() {
 
 function testPromptUsesGeneralRulesInsteadOfFailureCasePatches() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /goal 是执行模型收到的唯一指令/);
-  assert.match(prompt, /生图模型看不到原始对话/);
+  assert.match(prompt, /goal 是下游执行模型唯一指令/);
+  assert.match(prompt, /反例"把它改成白色"/);
   assert.doesNotMatch(prompt, /选错了猫|耳朵换成红色|资源纠正/,
     'specific production failures belong in evaluation fixtures, not the system prompt');
 }

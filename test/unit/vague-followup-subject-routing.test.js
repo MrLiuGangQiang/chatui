@@ -201,7 +201,7 @@ function testExplicitNewImageRequestRemainsModelDirected() {
 function testPromptDeclaresContextAsEvidence() {
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates.*context.*事实/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /followup 依赖历史或修改\/纠正\/补充成果/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择优先级（从高到低，满足P1则不再看P2-P5）/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择优先级（先确定 operation 所需全部角色，再对每个角色独立走 P1→P5/);
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 2400);
 }
 

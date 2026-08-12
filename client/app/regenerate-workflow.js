@@ -24,7 +24,7 @@
       quotedFileCandidatesFromContext,
       sendChat, dispatchTaskEvent,
       makeClientChatJobId, makeClientImageJobId, resumeSessionJobs,
-      getPreviousImageAttachments,
+      getPreviousImageAttachments, replaceSessionMessages,
     } = deps;
     const restorePreviousImageAttachments = getPreviousImageAttachments || root?.getPreviousImageAttachments;
     const window = root;
@@ -36,6 +36,31 @@
     const emitTaskEvent = (sessionId, type, details = {}) => type
       ? dispatchTaskEvent?.(sessionId, { type, ...details })
       : null;
+
+    function discardFollowingMessageNodes(node) {
+      let current=node?.nextElementSibling||null;
+      while(current){const next=current.nextElementSibling;current.classList?.contains("message")&&current.remove?.();current=next}
+    }
+    function retainedPendingDisplay(session,responseIndex,preserveAssistant=false){
+      return (session?.display||[]).filter(item=>item?.role!=="assistant"||!Number.isFinite(Number(item.responseIndex))||(preserveAssistant?Number(item.responseIndex)<=responseIndex:Number(item.responseIndex)<responseIndex));
+    }
+    async function truncateRegenerationBranch(sessionId,turn,preserveAssistant=false){
+      const removed=replacementApi.truncateConversationForRegeneration?.(state.messages,turn,{preserveAssistant})||(()=>{
+        if(!Array.isArray(state.messages)||!Number.isInteger(turn?.userIndex)||turn.userIndex<0||turn.userIndex>=state.messages.length)return null;
+        const assistantIndex=Number.isInteger(turn.assistantIndex)&&turn.assistantIndex>turn.userIndex?turn.assistantIndex:turn.userIndex+1;
+        const hasAssistant=state.messages[assistantIndex]?.role==="assistant";
+        state.messages.splice(Math.max(turn.userIndex+1,preserveAssistant&&hasAssistant?assistantIndex+1:assistantIndex));
+        state.messages.forEach((message,index)=>{if(message?.role==="user")message.messageIndex=String(index);if(message?.role==="assistant")message.responseIndex=String(index)});
+        return {assistantIndex};
+      })();
+      if(!removed)return null;
+      const session=state.sessions?.find(item=>item?.id===sessionId);
+      const options={display:retainedPendingDisplay(session,removed.assistantIndex,preserveAssistant),pendingClarification:preserveAssistant?session?.pendingClarification||null:null,lastGeneratedImage:null};
+      if(typeof replaceSessionMessages==="function")await replaceSessionMessages(sessionId,state.messages,options);
+      else if(typeof root?.replaceSessionMessages==="function")await root.replaceSessionMessages(sessionId,state.messages,options);
+      else if(session){session.messages=state.messages.slice();session.display=options.display;session.pendingClarification=options.pendingClarification;session.lastGeneratedImage=null;state.lastGeneratedImage=null}
+      return removed;
+    }
 
     function createRegenerateTask({ sessionId, run, readPending }) {
       const submissionId = jobLifecycle.makeSubmissionId?.()
@@ -210,8 +235,8 @@
         session.messages=Array.isArray(state.messages)?state.messages.slice():session.messages||[];
         const liveItem=node?.__displayItem||((session.display||[]).find(item=>item?.id&&item.id===node?.dataset?.displayItemId)||null);
         if(liveItem){liveItem.role="assistant";liveItem.content=displayContent;liveItem.rawText=question;liveItem.html=clarificationHtml;liveItem.pending=!1;liveItem.responseIndex=String(assistantIndex);clarificationId&&(liveItem.clarificationId=clarificationId)}
-        root?.persistSessionDisplay?.(sessionId);
-        root?.saveSessionMessages?.(sessionId,session.messages);
+        if(typeof replaceSessionMessages==="function")replaceSessionMessages(sessionId,session.messages,{display:session.display||[],pendingClarification:pending,lastGeneratedImage:session.lastGeneratedImage||null});
+        else {root?.persistSessionDisplay?.(sessionId);root?.saveSessionMessages?.(sessionId,session.messages)}
         root?.saveSessionsMeta?.()
       }
       return!0
@@ -221,13 +246,17 @@
       if(isSessionBusy(state.activeSessionId))return;
       const t=findPreviousUserMessageNode(e),s=(t?.dataset.rawText||"").trim();
       if(!s)return void toast("找不到上一条提示词，无法重新生成");
-      let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,turn,{responseIndex:String(turn.assistantIndex),replacing:!0})||turn;
-      const a=turn.assistantIndex,l=state.activeSessionId;
-      if(replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a}))return;
+      let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");
+      const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};
+      const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null,{message:state.messages?.[a],userText:s});
+      if(!await truncateRegenerationBranch(l,turn,replayPending))return void toast("找不到这条消息上下文，无法重新生成");
+      discardFollowingMessageNodes(e);
+      if(replayPending){await replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a});return}
+      turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,{...turn,assistantIndex:a,hasAssistant:!1},{responseIndex:String(a),replacing:!0})||turn;
       const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
       const c=prepareRegeneratedResponse(t,e,l,a,executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文");e=c.node;let m=c.liveItem;
-      const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
+      const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
       const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});

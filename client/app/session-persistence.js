@@ -71,6 +71,27 @@
     return messages;
   }
 
+  function truncateConversationForRegeneration(messages = [], turn = null, { preserveAssistant = false } = {}) {
+    const list = Array.isArray(messages) ? messages : [];
+    if (!turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0 || turn.userIndex >= list.length) return null;
+    const assistantIndex = Number.isInteger(turn.assistantIndex) && turn.assistantIndex > turn.userIndex
+      ? turn.assistantIndex
+      : turn.userIndex + 1;
+    const hasAssistant = list[assistantIndex]?.role === 'assistant';
+    const keepLength = Math.min(
+      list.length,
+      Math.max(turn.userIndex + 1, assistantIndex + (preserveAssistant && hasAssistant ? 1 : 0)),
+    );
+    const removedMessages = list.splice(keepLength);
+    reindexCanonicalMessagePositions(list);
+    return {
+      userIndex: turn.userIndex,
+      assistantIndex,
+      hasAssistant: preserveAssistant && hasAssistant,
+      removedMessages,
+    };
+  }
+
   function ensureAssistantReplacementSlot(messages = [], turn = null, placeholder = {}) {
     if (!Array.isArray(messages) || !turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0) return null;
     if (turn.hasAssistant && messages[turn.assistantIndex]?.role === 'assistant') {
@@ -388,7 +409,7 @@
     return null;
   }
 
-  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, resolveUserMessageTurn, reindexCanonicalMessagePositions, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
+  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, resolveUserMessageTurn, reindexCanonicalMessagePositions, truncateConversationForRegeneration, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionPersistence = api;
   if (root?.window) root.window.ChatUIAppSessionPersistence = api;

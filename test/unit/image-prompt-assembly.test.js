@@ -33,15 +33,39 @@ function inspect(intent, input = INPUT, context = baseContext) {
   return result.route;
 }
 
-function testIndependentGenerationWithoutRefsUsesOriginalInput() {
+function testIndependentGenerationWithoutRefsUsesSelfContainedImageGoal() {
+  const input = '基于这个生成图片';
+  const goal = '生成一幅超写实野生动物摄影作品：一只成年非洲草原象独自伫立在金色稀树草原中央，夕阳侧后方的暖光勾勒耳缘、象牙、粗粝褶皱皮肤与扬起的尘埃，电影级构图。';
   const route = inspect(textToImageIntent({
-    goal: '模型改写但没有资源消解依据。',
+    goal,
     messageKeys: [],
     relation: 'new',
-  }));
+  }), input, {
+    recent_messages: [],
+    image_candidates: [],
+    file_candidates: [],
+  });
   assert.strictEqual(route.needClarification, false);
-  assert.strictEqual(route.contextualImagePrompt, INPUT);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, INPUT);
+  assert.strictEqual(route.executionPrompt, goal);
+  assert.strictEqual(route.contextualImagePrompt, goal);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.notStrictEqual(route.dispatchContract.arguments.prompt, input);
+}
+
+function testFollowupWithoutRefsUsesTheResolvedImageGoal() {
+  const input = '基于这个生成图片';
+  const goal = '生成一张超写实野生动物摄影风格的图片：一只威严的尼罗鳄趴伏在热带沼泽的浅水边，粗糙厚重的深绿色鳞甲、锋利的牙齿和琥珀色眼睛清晰可见，阳光穿过茂密的棕榈叶洒在它的背部，水面有细微波纹与倒影，周围环绕湿润泥土、芦苇和热带植物，低机位特写，电影级光影，细节丰富，8K，高对比度，真实质感，浅景深。避免卡通、动漫、插画、模糊、低清晰度、畸形、额外肢体、多头、错误牙齿、塑料质感、过度饱和、文字、水印、边框、人类和血腥画面。';
+  const route = inspect(textToImageIntent({ goal, relation: 'followup' }), input, {
+    recent_messages: [],
+    image_candidates: [],
+    file_candidates: [],
+  });
+
+  assert.strictEqual(route.needClarification, false);
+  assert.strictEqual(route.executionPrompt, goal);
+  assert.strictEqual(route.contextualImagePrompt, goal);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.notStrictEqual(route.dispatchContract.arguments.prompt, input);
 }
 
 function testReferencedMessageUsesTheModelsSelfContainedGoal() {
@@ -111,9 +135,9 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('判断顺序 operation→relation→resource_refs→goal'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs 只绑必需、最少资源'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是下游执行模型唯一任务指令'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('正例"将目标图中的猫改为白色，保留构图不变。"'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs 只绑必需、最少且明确的资源'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是下游执行模型唯一指令'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('正例："将目标图中的猫改为白色，保留构图不变。"'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference 主体/构图参考'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference 画风/配色参考'));
 }
@@ -128,7 +152,8 @@ function testStructuredReferenceSchemaIsStrictProviderCompatible() {
 }
 
 module.exports = [
-  testIndependentGenerationWithoutRefsUsesOriginalInput,
+  testIndependentGenerationWithoutRefsUsesSelfContainedImageGoal,
+  testFollowupWithoutRefsUsesTheResolvedImageGoal,
   testReferencedMessageUsesTheModelsSelfContainedGoal,
   testOmittedHistoricalReferenceIsNotRecoveredLocally,
   testMultipleModelSelectedMessagesAreProjectedWithoutLocalChoiceLogic,

@@ -299,6 +299,44 @@ async function testRegenerateAbortSignalSuppressesLateNonAbortError() {
   );
 }
 
+
+async function testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement() {
+  const fixture = createCancelledRegenerateFixture(async run => {
+    run.stopped = true;
+    run.abortController.abort();
+    throw new DOMException('Stopped', 'AbortError');
+  });
+  const trailingNode = {
+    removed: false,
+    nextElementSibling: null,
+    classList: { contains: value => value === 'message' },
+    remove() { this.removed = true; },
+  };
+  fixture.assistantNode.nextElementSibling = trailingNode;
+  fixture.state.messages = [
+    { role: 'user', content: 'ambiguous regenerate request', rawText: 'ambiguous regenerate request', messageIndex: '0' },
+    { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
+    { role: 'user', content: 'discarded follow-up', rawText: 'discarded follow-up', messageIndex: '2' },
+    { role: 'assistant', content: 'discarded answer', rawText: 'discarded answer', responseIndex: '3' },
+  ];
+  fixture.state.sessions[0].messages = fixture.state.messages.slice();
+  fixture.state.sessions[0].display = [
+    { id: 'pending-tail', role: 'assistant', pending: '1', responseIndex: '3' },
+  ];
+  fixture.state.sessions[0].lastGeneratedImage = { referenceId: 'imgref_discarded', src: 'indexeddb://discarded' };
+  fixture.state.lastGeneratedImage = fixture.state.sessions[0].lastGeneratedImage;
+
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+
+  assert.deepStrictEqual(fixture.state.messages.map(message => message.content), ['ambiguous regenerate request']);
+  assert.deepStrictEqual(fixture.state.sessions[0].messages.map(message => message.content), ['ambiguous regenerate request']);
+  assert.deepStrictEqual(fixture.state.sessions[0].display, []);
+  assert.strictEqual(fixture.state.sessions[0].pendingClarification || null, null);
+  assert.strictEqual(fixture.state.sessions[0].lastGeneratedImage, null);
+  assert.strictEqual(fixture.state.lastGeneratedImage, null);
+  assert.strictEqual(trailingNode.removed, true, 'all rendered messages after the regenerated answer must be removed');
+}
+
 async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting() {
   const pending = clarification.createPendingClarification({
     messages: [{ role: 'user', content: '换一下猫的姿势' }],
@@ -387,5 +425,6 @@ module.exports = [
   testRegenerateCancellationBeforeClarificationDoesNotCommitCompletion,
   testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent,
   testRegenerateAbortSignalSuppressesLateNonAbortError,
+  testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
 ];

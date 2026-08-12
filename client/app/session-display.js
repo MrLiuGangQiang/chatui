@@ -270,6 +270,34 @@
       return commitSession(session);
     }
 
+    function replaceSessionMessages(sessionId, messages, options = {}) {
+      const state = getState();
+      const session = state.sessions.find(item => item.id === sessionId);
+      if (!session) return Promise.resolve();
+      clearPendingDisplayCheckpoint(sessionId);
+      session.messages = normalizeMessageList(Array.isArray(messages) ? messages : [], sessionId);
+      if (Object.prototype.hasOwnProperty.call(options, 'display')) {
+        session.display = pendingDisplayItems(Array.isArray(options.display) ? options.display : []);
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'pendingClarification')) {
+        session.pendingClarification = options.pendingClarification && typeof options.pendingClarification === 'object'
+          ? options.pendingClarification
+          : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'lastGeneratedImage')) {
+        session.lastGeneratedImage = normalizeLastGeneratedImage(options.lastGeneratedImage || null);
+      }
+      if (sessionId === state.activeSessionId) {
+        state.messages = session.messages;
+        if (Object.prototype.hasOwnProperty.call(options, 'lastGeneratedImage')) {
+          state.lastGeneratedImage = session.lastGeneratedImage || null;
+        }
+      }
+      session.title = deriveSessionTitle(session);
+      session.updatedAt = Date.now();
+      return commitSession(session);
+    }
+
     function ensurePendingItem(session, item) {
       session.display ||= [];
       const existingIndex = session.display.findIndex(candidate => candidate === item || candidate?.id && candidate.id === item.id);
@@ -540,6 +568,7 @@
       normalizeMessageForStorage,
       persistSessionDisplay,
       saveSessionMessages,
+      replaceSessionMessages,
       appendSessionDisplayMessage,
       updateSessionDisplayItem,
       checkpointSessionDisplayItem,

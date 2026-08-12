@@ -117,11 +117,16 @@
   cursor:pointer!important;
   text-align:left!important;
 }
+/* Quote previews remain visible only when the user explicitly chose to quote a message. */
+.message.user .sent-quote-preview.pending-clarification-source{
+  display:none!important;
+}
 .message.user.has-quote .bubble{
-  width:auto!important;
+  width:fit-content!important;
+  max-width:100%!important;
 }
 .message.user.has-quote .content{
-  width:100%!important;
+  width:auto!important;
 }
 /* Quote/follow-up metadata must never change the alignment of the user's message body. */
 .message.user .content,

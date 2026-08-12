@@ -19,10 +19,6 @@
   } = submitWorkflowPolicy;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
-  const dispatchContractModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
-    || root?.ChatUIDispatchContract
-    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
-
   function createSubmitWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers
@@ -277,7 +273,7 @@
             const routeUtils=root?.ChatUIRouteService||root?.ChatUIServices?.route||(typeof require==="function"?require("../services/route-service"):{});
             const quotedFileCandidates=typeof deps?.quotedFileCandidatesFromContext==="function"?deps.quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||""):[];
             const quotedRoute=submitHelpers.buildQuotedRouteContext({quotedMessage,quotedImageContext,restoredImageAttachments:quotedImageAttachments,quotedFileCandidates,currentInput:promptText,cleanQuotedContent:routeUtils.cleanQuotedContent,buildQuotedRouteContent:routeUtils.buildQuotedRouteContent});
-            const hasQuotedMessage=quotedRoute.hasQuotedMessage,quotedCleanText=quotedRoute.cleanText||"",buildQuotedRouteContext=()=>quotedRoute.context;
+            const hasQuotedMessage=quotedRoute.hasQuotedMessage,buildQuotedRouteContext=()=>quotedRoute.context;
             const originalImageIndex=submitHelpers.originalImageIndex;
             const isImageAttachment=item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/");
             const clarification=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},intentDeadlineAt=Date.now()+INTENT_PIPELINE_DEADLINE_MS;
@@ -423,7 +419,6 @@
             if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error("路由选择的历史消息已不存在或不再匹配，已停止发送以避免脱离指定上下文回答");
             const quoteScopedChat=!!quotedMessage&&!continuesPending&&(!hasRouteMessageRefs||routeMessageProjection?.usesExplicitQuote);
             requestBaseMessages=Array.isArray(resumePendingSubmit?.requestBaseMessages)?resumePendingSubmit.requestBaseMessages:(routeMessageProjection?.messages||(quoteScopedChat?[quotedMessage]:replacement&&isTargetActive()?state.messages.slice(0,replacement.index):null));
-            const routeImagePrompt=String(routeInfo.contextualImagePrompt||"").trim();
             const restoreBoundImagePool=source=>submitHelpers.restoreBoundImagePool(routeInfo,{source,sessionId,getPreviousImageAttachments});
             const quotedResourceAttachments=[...quotedImageAttachments];
             if(quotedMessage?.attachmentContext&&typeof restoreUserAttachmentsFromContext==="function"){
@@ -458,16 +453,12 @@
             }
             const chatAttachments=await prepareChatImageAttachments([...executionMedia.chatFiles,...executionMedia.chatImages]);
             const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile:isImageAttachment,originalIndex:originalImageIndex})||"";
-            const effectivePromptTrimmed=String(effectivePromptText||"").trim();
-            const routeImagePromptTrimmed=String(routeImagePrompt||"").trim();
-            // 短元指令：用户输入/模型 goal 仅含指向性指令（"基于这个"等），不含实际内容 → 不拼入提示词
-            const isMetaDirective=t=>{const s=String(t||"").trim();return s.length<40&&/^(?:基于|根据|按|参考|照着|用这个|拿这个|帮我|继续|再来|同样|一样|也|还|再)/.test(s)};
-            const userInputIsMeta=isMetaDirective(effectivePromptTrimmed);
-            const modelGoalIsMeta=isMetaDirective(routeImagePromptTrimmed);
-            // 去重：模型 goal 包含/等于用户输入时跳过；模型 goal 为短元指令时也跳过（无实际内容）
-            const redundantSummary=modelGoalIsMeta||(!!routeImagePromptTrimmed&&(routeImagePromptTrimmed===effectivePromptTrimmed||(routeImagePromptTrimmed.includes(effectivePromptTrimmed)&&routeImagePromptTrimmed.length>effectivePromptTrimmed.length)));
-            const imagePrompt=("chat"!==routeMode?[quotedMessage&&!continuesPending?quotedCleanText:null,userInputIsMeta?null:effectivePromptTrimmed,redundantSummary?null:routeImagePromptTrimmed].filter(Boolean).join("\n\n"):effectivePromptText);
-            if("chat"!==routeMode&&imagePrompt&&routeInfo?.dispatchContract&&typeof dispatchContractModule?.withArguments==="function"&&imagePrompt!==String(routeInfo.dispatchContract.arguments?.prompt||"").trim()){routeInfo.dispatchContract=dispatchContractModule.withArguments(routeInfo.dispatchContract,{prompt:imagePrompt})}
+            // dispatch_contract.v1 is the final execution authority. Quoted
+            // assistant text and raw composer input are routing evidence or
+            // presentation data; they must not be appended after the contract
+            // has resolved a canonical provider prompt.
+            const imagePrompt=String(routeInfo?.dispatchContract?.arguments?.prompt||"").trim();
+            if("chat"!==routeMode&&!imagePrompt){const error=new Error("图片任务缺少已校验的执行指令，已停止发送");error.code="IMAGE_EXECUTION_PROMPT_MISSING";throw error}
             const chatPrompt=String(routeInfo.executionPrompt||routeInfo.dispatchContract?.arguments?.prompt||effectivePromptText).trim()||effectivePromptText;
             const editAttachments=executionMedia.imageInputs;
             const executionApi=routeInfo.api||("image"===routeMode?"image_generation":"edit_image"===routeMode?"image_edit":"chat");const dispatchMode=executionApi==="image_generation"?"image":executionApi==="image_edit"?"edit_image":"chat";if(isTargetActive()&&liveItem&&(!assistantNode||!assistantNode.isConnected)&&typeof findMessageNodeByDisplayItem==="function")assistantNode=findMessageNodeByDisplayItem(liveItem)||assistantNode;const replacementResponseIndex=replacement?.responseIndex??(resumePendingSubmit?responseIndex:void 0),completeDurableHandoff=(jobId,jobKind)=>{if(handoffCommitted)return!1;handoffCommitted=!0;pendingTransition.consumeOnHandoff&&clearStoredPendingClarification();emitTaskEvent(sessionId,taskEvents.HANDOFF_COMMITTED,{submissionId,jobId,jobKind});clearPendingSubmit(sessionId);return!0},completeInterfaceTask=(completion={})=>{const completionSessionId=String(completion.sessionId||""),completionSubmissionId=String(completion.submissionId||""),completionJobId=String(completion.jobId||""),completionJobKind=String(completion.jobKind||"");if(!completionSessionId||!completionSubmissionId||!completionJobId||!completionJobKind)return!1;if(completionSessionId!==String(sessionId)||completionSubmissionId!==String(submissionId)||completionJobId!==String(activeJobId)||completionJobKind!==String(activeJobKind))return!1;if(!commitTerminalEvent(taskEvents.JOB_COMPLETED_COMMITTED,{submissionId,jobId:activeJobId,jobKind:activeJobKind}))return!1;finishSessionTask(sessionId,{run});return!0};if("chat"===dispatchMode){prepareManagedChatJobForLiveItem("chat");if(!preparedChatJobId)throw new Error("无法创建聊天任务恢复标识，请重试");if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedChatJobId,jobKind:"chat",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedChatJobId;activeJobKind="chat";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});await sendChat(chatPrompt,chatAttachments,assistantNode,{sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,requestBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:routeInfo.dispatchContract,executionMedia,clarificationReplay,clientJobId:preparedChatJobId,submissionId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);completeInterfaceTask({sessionId,submissionId,jobId:activeJobId,jobKind:activeJobKind})}else{const preparedImageJobId=typeof makeClientImageJobId==="function"?makeClientImageJobId():`imgjob-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2,6)}`;if(!savePendingSubmit(sessionId,{...loadPendingSubmit(sessionId),jobId:preparedImageJobId,jobKind:"image",stage:"handoff"}))throw new Error("无法保存任务恢复状态，请清理浏览器存储空间后重试");activeJobId=preparedImageJobId;activeJobKind="image";emitTaskEvent(sessionId,taskEvents.HANDOFF_PREPARED,{submissionId,jobId:activeJobId,jobKind:activeJobKind});preparedChatJobId="";liveItem&&(liveItem.jobId=preparedImageJobId,liveItem.pending="1",persistSessionDisplay(sessionId));assistantNode&&(assistantNode.dataset.jobId=preparedImageJobId,clearPendingFeedback?.(assistantNode),clearReasoning?.(assistantNode));await sendImage(imagePrompt,{loadingNode:assistantNode,routePrompt:imagePrompt,originalPrompt:effectivePromptText,attachments:editAttachments,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,clarificationReplay,sessionId,userAlreadyAdded:!0,liveItem,replaceAssistantIndex:replacementResponseIndex,submissionId,clientJobId:preparedImageJobId,onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind),onInterfaceCompleted:completeInterfaceTask});completeDurableHandoff(activeJobId,activeJobKind);completeInterfaceTask({sessionId,submissionId,jobId:activeJobId,jobKind:activeJobKind})}state.editingIndex=null,state.editingNode=null,state.editingQuoteContext=""

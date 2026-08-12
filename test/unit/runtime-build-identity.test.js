@@ -113,6 +113,10 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
     'ACR candidate pushes must disable unsupported BuildKit SBOM attestations');
   assert.match(release, /Verify the exact ACR candidate digest/);
   assert.match(release, /Promote the verified ACR digest without rebuilding/);
+  assert.match(release, /--prefer-index=false/,
+    'single-platform ACR promotion must preserve the verified candidate manifest digest');
+  assert.match(release, /for tag in \"\$\{SEMVER\}\" \"\$\{VERSION\}\" \"latest\"/,
+    'release tags must be promoted one at a time to avoid synthesized OCI indexes');
   assert.ok(release.indexOf('Verify the exact ACR candidate digest') < release.indexOf('Promote the verified ACR digest without rebuilding'),
     'ACR candidate verification must happen before promotion');
   assert.match(release, /Mirror verified image to Docker Hub/);

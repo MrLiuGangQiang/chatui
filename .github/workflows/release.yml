@@ -187,11 +187,15 @@ jobs:
         run: |
           set -euo pipefail
           ACR_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}"
-          docker buildx imagetools create \
-            --tag "${ACR_IMAGE}:${SEMVER}" \
-            --tag "${ACR_IMAGE}:${VERSION}" \
-            --tag "${ACR_IMAGE}:latest" \
-            "${ACR_IMAGE}@${DIGEST}"
+          # Promote each tag separately. Passing multiple --tag values makes
+          # buildx synthesize an OCI index even for a single-platform source,
+          # which changes the registry digest and breaks exact verification.
+          for tag in "${SEMVER}" "${VERSION}" "latest"; do
+            docker buildx imagetools create \
+              --prefer-index=false \
+              --tag "${ACR_IMAGE}:${tag}" \
+              "${ACR_IMAGE}@${DIGEST}"
+          done
 
   verify-acr-release:
     name: Verify ACR release tags

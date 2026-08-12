@@ -21,6 +21,7 @@
     let getActiveSession = () => null;
     let installed = false;
     let sequence = 0;
+    let suppressUntil = 0;
 
     function configure(config = {}) {
       if (typeof config.getActiveSession === 'function') getActiveSession = config.getActiveSession;
@@ -39,6 +40,7 @@
     }
 
     function shouldIgnore(input = {}) {
+      if (now() < suppressUntil) return true;
       const error = input.error;
       const message = String(input.message || error?.message || error || '');
       if (error?.name === 'AbortError' || /\babort(?:ed)?\b|用户停止|主动停止|页面卸载/i.test(message)) return true;
@@ -84,7 +86,7 @@
       if (isDuplicate(normalized, timestamp)) return null;
       const incident = Object.freeze({
         ...normalized,
-        id: normalized.id || `incident-${timestamp.toString(36)}-${(++sequence).toString(36)}`,
+        id: normalized.id || `incident-${timestamp.toString(36).slice(-6)}-${(++sequence).toString(36)}`,
         deliverAt: timestamp + feedbackDelayMs,
       });
       pending.push(incident);
@@ -139,6 +141,12 @@
         ready.unshift(...pending.splice(index, 1));
       }
       return ready;
+    }
+
+    function suppressForStop(durationMs = 3000) {
+      pending.splice(0, pending.length);
+      suppressUntil = now() + Math.max(0, Number(durationMs) || 0);
+      return api;
     }
 
     function requestDetails(resource, init = {}) {
@@ -223,6 +231,7 @@
       acknowledge,
       consumePending,
       consumeReadyPending,
+      suppressForStop,
       isFunctionalRequest,
       shouldIgnore,
     });

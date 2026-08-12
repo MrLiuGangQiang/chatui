@@ -106,6 +106,8 @@ function testCompletedImageExecutionProjectsOneDurableStateFact() {
   }, 'the router receives only the small continuity facts it needs, not the prior image prompt or internal metadata');
   const publicContextText = JSON.stringify(publicContext);
   assert.ok(!publicContextText.includes(context.previous_execution.result_reference_id));
+  // Generate-family results are not resource-correction subjects: their prior
+  // input stays local so the model cannot mis-inherit a rejected generation.
   assert.strictEqual(publicContext.previous_execution.input, undefined);
   assert.ok(publicContext.recent_messages.some(message => message.content.includes(context.previous_execution.input)),
     'the bounded conversation window may still contain the original user-visible prompt');
@@ -171,8 +173,8 @@ function testClarificationDoesNotEraseLastCompletedVisualExecution() {
   assert.strictEqual(context.previous_execution.result_reference_id, 'imgref_kept');
 }
 
-function testCorrectionCannotDowngradeCompletedGenerationToChat() {
-  const result = inspect(plan({ operation: 'plain_chat', relation: 'correction', prompt: '不要这个' }), '不要这个', imageContextWithPrevious());
+function testFollowupCannotDowngradeCompletedGenerationToChat() {
+  const result = inspect(plan({ operation: 'plain_chat', relation: 'continuation', prompt: '不要这个' }), '不要这个', imageContextWithPrevious());
   assert.ok(result.route, result.reason);
   assert.strictEqual(result.route.operationType, 'image_reference_gen');
   assert.strictEqual(result.route.api, 'image_edit');
@@ -185,10 +187,10 @@ function testCorrectionCannotDowngradeCompletedGenerationToChat() {
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 
-function testGenerateCorrectionCannotBindPreviousResultAsEditTarget() {
+function testGenerateFollowupCannotBindPreviousResultAsEditTarget() {
   const result = inspect(plan({
     operation: 'text_to_image',
-    relation: 'correction',
+    relation: 'continuation',
     prompt: '不要这个',
     bindings: [{ key: 'r1', type: 'image', role: 'target', resource_id: 'res:image:img_previous_1', source: 'history' }],
   }), '不要这个', imageContextWithPrevious());
@@ -291,7 +293,7 @@ function testBadPendingClarificationCannotEraseCompletedExecutionFamily() {
       },
     },
   };
-  const result = inspect(plan({ operation: 'text_to_image', relation: 'correction', prompt: '换一张图' }), '换一张图', context);
+  const result = inspect(plan({ operation: 'text_to_image', relation: 'continuation', prompt: '换一张图' }), '换一张图', context);
   assert.ok(result.route, result.reason);
   assert.strictEqual(result.route.operationType, 'image_reference_gen');
   assert.strictEqual(result.route.mode, 'image');
@@ -324,10 +326,10 @@ function testImageAnalysisDependencyDoesNotInheritGenerationFamily() {
   assert.strictEqual(result.route.mode, 'chat');
 }
 
-function testCorrectionWithTargetUsesImageEditInsteadOfChat() {
+function testFollowupWithTargetUsesImageEditInsteadOfChat() {
   const result = inspect(plan({
     operation: 'edit_image',
-    relation: 'correction',
+    relation: 'followup',
     prompt: '商品换成无线耳机',
     bindings: [{ key: 'r1', type: 'image', role: 'target', resource_id: 'res:image:img_previous_1', source: 'history' }],
   }), '商品换成无线耳机', imageContextWithPrevious());
@@ -364,8 +366,8 @@ module.exports = [
   testExplicitReferenceGenerationLineageSurvivesStorageProjection,
   testLaterCompletedChatPreventsStaleVisualInheritance,
   testClarificationDoesNotEraseLastCompletedVisualExecution,
-  testCorrectionCannotDowngradeCompletedGenerationToChat,
-  testGenerateCorrectionCannotBindPreviousResultAsEditTarget,
+  testFollowupCannotDowngradeCompletedGenerationToChat,
+  testGenerateFollowupCannotBindPreviousResultAsEditTarget,
   testContinuationCannotDowngradeCompletedGenerationToChat,
   testBoundGeneratedImageContinuationUsesOnlyCurrentInstruction,
   testGeneratedResultReferenceRebindsAPlainGenerationContinuation,
@@ -373,7 +375,7 @@ module.exports = [
   testCurrentInputTextCannotRewriteIndependentSemanticFacts,
   testExplicitIndependentChatDoesNotInheritImageExecution,
   testImageAnalysisDependencyDoesNotInheritGenerationFamily,
-  testCorrectionWithTargetUsesImageEditInsteadOfChat,
+  testFollowupWithTargetUsesImageEditInsteadOfChat,
   testCompletedEditContinuationRebindsItsOwnResult,
   testGenerationContentReadinessRemainsASeparateGate,
 ];

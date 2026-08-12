@@ -88,7 +88,7 @@
   }
 
   function stableImageResultPart(value = '') {
-    return String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96) || 'legacy';
+    return String(value || '').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'legacy';
   }
 
   // Image result identity is a durable record contract, not a rendering detail.

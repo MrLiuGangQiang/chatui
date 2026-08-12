@@ -35,7 +35,7 @@
       const size = item?.size || item?.file?.size || 0;
       const existingId = item?.attachmentId || item?.attachment_id || item?.imageId || item?.image_id || item?.fileId || item?.file_id || item?.id || '';
       const safeName = String(name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'attachment';
-      const id = existingId || `att_${Date.now().toString(36)}_${index + 1}_${safeName}`;
+      const id = existingId || `att_${Date.now().toString(36).slice(-6)}_${index + 1}_${safeName}`;
       if (item && typeof item === 'object' && !item.attachmentId) item.attachmentId = id;
       return { id, name, type, size };
     }
@@ -166,7 +166,7 @@
       if (!String(src).startsWith('data:')) return src;
       try {
         const blob = await dataUrlToBlob(src);
-        const key = `attachment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${name || 'file'}`;
+        const key = `attachment-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}-${name || 'file'}`;
         await putImageBlob(key, blob);
         return `indexeddb://${key}`;
       } catch { return ''; }

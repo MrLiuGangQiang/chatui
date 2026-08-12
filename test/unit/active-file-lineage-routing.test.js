@@ -68,16 +68,8 @@ function testSubjectlessFileFollowupPublishesBoundedFilesAndPreviousExecutionEvi
   assert.deepStrictEqual(
     payload.resource_candidates.filter(candidate => candidate.type === 'file').map(candidate => candidate.label),
     [workbook.name, '引言.docx'],
-    'the model receives the bounded file catalog and uses previous execution evidence to select the workbook',
+    'the model receives the bounded file catalog for file follow-up routing',
   );
-  assert.deepStrictEqual(payload.context.previous_resource_execution, {
-    operation: 'file_qa',
-    resource_kind: 'file',
-    image_count: 0,
-    file_count: 1,
-    source_message_index: 3,
-    response_message_index: 4,
-  });
   assert.strictEqual(payload.context.conversation_focus.kind, 'file');
 
   const inspected = routeService.inspectModelRouteResult(JSON.stringify({

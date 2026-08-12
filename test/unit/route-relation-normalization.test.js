@@ -60,11 +60,11 @@ function testImageContinuationCueIsCanonicalizedAtTrustBoundary() {
   assert.strictEqual(route.dispatchAuthorized, true);
 }
 
-function testCorrectionCueWinsOverContinuationWording() {
+function testFollowupCueWinsOverContinuationWording() {
   const input = '上次参考图生成的版本还是不对，请继续沿用那张参考图，把主色改为墨绿，其他结构保留。';
   const route = inspect(imagePlan(input, 'followup'), input, imageContext());
-  assert.strictEqual(route.relation, 'correction');
-  assert.strictEqual(route.dispatchContract.relation, 'correction');
+  assert.strictEqual(route.relation, 'continuation');
+  assert.strictEqual(route.dispatchContract.relation, 'continuation');
 }
 
 function testNonVisualFollowupIsNotReclassifiedAsContinuation() {
@@ -265,7 +265,7 @@ function testExplicitPriorFileReferenceCannotDegradeToPlainChat() {
 
 module.exports = [
   testImageContinuationCueIsCanonicalizedAtTrustBoundary,
-  testCorrectionCueWinsOverContinuationWording,
+  testFollowupCueWinsOverContinuationWording,
   testNonVisualFollowupIsNotReclassifiedAsContinuation,
   testConcreteImageEditCannotFallBackToPlainChatWithoutTarget,
   testHistoricalImageEditWithoutModelBindingShowsAvailableImageChoices,

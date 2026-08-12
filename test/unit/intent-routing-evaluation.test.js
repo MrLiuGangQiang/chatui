@@ -26,10 +26,10 @@ function caseById(suite, id) {
 function testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
   assert.strictEqual(suite.schema_version, "intent-routing-eval.v1");
-  assert.strictEqual(suite.cases.length, 34);
+  assert.strictEqual(suite.cases.length, 42);
   const operations = new Set(suite.cases.map(item => item.expected.operation));
   for (const operation of evaluation.VALID_OPERATIONS) assert.ok(operations.has(operation), `fixture must cover ${operation}`);
-  assert.ok(suite.cases.every(item => item.expected.clarification && item.expected.resources));
+  assert.ok(suite.cases.every(item => item.expected.goal && item.expected.clarification && item.expected.resources));
   assert.ok(suite.cases.every(item => !Object.hasOwn(item.expected, "directive")));
 }
 
@@ -55,8 +55,8 @@ function modelIntentForScenario(fixture) {
 
   return {
     operation: fixture.expected.operation,
-    relation: fixture.expected.relation,
-    goal: fixture.input || '处理当前资源请求',
+    relation: Array.isArray(fixture.expected.relation) ? fixture.expected.relation[0] : fixture.expected.relation,
+    goal: fixture.expected.goal.concepts.map(alternatives => alternatives[0]).join('，'),
     resource_refs: resourceRefs,
   };
 }
@@ -78,7 +78,7 @@ function createScenarioTest(fixture) {
     assert.strictEqual(result.score, 100);
     assert.deepStrictEqual(result.failure_reasons, []);
     assert.strictEqual(result.compiled.operation, fixture.expected.operation);
-    assert.strictEqual(result.compiled.relation, fixture.expected.relation);
+    assert.ok(evaluation.relationMatchesExpectation(fixture.expected.relation, result.compiled.relation), `${fixture.id}: relation mismatch: expected ${JSON.stringify(fixture.expected.relation)}, got ${result.compiled.relation}`);
     assert.strictEqual(result.compiled.readiness, fixture.expected.clarification.required ? "needs_clarification" : "ready");
     assert.strictEqual(Boolean(result.compiled.dispatch_contract), !fixture.expected.clarification.required);
   };
@@ -103,6 +103,113 @@ function testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource(
   assert.strictEqual(result.checks.dispatch_contract, false);
   assert.strictEqual(result.compiled.dispatch_contract, null);
   assert.strictEqual(result.perfect, false);
+}
+
+function testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText() {
+  assert.strictEqual(evaluation.goalMatchesExpectation({
+    concepts: [['耳朵'], ['红色', '蓝色']],
+    forbidden: ['选错了', 'candidate_key'],
+  }, '把目标图片的耳朵换成红色'), true);
+  assert.strictEqual(evaluation.goalMatchesExpectation({
+    concepts: [['耳朵'], ['红色', '蓝色']],
+    forbidden: ['选错了', 'candidate_key'],
+  }, '选错了，请继续处理上一项任务'), false);
+
+  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+  const targetOnlyEdit = caseById(suite, 'explicit-second-current-image-edit');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    targetOnlyEdit.expected.goal,
+    '只把目标图的背景改为浅灰色，其他内容保持不变。',
+  ), true, 'an equivalent target-only constraint must retain the first-image exclusion semantics');
+}
+
+function testIntentRoutingEvaluationRejectsSemanticMutations() {
+  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+
+  const plainChat = caseById(suite, 'plain-chat-does-not-inherit-history-image');
+  const lostFacts = evaluation.evaluateRouteText(plainChat, JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '把登录页写得更专业。',
+    resource_refs: [],
+  }));
+  assert.strictEqual(lostFacts.checks.goal, false, 'dropping required task facts must fail even when operation is correct');
+
+  const comparison = caseById(suite, 'compare-two-numbered-history-images');
+  const comparisonCatalog = routeService.buildRouteResourceCandidates({
+    attachments: comparison.attachments,
+    context: comparison.context,
+    input: comparison.input,
+  });
+  const first = comparisonCatalog.find(candidate => candidate.type === 'image' && Number(candidate.index) === 1);
+  const second = comparisonCatalog.find(candidate => candidate.type === 'image' && Number(candidate.index) === 2);
+  const swapped = evaluation.evaluateRouteText(comparison, JSON.stringify({
+    operation: 'image_compare',
+    relation: 'followup',
+    goal: '比较两张历史产品图的构图与色调差异。',
+    resource_refs: [
+      { candidate_key: second.candidate_key, role: 'compare_a' },
+      { candidate_key: first.candidate_key, role: 'compare_b' },
+    ],
+  }));
+  assert.strictEqual(swapped.checks.resources, false, 'swapping ordered comparison roles must fail');
+  assert.strictEqual(swapped.model_resources_match, false, 'raw model refs are checked independently from compilation');
+
+  const multiRole = caseById(suite, 'content-and-style-references-keep-separate-roles');
+  const roleCatalog = routeService.buildRouteResourceCandidates({
+    attachments: multiRole.attachments,
+    context: multiRole.context,
+    input: multiRole.input,
+  });
+  const roleMutated = evaluation.evaluateRouteText(multiRole, JSON.stringify({
+    operation: 'image_reference_gen',
+    relation: 'new',
+    goal: '用主体参考图的构图和风格参考图的水彩质感生成产品海报。',
+    resource_refs: [
+      { candidate_key: roleCatalog[0].candidate_key, role: 'style_reference' },
+      { candidate_key: roleCatalog[1].candidate_key, role: 'reference' },
+    ],
+  }));
+  assert.strictEqual(roleMutated.checks.resources, false, 'content and style roles are not interchangeable');
+  assert.strictEqual(roleMutated.model_resources_match, false);
+
+  const multiTask = caseById(suite, 'cross-api-multi-task-requires-clarification');
+  const multiTaskResult = evaluation.evaluateRouteText(multiTask, JSON.stringify(modelIntentForScenario(multiTask)));
+  assert.strictEqual(multiTaskResult.compiled.readiness, 'needs_clarification');
+  assert.strictEqual(multiTaskResult.compiled.dispatch_contract, null, 'an unrepresentable cross-API task must never dispatch');
+}
+
+function testIntentRoutingEvaluationDoesNotLetTheCompilerHideModelSemanticMutations() {
+  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+  const fixture = caseById(suite, 'plain-chat-does-not-inherit-history-image');
+  const intent = modelIntentForScenario(fixture);
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), {
+    input: fixture.input,
+    attachments: fixture.attachments,
+    context: fixture.context,
+    currentMode: fixture.current_mode || 'chat',
+    autoMode: fixture.auto_mode !== false,
+  });
+  assert.strictEqual(Boolean(inspected.route), true);
+  const mutatedModelIntent = { ...intent, operation: 'file_qa' };
+  const operationResult = evaluation.scoreRouteCase(fixture, inspected.route, {
+    model_intent: mutatedModelIntent,
+  });
+  assert.strictEqual(operationResult.checks.valid_route, true, 'the compiled route remains structurally valid');
+  assert.strictEqual(operationResult.checks.operation, false, 'the independent model oracle must reject the mutated operation');
+  assert.strictEqual(operationResult.model_semantics_match.operation, false);
+
+  const relationResult = evaluation.scoreRouteCase(fixture, inspected.route, {
+    model_intent: { ...intent, relation: 'followup' },
+  });
+  assert.strictEqual(relationResult.checks.relation, false, 'the compiler result cannot hide a mutated model relation');
+  assert.strictEqual(relationResult.model_semantics_match.relation, false);
+
+  const goalResult = evaluation.scoreRouteCase(fixture, inspected.route, {
+    model_intent: { ...intent, goal: '把登录页写得更专业。' },
+  });
+  assert.strictEqual(goalResult.checks.goal, false, 'the compiler result cannot restore facts omitted by the model goal');
+  assert.strictEqual(goalResult.model_semantics_match.goal, false);
 }
 
 function testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates() {
@@ -178,6 +285,9 @@ module.exports = [
   testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture,
   ...REAL_ROUTING_SCENARIO_TESTS,
   testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource,
+  testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText,
+  testIntentRoutingEvaluationRejectsSemanticMutations,
+  testIntentRoutingEvaluationDoesNotLetTheCompilerHideModelSemanticMutations,
   testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates,
   testIntentRoutingEvaluationRedactsSecretsAndBinaryFromReportValues,
   testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBoundary,

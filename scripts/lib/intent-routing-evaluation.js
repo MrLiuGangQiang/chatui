@@ -11,7 +11,7 @@ const VALID_OPERATIONS = new Set([
   "plain_chat", "file_qa", "multimodal_qa", "image_qa", "image_compare",
   "ocr", "text_to_image", "image_reference_gen", "edit_image",
 ]);
-const VALID_RELATIONS = new Set(["new", "followup", "correction", "continuation"]);
+const VALID_RELATIONS = new Set(["new", "followup", "continuation"]);
 const VALID_RESOURCE_TYPES = new Set(["image", "file", "text", "message"]);
 const VALID_RESOURCE_SOURCES = new Set(["current", "quoted", "history", "context"]);
 const VALID_RESOURCE_ROLES = new Set([
@@ -25,12 +25,13 @@ const VALID_CLARIFICATION_ROLES = new Set([
 const VALID_UNRESOLVED_REASONS = new Set(["missing", "ambiguous", "unavailable"]);
 const VALID_RESOURCE_MATCH_MODES = new Set(["exact", "contains", "media_exact"]);
 const SCORE_WEIGHTS = Object.freeze({
-  valid_route: 15,
-  operation: 20,
+  valid_route: 10,
+  operation: 15,
+  goal: 15,
   readiness: 10,
   relation: 10,
   resources: 20,
-  clarification: 15,
+  clarification: 10,
   dispatch_contract: 10,
 });
 const SECRET_FIELD_RE = /(?:api[_-]?key|authorization|token|secret|password|base64|data_url|dataurl|blob_url|binary|contents?)/i;
@@ -80,7 +81,22 @@ function validateResourceExpectation(resource = {}, label = "resource") {
 function validateExpected(expected = {}, label = "expected") {
   if (!isPlainObject(expected)) fail(`${label} must be an object.`);
   if (!VALID_OPERATIONS.has(expected.operation)) fail(`${label}.operation is invalid.`);
-  if (!VALID_RELATIONS.has(expected.relation)) fail(`${label}.relation is invalid.`);
+  if (!(typeof expected.relation === "string" ? VALID_RELATIONS.has(expected.relation) : (Array.isArray(expected.relation) && expected.relation.length && expected.relation.every(r => VALID_RELATIONS.has(r))))) fail(`${label}.relation is invalid.`);
+  if (!isPlainObject(expected.goal)
+      || !Array.isArray(expected.goal.concepts)
+      || !expected.goal.concepts.length
+      || !Array.isArray(expected.goal.forbidden)) {
+    fail(`${label}.goal must contain non-empty concepts and a forbidden array.`);
+  }
+  expected.goal.concepts.forEach((alternatives, index) => {
+    if (!Array.isArray(alternatives) || !alternatives.length
+        || alternatives.some(value => !scalar(value).trim())) {
+      fail(`${label}.goal.concepts[${index}] must contain non-empty alternatives.`);
+    }
+  });
+  if (expected.goal.forbidden.some(value => !scalar(value).trim())) {
+    fail(`${label}.goal.forbidden must contain only non-empty strings.`);
+  }
   if (!isPlainObject(expected.clarification)
       || typeof expected.clarification.required !== "boolean"
       || !Array.isArray(expected.clarification.unresolved)) {
@@ -178,6 +194,8 @@ function routeSnapshot(route = null) {
     operation: scalar(route.operationType),
     api: scalar(route.operationApi || route.api),
     relation: scalar(route.relation),
+    goal: scalar(route.userGoal || route.executionPrompt || route.dispatchContract?.arguments?.prompt),
+    execution_goal: scalar(route.dispatchContract?.arguments?.prompt || route.executionPrompt),
     readiness: scalar(route.readiness),
     dispatch_authorized: route.dispatchAuthorized === true,
     resources: Array.isArray(route.resources) ? route.resources : [],
@@ -186,6 +204,71 @@ function routeSnapshot(route = null) {
       unresolved_resources: Array.isArray(route.clarificationSlots) ? route.clarificationSlots : [],
     },
     dispatch_contract: route.dispatchContract || null,
+  };
+}
+
+function normalizedGoalText(value = "") {
+  return scalar(value).normalize("NFKC").toLowerCase().replace(/[\s，。！？!?；;：:、,.()（）【】\[\]"'“”‘’_-]+/g, "");
+}
+
+function goalMatchesExpectation(expected = {}, actual = "") {
+  const text = normalizedGoalText(actual);
+  if (!text) return false;
+  const concepts = Array.isArray(expected.concepts) ? expected.concepts : [];
+  const forbidden = Array.isArray(expected.forbidden) ? expected.forbidden : [];
+  return concepts.every(alternatives => alternatives.some(value => text.includes(normalizedGoalText(value))))
+    && forbidden.every(value => !text.includes(normalizedGoalText(value)));
+}
+
+function modelResourcesMatchExpectation(caseDefinition = {}, intent = null) {
+  if (!intent || !Array.isArray(intent.resource_refs)) return false;
+  const catalog = routeService.buildRouteResourceCandidates({
+    attachments: caseDefinition.attachments || [],
+    context: caseDefinition.context || {},
+    input: caseDefinition.input || "",
+  });
+  const projected = [];
+  for (const ref of intent.resource_refs) {
+    const candidate = catalog.find(item => item.candidate_key === scalar(ref?.candidate_key));
+    if (!candidate) return false;
+    // Selecting an unavailable candidate is useful semantic evidence for the
+    // compiler to produce an `unavailable` clarification, but it is never an
+    // executable binding. Exclude it from the independent execution-resource
+    // oracle; the clarification/readiness checks separately require fail-closed.
+    if (candidate.availability === "unavailable") continue;
+    projected.push({
+      type: candidate.type,
+      source: candidate.source,
+      role: scalar(ref.role),
+      index: Number(candidate.index),
+      id: scalar(candidate.id),
+      reference_id: scalar(candidate.reference_id),
+      missing: false,
+    });
+  }
+  return resourcesMatchExpectation(caseDefinition.expected?.resources || { mode: "exact", items: [] }, projected);
+}
+
+// Keep the model's semantic proposal as an independent oracle input. The local
+// compiler is allowed to enforce protocol safety and resource availability, but
+// it must not be the only source used to decide whether operation/relation/goal
+// are correct; otherwise a compiler normalization could hide a bad model route.
+function relationMatchesExpectation(expectedRelation, actualRelation) {
+  const actual = scalar(actualRelation);
+  if (Array.isArray(expectedRelation)) return expectedRelation.includes(actual);
+  return actual === scalar(expectedRelation);
+}
+
+function modelSemanticsMatchExpectation(caseDefinition = {}, intent = null) {
+  if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
+    return { present: false, operation: false, relation: false, goal: false };
+  }
+  const expected = caseDefinition.expected || {};
+  return {
+    present: true,
+    operation: scalar(intent.operation) === scalar(expected.operation),
+    relation: relationMatchesExpectation(expected.relation, intent.relation),
+    goal: goalMatchesExpectation(expected.goal, intent.goal),
   };
 }
 
@@ -278,12 +361,27 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
   const validation = validateCompiledRoute(route);
   const validRoute = validation.valid;
   const expectsClarification = expected.clarification.required === true;
+  const modelIntent = metadata.model_intent || null;
+  const modelResourcesMatch = modelIntent ? modelResourcesMatchExpectation(caseDefinition, modelIntent) : true;
+  const modelSemantics = modelIntent
+    ? modelSemanticsMatchExpectation(caseDefinition, modelIntent)
+    : { present: false, operation: true, relation: true, goal: true };
   const checks = {
     valid_route: validRoute,
-    operation: validRoute && compiled.operation === expected.operation,
+    operation: validRoute
+      && compiled.operation === expected.operation
+      && modelSemantics.operation,
+    goal: validRoute
+      && goalMatchesExpectation(expected.goal, compiled.goal)
+      && (expectsClarification || goalMatchesExpectation(expected.goal, compiled.execution_goal))
+      && modelSemantics.goal,
     readiness: validRoute && compiled.readiness === (expectsClarification ? "needs_clarification" : "ready"),
-    relation: validRoute && compiled.relation === expected.relation,
-    resources: validRoute && resourcesMatchExpectation(expected.resources, compiled.resources),
+    relation: validRoute
+      && relationMatchesExpectation(expected.relation, compiled.relation)
+      && modelSemantics.relation,
+    resources: validRoute
+      && resourcesMatchExpectation(expected.resources, compiled.resources)
+      && modelResourcesMatch,
     clarification: validRoute && clarificationMatchesExpectation(expected.clarification, compiled),
     dispatch_contract: validRoute && (expectsClarification
       ? compiled.dispatch_contract === null
@@ -302,6 +400,8 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
     route_validation_errors: validation.errors,
     inspection_reason: scalar(metadata.inspection_reason),
     inspection_error: scalar(metadata.inspection_error),
+    model_semantics_match: modelSemantics,
+    model_resources_match: modelIntent ? modelResourcesMatch : false,
     compiled: route ? summarizeCompiledRoute(route) : null,
   };
 }
@@ -347,6 +447,9 @@ function redactModelOutput(rawText = "", apiKey = "") {
 }
 
 function evaluateRouteText(caseDefinition = {}, rawText = "", { apiKey = "" } = {}) {
+  const modelIntent = (() => {
+    try { return JSON.parse(stripJsonFence(rawText)); } catch { return null; }
+  })();
   const inspection = routeService.inspectModelRouteResult(rawText, {
     input: caseDefinition.input,
     attachments: caseDefinition.attachments || [],
@@ -357,6 +460,7 @@ function evaluateRouteText(caseDefinition = {}, rawText = "", { apiKey = "" } = 
   const result = scoreRouteCase(caseDefinition, inspection.route, {
     inspection_reason: inspection.reason,
     inspection_error: inspection.error || inspection.parseError,
+    model_intent: modelIntent,
   });
   result.model_output = redactModelOutput(rawText, apiKey);
   return result;
@@ -410,6 +514,9 @@ module.exports = {
   loadFixtureSuite,
   resourcesMatchExpectation,
   clarificationMatchesExpectation,
+  goalMatchesExpectation,
+  relationMatchesExpectation,
+  modelResourcesMatchExpectation,
   scoreRouteCase,
   summarizeCompiledRoute,
   redactText,

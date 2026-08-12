@@ -32,7 +32,7 @@ function nowMs() {
 const now = () => Date.now();
 
 function traceId() {
-  return `trace-${crypto.randomUUID()}`;
+  return `trace-${crypto.randomBytes(6).toString('hex')}`;
 }
 
 function sanitizeTarget(value = '') {

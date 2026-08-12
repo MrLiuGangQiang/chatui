@@ -34,7 +34,7 @@ function testRouteContractDeclaresCanonicalBindingRoles() {
   assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs']);
   assert.strictEqual(schema.properties.api, undefined);
   assert.strictEqual(schema.properties.arguments, undefined);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /edit_image 待编辑图用 target/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /编辑 target/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /text_to_image 不绑定图片或文件/);
 }
 
@@ -682,5 +682,4 @@ module.exports = [
   testLocalRouteDraftCompilesToCanonicalDispatchContract,
   testModelSelectedQuotedImageProjectsWithoutLocalFallback,
 ];
-
 

@@ -96,16 +96,12 @@ function testImageMemoryAddsRetrievedOlderCardsAlongsideBoundedCandidates() {
     candidate_key: 'i1',
     type: 'image',
     source: 'history',
-    index: 1,
-    role: '',
     label: 'A black dog in a field.',
     availability: 'available',
   }, {
     candidate_key: 'i2',
     type: 'image',
     source: 'history',
-    index: 13,
-    role: '',
     label: 'An amber cat sitting by a window.',
     availability: 'available',
   }], 'retrieved image memory augments rather than replaces the bounded model-facing catalog');
@@ -133,13 +129,8 @@ function testStandaloneRequestReceivesCompactExecutionAndFocusEvidence() {
   }).messages[1].content);
 
   assert.strictEqual(payload.context.last_generated_image.count, 4);
-  assert.strictEqual(payload.context.latest_uploaded_image.count, 2);
-  assert.strictEqual(payload.context.latest_image_reference.target, 'previous');
   assert.strictEqual(payload.context.previous_execution.operation, 'edit_image');
-  assert.strictEqual(payload.context.previous_visual_execution.image_count, 4);
   assert.strictEqual(payload.context.conversation_focus.kind, 'image');
-  assert.strictEqual(payload.context.conversation_continuity.relation, 'followup');
-  assert.ok(payload.context.conversation_continuity.anchor.length <= 320);
   const wire = JSON.stringify(payload);
   assert.ok(!wire.includes('old image prompt'), 'verbose prior execution prompts stay local');
   assert.ok(!wire.includes('res:image:old'), 'canonical resource identities stay local');

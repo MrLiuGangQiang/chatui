@@ -147,6 +147,8 @@ function testLegacyLatestImageResultGetsStableCompatibilityIdentity() {
     }),
   }, { sessionId: 'legacy-image-session', sequence: 3 });
   const context = JSON.parse(canonical.imageContext);
+  // Legacy compatibility identity stays deterministic; the bounded reference
+  // part length (48) does not truncate ordinary canonical legacy keys.
   assert.strictEqual(context.resultId, 'legacy_legacy-image-session_assistant_3');
   assert.strictEqual(context.referenceId, 'imgref_legacy_legacy-image-session_assistant_3');
   assert.strictEqual(context.attachments[0].imageId, 'img_imgref_legacy_legacy-image-session_assistant_3_1');

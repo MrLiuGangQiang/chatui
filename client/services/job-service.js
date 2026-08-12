@@ -2,7 +2,7 @@
   'use strict';
 
 function makeClientJobId(prefix) {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function makeClientImageJobId() {

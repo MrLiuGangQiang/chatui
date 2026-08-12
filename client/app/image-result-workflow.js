@@ -7,7 +7,7 @@
     const existing = String(options.resultId || options.imageResultId || '').trim();
     if (existing) return existing;
     if (typeof deps.makeImageResultId === 'function') return String(deps.makeImageResultId(options) || '').trim();
-    return `imgres_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return `imgres_${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
   }
 
   // This is deliberately the only generated-image HTML constructor. The live

@@ -110,10 +110,14 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('历史消息统一用 mN/context'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('四字段：operation、relation、goal、resource_refs'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 视资源消解已完成'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('不再依赖候选池顺序、数量或指代'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('严格只输出 operation、relation、goal、resource_refs'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('quoted/history 正文必需时才绑 mN/context'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 复述也要绑；current_input 自足不绑'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是执行模型收到的唯一指令'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('生图模型看不到原始对话'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference=主体/内容/构图'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference=画风/配色/质感'));
 }
 
 function testStructuredReferenceSchemaIsStrictProviderCompatible() {

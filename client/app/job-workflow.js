@@ -34,7 +34,7 @@
   }
 
   function makeSubmissionId(now = Date.now, random = Math.random) {
-    return `submit-${Number(now()).toString(36)}-${Number(random()).toString(36).slice(2, 10)}`;
+    return `submit-${Number(now()).toString(36).slice(-6)}${Number(random()).toString(36).slice(2, 6)}`;
   }
 
   function pendingSubmitDisplayId(pendingSubmit = {}) {

@@ -254,8 +254,8 @@
     const provided = typeof idFactory === 'function' ? normalizedString(idFactory(normalizedType)) : '';
     if (provided) return provided;
     const uuid = root?.crypto?.randomUUID?.();
-    if (uuid) return `rid_${uuid}`;
-    return `rid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+    if (uuid) return `rid_${uuid.replace(/[-]/g, '').slice(0, 16)}`;
+    return `rid_${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 8)}`;
   }
 
   function applyNativeIdentity(target = {}, type = '', value = '') {

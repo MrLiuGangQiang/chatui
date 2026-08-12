@@ -14,7 +14,7 @@
   'use strict';
 
   const ROUTE_INTENT_VERSION = 'route_intent.v1';
-  const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
+  const VALID_RELATIONS = new Set(['new', 'followup', 'continuation']);
   const VALID_RESOURCE_ROLES = new Set([
     'target', 'reference', 'style_reference', 'mask',
     'source', 'attachment', 'context', 'compare_a', 'compare_b',

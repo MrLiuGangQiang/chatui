@@ -22,14 +22,25 @@ function testGenericGreetingIsReplacedByFirstRealTopic() {
   }), '你是什么模型');
 }
 
-function testEstablishedDescriptiveTitleRemainsStable() {
+function testLatestRealQuestionBecomesNewTitle() {
+  // 会话名以最新提问的文字命名，不再保持旧标题
   assert.strictEqual(sessions.deriveSessionTitle({
     title: '已有会话标题',
     messages: [
       { role: 'user', content: '你好' },
       { role: 'user', content: '后续换了一个问题' },
     ],
-  }), '已有会话标题');
+  }), '后续换了一个问题');
+}
+
+function testLatestGreetingFallbackUsesLastText() {
+  assert.strictEqual(sessions.deriveSessionTitle({
+    title: '已有会话标题',
+    messages: [
+      { role: 'user', content: '你好' },
+      { role: 'user', content: 'Hello!' },
+    ],
+  }), 'Hello!');
 }
 
 function testOnlyGreetingStillProducesGreetingTitle() {
@@ -59,7 +70,8 @@ function testRichUserContentCanProvideTitleText() {
 module.exports = [
   testCustomSessionTitleAlwaysWins,
   testGenericGreetingIsReplacedByFirstRealTopic,
-  testEstablishedDescriptiveTitleRemainsStable,
+  testLatestRealQuestionBecomesNewTitle,
+  testLatestGreetingFallbackUsesLastText,
   testOnlyGreetingStillProducesGreetingTitle,
   testSubstantiveGreetingSentenceIsNotDiscarded,
   testRichUserContentCanProvideTitleText,

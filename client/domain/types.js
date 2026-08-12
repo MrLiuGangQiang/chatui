@@ -54,7 +54,7 @@
    * @property {string=} text
    *
    * @typedef {'plain_chat'|'file_qa'|'multimodal_qa'|'image_qa'|'image_compare'|'ocr'|'text_to_image'|'image_reference_gen'|'edit_image'} RouteOperation
-   * @typedef {'new'|'followup'|'correction'|'continuation'} RouteRelation
+   * @typedef {'new'|'followup'|'continuation'} RouteRelation
    * @typedef {'source'|'target'|'reference'|'style_reference'|'mask'|'compare_a'|'compare_b'|'attachment'|'context'} RouteResourceRole
    *
    * @typedef {Object} RouteIntentResourceRef

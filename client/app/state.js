@@ -3,7 +3,7 @@
 
   function createSession(title = '新对话', now = Date.now, random = Math.random) {
     return {
-      id: `chat-${now().toString(36)}-${random().toString(36).slice(2, 8)}`,
+      id: `chat-${now().toString(36).slice(-6)}${random().toString(36).slice(2, 6)}`,
       title,
       customTitle: '',
       messages: [],

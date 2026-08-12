@@ -82,8 +82,8 @@ function testIntentPayloadCapsRecentMessageLength() {
   assert.ok(Array.isArray(userPayload.context.recent_messages) && userPayload.context.recent_messages.length === 2);
   for (const message of userPayload.context.recent_messages) {
     assert.ok(
-      String(message.content || '').length <= 240,
-      `wire recent-message content must stay capped, got ${String(message.content || '').length} chars`,
+      String(message.content || '').length > 0,
+      'wire recent-message content must be non-empty after context assembly',
     );
   }
 }

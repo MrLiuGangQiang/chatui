@@ -358,8 +358,8 @@
   // ── Pending clarification lifecycle ──────────────────────────────────────
   function randomId(prefix = 'clarify') {
     const uuid = root?.crypto?.randomUUID?.();
-    if (uuid) return `${prefix}_${uuid}`;
-    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    if (uuid) return `${prefix}_${uuid.replace(/[-]/g, '').slice(0, 16)}`;
+    return `${prefix}_${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
   }
 
   function fnv1a(text = '') {

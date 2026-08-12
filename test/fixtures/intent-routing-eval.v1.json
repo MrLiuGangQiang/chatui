@@ -32,6 +32,32 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "登录页"
+            ],
+            [
+              "专业",
+              "正式",
+              "润色",
+              "改写"
+            ],
+            [
+              "本周"
+            ],
+            [
+              "完成",
+              "开发"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -69,6 +95,30 @@
       "expected": {
         "operation": "text_to_image",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "猫"
+            ],
+            [
+              "银白"
+            ],
+            [
+              "灰色",
+              "条纹"
+            ],
+            [
+              "木地板"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "这个描述"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -119,6 +169,29 @@
       "expected": {
         "operation": "text_to_image",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "金鱼"
+            ],
+            [
+              "珊瑚"
+            ],
+            [
+              "晨光"
+            ],
+            [
+              "游动",
+              "游泳"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -130,7 +203,7 @@
       }
     },
     {
-      "id": "self-contained-text-to-image-followup-does-not-bind-history-message",
+      "id": "self-contained-text-to-image-continuation-does-not-bind-history-message",
       "category": "context-boundary",
       "safety_critical": true,
       "input": "再画一只狗，换个品种。",
@@ -149,7 +222,24 @@
       },
       "expected": {
         "operation": "text_to_image",
-        "relation": "followup",
+        "relation": "continuation",
+        "goal": {
+          "concepts": [
+            [
+              "狗"
+            ],
+            [
+              "品种",
+              "不同"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -201,6 +291,27 @@
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "物体",
+              "主体"
+            ],
+            [
+              "配色",
+              "颜色"
+            ],
+            [
+              "风格"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -262,6 +373,25 @@
       "expected": {
         "operation": "ocr",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "公司"
+            ],
+            [
+              "金额"
+            ],
+            [
+              "日期"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -323,6 +453,22 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "付款"
+            ],
+            [
+              "违约"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -403,6 +549,32 @@
       "expected": {
         "operation": "multimodal_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "图片",
+              "产品"
+            ],
+            [
+              "文档",
+              "说明"
+            ],
+            [
+              "符合",
+              "一致"
+            ],
+            [
+              "依据",
+              "理由"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -470,6 +642,27 @@
       "expected": {
         "operation": "image_compare",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "构图"
+            ],
+            [
+              "色调",
+              "颜色"
+            ],
+            [
+              "比较",
+              "差异"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -529,6 +722,33 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "背景"
+            ],
+            [
+              "纯白",
+              "白色"
+            ],
+            [
+              "主体"
+            ],
+            [
+              "保持",
+              "不变"
+            ],
+            [
+              "产品"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -590,6 +810,22 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "构图"
+            ],
+            [
+              "水彩"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -630,6 +866,22 @@
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "背景"
+            ],
+            [
+              "蓝色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -676,6 +928,22 @@
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "合同"
+            ],
+            [
+              "付款"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -734,6 +1002,25 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "猫"
+            ],
+            [
+              "背景"
+            ],
+            [
+              "白色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -795,6 +1082,29 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "配色",
+              "颜色"
+            ],
+            [
+              "简洁"
+            ],
+            [
+              "移动端"
+            ],
+            [
+              "落地页"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -852,6 +1162,24 @@
       "expected": {
         "operation": "image_qa",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "提示词"
+            ],
+            [
+              "详细",
+              "复现",
+              "逆向"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -901,7 +1229,29 @@
       },
       "expected": {
         "operation": "image_reference_gen",
-        "relation": "correction",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "墨绿"
+            ],
+            [
+              "结构"
+            ],
+            [
+              "保持",
+              "保留"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "还是不对",
+            "上次参考图生成的版本"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -952,6 +1302,24 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "continuation",
+        "goal": {
+          "concepts": [
+            [
+              "夜间"
+            ],
+            [
+              "建筑",
+              "草图"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "继续用刚才"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1007,6 +1375,24 @@
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "图片",
+              "照片"
+            ],
+            [
+              "描述",
+              "分析"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1062,6 +1448,24 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "文件"
+            ],
+            [
+              "读取",
+              "分析",
+              "总结"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1118,6 +1522,26 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "扫描件",
+              "扫描文件"
+            ],
+            [
+              "风险"
+            ],
+            [
+              "条款"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -1172,6 +1596,29 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "延期"
+            ],
+            [
+              "通知"
+            ],
+            [
+              "诚恳"
+            ],
+            [
+              "简短",
+              "简洁"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1183,7 +1630,7 @@
       }
     },
     {
-      "id": "cross-api-multi-task-follows-model-operation",
+      "id": "cross-api-multi-task-requires-clarification",
       "category": "multi-task",
       "safety_critical": true,
       "input": "先总结这份方案，再根据总结生成一张宣传海报。",
@@ -1217,9 +1664,40 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "方案"
+            ],
+            [
+              "总结"
+            ],
+            [
+              "宣传",
+              "海报"
+            ],
+            [
+              "生成",
+              "制作"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
-          "required": false,
-          "unresolved": []
+          "required": true,
+          "unresolved": [
+            {
+              "type": "text",
+              "role": "source",
+              "reason": "missing",
+              "choice_count": 0
+            }
+          ]
         },
         "resources": {
           "mode": "exact",
@@ -1291,6 +1769,25 @@
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "图片"
+            ],
+            [
+              "设备"
+            ],
+            [
+              "外观"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1366,6 +1863,25 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "文档"
+            ],
+            [
+              "维护"
+            ],
+            [
+              "周期"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1424,6 +1940,26 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "周报"
+            ],
+            [
+              "三条",
+              "3条"
+            ],
+            [
+              "提醒"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1450,6 +1986,26 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "量子纠缠"
+            ],
+            [
+              "两句话",
+              "2句话"
+            ],
+            [
+              "解释"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -1523,6 +2079,24 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "合并",
+              "融合"
+            ],
+            [
+              "自然",
+              "协调"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1589,6 +2163,22 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "排版"
+            ],
+            [
+              "深色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1663,6 +2253,35 @@
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "背景"
+            ],
+            [
+              "浅灰"
+            ],
+            [
+              "保持",
+              "不变"
+            ],
+            [
+              "第一张不要改",
+              "第一张图不要修改",
+              "不修改第一张",
+              "只修改目标图",
+              "只将目标图",
+              "只把目标图",
+              "目标图"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1712,7 +2331,26 @@
       },
       "expected": {
         "operation": "file_qa",
-        "relation": "followup",
+        "relation": "continuation",
+        "goal": {
+          "concepts": [
+            [
+              "扫描"
+            ],
+            [
+              "合同"
+            ],
+            [
+              "总结"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -1750,6 +2388,25 @@
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "文件"
+            ],
+            [
+              "结论"
+            ],
+            [
+              "总结"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": true,
           "unresolved": [
@@ -1807,7 +2464,28 @@
       },
       "expected": {
         "operation": "edit_image",
-        "relation": "correction",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "原图",
+              "目标图"
+            ],
+            [
+              "背景"
+            ],
+            [
+              "蓝色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "上一版颜色不对"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1863,6 +2541,25 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "会议纪要"
+            ],
+            [
+              "截止日期"
+            ],
+            [
+              "负责人"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
         "clarification": {
           "required": false,
           "unresolved": []
@@ -1876,6 +2573,789 @@
               "role": "attachment",
               "index": 1,
               "id": "file-current-minutes",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "prompt-writing-request-stays-plain-chat",
+      "category": "operation-boundary",
+      "safety_critical": true,
+      "input": "帮我写一份适合生成科技感产品海报的提示词，不要生成图片。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "提示词"
+            ],
+            [
+              "科技感"
+            ],
+            [
+              "产品"
+            ],
+            [
+              "海报"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "生成一张图片"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        }
+      }
+    },
+    {
+      "id": "resource-only-edit-correction-restores-prior-goal",
+      "category": "goal-authority",
+      "safety_critical": true,
+      "input": "你选错了猫，请改用这只猫继续处理上一项图片编辑请求。",
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-correct-cat",
+          "image_id": "img-current-correct-cat",
+          "name": "correct-cat.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "把耳朵换成红色。"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "edit_image",
+          "family": "edit",
+          "input": "把耳朵换成红色",
+          "result_kind": "image",
+          "result_reference_id": "imgref-wrong-cat",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-correct-cat",
+            "reference_id": "imgref-current-correct-cat",
+            "target": "uploaded",
+            "description": "本轮重新选择的正确猫图"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "耳朵"
+            ],
+            [
+              "红色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "选错了猫",
+            "继续处理上一项",
+            "图片编辑请求"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 1,
+              "id": "img-current-correct-cat",
+              "reference_id": "imgref-current-correct-cat",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "sequential-edit-keeps-new-color-instruction",
+      "category": "goal-authority",
+      "safety_critical": true,
+      "input": "把颜色改成蓝色。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "把猫换成站立姿势。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "已完成姿势修改。"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "edit_image",
+          "family": "edit",
+          "input": "把猫换成站立姿势",
+          "result_kind": "image",
+          "result_reference_id": "imgref-standing-cat",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-standing-cat",
+            "reference_id": "imgref-standing-cat",
+            "target": "previous",
+            "description": "刚完成姿势修改的猫图"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "颜色"
+            ],
+            [
+              "蓝色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "把猫换成站立姿势",
+            "改成站立姿势"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 1,
+              "id": "img-history-standing-cat",
+              "reference_id": "imgref-standing-cat",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "current-target-and-mask-use-distinct-roles",
+      "category": "resource-selection",
+      "safety_critical": true,
+      "input": "用第二张作为蒙版，把第一张图的背景改成纯白。",
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-mask-target",
+          "image_id": "img-current-mask-target",
+          "name": "target.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 2,
+          "id": "img-current-mask",
+          "image_id": "img-current-mask",
+          "name": "mask.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-mask-target",
+            "reference_id": "imgref-current-mask-target",
+            "target": "uploaded",
+            "description": "待编辑的产品图"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "current",
+            "image_id": "img-current-mask",
+            "reference_id": "imgref-current-mask",
+            "target": "uploaded",
+            "description": "透明背景蒙版"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "蒙版"
+            ],
+            [
+              "背景"
+            ],
+            [
+              "纯白",
+              "白色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "第一张",
+            "第二张"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 1,
+              "id": "img-current-mask-target",
+              "reference_id": "imgref-current-mask-target",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "current",
+              "role": "mask",
+              "index": 2,
+              "id": "img-current-mask",
+              "reference_id": "imgref-current-mask",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "content-and-style-references-keep-separate-roles",
+      "category": "resource-selection",
+      "safety_critical": true,
+      "input": "用第一张的主体构图、第二张的水彩质感，生成一张新的产品海报。",
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-content-ref",
+          "image_id": "img-current-content-ref",
+          "name": "content.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 2,
+          "id": "img-current-style-ref",
+          "image_id": "img-current-style-ref",
+          "name": "style.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-content-ref",
+            "reference_id": "imgref-current-content-ref",
+            "target": "uploaded",
+            "description": "具有明确产品主体构图的参考图"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "current",
+            "image_id": "img-current-style-ref",
+            "reference_id": "imgref-current-style-ref",
+            "target": "uploaded",
+            "description": "水彩质感风格参考图"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_reference_gen",
+        "relation": "new",
+        "goal": {
+          "concepts": [
+            [
+              "主体"
+            ],
+            [
+              "构图"
+            ],
+            [
+              "水彩"
+            ],
+            [
+              "产品"
+            ],
+            [
+              "海报"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "第一张",
+            "第二张"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "reference",
+              "index": 1,
+              "id": "img-current-content-ref",
+              "reference_id": "imgref-current-content-ref",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "current",
+              "role": "style_reference",
+              "index": 2,
+              "id": "img-current-style-ref",
+              "reference_id": "imgref-current-style-ref",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "quoted-message-rewrite-binds-only-the-quoted-text",
+      "category": "quoted-resource-contract",
+      "safety_critical": true,
+      "input": "把这个压缩成一句话。",
+      "attachments": [],
+      "context": {
+        "quoted_message": {
+          "index": 2,
+          "id": "msg-quoted-delay-reason",
+          "role": "assistant",
+          "content": "项目延期主要因为第三方接口交付推迟，以及联调环境连续两天不可用。"
+        },
+        "recent_messages": [
+          {
+            "index": 1,
+            "id": "msg-old-topic",
+            "role": "assistant",
+            "content": "上一条无关的产品介绍。"
+          },
+          {
+            "index": 2,
+            "id": "msg-quoted-delay-reason",
+            "role": "assistant",
+            "content": "项目延期主要因为第三方接口交付推迟，以及联调环境连续两天不可用。"
+          }
+        ],
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "一句话"
+            ],
+            [
+              "延期"
+            ],
+            [
+              "接口",
+              "环境"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "这个"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "message",
+              "source": "quoted",
+              "role": "context",
+              "index": 2,
+              "id": "msg-quoted-delay-reason",
+              "reference_id": "",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "image-question-then-edit-keeps-the-same-image",
+      "category": "cross-turn-image-continuity",
+      "safety_critical": true,
+      "input": "把猫的颜色改成黑色，背景保持不变。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "这是什么品种？"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "看起来像英国短毛猫。"
+          }
+        ],
+        "previous_resource_execution": {
+          "operation": "image_qa",
+          "image_count": 1,
+          "file_count": 0,
+          "source_message_index": 1,
+          "response_message_index": 2
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-cat-after-qa",
+            "reference_id": "imgref-history-cat-after-qa",
+            "target": "previous",
+            "description": "刚才完成品种问答的猫图"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "goal": {
+          "concepts": [
+            [
+              "猫"
+            ],
+            [
+              "颜色",
+              "改成黑色",
+              "变成黑色"
+            ],
+            [
+              "黑色"
+            ],
+            [
+              "背景"
+            ],
+            [
+              "保持",
+              "不变"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 1,
+              "id": "img-history-cat-after-qa",
+              "reference_id": "imgref-history-cat-after-qa",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "short-continuation-inherits-analysis-dimension",
+      "category": "cross-turn-image-continuity",
+      "safety_critical": true,
+      "input": "第五张呢",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "第一张和最后两张是什么颜色?"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "第一张是深蓝色，第九张是酒红色，第十张是墨绿色。"
+          }
+        ],
+        "previous_resource_execution": {
+          "operation": "image_qa",
+          "image_count": 3,
+          "file_count": 0,
+          "source_message_index": 1,
+          "response_message_index": 2
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-product1",
+            "reference_id": "imgref-history-product1",
+            "target": "history",
+            "description": "第1张产品图"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-history-product2",
+            "reference_id": "imgref-history-product2",
+            "target": "history",
+            "description": "第2张产品图"
+          },
+          {
+            "index": 3,
+            "source_index": 3,
+            "source": "history",
+            "image_id": "img-history-product3",
+            "reference_id": "imgref-history-product3",
+            "target": "history",
+            "description": "第3张产品图"
+          },
+          {
+            "index": 4,
+            "source_index": 4,
+            "source": "history",
+            "image_id": "img-history-product4",
+            "reference_id": "imgref-history-product4",
+            "target": "history",
+            "description": "第4张产品图"
+          },
+          {
+            "index": 5,
+            "source_index": 5,
+            "source": "history",
+            "image_id": "img-history-product5",
+            "reference_id": "imgref-history-product5",
+            "target": "history",
+            "description": "第5张产品图"
+          },
+          {
+            "index": 6,
+            "source_index": 6,
+            "source": "history",
+            "image_id": "img-history-product6",
+            "reference_id": "imgref-history-product6",
+            "target": "history",
+            "description": "第6张产品图"
+          },
+          {
+            "index": 7,
+            "source_index": 7,
+            "source": "history",
+            "image_id": "img-history-product7",
+            "reference_id": "imgref-history-product7",
+            "target": "history",
+            "description": "第7张产品图"
+          },
+          {
+            "index": 8,
+            "source_index": 8,
+            "source": "history",
+            "image_id": "img-history-product8",
+            "reference_id": "imgref-history-product8",
+            "target": "history",
+            "description": "第8张产品图"
+          },
+          {
+            "index": 9,
+            "source_index": 9,
+            "source": "history",
+            "image_id": "img-history-product9",
+            "reference_id": "imgref-history-product9",
+            "target": "history",
+            "description": "第9张产品图"
+          },
+          {
+            "index": 10,
+            "source_index": 10,
+            "source": "history",
+            "image_id": "img-history-product10",
+            "reference_id": "imgref-history-product10",
+            "target": "history",
+            "description": "第10张产品图"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_qa",
+        "relation": "continuation",
+        "goal": {
+          "concepts": [
+            [
+              "第五张",
+              "第五张图片"
+            ],
+            [
+              "颜色"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "f1",
+            "m1",
+            "继续分析",
+            "执行相同",
+            "相同任务",
+            "继续第"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "source",
+              "index": 5,
+              "id": "img-history-product5",
+              "reference_id": "imgref-history-product5",
               "missing": false
             }
           ]

@@ -21,7 +21,7 @@ function compactDisplayItems(items = []) {
 }
 
 function makeDisplayItemId(now = Date.now, random = Math.random) {
-  return `display_${now().toString(36)}_${random().toString(36).slice(2, 9)}`;
+  return `display_${now().toString(36).slice(-6)}${random().toString(36).slice(2, 6)}`;
 }
 
 function displayItemHasRichMedia(item) {

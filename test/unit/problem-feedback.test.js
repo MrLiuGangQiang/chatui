@@ -287,6 +287,51 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   assert.ok(imagePreviewWorkflow.includes('removeAttribute("src")') && !imagePreviewWorkflow.includes('e.src=""'));
 }
 
+async function testProblemFeedbackSuppressForStopClearsPendingAndBlocksReports() {
+  let clock = Date.parse('2026-08-04T07:00:00.000Z');
+  const browser = createFakeBrowser(async () => ({
+    ok: false,
+    status: 500,
+    statusText: 'Internal Server Error',
+    clone() { return { text: async () => 'boom' }; },
+  }));
+  const events = [];
+  browser.addEventListener(EVENT_NAME, event => events.push(event.detail));
+  const workflow = createProblemFeedbackWorkflow({ root: browser, now: () => clock }).install();
+
+  // 人为停止前：一次失败的 API 调用已排队等待延迟派发
+  await browser.fetch('/api/chat/completions', { method: 'POST' });
+  await flushAsyncWork();
+  assert.strictEqual(events.length, 0, 'feedback must wait for the delay before opening');
+
+  // 人为停止：清空 pending 并进入抑制窗口
+  workflow.suppressForStop(3000);
+  browser.runTimers();
+  assert.strictEqual(events.length, 0, 'queued incidents must not dispatch after a manual stop');
+
+  // 抑制窗口内的新错误也不得触发自动反馈
+  await browser.fetch('/api/chat/completions', { method: 'POST' });
+  await flushAsyncWork();
+  browser.runTimers();
+  assert.strictEqual(events.length, 0, 'reports inside the suppression window must be ignored');
+
+  // 抑制窗口过期后恢复自动反馈
+  clock += 4000;
+  await browser.fetch('/api/chat/completions', { method: 'POST' });
+  await flushAsyncWork();
+  assert.strictEqual(events.length, 0);
+  browser.runTimers();
+  assert.strictEqual(events.length, 1, 'reports after the suppression window must be dispatched again');
+}
+
+function testProblemFeedbackSuppressForStopExportedAndWiredInAppStop() {
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const feedbackWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/problem-feedback-workflow.js'), 'utf8');
+  assert.ok(feedbackWorkflow.includes('suppressForStop'), 'the workflow API must export suppressForStop');
+  assert.ok(feedbackWorkflow.includes('suppressUntil = now() + Math.max(0, Number(durationMs) || 0)'), 'suppressForStop must set a time-bounded suppression window');
+  assert.ok(app.includes('getProblemFeedbackWorkflow()?.suppressForStop?.()'), 'stopActiveRun must call suppressForStop before stopping the task');
+}
+
 module.exports = [
   testProblemFeedbackBuildsRecentConversationExcerptAndRedactsSecrets,
   testProblemFeedbackDraftIncludesIncidentAndFitsFeedbackField,
@@ -294,6 +339,8 @@ module.exports = [
   testProblemFeedbackWorkflowIgnoresFeedbackRecursionAndAbort,
   testProblemFeedbackManualDraftUsesRecentConversationWithoutFakeError,
   testProblemFeedbackWorkflowIgnoresResourceNoiseAndMonitorsApiFailures,
+  testProblemFeedbackSuppressForStopClearsPendingAndBlocksReports,
+  testProblemFeedbackSuppressForStopExportedAndWiredInAppStop,
   testProblemFeedbackDraftSurvivesCloseAndReopenStorageCycle,
   testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent,
 ];

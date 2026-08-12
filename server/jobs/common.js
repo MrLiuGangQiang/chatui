@@ -51,7 +51,7 @@ function upstreamDispatcher({ allowPrivate = false } = {}) {
 function makeJobId(value = '') {
   const supplied = String(value || '').trim();
   if (/^(imgjob|chatjob)-[a-z0-9-]{8,80}$/i.test(supplied)) return supplied;
-  return `imgjob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `imgjob-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 4)}`;
 }
 
 function hasVisualChatAttachment(value, seen = new Set()) {

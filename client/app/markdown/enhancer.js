@@ -34,7 +34,7 @@ let mermaidRenderQueue = Promise.resolve();
 
 function nextMermaidToken() {
   mermaidRenderSequence += 1;
-  return `mmd-${Date.now().toString(36)}-${mermaidRenderSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `mmd-${Date.now().toString(36).slice(-6)}-${mermaidRenderSequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function enqueueMermaidRender(task) {

@@ -191,7 +191,7 @@ npm run eval:intent -- \
   --output temp/reports/intent-routing-live.json
 ```
 
-评估输入来自 `test/fixtures/intent-routing-eval.v1.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs` 的最小 `route_intent.v1`；`goal` 说明用户真正想完成的任务，历史消息与图片、文件一样通过候选键绑定。评估器随后通过生产 `route-service` 在本地重建资源绑定并编译最终计划，检查本地路由结果和 `dispatch_contract.v1` 的 operation、readiness、relation、资源绑定、澄清、参数与上下文策略。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。
+评估输入来自 `test/fixtures/intent-routing-eval.v1.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs` 的最小 `route_intent.v1`；`goal` 说明用户真正想完成的任务，引用/历史消息与图片、文件一样通过候选键绑定。评估器先直接以原始模型四字段作为独立语义证据，检查 operation、relation、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 在本地重建资源绑定并编译最终计划，检查结构合法性、澄清/禁止派发及最终 `dispatch_contract.v1.arguments.prompt` 的语义保真；生产编译器的规范化不能替模型错误兜底得分。跨 API 多任务因无法由单个 `route_intent.v1` 表达，必须进入澄清而不能静默只执行其中一步。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。
 
 报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 

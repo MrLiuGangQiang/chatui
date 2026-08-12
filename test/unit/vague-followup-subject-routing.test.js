@@ -131,8 +131,7 @@ function testConversationFocusIsPublishedAsEvidenceOnly() {
   });
   const publicInput = JSON.parse(payload.messages[1].content);
   assert.strictEqual(publicInput.context.conversation_focus.kind, 'text');
-  assert.strictEqual(publicInput.context.conversation_focus.text_format, 'markdown');
-  assert.strictEqual(publicInput.context.last_generated_image.priority_age_turns, 1);
+  assert.strictEqual(publicInput.context.last_generated_image.count, 1);
 }
 
 function testModelVisualTaskIsNotOverriddenByNewerMarkdownFocus() {
@@ -200,11 +199,10 @@ function testExplicitNewImageRequestRemainsModelDirected() {
 }
 
 function testPromptDeclaresContextAsEvidence() {
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /focus：text→plain_chat，file→file_qa，image→图片族/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /previous_resource_execution 是上一回答实际读取的资源/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /无主语跟问绑定对应候选，当前明确对象优先/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /last_generated_image\/latest_image_reference 仅定位视觉资产/);
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 1500);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates\/context 只是事实证据/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /followup=以历史消息为数据源的新请求或修改纠正上一成果/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /current\/quoted 明确对象优先 history/);
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 1200);
 }
 
 module.exports = [

@@ -5,7 +5,7 @@ const IMAGE_REFERENCE_PREFIX = 'imgref_';
 const IMAGE_ITEM_PREFIX = 'img_';
 
 function sanitizeImageReferencePart(value = '') {
-  return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96) || 'latest';
+  return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48) || 'latest';
 }
 
 function makeImageReferenceId(value = 'latest') {

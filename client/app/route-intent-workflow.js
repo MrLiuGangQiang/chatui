@@ -18,9 +18,12 @@
   const MAX_MODEL_CALLS = Number(taskConstantsModule.MAX_MODEL_CALLS) || 6;
 
   const INTENT_DEADLINE_MS = Number(submitWorkflowPolicy.INTENT_PIPELINE_DEADLINE_MS);
-  // Intent recognition receives as much semantic history as the bounded route
-  // window allows. When it overflows, the oldest messages are removed first.
-  const ROUTE_CONTEXT_MAX_CHARS = 8000;
+  // Route context uses the model context window as the only bound.
+  // Overflow: first semantic-compress oldest messages, then drop oldest if still over.
+  // 128K token window → ~400K chars budget for user content.
+  const ROUTE_CONTEXT_MAX_CHARS = 400000;
+  const ROUTE_CONTEXT_TOKEN_BUDGET = 110000;
+  function estimateTokens(text = '') { return Math.ceil(String(text ?? '').length / 3); }
 
   function createRouteIntentWorkflow(deps) {
     const {
@@ -124,6 +127,30 @@
     }
 
     // Route context builder
+    function semanticCompressRecentMessages(messages = []) {
+      if (!messages.length) return messages;
+      // Merge oldest 50% of messages into a single summary entry
+      const pivot = Math.max(1, Math.floor(messages.length / 2));
+      const oldBatch = messages.slice(0, pivot);
+      const recent = messages.slice(pivot);
+      // Extract the user questions and assistant operations from old messages
+      const userLines = [];
+      const assistantLines = [];
+      for (const m of oldBatch) {
+        const role = String(m?.role || '');
+        const content = String(m?.content || '').slice(0, 120);
+        if (!content) continue;
+        if (role === 'user') userLines.push(content);
+        else if (role === 'assistant') assistantLines.push(m?.operation ? `[${m.operation}]` : content.slice(0, 60));
+      }
+      let summary = '';
+      if (userLines.length) summary += '用户问:' + userLines.join('; ');
+      if (assistantLines.length) summary += (summary ? ' | ' : '') + '执行:' + assistantLines.join(', ');
+      if (!summary) summary = '[早期对话]';
+      const entry = { index: oldBatch[0].index || 1, role: 'system', content: `[历史摘要] ${summary}` };
+      return [entry, ...recent];
+    }
+
     function compactRouteContextForIntent(context = {}) {
       try {
         if (!context || typeof context !== 'object' || Array.isArray(context)) {
@@ -142,8 +169,17 @@
           ...context,
           recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
         };
-        while (next.recent_messages.length && JSON.stringify(next).length > ROUTE_CONTEXT_MAX_CHARS) {
-          next.recent_messages.shift();
+        // Overflow strategy: token check → semantic compress → drop oldest
+        let serialized = JSON.stringify(next);
+        let compressed = false;
+        while (next.recent_messages.length > 0 && estimateTokens(serialized) > ROUTE_CONTEXT_TOKEN_BUDGET) {
+          if (!compressed) {
+            next.recent_messages = semanticCompressRecentMessages(next.recent_messages);
+            compressed = true;
+          } else {
+            next.recent_messages.shift();
+          }
+          serialized = JSON.stringify(next);
         }
         return next;
       } catch (error) {

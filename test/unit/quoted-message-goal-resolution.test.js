@@ -47,6 +47,28 @@ function testQuotedMessageAndLatestTaskReachIntentRecognitionTogether() {
   );
 }
 
+function testQuotedIntentContextExcludesUnrelatedSessionHistory() {
+  const { quotedMessage, sessionMessages } = quotedScenario();
+  const quoteContext = submitHelpers.buildQuotedRouteContext({
+    quotedMessage,
+    currentInput: '这个呢',
+  }).context;
+  const payload = JSON.parse(routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '这个呢',
+    context: quoteContext,
+    currentTurn: { messageIndex: 4 },
+  }).messages[1].content);
+
+  assert.deepStrictEqual(payload.context.recent_messages, [{
+    index: 1,
+    role: 'assistant',
+    content: '海盐-7391',
+  }], 'quoted submits must expose only the selected quote to intent recognition');
+  assert.ok(!JSON.stringify(payload).includes(sessionMessages[1].content),
+    'an unrelated session message must not influence quote intent recognition');
+}
+
 function testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage() {
   const { context } = quotedScenario();
   const result = routeService.inspectModelRouteResult(JSON.stringify({
@@ -131,6 +153,7 @@ function testResolvedGoalIsCanonicalEvenWithoutResourceBinding() {
 
 module.exports = [
   testQuotedMessageAndLatestTaskReachIntentRecognitionTogether,
+  testQuotedIntentContextExcludesUnrelatedSessionHistory,
   testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage,
   testResolvedGoalIsCanonicalEvenWithoutResourceBinding,
   testQuotedBindingAtAnyConversationIndexUsesExplicitQuoteProjection,

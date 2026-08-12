@@ -4,7 +4,7 @@
   function makeRun(sessionId, now = Date.now, random = Math.random) {
     return {
       sessionId,
-      token: `run_${now().toString(36)}_${random().toString(36).slice(2, 8)}`,
+      token: `run_${now().toString(36).slice(-6)}${random().toString(36).slice(2, 6)}`,
       abortController: new AbortController(),
       jobIds: new Set(),
       stopped: false,

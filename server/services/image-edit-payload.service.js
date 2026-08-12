@@ -198,7 +198,7 @@ function normalizeImageEditFieldValue(key, value) {
 }
 
 function multipartBoundary() {
-  return `chatui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `chatui-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function multipartHeaderValue(value = '') {

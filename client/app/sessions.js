@@ -30,12 +30,11 @@
     const users = (Array.isArray(session.messages) ? session.messages : [])
       .filter(item => item?.role === 'user' && userText(item).trim());
     if (!users.length) return stored ? stored.slice(0, 22) : '新对话';
-    // An established descriptive title stays stable; only generic placeholders
-    // (greetings and the default label) are replaced by the first real topic.
-    if (stored && stored !== '新对话' && !isGenericGreeting(stored)) return stored.slice(0, 22);
+    // 会话名以最新提问的文字命名：取最后一条非问候用户消息；
+    // 人为手动修改（customTitle）后不再根据内容变化（上方已优先返回）。
     const texts = users.map(item => userText(item).replace(/\s+/g, ' ').trim());
-    const firstReal = texts.find(text => !isGenericGreeting(text));
-    const title = firstReal || texts[texts.length - 1] || stored || '新对话';
+    const latestReal = [...texts].reverse().find(text => !isGenericGreeting(text));
+    const title = latestReal || texts[texts.length - 1] || stored || '新对话';
     return title.slice(0, 22);
   }
 

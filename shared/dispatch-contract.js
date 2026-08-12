@@ -12,7 +12,7 @@
   'use strict';
 
   const DISPATCH_CONTRACT_VERSION = 'dispatch_contract.v1';
-  const VALID_RELATIONS = new Set(['new', 'followup', 'correction', 'continuation']);
+  const VALID_RELATIONS = new Set(['new', 'followup', 'continuation']);
   const VALID_RESOURCE_TYPES = new Set(['image', 'file', 'text', 'message']);
   const VALID_SOURCES = new Set(['current', 'quoted', 'history', 'context']);
   const VALID_BINDING_ROLES = new Set([

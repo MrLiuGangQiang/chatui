@@ -17,7 +17,7 @@
     const renderSessionList = deps.renderSessionList || (() => {});
     const renderMarkdown = deps.renderMarkdown || (text => String(text || ''));
     const renderUserMessageContent = deps.renderUserMessageContent || (text => String(text || ''));
-    const makeDisplayItemId = deps.makeDisplayItemId || (() => `display_${Date.now().toString(36)}`);
+    const makeDisplayItemId = deps.makeDisplayItemId || (() => `display_${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`);
     const normalizeLastGeneratedImage = deps.normalizeLastGeneratedImage || (value => value);
     const localStorageRef = deps.localStorage || root.localStorage;
     const messageRecords = deps.messageRecords || root.ChatUIMessageRecords || {};

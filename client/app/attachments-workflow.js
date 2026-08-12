@@ -239,7 +239,7 @@
       const existing = item.attachmentId || item.attachment_id || item.id || '';
       if (existing) return String(existing);
       const safeName = String(item.name || item.file?.name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 40) || 'attachment';
-      const id = `att_${Date.now().toString(36)}_${index + 1}_${Math.random().toString(36).slice(2, 8)}_${safeName}`;
+      const id = `att_${Date.now().toString(36).slice(-6)}_${index + 1}_${Math.random().toString(36).slice(2, 6)}_${safeName}`;
       item.attachmentId = id;
       return id;
     }

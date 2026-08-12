@@ -3,6 +3,9 @@
 
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
+  const dispatchContractModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
+    || root?.ChatUIDispatchContract
+    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
 
   function createRegenerateWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -36,7 +39,7 @@
 
     function createRegenerateTask({ sessionId, run, readPending }) {
       const submissionId = jobLifecycle.makeSubmissionId?.()
-        || `submit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        || `submit-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
       let jobId = '';
       let jobKind = '';
       let handoffCommitted = false;
@@ -228,6 +231,23 @@
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
       const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});
+      // 重新生成时路由上下文排除被替换的 assistant 结果图（B），避免把当前消息的
+      // 生成结果当作参照；只保留被替换消息之前的对话历史。
+      const regenerateContextOverride=()=>({
+        recent_messages:baseRequestMessages.map((message,index)=>({
+          index:index+1,
+          id:message?.displayItemId||message?.display_item_id||message?.messageId||message?.message_id||message?.id||'',
+          resource_id:message?.resourceId||message?.resource_id||'',
+          role:message?.role||'',
+          content:String(Array.isArray(message?.content)?message?.rawText||'[非文本消息]':message?.content||message?.rawText||'').slice(0,600),
+        })),
+        last_generated_image:null,
+        latest_uploaded_image:null,
+        latest_image_reference:null,
+        recent_image_references:[],
+        image_candidates:[],
+        file_candidates:[],
+      });
       try{
         task.accept({capture:!0});
         const h=u?await restoreUserAttachmentsFromContext(u):[];if(u&&!h.length)throw new Error("原消息附件当前无法恢复，为避免缺少资源时继续执行，请重新上传附件后再试");
@@ -243,7 +263,7 @@
         let p,g;
         try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},replay.clarificationRouteContext),g=p.mode}
         else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},buildQuotedRouteContext()),g=p.mode}
-        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null),g=p.mode}}catch(err){throw err}
+        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},regenerateContextOverride()),g=p.mode}}catch(err){throw err}
         if(d.stopped||d.abortController?.signal?.aborted)return;
         if(p.needClarification){
           const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
@@ -306,7 +326,16 @@
         const restrictedSourcePools=submitHelpers.restrictExecutionResourcePools?.(p,sourcePools)||sourcePools;
         const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(p,executionPools);
-         const q=String(p.contextualImagePrompt||p.editInstruction||replayPrompt).trim(),chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
+         const quotedCleanText=quotedRoute?.cleanText||"";
+         // 最终执行 prompt 必须包含用户原始完整输入（replayPrompt），
+         // LLM 概括（contextualImagePrompt/editInstruction）只能作为补充、不能替代。
+         const summarizedPrompt=String(p.contextualImagePrompt||p.editInstruction||"").trim();
+         const originalReplayText=String(replayPrompt||"").trim();
+         const qParts=[quotedMessage&&quotedCleanText?quotedCleanText:null,originalReplayText];
+         if(summarizedPrompt&&!(summarizedPrompt.includes(originalReplayText)&&summarizedPrompt.length>originalReplayText.length))qParts.push(summarizedPrompt);
+         const q=String(qParts.filter(Boolean).join("\n\n")).trim();
+         if("chat"!==g&&q&&p?.dispatchContract&&typeof dispatchContractModule?.withArguments==="function"&&q!==String(p.dispatchContract.arguments?.prompt||"").trim()){p.dispatchContract=dispatchContractModule.withArguments(p.dispatchContract,{prompt:q})}
+         const chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
          const originalImageIndex=submitHelpers.originalImageIndex;
          const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"";
          const chatPrompt=replayPrompt;

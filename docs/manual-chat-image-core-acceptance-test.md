@@ -621,7 +621,7 @@ bindings = []
 
 ```text
 operation = text_to_image
-relation = followup
+relation = continuation
 bindings = []
 directive = standalone
 ```

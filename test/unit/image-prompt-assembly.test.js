@@ -113,7 +113,7 @@ function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('判断顺序 operation→relation→resource_refs→goal'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs 只绑必需、最少资源'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是下游执行模型唯一指令'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('反例"把它改成白色"'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('正例"将目标图中的猫改为白色，保留构图不变。"'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference 主体/构图参考'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference 画风/配色参考'));
 }

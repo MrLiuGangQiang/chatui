@@ -140,6 +140,7 @@
     '  P4 clarification_context.established_resources 中已确立的资源。',
     '  P5 history(source=history)中的其余资源，须 current_input 明确语义引用才绑。',
     '通用规则：selected_resources 只覆盖同角色的 established_resources，未覆盖的其他角色继续保留 established；多候选同等合理省略resource_refs，goal 完整保留任务不附加澄清；不编造ID；plain_chat/text_to_image不绑图/文件；multimodal_qa须同时绑source+attachment。',
+    '新近度：候选 message_index 越大越新，source=current 本轮上传视为最新。模糊指代（"这个/那个/这条/刚才的"）优先绑定 message_index 最大的候选；仅 current_input 明确指向更早资源时才绑旧候选。',
     'goal 是下游执行模型唯一任务指令，须：完整/直接/可执行、合并基础任务与新增要求、消除"它/这个/刚才/继续"等指代、保留全部约束、不写分析/理由/operation名/资源ID、不含澄清问题、不依赖未绑定上下文。text_to_image 和 image_reference_gen 的 goal 必须是独立完整可直接执行的生图指令，不得输出"基于这个生成""参考上述内容生成""继续生成"等元指令。',
     '正例"将目标图中的猫改为白色，保留构图不变。"',
     '空输入补充：仅一张图→image_qa 描述；仅一个文件→file_qa 概述；多资源或图文并存→relation=new，resource_refs=[]，goal 保持任务含义不附加澄清。',
@@ -308,7 +309,7 @@
       source: resolvedSource,
       index: resolvedIndex,
       source_index: resolvedIndex,
-      message_index: Number(item?.message_index || item?.messageIndex) || 0,
+      message_index: Number(item?.message_index || item?.messageIndex) || (type === 'message' ? resolvedIndex : 0),
       id: nativeId,
       resource_id: resourceId,
       reference_id: referenceId,
@@ -730,6 +731,7 @@
       label: compactWireLabel(candidate.label, 144),
       availability: candidate.availability === 'unavailable' ? 'unavailable' : 'available',
     };
+    if (Number(candidate.message_index) > 0) next.message_index = Number(candidate.message_index);
     if (candidate.unavailable_reason) next.unavailable_reason = stringValue(candidate.unavailable_reason).slice(0, 160);
     return next;
   }

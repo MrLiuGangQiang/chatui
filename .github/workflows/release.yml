@@ -322,11 +322,14 @@ jobs:
           set -euo pipefail
           ACR_IMAGE="${ACR_REGISTRY}/${ACR_NAMESPACE}/${IMAGE_NAME}"
           DOCKERHUB_IMAGE="${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
-          docker buildx imagetools create \
-            --tag "${DOCKERHUB_IMAGE}:${SEMVER}" \
-            --tag "${DOCKERHUB_IMAGE}:${VERSION}" \
-            --tag "${DOCKERHUB_IMAGE}:latest" \
-            "${ACR_IMAGE}@${DIGEST}"
+          # Mirror each tag separately. A multi-tag imagetools invocation can
+          # synthesize an OCI index and change the digest being verified.
+          for tag in "${SEMVER}" "${VERSION}" "latest"; do
+            docker buildx imagetools create \
+              --prefer-index=false \
+              --tag "${DOCKERHUB_IMAGE}:${tag}" \
+              "${ACR_IMAGE}@${DIGEST}"
+          done
 
       - name: Verify all Docker Hub tags resolve to the ACR candidate digest
         shell: bash

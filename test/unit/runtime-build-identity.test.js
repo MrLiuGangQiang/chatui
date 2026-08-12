@@ -121,6 +121,10 @@ function testReleaseWorkflowsVerifyThenPromoteOneDigest() {
     'ACR candidate verification must happen before promotion');
   assert.match(release, /Mirror verified image to Docker Hub/);
   assert.match(release, /Copy the verified ACR digest to Docker Hub without rebuilding/);
+  assert.match(release, /for tag in "\$\{SEMVER\}" "\$\{VERSION\}" "latest"/s,
+    'Docker Hub tags must be mirrored one at a time');
+  assert.match(release, /--prefer-index=false/,
+    'Docker Hub mirroring must preserve the verified single-platform digest');
   assert.match(release, /imagetools create/);
   assert.match(release, /verify_digest\(\)/);
   assert.match(release, /for attempt in \$\(seq 1 12\)/);

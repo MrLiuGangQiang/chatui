@@ -80,6 +80,25 @@
       };
     }
 
+    function imagePlanFailureRoute(route = {}, question = '') {
+      return {
+        ...route,
+        mode: 'chat',
+        api: 'clarify',
+        target: 'none',
+        intent: 'clarify',
+        needClarification: true,
+        dispatchAuthorized: false,
+        readiness: 'needs_clarification',
+        dispatchContract: null,
+        executionResources: null,
+        clarificationQuestion: String(question || '多图任务规划失败，请重试。').trim(),
+        clarificationSlots: [],
+        imagePlan: null,
+        imagePlanCompiled: null,
+      };
+    }
+
     function createRouteContextError(cause) {
       const error = new Error('Route context is unavailable');
       error.code = 'ROUTE_CONTEXT_BUILD_FAILED';
@@ -413,6 +432,71 @@
           return failRoute('route_model_unconfigured');
         }
 
+        // Stage 2: only multi-image routes pay for a second model call. The
+        // planning model is authoritative for task decomposition and per-task
+        // prompts; a one-task plan collapses back to the normal single path.
+        async function finalizeRoute(route, source = '') {
+          if (!route || typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(route)) {
+            return completeRoute(route, source);
+          }
+          if (taskModelCalls + 1 > MAX_MODEL_CALLS) {
+            return completeRoute(imagePlanFailureRoute(route, '本轮模型调用次数已达上限，请重试或改为逐条发送。'), source);
+          }
+          emitStage('planning_image_tasks', { modelRole: 'primary' });
+          const goal = String(route.userGoal || route.dispatchContract?.arguments?.prompt || input || '').trim();
+          const planPayload = routeSvc.buildImagePlanPayload({
+            model: primaryModel,
+            input,
+            goal,
+            attachments: attachmentMeta,
+            context,
+            currentTurn: routeOptions?.currentTurn || null,
+          });
+          taskModelCalls += 1;
+          try {
+            intentDeadline.assertActive();
+            const response = await requestWithinDeadline(planPayload);
+            intentDeadline.assertActive();
+            const raw = routeSvc.extractRouteText(response);
+            const inspected = routeSvc.inspectImagePlanResult(raw);
+            if (!inspected?.plan) {
+              return completeRoute(imagePlanFailureRoute(route, '多图任务规划结果无效，请重试。'), source);
+            }
+            const compiled = routeSvc.compileImagePlan(inspected.plan, {
+              input,
+              attachments: attachmentMeta,
+              context,
+              ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
+              currentTurn: routeOptions?.currentTurn || null,
+            });
+            if (!compiled.ok) {
+              return completeRoute(imagePlanFailureRoute(route, compiled.question || '多图任务无法执行，请调整后重试。'), source);
+            }
+            if (compiled.kind === 'single') {
+              return completeRoute({
+                ...(compiled.item.route || route),
+                taskShape: 'single',
+                imagePlan: null,
+                imagePlanCompiled: null,
+              }, source);
+            }
+            return completeRoute({
+              ...route,
+              taskShape: 'multi',
+              imagePlan: inspected.plan,
+              imagePlanCompiled: compiled,
+            }, source);
+          } catch (error) {
+            if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
+            if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+            console.warn('[route] image plan model failed', {
+              name: String(error?.name || 'Error'),
+              code: String(error?.code || ''),
+            });
+            return completeRoute(imagePlanFailureRoute(route, '多图任务规划失败，请重试或减少任务数量。'), source);
+          }
+        }
+
         const inspectResponse = (response, modelRole) => {
           emitStage('validating_route', { modelRole });
           try {
@@ -449,7 +533,7 @@
           const response = await requestWithinDeadline(payload);
           const route = response ? inspectResponse(response, 'primary') : null;
           intentDeadline.assertActive();
-          if (route) return completeRoute(route, 'primary_model');
+          if (route) return finalizeRoute(route, 'primary_model');
           invalidModelOutput = true;
         } catch (error) {
           if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
@@ -478,7 +562,7 @@
             const fallbackResponse = await requestWithinDeadline(fallbackPayload);
             const route = fallbackResponse ? inspectResponse(fallbackResponse, 'fallback') : null;
             intentDeadline.assertActive();
-            if (route) return completeRoute(route, 'fallback_model');
+            if (route) return finalizeRoute(route, 'fallback_model');
             invalidModelOutput = true;
           } catch (error) {
             if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);

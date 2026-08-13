@@ -100,7 +100,7 @@ function testCompletedStreamingCodeIsCollapsedBeforeItsFinalMount() {
 async function testHeaderExpansionActionNeverOverlapsCopyAction() {
   await withDom(container => {
     container.className = 'markdown-body';
-    const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+    const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
     const style = document.createElement('style');
     style.textContent = css;
     document.head.appendChild(style);

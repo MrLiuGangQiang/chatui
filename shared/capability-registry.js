@@ -505,7 +505,13 @@
     }
 
     if (operation !== 'edit_image') {
-      for (const match of text.matchAll(/(?:生成|画|绘制|制作|创建|来|给我|generate|create|make)\s*([1-4一二三四两])\s*(?:张|幅|个|images?|pictures?)/gi)) {
+      // A measure word attached directly to the subject is not an image-count
+      // directive. For example, “画一张猫，再画一条狗，给我两张图” describes
+      // independent subjects and a final output count; parsing “一张猫” as n=1
+      // creates a false 1-vs-2 conflict before multi-image planning can run.
+      // Treat Chinese counters as a count only when they are followed by an
+      // image/output noun. English remains explicit through images/pictures.
+      for (const match of text.matchAll(/(?:生成|画|绘制|制作|创建|来|给我|generate|create|make)\s*([1-4一二三四两])\s*(?:(?:张|幅)\s*(?=图(?:片)?|画(?:作)?|images?|pictures?)|个\s*(?=图(?:片)?|images?|pictures?)|images?|pictures?)/gi)) {
         addMatch(result, view, 'count', chineseCount(match[1]), match);
       }
       for (const match of text.matchAll(/\b(?:n|count)\s*[=:：]\s*([1-4])\b/gi)) {

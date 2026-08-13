@@ -319,7 +319,7 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   assert.ok(chat.includes('if(e?.terminalJob){f&&clearChatJob(i);throw e}'), 'terminal chat failures must not leave an auto-resuming failed job');
-  assert.match(image, /catch\s*\(e\)\s*\{\s*if\s*\(e\?\.terminalJob\)\s*clearImageJob\(n\);\s*throw e;?\s*\}/, 'terminal image failures must not leave an auto-resuming failed job');
+  assert.match(image, /catch\s*\(e\)\s*\{\s*(?:if\s*\(batchResultRelease\)\s*\{\s*batchResultRelease\(\);\s*batchResultRelease\s*=\s*null;\s*\}\s*)?if\s*\(e\?\.terminalJob\s*&&\s*!t\.skipDurableSnapshot\)\s*clearDurableImageJob\(\);\s*throw e;?\s*\}/, 'terminal image failures must not leave an auto-resuming failed job');
   assert.match(resume, /terminal\s*&&\s*\(\s*clearImageJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
   assert.match(resume, /terminal\s*&&\s*\(\s*clearChatJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
   assert.match(resume, /taskOutcome\s*\?\s*settleSessionTask\(e,\s*\{\s*\.\.\.options/,
@@ -331,8 +331,12 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
 function testImageCompletionCommitsBeforeClearingRecoveryOwner() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
-  assert.match(image, /await saveSessionMessages\(n,\s*i\.messages\s*\|\|\s*\[\]\);\s*\(?clearImageJob\(n\)/,
-    'normal image completion must durably commit reconciliation before clearing its job');
+  const normalCompletion = image.indexOf('if (!isBatchChild) {');
+  const normalSave = image.indexOf('await saveSessionMessages(n, i.messages || []);', normalCompletion);
+  const release = image.indexOf('(batchResultRelease && (batchResultRelease(), batchResultRelease = null));', normalSave);
+  const clear = image.indexOf('(t.skipDurableSnapshot || clearDurableImageJob()', release);
+  assert.ok(normalCompletion >= 0 && normalSave > normalCompletion && release > normalSave && clear > release,
+    'normal image completion must durably save its reconciled canonical message before releasing its commit lock and clearing its job');
   assert.match(resume, /completedSession\s*&&\s*\(?await saveSessionMessages\(e,\s*completedSession\.messages\s*\|\|\s*\[\]\)\)?;\s*\(?clearImageJob\(e\)/,
     'resumed image completion must durably commit reconciliation before clearing its job');
 }

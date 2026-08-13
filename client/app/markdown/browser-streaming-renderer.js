@@ -24,6 +24,33 @@
   const RESOURCE_ATTRS = STREAMING_RESOURCE_ATTRS;
   const markdownResourceObjectUrlCache = new Map();
   const markdownResourceInFlight = new Map();
+  // Blob object URLs keep their underlying blobs alive until the page unloads.
+  // Bound the cache and revoke evicted entries so a long session with many
+  // unique Markdown resources cannot grow browser memory without limit.
+  const MARKDOWN_RESOURCE_CACHE_MAX = 200;
+  function rememberCachedResourceUrl(key = '', value = '') {
+    if (markdownResourceObjectUrlCache.size >= MARKDOWN_RESOURCE_CACHE_MAX) {
+      const oldestKey = markdownResourceObjectUrlCache.keys().next().value;
+      const oldestValue = markdownResourceObjectUrlCache.get(oldestKey);
+      if (String(oldestValue || '').startsWith('blob:')) {
+        try { globalThis.URL?.revokeObjectURL?.(oldestValue); } catch {}
+      }
+      markdownResourceObjectUrlCache.delete(oldestKey);
+    }
+    markdownResourceObjectUrlCache.set(key, value);
+  }
+  function clearMarkdownResourceCache() {
+    for (const value of markdownResourceObjectUrlCache.values()) {
+      if (String(value || '').startsWith('blob:')) {
+        try { globalThis.URL?.revokeObjectURL?.(value); } catch {}
+      }
+    }
+    markdownResourceObjectUrlCache.clear();
+    markdownResourceInFlight.clear();
+  }
+  function markdownResourceCacheStats() {
+    return Object.freeze({ size: markdownResourceObjectUrlCache.size, inFlight: markdownResourceInFlight.size, max: MARKDOWN_RESOURCE_CACHE_MAX });
+  }
   function dataAttrFor(prefix, attr) { return 'data-' + prefix + '-' + attr; }
   function canCacheResourceUrl(url = '') { const value = String(url || '').trim(); return /^https?:\/\//i.test(value) || value.startsWith('/.') || value.startsWith('/') || value.startsWith('./') || value.startsWith('../'); }
   function resolveResourceUrl(url = '') { try { return new URL(String(url || ''), globalThis.location?.href || 'http://localhost/').href; } catch { return String(url || ''); } }
@@ -31,7 +58,7 @@
   function fetchCachedResourceUrl(url = '') {
     const key = resolveResourceUrl(url);
     if (!canCacheResourceUrl(url)) return Promise.resolve(url);
-    if (!isSameOriginResourceUrl(url)) { markdownResourceObjectUrlCache.set(key, url); return Promise.resolve(url); }
+    if (!isSameOriginResourceUrl(url)) { rememberCachedResourceUrl(key, url); return Promise.resolve(url); }
     if (markdownResourceObjectUrlCache.has(key)) return Promise.resolve(markdownResourceObjectUrlCache.get(key));
     if (markdownResourceInFlight.has(key)) return markdownResourceInFlight.get(key);
     const promise = globalThis.fetch(key, { cache: 'force-cache' }).then(res => {
@@ -39,12 +66,12 @@
       return res.blob();
     }).then(blob => {
       const objectUrl = globalThis.URL?.createObjectURL ? globalThis.URL.createObjectURL(blob) : key;
-      markdownResourceObjectUrlCache.set(key, objectUrl);
+      rememberCachedResourceUrl(key, objectUrl);
       markdownResourceInFlight.delete(key);
       return objectUrl;
     }).catch(() => {
       markdownResourceInFlight.delete(key);
-      markdownResourceObjectUrlCache.set(key, url);
+      rememberCachedResourceUrl(key, url);
       return url;
     });
     markdownResourceInFlight.set(key, promise);
@@ -234,6 +261,16 @@
   }
   function findStableBoundary(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); if (!src) return 0; const lines = splitLines(src); let stable = 0, inFence = false, fenceChar = '', fenceLen = 0, inMath = false, detailsDepth = 0, detailsContainerDepth = 0; const fenceOf = fenceOfLine, blank = l => /^\s*$/.test(l), mathFence = l => /^\s*\$\$\s*$/.test(l); for (const item of lines) { const line = item.text, complete = item.hasNl, fence = fenceOf(line); if (!inMath && fence) { const marker = fence[1], ch = marker[0], info = String(fence[2] || '').trim(); if (inFence) { if (ch === fenceChar && marker.length >= fenceLen && !info) { inFence = false; fenceChar = ''; fenceLen = 0; if (!detailsDepth && !detailsContainerDepth) stable = item.end; } } else { inFence = true; fenceChar = ch; fenceLen = marker.length; } continue; } if (inFence) continue; if (mathFence(line)) { inMath = !inMath; if (!inMath && complete && !detailsDepth && !detailsContainerDepth) stable = item.end; continue; } if (inMath) continue; if (isDetailsContainerOpen(line)) { detailsContainerDepth += 1; continue; } if (detailsContainerDepth > 0 && isDetailsContainerClose(line)) { detailsContainerDepth -= 1; if (!detailsDepth && !detailsContainerDepth && complete) stable = item.end; continue; } const previousDetailsDepth = detailsDepth; detailsDepth = Math.max(0, detailsDepth + detailsTagDelta(line)); if (previousDetailsDepth > 0 && !detailsDepth && !detailsContainerDepth && complete) stable = item.end; if (!detailsDepth && !detailsContainerDepth && blank(line) && complete && !hasConservativeInlineMathTail(src.slice(0, item.end))) stable = item.end; } if (!inFence && !inMath && !detailsDepth && !detailsContainerDepth && src.endsWith('\n') && !hasConservativeInlineMathTail(src)) stable = Math.max(stable, src.length); if (hasConservativeInlineMathTail(src)) stable = Math.min(stable, Math.max(0, src.lastIndexOf('\n', src.length - 2) + 1)); const tableStart = activeTableBlockStart(src); if (tableStart >= 0) stable = Math.min(stable, tableStart); return Math.max(0, Math.min(stable, src.length)); }
   function splitStableTail(text = '') { const src = String(text || '').replace(/\r\n?/g, '\n'); const index = findStableBoundary(src); return { stable: src.slice(0, index), tail: src.slice(index), index }; }
+  function replaceContainerChildren(container, fragment) {
+    if (!container) return;
+    if (typeof container.replaceChildren === 'function') {
+      container.replaceChildren(...(fragment?.childNodes || []));
+      return;
+    }
+    while (container.firstChild) container.removeChild(container.firstChild);
+    if (fragment) container.appendChild(fragment);
+  }
+
   function createStreamingRenderer({
     renderMarkdown: render = renderMarkdown,
     enhance = enhanceRenderedMarkdown,
@@ -693,7 +730,7 @@
         raw += String(delta || '');
         const { stable, tail, index } = splitStableTailIncremental();
         if (index < consumed) {
-          if (container) { const rendered = prepareCompletedCodeBlocks(htmlToFrag(render(raw), { deferResources: true })); container.replaceChildren(...rendered.childNodes); enhanceSafe(container, { reset: true }); }
+          if (container) { const rendered = prepareCompletedCodeBlocks(htmlToFrag(render(raw), { deferResources: true })); replaceContainerChildren(container, rendered); enhanceSafe(container, { reset: true }); }
           consumed = raw.length; tailText = '';
           return { raw, consumed, tail: tailText, delta: raw, closed, reset: true, reason: 'stable-boundary-regressed' };
         }
@@ -727,7 +764,7 @@
           removeStreamingTableNode();
           const unchanged = finalMarkupMatchesCurrent(container, finalHtml);
           if (unchanged) restoreStreamingResources(container);
-          else { const rendered = prepareCompletedCodeBlocks(htmlToFrag(finalHtml)); container.replaceChildren(...rendered.childNodes); }
+          else { const rendered = prepareCompletedCodeBlocks(htmlToFrag(finalHtml)); replaceContainerChildren(container, rendered); }
           prepareCompletedCodeBlocks(container);
           enhanceSafe(container, { final: true, streaming: true, reset: !unchanged, canonical: true });
           consumed = raw.length;
@@ -754,6 +791,8 @@
     restoreMarkdownResources,
     fetchCachedResourceUrl,
     gateMarkdownResourceHtml,
+    clearMarkdownResourceCache,
+    markdownResourceCacheStats,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

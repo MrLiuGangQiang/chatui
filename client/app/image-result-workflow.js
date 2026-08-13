@@ -34,6 +34,60 @@
     return `${head}<div class="generated-image-grid" data-generated-images="1">${items}</div>${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
   }
 
+  function imageDescriptorsFromContext(imageContext = {}) {
+    const attachments = Array.isArray(imageContext?.attachments) ? imageContext.attachments : [];
+    return attachments
+      .filter(item => String(item?.src || item?.persistedSrc || '').startsWith('indexeddb://'))
+      .map((item, index) => ({
+        ...item,
+        src: String(item.src || item.persistedSrc || ''),
+        persistedSrc: String(item.persistedSrc || item.src || ''),
+        ordinal: index + 1,
+        sourceIndex: index + 1,
+        displaySrc: '',
+      }));
+  }
+
+  function mergeImageResultContexts(current = {}, addition = {}) {
+    const currentImages = imageDescriptorsFromContext(current);
+    const addedImages = imageDescriptorsFromContext(addition);
+    const seen = new Set(currentImages.map(item => String(item.src || item.persistedSrc || '')));
+    const attachments = [...currentImages];
+    for (const item of addedImages) {
+      const key = String(item.src || item.persistedSrc || '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      attachments.push(item);
+    }
+    const resultId = String(current?.resultId || addition?.resultId || '').trim();
+    const referenceId = String(current?.referenceId || current?.selectedReferenceId || addition?.referenceId || addition?.selectedReferenceId || '').trim();
+    return {
+      schema_version: 'image_result.v1',
+      ...current,
+      ...addition,
+      resultId,
+      referenceId,
+      selectedReferenceId: referenceId,
+      usePreviousImage: true,
+      updatedAt: Date.now(),
+      attachments: attachments.map((item, index) => ({
+        ...item,
+        ordinal: index + 1,
+        sourceIndex: index + 1,
+        displaySrc: '',
+      })),
+    };
+  }
+
+  function renderImageResultContext(imageContext = {}, options = {}, deps = {}) {
+    return renderImageResultHtml(imageDescriptorsFromContext(imageContext), {
+      escapeHtml: deps.escapeHtml,
+      downloadAllImagesButtonHtml: deps.downloadAllImagesButtonHtml,
+      transparentPixel: root?.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || FALLBACK_TRANSPARENT_PIXEL,
+      ...options,
+    });
+  }
+
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
     const extracted = deps.extractImageResult(result);
     const fileNames = root?.ChatUIFileNames || (typeof window !== 'undefined' ? window.ChatUIFileNames : null);
@@ -126,7 +180,14 @@
     };
   }
 
-  const api = Object.freeze({ makeImageResultId, renderImageResultHtml, imageResultToHtml });
+  const api = Object.freeze({
+    makeImageResultId,
+    renderImageResultHtml,
+    imageDescriptorsFromContext,
+    mergeImageResultContexts,
+    renderImageResultContext,
+    imageResultToHtml,
+  });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppImageResultWorkflow = api;
   if (root?.window) root.window.ChatUIAppImageResultWorkflow = api;

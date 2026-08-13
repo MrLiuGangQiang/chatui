@@ -181,7 +181,7 @@ function testDisposingLiveCodePreviewCancelsWorkWithoutClearingVisibleContent() 
 }
 
 function testFencedCodeUsesBalancedContrastTheme() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(css.includes('--ds-code:#e8ebf0!important'), 'fenced code should use a medium blue-gray surface');
   assert.ok(css.includes('--ds-code-text:#28303d!important'), 'code text should keep strong contrast without switching to a dark theme');
@@ -203,7 +203,7 @@ function testFencedCodeUsesBalancedContrastTheme() {
 }
 
 function testMarkdownActionHoverUsesStableAnimatedSurface() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   const lockMarker = '/* Markdown action interaction lock: state changes must not alter the button box. */';
   const motionMarker = '/* Markdown action motion: visible surface feedback without translation or scaling. */';
   const feedbackMarker = '/* Code-block action feedback states retain their meaning without changing on hover. */';

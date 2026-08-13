@@ -19,6 +19,9 @@ function testPendingStatusRendersOneEscapedAtomicLine() {
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.ok(!html.includes('data-execution-map'));
   assert.ok(!html.includes('pending-map'));
+  const multiline = formatting.pendingFeedbackHtml('任务 1/2：正在生成\n任务 2/2：等待开始');
+  assert.ok(multiline.includes('pending-feedback-multiline'), 'multi-task progress must opt into multiline presentation');
+  assert.ok(multiline.includes('任务 1/2：正在生成<br>任务 2/2：等待开始'), 'multi-task progress must preserve task boundaries as HTML line breaks');
   assert.ok(!html.includes('接收任务'));
 }
 
@@ -49,6 +52,8 @@ function testPendingStatusAssetsShipWithoutFixedExecutionMap() {
   assert.ok(flatTheme.includes('.pending-text{'));
   assert.ok(flatTheme.includes('text-overflow:ellipsis!important'));
   assert.ok(flatTheme.includes('white-space:nowrap!important'));
+  assert.ok(flatTheme.includes('.pending-feedback.pending-feedback-multiline .pending-text{'));
+  assert.ok(flatTheme.includes('white-space:normal!important'));
   assert.ok(flatTheme.includes('background:transparent!important'));
   assert.ok(!submitWorkflow.includes('正在执行：路由预检'));
   assert.ok(!chatWorkflow.includes('正在处理中 请稍后'));

@@ -144,7 +144,7 @@ function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
 
 function testStructuredReferenceSchemaIsStrictProviderCompatible() {
   const schema = routeService.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema;
-  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs']);
+  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
   assert.strictEqual(schema.properties.schema_version, undefined);
   assert.strictEqual(schema.properties.referenced_context, undefined);
   assert.deepStrictEqual(schema.properties.resource_refs.items.required, ['candidate_key', 'role']);

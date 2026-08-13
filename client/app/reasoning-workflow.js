@@ -13,73 +13,116 @@
   function createReasoningWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
+    function reasoningStreamingRendererFor(o) {
+      if (!o) return null;
+      let renderer = o.__reasoningStreamingRenderer;
+      if (renderer) return renderer;
+      const renderMarkdownFn = typeof deps.renderMarkdown === 'function'
+        ? deps.renderMarkdown
+        : (value => window.ChatUIApp?.markdown?.renderMarkdown?.(value) || '');
+      const createRenderer = window.ChatUIApp?.markdown?.createStreamingRenderer;
+      const bindCopy = typeof deps.bindInlineCopyButtons === 'function' ? deps.bindInlineCopyButtons : () => {};
+      if (typeof createRenderer === 'function') {
+        renderer = createRenderer({
+          renderMarkdown: renderMarkdownFn,
+          enhance(scopeRoot, phase = {}) {
+            try { bindCopy(scopeRoot); } catch (e) {}
+            try {
+              window.ChatUIApp?.markdown?.enhanceRenderedMarkdown?.(scopeRoot, {
+                streaming: !!phase.streaming,
+                deferMermaid: true,
+                allowResourceLoad: !!phase.final,
+                autoRenderMermaid: !!phase.final,
+                forceMermaid: !!phase.final,
+              });
+            } catch (e) {}
+          },
+        });
+      } else {
+        renderer = {
+          set(value, container) { if (container) container.innerHTML = renderMarkdownFn(value || ''); },
+          final(value, container) { if (container) container.innerHTML = renderMarkdownFn(value || ''); },
+          reset(container) { if (container) container.innerHTML = ''; },
+        };
+      }
+      o.__reasoningStreamingRenderer = renderer;
+      return renderer;
+    }
+
+    function setReasoningPanelExpanded(panel, expanded) {
+      if (!panel) return;
+      panel.dataset.collapsed = expanded ? '0' : '1';
+      const toggle = panel.querySelector('.reasoning-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }
+
     function updateReasoning(e,t,s={}) {
       with (deps) {
         if(!e)return;
         if(!state.reasoningMode&&!s.restoreHistory){forceRemoveReasoning(e); return;}
         const n=String(t||"");
-        const done=!0===s.done;
-        const unavailable=!0===s.unavailable;
-        let a=e.querySelector(".reasoning-panel");
-        if(!n&&!s.keepEmpty&&!done&&!unavailable){
-          a?.remove();
-          delete e.dataset.reasoningText;
-          delete e.dataset.keepReasoning;
-          e.isConnected&&saveDisplayHistory();
+        e.querySelectorAll(".reasoning-live").forEach(live=>live.remove());
+        const content=e.querySelector(".content");
+        const panelHost=e.querySelector(".bubble")||content;
+        content?.querySelector?.(".pending-feedback")?.remove();
+        if(!n&&!s.keepEmpty){
+          forceRemoveReasoning(e);
           return;
         }
-        n&&(e.dataset.reasoningText=n);
-        s.keepReasoning&&(e.dataset.keepReasoning="1");
-        if(!a){
-          a=document.createElement("div");
-          a.className="reasoning-panel";
-          a.innerHTML=`
-              <div class="reasoning-head">
-                <div class="reasoning-title"><span>思考中</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
-              </div>
-              <div class="reasoning-content markdown-body"></div>`;
-          e.querySelector(".bubble")?.prepend(a);
+        if(n){
+          e.dataset.reasoningText=n;
+          e.dataset.keepReasoning="1";
         }
-        const body=e.querySelector(".content");
-        if(body?.querySelector?.(".pending-feedback")) body.textContent="";
-        a.classList.toggle("reasoning-done",done);
-        a.classList.toggle("reasoning-empty",unavailable);
-        const title=a.querySelector(".reasoning-title");
-        if(title){
-          const text=s.title||(unavailable?"未返回思考内容":done?"思考完成":"思考中");
-          if(done||unavailable||s.title) title.textContent=text;
-          else title.innerHTML=`<span>思考中</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span>`;
+        if(panelHost){
+          let panel=e.querySelector(".reasoning-panel");
+          if(!panel){
+            panel=document.createElement("section");
+            panel.className="reasoning-panel reasoning-live-panel";
+            panel.innerHTML=`<button class="reasoning-head reasoning-toggle" type="button" aria-expanded="true"><span class="reasoning-title"><span class="reasoning-spark" aria-hidden="true"></span><span class="reasoning-label">正在思考</span><span class="reasoning-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="reasoning-chevron" aria-hidden="true"></span></span></button><div class="reasoning-content markdown-body"></div>`;
+            const toggle=panel.querySelector(".reasoning-toggle");
+            toggle?.addEventListener("click",()=>setReasoningPanelExpanded(panel,panel.dataset.collapsed==="1"));
+            panelHost.prepend(panel);
+          }
+          const body=panel.querySelector(".reasoning-content");
+          if(body){
+            const renderer=reasoningStreamingRendererFor(body);
+            if(n){
+              if(s.done) renderer.final(body,n);
+              else renderer.set(n,body);
+              try{typeof bindInlineCopyButtons==="function"&&bindInlineCopyButtons(panel)}catch(err){}
+            }else{
+              try{renderer.reset(body)}catch(err){}
+            }
+          }
+          const completed=!0===s.done;
+          panel.classList.toggle("reasoning-done",completed);
+          const label=panel.querySelector(".reasoning-label");
+          if(label) label.textContent=completed?"思考完成":"正在思考";
+          const dots=panel.querySelector(".reasoning-dots");
+          if(dots) dots.hidden=completed;
+          setReasoningPanelExpanded(panel,!1!==s.expanded);
         }
-        const o=a.querySelector(".reasoning-content");
-        if(o){
-          const shouldRenderMarkdown=done||!0===s.renderMarkdown;
-          if(shouldRenderMarkdown){
-            const rendered=renderReasoningMarkdown(n);
-            (s.forceRenderMarkdown||o.innerHTML!==rendered)&&(o.innerHTML=rendered,bindInlineCopyButtons(a));
-            delete o.dataset.streamingText;
-          }else o.dataset.streamingText!==n&&(o.textContent=n,o.dataset.streamingText=n);
-        }
-        o&&(o.hidden=!n);
         scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive});
-        s.persistSave&&e.isConnected&&saveDisplayHistory()
       }
     }
 
     function finishReasoning(e,t,s={}) {
       with (deps) {
-        if(!state.reasoningMode&&!s.preserve)return void clearReasoning(e);const n=String(t||e?.dataset.reasoningText||"").trim();n?updateReasoning(e,n,{done:!0,persistSave:!0,keepReasoning:!0,renderMarkdown:!0,forceRenderMarkdown:!0,restoreHistory:!!s.preserve}):showReasoningUnavailable(e)
+        const reasoning=String(t||e?.dataset.reasoningText||"");
+        if(reasoning) updateReasoning(e,reasoning,{done:!0,restoreHistory:!0,expanded:s.expanded});
+        else forceRemoveReasoning(e);
       }
     }
 
     function showReasoningUnavailable(e) {
       with (deps) {
-        if(!state.reasoningMode)return void clearReasoning(e); e&&(updateReasoning(e,"",{done:!0,persistSave:!0,keepReasoning:!0,keepEmpty:!0,unavailable:!0}),e.querySelector(".reasoning-panel")?.classList.add("reasoning-empty"))
+        forceRemoveReasoning(e);
       }
     }
 
     function clearAllReasoningDisplays() {
       with (deps) {
-        document.querySelectorAll(".message").forEach(e=>clearReasoning(e));const e=getActiveSession();e?.display?.length&&(e.display.forEach(e=>{delete e.reasoningText,e.keepReasoning=!1}),persistSessionDisplay(e.id))
+        document.querySelectorAll(".message").forEach(e=>forceRemoveReasoning(e));
       }
     }
 
@@ -91,13 +134,13 @@
 
     function forceRemoveReasoning(e) {
       with (deps) {
-        e&&(e.querySelectorAll(".reasoning-panel").forEach(e=>e.remove()),delete e.dataset.reasoningText,delete e.dataset.keepReasoning)
+        e&&(e.querySelectorAll(".reasoning-panel,.reasoning-live").forEach(e=>e.remove()),delete e.dataset.reasoningText,delete e.dataset.keepReasoning)
       }
     }
 
     function isEmptyReasoningPanel(e) {
       with (deps) {
-        const t=e?.querySelector(".reasoning-panel");if(!t)return!1;return!String(t.querySelector(".reasoning-content")?.innerText||"").trim()
+        return !1
       }
     }
 

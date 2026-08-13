@@ -192,7 +192,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const path = require('path');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   const ui = fs.readFileSync(path.join(__dirname, '../../client/ui/usage-stats.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   const usageCss = fs.readFileSync(path.join(__dirname, '../../styles/usage-stats.css'), 'utf8');
   const serviceIndex = index.indexOf('client/services/usage-stats.js');
   const rangesIndex = index.indexOf('shared/usage/ranges.js');

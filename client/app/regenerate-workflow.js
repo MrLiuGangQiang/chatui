@@ -260,23 +260,6 @@
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
       const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});
-      // 重新生成时路由上下文排除被替换的 assistant 结果图（B），避免把当前消息的
-      // 生成结果当作参照；只保留被替换消息之前的对话历史。
-      const regenerateContextOverride=()=>({
-        recent_messages:baseRequestMessages.map((message,index)=>({
-          index:index+1,
-          id:message?.displayItemId||message?.display_item_id||message?.messageId||message?.message_id||message?.id||'',
-          resource_id:message?.resourceId||message?.resource_id||'',
-          role:message?.role||'',
-          content:String(Array.isArray(message?.content)?message?.rawText||'[非文本消息]':message?.content||message?.rawText||'').slice(0,600),
-        })),
-        last_generated_image:null,
-        latest_uploaded_image:null,
-        latest_image_reference:null,
-        recent_image_references:[],
-        image_candidates:[],
-        file_candidates:[],
-      });
       try{
         task.accept({capture:!0});
         const h=u?await restoreUserAttachmentsFromContext(u):[];if(u&&!h.length)throw new Error("原消息附件当前无法恢复，为避免缺少资源时继续执行，请重新上传附件后再试");
@@ -292,7 +275,7 @@
         let p,g;
         try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},replay.clarificationRouteContext),g=p.mode}
         else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},buildQuotedRouteContext()),g=p.mode}
-        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},regenerateContextOverride()),g=p.mode}}catch(err){throw err}
+        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode}}catch(err){throw err}
         if(d.stopped||d.abortController?.signal?.aborted)return;
         if(p.needClarification){
           const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
@@ -368,8 +351,38 @@
          const originalImageIndex=submitHelpers.originalImageIndex;
          const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"";
          const chatPrompt=replayPrompt;
-        const jobKind="chat"===g?"chat":"image",jobId=task.prepareHandoff(jobKind,"chat"===jobKind?makeClientChatJobId?.():makeClientImageJobId?.());
-         "chat"===g?await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()}):await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+        if("chat"===g){
+          const jobId=task.prepareHandoff("chat",makeClientChatJobId?.());
+          await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()});
+        }else{
+          const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
+          if(imageBatchPlan){
+            const compiledBatch=imageBatchPlan;
+            const batchJobId=task.prepareHandoff("image_batch",makeClientImageJobId?.());
+            if(!m?.id){const error=new Error("多图重新生成缺少可恢复的显示记录，已停止发送");error.code="IMAGE_BATCH_DISPLAY_ITEM_MISSING";throw error}
+            m.jobId=batchJobId;m.pending="1";root?.persistSessionDisplay?.(l);
+            e?.dataset&&(e.dataset.jobId=batchJobId);root?.clearPendingFeedback?.(e);root?.clearReasoning?.(e);
+            const batchAggregate={total:compiledBatch.items.length,completed:0,failed:0,statuses:compiledBatch.items.map(()=>"正在准备图片任务")};
+            const batchCommitQueue=typeof submitHelpers.createSerialCommitQueue==="function"?submitHelpers.createSerialCommitQueue():null;
+            const acquireBatchResultCommit=batchCommitQueue?()=>batchCommitQueue.acquire():null;
+            const batchChildIds=compiledBatch.items.map(()=>makeClientImageJobId?.()||`imgjob-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2,6)}`);
+            const batchChildren=compiledBatch.items.map((item,batchIndex)=>{
+              const childExecutionMedia=submitHelpers.projectRouteExecutionMedia?.(item.route,executionPools)||item.executionResources;
+              const childPrompt=String(item.dispatchContract?.arguments?.prompt||"").trim();
+              const childJobId=batchChildIds[batchIndex];
+              return sendImage(childPrompt,{loadingNode:batchIndex===0?e:null,statusPrefix:`任务 ${batchIndex+1}/${compiledBatch.items.length}`,routePrompt:childPrompt,originalPrompt:replayPrompt,attachments:childExecutionMedia.imageInputs||[],maskAttachments:childExecutionMedia.masks||[],executionMedia:childExecutionMedia,dispatchContract:item.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:void 0,submissionId:task.submissionId,clientJobId:childJobId,batchChildKey:submitHelpers.imageBatchChildKey(l,childJobId),batchAggregate,batchIndex,deferBatchCompletion:!0,acquireResultCommit:acquireBatchResultCommit,onDurableHandoff:()=>task.commitHandoff()});
+            });
+            const previousBatchIndex=submitHelpers.loadImageBatchIndex?.(root.localStorage,l);
+            if(previousBatchIndex)previousBatchIndex.children.forEach(child=>submitHelpers.clearImageBatchChild?.(root.localStorage,l,child.jobId));
+            submitHelpers.saveImageBatchIndex?.(root.localStorage,l,{schema_version:submitHelpers.IMAGE_BATCH_VERSION,batchId:batchJobId,submissionId:task.submissionId,sessionId:l,startedAt:Date.now(),children:compiledBatch.items.map((item,batchIndex)=>({jobId:batchChildIds[batchIndex],prompt:String(item.dispatchContract?.arguments?.prompt||"").trim(),displayItemId:m.id,responseIndex:String(m.responseIndex||a),mode:item.mode||"image",status:"running"}))});
+            const batchSettled=await Promise.allSettled(batchChildren);
+            batchSettled.forEach(result=>{if(result.status==="rejected"){batchAggregate.failed+=1;showRunError(l,result.reason,m,e)}});
+            if(batchSettled.every(result=>result.status==="fulfilled"))submitHelpers.clearImageBatchIndex?.(root.localStorage,l);
+          }else{
+            const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
+            await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+          }
+        }
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||failure.terminalBeforeError||failure.cancelled||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
     }

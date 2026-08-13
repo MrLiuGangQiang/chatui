@@ -175,7 +175,7 @@ function testRouteDiagramPublishesSessionScopedProgress() {
 function testSupportedFilesLauncherShipsItsStaticPage() {
   const root = path.resolve(__dirname, '../..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(root, 'styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
 
   assert.ok(index.indexOf('id="supportedFilesFab"') < index.indexOf('id="routeDiagramFab"'), 'the supported-files button must sit before the route-map button');

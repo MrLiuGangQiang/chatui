@@ -113,6 +113,7 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const submitHelpersIndex = paths.indexOf('/client/app/submit-workflow.helpers.js');
   const routeServiceIndex = paths.indexOf('/client/services/route-service.js');
   const sharedPlanIndex = paths.indexOf('/shared/dispatch-contract.js');
+  const imagePlanIndex = paths.indexOf('/shared/image-plan.js');
   const capabilityRegistryIndex = paths.indexOf('/shared/capability-registry.js');
   const routeIntentIndex = paths.indexOf('/shared/route-intent.js');
   const resourceIdentityIndex = paths.indexOf('/client/core/resource-identity.js');
@@ -135,6 +136,7 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   assert.ok(sharedPlanIndex >= 0 && sharedPlanIndex < routeServiceIndex, 'the shared dispatch-contract contract must load before route service composition');
   assert.ok(capabilityRegistryIndex >= 0 && capabilityRegistryIndex < routeIntentIndex, 'the capability registry must load before the route-intent protocol');
   assert.ok(routeIntentIndex >= 0 && routeIntentIndex < sharedPlanIndex, 'the route-intent protocol must load before the final dispatch-contract contract');
+  assert.ok(imagePlanIndex >= 0 && imagePlanIndex < routeServiceIndex, 'the image-plan protocol must load before route service composition');
   assert.ok(routeIntentIndex < routeServiceIndex, 'the route-intent protocol must load before route service composition');
   assert.ok(resourceIdentityIndex >= 0 && resourceIdentityIndex < routeServiceIndex, 'resource identity must load before route service composition');
   assert.ok(routeCandidatesIndex >= 0 && routeCandidatesIndex < routeServiceIndex, 'route candidates must load before route service composition');

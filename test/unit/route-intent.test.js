@@ -14,11 +14,19 @@ function intent(overrides = {}) {
   };
 }
 
-function testRouteIntentIsExactlyFourFieldsAndStrict() {
+function testRouteIntentAcceptsLegacyV1AndOptionalTaskShape() {
   const value = intent();
   assert.strictEqual(routeIntent.hasExactRouteIntent(value), true);
   assert.strictEqual(routeIntent.assertRouteIntent(value), true);
   assert.deepStrictEqual(Object.keys(value), ['operation', 'relation', 'goal', 'resource_refs']);
+  assert.strictEqual(routeIntent.routeIntentTaskShape(value), 'single');
+
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 'single' }), true);
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 'multi' }), true);
+  assert.strictEqual(routeIntent.routeIntentTaskShape({ ...value, task_shape: 'multi' }), 'multi');
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 'many' }), false);
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: '' }), false);
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 1 }), false);
   for (const forbidden of [
     'schema_version', 'referenced_context', 'api', 'prompt', 'arguments',
     'context_policy', 'constraints', 'idempotency_key',
@@ -54,10 +62,11 @@ function testRouteIntentRequiresANonEmptyBoundedGoal() {
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.goal.maxLength, 600);
 }
 
-function testRouteIntentResponseSchemaHasOnlyFourIntentFields() {
+function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
   const schema = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema;
-  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs']);
-  assert.deepStrictEqual(Object.keys(schema.properties), ['operation', 'relation', 'goal', 'resource_refs']);
+  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
+  assert.deepStrictEqual(Object.keys(schema.properties), ['operation', 'relation', 'goal', 'task_shape', 'resource_refs']);
+  assert.deepStrictEqual(schema.properties.task_shape, { type: 'string', enum: ['single', 'multi'] });
   assert.strictEqual(schema.additionalProperties, false);
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.strict, true);
 }
@@ -79,7 +88,9 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /对每个角色分别按P1→P5选择/);
   assert.match(prompt, /P2.*source=current.*current_input模糊/);
   assert.doesNotMatch(prompt, /满足P1则不再看P2-P5/);
-  assert.match(prompt, /严格只输出 operation、relation、goal、resource_refs 四个 JSON 字段/);
+  assert.match(prompt, /严格只输出 operation、relation、goal、resource_refs、task_shape 五个 JSON 字段/);
+  assert.match(prompt, /task_shape：single 单任务.*multi 仅当一轮明确包含多个彼此独立/s);
+  assert.match(prompt, /多图编辑用 image_reference_gen 绑全部涉及图/);
   assert.doesNotMatch(prompt, /respond|change_value missing/);
   assert.doesNotMatch(prompt, /选错了|换个颜色|上一张产品图/,
     'production prompt must define general rules instead of scenario patches');
@@ -87,9 +98,9 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
 }
 
 module.exports = [
-  testRouteIntentIsExactlyFourFieldsAndStrict,
+  testRouteIntentAcceptsLegacyV1AndOptionalTaskShape,
   testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles,
   testRouteIntentRequiresANonEmptyBoundedGoal,
-  testRouteIntentResponseSchemaHasOnlyFourIntentFields,
+  testRouteIntentResponseSchemaRequiresEveryDeclaredProperty,
   testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms,
 ];

@@ -53,6 +53,27 @@ async function testImageResultRecordKeepsLiveAndRestoredImageOrder() {
   assert.ok(restored.indexOf('data-image-index="1"') < restored.indexOf('data-image-index="2"'));
 }
 
+function testImageResultContextsMergeIntoOneOrderedImageGrid() {
+  const first = {
+    schema_version: 'image_result.v1', resultId: 'batch-a', referenceId: 'ref-a',
+    attachments: [{ imageId: 'cat', src: 'indexeddb://cat', persistedSrc: 'indexeddb://cat', width: 100, height: 80 }],
+  };
+  const second = {
+    schema_version: 'image_result.v1', resultId: 'batch-b', referenceId: 'ref-b',
+    attachments: [{ imageId: 'dog', src: 'indexeddb://dog', persistedSrc: 'indexeddb://dog', width: 120, height: 90 }],
+  };
+  const merged = imageResultWorkflow.mergeImageResultContexts(first, second);
+  assert.deepStrictEqual(merged.attachments.map(item => [item.imageId, item.ordinal]), [['cat', 1], ['dog', 2]]);
+  const html = imageResultWorkflow.renderImageResultContext(merged, {}, {
+    escapeHtml: value => String(value),
+    downloadAllImagesButtonHtml: () => '',
+  });
+  assert.match(html, /generated-image-grid/);
+  assert.match(html, /data-image-id="cat"/);
+  assert.match(html, /data-image-id="dog"/);
+  assert.ok(html.indexOf('data-image-id="cat"') < html.indexOf('data-image-id="dog"'));
+}
+
 async function testImageResultStorageKeepsLiveGeometryForCanonicalRestore() {
   const deps = imageResultDeps({ width: 900, height: 520 });
   const result = await imageResultWorkflow.imageResultToHtml({
@@ -157,6 +178,7 @@ function testLegacyLatestImageResultGetsStableCompatibilityIdentity() {
 
 module.exports = [
   testImageResultRecordKeepsLiveAndRestoredImageOrder,
+  testImageResultContextsMergeIntoOneOrderedImageGrid,
   testImageResultStorageKeepsLiveGeometryForCanonicalRestore,
   testLegacyLatestImageResultGetsStableCompatibilityIdentity,
   testObjectStringifiedMessageIdsAreRepairedCanonically,

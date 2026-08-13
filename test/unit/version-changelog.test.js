@@ -108,7 +108,7 @@ async function testVersionChangelogLazilyRendersCollapsedReleaseCards() {
 }
 
 function testVersionChangelogHasDedicatedResponsiveReadingStyles() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   assert.ok(css.includes('.changelog-entry[open] .changelog-entry-chevron'));
   assert.ok(css.includes('.changelog-table-wrap'));
   assert.ok(css.includes('.changelog-more'));

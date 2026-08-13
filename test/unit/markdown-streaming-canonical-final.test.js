@@ -123,9 +123,26 @@ function testDocumentSizedLiveStreamUsesAdaptiveRenderBudget() {
   assert.strictEqual(setCount, 2, 'the next adaptive cadence boundary should still repaint the latest content');
 }
 
+function testStreamingFinalFallsBackWhenReplaceChildrenIsUnavailable() {
+  withDom(container => {
+    const source = 'Thinking **Markdown**';
+    const renderer = streaming.createStreamingRenderer({ renderMarkdown: markdownEngine.renderMarkdown, enhance: () => {} });
+    const originalReplaceChildren = container.replaceChildren;
+    Object.defineProperty(container, 'replaceChildren', { configurable: true, value: undefined });
+    try {
+      renderer.final(container, source);
+      assert.ok(container.querySelector('strong'), 'final Markdown should render even in webviews without Element.replaceChildren');
+      assert.strictEqual(container.textContent.trim(), 'Thinking Markdown');
+    } finally {
+      Object.defineProperty(container, 'replaceChildren', { configurable: true, value: originalReplaceChildren });
+    }
+  });
+}
+
 module.exports = [
   testStreamingCompletionMatchesCanonicalRefreshMarkup,
   testCanonicalFinalAvoidsUnneededDomReplacement,
   testLargeUnclosedStreamingTailUsesBoundedPreview,
   testDocumentSizedLiveStreamUsesAdaptiveRenderBudget,
+  testStreamingFinalFallsBackWhenReplaceChildrenIsUnavailable,
 ];

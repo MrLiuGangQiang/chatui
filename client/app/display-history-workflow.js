@@ -419,10 +419,6 @@
               lazy: false,
               deferEnhance: false,
             });
-        // A saved reasoning trace belongs to this response even when reasoning is
-        // currently disabled for new requests. Restore it independently of the
-        // composer preference so a refresh cannot hide completed history.
-        if (normalized?.reasoning_content && normalized.role === 'assistant') updateReasoning(node, normalized.reasoning_content, { done: true, keepReasoning: true, restoreHistory: true });
         node.dataset.rawText = String(displayText || '');
         if (normalized.id) node.dataset.messageId = normalized.id;
         if (normalized.clarificationId || normalized.clarification_id) {
@@ -435,6 +431,10 @@
         if (normalized.imageContext) node.dataset.imageContext = normalized.imageContext;
         if (normalized.attachmentContext) node.dataset.attachmentContext = normalized.attachmentContext;
         if (quoteContext) node.dataset.quoteContext = quoteContext;
+        const reasoning = String(normalized?.reasoning_content || normalized?.reasoning || '').trim();
+        if (reasoning && typeof updateReasoning === 'function') {
+          updateReasoning(node, reasoning, { done: true, restoreHistory: true, expanded: false });
+        }
         return node;
       }
     }

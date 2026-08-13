@@ -14,6 +14,7 @@
     SESSION_SIDEBAR_COLLAPSED_KEY: 'openapi-chat-image-session-sidebar-collapsed-v1',
     IMAGE_JOB_KEY: 'openapi-chat-image-job-v1',
     CHAT_JOB_KEY: 'openapi-chat-image-chat-job-v1',
+    IMAGE_BATCH_JOB_KEY: 'openapi-chat-image-batch-v1',
     IMAGE_DB: 'openapi-chat-image-db-v1',
     IMAGE_STORE: 'images',
   });

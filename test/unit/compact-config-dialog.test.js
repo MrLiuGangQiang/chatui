@@ -42,7 +42,10 @@ function testBackupActionsLiveInsideConnectionCard() {
 }
 
 function testConfigDialogUsesCompactResponsiveLayout() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  // The repository canonicalizes source to LF, but editors can leave CRLF in
+  // the working tree. Normalize before asserting exact selector formatting so
+  // the layout contract remains cross-platform deterministic.
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n');
 
   assert.ok(css.includes('#configModal .config-dialog{\n  min-height:auto!important'));
   assert.ok(css.includes('#configModal .config-grid{\n  gap:8px!important'));

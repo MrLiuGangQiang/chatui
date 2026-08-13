@@ -24,6 +24,13 @@
       root?.[Symbol.for("chatui.module-registry.v1")]?.get("dispatchContract") ||
       root?.ChatUIDispatchContract ||
       (typeof require === "function" ? require("../../shared/dispatch-contract") : {});
+  const submitHelpers =
+      root?.ChatUISubmitWorkflowHelpers ||
+      (typeof require === "function" ? require("./submit-workflow.helpers") : {});
+
+    function loadImageBatch(sessionId = deps.state?.activeSessionId || '') {
+      return submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;
+    }
 
     function invalidResumeContract(message) {
       const error = makeTerminalJobError(message);
@@ -435,6 +442,153 @@
       }
     }
 
+    async function resumeImageBatch(sessionId = deps.state.activeSessionId) {
+      const e = sessionId;
+      const {
+        state, setSessionBusy, finishSessionTask,
+        findImageDisplayItemByJob, takePendingLiveItem, persistSessionDisplay,
+        getImageGenerationJob, isMissingJobError, startImageGenerationJob, waitImageGenerationJob, getConfig,
+        imageResultToHtml, normalizeImageContextForStorage, mergeImageResultContexts, renderImageResultContext,
+        updateSessionDisplayItem, findMessageNodeByDisplayItem, updateMessage, setImageContext,
+        reconcileSuccessfulImageResult, saveSessionMessages,
+        cleanupStalePendingDisplay, showRunError, formatElapsed, jobDurationMs,
+      } = deps;
+      const resumeKey = `image_batch:${e}`;
+      if (state.resumingJobs.has(resumeKey)) return;
+      state.resumingJobs.add(resumeKey);
+      try {
+        const index = submitHelpers.loadImageBatchIndex?.(root.localStorage, e);
+        if (!index || !Array.isArray(index.children) || !index.children.length) return;
+        const session = state.sessions.find(item => item?.id === e);
+        if (!session) {
+          submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
+          return;
+        }
+        setSessionBusy(e, true);
+        const parentId = String(index.children.find(child => child.displayItemId)?.displayItemId || '');
+        const hasPendingChildren = index.children.some(child => child.status !== 'done');
+        const parent = (parentId && (session.display || []).find(item => item?.id === parentId))
+          || (session.display || []).find(item => item?.batchId === index.batchId)
+          || (hasPendingChildren && typeof takePendingLiveItem === 'function'
+            ? takePendingLiveItem(e, '正在恢复图片生成任务…', /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/)
+            : null);
+        if (parent && parentId && !parent.id) parent.id = parentId;
+        const aggregate = {
+          total: index.children.length,
+          completed: index.children.filter(child => child.status === 'done').length,
+          statuses: index.children.map(child => child.status === 'done' ? '已完成' : '等待恢复'),
+        };
+        const commitQueue = typeof submitHelpers.createSerialCommitQueue === 'function'
+          ? submitHelpers.createSerialCommitQueue()
+          : null;
+        const parseContext = value => {
+          try { return value && typeof value === 'string' ? JSON.parse(value) : (value || {}); } catch { return {}; }
+        };
+        const currentParentContext = () => parseContext(parent?.imageContext);
+        const setBatchIndexStatus = (jobId, status) => {
+          const current = submitHelpers.loadImageBatchIndex?.(root.localStorage, e) || index;
+          current.children = current.children.map(child => child.jobId === jobId ? { ...child, status } : child);
+          submitHelpers.saveImageBatchIndex?.(root.localStorage, e, current);
+        };
+        const resumeImageBatchChild = async (child, childIndex) => {
+          if (child.status === 'done') return;
+          const responseIndex = Number.isFinite(Number(child.responseIndex)) ? Number(child.responseIndex) : -1;
+          const snapshot = submitHelpers.loadImageBatchChild?.(root.localStorage, e, child.jobId);
+          if (!snapshot?.id) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
+          const i = parent || findImageDisplayItemByJob(session, snapshot) || null;
+          if (i) {
+            i.jobId = snapshot.id || i.jobId || '';
+            i.pending = '1';
+            persistSessionDisplay(e);
+          }
+          let release = null;
+          try {
+            if (commitQueue) release = await commitQueue.acquire();
+            let data = null;
+            try { data = completedJobData(await getImageGenerationJob(snapshot.id)); }
+            catch (error) { if (!isMissingJobError(error)) throw error; }
+            if (!data && snapshot.payload && snapshot.mode !== 'edit_image') {
+              await startImageGenerationJob(snapshot.payload, getConfig(), snapshot.id, {
+                mode: 'image', requestPurpose: snapshot.requestPurpose || 'final_execution',
+                dispatchContract: snapshot.dispatchContract, bindingEvidence: snapshot.bindingEvidence || [],
+                submissionId: snapshot.submissionId || '', headers: {}, sessionId: e,
+              });
+              data = await waitImageGenerationJob(snapshot.id, () => {});
+            }
+            if (!data) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
+            const elapsed = formatElapsed(jobDurationMs({ metrics: data?.metrics, ...data }) ?? Date.now() - (Number(snapshot.startedAt) || Date.now()));
+            const rendered = await imageResultToHtml(data, elapsed, { prompt: snapshot.prompt || child.prompt || '', sessionId: e });
+            const completedMode = snapshot.mode === 'edit_image' ? 'edit_image' : 'image';
+            const childContext = rendered.imageContext
+              ? normalizeImageContextForStorage({ ...rendered.imageContext, mode: completedMode, target: 'previous', usePreviousImage: true })
+              : normalizeImageContextForStorage(snapshot.imageContext || {});
+            const mergedContext = typeof mergeImageResultContexts === 'function'
+              ? normalizeImageContextForStorage(mergeImageResultContexts(currentParentContext(), childContext))
+              : childContext;
+            const resultImageContextText = JSON.stringify(mergedContext);
+            const resultHtml = typeof renderImageResultContext === 'function'
+              ? renderImageResultContext(mergedContext)
+              : rendered.html;
+            aggregate.completed += 1;
+            aggregate.statuses[childIndex] = '已完成';
+            const complete = aggregate.completed >= aggregate.total;
+            const rawText = `${rendered.raw}\n任务 ${childIndex + 1}/${aggregate.total} 完成`;
+            const metaText = complete ? `已完成 ${aggregate.total}/${aggregate.total} 张` : `正在生成 ${aggregate.completed}/${aggregate.total} 张`;
+            if (i) {
+              updateSessionDisplayItem(e, i, 'assistant', resultHtml, {
+                html: true, rawText, metaText, pending: !complete,
+                imageContext: resultImageContextText, responseIndex: child.responseIndex || i.responseIndex,
+              });
+              const node = findMessageNodeByDisplayItem(i);
+              if (e === state.activeSessionId && node) {
+                updateMessage(node, resultHtml, { html: true, rawText, metaText, preserveLiveMedia: true });
+                setImageContext(node, mergedContext);
+              }
+              persistSessionDisplay(e);
+            }
+            setBatchIndexStatus(child.jobId, 'done');
+            submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId);
+            if (complete) {
+              const content = `[图片生成完成] ${index.children.map(item => item.prompt).filter(Boolean).join('、')}`;
+              const message = {
+                role: 'assistant', content, html: resultHtml, rawText, metaText,
+                responseIndex: parent?.responseIndex || child.responseIndex,
+                imageContext: resultImageContextText, kind: 'image',
+                imageJobId: snapshot.id || '', displayItemId: i?.id || parentId || '',
+              };
+              const messages = Array.isArray(session.messages) ? session.messages : [];
+              const existing = messages.findIndex(item => item?.role === 'assistant' && item?.displayItemId === message.displayItemId);
+              if (existing >= 0) messages[existing] = { ...messages[existing], ...message };
+              else messages.push(message);
+              session.messages = messages;
+              if (e === state.activeSessionId) state.messages = messages.map(item => ({ ...item }));
+              await saveSessionMessages(e, messages);
+              reconcileSuccessfulImageResult(e, i, { id: snapshot.id, displayItemId: message.displayItemId, responseIndex: Number(message.responseIndex) }, Number(message.responseIndex));
+            }
+          } catch (error) {
+            const missing = isMissingJobError(error) || error?.terminalJob;
+            if (missing) submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId);
+            const message = missing ? '恢复任务不存在或已失效，已停止恢复，请重新发送' : error?.message || String(error);
+            if (missing) cleanupStalePendingDisplay(e, /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/, message);
+            else showRunError(e, error, parent, findMessageNodeByDisplayItem(parent));
+            throw error;
+          } finally {
+            if (release) { release(); release = null; }
+          }
+        };
+        const pendingChildren = index.children
+          .map((child, childIndex) => ({ child, childIndex }))
+          .filter(item => item.child.status !== 'done');
+        const settled = await Promise.allSettled(pendingChildren.map(item => resumeImageBatchChild(item.child, item.childIndex)));
+        if (aggregate.completed >= aggregate.total && settled.every(result => result.status === 'fulfilled')) {
+          submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
+        }
+      } finally {
+        state.resumingJobs.delete(resumeKey);
+        finishSessionTask(e, { resumeKey });
+      }
+    }
+
     async function resumeChatJob(sessionId = deps.state.activeSessionId) {
       const e = sessionId;
       with (deps) {
@@ -573,16 +727,19 @@
                 const s = extractChatJobText(t.data);
                 if (s.content || s.reasoning) {
                   o = !(!s.content && !s.reasoning) || o;
-                  const t = s.content || "正在思考…",
+                  const t = s.content || "正在等待响应",
                     n = shouldFollowScroll();
                   updateLiveDisplay(e, a, "assistant", t, {
                     rawText: t,
                     pending: !0,
-                    reasoning: s.reasoning || void 0,
+                    reasoning: s.reasoning || "",
+                    keepReasoning: !!s.reasoning,
                     forceScroll: n,
                     followActive: n,
                     noScroll: !n,
                   });
+                  const node = findMessageNodeByDisplayItem(a);
+                  if (node && s.reasoning) updateReasoning(node, s.reasoning, { done: false, keepEmpty: true, forceScroll: n, followActive: n });
                 } else o || r();
               },
               l = (e) => {
@@ -643,16 +800,16 @@
               (updateSessionDisplayItem(e, a, "assistant", g, {
                 rawText: g,
                 pending: !1,
-                metaText: M,
                 reasoning: u,
                 keepReasoning: !!u,
+                metaText: M,
               }),
               e === state.activeSessionId)
             ) {
               const e = findMessageNodeByDisplayItem(a);
               e &&
-                (updateMessage(e, g, { rawText: g, noScroll: !0, metaText: M }),
-                finishReasoning(e, u, { preserve: !!u }));
+                updateMessage(e, g, { rawText: g, noScroll: !0, metaText: M });
+                u && finishReasoning(e, u, { expanded: false });
             }
             const p =
                 null != s.responseIndex && "" !== s.responseIndex
@@ -678,8 +835,9 @@
                   {
                     role: "assistant",
                     content: g,
+                    reasoning_content: u,
                     metaText: M,
-                    ...(u ? { reasoning_content: u } : {}),
+
                   },
                 ],
                 g,
@@ -733,7 +891,7 @@
       }
     }
 
-    return Object.freeze({ resumeImageJob, resumeChatJob });
+    return Object.freeze({ resumeImageJob, resumeImageBatch, resumeChatJob, loadImageBatch });
   }
 
   const api = Object.freeze({ createJobResumeWorkflow });

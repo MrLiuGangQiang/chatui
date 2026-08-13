@@ -20,8 +20,15 @@
     'source', 'attachment', 'context', 'compare_a', 'compare_b',
   ]);
   // The protocol version is carried by the schema name, not repeated in every
-  // model response. The wire object stays limited to four intent fields.
+  // model response. The response schema requires all five intent fields
+  // (providers reject optional properties not listed in "required"), while the
+  // local parser still accepts legacy four-field v1 output and defaults it to
+  // single so older models and persisted routes stay executable.
   const ROUTE_INTENT_FIELDS = Object.freeze(['operation', 'relation', 'goal', 'resource_refs']);
+  const ROUTE_INTENT_TASK_SHAPE_FIELD = 'task_shape';
+  const ROUTE_INTENT_TASK_SHAPES = new Set(['single', 'multi']);
+  const ROUTE_INTENT_OPTIONAL_FIELDS = Object.freeze([ROUTE_INTENT_TASK_SHAPE_FIELD]);
+  const ROUTE_INTENT_EXTENDED_FIELDS = Object.freeze([...ROUTE_INTENT_FIELDS, ...ROUTE_INTENT_OPTIONAL_FIELDS]);
   const RESOURCE_REF_FIELDS = Object.freeze(['candidate_key', 'role']);
 
   const ROUTE_INTENT_RESPONSE_FORMAT = Object.freeze({
@@ -32,7 +39,7 @@
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: [...ROUTE_INTENT_FIELDS],
+        required: [...ROUTE_INTENT_EXTENDED_FIELDS],
         properties: {
           operation: {
             type: 'string',
@@ -43,6 +50,7 @@
           },
           relation: { type: 'string', enum: [...VALID_RELATIONS] },
           goal: { type: 'string', minLength: 1, maxLength: 600 },
+          task_shape: { type: 'string', enum: [...ROUTE_INTENT_TASK_SHAPES] },
           resource_refs: {
             type: 'array',
             maxItems: 16,
@@ -77,8 +85,22 @@
       && VALID_RESOURCE_ROLES.has(stringValue(ref.role));
   }
 
+  function hasValidRouteIntentFields(value = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const keys = Object.keys(value);
+    return ROUTE_INTENT_FIELDS.every(field => Object.prototype.hasOwnProperty.call(value, field))
+      && keys.every(key => ROUTE_INTENT_EXTENDED_FIELDS.includes(key));
+  }
+
+  function routeIntentTaskShape(value = {}) {
+    const raw = stringValue(value?.[ROUTE_INTENT_TASK_SHAPE_FIELD]);
+    return ROUTE_INTENT_TASK_SHAPES.has(raw) ? raw : 'single';
+  }
+
   function hasExactRouteIntent(value = {}) {
-    return hasOnlyFields(value, ROUTE_INTENT_FIELDS)
+    return hasValidRouteIntentFields(value)
+      && (!Object.prototype.hasOwnProperty.call(value, ROUTE_INTENT_TASK_SHAPE_FIELD)
+          || ROUTE_INTENT_TASK_SHAPES.has(stringValue(value[ROUTE_INTENT_TASK_SHAPE_FIELD])))
       && !!capabilityRegistry.capabilityFor?.(value.operation)
       && VALID_RELATIONS.has(value.relation)
       && stringValue(value.goal).length >= 1
@@ -104,10 +126,15 @@
   return Object.freeze({
     ROUTE_INTENT_VERSION,
     ROUTE_INTENT_FIELDS,
+    ROUTE_INTENT_TASK_SHAPE_FIELD,
+    ROUTE_INTENT_TASK_SHAPES,
+    ROUTE_INTENT_OPTIONAL_FIELDS,
+    ROUTE_INTENT_EXTENDED_FIELDS,
     RESOURCE_REF_FIELDS,
     ROUTE_INTENT_RESPONSE_FORMAT,
     hasExactRouteIntent,
     assertRouteIntent,
+    routeIntentTaskShape,
     resourceTypeForCandidateKey,
   });
 });

@@ -31,7 +31,7 @@ function testRouteContractDeclaresCanonicalBindingRoles() {
     'target', 'reference', 'style_reference', 'mask',
     'source', 'attachment', 'context', 'compare_a', 'compare_b',
   ]);
-  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs']);
+  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
   assert.strictEqual(schema.properties.api, undefined);
   assert.strictEqual(schema.properties.arguments, undefined);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /target 要改的图/);

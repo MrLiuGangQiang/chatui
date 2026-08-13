@@ -161,6 +161,18 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
   assert.ok(source.includes('submitHelpers.buildMediaMapContext?.(executionMedia.chatImages'), 'regenerate must preserve image roles in compact system context');
   assert.ok(source.includes('systemContext:mediaMapContext?[mediaMapContext]:[]'), 'regenerate must preserve the original image numbering map at the system-context boundary');
   assert.ok(source.includes('await sendChat(chatPrompt,chatH'), 'regenerate must send the same role-aware prompt shape as ordinary submit');
+  assert.ok(source.includes('getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode'),
+    'ordinary regeneration must invoke the canonical route recognizer with the current-turn marker');
+  assert.ok(!source.includes('regenerateContextOverride'),
+    'ordinary regeneration must not replace canonical route recognition with a hand-built context');
+  assert.ok(source.includes('const imageBatchPlan=submitHelpers.executableImageBatch?.(p);'),
+    'regeneration must inspect the compiled image plan instead of always dispatching the top-level image contract');
+  assert.ok(source.includes('const batchChildren=compiledBatch.items.map((item,batchIndex)=>{'),
+    'a compiled multi-image plan must fan out one canonical image execution per planned task during regeneration');
+  assert.ok(source.includes('liveItem:m,replaceAssistantIndex:void 0'),
+    'all regenerated batch children must target the same replacement assistant message rather than creating separate messages');
+  assert.ok(source.includes('Promise.allSettled(batchChildren)'),
+    'regeneration must wait for every planned image child before completing the replacement task');
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
 }
 
@@ -416,6 +428,13 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
   assert.strictEqual(state.sessions[0].pendingClarification.id, state.messages[1].clarificationId);
 }
 
+
+async function testRegenerateUsesCanonicalRouteRecognitionContext() {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
+  assert.ok(source.includes('getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode'));
+  assert.ok(!source.includes('regenerateContextOverride'));
+}
+
 module.exports = [
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
@@ -427,4 +446,5 @@ module.exports = [
   testRegenerateAbortSignalSuppressesLateNonAbortError,
   testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
+  testRegenerateUsesCanonicalRouteRecognitionContext,
 ];

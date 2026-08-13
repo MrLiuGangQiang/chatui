@@ -43,7 +43,9 @@
 
   function pendingFeedbackHtml(value) {
     const text = String(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务');
-    return `<div class="pending-feedback" data-live-status="true" role="status" aria-live="polite" aria-atomic="true"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(text)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+    const multiline = /\r?\n/.test(text);
+    const renderedText = escapeHtml(text).replace(/\r?\n/g, '<br>');
+    return `<div class="pending-feedback${multiline ? ' pending-feedback-multiline' : ''}" data-live-status="true" role="status" aria-live="polite" aria-atomic="true"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${renderedText}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
   }
 
   function isChatStatusText(value = '') {

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 function testFixedDialogsCenterWithinChatContentRegion() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   assert.ok(css.includes('--dialog-content-start:var(--session-sidebar-width)'));
   assert.ok(css.includes('body.session-sidebar-collapsed{\n  --dialog-content-start:var(--session-rail-width)'));
   assert.ok(css.includes('.toast-popup{\n  left:calc(var(--dialog-content-start) + (100vw - var(--dialog-content-start))/2)!important'));

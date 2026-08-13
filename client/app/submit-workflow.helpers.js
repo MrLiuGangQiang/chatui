@@ -17,6 +17,11 @@
     (typeof require === "function"
       ? require("../core/image-route-context")
       : {});
+  const storageCore =
+    root?.ChatUICoreStorage ||
+    (typeof require === "function"
+      ? require("../core/storage")
+      : {});
   const parseContextValue = messagePrimitives.parseContext;
   if (typeof parseContextValue !== "function") {
     throw new Error("ChatUI message primitives are not loaded");
@@ -646,9 +651,23 @@
     }
     const restored = [];
     for (const resource of required) {
-      const id = String(resource?.id || "").trim();
-      const candidates = id
-        ? await getPreviousImageAttachments(sessionId, null, "", [id])
+      const id = String(resource?.id || resource?.resource_id || resource?.resourceId || "").trim();
+      // The route contract may expose a native image-item id or its canonical
+      // execution id. The historical-image service accepts native item ids in
+      // its exact-id path; canonical ids must be decoded before crossing that
+      // boundary, otherwise the selected image is restored as an empty pool.
+      const exactImageId = /^img_imgref_.+_\d+$/.test(id)
+        ? id
+        : /^res:image:(.+)$/.test(id)
+          ? (() => {
+            try {
+              const decoded = decodeURIComponent(id.slice('res:image:'.length));
+              return /^img_imgref_.+_\d+$/.test(decoded) ? decoded : '';
+            } catch { return ''; }
+          })()
+          : '';
+      const candidates = exactImageId
+        ? await getPreviousImageAttachments(sessionId, null, "", [exactImageId])
         : await getPreviousImageAttachments(
           sessionId,
           [Number(resource?.index)],
@@ -675,10 +694,10 @@
         // snake_case image metadata. Canonicalize every identity-bearing
         // field here, at restoration time, so projection cannot see the
         // recovered durable ID as a second, competing identity.
-        imageId: id || recoveredId,
-        image_id: id || recoveredId,
-        attachmentId: id || recoveredId,
-        attachment_id: id || recoveredId,
+        imageId: exactImageId || recoveredId,
+        image_id: exactImageId || recoveredId,
+        attachmentId: exactImageId || recoveredId,
+        attachment_id: exactImageId || recoveredId,
         referenceId: String(resource?.reference_id || attachment?.referenceId || attachment?.reference_id || ""),
         reference_id: String(resource?.reference_id || attachment?.referenceId || attachment?.reference_id || ""),
         routeIdAliases: [...new Set([
@@ -795,6 +814,97 @@
     return restoredPool;
   }
 
+  // A compiled Stage 2 batch runs each child through the canonical single
+  // image executor, so media-bearing children (edit/reference generation) are
+  // supported. Every child must still carry its own validated dispatch
+  // contract and execution projection; an incomplete child fails closed.
+  function executableImageBatch(route = {}) {
+    const compiled = route?.imagePlanCompiled;
+    if (!compiled || compiled.kind !== 'batch'
+        || !Array.isArray(compiled.items) || compiled.items.length <= 1) return null;
+    return Object.freeze({ items: compiled.items, unsupported: null });
+  }
+
+  // Batch recovery needs a stable index plus one durable child per job so a
+  // refresh can resume exactly the same provider jobs instead of re-planning
+  // and re-dispatching the whole batch.
+  const IMAGE_BATCH_VERSION = 'image_batch.v1';
+  const IMAGE_BATCH_INDEX_PREFIX = 'openapi-chat-image-batch-v1';
+  const IMAGE_BATCH_CHILD_PREFIX = 'openapi-chat-image-batch-child-v1';
+
+  function imageBatchIndexKey(sessionId = '') {
+    return `${IMAGE_BATCH_INDEX_PREFIX}:${sessionId || 'default'}`;
+  }
+
+  function imageBatchChildKey(sessionId = '', jobId = '') {
+    return `${IMAGE_BATCH_CHILD_PREFIX}:${sessionId || 'default'}:${jobId || ''}`;
+  }
+
+  function normalizeImageBatchIndex(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (value.schema_version !== IMAGE_BATCH_VERSION
+        || !String(value.batchId || '').trim()
+        || !Array.isArray(value.children)
+        || !value.children.length
+        || value.children.some(child => !child || typeof child !== 'object'
+          || !String(child.jobId || '').trim()
+          || !String(child.prompt || '').trim())) return null;
+    return {
+      schema_version: IMAGE_BATCH_VERSION,
+      batchId: String(value.batchId),
+      submissionId: String(value.submissionId || ''),
+      sessionId: String(value.sessionId || ''),
+      startedAt: Number(value.startedAt) || 0,
+      children: value.children.map(child => ({
+        jobId: String(child.jobId),
+        prompt: String(child.prompt),
+        displayItemId: String(child.displayItemId || ''),
+        responseIndex: String(child.responseIndex || ''),
+        mode: String(child.mode || 'image'),
+        status: String(child.status || 'running'),
+      })),
+    };
+  }
+
+  function saveImageBatchIndex(storage, sessionId = '', value = {}) {
+    if (typeof storageCore.safeSetJsonStorage !== 'function' || !storage) return false;
+    return storageCore.safeSetJsonStorage(storage, imageBatchIndexKey(sessionId), value) === true;
+  }
+
+  function loadImageBatchIndex(storage, sessionId = '') {
+    if (typeof storageCore.readJsonStorage !== 'function' || !storage) return null;
+    return normalizeImageBatchIndex(storageCore.readJsonStorage(storage, imageBatchIndexKey(sessionId), null));
+  }
+
+  function clearImageBatchIndex(storage, sessionId = '') {
+    try { storage?.removeItem?.(imageBatchIndexKey(sessionId)); return true; } catch { return false; }
+  }
+
+  function loadImageBatchChild(storage, sessionId = '', jobId = '') {
+    if (typeof storageCore.readJsonStorage !== 'function' || !storage || !jobId) return null;
+    const value = storageCore.readJsonStorage(storage, imageBatchChildKey(sessionId, jobId), null);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
+  function clearImageBatchChild(storage, sessionId = '', jobId = '') {
+    try { storage?.removeItem?.(imageBatchChildKey(sessionId, jobId)); return true; } catch { return false; }
+  }
+
+  // Concurrent image children share session message state. Their result
+  // commits must be serialized so each child appends exactly one assistant
+  // message without losing the concurrent writes of its siblings.
+  function createSerialCommitQueue() {
+    let chain = Promise.resolve();
+    return Object.freeze({
+      acquire() {
+        let release;
+        const previous = chain;
+        chain = new Promise(resolve => { release = resolve; });
+        return previous.then(() => release);
+      },
+    });
+  }
+
   const api = Object.freeze({
     parseContextValue,
     escapeHtml,
@@ -812,6 +922,17 @@
     mergeQuotedRouteContext,
     projectRouteMessageContext,
     projectRouteExecutionMedia,
+    executableImageBatch,
+    createSerialCommitQueue,
+    IMAGE_BATCH_VERSION,
+    imageBatchIndexKey,
+    imageBatchChildKey,
+    normalizeImageBatchIndex,
+    saveImageBatchIndex,
+    loadImageBatchIndex,
+    clearImageBatchIndex,
+    loadImageBatchChild,
+    clearImageBatchChild,
     buildExecutionPreviewText,
     mediaIdentity,
     mergeContinuationAttachments,

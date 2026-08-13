@@ -144,6 +144,38 @@ async function testRestoreBoundImagePoolRestoresEachResourceByItsExactContractId
   assert.deepStrictEqual(media.references.map(item => item.routeResourceKey), ['r2']);
 }
 
+
+async function testRestoreBoundImagePoolDecodesCanonicalResourceIdForSelectedHistoricalImage() {
+  const route = editRoute([{
+    key: 'r1', type: 'image', source: 'history', role: 'target', index: 2,
+    id: '', resource_id: 'res:image:img_imgref_cats_2', reference_id: 'imgref_cats',
+    identity_aliases: [], index_aliases: [], missing: false,
+  }]);
+  const calls = [];
+  const restored = await submitHelpers.restoreBoundImagePool(route, {
+    source: 'history',
+    sessionId: 'session-cats',
+    getPreviousImageAttachments: async (...args) => {
+      calls.push(args);
+      return [{
+        type: 'image/png', imageId: 'img_imgref_cats_2',
+        referenceId: 'imgref_cats', sourceIndex: 2,
+      }];
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    ['session-cats', null, '', ['img_imgref_cats_2']],
+  ], 'canonical resource ids must be converted to the historical image item id before restoration');
+  const media = submitHelpers.projectRouteExecutionMedia(
+    route,
+    submitHelpers.buildExecutionResourcePools({ history: restored }, { isImageFile }),
+  );
+  assert.strictEqual(media.targets.length, 1);
+  assert.strictEqual(media.targets[0].routeResourceKey, 'r1');
+  assert.strictEqual(media.targets[0].imageId, 'img_imgref_cats_2');
+}
+
 async function testRestoreBoundImagePoolFailsBeforeAmbiguousProjection() {
   const route = editRoute([{
     key: 'r1', type: 'image', source: 'history', role: 'target', index: 8,
@@ -176,5 +208,6 @@ module.exports = [
   testRestoreBoundImagePoolCanonicalizesEachRecoveredContractResource,
   testRestoreBoundImagePoolBridgesValidatedAliasesForIdLessHistoricalResources,
   testRestoreBoundImagePoolRestoresEachResourceByItsExactContractId,
+  testRestoreBoundImagePoolDecodesCanonicalResourceIdForSelectedHistoricalImage,
   testRestoreBoundImagePoolFailsBeforeAmbiguousProjection,
 ];

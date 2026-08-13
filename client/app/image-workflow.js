@@ -9,6 +9,8 @@
   } = imageExecutionModule;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
+  const storageCore = root?.ChatUICoreStorage
+    || (typeof require === 'function' ? require('../core/storage') : {});
 
   function createImageWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
@@ -45,6 +47,31 @@
         }
         const preparationStatus = executionStatus.operationStatusText?.(executionContract, 'prepare') || '正在准备图片任务';
         const executionWaitStatus = executionStatus.operationStatusText?.(executionContract, 'execute') || '正在生成图片';
+        const statusText = value => {
+          const prefix = String(t.statusPrefix || '').trim();
+          if (t.batchAggregate && Number.isInteger(t.batchIndex)) {
+            const statuses = Array.isArray(t.batchAggregate.statuses) ? t.batchAggregate.statuses : [];
+            statuses[t.batchIndex] = String(value || '').trim();
+            return statuses.map((status, index) => `任务 ${index + 1}/${Number(t.batchAggregate.total || statuses.length || 1)}：${status || '等待开始'}`).join('\n');
+          }
+          return prefix ? `${prefix} ${value}` : value;
+        };
+        // Both storage paths return the durable snapshot object. The batch
+        // path must not leak safeSetJsonStorage's boolean status because the
+        // recoverability gate validates the actual persisted contract.
+        const saveDurableImageJob = job => {
+          if (t.batchChildKey && typeof storageCore.safeSetJsonStorage === 'function') {
+            return storageCore.safeSetJsonStorage(root.localStorage, t.batchChildKey, job) ? job : null;
+          }
+          return saveImageJob(n, job);
+        };
+        const clearDurableImageJob = () => {
+          if (t.batchChildKey && typeof storageCore.safeSetJsonStorage === 'function') {
+            try { root.localStorage.removeItem(t.batchChildKey); } catch {}
+            return;
+          }
+          clearImageJob(n);
+        };
         const canonicalExecution = requireCanonicalImageExecution(executionContract, t.executionMedia),
           executionBindingEvidence = dispatchContract.bindingEvidenceFromMedia(t.executionMedia || {}),
           n = t.sessionId || state.activeSessionId,
@@ -66,8 +93,8 @@
             ? t.loadingNode ||
               addMessage(
                 "assistant",
-                pendingImageFeedback(preparationStatus),
-                { html: !0, rawText: preparationStatus, skipSave: !0 },
+                pendingImageFeedback(statusText(preparationStatus)),
+                { html: !0, rawText: statusText(preparationStatus), skipSave: !0 },
               )
             : null;
         const c =
@@ -75,11 +102,19 @@
           appendSessionDisplayMessage(
             n,
             "assistant",
-            pendingImageFeedback(preparationStatus),
-            { html: !0, rawText: preparationStatus, pending: !0 },
+            pendingImageFeedback(statusText(preparationStatus)),
+            { html: !0, rawText: statusText(preparationStatus), pending: !0 },
           );
-        if (d && c) {
-          const e = d.dataset?.displayItemId || "",
+        if (!c?.id) {
+          const error = new Error("图片任务缺少可恢复的显示记录，已停止发送");
+          error.code = "IMAGE_DISPLAY_ITEM_MISSING";
+          throw error;
+        }
+        // Batch children without a DOM node must remain display-only. Never
+        // treat a synthetic/inert loading-node placeholder as a message node:
+        // it has no dataset and would fail while binding displayItemId.
+        if (d?.dataset && c) {
+          const e = d.dataset.displayItemId || "",
             t = d.dataset?.responseIndex || "",
             s = c.id || "",
             a = "" !== c.responseIndex ? String(c.responseIndex) : "";
@@ -91,18 +126,18 @@
         }
         if (d?.isConnected) {
           clearReasoning?.(d);
-          updateMessage(d, pendingImageFeedback(preparationStatus), {
+          updateMessage(d, pendingImageFeedback(statusText(preparationStatus)), {
             html: !0,
-            rawText: preparationStatus,
+            rawText: statusText(preparationStatus),
             skipSave: !0,
           });
         }
         if (c) {
           delete c.reasoningText;
           c.keepReasoning = !1;
-          updateLiveDisplay(n, c, 'assistant', pendingImageFeedback(preparationStatus), {
+          updateLiveDisplay(n, c, 'assistant', pendingImageFeedback(statusText(preparationStatus)), {
             html: !0,
-            rawText: preparationStatus,
+            rawText: statusText(preparationStatus),
             pending: !0,
           });
           persistSessionDisplay(n);
@@ -157,6 +192,7 @@
         let p = "",
           completionJobId = "",
           A = new Set(),
+          batchResultRelease = null,
           durableHandoffDone = !1;
         const completeDurableHandoff = () => {
           if (durableHandoffDone) return;
@@ -252,19 +288,19 @@
                 shouldSuppressRunUi(n, a.token) ||
                   (d?.isConnected &&
                     (clearPendingFeedback(d),
-                    updateMessage(d, pendingImageFeedback(`${e} 已等待 0 秒`), {
+                    updateMessage(d, pendingImageFeedback(statusText(`${e} 已等待 0 秒`)), {
                       html: !0,
-                      rawText: `${e}… 已等待 0 秒`,
+                      rawText: statusText(`${e}… 已等待 0 秒`),
                       skipSave: !0,
                     })),
                   updateLiveDisplay(
                     n,
                     c,
                     "assistant",
-                    pendingImageFeedback(`${e} 已等待 0 秒`),
+                    pendingImageFeedback(statusText(`${e} 已等待 0 秒`)),
                     {
                       html: !0,
-                      rawText: `${e}… 已等待 0 秒`,
+                      rawText: statusText(`${e}… 已等待 0 秒`),
                       pending: !0,
                       runToken: a.token,
                     },
@@ -272,8 +308,8 @@
                   (l = setInterval(() => {
                     if (shouldSuppressRunUi(n, a.token)) return;
                     const t = Math.floor((performance.now() - r) / 1e3),
-                      s = `${e}… 已等待 ${t} 秒`,
-                      u = pendingImageFeedback(`${e} 已等待 ${t} 秒`);
+                      s = statusText(`${e}… 已等待 ${t} 秒`),
+                      u = pendingImageFeedback(statusText(`${e} 已等待 ${t} 秒`));
                     (d?.isConnected &&
                       updateMessage(d, u, {
                         html: !0,
@@ -344,9 +380,9 @@
                 liveItemRawText: c?.rawText || "",
                 submissionId: t.submissionId || "",
               },
-              savedImageJob = saveImageJob(n, durableImageJob);
-            if (!isRecoverableJobSnapshot(savedImageJob, durableImageJob)) {
-              clearImageJob(n);
+              savedImageJob = t.skipDurableSnapshot ? durableImageJob : saveDurableImageJob(durableImageJob);
+            if (!t.skipDurableSnapshot && !isRecoverableJobSnapshot(savedImageJob, durableImageJob)) {
+              clearDurableImageJob();
               throw new Error(
                 "\u65e0\u6cd5\u4fdd\u5b58\u5b8c\u6574\u7684\u56fe\u7247\u4efb\u52a1\u6062\u590d\u6570\u636e\uff0c\u672a\u5411\u4e0a\u6e38\u53d1\u9001\u8bf7\u6c42\u3002\u8bf7\u6e05\u7406\u6d4f\u89c8\u5668\u5b58\u50a8\u7a7a\u95f4\u540e\u91cd\u8bd5",
               );
@@ -366,7 +402,7 @@
               sessionId: n,
               onUploadProgress: (e) => {
                 if (shouldSuppressRunUi(n, a.token)) return;
-                const t = `正在上传图片… ${e}%`;
+                const t = statusText(`正在上传图片… ${e}%`);
                 (d?.isConnected &&
                   updateMessage(d, pendingImageFeedback(t), {
                     html: !0,
@@ -382,7 +418,7 @@
                   }));
               },
             });
-            (saveImageJob(n, {
+            (t.skipDurableSnapshot || saveDurableImageJob({
               id: i.id,
               prompt: g,
               payload: u,
@@ -437,9 +473,9 @@
                 liveItemRawText: c?.rawText || "",
                 submissionId: t.submissionId || "",
               },
-              savedImageJob = saveImageJob(n, durableImageJob);
-            if (!isRecoverableJobSnapshot(savedImageJob, durableImageJob)) {
-              clearImageJob(n);
+              savedImageJob = t.skipDurableSnapshot ? durableImageJob : saveDurableImageJob(durableImageJob);
+            if (!t.skipDurableSnapshot && !isRecoverableJobSnapshot(savedImageJob, durableImageJob)) {
+              clearDurableImageJob();
               throw new Error(
                 "\u65e0\u6cd5\u4fdd\u5b58\u5b8c\u6574\u7684\u56fe\u7247\u4efb\u52a1\u6062\u590d\u6570\u636e\uff0c\u672a\u5411\u4e0a\u6e38\u53d1\u9001\u8bf7\u6c42\u3002\u8bf7\u6e05\u7406\u6d4f\u89c8\u5668\u5b58\u50a8\u7a7a\u95f4\u540e\u91cd\u8bd5",
               );
@@ -455,7 +491,7 @@
               headers: q,
               sessionId: n,
             });
-            (saveImageJob(n, {
+            (t.skipDurableSnapshot || saveDurableImageJob({
               id: imageJob.id,
               prompt: g,
               payload: u,
@@ -481,6 +517,7 @@
                 signal: a.abortController.signal,
               })));
           }
+          if (typeof t.acquireResultCommit === "function") batchResultRelease = await t.acquireResultCommit();
           const C =
               h && selectedIndexes.length
                 ? normalizeLastGeneratedImage(i.lastGeneratedImage)
@@ -507,7 +544,7 @@
             : h
               ? `[图片编辑完成] ${E}`
               : `[图片生成完成] ${E}`;
-          const resultImageContext = b.imageContext
+          const childResultImageContext = b.imageContext
               ? normalizeImageContextForStorage({
                   ...b.imageContext,
                   mode: h || (!isRefGen && "edit_image" === I.mode) ? "edit_image" : "image",
@@ -515,9 +552,55 @@
                   usePreviousImage: !0,
                 })
               : I,
+            isBatchChild = !!t.batchAggregate,
+            priorBatchImageContext = (() => { try { return c?.imageContext ? JSON.parse(c.imageContext) : {}; } catch { return {}; } })(),
+            resultImageContext = isBatchChild && typeof mergeImageResultContexts === "function"
+              ? normalizeImageContextForStorage(mergeImageResultContexts(priorBatchImageContext, childResultImageContext))
+              : childResultImageContext,
+            resultHtml = isBatchChild && typeof renderImageResultContext === "function"
+              ? renderImageResultContext(resultImageContext)
+              : b.html,
+            resultRaw = isBatchChild ? `${b.raw}
+任务 ${Number(t.batchIndex || 0) + 1}/${Number(t.batchAggregate?.total || 1)} 完成` : b.raw,
+            resultMetaText = isBatchChild ? `已完成 ${Number(t.batchAggregate?.completed || 0) + 1}/${Number(t.batchAggregate?.total || 1)} 张` : (b.metaText || `RT ${v}`),
             resultImageContextText = JSON.stringify(resultImageContext),
             clarificationReplay = t.clarificationReplay || null;
-          if (n === state.activeSessionId) {
+          if (isBatchChild) {
+            t.batchAggregate.completed = Number(t.batchAggregate.completed || 0) + 1;
+            const complete = t.batchAggregate.completed >= t.batchAggregate.total;
+            updateSessionDisplayItem(n, c, "assistant", resultHtml, {
+              html: !0,
+              rawText: resultRaw,
+              pending: !complete,
+              responseIndex: c.responseIndex,
+              imageContext: resultImageContextText,
+              metaText: complete ? resultMetaText : `正在生成 ${t.batchAggregate.completed}/${t.batchAggregate.total} 张图片`,
+            });
+            updateLiveDisplay(n, c, "assistant", resultHtml, {
+              html: !0,
+              rawText: resultRaw,
+              pending: !complete,
+              responseIndex: c.responseIndex,
+              imageContext: resultImageContextText,
+              metaText: complete ? resultMetaText : `正在生成 ${t.batchAggregate.completed}/${t.batchAggregate.total} 张图片`,
+              noScroll: !0,
+              preserveLiveMedia: !0,
+            });
+            if (complete) {
+              const batchMessage = {
+                role: "assistant", content: w, html: resultHtml, rawText: resultRaw,
+                responseIndex: c.responseIndex, imageContext: resultImageContextText,
+                kind: "image", imageJobId: p || "", displayItemId: c.id || "",
+                ...(clarificationReplay ? { clarificationReplay } : {}), metaText: resultMetaText,
+              };
+              const existingIndex = state.messages.findIndex(message => message?.displayItemId === c.id);
+              if (existingIndex >= 0) state.messages[existingIndex] = { ...state.messages[existingIndex], ...batchMessage };
+              else state.messages.push(batchMessage);
+              i.messages = cloneMessageList(state.messages);
+              await saveSessionMessages(n, i.messages);
+              reconcileSuccessfulImageResult(n, c, { id: p, displayItemId: c.id || "", responseIndex: Number(c.responseIndex) }, Number(c.responseIndex));
+            }
+          } else if (n === state.activeSessionId) {
             const s = Number.isFinite(t.replaceAssistantIndex)
               ? t.replaceAssistantIndex
               : state.messages.length;
@@ -656,27 +739,32 @@
                 imageContext: resultImageContextText,
                 metaText: b.metaText || `RT ${v}`,
               }));
-          const completedIndex = Number.isFinite(t.replaceAssistantIndex)
-            ? t.replaceAssistantIndex
-            : Number(c?.responseIndex);
-          reconcileSuccessfulImageResult(
-            n,
-            c,
-            {
-              id: p,
-              displayItemId: c?.id || "",
-              responseIndex: Number.isFinite(completedIndex)
-                ? completedIndex
-                : void 0,
-            },
-            completedIndex,
-          );
-          await saveSessionMessages(n, i.messages || []);
-          (clearImageJob(n), notifyInterfaceCompleted(), playDoneSound());
+          if (!isBatchChild) {
+            const completedIndex = Number.isFinite(t.replaceAssistantIndex)
+              ? t.replaceAssistantIndex
+              : Number(c?.responseIndex);
+            reconcileSuccessfulImageResult(
+              n,
+              c,
+              {
+                id: p,
+                displayItemId: c?.id || "",
+                responseIndex: Number.isFinite(completedIndex)
+                  ? completedIndex
+                  : void 0,
+              },
+              completedIndex,
+            );
+            await saveSessionMessages(n, i.messages || []);
+          }
+          (batchResultRelease && (batchResultRelease(), batchResultRelease = null));
+          (t.skipDurableSnapshot || clearDurableImageJob(), t.deferBatchCompletion || (notifyInterfaceCompleted(), playDoneSound()));
         } catch (e) {
-          if (e?.terminalJob) clearImageJob(n);
+          if (batchResultRelease) { batchResultRelease(); batchResultRelease = null; }
+          if (e?.terminalJob && !t.skipDurableSnapshot) clearDurableImageJob();
           throw e;
         } finally {
+          if (batchResultRelease) { batchResultRelease(); batchResultRelease = null; }
           (A.forEach((e) => state.followingImageJobs.delete(e)),
             p && state.followingImageJobs.delete(p),
             l && clearInterval(l));

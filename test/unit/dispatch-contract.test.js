@@ -63,6 +63,20 @@ function testCapabilityRegistryParsesTypedImageArguments() {
 }
 
 
+function testCapabilityRegistryDoesNotConfuseSubjectCountersWithImageCount() {
+  const input = '画一张猫、一条狗，给我两张图';
+  const result = capabilities.resolveExecutionArguments({
+    operation: 'text_to_image',
+    input,
+  });
+  assert.deepStrictEqual(result.arguments?.count, 2,
+    'the final “两张图” output request must remain the only count directive');
+  assert.deepStrictEqual(result.candidates.filter(candidate => candidate.name === 'count').map(candidate => [candidate.value, candidate.evidence]), [
+    [2, '给我两张'],
+  ], '“一张猫” is a subject measure word, not a conflicting image count');
+  assert.strictEqual(result.conflicts.length, 0);
+}
+
 function testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics() {
   const noTransparent = capabilities.resolveExecutionArguments({
     operation: 'text_to_image',
@@ -268,6 +282,7 @@ function testQuotedMessageBindingUsesCanonicalRuntimeRouteFields() {
 
 module.exports = [
   testCapabilityRegistryParsesTypedImageArguments,
+  testCapabilityRegistryDoesNotConfuseSubjectCountersWithImageCount,
   testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics,
   testCapabilityRegistryNormalizesFullWidthSyntaxWithoutChangingThePrompt,
   testCapabilityRegistryFailsClosedOnConflictingParameters,

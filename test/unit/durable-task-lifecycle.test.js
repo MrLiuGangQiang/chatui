@@ -146,7 +146,7 @@ async function testResponsesUsesDurableManagedJobAndCommitBeforeClear() {
   assert.ok(events.indexOf('job-cleared') < events.indexOf('interface-completed'));
   assert.ok(events.indexOf('interface-completed') < events.indexOf('done-sound'));
   assert.strictEqual(session.messages.at(-1).content, 'durable answer');
-  assert.strictEqual(session.messages.at(-1).reasoning_content, 'durable reasoning');
+  assert.strictEqual(session.messages.at(-1).reasoning_content, 'durable reasoning', 'reasoning must be stored beside the canonical response so refresh can restore it');
 }
 
 async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
@@ -246,7 +246,7 @@ function testRouteToJobHandoffHasNoUnownedRefreshWindow() {
   assert.ok(chat.includes('notifyInterfaceCompleted()') && chat.includes('jobKind:"chat"'), 'chat success must publish its interface completion identity after canonical persistence');
   assert.ok(submit.includes('onDurableHandoff:()=>completeDurableHandoff(activeJobId,activeJobKind)'));
   assert.ok(!submit.includes('saveChatJob(sessionId,{id:preparedChatJobId'), 'routing must not create an incomplete chat job that can outrank pending-submit recovery');
-  assert.ok(imageCompact.includes('savedImageJob=saveImageJob(n,durableImageJob)') && imageCompact.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && imageCompact.includes('completeDurableHandoff();T=performance.now()'), 'image dispatch must verify a restartable local owner before clearing pending-submit');
+  assert.ok(imageCompact.includes('savedImageJob=t.skipDurableSnapshot?durableImageJob:saveDurableImageJob(durableImageJob)') && imageCompact.includes('isRecoverableJobSnapshot(savedImageJob,durableImageJob)') && imageCompact.includes('completeDurableHandoff();T=performance.now()'), 'single image dispatch must still verify a restartable local owner before clearing pending-submit; batch children must opt out explicitly');
   assert.ok(app.includes('setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id)'), 'active task evidence must mark the session busy before first render');
   assert.ok(app.includes('flushSessionSnapshots()'), 'page leave must flush every session snapshot, including background tasks');
 }

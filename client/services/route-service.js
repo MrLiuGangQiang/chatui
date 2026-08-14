@@ -159,11 +159,22 @@
     '空输入补充：仅一张图→image_qa描述；仅一个文件→file_qa概述；多资源或图文并存且任务不明→relation=new、resource_refs=[]，由执行层询问要处理的资源和任务。',
   ].join('\n');
 
+  // Few-shot contrast examples appended to the route prompt at payload build
+  // time. Kept separate so the ROUTE_SYSTEM_PROMPT constant itself stays
+  // stable for protocol tests while the model still receives end-to-end JSON
+  // examples (complete goal vs meta-instruction goal).
+  const ROUTE_SYSTEM_PROMPT_EXAMPLES = [
+    '示例（完整 JSON 输出）：',
+    'current_input="基于这个生成图片"，历史消息含奶牛生图提示词 → 禁止输出 goal="基于这个生成图片…" 这类元指令；必须展开为独立完整描述，如 goal="生成一张温暖治愈、超写实风格的棕白花奶牛田园摄影图，主体是奶牛站在阳光草地上，背景是蓝天白云和远山。"',
+    'current_input="把目标图中的猫改为白色，保留构图不变。" → 输出 {"operation":"edit_image","relation":"followup","goal":"将目标图中的猫改为白色，保留构图不变。","resource_refs":[{"candidate_key":"i1","role":"target"}],"task_shape":"single"}',
+  ].join('\n');
+
   const IMAGE_PLAN_SYSTEM_PROMPT = [
     '你是 ChatUI 多图任务规划器。把用户请求拆成 image_plan.v1：多个彼此独立、可并发的生图/编辑子任务。',
     '规则：每个 task 的 prompt 必须独立完整、可直接执行，消除“它/这个/刚才/继续”等指代；generate 无输入图时 task_type=generate 且 input_images=[]，需要参考图时用 reference/style_reference；edit 必须恰好一个 target。',
     'input_images 只使用给出的 resource_candidates 的 candidate_key 和角色，不编造 ID；同一张图可被多个任务引用；多图编辑时按子任务指定 target/reference/mask，不同子任务的 target 可以不同。',
     '任务数 1..5；size/quality/background/output_format 用 auto，count=1，除非用户明确要求同一内容的多个变体。',
+    '反例：task.prompt="基于上一条提示词继续生成一张猫的图片" 不合格——必须写清完整画面描述（主体、场景、风格、修改项）；如 task.prompt="生成一张橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格的图片"。',
     '只输出 schema_version="image_plan.v1" 和 tasks 两个字段，不输出解释或 Markdown。',
   ].join('\n');
 
@@ -775,7 +786,7 @@
       temperature: 0,
       response_format: responseFormat || ROUTE_INTENT_RESPONSE_FORMAT,
       messages: [
-        { role: 'system', content: systemPrompt || ROUTE_SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt || `${ROUTE_SYSTEM_PROMPT}\n\n${ROUTE_SYSTEM_PROMPT_EXAMPLES}` },
         { role: 'user', content: JSON.stringify(userPayload) },
       ],
     };
@@ -1328,6 +1339,17 @@
   const READ_ONLY_IMAGE_OPERATIONS = new Set(['image_qa', 'image_compare', 'ocr', 'multimodal_qa']);
   const GENERATIVE_IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen']);
   const EMPTY_GENERATION_PATTERNS = /^(?:生成|画|绘制|做|制作|创建)(?:一张|一个|张|幅|个)?(?:图|图片|图像|海报|插画|壁纸)?[的]?$/i;
+  // Full-match meta-instruction goal detector. A goal that only re-states the
+  // request as an instruction ("基于这个生成图片…"/"参考上述内容生成…"/"继续生成")
+  // instead of an executable image description must fail closed into
+  // clarification. Concrete goals that name a selected resource ("基于所选…")
+  // or carry a real visual spec stay untouched.
+  const META_INSTRUCTION_GOAL_PATTERN = /^(?:基于\s*(?:这个|那个|上述|以上|上一条|前一条|前面的|之前的|这条|那条)\s*(?:生成|继续|重做|再生成)[\s\S]*|基于\s*(?:上一条|前一条|上面的|之前的)[\s\S]*?提示词[\s\S]*|参考\s*(?:上述|以上|上一条|前一条)[\s\S]*|继续生成[。.。]?)$/;
+  const GOAL_META_INSTRUCTION_QUESTION = '你的指令仍包含"基于这个/参考上述/继续生成"等不完整指代，请直接描述期望生成的画面内容（主体、场景、风格、修改项等）。';
+
+  function isMetaInstructionGoal(goal = '') {
+    return META_INSTRUCTION_GOAL_PATTERN.test(stringValue(goal));
+  }
   const SUBJECT_CLARIFICATION_QUESTION = '你想继续处理哪一个？请选择本轮要处理的对象（文字回复或图片），也可以直接补充说明。';
   const VISUAL_DETAIL_QUESTION = '你希望具体调整图片的哪一部分（主体细节、背景和环境、构图层次或色彩和材质）？也可以直接告诉我具体怎么改。';
 
@@ -1691,7 +1713,90 @@
     )) || candidates.find(candidate => stringValue(candidate.image_id) === stringValue(previousExecution.result_reference_id)) || null;
   }
 
-  function applyLocalRouteGates(route = null, { input = '', context = {}, proposedPrompt = '' } = {}) {
+  // ── Execution invariants (always enforced) ─────────────────────
+  // Corrections/continuations of a completed image execution must never
+  // downgrade to chat, and a generate-family correction cannot bind the
+  // result as an edit target. This protects execution continuity on every
+  // path, including model-owned routes that skip the local guess layer.
+  function applyLocalExecutionInvariants(route = null, { input = '', context = {}, proposedPrompt = '' } = {}) {
+    if (!route) return route;
+    const text = stringValue(input);
+    const previousExecution = context?.previous_execution || null;
+    const planOp = stringValue(route.operationType);
+    const planApi = stringValue(route.api);
+    const relation = stringValue(route.relation);
+    const previousImage = previousImageCandidate(context, previousExecution);
+    const selectedDescription = selectedDescriptionFromContext(context, []);
+    const plannedImagePrompt = stringValue(proposedPrompt || route.dispatchContract?.arguments?.prompt || route.contextualImagePrompt);
+    const resolvedContinuationPrompt = (resolvedRoute = route) => {
+      if (selectedDescription) return selectedDescriptionPrompt(context, selectedDescription, text);
+      // A target/reference image is the continuity carrier. Repeating the
+      // previous generation prompt changes the user's current instruction.
+      if (routeHasBoundImage(resolvedRoute)) return text;
+      if (isBareClarificationSelector(text)
+          && plannedImagePrompt
+          && !isBareClarificationSelector(plannedImagePrompt)) return plannedImagePrompt;
+      return `${stringValue(previousExecution?.input)}\n\n${text}`.trim();
+    };
+
+    // ── Execution-family continuity: corrections/continuations of a
+    //    completed image execution must never downgrade to chat, and
+    //    generate-family corrections cannot bind the result as target ─
+    if (previousExecution && ['continuation'].includes(relation)) {
+      const family = stringValue(previousExecution.family);
+      if (family === 'generate') {
+        // A generated result must never become an edit target, but it is a
+        // valid reference for the next generation. Reuse that image instead
+        // of serializing every earlier instruction into the next provider
+        // prompt. The image is the visual state; this turn's text is only the
+        // delta requested by the user.
+        const needsReferenceBinding = planApi === 'chat'
+          || planOp === 'text_to_image'
+          || (planOp === 'image_reference_gen' && !routeHasBoundImage(route));
+        if (needsReferenceBinding && previousImage) {
+          const basePlan = {
+            operation: 'image_reference_gen',
+            relation,
+            arguments: imageArgumentDefaults(text),
+            bindings: [{
+              key: 'r1', type: 'image', role: 'reference',
+              resource_id: bindingResourceIdFor(previousImage),
+              source: stringValue(previousImage.source) || 'history',
+            }],
+            constraints: [],
+          };
+          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context });
+          if (rebuilt) {
+            setResolvedImagePrompt(rebuilt, resolvedContinuationPrompt(rebuilt));
+            rebuilt.editInstruction = '';
+            return rebuilt;
+          }
+        }
+        // If the actual previous image is no longer recoverable, retain the
+        // existing text-only fallback rather than fabricating an image binding.
+      }
+      if (family === 'edit' && (planApi === 'chat' || (planOp === 'edit_image' && !(route.resources || []).some(resource => resource.role === 'target')))) {
+        if (previousImage) {
+          const basePlan = {
+            operation: 'edit_image',
+            relation,
+            arguments: imageArgumentDefaults(text),
+            bindings: [{ key: 'r1', type: 'image', role: 'target', resource_id: bindingResourceIdFor(previousImage), source: stringValue(previousImage.source) || 'history' }],
+            constraints: [],
+          };
+          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context });
+          if (rebuilt) {
+            setResolvedImagePrompt(rebuilt, resolvedContinuationPrompt(rebuilt));
+            return rebuilt;
+          }
+        }
+      }
+    }
+
+    return route;
+  }
+
+  function applyLocalRouteGuesses(route = null, { input = '', context = {}, proposedPrompt = '' } = {}) {
     if (!route) return route;
     const text = stringValue(input);
     const previousExecution = context?.previous_execution || null;
@@ -1814,60 +1919,6 @@
       }
       if (isVagueVisualContinuation(text)) {
         return clarifyRoute(route, { question: VISUAL_DETAIL_QUESTION, slots: visualDetailSlots() });
-      }
-    }
-
-    // ── Execution-family continuity: corrections/continuations of a
-    //    completed image execution must never downgrade to chat, and
-    //    generate-family corrections cannot bind the result as target ─
-    if (previousExecution && ['continuation'].includes(relation)) {
-      const family = stringValue(previousExecution.family);
-      if (family === 'generate') {
-        // A generated result must never become an edit target, but it is a
-        // valid reference for the next generation. Reuse that image instead
-        // of serializing every earlier instruction into the next provider
-        // prompt. The image is the visual state; this turn's text is only the
-        // delta requested by the user.
-        const needsReferenceBinding = planApi === 'chat'
-          || planOp === 'text_to_image'
-          || (planOp === 'image_reference_gen' && !routeHasBoundImage(route));
-        if (needsReferenceBinding && previousImage) {
-          const basePlan = {
-            operation: 'image_reference_gen',
-            relation,
-            arguments: imageArgumentDefaults(text),
-            bindings: [{
-              key: 'r1', type: 'image', role: 'reference',
-              resource_id: bindingResourceIdFor(previousImage),
-              source: stringValue(previousImage.source) || 'history',
-            }],
-            constraints: [],
-          };
-          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context });
-          if (rebuilt) {
-            setResolvedImagePrompt(rebuilt, resolvedContinuationPrompt(rebuilt));
-            rebuilt.editInstruction = '';
-            return rebuilt;
-          }
-        }
-        // If the actual previous image is no longer recoverable, retain the
-        // existing text-only fallback rather than fabricating an image binding.
-      }
-      if (family === 'edit' && (planApi === 'chat' || (planOp === 'edit_image' && !(route.resources || []).some(resource => resource.role === 'target')))) {
-        if (previousImage) {
-          const basePlan = {
-            operation: 'edit_image',
-            relation,
-            arguments: imageArgumentDefaults(text),
-            bindings: [{ key: 'r1', type: 'image', role: 'target', resource_id: bindingResourceIdFor(previousImage), source: stringValue(previousImage.source) || 'history' }],
-            constraints: [],
-          };
-          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context });
-          if (rebuilt) {
-            setResolvedImagePrompt(rebuilt, resolvedContinuationPrompt(rebuilt));
-            return rebuilt;
-          }
-        }
       }
     }
 
@@ -3219,8 +3270,29 @@
       providerUnsupported,
       semanticAuthority: options.semanticAuthority || '',
     };
-    if (options.skipLocalRouteGates === true || modelOwnsRouteSemantics(options)) return compiledRoute;
-    return applyLocalRouteGates(compiledRoute, {
+    if (options.skipLocalRouteGates === true) return compiledRoute;
+    const invariantRoute = applyLocalExecutionInvariants(compiledRoute, {
+      input,
+      context: options.context || {},
+      proposedPrompt: stringValue(plan?.arguments?.prompt),
+    });
+    if (modelOwnsRouteSemantics(options)) {
+      // Goal authority is an execution invariant on model-owned routes too:
+      // a meta-instruction goal ("基于这个生成图片…") is not an executable
+      // image description and must fail closed into clarification instead of
+      // reaching the downstream execution model.
+      const userGoal = stringValue(options.userGoal);
+      if (userGoal
+          && GENERATIVE_IMAGE_OPERATIONS.has(op)
+          && isMetaInstructionGoal(userGoal)) {
+        return clarifyRoute(invariantRoute, {
+          question: GOAL_META_INSTRUCTION_QUESTION,
+          slots: [{ key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] }],
+        });
+      }
+      return invariantRoute;
+    }
+    return applyLocalRouteGuesses(invariantRoute, {
       input,
       context: options.context || {},
       proposedPrompt: stringValue(plan?.arguments?.prompt),
@@ -3270,10 +3342,7 @@
     if (!route || route.needClarification) return false;
     const taskShape = stringValue(route.taskShape) || 'single';
     return taskShape === 'multi'
-      && IMAGE_RELATION_OPERATIONS.has(stringValue(route.operationType || route.intent || ''))
-      && (!route.needClarification || (route.operationType === 'edit_image'
-        && Array.isArray(route.imageRefs)
-        && route.imageRefs.filter(item => item.role === 'target').length > 1));
+      && IMAGE_RELATION_OPERATIONS.has(stringValue(route.operationType || route.intent || ''));
   }
 
   function compileImagePlan(imagePlan = {}, options = {}) {
@@ -3303,6 +3372,16 @@
       const operation = imagePlanTaskOperation(task);
       if (!operation) {
         return Object.freeze({ ok: false, code: 'IMAGE_PLAN_TASK_INVALID', question: '多图任务包含无法执行的子任务，请重试。' });
+      }
+      // A task whose prompt is only a meta-instruction ("基于这个生成…") is
+      // not an executable image description; fail the whole plan closed so the
+      // planner restates the task instead of emitting a broken prompt.
+      if (isMetaInstructionGoal(stringValue(task.prompt))) {
+        return Object.freeze({
+          ok: false,
+          code: 'IMAGE_PLAN_TASK_META_INSTRUCTION',
+          question: '多图任务包含不完整的画面描述，请重新描述每个子任务的具体画面内容（主体、场景、风格、修改项等）。',
+        });
       }
       const relation = VALID_RELATIONS.has(stringValue(options.relation))
         ? stringValue(options.relation)

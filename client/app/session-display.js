@@ -257,14 +257,23 @@
       // A late async writer may hold an older complete snapshot while a newer
       // submit has already appended messages. Merge by stable message identity so
       // that stale writes cannot erase a completed earlier answer.
+      // Async jobs can finish after the user switches sessions. Always copy both
+      // sides before normalizing so the canonical session record never aliases
+      // the mutable working array owned by another session or an in-flight task.
+      const existingMessages = Array.isArray(session.messages)
+        ? session.messages.map(message => ({ ...message }))
+        : [];
+      const incomingMessages = Array.isArray(messages)
+        ? messages.map(message => ({ ...message }))
+        : [];
       const normalized = normalizeMessageList([
-        ...(Array.isArray(session.messages) ? session.messages : []),
-        ...(Array.isArray(messages) ? messages : []),
+        ...existingMessages,
+        ...incomingMessages,
       ], sessionId);
-      session.messages = normalized;
-      // Active-session writes are committed through this single boundary so the
-      // working state can never drift from the canonical session record.
-      if (sessionId === state.activeSessionId) state.messages = session.messages;
+      session.messages = normalized.map(message => ({ ...message }));
+      // Keep state.messages separate as well; switching sessions must never make
+      // two session records share the same mutable array reference.
+      if (sessionId === state.activeSessionId) state.messages = session.messages.map(message => ({ ...message }));
       session.title = deriveSessionTitle(session);
       session.updatedAt = Date.now();
       return commitSession(session);
@@ -406,7 +415,7 @@
     function syncActiveSession({ skipSave = false } = {}) {
       const state = getState();
       const session = getActiveSession();
-      state.messages = session?.messages || [];
+      state.messages = (session?.messages || []).map(message => ({ ...message }));
       state.lastGeneratedImage = normalizeLastGeneratedImage(session?.lastGeneratedImage || null);
       if (session) session.lastGeneratedImage = state.lastGeneratedImage || null;
       if (!skipSave) saveSessionsMeta();
@@ -516,7 +525,7 @@
       let changed = false;
       if (snapshotRevision > previousPersistenceRevision || durableRevision > previousSnapshotUpdatedAt) {
         session.messages = normalizeMessageList(snapshot.messages, sessionId);
-        if (sessionId === state.activeSessionId) state.messages = session.messages;
+        if (sessionId === state.activeSessionId) state.messages = (session.messages || []).map(message => ({ ...message }));
         session.display = pendingDisplayItems(snapshot.pendingDisplay || []);
         session.lastGeneratedImage = snapshot.lastGeneratedImage || session.lastGeneratedImage || null;
         session.updatedAt = Math.max(Number(session.updatedAt || 0), snapshotRevision);

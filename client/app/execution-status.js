@@ -6,7 +6,8 @@
     collecting_resources: '正在整理本轮图片和文件',
     recognizing_intent: '正在判断任务意图和所需资源',
     validating_route: '正在校验意图和资源选择',
-    retrying_route_model: '首选路由模型不可用，正在尝试备用模型',
+    retrying_route_model: '正在重新确认任务意图',
+    planning_image_tasks: '正在拆分多个图片任务',
     preparing_clarification: '正在准备需要补充的信息',
   });
 

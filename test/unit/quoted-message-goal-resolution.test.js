@@ -75,6 +75,7 @@ function testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage() {
     operation: 'plain_chat',
     relation: 'followup',
     goal: '统计当前引用消息的字数',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'context' }],
   }), {
     input: '这个呢',
@@ -135,6 +136,7 @@ function testResolvedGoalIsCanonicalEvenWithoutResourceBinding() {
     operation: 'plain_chat',
     relation: 'followup',
     goal: '继续说明 Java 和 Python 在性能方面的差异。',
+    task_shape: 'single',
     resource_refs: [],
   }), {
     input: '性能方面呢',

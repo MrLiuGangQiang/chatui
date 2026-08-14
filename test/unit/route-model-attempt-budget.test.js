@@ -1,0 +1,156 @@
+﻿'use strict';
+
+const assert = require('assert');
+const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
+
+function replaceGlobal(key, value) {
+  const previous = globalThis[key];
+  if (value === undefined) delete globalThis[key];
+  else globalThis[key] = value;
+  return () => {
+    if (previous === undefined) delete globalThis[key];
+    else globalThis[key] = previous;
+  };
+}
+
+function readyRoute() {
+  return {
+    mode: 'chat', api: 'chat', target: 'none', intent: 'plain_chat',
+    needClarification: false, dispatchAuthorized: true, readiness: 'ready',
+    operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'new',
+    resources: [], executionResources: { version: 'execution_resources.v2', operation: 'plain_chat', api: 'chat', relation: 'new', images: [], files: [], messages: [] },
+    dispatchContract: {},
+  };
+}
+
+function clarificationRoute() {
+  return {
+    ...readyRoute(),
+    api: 'clarify', intent: 'clarify', needClarification: true,
+    dispatchAuthorized: false, readiness: 'needs_clarification',
+    clarificationQuestion: '请选择目标图片。', clarificationSlots: [],
+    executionResources: null, dispatchContract: null,
+  };
+}
+
+function fakeRouteService() {
+  return {
+    buildRoutePayload: ({ model, input }) => ({
+      model,
+      reasoning_effort: 'low',
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'route_attempt_test', strict: true, schema: { type: 'object' } },
+      },
+      messages: [{ role: 'user', content: String(input || '') }],
+    }),
+    extractRouteText: response => String(response?.text || ''),
+    inspectModelRouteResult: text => ({
+      route: text === 'valid' ? readyRoute() : text === 'clarify' ? clarificationRoute() : null,
+    }),
+  };
+}
+
+function makeWorkflow(requestJson) {
+  return routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, activeSessionId: 'session-attempts', sessions: [], messages: [] },
+    getConfig: () => ({
+      baseUrl: 'https://gateway.example/v1', apiKey: 'route-secret',
+      routeModel: 'route-primary', chatModel: 'route-fallback',
+    }),
+    getSessionRouteModel: () => 'route-primary',
+    getSessionChatModel: () => 'route-fallback',
+    buildRouteAttachmentMetadata: () => [],
+    requestJson,
+  });
+}
+
+async function testCompatibilityRetriesCountEveryProviderRequest() {
+  const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
+  const payloads = [];
+  try {
+    const workflow = makeWorkflow(async (_url, payload) => {
+      payloads.push(payload);
+      if (payloads.length === 6) return { text: 'valid' };
+      if (payload.reasoning_effort) throw new Error('reasoning_effort is not supported by this endpoint');
+      throw new Error(`response_format ${payload.response_format?.type || 'plain'} unsupported`);
+    });
+    const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
+
+    assert.strictEqual(payloads.length, 6, 'the compatibility matrix should perform six real HTTP attempts');
+    assert.deepStrictEqual(route.modelAttemptLedger, {
+      schema_version: 'route_model_attempt_ledger.v1',
+      max_provider_attempts: 6,
+      logical_rounds: 1,
+      provider_attempts: 6,
+      primary_attempts: 6,
+      fallback_attempts: 0,
+      planning_attempts: 0,
+      compatibility_attempts: 5,
+      reasoning_fallback_attempts: 3,
+      format_fallback_attempts: 4,
+    });
+    assert.strictEqual(route.modelCalls, 6, 'the legacy counter must mirror real provider attempts');
+  } finally {
+    restore();
+  }
+}
+
+async function testProviderBudgetBlocksTheSeventhCompatibilityAttempt() {
+  const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
+  let calls = 0;
+  try {
+    const workflow = makeWorkflow(async (_url, payload) => {
+      calls += 1;
+      if (payload.reasoning_effort) throw new Error('reasoning_effort is not supported by this endpoint');
+      return { text: 'valid' };
+    });
+    const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts', null, null, {
+      modelAttemptLedger: {
+        schema_version: 'route_model_attempt_ledger.v1',
+        max_provider_attempts: 6,
+        logical_rounds: 2,
+        provider_attempts: 5,
+        primary_attempts: 3,
+        fallback_attempts: 1,
+        planning_attempts: 1,
+        compatibility_attempts: 2,
+        reasoning_fallback_attempts: 1,
+        format_fallback_attempts: 1,
+      },
+    });
+
+    assert.strictEqual(calls, 1, 'attempt seven must be rejected before another HTTP request is sent');
+    assert.strictEqual(route.evidence, 'model_calls_exceeded');
+    assert.strictEqual(route.modelAttemptLedger.provider_attempts, 6);
+    assert.strictEqual(route.modelAttemptLedger.logical_rounds, 3);
+  } finally {
+    restore();
+  }
+}
+
+async function testClarificationRerouteContinuesTheSameAttemptLedger() {
+  const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
+  const responses = ['clarify', 'valid'];
+  try {
+    const workflow = makeWorkflow(async () => ({ text: responses.shift() }));
+    const first = await workflow.getEffectiveRoute('edit this', [], 'session-attempts');
+    const second = await workflow.getEffectiveRoute('the second image', [], 'session-attempts', null, null, {
+      modelAttemptLedger: first.modelAttemptLedger,
+    });
+
+    assert.strictEqual(first.modelAttemptLedger.provider_attempts, 1);
+    assert.strictEqual(second.modelAttemptLedger.provider_attempts, 2,
+      'a clarification answer must continue the task ledger instead of starting from zero');
+    assert.strictEqual(second.modelAttemptLedger.logical_rounds, 2);
+    assert.strictEqual(second.modelCalls, 2);
+  } finally {
+    restore();
+  }
+}
+
+module.exports = [
+  testCompatibilityRetriesCountEveryProviderRequest,
+  testProviderBudgetBlocksTheSeventhCompatibilityAttempt,
+  testClarificationRerouteContinuesTheSameAttemptLedger,
+];

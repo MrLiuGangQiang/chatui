@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const routeService = require("../client/services/route-service");
+const requestCompatibility = require("../client/services/request-compatibility");
 const {
   SCHEMA_VERSION,
   loadFixtureSuite,
@@ -16,7 +17,7 @@ const {
 } = require("./lib/intent-routing-evaluation");
 
 const ROOT = path.resolve(__dirname, "..");
-const DEFAULT_FIXTURE = path.join(ROOT, "test/fixtures/intent-routing-eval.v1.json");
+const DEFAULT_FIXTURE = path.join(ROOT, "test/fixtures/intent-routing-eval.v2.json");
 
 function usage() {
   return [
@@ -172,11 +173,24 @@ function auditRoutePayload(payload = {}, apiKey = "") {
   };
 }
 
-async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
+function providerRequestError(response, body = null) {
+  const provider = body?.error && typeof body.error === "object" ? body.error : body;
+  const message = String(provider?.message || `Route model returned HTTP ${response.status}.`);
+  const error = new Error(message);
+  error.code = String(provider?.code || provider?.type || `HTTP_${response.status}`);
+  error.statusCode = Number(response.status) || 0;
+  error.status = error.statusCode;
+  error.error = provider && typeof provider === "object" ? provider : null;
+  return error;
+}
+
+async function requestRouteModelOnce({ endpoint, apiKey, payload, deadlineAt, fetchImpl }) {
+  const remainingMs = Math.max(0, Number(deadlineAt) - Date.now());
+  if (!remainingMs) throw new Error("Route model request timed out before the next compatibility attempt.");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), remainingMs);
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -186,22 +200,44 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs }) {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Route model returned HTTP ${response.status}.`);
-    let body;
-    try {
-      body = await response.json();
-    } catch {
-      throw new Error("Route model returned invalid JSON.");
+    const rawBody = await response.text();
+    let body = null;
+    if (rawBody) {
+      try { body = JSON.parse(rawBody); } catch {
+        if (response.ok) throw new Error("Route model returned invalid JSON.");
+      }
     }
-    const text = String(routeService.extractRouteText(body) || "").trim();
+    if (!response.ok) throw providerRequestError(response, body);
+    const text = String(routeService.extractRouteText(body || {}) || "").trim();
     if (!text) throw new Error("Route model returned an empty decision.");
     return text;
   } catch (error) {
-    if (controller.signal.aborted) throw new Error(`Route model request timed out after ${timeoutMs}ms.`);
+    if (controller.signal.aborted) throw new Error(`Route model request timed out after the shared compatibility deadline.`);
     throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs, fetchImpl = fetch }) {
+  const deadlineAt = Date.now() + timeoutMs;
+  const request = nextPayload => requestRouteModelOnce({
+    endpoint,
+    apiKey,
+    payload: nextPayload,
+    deadlineAt,
+    fetchImpl,
+  });
+  let attempt = request;
+  if (typeof requestCompatibility.requestJsonWithReasoningParamFallback === "function") {
+    const inner = attempt;
+    attempt = nextPayload => requestCompatibility.requestJsonWithReasoningParamFallback(inner, nextPayload);
+  }
+  if (typeof requestCompatibility.requestJsonWithStructuredOutputFallback === "function") {
+    const inner = attempt;
+    attempt = nextPayload => requestCompatibility.requestJsonWithStructuredOutputFallback(inner, nextPayload);
+  }
+  return attempt(payload);
 }
 
 function formatCaseResult(result = {}) {

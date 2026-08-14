@@ -77,6 +77,7 @@ function testRefreshRebuildsGeneratedImageCandidatesWithoutReferenceCache() {
     operation: 'edit_image',
     relation: 'followup',
     goal: '将第三张图片转换为真实风格',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: `i${selected.index}`, role: 'target' }],
   }), {
     input: '将第三张换成真实风格的图片',
@@ -121,6 +122,7 @@ function testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics(
     operation: 'plain_chat',
     relation: 'new',
     goal: '测试用户目标',
+    task_shape: 'single',
     resource_refs: [],
   };
   const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), { input, attachments: [], context });
@@ -156,6 +158,7 @@ function testModelSelectedHistoricalImageEditSurvivesInterveningTextReply() {
     operation: 'edit_image',
     relation: 'followup',
     goal,
+    task_shape: 'single',
     resource_refs: [{ candidate_key: candidate.candidate_key, role: 'target' }],
   };
 
@@ -204,6 +207,7 @@ function testOlderNamedImageMemoryCardCanBeSelectedByTheModel() {
     operation: 'edit_image',
     relation: 'followup',
     goal: '把所选橘猫图片的背景改成雪山。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: candidate.candidate_key, role: 'target' }],
   }), { input, attachments: [], context });
 
@@ -245,6 +249,7 @@ function testModelDeclaredCompositionSelectsOnlyItsContractResources() {
     operation: 'image_reference_gen',
     relation: 'followup',
     goal: '把所选猫和狗合并成一张新图，并排除牛。',
+    task_shape: 'single',
     resource_refs: selected.map(candidate => ({
       candidate_key: catalog.find(item => item.id === candidate.image_id).candidate_key,
       role: 'reference',
@@ -402,6 +407,37 @@ function multiImageCandidateContext(count = 5, messageIndex = 10) {
   };
 }
 
+function testRouteCatalogKeepsDistinctSiblingImagesWithinOneReferenceGroup() {
+  const referenceId = 'imgref-product-posters';
+  const catalog = routeService.buildResourceCandidates([], {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'poster-a', reference_id: referenceId, description: 'warm poster' },
+      { index: 2, source: 'history', image_id: 'poster-b', reference_id: referenceId, description: 'cool poster' },
+    ],
+  });
+
+  assert.deepStrictEqual(
+    catalog.map(candidate => [candidate.candidate_key, candidate.id, candidate.index, candidate.reference_id]),
+    [
+      ['i1', 'poster-a', 1, referenceId],
+      ['i2', 'poster-b', 2, referenceId],
+    ],
+    'a shared result reference is group lineage and must not collapse distinct sibling images',
+  );
+
+  const restoredAliasCatalog = routeService.buildResourceCandidates([], {
+    image_candidates: [
+      { index: 1, source: 'history', image_id: 'legacy-poster', reference_id: 'imgref-one-poster', availability: 'unavailable' },
+      {
+        index: 1, source: 'history', image_id: 'durable-poster', reference_id: 'imgref-one-poster',
+        identity_aliases: ['res:image:legacy-poster', 'legacy-poster'], availability: 'available',
+      },
+    ],
+  });
+  assert.strictEqual(restoredAliasCatalog.length, 1,
+    'two representations connected by an explicit resource identity alias must still deduplicate');
+  assert.strictEqual(restoredAliasCatalog[0].availability, 'available');
+}
 function testNaturalLanguageImageSetSelectionSupportsAllAndDisjointOrdinals() {
   const context = multiImageCandidateContext();
   const cases = [
@@ -475,6 +511,7 @@ module.exports = [
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,
   testSelectedHistoricalUploadedImageRestoresByItsExactRouteId,
   testModelSelectedIndependentTargetsEnterMultiImagePlanningWithoutMissingImageClarification,
+  testRouteCatalogKeepsDistinctSiblingImagesWithinOneReferenceGroup,
   testNaturalLanguageImageSetSelectionSupportsAllAndDisjointOrdinals,
   testNaturalLanguageImageSetSelectionUsesLatestImageGroupInsteadOfMixedHistory,
 ];

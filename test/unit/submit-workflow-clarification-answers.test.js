@@ -103,8 +103,8 @@ function makeFixture({ promptValue = '2', sendChatImpl = null } = {}) {
     scheduleAutoResize: () => {}, setSessionBusy: () => {},
     prepareReplacementResponse: () => null, pendingFeedbackHtml: text => text,
     hasImageAttachments: () => false, normalizeRoute: value => value,
-    getEffectiveRoute: async (input, routeAttachments, _sessionId, _headers, routeContext) => {
-      routed.push({ input, routeAttachments, routeContext });
+    getEffectiveRoute: async (input, routeAttachments, _sessionId, _headers, routeContext, routeOptions) => {
+      routed.push({ input, routeAttachments, routeContext, routeOptions });
       return finalRoute;
     },
     createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
@@ -282,10 +282,46 @@ async function testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff()
   }
 }
 
+
+async function testClarificationRerouteForwardsTheTaskAttemptLedger() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const fixture = makeFixture({ promptValue: '2' });
+    const ledger = {
+      schema_version: 'route_model_attempt_ledger.v1',
+      max_provider_attempts: 6,
+      logical_rounds: 1,
+      provider_attempts: 4,
+      primary_attempts: 3,
+      fallback_attempts: 1,
+      planning_attempts: 0,
+      compatibility_attempts: 2,
+      reasoning_fallback_attempts: 1,
+      format_fallback_attempts: 1,
+    };
+    fixture.session.pendingClarification.routeInfo.modelAttemptLedger = ledger;
+
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+
+    assert.strictEqual(fixture.routed.length, 1);
+    assert.deepStrictEqual(fixture.routed[0].routeOptions.modelAttemptLedger, ledger,
+      'the submit boundary must resume the provider-attempt ledger stored with the pending task');
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
 module.exports = [
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
   testSubmitCompletionCallbacksPublishOneHandoffAndOneCompletion,
   testRelationNewTaskClearsPendingAndSubmitsCurrentPrompt,
   testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff,
+  testClarificationRerouteForwardsTheTaskAttemptLedger,
 ];

@@ -152,13 +152,26 @@ function testEditSubmitAlwaysUsesReplacementPathAndCommitsBeforeRouting() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const unifiedEdit = 'if(initialEditMessageIndex!==null&&isTargetActive())replacement=applyPendingEdit(promptText,{submissionId,messageIndex:initialEditMessageIndex,node:state.editingNode})';
-  const committedReplacement = 'prepareManagedChatJobForLiveItem();await persistTargetMessages()';
+  const committedReplacement = 'prepareManagedChatJobForLiveItem();if(typeof replaceSessionMessages==="function")await replaceSessionMessages(sessionId,state.messages,{lastGeneratedImage:null});else await persistTargetMessages()';
 
   assert.ok(submit.includes(unifiedEdit), 'editing must replace the selected turn regardless of the current chat/image mode');
   assert.ok(app.includes('applyPendingEdit,') && app.includes('async function onSubmit(e){return getSubmitWorkflow().onSubmit(e)}'), 'the root runtime must delegate edit submission to the canonical workflow');
   assert.ok(!submit.includes('state.editingNode&&"chat"===submitMode'), 'image mode must not turn an edit into a newly appended message group');
   assert.ok(submit.includes('editExisting:initialEditMessageIndex!==null') && submit.includes('editMessageIndex:initialEditMessageIndex'), 'pending recovery must retain the edit target identity');
-  assert.ok(submit.includes(committedReplacement), 'the edited canonical turn must commit before route execution or recovery handoff');
+  assert.ok(submit.includes(committedReplacement), 'the edited canonical turn must replace the persisted image result before route execution or recovery handoff');
+}
+
+function testReplacingAnExistingAssistantClearsOldImageResultBeforePersistence() {
+  const messages = [
+    { role: 'user', content: 'old prompt', rawText: 'old prompt', messageIndex: '0' },
+    { role: 'assistant', content: '[图片生成完成] old prompt', rawText: 'old image', html: '<img data-persisted-src="indexeddb://old">', imageContext: '{"attachments":[{"src":"indexeddb://old"}]}', imageJobId: 'old-job', responseIndex: '1' },
+  ];
+  const turn = sessionPersistence.resolveUserMessageTurn(messages, 0, { rawText: 'old prompt' });
+  sessionPersistence.ensureAssistantReplacementSlot(messages, turn, { responseIndex: '1', replacing: true });
+
+  assert.deepStrictEqual(messages[1], {
+    role: 'assistant', content: '', rawText: '', html: '', responseIndex: '1', replacing: true,
+  }, 'editing must replace the old completed image record with a blank pending assistant slot before persistence');
 }
 
 function testResumedSubmitUsesOnlyExplicitNonNegativeIndexes() {
@@ -174,6 +187,7 @@ module.exports = [
   testBlankLegacyIndexesPreserveEveryQuestionAnswerPair,
   testBlankIndexesDoNotCreateDuplicateMessageIdsOrDomIndexes,
   testPendingRecoveryDoesNotTreatBlankIndexAsFirstMessage,
+  testReplacingAnExistingAssistantClearsOldImageResultBeforePersistence,
   testResumedSubmitUsesOnlyExplicitNonNegativeIndexes,
   testReplacementResolverUsesOneCanonicalTurnForEditAndRegenerate,
   testReplacementSlotNeverOverwritesTheNextQuestion,

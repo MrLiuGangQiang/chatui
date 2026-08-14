@@ -171,7 +171,7 @@ function validateChatRequestBody(body, { requestUrl = '', bodyBytes = 0, maxDeco
 async function extractProxyRequest(req, res) {
   let body;
   try {
-    const isImageJob = String(req?.url || '').startsWith('/api/image-jobs');
+    const isImageJob = /^\/api\/(?:image-jobs|image-batches)/.test(String(req?.url || ''));
     // A Responses file data URI expands by roughly 4/3 in JSON. Read against one
     // absolute ceiling, then enforce the narrower plain/image/file tier below.
     const rawBody = await readBody(req, { maxBytes: isImageJob ? IMAGE_BODY_BYTES : CHAT_FILE_BODY_BYTES });

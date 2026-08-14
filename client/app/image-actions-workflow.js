@@ -50,7 +50,7 @@
 
     function bindImagePreview(e){
       e.querySelectorAll("[data-download-image]").forEach(bindImageDownload),e.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),e.querySelectorAll("[data-share-image]").forEach(bindImageShare);
-      e.querySelectorAll(".content img").forEach(img=>{if("1"!==img.dataset.previewBound){img.dataset.previewBound="1";img.addEventListener("click",()=>openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png"))}});
+      e.querySelectorAll(".content img").forEach(img=>{if(img.classList?.contains?.("clarification-choice-image"))return;if("1"!==img.dataset.previewBound){img.dataset.previewBound="1";img.addEventListener("click",()=>openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png"))}});
       e.querySelectorAll(".generated-image-item").forEach(item=>{if("1"!==item.dataset.previewBound){item.dataset.previewBound="1";item.addEventListener("click",event=>{if(event.target?.closest?.("button,a"))return;const img=item.querySelector("img.generated-thumb");img&&openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png")})}})
     }
 

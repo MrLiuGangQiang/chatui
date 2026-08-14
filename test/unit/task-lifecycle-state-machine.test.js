@@ -299,7 +299,7 @@ function testImageHandoffUsesTheSameClientJobIdentity() {
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   assert.ok(submit.includes('jobKind:"image",stage:"handoff"') && submit.includes('clientJobId:preparedImageJobId'));
-  assert.match(image, /clientImageJobId\s*=\s*t\.clientJobId\s*\|\|\s*makeClientImageJobId\(\)/);
+  assert.match(image, /clientImageJobId\s*=\s*prepared\.jobId\s*\|\|\s*t\.clientJobId\s*\|\|\s*makeClientImageJobId\(\)/);
   assert.strictEqual((image.match(/const e\s*=\s*clientImageJobId;/g) || []).length, 2, 'generation and edit must both reuse the durable preallocated image job id');
 }
 
@@ -319,24 +319,22 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   assert.ok(chat.includes('if(e?.terminalJob){f&&clearChatJob(i);throw e}'), 'terminal chat failures must not leave an auto-resuming failed job');
-  assert.match(image, /catch\s*\(e\)\s*\{\s*(?:if\s*\(batchResultRelease\)\s*\{\s*batchResultRelease\(\);\s*batchResultRelease\s*=\s*null;\s*\}\s*)?if\s*\(e\?\.terminalJob\s*&&\s*!t\.skipDurableSnapshot\)\s*clearDurableImageJob\(\);\s*throw e;?\s*\}/, 'terminal image failures must not leave an auto-resuming failed job');
+  assert.match(image, /catch\s*\(e\)\s*\{\s*if\s*\(e\?\.terminalJob\s*&&\s*!t\.skipDurableSnapshot\)\s*clearDurableImageJob\(\);\s*throw e;?\s*\}/, 'terminal image failures must not leave an auto-resuming failed job');
   assert.match(resume, /terminal\s*&&\s*\(\s*clearImageJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
   assert.match(resume, /terminal\s*&&\s*\(\s*clearChatJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
   assert.match(resume, /taskOutcome\s*\?\s*settleSessionTask\(e,\s*\{\s*\.\.\.options/,
     'terminal recovery failures must settle the canonical task before releasing transient owners');
-  assert.ok(/n\s*=\s*completedJobData\(t\)/.test(resume) && /n\s*=\s*completedJobData\(e\)/.test(resume),
+  assert.ok((resume.match(/n\s*=\s*completedJobData\(existingJob\)/g) || []).length >= 2,
     'polling an already failed image job must classify it as terminal instead of trying to restart the same failed id forever');
 }
 
 function testImageCompletionCommitsBeforeClearingRecoveryOwner() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
-  const normalCompletion = image.indexOf('if (!isBatchChild) {');
-  const normalSave = image.indexOf('await saveSessionMessages(n, i.messages || []);', normalCompletion);
-  const release = image.indexOf('(batchResultRelease && (batchResultRelease(), batchResultRelease = null));', normalSave);
-  const clear = image.indexOf('(t.skipDurableSnapshot || clearDurableImageJob()', release);
-  assert.ok(normalCompletion >= 0 && normalSave > normalCompletion && release > normalSave && clear > release,
-    'normal image completion must durably save its reconciled canonical message before releasing its commit lock and clearing its job');
+  const normalSave = image.indexOf('await saveSessionMessages(n, i.messages || []);');
+  const clear = image.indexOf('(t.skipDurableSnapshot || clearDurableImageJob(), notifyInterfaceCompleted(), playDoneSound());', normalSave);
+  assert.ok(normalSave >= 0 && clear > normalSave,
+    'normal image completion must durably save its reconciled canonical message before clearing its job and publishing completion');
   assert.match(resume, /completedSession\s*&&\s*\(?await saveSessionMessages\(e,\s*completedSession\.messages\s*\|\|\s*\[\]\)\)?;\s*\(?clearImageJob\(e\)/,
     'resumed image completion must durably commit reconciliation before clearing its job');
 }

@@ -19,6 +19,7 @@ function textToImageIntent({ goal = INPUT, messageKeys = [], relation = 'followu
     operation: 'text_to_image',
     relation,
     goal,
+    task_shape: 'single',
     resource_refs: messageKeys.map(candidateKey => ({ candidate_key: candidateKey, role: 'context' })),
   };
 }
@@ -122,6 +123,7 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
     operation: 'plain_chat',
     relation: 'followup',
     goal,
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'context' }],
   }), {
     input: '简洁一点',
@@ -134,9 +136,9 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('判断顺序 operation→relation→resource_refs→goal'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('resource_refs 只绑必需、最少且明确的资源'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('goal 是下游执行模型唯一指令'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('顺序operation→resource_refs→relation→task_shape→goal'));
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_refs[^。\n]*只绑[^。\n]*必需[^。\n]*最少[^。\n]*明确/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('正例："将目标图中的猫改为白色，保留构图不变。"'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference 主体/构图参考'));
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference 画风/配色参考'));

@@ -359,6 +359,109 @@ function testResolvedImageChoiceSeedsTheRerouteCatalogAndExecutionMedia() {
   assert.strictEqual(media.imageInputs[0].routeResourceId, selectedImage.resource_id);
 }
 
+function testResolvedClarificationBindingSurvivesModelRouteWithoutMediaRef() {
+  const prompt = '把猫改成蓝色';
+  const selectedImage = {
+    id: 'img_imgref_cat-result_2',
+    resource_id: 'res:image:img_imgref_cat-result_2',
+    reference_id: 'imgref_cat-result',
+    source: 'history',
+    index: 2,
+    label: '猫',
+  };
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-model-abstention',
+    messages: [{ role: 'user', content: prompt }],
+    clarificationText: '请选择要继续处理的图片。',
+    routeInfo: {
+      operationType: 'image_reference_gen',
+      relation: 'followup',
+      resources: [],
+      clarificationSlots: [{
+        key: 'r1', type: 'image', role: 'reference', reason: 'ambiguous', choices: [{
+          key: 'c1', ...selectedImage,
+        }],
+      }],
+    },
+  });
+  const answer = clarificationAnswer.createClarificationAnswer({
+    clarificationId: pending.id,
+    answers: [{ resource_key: 'r1', choice_key: 'c1' }],
+    freeText: '猫',
+  });
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  const context = clarificationAnswer.buildClarificationRouteContext({ pending: applied.pending });
+
+  // The choice is authoritative. A model route that omits media refs must not
+  // discard it and ask the user to choose the same image again.
+  const resumed = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    goal: '以所选猫图片为参考，生成一张蓝色主题的完整图片。',
+    task_shape: 'single',
+    resource_refs: [],
+  }), { input: prompt, attachments: [], context }).route;
+
+  assert.ok(resumed);
+  assert.strictEqual(resumed.needClarification, false);
+  assert.strictEqual(routeService.isRouteDispatchable(resumed), true);
+  assert.deepStrictEqual(resumed.executionResources.references.map(resource => resource.resource_id), [
+    selectedImage.resource_id,
+  ]);
+}
+
+function testFirstEditClarificationSelectionSurvivesModelAbstention() {
+  const prompt = '把选中的猫改成蓝色';
+  const selectedImage = {
+    id: 'img_imgref_cat-result_1',
+    resource_id: 'res:image:img_imgref_cat-result_1',
+    reference_id: 'imgref_cat-result',
+    source: 'history',
+    index: 1,
+    label: '猫',
+  };
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-first-edit-target',
+    messages: [{ role: 'user', content: prompt }],
+    clarificationText: '请选择要编辑的图片。',
+    routeInfo: {
+      operationType: 'edit_image',
+      relation: 'followup',
+      resources: [],
+      clarificationSlots: [{
+        key: 'r1', type: 'image', role: 'target', reason: 'ambiguous', choices: [{
+          key: 'c1', ...selectedImage,
+        }],
+      }],
+    },
+  });
+  const answer = clarificationAnswer.createClarificationAnswer({
+    clarificationId: pending.id,
+    answers: [{ resource_key: 'r1', choice_key: 'c1' }],
+    freeText: '猫',
+  });
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  const context = clarificationAnswer.buildClarificationRouteContext({ pending: applied.pending });
+
+  // This is the first resumed edit after choosing a target. The route model
+  // may abstain from repeating resource_refs, but it must not turn the
+  // authoritative selection into a second "provide or choose an image" prompt.
+  const resumed = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'followup',
+    goal: '将已选猫图片的毛色改成蓝色。',
+    task_shape: 'single',
+    resource_refs: [],
+  }), { input: prompt, attachments: [], context }).route;
+
+  assert.ok(resumed);
+  assert.strictEqual(resumed.needClarification, false);
+  assert.strictEqual(routeService.isRouteDispatchable(resumed), true);
+  assert.deepStrictEqual(resumed.executionResources.targets.map(resource => resource.resource_id), [
+    selectedImage.resource_id,
+  ]);
+}
+
 function testResolvedClarificationPreservesEstablishedBindingsWithoutModelReplay() {
   const prompt = '把猫和鱼合并成一张图';
   const established = {
@@ -422,6 +525,7 @@ function testModelImageSelectionRemainsAuthoritativeOverInputIndex() {
     operation: 'edit_image',
     relation: 'new',
     goal: '将所选图片变成黑白。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i2', role: 'target' }],
   };
   const result = routeService.inspectModelRouteResult(JSON.stringify(intent), {
@@ -443,6 +547,7 @@ function testModelFileSelectionRemainsAuthoritativeOverInputIndex() {
     operation: 'file_qa',
     relation: 'new',
     goal: '总结所选文件。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'f2', role: 'attachment' }],
   };
   const result = routeService.inspectModelRouteResult(JSON.stringify(intent), {
@@ -468,6 +573,7 @@ function testModelCandidateKeyIsAuthoritativeAndUnknownKeyFailsClosed() {
     operation: 'edit_image',
     relation: 'new',
     goal: '将所选图片变成黑白。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i2', role: 'target' }],
   }), {
     input: 'edit res:image:image-1 and make it monochrome', attachments, context: {},
@@ -480,6 +586,7 @@ function testModelCandidateKeyIsAuthoritativeAndUnknownKeyFailsClosed() {
     operation: 'edit_image',
     relation: 'new',
     goal: '将所选图片变成黑白。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i9', role: 'target' }],
   }), {
     input: 'edit res:image:image-1 and make it monochrome', attachments, context: {},
@@ -494,6 +601,7 @@ function testModelFileSelectionRemainsAuthoritativeOverFilename() {
     operation: 'file_qa',
     relation: 'new',
     goal: '总结所选文件。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'f2', role: 'attachment' }],
   };
   const result = routeService.inspectModelRouteResult(JSON.stringify(intent), {
@@ -598,6 +706,7 @@ function testModelSelectedQuotedImageProjectsWithoutLocalFallback() {
     operation: 'image_qa',
     relation: 'followup',
     goal: '分析所选引用图片。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i2', role: 'source' }],
   }), {
     input: '这个呢',
@@ -670,6 +779,8 @@ module.exports = [
   testImageEditWithoutAResourceFailsClosedBeforeDispatch,
   testArgumentClarificationUsesCanonicalParameterSlotsAndReplaysTheSelection,
   testResolvedImageChoiceSeedsTheRerouteCatalogAndExecutionMedia,
+  testResolvedClarificationBindingSurvivesModelRouteWithoutMediaRef,
+  testFirstEditClarificationSelectionSurvivesModelAbstention,
   testResolvedClarificationPreservesEstablishedBindingsWithoutModelReplay,
   testFileInputRoleAliasIsCanonicalizedToAttachment,
   testModelImageSelectionRemainsAuthoritativeOverInputIndex,

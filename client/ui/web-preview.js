@@ -18,15 +18,25 @@
 
     function getElement(id) { return documentRef.getElementById(id); }
 
+    function previewKind(candidate = {}) {
+      return candidate?.kind === 'svg' ? 'svg' : 'html';
+    }
+
+    function previewContentType(candidate = {}) {
+      return previewKind(candidate) === 'svg' ? 'image/svg+xml;charset=utf-8' : 'text/html;charset=utf-8';
+    }
+
     function previewFilename(candidate) {
+      const isSvg = previewKind(candidate) === 'svg';
       let name = String(candidate?.title || '')
         .replace(/[\\/:*?\"<>|\u0000-\u001f]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .replace(/\.html?$/i, '')
+        .replace(/\.(?:html?|svg)$/i, '')
         .replace(/[. ]+$/g, '');
-      if (!name || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name = 'web-preview';
-      return `${name.slice(0, 100) || 'web-preview'}.html`;
+      const fallback = isSvg ? 'svg-preview' : 'web-preview';
+      if (!name || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name = fallback;
+      return `${name.slice(0, 100) || fallback}.${isSvg ? 'svg' : 'html'}`;
     }
 
     function downloadPreview(candidate) {
@@ -35,7 +45,7 @@
       const schedule = deps.setTimeout || root?.setTimeout || setTimeout;
       if (!candidate?.source || typeof core.buildPreviewDocument !== 'function'
         || typeof BlobRef !== 'function' || typeof URLRef?.createObjectURL !== 'function') return false;
-      const blob = new BlobRef([core.buildPreviewDocument(candidate.source)], { type: 'text/html;charset=utf-8' });
+      const blob = new BlobRef([core.buildPreviewDocument(candidate.source)], { type: previewContentType(candidate) });
       const objectUrl = URLRef.createObjectURL(blob);
       const link = documentRef.createElement('a');
       link.href = objectUrl;
@@ -110,17 +120,21 @@
       card.dataset.webPreviewId = candidate.id || '';
       card.dataset.copyExclude = '1';
 
+      const isSvg = previewKind(candidate) === 'svg';
+      const label = isSvg ? 'SVG 图形' : 'HTML 网页';
       const icon = documentRef.createElement('span');
       icon.className = 'web-preview-card-icon';
-      icon.textContent = '</>';
+      icon.textContent = isSvg ? 'SVG' : '</>';
       icon.setAttribute('aria-hidden', 'true');
 
       const copy = documentRef.createElement('div');
       copy.className = 'web-preview-card-copy';
       const title = documentRef.createElement('strong');
-      title.textContent = candidate.title || '\u7f51\u9875\u9884\u89c8';
+      title.textContent = candidate.title || (isSvg ? '\u56fe\u5f62\u9884\u89c8' : '\u7f51\u9875\u9884\u89c8');
       const description = documentRef.createElement('span');
-      description.textContent = '\u68c0\u6d4b\u5230\u5b8c\u6574 HTML \u7f51\u9875\uff0c\u53ef\u5728\u9694\u79bb\u73af\u5883\u4e2d\u9884\u89c8\u3002';
+      description.textContent = isSvg
+        ? '检测到完整 SVG 图形，可在隔离环境中预览或下载原始 SVG 文件。'
+        : '检测到完整 HTML 网页，可在隔离环境中预览。';
       copy.append(title, description);
 
       const actions = documentRef.createElement('div');
@@ -130,8 +144,8 @@
       open.type = 'button';
       open.className = 'web-preview-open-btn';
       open.dataset.webPreviewId = candidate.id || '';
-      open.title = '\u5728\u65b0\u7a97\u53e3\u6253\u5f00\u7f51\u9875';
-      open.setAttribute('aria-label', `\u5728\u65b0\u7a97\u53e3\u6253\u5f00\u7f51\u9875: ${candidate.title || 'HTML \u7f51\u9875'}`);
+      open.title = `在新窗口打开${label}`;
+      open.setAttribute('aria-label', `在新窗口打开${label}: ${candidate.title || label}`);
       open.append(createActionIcon('open'));
       open.addEventListener('click', event => {
         // A streamed message can still be finishing its DOM work when the card becomes clickable.
@@ -145,8 +159,8 @@
       download.type = 'button';
       download.className = 'web-preview-download-btn';
       download.dataset.webPreviewId = candidate.id || '';
-      download.title = '\u4e0b\u8f7d\u7f51\u9875';
-      download.setAttribute('aria-label', `\u4e0b\u8f7d\u7f51\u9875: ${candidate.title || 'HTML \u7f51\u9875'}`);
+      download.title = `下载${label}`;
+      download.setAttribute('aria-label', `下载${label}: ${candidate.title || label}`);
       download.append(createActionIcon('download'));
       download.addEventListener('click', event => {
         event.preventDefault();
@@ -195,7 +209,7 @@
       const title = getElement('webPreviewTitle');
       if (!modal || !frame) return false;
       bindModalEvents();
-      title && (title.textContent = candidate.title || '\u7f51\u9875\u9884\u89c8');
+      title && (title.textContent = candidate.title || (previewKind(candidate) === 'svg' ? '\u56fe\u5f62\u9884\u89c8' : '\u7f51\u9875\u9884\u89c8'));
       modal.__webPreviewCandidate = candidate;
       getElement('webPreviewDownload') && (getElement('webPreviewDownload').disabled = false);
       modal.__webPreviewReturnFocus = trigger || documentRef.activeElement;

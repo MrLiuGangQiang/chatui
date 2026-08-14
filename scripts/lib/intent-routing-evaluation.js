@@ -6,12 +6,13 @@ const routeService = require("../../client/services/route-service");
 const capabilityRegistry = require("../../shared/capability-registry");
 const dispatchContractContract = require("../../shared/dispatch-contract");
 
-const SCHEMA_VERSION = "intent-routing-eval.v1";
+const SCHEMA_VERSION = "intent-routing-eval.v2";
 const VALID_OPERATIONS = new Set([
   "plain_chat", "file_qa", "multimodal_qa", "image_qa", "image_compare",
   "ocr", "text_to_image", "image_reference_gen", "edit_image",
 ]);
 const VALID_RELATIONS = new Set(["new", "followup", "continuation"]);
+const VALID_TASK_SHAPES = new Set(["single", "multi"]);
 const VALID_RESOURCE_TYPES = new Set(["image", "file", "text", "message"]);
 const VALID_RESOURCE_SOURCES = new Set(["current", "quoted", "history", "context"]);
 const VALID_RESOURCE_ROLES = new Set([
@@ -27,10 +28,11 @@ const VALID_RESOURCE_MATCH_MODES = new Set(["exact", "contains", "media_exact"])
 const SCORE_WEIGHTS = Object.freeze({
   valid_route: 10,
   operation: 15,
+  task_shape: 5,
   goal: 15,
   readiness: 10,
   relation: 10,
-  resources: 20,
+  resources: 15,
   clarification: 10,
   dispatch_contract: 10,
 });
@@ -81,6 +83,7 @@ function validateResourceExpectation(resource = {}, label = "resource") {
 function validateExpected(expected = {}, label = "expected") {
   if (!isPlainObject(expected)) fail(`${label} must be an object.`);
   if (!VALID_OPERATIONS.has(expected.operation)) fail(`${label}.operation is invalid.`);
+  if (!VALID_TASK_SHAPES.has(expected.task_shape)) fail(`${label}.task_shape is invalid.`);
   if (!(typeof expected.relation === "string" ? VALID_RELATIONS.has(expected.relation) : (Array.isArray(expected.relation) && expected.relation.length && expected.relation.every(r => VALID_RELATIONS.has(r))))) fail(`${label}.relation is invalid.`);
   if (!isPlainObject(expected.goal)
       || !Array.isArray(expected.goal.concepts)
@@ -193,6 +196,7 @@ function routeSnapshot(route = null) {
   return {
     operation: scalar(route.operationType),
     api: scalar(route.operationApi || route.api),
+    task_shape: scalar(route.taskShape),
     relation: scalar(route.relation),
     goal: scalar(route.userGoal || route.executionPrompt || route.dispatchContract?.arguments?.prompt),
     execution_goal: scalar(route.dispatchContract?.arguments?.prompt || route.executionPrompt),
@@ -261,12 +265,13 @@ function relationMatchesExpectation(expectedRelation, actualRelation) {
 
 function modelSemanticsMatchExpectation(caseDefinition = {}, intent = null) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
-    return { present: false, operation: false, relation: false, goal: false };
+    return { present: false, operation: false, task_shape: false, relation: false, goal: false };
   }
   const expected = caseDefinition.expected || {};
   return {
     present: true,
     operation: scalar(intent.operation) === scalar(expected.operation),
+    task_shape: scalar(intent.task_shape) === scalar(expected.task_shape),
     relation: relationMatchesExpectation(expected.relation, intent.relation),
     goal: goalMatchesExpectation(expected.goal, intent.goal),
   };
@@ -277,6 +282,7 @@ function validateCompiledRoute(route = null) {
   const compiled = routeSnapshot(route);
   if (!compiled) return { valid: false, errors: ["compiled route is not an object"] };
   if (!VALID_RELATIONS.has(compiled.relation)) errors.push("relation is invalid");
+  if (!VALID_TASK_SHAPES.has(compiled.task_shape)) errors.push("task_shape is invalid");
   if (!VALID_OPERATIONS.has(compiled.operation) || !capabilityRegistry.capabilityFor(compiled.operation)) errors.push("operation is invalid");
   if (!["ready", "needs_clarification"].includes(compiled.readiness)) errors.push("readiness is invalid");
   const keys = new Set();
@@ -294,8 +300,14 @@ function validateCompiledRoute(route = null) {
   }
   const clarification = compiled.clarification;
   if (compiled.readiness === "ready") {
-    if (!dispatchContractContract.hasExactDispatchContract(compiled.dispatch_contract)) errors.push("ready route requires an exact dispatch_contract.v1");
-    if (!compiled.dispatch_authorized) errors.push("ready route must authorize dispatch");
+    const planningRoute = compiled.task_shape === "multi" && routeService.shouldRequestImagePlan(route);
+    if (planningRoute) {
+      if (compiled.dispatch_contract !== null) errors.push("planning route cannot authorize a pre-plan dispatch contract");
+      if (compiled.dispatch_authorized) errors.push("planning route cannot authorize dispatch before image planning");
+    } else {
+      if (!dispatchContractContract.hasExactDispatchContract(compiled.dispatch_contract)) errors.push("ready route requires an exact dispatch_contract.v1");
+      if (!compiled.dispatch_authorized) errors.push("ready route must authorize dispatch");
+    }
     if (clarification.question || clarification.unresolved_resources.length) errors.push("ready route cannot retain clarification state");
   } else {
     if (compiled.dispatch_contract !== null) errors.push("clarification route cannot contain an execution plan");
@@ -371,6 +383,9 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
     operation: validRoute
       && compiled.operation === expected.operation
       && modelSemantics.operation,
+    task_shape: validRoute
+      && compiled.task_shape === expected.task_shape
+      && modelSemantics.task_shape,
     goal: validRoute
       && goalMatchesExpectation(expected.goal, compiled.goal)
       && (expectsClarification || goalMatchesExpectation(expected.goal, compiled.execution_goal))
@@ -385,7 +400,10 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
     clarification: validRoute && clarificationMatchesExpectation(expected.clarification, compiled),
     dispatch_contract: validRoute && (expectsClarification
       ? compiled.dispatch_contract === null
-      : dispatchContractContract.hasExactDispatchContract(compiled.dispatch_contract)),
+      : expected.task_shape === "multi"
+        ? compiled.dispatch_contract === null
+          && routeService.shouldRequestImagePlan(route)
+        : dispatchContractContract.hasExactDispatchContract(compiled.dispatch_contract)),
   };
   const score = Object.entries(SCORE_WEIGHTS).reduce((total, [key, weight]) => total + (checks[key] ? weight : 0), 0);
   const failureReasons = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
@@ -509,6 +527,7 @@ module.exports = {
   SCHEMA_VERSION,
   SCORE_WEIGHTS,
   VALID_OPERATIONS,
+  VALID_TASK_SHAPES,
   validateCompiledRoute,
   validateFixtureSuite,
   loadFixtureSuite,

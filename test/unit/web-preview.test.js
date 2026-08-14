@@ -248,13 +248,56 @@ function testWebPreviewCardsKeepMultiplePagesIndependent() {
   }
 }
 
+function testSvgPreviewDetectsFencedAndRawDocuments() {
+  const fenced = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><title>Badge</title><rect width="100" height="60" fill="red"/></svg>';
+  const fencedCandidates = core.extractWebPreviewCandidates(`Here is an icon:\n\`\`\`svg\n${fenced}\n\`\`\``);
+  assert.strictEqual(fencedCandidates.length, 1);
+  assert.strictEqual(fencedCandidates[0].kind, 'svg');
+  assert.strictEqual(fencedCandidates[0].title, 'Badge');
+  assert.strictEqual(fencedCandidates[0].origin, 'fence');
+
+  const rawCandidates = core.extractWebPreviewCandidates(fenced);
+  assert.strictEqual(rawCandidates.length, 1);
+  assert.strictEqual(rawCandidates[0].kind, 'svg');
+  assert.strictEqual(core.looksLikeSvgDocument(fenced), true);
+  assert.strictEqual(core.looksLikeSvgDocument('<svg><rect></svg> trailing'), false);
+}
+
+function testSvgPreviewRendersAndDownloadsAsSvg() {
+  const { dom, controller, blobs, clicks, restore } = createDownloadTestEnvironment();
+  try {
+    const message = dom.window.document.querySelector('.message');
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><title>Sales chart</title><circle cx="30" cy="30" r="20"/></svg>';
+    assert.strictEqual(controller.syncMessagePreviews(message, ['```svg', source, '```'].join('\n')), 1);
+    const card = message.querySelector('[data-web-preview-card="1"]');
+    assert.ok(card);
+    assert.match(card.textContent, /SVG/);
+    assert.match(card.querySelector('.web-preview-open-btn').title, /SVG/);
+    assert.match(card.querySelector('.web-preview-download-btn').title, /SVG/);
+
+    card.querySelector('.web-preview-open-btn').click();
+    const frame = dom.window.document.getElementById('webPreviewFrame');
+    assert.strictEqual(frame.getAttribute('srcdoc'), source);
+
+    card.querySelector('.web-preview-download-btn').click();
+    assert.strictEqual(blobs.length, 1);
+    assert.strictEqual(blobs[0].parts[0], source);
+    assert.strictEqual(blobs[0].options.type, 'image/svg+xml;charset=utf-8');
+    assert.deepStrictEqual(clicks[0], { href: 'blob:preview-1', download: 'Sales chart.svg' });
+  } finally {
+    restore();
+  }
+}
+
 module.exports = [
   testWebPreviewDetectsFullHtmlResponsesWithoutTreatingSnippetsAsPages,
+  testSvgPreviewDetectsFencedAndRawDocuments,
   testWebPreviewKeepsInteractiveDocumentContent,
   testWebPreviewDetectsEachCompletePageInOneResponse,
   testWebPreviewDialogHasNoVisualBorder,
   testWebPreviewOpensInNewWindowAndKeepsThePageSandboxed,
   testWebPreviewUiRendersInteractiveSandboxedIframe,
   testWebPreviewDownloadsTheActivePageFromCardAndModal,
+  testSvgPreviewRendersAndDownloadsAsSvg,
   testWebPreviewCardsKeepMultiplePagesIndependent,
 ];

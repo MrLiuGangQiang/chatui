@@ -122,6 +122,7 @@ async function testCanonicalPlanPromptWinsOverSelectorTokensAndPersistsAsExecuti
     cloneMessageList: messages => messages.map(message => ({ ...message })),
     saveSessionMessages: async (_sessionId, messages) => {
       session.messages = messages.map(message => ({ ...message }));
+      state.messages = session.messages.map(message => ({ ...message }));
     },
     reconcileSuccessfulImageResult: noop,
     playDoneSound: noop,

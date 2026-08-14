@@ -11,6 +11,7 @@ function routeIntent(operation, relation = 'new', resourceRefs = [], goal = `处
     operation,
     relation,
     goal,
+    task_shape: 'single',
     resource_refs: resourceRefs,
   };
 }
@@ -147,7 +148,7 @@ function testModelOperationIsNotOverriddenByLocalIntentRules() {
   assert.strictEqual(result.route.operationType, 'plain_chat');
   assert.strictEqual(result.route.relation, 'followup');
   assert.deepStrictEqual(result.route.resources, []);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '提取这图里面的文字');
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '回答用户当前的文本问题。');
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 

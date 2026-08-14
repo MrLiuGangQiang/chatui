@@ -10,6 +10,7 @@ function intent(overrides = {}) {
     operation,
     relation: String(overrides.relation || 'followup'),
     goal: String(overrides.goal || '执行模型已解析的当前任务。'),
+    task_shape: String(overrides.taskShape || 'single'),
     resource_refs: Array.isArray(overrides.resourceRefs) ? overrides.resourceRefs : [],
   };
 }
@@ -200,9 +201,9 @@ function testExplicitNewImageRequestRemainsModelDirected() {
 
 function testPromptDeclaresContextAsEvidence() {
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates.*context.*事实/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /followup 依赖历史或修改\/纠正\/补充成果/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择优先级：先确定operation所需的全部资源角色/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /对每个角色分别按P1→P5选择/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /candidate_key回查source[^。]*followup/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择[^。\n]*operation[^。\n]*必需角色/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /各角色按P1→P5/);
   assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 2200);
 }
 

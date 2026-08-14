@@ -1,8 +1,8 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
-const routingFixture = require('../fixtures/intent-routing-eval.v1.json');
+const routingFixture = require('../fixtures/intent-routing-eval.v2.json');
 
 
 function fixtureCase(id) {
@@ -25,8 +25,8 @@ function currentImage(index, id, description) {
 
 function testPromptKeepsExecutionGoalSeparateFromClarificationUi() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /goal只保留最终任务，不包含澄清问题/);
-  assert.match(prompt, /澄清问题由执行层/);
+  assert.match(prompt, /不写[^。\n]*澄清问题/);
+  assert.match(prompt, /执行层(?:澄清|询问)/);
   assert.doesNotMatch(prompt, /goal保留真实任务\+附澄清问题|goal写清真实任务\+澄清点|歧义时goal[^。\n]*澄清问题/);
 
   const goal = '将目标图片中的猫背景改为白色，保留主体和构图不变。';
@@ -34,6 +34,7 @@ function testPromptKeepsExecutionGoalSeparateFromClarificationUi() {
     operation: 'edit_image',
     relation: 'followup',
     goal,
+    task_shape: 'single',
     resource_refs: [],
   }), {
     input: '把猫的背景改成白色。',
@@ -62,9 +63,9 @@ function testPromptKeepsExecutionGoalSeparateFromClarificationUi() {
 
 function testPromptAppliesResourcePriorityPerRequiredRole() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /先确定operation所需的全部资源角色/);
-  assert.match(prompt, /对每个角色分别按P1→P5选择/);
-  assert.match(prompt, /只停止该角色[^。]*继续解析其他必需角色/);
+  assert.match(prompt, /资源选择[^。\n]*operation[^。\n]*必需角色/);
+  assert.match(prompt, /各角色按P1→P5/);
+  assert.match(prompt, /命中只停该角色[^。]*续查其他角色/);
   assert.doesNotMatch(prompt, /满足P1则不再看P2-P5/);
 
   const context = {
@@ -90,6 +91,7 @@ function testPromptAppliesResourcePriorityPerRequiredRole() {
     operation: 'edit_image',
     relation: 'new',
     goal: '使用指定蒙版修改本轮产品图，保留产品主体。',
+    task_shape: 'single',
     resource_refs: [
       { candidate_key: target.candidate_key, role: 'target' },
       { candidate_key: mask.candidate_key, role: 'mask' },
@@ -107,9 +109,30 @@ function testPromptAppliesResourcePriorityPerRequiredRole() {
   );
 }
 
+
+function testPromptRequiresHistoricalTextEvidenceBinding() {
+  const prompt = routeService.ROUTE_SYSTEM_PROMPT;
+  assert.match(prompt, /resource_refs按执行事实(?:绑定)?(?:，不按|而非)relation/);
+  assert.match(prompt, /(?:禁止仅|勿)因followup\/continuation绑(?:定)?mN/);
+  assert.match(prompt, /goal事实来自quoted\/history正文[^。\n]*绑(?:对应)?mN=context/);
+  assert.match(prompt, /即使已消解/);
+  assert.match(prompt, /goal不能替代(?:资源)?证据/);
+
+  for (const id of [
+    'quoted-text-to-image-binds-message-on-first-route',
+    'quoted-message-rewrite-binds-only-the-quoted-text',
+  ]) {
+    const fixture = fixtureCase(id);
+    assert.strictEqual(fixture.expected.relation, 'followup');
+    assert.ok(fixture.expected.resources.items.some(item => item.type === 'message' && item.role === 'context'),
+      `${id} must keep the quoted message as execution evidence`);
+  }
+}
+
 function testPromptRequiresSelfContainedReferenceGenerationGoal() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /text_to_image和image_reference_gen的goal必须是独立完整、可直接执行的生图指令/);
+  assert.match(prompt, /图片goal须独立可执行/);
+  assert.match(prompt, /未提供的创作要素保持未指定/);
   assert.match(prompt, /不得只写[^。]*(?:基于这个生成|参考上述内容生成|继续生成)/);
 
   const context = {
@@ -120,11 +143,12 @@ function testPromptRequiresSelfContainedReferenceGenerationGoal() {
   const catalog = routeService.buildRouteResourceCandidates({ attachments: [], context, input: '参考这张图生成' });
   const reference = catalog.find(candidate => candidate.id === 'style-ref');
   assert.ok(reference);
-  const goal = '采用参考图片的蓝紫渐变配色，生成一张布局简洁、留白充足的移动端落地页视觉稿。';
+  const goal = '采用参考图片的蓝紫渐变配色，生成一张移动端视觉稿。';
   const inspected = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'image_reference_gen',
     relation: 'new',
     goal,
+    task_shape: 'single',
     resource_refs: [{ candidate_key: reference.candidate_key, role: 'style_reference' }],
   }), {
     input: '参考这张图生成',
@@ -144,5 +168,6 @@ function testPromptRequiresSelfContainedReferenceGenerationGoal() {
 module.exports = [
   testPromptKeepsExecutionGoalSeparateFromClarificationUi,
   testPromptAppliesResourcePriorityPerRequiredRole,
+  testPromptRequiresHistoricalTextEvidenceBinding,
   testPromptRequiresSelfContainedReferenceGenerationGoal,
 ];

@@ -31,6 +31,7 @@ function modelPlainChat(relation = 'new') {
     operation: 'plain_chat',
     relation,
     goal: '处理当前聊天请求',
+    task_shape: 'single',
     resource_refs: [],
   });
 }

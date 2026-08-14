@@ -51,7 +51,8 @@ async function testUnconfiguredIntentModelFailsClosed() {
       }],
     });
 
-    assert.strictEqual(route.readiness, 'needs_clarification');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.strictEqual(route.outcome, 'configuration_error');
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.strictEqual(route.dispatchContract, null);
     assert.strictEqual(route.evidence, 'route_model_unconfigured');
@@ -77,8 +78,9 @@ async function testUnconfiguredIntentModelAlsoBlocksPlainChat() {
 
     const route = await workflow.getEffectiveRoute('解释一下什么是向量数据库', [], 'session-plain');
     assert.strictEqual(route.operationType, 'plain_chat');
-    assert.strictEqual(route.api, 'clarify');
-    assert.strictEqual(route.readiness, 'needs_clarification');
+    assert.strictEqual(route.api, 'route_error');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.strictEqual(route.outcome, 'configuration_error');
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.strictEqual(route.dispatchContract, null);
     assert.strictEqual(route.evidence, 'route_model_unconfigured');
@@ -126,7 +128,8 @@ async function testIntentTimeoutFailsClosedWithoutSelectingQuotedOrHistoricalMed
     }, { deadlineMs: 5 });
 
     assert.strictEqual(requestAborted, true);
-    assert.strictEqual(route.readiness, 'needs_clarification');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.strictEqual(route.outcome, 'transient_error');
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.strictEqual(route.dispatchContract, null);
     assert.strictEqual(route.evidence, 'route_model_timeout');

@@ -1,6 +1,10 @@
 (function initChatUIImageResultReconciliation(root) {
   'use strict';
 
+  const messagePrimitives = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (typeof require === 'function' ? require('../core/message-primitives') : {});
+  const { isDurableImageCompletionMessage, hasPersistedImageResult } = messagePrimitives;
+
   function hasValue(value) {
     return value !== undefined && value !== null && String(value) !== '';
   }
@@ -20,16 +24,15 @@
   }
 
   function isImageCompletionMessage(message) {
-    return message?.role === 'assistant' && /^\[图片(生成|编辑|修改)完成\]/.test(String(message.content || ''));
+    return typeof isDurableImageCompletionMessage === 'function'
+      && isDurableImageCompletionMessage(message);
   }
 
   function isImageCompletionDisplayItem(item) {
-    const html = String(item?.html || '');
-    return item?.role === 'assistant' && !isPending(item) && (
-      /class=["'][^"']*generated-thumb/.test(html)
-      || /data-persisted-src=/.test(html)
-      || /image-download-row/.test(html)
-    );
+    return item?.role === 'assistant'
+      && !isPending(item)
+      && typeof hasPersistedImageResult === 'function'
+      && hasPersistedImageResult(item);
   }
 
   function createAnchor({ item = null, currentItem = null, job = null, responseIndex = -1 } = {}) {
@@ -71,8 +74,12 @@
   function hasSuccessfulImageResult({ session, item = null, job = null, responseIndex = -1 } = {}) {
     if (!session) return false;
     const anchor = createAnchor({ item, job, responseIndex });
-    return (session.messages || []).some((message, index) => isImageCompletionMessage(message) && anchor.matches(message, index))
-      || (session.display || []).some(candidate => isImageCompletionDisplayItem(candidate) && anchor.matches(candidate));
+    // Only a canonical message can survive the refresh projection. A completed
+    // display card is not sufficient because completed display items are pruned
+    // after canonical rendering and must not authorize durable-job cleanup.
+    return (session.messages || []).some((message, index) => (
+      isImageCompletionMessage(message) && anchor.matches(message, index)
+    ));
   }
 
   function reconcileSuccessfulImageResult({ session, currentItem = null, job = null, responseIndex = -1 } = {}) {
@@ -90,6 +97,7 @@
 
     const removedDisplayItems = [];
     session.display = originalDisplay.filter(item => {
+      if (!successfulDisplayItem) return true;
       if (!item || !['assistant', 'error'].includes(item.role) || !anchor.matches(item)) return true;
       const isCurrent = item === currentItem || (currentId && sameValue(item.id, currentId));
       if (isCurrent || item === successfulDisplayItem) return true;
@@ -98,18 +106,17 @@
     });
 
     const originalMessages = Array.isArray(session.messages) ? session.messages : [];
-    const successfulMessage = originalMessages.find((message, index) => (
-      isImageCompletionMessage(message)
-      && anchor.matches(message, index)
-      && (
-        (currentId && sameValue(message.displayItemId, currentId))
-        || (job?.id && sameValue(message.imageJobId, job.id))
-      )
-    )) || originalMessages.find((message, index) => isImageCompletionMessage(message) && anchor.matches(message, index)) || null;
+    const successfulMessages = originalMessages.filter((message, index) => (
+      isImageCompletionMessage(message) && anchor.matches(message, index)
+    ));
+    const successfulMessage = successfulMessages.find(message => (
+      (currentId && sameValue(message.displayItemId, currentId))
+      || (job?.id && sameValue(message.imageJobId, job.id))
+    )) || successfulMessages[0] || null;
 
     const removedMessages = [];
     session.messages = originalMessages.filter((message, index) => {
-      if (!message || message === successfulMessage) return true;
+      if (!successfulMessage || !message || message === successfulMessage) return true;
       if (!['assistant', 'error'].includes(message.role) || !anchor.matches(message, index)) return true;
       removedMessages.push(message);
       return false;

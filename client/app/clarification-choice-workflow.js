@@ -72,9 +72,13 @@
       const message = documentRef.querySelector?.(selector);
       if (!message) return;
       const selected = new Map(pending.clarificationAnswer.answers.map(item => [item.resource_key, item.choice_key]));
+      const slots = pending.routeInfo?.clarificationSlots || [];
+      const application = clarificationAnswer.applyClarificationAnswer?.(pending.clarificationAnswer, slots, { clarificationId: pending.id });
+      const completed = application?.complete === true || !!pending.relationClarification;
       message.querySelectorAll?.('.clarification-choice-button').forEach(button => {
         const pressed = selected.get(String(button.dataset?.resourceKey || '')) === String(button.dataset?.choiceKey || '');
         button.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        button.disabled = completed;
         button.closest('li')?.classList?.toggle('is-selected', pressed);
       });
     }
@@ -134,7 +138,26 @@
       }
     }
 
+    async function onPreviewChoiceClick(event, button) {
+      if (!button || !button.closest?.('#messages')) return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      const source = String(button.dataset?.previewSrc || '').trim();
+      const filename = String(button.dataset?.previewFilename || 'image.png').trim() || 'image.png';
+      if (!source) {
+        deps.toast?.('这张候选图片当前无法预览。');
+        return;
+      }
+      try {
+        await deps.openImagePreview?.(source, filename);
+      } catch (error) {
+        deps.toast?.(error?.message || '图片预览失败，请稍后重试。');
+      }
+    }
+
     async function onChoiceClick(event) {
+      const previewButton = event?.target?.closest?.('.clarification-choice-preview-button');
+      if (previewButton) return onPreviewChoiceClick(event, previewButton);
       const relationButton = event?.target?.closest?.('.clarification-relation-choice-button');
       if (relationButton) return onRelationChoiceClick(event, relationButton);
       const button = event?.target?.closest?.('.clarification-choice-button');

@@ -9,6 +9,8 @@
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const createBoundedIntentRequest = submitWorkflowPolicy.createBoundedIntentRequest;
   const createIntentPipelineCancellation = submitWorkflowPolicy.createIntentPipelineCancellation;
+  const ROUTE_OUTCOMES = submitWorkflowPolicy.ROUTE_OUTCOMES;
+  const normalizeRouteOutcome = submitWorkflowPolicy.normalizeRouteOutcome;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
   const taskConstantsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskConstants')
@@ -16,14 +18,68 @@
     || (typeof require === 'function' ? require('../../shared/task-constants') : {});
 
   const MAX_MODEL_CALLS = Number(taskConstantsModule.MAX_MODEL_CALLS) || 6;
+  const MODEL_ATTEMPT_LEDGER_VERSION = 'route_model_attempt_ledger.v1';
+
+  function nonNegativeInteger(value = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+  }
+
+  function createModelAttemptBudgetError() {
+    const error = new Error('Route model provider-attempt budget exceeded');
+    error.code = 'MODEL_CALL_BUDGET_EXCEEDED';
+    error.modelCallBudgetExceeded = true;
+    return error;
+  }
+
+  function createModelAttemptLedger(seed = null, legacyCalls = 0) {
+    const source = seed && typeof seed === 'object' && !Array.isArray(seed) ? seed : {};
+    const migratedProviderAttempts = Math.max(
+      nonNegativeInteger(source.provider_attempts),
+      nonNegativeInteger(legacyCalls),
+    );
+    const state = {
+      schema_version: MODEL_ATTEMPT_LEDGER_VERSION,
+      max_provider_attempts: MAX_MODEL_CALLS,
+      logical_rounds: nonNegativeInteger(source.logical_rounds),
+      provider_attempts: migratedProviderAttempts,
+      primary_attempts: nonNegativeInteger(source.primary_attempts)
+        || (Object.keys(source).length ? 0 : migratedProviderAttempts),
+      fallback_attempts: nonNegativeInteger(source.fallback_attempts),
+      planning_attempts: nonNegativeInteger(source.planning_attempts),
+      compatibility_attempts: nonNegativeInteger(source.compatibility_attempts),
+      reasoning_fallback_attempts: nonNegativeInteger(source.reasoning_fallback_attempts),
+      format_fallback_attempts: nonNegativeInteger(source.format_fallback_attempts),
+    };
+    const formatKey = payload => String(payload?.response_format?.type || 'plain');
+    return Object.freeze({
+      beginRound(descriptor = {}, payload = {}) {
+        if (state.provider_attempts >= MAX_MODEL_CALLS) throw createModelAttemptBudgetError();
+        state.logical_rounds += 1;
+        return {
+          phase: String(descriptor.phase || 'routing'),
+          modelRole: String(descriptor.modelRole || 'primary'),
+          providerAttempts: 0,
+          originalReasoning: !!payload?.reasoning_effort,
+          originalFormat: formatKey(payload),
+        };
+      },
+      recordProviderAttempt(round = {}, payload = {}) {
+        if (state.provider_attempts >= MAX_MODEL_CALLS) throw createModelAttemptBudgetError();
+        round.providerAttempts = nonNegativeInteger(round.providerAttempts) + 1;
+        state.provider_attempts += 1;
+        if (round.phase === 'planning') state.planning_attempts += 1;
+        else if (round.modelRole === 'fallback') state.fallback_attempts += 1;
+        else state.primary_attempts += 1;
+        if (round.providerAttempts > 1) state.compatibility_attempts += 1;
+        if (round.originalReasoning && !payload?.reasoning_effort) state.reasoning_fallback_attempts += 1;
+        if (formatKey(payload) !== round.originalFormat) state.format_fallback_attempts += 1;
+      },
+      snapshot() { return Object.freeze({ ...state }); },
+    });
+  }
 
   const INTENT_DEADLINE_MS = Number(submitWorkflowPolicy.INTENT_PIPELINE_DEADLINE_MS);
-  // Route context uses the model context window as the only bound.
-  // Overflow: first semantic-compress oldest messages, then drop oldest if still over.
-  // 128K token window → ~400K chars budget for user content.
-  const ROUTE_CONTEXT_MAX_CHARS = 400000;
-  const ROUTE_CONTEXT_TOKEN_BUDGET = 110000;
-  function estimateTokens(text = '') { return Math.ceil(String(text ?? '').length / 3); }
 
   function createRouteIntentWorkflow(deps) {
     const {
@@ -48,6 +104,56 @@
       };
     }
 
+    function routeFailureOutcome(reason = '') {
+      const normalized = String(reason || '').trim();
+      if (['route_intent_invalid', 'image_plan_invalid'].includes(normalized)) {
+        return ROUTE_OUTCOMES.INVALID_MODEL_OUTPUT;
+      }
+      if ([
+        'route_model_unconfigured',
+        'route_model_auth_error',
+        'route_model_request_rejected',
+        'route_input_too_long',
+        'route_context_too_large',
+        'route_service_unavailable',
+      ].includes(normalized)) return ROUTE_OUTCOMES.CONFIGURATION_ERROR;
+      return ROUTE_OUTCOMES.TRANSIENT_ERROR;
+    }
+
+    function routeFailureRoute(baseRoute = {}, reason = 'route_models_unavailable', message = '') {
+      const normalizedReason = String(reason || 'route_models_unavailable').trim();
+      const outcome = routeFailureOutcome(normalizedReason);
+      const outcomeMessage = String(message || '本次未执行：意图模型当前不可用。请重试；若持续出现，请检查配置或更换意图模型。').trim();
+      return {
+        ...baseRoute,
+        mode: 'chat', api: 'route_error', target: 'none', intent: 'route_error',
+        outcome,
+        outcomeMessage,
+        retryable: outcome === ROUTE_OUTCOMES.TRANSIENT_ERROR,
+        needClarification: false, dispatchAuthorized: false, readiness: 'failed',
+        operationType: baseRoute.operationType || 'plain_chat',
+        operationApi: baseRoute.operationApi || 'chat',
+        operationMode: baseRoute.operationMode || 'chat',
+        relation: baseRoute.relation || 'new',
+        confidence: 0,
+        resources: Array.isArray(baseRoute.resources) ? baseRoute.resources : [],
+        executionResources: null,
+        dispatchContract: null,
+        imageRefs: Array.isArray(baseRoute.imageRefs) ? baseRoute.imageRefs : [],
+        fileRefs: Array.isArray(baseRoute.fileRefs) ? baseRoute.fileRefs : [],
+        messageRefs: Array.isArray(baseRoute.messageRefs) ? baseRoute.messageRefs : [],
+        selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
+        selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false,
+        contextualImagePrompt: '', editInstruction: '', evidence: normalizedReason,
+        // Legacy presentation readers may still inspect clarificationQuestion;
+        // outcome is the sole state discriminator and this text never creates a
+        // pending clarification.
+        clarificationQuestion: outcomeMessage,
+        clarificationSlots: [],
+        localClarification: false,
+      };
+    }
+
     function intentFailureRoute(reason = 'route_models_unavailable') {
       const messages = {
         route_intent_invalid: '本次未执行：意图模型返回了无效的任务结构。请重试；若持续出现，请更换意图模型。',
@@ -59,25 +165,13 @@
         route_model_upstream_error: '本次未执行：意图模型上游服务异常。请稍后重试。',
         route_model_network_error: '本次未执行：无法连接意图模型服务。请检查 Endpoint 和网络连接。',
         route_context_unavailable: '本次未执行：当前会话上下文读取失败。为避免错误路由，请刷新后重试。',
+        route_context_too_large: '本次未执行：当前输入或已引用内容超过意图模型上下文窗口。请缩短当前内容或减少引用后重试。',
         route_input_too_long: '本次未执行：输入内容超过单条消息限制。请改为上传文本文件或分段发送。',
         route_service_unavailable: '本次未执行：意图路由服务当前不可用。请刷新页面后重试。',
-        model_calls_exceeded: '本次未执行：本轮任务模型调用次数已达上限。为避免循环，请切换显式模式或重新描述需求后再试。',
+        model_calls_exceeded: '本次未执行：本轮任务模型请求次数已达上限。请重试当前任务。',
       };
       const normalizedReason = String(reason || 'route_models_unavailable').trim();
-      return {
-        mode: 'chat', api: 'clarify', target: 'none', intent: 'clarify',
-        needClarification: true, dispatchAuthorized: false, readiness: 'needs_clarification',
-        operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'new',
-        confidence: 0, resources: [], executionResources: null, dispatchContract: null,
-        imageRefs: [], fileRefs: [], messageRefs: [],
-        selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
-        selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false,
-        contextualImagePrompt: '', editInstruction: '', evidence: normalizedReason,
-        clarificationQuestion: messages[normalizedReason]
-          || '本次未执行：意图模型当前不可用。请重试；若持续出现，请检查配置或更换意图模型。',
-        clarificationSlots: [],
-        localClarification: true,
-      };
+      return routeFailureRoute({}, normalizedReason, messages[normalizedReason]);
     }
 
     function imagePlanFailureRoute(route = {}, question = '') {
@@ -85,6 +179,7 @@
         ...route,
         mode: 'chat',
         api: 'clarify',
+        outcome: ROUTE_OUTCOMES.BUSINESS_CLARIFICATION,
         target: 'none',
         intent: 'clarify',
         needClarification: true,
@@ -111,7 +206,9 @@
       const statusCode = Number(error?.statusCode || error?.status) || 0;
       const code = String(error?.code || error?.providerCode || '').trim().toUpperCase();
       if (error?.code === 'ROUTE_INTENT_TIMEOUT') return 'route_model_timeout';
+      if (error?.code === 'MODEL_CALL_BUDGET_EXCEEDED') return 'model_calls_exceeded';
       if (error?.code === 'INPUT_TOO_LONG') return 'route_input_too_long';
+      if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') return 'route_context_too_large';
       if (statusCode === 401 || statusCode === 403 || /(?:AUTH|API_KEY|UNAUTHORIZED|FORBIDDEN)/.test(code)) {
         return 'route_model_auth_error';
       }
@@ -135,6 +232,22 @@
         || /(?:ECONN|ENOTFOUND|ETIMEDOUT|NETWORK)/.test(code);
     }
 
+    // The product task limit is enforced only by compileImagePlan. A request,
+    // provider, or structured-output failure must never tell the user to reduce
+    // task count: a legal five-task request would otherwise receive a false
+    // over-limit diagnosis.
+    function imagePlanRequestFailureQuestion(error) {
+      const reason = routeErrorReason(error);
+      const messages = {
+        route_model_auth_error: '多图任务规划未完成：规划模型鉴权失败，请检查 Endpoint 和 API Key 权限后重试。',
+        route_model_rate_limited: '多图任务规划未完成：规划模型请求受限，请稍后重试。',
+        route_model_request_rejected: '多图任务规划未完成：规划模型拒绝了请求，请检查模型和接口配置后重试。',
+        route_model_upstream_error: '多图任务规划未完成：规划模型服务异常，请稍后重试。',
+        route_model_network_error: '多图任务规划未完成：无法连接规划模型服务，请检查网络后重试。',
+      };
+      return messages[reason] || '多图任务规划请求失败，请重试。';
+    }
+
     function isRouteCancellation(error, parentSignal = null, deadline = null) {
       return parentSignal?.aborted === true
         || deadline?.cancelled === true
@@ -145,63 +258,30 @@
       return deadline?.timedOut === true || error?.code === 'ROUTE_INTENT_TIMEOUT';
     }
 
-    // Route context builder
-    function semanticCompressRecentMessages(messages = []) {
-      if (!messages.length) return messages;
-      // Merge oldest 50% of messages into a single summary entry
-      const pivot = Math.max(1, Math.floor(messages.length / 2));
-      const oldBatch = messages.slice(0, pivot);
-      const recent = messages.slice(pivot);
-      // Extract the user questions and assistant operations from old messages
-      const userLines = [];
-      const assistantLines = [];
-      for (const m of oldBatch) {
-        const role = String(m?.role || '');
-        const content = String(m?.content || '').slice(0, 120);
-        if (!content) continue;
-        if (role === 'user') userLines.push(content);
-        else if (role === 'assistant') assistantLines.push(m?.operation ? `[${m.operation}]` : content.slice(0, 60));
+    // Route context builder. All trimming and required-content protection live
+    // in the core route-context policy; this workflow only supplies model-window
+    // configuration and treats policy failure as a typed route outcome.
+    function routeContextCore() {
+      const core = root?.ChatUICore?.imageRouteContext
+        || root?.ChatUICoreImageRouteContext
+        || (typeof require === 'function' ? require('../core/image-route-context') : null);
+      if (typeof core?.buildRouteContext !== 'function'
+          || typeof core?.applyRouteContextPolicy !== 'function') {
+        throw new TypeError('Canonical route context policy is unavailable');
       }
-      let summary = '';
-      if (userLines.length) summary += '用户问:' + userLines.join('; ');
-      if (assistantLines.length) summary += (summary ? ' | ' : '') + '执行:' + assistantLines.join(', ');
-      if (!summary) summary = '[早期对话]';
-      const entry = { index: oldBatch[0].index || 1, role: 'system', content: `[历史摘要] ${summary}` };
-      return [entry, ...recent];
+      return core;
+    }
+
+    function routeContextPolicyOptions() {
+      const config = typeof getConfig === 'function' ? getConfig() : {};
+      return { contextWindowTokens: config?.context?.windowTokens };
     }
 
     function compactRouteContextForIntent(context = {}) {
       try {
-        if (!context || typeof context !== 'object' || Array.isArray(context)) {
-          throw new TypeError('Route context must be an object');
-        }
-        const trimmer = root?.ChatUICore?.imageRouteContext?.trimRouteContextToSize
-          || (typeof require === 'function' ? require('../core/image-route-context').trimRouteContextToSize : null);
-        if (typeof trimmer === 'function') {
-          const compacted = trimmer(context, ROUTE_CONTEXT_MAX_CHARS);
-          if (!compacted || typeof compacted !== 'object' || Array.isArray(compacted)) {
-            throw new TypeError('Route context compactor returned an invalid value');
-          }
-          return compacted;
-        }
-        const next = {
-          ...context,
-          recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
-        };
-        // Overflow strategy: token check → semantic compress → drop oldest
-        let serialized = JSON.stringify(next);
-        let compressed = false;
-        while (next.recent_messages.length > 0 && estimateTokens(serialized) > ROUTE_CONTEXT_TOKEN_BUDGET) {
-          if (!compressed) {
-            next.recent_messages = semanticCompressRecentMessages(next.recent_messages);
-            compressed = true;
-          } else {
-            next.recent_messages.shift();
-          }
-          serialized = JSON.stringify(next);
-        }
-        return next;
+        return routeContextCore().applyRouteContextPolicy(context, routeContextPolicyOptions());
       } catch (error) {
+        if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') throw error;
         if (error?.code === 'ROUTE_CONTEXT_BUILD_FAILED') throw error;
         throw createRouteContextError(error);
       }
@@ -239,54 +319,18 @@
           target: latestUploadedImage.target || 'uploaded',
           updated_at: latestUploadedImage.updatedAt || null,
         } : null;
-        const config = typeof getConfig === 'function' ? getConfig() : {};
-        const contextWindowTokens = config?.context?.windowTokens;
-        const contextBuilder = root?.ChatUICore?.imageRouteContext?.buildRouteContext;
-        const context = typeof contextBuilder === 'function'
-          ? contextBuilder({
-            messages,
-            lastGeneratedImage: compactLastGenerated,
-            latestUploadedImage: compactLatestUpload,
-            latestImageReference,
-            recentImageReferences,
-            maxChars: ROUTE_CONTEXT_MAX_CHARS,
-            contextWindowTokens,
-          })
-          : {
-            recent_messages: messages.map((message, index) => ({
-              index: index + 1,
-              id: message?.displayItemId || message?.display_item_id || message?.messageId || message?.message_id || message?.id || '',
-              resource_id: message?.resourceId || message?.resource_id || '',
-              role: message?.role || '',
-              content: String(Array.isArray(message?.content) ? message?.rawText || '[非文本消息]' : message?.content || message?.rawText || '').slice(0, 600),
-            })),
-            last_generated_image: compactLastGenerated,
-            latest_uploaded_image: compactLatestUpload,
-            latest_image_reference: latestImageReference?.target !== 'none' ? latestImageReference : null,
-            image_candidates: [],
-            file_candidates: [],
-          };
-        if (Array.isArray(context?.recent_messages)) {
-          context.recent_messages = context.recent_messages.map((message, index) => {
-            const sourceIndex = Number(message?.index) - 1;
-            const source = messages[Number.isInteger(sourceIndex) && sourceIndex >= 0 ? sourceIndex : index] || {};
-            const id = message.id || source.displayItemId || source.display_item_id || source.messageId || source.message_id || source.id || '';
-            const resourceId = message.resource_id || source.resourceId || source.resource_id || '';
-            const identityAliases = source.identity_aliases || source.identityAliases || [];
-            const next = {
-              index: Number(message?.index) || index + 1,
-              id,
-              role: message.role || source.role || '',
-            };
-            if (message.content !== undefined && message.content !== null && String(message.content) !== '') next.content = message.content;
-            if (resourceId) next.resource_id = resourceId;
-            if (Array.isArray(identityAliases) && identityAliases.length) next.identity_aliases = identityAliases;
-            return next;
-          });
-        }
-        const compactedContext = compactRouteContextForIntent(context || {});
-        const memoryBuilder = root?.ChatUICore?.imageRouteContext?.buildImageMemoryCards
-          || (typeof require === 'function' ? require('../core/image-route-context').buildImageMemoryCards : null);
+        const contextModule = routeContextCore();
+        const contextWindowTokens = routeContextPolicyOptions().contextWindowTokens;
+        const context = contextModule.buildRouteContext({
+          messages,
+          lastGeneratedImage: compactLastGenerated,
+          latestUploadedImage: compactLatestUpload,
+          latestImageReference,
+          recentImageReferences,
+          contextWindowTokens,
+        });
+        const compactedContext = compactRouteContextForIntent(context);
+        const memoryBuilder = contextModule.buildImageMemoryCards;
         if (typeof memoryBuilder === 'function') {
           try {
             const memoryCards = memoryBuilder({
@@ -314,6 +358,7 @@
         }
         return compactedContext;
       } catch (error) {
+        if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') throw error;
         if (error?.code === 'ROUTE_CONTEXT_BUILD_FAILED') throw error;
         throw createRouteContextError(error);
       }
@@ -321,25 +366,36 @@
 
     // ── Main route function ───────────────────────────────────────
     async function getEffectiveRoute(input, attachments = [], sessionId = '', headers = null, routeContextOverride = null, routeOptions = null) {
-      // v2.7 section 11.1 rule 11: per-task hard ceiling on intent model
-      // calls (intent gate + clarification classification + alternative
-      // re-runs). The caller persists route.modelCalls between rounds and
-      // feeds it back through routeOptions.modelCalls.
-      let taskModelCalls = Number(routeOptions?.modelCalls) || 0;
+      // One task owns one provider-attempt ledger. Compatibility fallbacks are
+      // real HTTP requests, so they are counted at the request boundary rather
+      // than at the outer routing/planning call site. The serialized snapshot is
+      // carried by pending clarification state and resumed on the next round.
+      const attemptLedger = createModelAttemptLedger(
+        routeOptions?.modelAttemptLedger,
+        routeOptions?.modelCalls,
+      );
       const routeSvc = root.ChatUIRouteService || root.window?.ChatUIRouteService;
       const emitStage = (stage, details = {}) => executionStatus.emitRouteStage?.(routeOptions, stage, details);
       const completeRoute = (route, source = '') => {
-        const operation = route?.operationType || route?.dispatchContract?.operation || '';
-        if (route?.needClarification) emitStage('preparing_clarification', { source, operation });
-        else emitStage('route_ready', { source, operation });
+        const snapshot = attemptLedger.snapshot();
+        const outcome = typeof normalizeRouteOutcome === 'function'
+          ? normalizeRouteOutcome(route)
+          : route?.needClarification ? 'business_clarification' : 'ready';
+        let completed = route;
         if (route && typeof route === 'object') {
-          try {
-            route.modelCalls = taskModelCalls;
-          } catch (error) {
-            // frozen route objects may reject the write; the counter is best-effort
+          if (Object.isExtensible(route)) {
+            route.outcome = outcome;
+            route.modelAttemptLedger = snapshot;
+            route.modelCalls = snapshot.provider_attempts;
+          } else {
+            completed = { ...route, outcome, modelAttemptLedger: snapshot, modelCalls: snapshot.provider_attempts };
           }
         }
-        return route;
+        const operation = completed?.operationType || completed?.dispatchContract?.operation || '';
+        if (outcome === ROUTE_OUTCOMES.BUSINESS_CLARIFICATION) emitStage('preparing_clarification', { source, operation });
+        else if (outcome === ROUTE_OUTCOMES.READY) emitStage('route_ready', { source, operation });
+        else emitStage('route_failed', { source, operation, outcome });
+        return completed;
       };
 
       if (!routeSvc?.buildRoutePayload) {
@@ -371,19 +427,27 @@
         intentFailureRoute(String(reason || 'route_models_unavailable')),
         source,
       );
-      const cancellationError = error => error?.code === 'ROUTE_INTENT_CANCELLED'
-        ? error
-        : createIntentPipelineCancellation();
-      const requestWithinDeadline = payload => intentDeadline.raceFactory(
-        () => requestRouteIntent(
+      const cancellationError = error => {
+        const cancelled = error?.code === 'ROUTE_INTENT_CANCELLED'
+          ? error
+          : createIntentPipelineCancellation();
+        cancelled.routeOutcome = ROUTE_OUTCOMES.CANCELLED;
+        return cancelled;
+      };
+      const requestWithinDeadline = (payload, descriptor = {}) => intentDeadline.raceFactory(() => {
+        const round = attemptLedger.beginRound(descriptor, payload);
+        return requestRouteIntent(
           payload,
           config,
           headers || {},
           intentDeadline.signal,
           routeOptions,
-          intentDeadline.assertActive,
-        ),
-      );
+          nextPayload => {
+            intentDeadline.assertActive();
+            attemptLedger.recordProviderAttempt(round, nextPayload);
+          },
+        );
+      });
       let config = {};
 
       try {
@@ -392,6 +456,9 @@
         try {
           context = routeContextOverride ? compactRouteContextForIntent(routeContextOverride) : buildRouteContext(sessionId);
         } catch (error) {
+          if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') {
+            return failRoute('route_context_too_large', 'route_context');
+          }
           if (error?.code === 'ROUTE_CONTEXT_BUILD_FAILED') {
             console.warn('[route] core context unavailable', {
               name: String(error?.cause?.name || error?.name || 'Error'),
@@ -439,9 +506,6 @@
           if (!route || typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(route)) {
             return completeRoute(route, source);
           }
-          if (taskModelCalls + 1 > MAX_MODEL_CALLS) {
-            return completeRoute(imagePlanFailureRoute(route, '本轮模型调用次数已达上限，请重试或改为逐条发送。'), source);
-          }
           emitStage('planning_image_tasks', { modelRole: 'primary' });
           const goal = String(route.userGoal || route.dispatchContract?.arguments?.prompt || input || '').trim();
           const planPayload = routeSvc.buildImagePlanPayload({
@@ -452,21 +516,25 @@
             context,
             currentTurn: routeOptions?.currentTurn || null,
           });
-          taskModelCalls += 1;
           try {
             intentDeadline.assertActive();
-            const response = await requestWithinDeadline(planPayload);
+            const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary' });
             intentDeadline.assertActive();
             const raw = routeSvc.extractRouteText(response);
             const inspected = routeSvc.inspectImagePlanResult(raw);
             if (!inspected?.plan) {
-              return completeRoute(imagePlanFailureRoute(route, '多图任务规划结果无效，请重试。'), source);
+              return completeRoute(routeFailureRoute(
+                route,
+                'image_plan_invalid',
+                '本次未执行：多图任务规划模型返回了无效结构，请重试。',
+              ), source);
             }
             const compiled = routeSvc.compileImagePlan(inspected.plan, {
               input,
               attachments: attachmentMeta,
               context,
               ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
+              relation: route.relation,
               currentTurn: routeOptions?.currentTurn || null,
             });
             if (!compiled.ok) {
@@ -489,11 +557,13 @@
           } catch (error) {
             if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
             if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+            if (error?.code === 'MODEL_CALL_BUDGET_EXCEEDED') return failRoute('model_calls_exceeded', 'model_call_budget');
             console.warn('[route] image plan model failed', {
               name: String(error?.name || 'Error'),
               code: String(error?.code || ''),
             });
-            return completeRoute(imagePlanFailureRoute(route, '多图任务规划失败，请重试或减少任务数量。'), source);
+            const reason = routeErrorReason(error);
+            return completeRoute(routeFailureRoute(route, reason, imagePlanRequestFailureQuestion(error)), source);
           }
         }
 
@@ -528,9 +598,7 @@
         let primaryError = null;
         let invalidModelOutput = false;
         try {
-          taskModelCalls += 1;
-          if (taskModelCalls > MAX_MODEL_CALLS) return failRoute('model_calls_exceeded', 'model_call_budget');
-          const response = await requestWithinDeadline(payload);
+          const response = await requestWithinDeadline(payload, { phase: 'routing', modelRole: 'primary' });
           const route = response ? inspectResponse(response, 'primary') : null;
           intentDeadline.assertActive();
           if (route) return finalizeRoute(route, 'primary_model');
@@ -557,9 +625,7 @@
             currentTurn: routeOptions?.currentTurn || null,
           });
           try {
-            taskModelCalls += 1;
-            if (taskModelCalls > MAX_MODEL_CALLS) return failRoute('model_calls_exceeded', 'model_call_budget');
-            const fallbackResponse = await requestWithinDeadline(fallbackPayload);
+            const fallbackResponse = await requestWithinDeadline(fallbackPayload, { phase: 'routing', modelRole: 'fallback' });
             const route = fallbackResponse ? inspectResponse(fallbackResponse, 'fallback') : null;
             intentDeadline.assertActive();
             if (route) return finalizeRoute(route, 'fallback_model');
@@ -582,6 +648,7 @@
       } catch (error) {
         if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
         if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+        if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') return failRoute('route_context_too_large', 'route_context');
         if (error?.code === 'ROUTE_CONTEXT_BUILD_FAILED') return failRoute('route_context_unavailable', 'route_context');
         return failRoute(routeErrorReason(error));
       } finally {
@@ -594,12 +661,12 @@
     async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null) {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
       const apiUrl = `${baseUrl}/chat/completions`;
-      const assertAttemptActive = () => {
-        if (typeof beforeAttempt === 'function') beforeAttempt();
+      const assertAttemptActive = nextPayload => {
+        if (typeof beforeAttempt === 'function') beforeAttempt(nextPayload);
       };
       const request = typeof deps.requestJson === 'function'
         ? nextPayload => {
-          assertAttemptActive();
+          assertAttemptActive(nextPayload);
           return deps.requestJson(apiUrl, nextPayload, config.apiKey, {
             method: 'POST',
             headers: headers || {},
@@ -609,7 +676,7 @@
           });
         }
         : async nextPayload => {
-          assertAttemptActive();
+          assertAttemptActive(nextPayload);
           const resp = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -656,7 +723,11 @@
     });
   }
 
-  const api = Object.freeze({ createRouteIntentWorkflow });
+  const api = Object.freeze({
+    MODEL_ATTEMPT_LEDGER_VERSION,
+    createModelAttemptLedger,
+    createRouteIntentWorkflow,
+  });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppRouteIntentWorkflow = api;
   if (root?.window) root.window.ChatUIAppRouteIntentWorkflow = api;

@@ -45,6 +45,7 @@ function imageIntent(candidateKeys, goal, relation = 'followup') {
     operation: 'image_reference_gen',
     relation,
     goal,
+    task_shape: 'single',
     resource_refs: candidateKeys.map(candidateKey => ({ candidate_key: candidateKey, role: 'reference' })),
   };
 }

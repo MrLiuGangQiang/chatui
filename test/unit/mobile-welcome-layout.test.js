@@ -18,7 +18,7 @@ function testMobileWelcomeUsesACompactFirstScreenLayout() {
   assert.match(mobile, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)!important/);
   assert.match(mobile, /\.welcome-feature-card\{[\s\S]*min-height:50px!important/);
   assert.ok(!/\.welcome-feature-grid\{grid-template-columns:1fr!important/.test(mobile), 'narrow phones must not expand four compact capabilities into four full-width rows');
-  assert.ok(index.includes('flat-theme.css?v=2.2.4-live-status-code-action-motion-compact-config-connection-backup-mobile-welcome-changelog-readall'));
+  assert.ok(index.includes('flat-theme.css?v=2.2.5-batch-stable-slots=1'));
 }
 
 module.exports = [testMobileWelcomeUsesACompactFirstScreenLayout];

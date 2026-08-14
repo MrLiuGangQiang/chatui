@@ -280,6 +280,7 @@ function testRootImageJobAdapterForwardsMasksInBothPaths() {
 function testReferenceRolesReachTheImageRequestBoundary() {
   const source = [
     fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'image-workflow.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'image-task-preparation.js'), 'utf8'),
     fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'core', 'image-execution.js'), 'utf8'),
   ].join('\n');
   const inputs = [
@@ -293,11 +294,11 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片1：作为内容参考/);
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片2：仅作为风格参考/);
   assert.ok(source.includes('随附图片角色（按上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
-  assert.ok(source.includes('u.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
-  assert.ok(source.includes('buildImageRoleMap(canonicalExecution.imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
-  assert.ok(source.includes('buildImageRoleGuide(canonicalExecution.imageInputs, t.dispatchContract)'), 'the final image prompt must derive precise target/reference rules from the validated execution contract');
-  assert.ok(source.includes('F.length !== f.length'), 'a partially restored multi-image request must fail before handoff');
-  assert.ok(source.includes('canonicalExecution.operation === "edit_image" ? ""'), 'global image style must be disabled for preserve-oriented edits');
+  assert.ok(source.includes('payload.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
+  assert.ok(source.includes('buildImageRoleMap(imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
+  assert.ok(source.includes('buildImageRoleGuide(imageInputs, contract)'), 'the final image prompt must derive precise target/reference rules from the validated execution contract');
+  assert.ok(source.includes('files.length !== imageInputs.length'), 'a partially restored multi-image request must fail before handoff');
+  assert.ok(source.includes("canonical.operation === 'edit_image' ? ''"), 'global image style must be disabled for preserve-oriented edits');
 }
 
 function testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous() {

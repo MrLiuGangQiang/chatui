@@ -241,13 +241,18 @@
             const t = getConfig();
             let n;
             if (a) {
+              let missingImageJob = false;
               try {
-                const t = await getImageGenerationJob(s.id);
-                n = completedJobData(t);
+                const existingJob = await getImageGenerationJob(s.id);
+                n = completedJobData(existingJob);
+                // A reload joins an existing queued/running edit job instead of
+                // POSTing the same client job id again.
+                if (!n) n = await waitImageGenerationJob(s.id, l);
               } catch (e) {
-                if (!isMissingJobError(e)) throw e;
+                if (isMissingJobError(e)) missingImageJob = true;
+                else throw e;
               }
-              if (!n) {
+              if (!n && missingImageJob) {
                 const restoredFiles = await restoreImageAttachmentsFromContext(
                   s.imageContext || {},
                 );
@@ -282,29 +287,30 @@
                   (n = await waitImageGenerationJob(s.id, l)));
               }
             } else {
-              let a = !1;
+              let missingImageJob = false;
               try {
-                const e = await getImageGenerationJob(s.id);
-                n = completedJobData(e);
+                const existingJob = await getImageGenerationJob(s.id);
+                n = completedJobData(existingJob);
+                // An existing queued/running generation must be followed, never
+                // recreated with the same id after a refresh.
+                if (!n) n = await waitImageGenerationJob(s.id, l);
               } catch (e) {
-                if (isMissingJobError(e)) a = !0;
+                if (isMissingJobError(e)) missingImageJob = true;
                 else throw e;
               }
-              if (!n) {
-                if (!a && s.payload && t.baseUrl) {
-                }
-                (s.payload &&
-                  t.baseUrl &&
-                  (await startImageGenerationJob(s.payload, t, s.id, {
-                    mode: "image",
-                    requestPurpose: s.requestPurpose || "final_execution",
-                    dispatchContract: s.dispatchContract,
-                    bindingEvidence: s.bindingEvidence || [],
-                    submissionId: s.submissionId || "",
-                    headers: {},
-                    sessionId: e,
-                  })),
-                  (n = await waitImageGenerationJob(s.id, l)));
+              if (!n && missingImageJob) {
+                if (!s.payload || !t.baseUrl)
+                  throw makeTerminalJobError("恢复任务不存在或已失效，已停止恢复，请重新发送");
+                await startImageGenerationJob(s.payload, t, s.id, {
+                  mode: "image",
+                  requestPurpose: s.requestPurpose || "final_execution",
+                  dispatchContract: s.dispatchContract,
+                  bindingEvidence: s.bindingEvidence || [],
+                  submissionId: s.submissionId || "",
+                  headers: {},
+                  sessionId: e,
+                });
+                n = await waitImageGenerationJob(s.id, l);
               }
             }
             const r = formatElapsed(
@@ -446,31 +452,55 @@
       const e = sessionId;
       const {
         state, setSessionBusy, finishSessionTask,
+        resumePendingSubmit = deps.resumePendingSubmit,
+        loadPendingSubmit = deps.loadPendingSubmit,
         findImageDisplayItemByJob, takePendingLiveItem, persistSessionDisplay,
         getImageGenerationJob, isMissingJobError, startImageGenerationJob, waitImageGenerationJob, getConfig,
         imageResultToHtml, normalizeImageContextForStorage, mergeImageResultContexts, renderImageResultContext,
+        renderImageBatchResult, patchImageBatchDisplayNode, pendingFeedbackHtml,
         updateSessionDisplayItem, findMessageNodeByDisplayItem, updateMessage, setImageContext,
         reconcileSuccessfulImageResult, saveSessionMessages,
         cleanupStalePendingDisplay, showRunError, formatElapsed, jobDurationMs,
       } = deps;
       const resumeKey = `image_batch:${e}`;
       if (state.resumingJobs.has(resumeKey)) return;
+      const index = submitHelpers.loadImageBatchIndex?.(root.localStorage, e);
+      if (!index || !Array.isArray(index.children) || !index.children.length) {
+        return void finishSessionTask(e, { resumeKey });
+      }
+      const session = state.sessions.find(item => item?.id === e);
+      if (!session) {
+        submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
+        return void finishSessionTask(e, { resumeKey });
+      }
+      const hasPendingChildren = index.children.some(child => child.status !== 'done');
+      const missingDurableChild = hasPendingChildren && index.children.some(child => (
+        child.status !== 'done'
+        && !submitHelpers.loadImageBatchChild?.(root.localStorage, e, child.jobId)
+      ));
+      if (missingDurableChild && typeof resumePendingSubmit === 'function' && typeof loadPendingSubmit === 'function') {
+        const pending = loadPendingSubmit(e);
+        if (pending
+            && String(pending.stage || '') === 'handoff'
+            && String(pending.jobKind || '') === 'image_batch'
+            && String(pending.jobId || '') === String(index.batchId || '')) {
+          return await resumePendingSubmit(e);
+        }
+      }
       state.resumingJobs.add(resumeKey);
       try {
-        const index = submitHelpers.loadImageBatchIndex?.(root.localStorage, e);
-        if (!index || !Array.isArray(index.children) || !index.children.length) return;
-        const session = state.sessions.find(item => item?.id === e);
-        if (!session) {
-          submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
-          return;
-        }
         setSessionBusy(e, true);
         const parentId = String(index.children.find(child => child.displayItemId)?.displayItemId || '');
-        const hasPendingChildren = index.children.some(child => child.status !== 'done');
         const parent = (parentId && (session.display || []).find(item => item?.id === parentId))
           || (session.display || []).find(item => item?.batchId === index.batchId)
           || (hasPendingChildren && typeof takePendingLiveItem === 'function'
             ? takePendingLiveItem(e, '正在恢复图片生成任务…', /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/)
+            : null)
+          || (!hasPendingChildren && parentId
+            ? (() => {
+                const message = (session.messages || []).find(item => item?.role === 'assistant' && String(item.displayItemId || '') === parentId);
+                return message ? { id: parentId, role: 'assistant', responseIndex: message.responseIndex, imageContext: message.imageContext || '', pending: '' } : null;
+              })()
             : null);
         if (parent && parentId && !parent.id) parent.id = parentId;
         const aggregate = {
@@ -484,12 +514,100 @@
         const parseContext = value => {
           try { return value && typeof value === 'string' ? JSON.parse(value) : (value || {}); } catch { return {}; }
         };
-        const currentParentContext = () => parseContext(parent?.imageContext);
-        const setBatchIndexStatus = (jobId, status) => {
+        // The batch index—not the transient parent card—is the durable source
+        // of truth. Rebuild already finished children before continuing siblings.
+        // The batch index—not the transient parent card—is the durable source
+        // of truth. Keep one context per plan position, so neither reload timing
+        // nor provider completion order can discard a completed sibling.
+        const childContexts = index.children.map(child => (
+          child.status === 'done' && child.imageContext ? parseContext(child.imageContext) : null
+        ));
+        const aggregateChildContexts = () => {
+          let aggregateContext = {};
+          if (typeof mergeImageResultContexts !== 'function') {
+            return childContexts.find(context => context && typeof context === 'object') || {};
+          }
+          for (const context of childContexts) {
+            if (context && typeof context === 'object') {
+              aggregateContext = mergeImageResultContexts(aggregateContext, context);
+            }
+          }
+          return normalizeImageContextForStorage(aggregateContext);
+        };
+        let recoveredAggregateContext = aggregateChildContexts();
+        const renderBatchStatus = () => typeof pendingFeedbackHtml === 'function'
+          ? pendingFeedbackHtml(aggregate.statuses.map((status, childIndex) => `任务 ${childIndex + 1}/${aggregate.total}：${status || '等待恢复'}`).join('\n'))
+          : '';
+        const renderRecoveredBatch = complete => typeof renderImageBatchResult === 'function'
+          ? renderImageBatchResult(recoveredAggregateContext || {}, {
+              total: aggregate.total,
+              childContexts,
+              statusHtml: renderBatchStatus(),
+              complete,
+            })
+          : (typeof renderImageResultContext === 'function' ? renderImageResultContext(recoveredAggregateContext || {}) : '');
+        const patchRecoveredBatch = (node, complete) => typeof patchImageBatchDisplayNode === 'function'
+          && patchImageBatchDisplayNode(node, {
+            total: aggregate.total,
+            childContexts,
+            statusHtml: renderBatchStatus(),
+            complete,
+          });
+        const currentParentContext = () => recoveredAggregateContext;
+        const setBatchIndexStatus = (jobId, status, imageContext) => {
+          index.children = index.children.map((child, childIndex) => {
+            if (child.jobId !== jobId) return child;
+            if (imageContext) childContexts[childIndex] = parseContext(imageContext);
+            return { ...child, status, ...(imageContext ? { imageContext } : {}) };
+          });
+          recoveredAggregateContext = aggregateChildContexts();
           const current = submitHelpers.loadImageBatchIndex?.(root.localStorage, e) || index;
-          current.children = current.children.map(child => child.jobId === jobId ? { ...child, status } : child);
+          current.children = index.children.map(child => ({ ...child }));
           submitHelpers.saveImageBatchIndex?.(root.localStorage, e, current);
         };
+        const commitRecoveredAggregate = async (context, complete) => {
+          const safeContext = context || normalizeImageContextForStorage({});
+          const resultImageContextText = JSON.stringify(safeContext);
+          const resultHtml = renderRecoveredBatch(complete);
+          const rawText = complete ? '图片生成完成' : '正在恢复图片生成任务';
+          const metaText = complete ? `已完成 ${index.children.length}/${index.children.length} 张` : `正在生成 ${index.children.filter(item => item.status === 'done').length}/${index.children.length} 张图片`;
+          if (parent) {
+            updateSessionDisplayItem(e, parent, 'assistant', resultHtml, {
+              html: true, rawText, metaText, pending: !complete,
+              imageContext: resultImageContextText, responseIndex: parent.responseIndex,
+            });
+            const node = findMessageNodeByDisplayItem(parent);
+            if (e === state.activeSessionId && node) {
+              if (node.querySelector?.('.generated-image-batch-grid')) patchRecoveredBatch(node, complete);
+              else updateMessage(node, resultHtml, { html: true, rawText, metaText, preserveLiveMedia: true });
+              setImageContext(node, safeContext);
+              if (complete) { delete node.dataset.jobId; delete node.dataset.pendingFeedback; }
+            }
+            persistSessionDisplay(e);
+          }
+          if (complete) {
+            const messages = Array.isArray(session.messages) ? session.messages : [];
+            const displayItemId = parent?.id || parentId;
+            const responseIndex = parent?.responseIndex || index.children.find(child => child.responseIndex)?.responseIndex || '';
+            const message = {
+              role: 'assistant', content: '[图片生成完成]', html: resultHtml, rawText, metaText,
+              responseIndex, imageContext: resultImageContextText, kind: 'image',
+              imageJobId: index.batchId, displayItemId,
+            };
+            const existing = messages.findIndex(item => item?.role === 'assistant' && (
+              (displayItemId && String(item.displayItemId || '') === String(displayItemId))
+              || (responseIndex !== '' && String(item.responseIndex || '') === String(responseIndex))
+            ));
+            if (existing >= 0) messages[existing] = { ...messages[existing], ...message };
+            else messages.push(message);
+            session.messages = messages;
+            if (e === state.activeSessionId) state.messages = messages.map(item => ({ ...item }));
+            await saveSessionMessages(e, messages);
+          }
+        };
+        if (parent) {
+          await commitRecoveredAggregate(recoveredAggregateContext, !hasPendingChildren && aggregate.completed >= aggregate.total);
+        }
         const resumeImageBatchChild = async (child, childIndex) => {
           if (child.status === 'done') return;
           const responseIndex = Number.isFinite(Number(child.responseIndex)) ? Number(child.responseIndex) : -1;
@@ -505,9 +623,17 @@
           try {
             if (commitQueue) release = await commitQueue.acquire();
             let data = null;
-            try { data = completedJobData(await getImageGenerationJob(snapshot.id)); }
-            catch (error) { if (!isMissingJobError(error)) throw error; }
-            if (!data && snapshot.payload && snapshot.mode !== 'edit_image') {
+            let missingImageJob = false;
+            try {
+              const existingJob = await getImageGenerationJob(snapshot.id);
+              data = completedJobData(existingJob);
+              // A status-only response still represents a live provider job.
+              if (!data) data = await waitImageGenerationJob(snapshot.id, () => {});
+            } catch (error) {
+              if (isMissingJobError(error)) missingImageJob = true;
+              else throw error;
+            }
+            if (!data && missingImageJob && snapshot.payload && snapshot.mode !== 'edit_image') {
               await startImageGenerationJob(snapshot.payload, getConfig(), snapshot.id, {
                 mode: 'image', requestPurpose: snapshot.requestPurpose || 'final_execution',
                 dispatchContract: snapshot.dispatchContract, bindingEvidence: snapshot.bindingEvidence || [],
@@ -517,23 +643,21 @@
             }
             if (!data) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
             const elapsed = formatElapsed(jobDurationMs({ metrics: data?.metrics, ...data }) ?? Date.now() - (Number(snapshot.startedAt) || Date.now()));
-            const rendered = await imageResultToHtml(data, elapsed, { prompt: snapshot.prompt || child.prompt || '', sessionId: e });
+            const rendered = await imageResultToHtml(data, elapsed, { prompt: snapshot.prompt || child.prompt || '', label: child.label || '', sessionId: e });
             const completedMode = snapshot.mode === 'edit_image' ? 'edit_image' : 'image';
             const childContext = rendered.imageContext
               ? normalizeImageContextForStorage({ ...rendered.imageContext, mode: completedMode, target: 'previous', usePreviousImage: true })
               : normalizeImageContextForStorage(snapshot.imageContext || {});
-            const mergedContext = typeof mergeImageResultContexts === 'function'
-              ? normalizeImageContextForStorage(mergeImageResultContexts(currentParentContext(), childContext))
-              : childContext;
+            childContexts[childIndex] = childContext;
+            const mergedContext = aggregateChildContexts();
             const resultImageContextText = JSON.stringify(mergedContext);
-            const resultHtml = typeof renderImageResultContext === 'function'
-              ? renderImageResultContext(mergedContext)
-              : rendered.html;
             aggregate.completed += 1;
             aggregate.statuses[childIndex] = '已完成';
             const complete = aggregate.completed >= aggregate.total;
             const rawText = `${rendered.raw}\n任务 ${childIndex + 1}/${aggregate.total} 完成`;
             const metaText = complete ? `已完成 ${aggregate.total}/${aggregate.total} 张` : `正在生成 ${aggregate.completed}/${aggregate.total} 张`;
+            recoveredAggregateContext = mergedContext;
+            const resultHtml = renderRecoveredBatch(complete) || rendered.html;
             if (i) {
               updateSessionDisplayItem(e, i, 'assistant', resultHtml, {
                 html: true, rawText, metaText, pending: !complete,
@@ -541,12 +665,14 @@
               });
               const node = findMessageNodeByDisplayItem(i);
               if (e === state.activeSessionId && node) {
-                updateMessage(node, resultHtml, { html: true, rawText, metaText, preserveLiveMedia: true });
+                if (node.querySelector?.('.generated-image-batch-grid')) patchRecoveredBatch(node, complete);
+                else updateMessage(node, resultHtml, { html: true, rawText, metaText, preserveLiveMedia: true });
                 setImageContext(node, mergedContext);
+                if (complete) { delete node.dataset.jobId; delete node.dataset.pendingFeedback; }
               }
               persistSessionDisplay(e);
             }
-            setBatchIndexStatus(child.jobId, 'done');
+            setBatchIndexStatus(child.jobId, 'done', childContext);
             submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId);
             if (complete) {
               const content = `[图片生成完成] ${index.children.map(item => item.prompt).filter(Boolean).join('、')}`;
@@ -562,8 +688,10 @@
               else messages.push(message);
               session.messages = messages;
               if (e === state.activeSessionId) state.messages = messages.map(item => ({ ...item }));
+              // All children share one parent response index. Reconciliation is
+              // intentionally skipped: it is a single-job deduper and can retain
+              // a stale one-image record instead of this merged batch result.
               await saveSessionMessages(e, messages);
-              reconcileSuccessfulImageResult(e, i, { id: snapshot.id, displayItemId: message.displayItemId, responseIndex: Number(message.responseIndex) }, Number(message.responseIndex));
             }
           } catch (error) {
             const missing = isMissingJobError(error) || error?.terminalJob;
@@ -582,6 +710,7 @@
         const settled = await Promise.allSettled(pendingChildren.map(item => resumeImageBatchChild(item.child, item.childIndex)));
         if (aggregate.completed >= aggregate.total && settled.every(result => result.status === 'fulfilled')) {
           submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
+          index.children.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId));
         }
       } finally {
         state.resumingJobs.delete(resumeKey);

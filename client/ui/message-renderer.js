@@ -1,8 +1,16 @@
 (function initChatUIMessageRenderer(root) {
   'use strict';
 
+function isImageAttachment(item = {}) {
+  if (item?.isImage === true) return true;
+  const type = String(item?.type || item?.mime || item?.mimeType || '').trim();
+  if (/^image\//i.test(type)) return true;
+  return /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)$/i.test(String(item?.name || item?.filename || '').trim());
+}
+
 function attachmentsSummaryMarkdown(attachments = []) {
-  return attachments.length ? '\n\n' + attachments.map(item => `📎 ${item.name}`).join('\n') : '';
+  const visible = (Array.isArray(attachments) ? attachments : []).filter(item => !isImageAttachment(item));
+  return visible.length ? '\n\n' + visible.map(item => `📎 ${item.name}`).join('\n') : '';
 }
 
 function userAttachmentPreviewItems(attachments = [], fitImageThumb = (w, h) => ({ width: w || 180, height: h || 120 })) {

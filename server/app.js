@@ -5,6 +5,8 @@ const { createIdempotencyTable } = require('./validators/idempotency.validator')
 const { serveStatic } = require('./http/static');
 const { send, sendJson, sendMethodNotAllowed } = require('./http/response');
 const { createJobHandlers } = require('./jobs/chat-image');
+const { closeJobSubscribers } = require('./jobs/events');
+const { createImageBatchJobHandlers } = require('./jobs/image-batch');
 const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
 const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
@@ -26,9 +28,9 @@ function createApp() {
   const feedbackSender = createDingTalkFeedbackSender();
   const feedbackReviewer = createFeedbackReviewer();
   const usageAccessValidator = createUsageAccessValidator();
-  const { imageJobs, chatJobs } = createJobStores();
+  const { imageJobs, chatJobs, imageBatchJobs } = createJobStores();
   const jobSubscribers = new Map();
-  const sweeper = startJobSweeper([imageJobs, chatJobs]);
+  const sweeper = startJobSweeper([imageJobs, chatJobs, imageBatchJobs]);
   const idempotencyTable = createIdempotencyTable();
   const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable, providerCapabilities: PROVIDER_CAPABILITIES });
   const {
@@ -45,6 +47,25 @@ function createApp() {
     getChatJob,
     updateChatJobFromStreamChunk,
   } = jobHandlers;
+  const imageBatchHandlers = createImageBatchJobHandlers({
+    imageJobs,
+    imageBatchJobs,
+    jobSubscribers,
+    upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS,
+    requestTrace,
+    errorLog,
+    idempotencyTable,
+    providerCapabilities: PROVIDER_CAPABILITIES,
+    notifyJob,
+  });
+  const {
+    startImageBatchJob,
+    getImageBatchJob,
+    subscribeImageBatchJob,
+    abortImageBatchJob,
+    disposeImageBatchJob,
+    publicImageBatchJob,
+  } = imageBatchHandlers;
   const { proxy, proxyImage } = createOpenAiProxy({
     chatJobs,
     makeChatJob,
@@ -89,12 +110,28 @@ function createApp() {
     registerChatStreamJob,
     startChatJob,
     getChatJob,
+    imageBatchJobs,
+    startImageBatchJob,
+    getImageBatchJob,
+    publicImageBatchJob,
+    subscribeImageBatchJob,
+    abortImageBatchJob,
+    disposeImageBatchJob,
     usageStats,
     usageAccessValidator,
     feedbackReviewer,
     feedbackSender,
   });
   const server = http.createServer(route);
+
+  // Long-lived SSE subscriptions would otherwise keep server.close() waiting
+  // until the upstream job finishes. End them before delegating to Node's
+  // close so local restarts and container graceful shutdown are prompt.
+  const originalClose = server.close.bind(server);
+  server.close = function closeServer(callback) {
+    closeJobSubscribers(jobSubscribers);
+    return originalClose(callback);
+  };
 
   serverLog.started({ host: '0.0.0.0', port: 8765 });
 
@@ -106,7 +143,7 @@ function createApp() {
       errorLog.log(err, { source: 'postgres' });
     });
   });
-  return { server, stores: { imageJobs, chatJobs }, sweeper, requestTrace, accessLog, errorLog, serverLog };
+  return { server, stores: { imageJobs, chatJobs, imageBatchJobs }, sweeper, requestTrace, accessLog, errorLog, serverLog };
 }
 
 module.exports = { createApp };

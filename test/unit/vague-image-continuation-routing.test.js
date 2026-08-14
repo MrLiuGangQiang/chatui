@@ -8,6 +8,7 @@ function intent(goal) {
     operation: 'image_reference_gen',
     relation: 'followup',
     goal,
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i1', role: 'reference' }],
   };
 }
@@ -116,8 +117,8 @@ function testConcreteImageChangesRemainImmediatelyDispatchable() {
 }
 
 function testVagueImageRuleKeepsSemanticsAtTheModelBoundary() {
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /多候选同等合理时仅省略发生歧义角色的resource_refs/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal 是下游执行模型唯一指令/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /歧义只省略该角色[^。\n]*其他仍绑/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
   assert.doesNotMatch(routeService.ROUTE_SYSTEM_PROMPT, /复杂一点|主体细节|背景和环境/,
     'scenario-specific clarification patches must stay out of the route prompt');
   assert.doesNotMatch(routeService.ROUTE_SYSTEM_PROMPT, /change_value missing/,

@@ -1,7 +1,8 @@
 (function initChatUIAppImageWorkflow(root) {
   // Intentionally not strict: sendImage body is migrated from app.js and resolved through a deps scope.
 
-  const imageExecutionModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageExecution')
+  const moduleRegistry = root?.[Symbol.for('chatui.module-registry.v1')];
+  const imageExecutionModule = moduleRegistry?.get('imageExecution')
     || (typeof require === 'function' ? require('../core/image-execution') : {});
   const {
     buildImageRoleGuide,
@@ -11,6 +12,8 @@
     || (typeof require === 'function' ? require('./execution-status') : {});
   const storageCore = root?.ChatUICoreStorage
     || (typeof require === 'function' ? require('../core/storage') : {});
+  const imageTaskPreparation = moduleRegistry?.get('imageTaskPreparation')
+    || (typeof require === 'function' ? require('./image-task-preparation') : {});
 
   function createImageWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
@@ -20,6 +23,13 @@
 
     const imageExecutionPolicy = imageExecutionModule.createImageExecutionPolicy({ dispatchContract });
     const { requireCanonicalImageExecution } = imageExecutionPolicy;
+
+    const taskPreparation = imageTaskPreparation.createImageTaskPreparation?.({
+      imageExecutionPolicy: { requireCanonicalImageExecution },
+      buildImageRoleGuide,
+      buildImageRoleMap,
+      ...deps,
+    });
 
     function isRecoverableJobSnapshot(savedJob, expectedJob) {
       const validator = root?.ChatUIAppJobWorkflow?.isRecoverableJobSnapshot;
@@ -31,11 +41,8 @@
     async function sendImage(e, t = {}) {
       with (deps) {
         const s = getConfig();
-        // Execution bindings stay in the dispatch contract and media payload.
-        // They are not user-facing result metadata.
-        const pendingImageFeedback = status => pendingFeedbackHtml(status);
         if (!s.baseUrl || !s.imageModel)
-          throw new Error("请先配置 Endpoint Base URL 和生图模型");
+          throw new Error('请先配置 Endpoint Base URL 和生图模型');
         const executionContract = t.dispatchContract;
         if (typeof dispatchContract?.hasExactDispatchContract !== 'function'
             || !dispatchContract.hasExactDispatchContract(executionContract)
@@ -49,29 +56,16 @@
         const executionWaitStatus = executionStatus.operationStatusText?.(executionContract, 'execute') || '正在生成图片';
         const statusText = value => {
           const prefix = String(t.statusPrefix || '').trim();
-          if (t.batchAggregate && Number.isInteger(t.batchIndex)) {
-            const statuses = Array.isArray(t.batchAggregate.statuses) ? t.batchAggregate.statuses : [];
-            statuses[t.batchIndex] = String(value || '').trim();
-            return statuses.map((status, index) => `任务 ${index + 1}/${Number(t.batchAggregate.total || statuses.length || 1)}：${status || '等待开始'}`).join('\n');
-          }
           return prefix ? `${prefix} ${value}` : value;
         };
-        // Both storage paths return the durable snapshot object. The batch
-        // path must not leak safeSetJsonStorage's boolean status because the
-        // recoverability gate validates the actual persisted contract.
-        const saveDurableImageJob = job => {
-          if (t.batchChildKey && typeof storageCore.safeSetJsonStorage === 'function') {
-            return storageCore.safeSetJsonStorage(root.localStorage, t.batchChildKey, job) ? job : null;
-          }
-          return saveImageJob(n, job);
-        };
-        const clearDurableImageJob = () => {
-          if (t.batchChildKey && typeof storageCore.safeSetJsonStorage === 'function') {
-            try { root.localStorage.removeItem(t.batchChildKey); } catch {}
-            return;
-          }
-          clearImageJob(n);
-        };
+        // Execution bindings stay in the dispatch contract and media payload.
+        // They are not user-facing result metadata.
+        const pendingImageFeedback = status => pendingFeedbackHtml(status);
+        const pendingImageCard = status => typeof renderImageBatchResult === 'function'
+          ? renderImageBatchResult({}, { total: 1, childContexts: [null], slotStatuses: [String(status || '正在生成图片')] })
+          : pendingImageFeedback(status);
+        const saveDurableImageJob = job => saveImageJob(n, job);
+        const clearDurableImageJob = () => clearImageJob(n);
         const canonicalExecution = requireCanonicalImageExecution(executionContract, t.executionMedia),
           executionBindingEvidence = dispatchContract.bindingEvidenceFromMedia(t.executionMedia || {}),
           n = t.sessionId || state.activeSessionId,
@@ -80,11 +74,12 @@
         setActiveOutputForSession(n, null);
         if (a.stopped || a.abortController?.signal?.aborted)
           throw new DOMException("已停止", "AbortError");
-        const i = state.sessions.find((e) => e.id === n) || getActiveSession(),
-          o =
-            n === state.activeSessionId
-              ? state.messages
-              : [...(i.messages || [])];
+        const i = state.sessions.find((e) => e.id === n);
+        if (!i) {
+          const error = new Error("图片任务所属会话不存在，已停止执行");
+          error.code = "IMAGE_SESSION_NOT_FOUND";
+          throw error;
+        }
         let r = 0,
           l = null,
           T = 0;
@@ -93,7 +88,7 @@
             ? t.loadingNode ||
               addMessage(
                 "assistant",
-                pendingImageFeedback(statusText(preparationStatus)),
+                pendingImageCard(statusText(preparationStatus)),
                 { html: !0, rawText: statusText(preparationStatus), skipSave: !0 },
               )
             : null;
@@ -102,7 +97,7 @@
           appendSessionDisplayMessage(
             n,
             "assistant",
-            pendingImageFeedback(statusText(preparationStatus)),
+            pendingImageCard(statusText(preparationStatus)),
             { html: !0, rawText: statusText(preparationStatus), pending: !0 },
           );
         if (!c?.id) {
@@ -124,9 +119,9 @@
               s && (d.dataset.displayItemId = s),
               a && (d.dataset.responseIndex = a));
         }
-        if (d?.isConnected) {
+        if (n === state.activeSessionId && d?.isConnected) {
           clearReasoning?.(d);
-          updateMessage(d, pendingImageFeedback(statusText(preparationStatus)), {
+          updateMessage(d, pendingImageCard(statusText(preparationStatus)), {
             html: !0,
             rawText: statusText(preparationStatus),
             skipSave: !0,
@@ -135,64 +130,34 @@
         if (c) {
           delete c.reasoningText;
           c.keepReasoning = !1;
-          updateLiveDisplay(n, c, 'assistant', pendingImageFeedback(statusText(preparationStatus)), {
+          updateLiveDisplay(n, c, 'assistant', pendingImageCard(statusText(preparationStatus)), {
             html: !0,
             rawText: statusText(preparationStatus),
             pending: !0,
           });
           persistSessionDisplay(n);
         }
-        const m = canonicalExecution.imageInputs,
-          P = String(t.originalPrompt || e || "").trim(),
-          executionPrompt = String(executionContract.arguments?.prompt || e || P || "").trim();
-        const routeFallbackPrompt = String(
-            t.editInstruction || t.routePrompt || t.originalPrompt || P || "",
-          ).trim(),
-          E = executionPrompt || routeFallbackPrompt || P,
-          referenceRoleGuide = buildImageRoleGuide(canonicalExecution.imageInputs, t.dispatchContract),
-          roleAwarePrompt = [E, referenceRoleGuide].filter(Boolean).join("\n\n"),
-          stylePrompt = canonicalExecution.operation === "edit_image" ? "" : getEffectiveImageStylePrompt(n, s),
-          g = buildImagePromptWithStylePrompt(roleAwarePrompt, stylePrompt),
-          planArguments = executionContract.arguments || {},
-          requestedSize = String(planArguments.size || '').trim() && planArguments.size !== 'auto'
-            ? planArguments.size
-            : s.imageSize,
-          q = {},
-          u = window.ChatUIServices?.images?.buildImageRequestPayload
-            ? window.ChatUIServices.images.buildImageRequestPayload({
-                model: s.imageModel,
-                prompt: g,
-                size: requestedSize,
-                quality: planArguments.quality,
-                background: planArguments.background,
-                output_format: planArguments.output_format,
-              })
-            : { model: s.imageModel, prompt: g };
-        if (Number(planArguments.count) > 1) u.n = Number(planArguments.count);
-        if (canonicalExecution.imageInputs.length > 1) {
-          u.image_role_map = JSON.stringify(buildImageRoleMap(canonicalExecution.imageInputs));
-        }
-        if (!String(u.prompt || "").trim()) {
-          const error = new Error("图片任务缺少明确的执行指令，已停止发送；请重新描述要生成或修改的内容");
-          error.code = "IMAGE_EXECUTION_PROMPT_MISSING";
-          throw error;
-        }
-        s.imageSize &&
-          "auto" !== s.imageSize &&
-          !u.size &&
-          (u.size = s.imageSize);
-        const materializedDispatchContract = dispatchContract.withArguments(executionContract, {
-          prompt: String(u.prompt || '').trim(),
-          size: u.size || 'auto',
-          quality: u.quality || 'auto',
-          background: u.background || 'auto',
-          output_format: u.output_format || 'auto',
-          count: Number(u.n) || Number(planArguments.count) || 1,
+        const prepared = await taskPreparation.prepareImageExecutionRequest({
+          contract: executionContract,
+          executionMedia: t.executionMedia,
+          sessionId: n,
+          config: s,
+          promptFallback: String(t.originalPrompt || e || '').trim(),
+          editInstruction: t.editInstruction,
+          routePrompt: t.routePrompt,
+          originalPrompt: t.originalPrompt,
+          childJobId: t.clientJobId,
+          submissionId: t.submissionId || '',
         });
+        const E = prepared.prompt,
+          g = prepared.styledPrompt,
+          u = prepared.payload,
+          materializedDispatchContract = prepared.dispatchContract;
+        const planArguments = executionContract.arguments || {},
+          q = {};
         let p = "",
           completionJobId = "",
           A = new Set(),
-          batchResultRelease = null,
           durableHandoffDone = !1;
         const completeDurableHandoff = () => {
           if (durableHandoffDone) return;
@@ -220,148 +185,76 @@
           }
         };
         try {
-          let f = [...canonicalExecution.imageInputs],
-            maskAttachments = [...canonicalExecution.masks];
-          const isRefGen = canonicalExecution.operation === "image_reference_gen",
-            requiresImageEdit = canonicalExecution.api === "image_edit",
-            productMode = requiresImageEdit ? "edit_image" : "image",
-            h = !isRefGen && canonicalExecution.targets.some((item) =>
-              ["history", "context"].includes(String(item?.routeSource || "")),
-            );
-          if (requiresImageEdit && !f.length) {
-            throw new Error("路由合同没有提供可执行的图片输入，已停止发送");
-          }
-          const selectedBindings = [...canonicalExecution.imageInputs],
-            selectedReferenceId = String(selectedBindings.find((item) => item?.routeReferenceId)?.routeReferenceId || ""),
-            selectedIndexes = selectedBindings.map((item) => Number(item?.routeIndex)).filter((index) => Number.isInteger(index) && index >= 1),
-            selectedImageIds = selectedBindings.map((item) => String(item?.routeId || "")).filter(Boolean),
-            usesPriorInput = selectedBindings.some((item) => ["quoted", "history", "context"].includes(String(item?.routeSource || ""))),
-            executionTarget = requiresImageEdit ? (usesPriorInput ? "previous" : "uploaded") : "new",
-            y = await persistImageAttachmentRefs(f),
-            z = await persistImageAttachmentRefs(
-              maskAttachments.map((item) => ({ ...item, routeRole: "mask" })),
-            ),
-            I = window.ChatUIServices?.images?.createImageContext
-              ? window.ChatUIServices.images.createImageContext({
-                  prompt: E,
-                  routePrompt: t.originalPrompt || t.routePrompt || "",
-                  mode: productMode,
-                  target: executionTarget,
-                  usePreviousImage: h,
-                  selectedReferenceId,
-                  selectedIndexes,
-                  selectedImageIds,
-                  attachments: y,
-                  masks: z,
-                  makeImageItemId,
-                })
-              : {
-                  prompt: E,
-                  routePrompt: t.originalPrompt || t.routePrompt || "",
-                  mode: productMode,
-                  target: executionTarget,
-                  usePreviousImage: h,
-                  selectedReferenceId,
-                  selectedIndexes,
-                  selectedImageIds,
-                  attachments: y,
-                  masks: z,
-                },
-            S = JSON.stringify(normalizeImageContextForStorage(I));
+          const {
+            mode: productMode,
+            files: F,
+            masks: M,
+            imageContext: I,
+            imageContextText: S,
+            usesPriorInput: h,
+            isReferenceGeneration: isRefGen,
+          } = prepared;
+          const requiresImageEdit = productMode === 'edit_image';
+
           let x;
           const R = t.replaceAssistantIndex,
-            clientImageJobId = t.clientJobId || makeClientImageJobId();
+            clientImageJobId = prepared.jobId || t.clientJobId || makeClientImageJobId();
           completionJobId = clientImageJobId;
           if (
             (c &&
               ((c.imageContext = S),
               (c.jobId = clientImageJobId),
               persistSessionDisplay(n)),
-            d?.isConnected &&
+            n === state.activeSessionId && d?.isConnected &&
               !shouldSuppressRunUi(n, a.token) &&
               (clearPendingFeedback?.(d),
               clearReasoning?.(d),
               (d.dataset.jobId = clientImageJobId),
               setImageContext(d, I)),
             ((e = "正在生成图片") => {
-              ((r = performance.now()),
-                shouldSuppressRunUi(n, a.token) ||
-                  (d?.isConnected &&
-                    (clearPendingFeedback(d),
-                    updateMessage(d, pendingImageFeedback(statusText(`${e} 已等待 0 秒`)), {
-                      html: !0,
-                      rawText: statusText(`${e}… 已等待 0 秒`),
-                      skipSave: !0,
-                    })),
-                  updateLiveDisplay(
-                    n,
-                    c,
-                    "assistant",
-                    pendingImageFeedback(statusText(`${e} 已等待 0 秒`)),
-                    {
-                      html: !0,
-                      rawText: statusText(`${e}… 已等待 0 秒`),
-                      pending: !0,
-                      runToken: a.token,
-                    },
-                  ),
-                  (l = setInterval(() => {
-                    if (shouldSuppressRunUi(n, a.token)) return;
-                    const t = Math.floor((performance.now() - r) / 1e3),
-                      s = statusText(`${e}… 已等待 ${t} 秒`),
-                      u = pendingImageFeedback(statusText(`${e} 已等待 ${t} 秒`));
-                    (d?.isConnected &&
-                      updateMessage(d, u, {
-                        html: !0,
-                        rawText: s,
-                        skipSave: !0,
-                      }),
-                      updateLiveDisplay(n, c, "assistant", u, {
-                        html: !0,
-                        rawText: s,
-                        pending: !0,
-                        runToken: a.token,
-                        noScroll: !shouldFollowScroll(),
-                      }));
-                  }, 1e3))));
-            })(executionWaitStatus),
+              r = performance.now();
+              shouldSuppressRunUi(n, a.token) || (
+                n === state.activeSessionId && d?.isConnected && (
+                  clearPendingFeedback(d),
+                  updateMessage(d, pendingImageCard(statusText(`${e} 已等待 0 秒`)), {
+                    html: !0,
+                    rawText: statusText(`${e}… 已等待 0 秒`),
+                    skipSave: !0,
+                  })
+                ),
+                updateLiveDisplay(n, c, "assistant", pendingImageCard(statusText(`${e} 已等待 0 秒`)), {
+                  html: !0,
+                  rawText: statusText(`${e}… 已等待 0 秒`),
+                  pending: !0,
+                  runToken: a.token,
+                })
+              );
+              l = setInterval(() => {
+                if (shouldSuppressRunUi(n, a.token)) return;
+                const seconds = Math.floor((performance.now() - r) / 1e3);
+                const status = statusText(`${e}… 已等待 ${seconds} 秒`);
+                const html = pendingImageCard(statusText(`${e} 已等待 ${seconds} 秒`));
+                n === state.activeSessionId && d?.isConnected && updateMessage(d, html, {
+                  html: !0,
+                  rawText: status,
+                  skipSave: !0,
+                });
+                updateLiveDisplay(n, c, "assistant", html, {
+                  html: !0,
+                  rawText: status,
+                  pending: !0,
+                  runToken: a.token,
+                  noScroll: !shouldFollowScroll(),
+                });
+              }, 1e3);
+            })(),
+
             requiresImageEdit)
           ) {
             const e = clientImageJobId;
             (addActiveRunJob(n, "image", e),
               A.add(e),
               state.followingImageJobs.add(e));
-            let F = await imageFilesToJobPayload(f);
-            let M = await imageFilesToJobPayload(maskAttachments);
-            if (f.length && F.length !== f.length) {
-              const e = await restoreImageAttachmentsFromContext(I);
-              e.length === f.length && ((f = e), (F = await imageFilesToJobPayload(f)));
-            }
-            if (F.length !== f.length)
-              throw new Error(
-                "图片编辑任务有部分图片数据无法恢复，请重新上传全部目标图和参考图后再修改",
-              );
-            if (maskAttachments.length && M.length !== maskAttachments.length) {
-              const restoredMasks = await restoreImageAttachmentsFromContext(I, {
-                role: "mask",
-              });
-              if (restoredMasks.length === maskAttachments.length) {
-                maskAttachments = restoredMasks;
-                M = await imageFilesToJobPayload(maskAttachments);
-              }
-            }
-            if (M.length !== maskAttachments.length) {
-              throw new Error(
-                "图片编辑任务的 mask 数据无法恢复，请重新上传 mask 后再修改",
-              );
-            }
-            dispatchContract.assertPayloadMatchesDispatchContract(materializedDispatchContract, {
-              payload: u,
-              mode: "edit_image",
-              files: F,
-              masks: M,
-              bindingEvidence: executionBindingEvidence,
-            });
             const durableImageJob = {
                 id: e,
                 prompt: g,
@@ -403,19 +296,19 @@
               onUploadProgress: (e) => {
                 if (shouldSuppressRunUi(n, a.token)) return;
                 const t = statusText(`正在上传图片… ${e}%`);
-                (d?.isConnected &&
-                  updateMessage(d, pendingImageFeedback(t), {
+                n === state.activeSessionId && d?.isConnected &&
+                  updateMessage(d, pendingImageCard(t), {
                     html: !0,
                     rawText: t,
                     skipSave: !0,
-                  }),
-                  updateLiveDisplay(n, c, "assistant", pendingImageFeedback(t), {
-                    html: !0,
-                    rawText: t,
-                    pending: !0,
-                    runToken: a.token,
-                    noScroll: !shouldFollowScroll(),
-                  }));
+                  });
+                updateLiveDisplay(n, c, "assistant", pendingImageCard(t), {
+                  html: !0,
+                  rawText: t,
+                  pending: !0,
+                  runToken: a.token,
+                  noScroll: !shouldFollowScroll(),
+                });
               },
             });
             (t.skipDurableSnapshot || saveDurableImageJob({
@@ -517,7 +410,6 @@
                 signal: a.abortController.signal,
               })));
           }
-          if (typeof t.acquireResultCommit === "function") batchResultRelease = await t.acquireResultCommit();
           const C =
               h && selectedIndexes.length
                 ? normalizeLastGeneratedImage(i.lastGeneratedImage)
@@ -551,59 +443,23 @@
                   target: "previous",
                   usePreviousImage: !0,
                 })
-              : I,
-            isBatchChild = !!t.batchAggregate,
-            priorBatchImageContext = (() => { try { return c?.imageContext ? JSON.parse(c.imageContext) : {}; } catch { return {}; } })(),
-            resultImageContext = isBatchChild && typeof mergeImageResultContexts === "function"
-              ? normalizeImageContextForStorage(mergeImageResultContexts(priorBatchImageContext, childResultImageContext))
-              : childResultImageContext,
-            resultHtml = isBatchChild && typeof renderImageResultContext === "function"
-              ? renderImageResultContext(resultImageContext)
-              : b.html,
-            resultRaw = isBatchChild ? `${b.raw}
-任务 ${Number(t.batchIndex || 0) + 1}/${Number(t.batchAggregate?.total || 1)} 完成` : b.raw,
-            resultMetaText = isBatchChild ? `已完成 ${Number(t.batchAggregate?.completed || 0) + 1}/${Number(t.batchAggregate?.total || 1)} 张` : (b.metaText || `RT ${v}`),
-            resultImageContextText = JSON.stringify(resultImageContext),
-            clarificationReplay = t.clarificationReplay || null;
-          if (isBatchChild) {
-            t.batchAggregate.completed = Number(t.batchAggregate.completed || 0) + 1;
-            const complete = t.batchAggregate.completed >= t.batchAggregate.total;
-            updateSessionDisplayItem(n, c, "assistant", resultHtml, {
-              html: !0,
-              rawText: resultRaw,
-              pending: !complete,
-              responseIndex: c.responseIndex,
-              imageContext: resultImageContextText,
-              metaText: complete ? resultMetaText : `正在生成 ${t.batchAggregate.completed}/${t.batchAggregate.total} 张图片`,
-            });
-            updateLiveDisplay(n, c, "assistant", resultHtml, {
-              html: !0,
-              rawText: resultRaw,
-              pending: !complete,
-              responseIndex: c.responseIndex,
-              imageContext: resultImageContextText,
-              metaText: complete ? resultMetaText : `正在生成 ${t.batchAggregate.completed}/${t.batchAggregate.total} 张图片`,
-              noScroll: !0,
-              preserveLiveMedia: !0,
-            });
-            if (complete) {
-              const batchMessage = {
-                role: "assistant", content: w, html: resultHtml, rawText: resultRaw,
-                responseIndex: c.responseIndex, imageContext: resultImageContextText,
-                kind: "image", imageJobId: p || "", displayItemId: c.id || "",
-                ...(clarificationReplay ? { clarificationReplay } : {}), metaText: resultMetaText,
-              };
-              const existingIndex = state.messages.findIndex(message => message?.displayItemId === c.id);
-              if (existingIndex >= 0) state.messages[existingIndex] = { ...state.messages[existingIndex], ...batchMessage };
-              else state.messages.push(batchMessage);
-              i.messages = cloneMessageList(state.messages);
-              await saveSessionMessages(n, i.messages);
-              reconcileSuccessfulImageResult(n, c, { id: p, displayItemId: c.id || "", responseIndex: Number(c.responseIndex) }, Number(c.responseIndex));
-            }
-          } else if (n === state.activeSessionId) {
+              : I;
+          const resultImageContext = childResultImageContext;
+          const resultHtml = b.html;
+          const resultRaw = b.raw;
+          const resultMetaText = b.metaText || `RT ${v}`;
+          const resultImageContextText = JSON.stringify(resultImageContext);
+          const clarificationReplay = t.clarificationReplay || null;
+          // Image generation can outlive a session checkpoint or switch. Build
+          // the completion from the array that owns the session at completion
+          // time, never from the working array captured before the upstream job.
+          const completionMessages = cloneMessageList(
+            n === state.activeSessionId ? state.messages : (i.messages || []),
+          );
+          if (n === state.activeSessionId) {
             const s = Number.isFinite(t.replaceAssistantIndex)
               ? t.replaceAssistantIndex
-              : state.messages.length;
+              : completionMessages.length;
             (c &&
               updateSessionDisplayItem(n, c, "assistant", b.html, {
                 html: !0,
@@ -613,7 +469,7 @@
                 imageContext: resultImageContextText,
                 metaText: b.metaText || `RT ${v}`,
               }),
-              d?.isConnected
+              n === state.activeSessionId && d?.isConnected
                 ? (updateMessage(d, b.html, {
                     html: !0,
                     preserveLiveMedia: !0,
@@ -632,16 +488,16 @@
                     metaText: b.metaText || `RT ${v}`,
                   }),
               t.userAlreadyAdded ||
-                state.messages.push({
+                completionMessages.push({
                   role: "user",
                   content: t.originalPrompt || e,
                   rawText: t.originalPrompt || e,
-                  messageIndex: state.messages.length,
+                  messageIndex: completionMessages.length,
                 }),
               Number.isFinite(t.replaceAssistantIndex) &&
-              "assistant" === state.messages[t.replaceAssistantIndex]?.role
-                ? (state.messages[t.replaceAssistantIndex] = {
-                    ...state.messages[t.replaceAssistantIndex],
+              "assistant" === completionMessages[t.replaceAssistantIndex]?.role
+                ? (completionMessages[t.replaceAssistantIndex] = {
+                    ...completionMessages[t.replaceAssistantIndex],
                     role: "assistant",
                     content: w,
                     html: b.html,
@@ -655,7 +511,7 @@
                     metaText: b.metaText || `RT ${v}`,
                   })
                 : Number.isFinite(t.replaceAssistantIndex)
-                  ? state.messages.splice(t.replaceAssistantIndex, 0, {
+                  ? completionMessages.splice(t.replaceAssistantIndex, 0, {
                       role: "assistant",
                       content: w,
                       html: b.html,
@@ -668,14 +524,14 @@
                       ...(clarificationReplay ? { clarificationReplay } : {}),
                       metaText: b.metaText || `RT ${v}`,
                     })
-                  : state.messages.push({
+                  : completionMessages.push({
                       role: "assistant",
                       content: w,
                       html: b.html,
                       rawText: `${b.raw}\n耗时：${v}`,
                       responseIndex: Number.isFinite(t.replaceAssistantIndex)
                         ? t.replaceAssistantIndex
-                        : state.messages.length,
+                        : completionMessages.length,
                       imageContext: resultImageContextText,
                       kind: I.mode,
                       imageJobId: p || "",
@@ -683,10 +539,7 @@
                       ...(clarificationReplay ? { clarificationReplay } : {}),
                       metaText: b.metaText || `RT ${v}`,
                     }),
-              (i.messages = cloneMessageList(state.messages)),
-              await saveSessionMessages(n, i.messages),
-              n === state.activeSessionId &&
-                (state.messages = cloneMessageList(i.messages)),
+              await saveSessionMessages(n, completionMessages),
               c &&
                 updateSessionDisplayItem(n, c, "assistant", b.html, {
                   html: !0,
@@ -694,7 +547,7 @@
                   pending: !1,
                   responseIndex: Number.isFinite(t.replaceAssistantIndex)
                     ? t.replaceAssistantIndex
-                    : state.messages.length - 1,
+                    : s,
                   imageContext: resultImageContextText,
                   metaText: b.metaText || `RT ${v}`,
                 }),
@@ -705,7 +558,7 @@
                   pending: !1,
                   responseIndex: Number.isFinite(t.replaceAssistantIndex)
                     ? t.replaceAssistantIndex
-                    : state.messages.length - 1,
+                    : s,
                   imageContext: resultImageContextText,
                   metaText: b.metaText || `RT ${v}`,
                   noScroll: !0,
@@ -713,58 +566,53 @@
                 }));
           } else
             (t.userAlreadyAdded ||
-              o.push({
+              completionMessages.push({
                 role: "user",
                 content: t.originalPrompt || e,
                 rawText: t.originalPrompt || e,
-                messageIndex: o.length,
+                messageIndex: completionMessages.length,
               }),
-              o.push({
+              completionMessages.push({
                 role: "assistant",
                 content: w,
                 html: b.html,
                 rawText: `${b.raw}\n耗时：${v}`,
                 responseIndex: Number.isFinite(t.replaceAssistantIndex)
                   ? t.replaceAssistantIndex
-                  : o.length,
+                  : completionMessages.length,
                 imageContext: resultImageContextText,
                 kind: I.mode,
                 ...(clarificationReplay ? { clarificationReplay } : {}),
                 metaText: b.metaText || `RT ${v}`,
               }),
-              await saveSessionMessages(n, o),
+              await saveSessionMessages(n, completionMessages),
               replaceLastSessionDisplayMessage(n, "assistant", b.html, {
                 html: !0,
                 rawText: `${b.raw}\n耗时：${v}`,
                 imageContext: resultImageContextText,
                 metaText: b.metaText || `RT ${v}`,
               }));
-          if (!isBatchChild) {
-            const completedIndex = Number.isFinite(t.replaceAssistantIndex)
-              ? t.replaceAssistantIndex
-              : Number(c?.responseIndex);
-            reconcileSuccessfulImageResult(
-              n,
-              c,
-              {
-                id: p,
-                displayItemId: c?.id || "",
-                responseIndex: Number.isFinite(completedIndex)
-                  ? completedIndex
-                  : void 0,
-              },
-              completedIndex,
-            );
-            await saveSessionMessages(n, i.messages || []);
-          }
-          (batchResultRelease && (batchResultRelease(), batchResultRelease = null));
-          (t.skipDurableSnapshot || clearDurableImageJob(), t.deferBatchCompletion || (notifyInterfaceCompleted(), playDoneSound()));
+          const completedIndex = Number.isFinite(t.replaceAssistantIndex)
+            ? t.replaceAssistantIndex
+            : Number(c?.responseIndex);
+          reconcileSuccessfulImageResult(
+            n,
+            c,
+            {
+              id: p,
+              displayItemId: c?.id || "",
+              responseIndex: Number.isFinite(completedIndex)
+                ? completedIndex
+                : void 0,
+            },
+            completedIndex,
+          );
+          await saveSessionMessages(n, i.messages || []);
+          (t.skipDurableSnapshot || clearDurableImageJob(), notifyInterfaceCompleted(), playDoneSound());
         } catch (e) {
-          if (batchResultRelease) { batchResultRelease(); batchResultRelease = null; }
           if (e?.terminalJob && !t.skipDurableSnapshot) clearDurableImageJob();
           throw e;
         } finally {
-          if (batchResultRelease) { batchResultRelease(); batchResultRelease = null; }
           (A.forEach((e) => state.followingImageJobs.delete(e)),
             p && state.followingImageJobs.delete(p),
             l && clearInterval(l));

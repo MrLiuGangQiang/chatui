@@ -217,11 +217,12 @@ async function testPrimaryAndFallbackShareOneAbsoluteRouteBudget() {
       requestJson: async (_url, payload) => {
         calls.push(payload.model);
         if (payload.model === 'route-primary') {
-          await new Promise(resolve => setTimeout(resolve, 25));
           throw httpError(503, 'UPSTREAM_UNAVAILABLE');
         }
-        await new Promise(resolve => setTimeout(resolve, 35));
-        return { text: 'valid' };
+        // The fallback starts immediately but cannot finish before the shared
+        // deadline. This makes the regression deterministic while proving that
+        // it does not receive a fresh per-model timeout window.
+        await new Promise(resolve => setTimeout(resolve, 100));
       },
     });
     const startedAt = Date.now();
@@ -230,7 +231,7 @@ async function testPrimaryAndFallbackShareOneAbsoluteRouteBudget() {
     });
     const elapsedMs = Date.now() - startedAt;
     assert.deepStrictEqual(calls, ['route-primary', 'route-fallback']);
-    assert.ok(elapsedMs < 65, `fallback must not receive a fresh timeout budget, got ${elapsedMs} ms`);
+    assert.ok(elapsedMs < 100, `fallback must not receive a fresh timeout budget, got ${elapsedMs} ms`);
     assert.strictEqual(route.evidence, 'route_model_timeout');
     assert.strictEqual(route.dispatchAuthorized, false);
   } finally {
@@ -268,7 +269,7 @@ async function testCoreRouteContextFailureStopsBeforeModelInvocation() {
   const restoreCore = replaceGlobal('ChatUICore', {
     imageRouteContext: {
       buildRouteContext() { throw new Error('context store failed'); },
-      trimRouteContextToSize: context => context,
+      applyRouteContextPolicy: context => context,
     },
   });
   let calls = 0;
@@ -302,7 +303,7 @@ async function testRouteContextCompactionFailureStopsBeforeModelInvocation() {
       buildRouteContext: ({ messages }) => ({
         recent_messages: messages.map((message, index) => ({ index: index + 1, role: message.role, content: message.content })),
       }),
-      trimRouteContextToSize() { throw new Error('core compaction failed'); },
+      applyRouteContextPolicy() { throw new Error('core compaction failed'); },
     },
   });
   const restoreRoute = replaceGlobal('ChatUIRouteService', routeService());
@@ -334,7 +335,7 @@ function testOptionalImageMemoryFailurePreservesCoreRouteContext() {
       buildRouteContext: ({ messages }) => ({
         recent_messages: messages.map((message, index) => ({ index: index + 1, role: message.role, content: message.content })),
       }),
-      trimRouteContextToSize: context => context,
+      applyRouteContextPolicy: context => context,
       buildImageMemoryCards() { throw new Error('optional memory unavailable'); },
     },
   });

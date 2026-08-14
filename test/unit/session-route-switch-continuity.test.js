@@ -6,6 +6,23 @@ const path = require('path');
 const vm = require('vm');
 const runs = require('../../client/app/runs');
 
+function assertAssetVersionAtLeast(index, assetPath, minimum) {
+  const marker = `${assetPath}?v=`;
+  const markerIndex = index.indexOf(marker);
+  assert.ok(markerIndex >= 0, `${assetPath} must be loaded with a cache version`);
+
+  const match = index.slice(markerIndex + marker.length).match(/^(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(match, `${assetPath} cache version must begin with a numeric semantic version`);
+  const actual = match.slice(1, 4).map(Number);
+  const comparison = actual.reduce((result, value, position) => (
+    result || Math.sign(value - minimum[position])
+  ), 0);
+  assert.ok(
+    comparison >= 0,
+    `${assetPath} cache version ${actual.join('.')} must be at least ${minimum.join('.')}`,
+  );
+}
+
 function stateWithRun(run = null) {
   return {
     activeRuns: new Map(run ? [['session-a', run]] : []),
@@ -96,7 +113,10 @@ function testSessionSwitchRecoveryRebindsWithoutDuplicateExecution() {
   assert.ok(submit.includes('beginPendingSubmitResume?.(deps.state, sessionId)') && submit.includes('finishPendingSubmitResume?.(deps.state, sessionId)'), 'pending-submit recovery must hold a per-session single-flight owner');
   assert.ok(submit.includes('(!assistantNode||!assistantNode.isConnected)') && submit.includes('findMessageNodeByDisplayItem(liveItem)||assistantNode'), 'dispatch must rebind the assistant node rendered after switching back');
   assert.ok(app.includes('updateLiveDisplay(e,n,"assistant",l'), 'intent-recognition stage updates must target the currently rendered display item, not a detached pre-switch node');
-  assert.ok(index.includes('runs.js?v=1.2.66-session-run-owner') && index.includes('submit-workflow.js?v=1.5.4-live-status') && index.includes('app.js?v=2.3.1-live-status') && index.includes('chatui.bundle.js?v=1.3.161-live-status'), 'browser cache versions must deliver the session-run ownership fix');
+  assertAssetVersionAtLeast(index, 'runs.js', [1, 2, 66]);
+  assertAssetVersionAtLeast(index, 'submit-workflow.js', [1, 5, 4]);
+  assertAssetVersionAtLeast(index, 'app.js', [2, 3, 1]);
+  assertAssetVersionAtLeast(index, 'chatui.bundle.js', [1, 3, 161]);
 }
 
 module.exports = [

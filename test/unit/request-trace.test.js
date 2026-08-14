@@ -40,7 +40,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       targetPath: '/chat/completions',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', strict: true } },
+        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2', strict: true } },
         messages: [
           { role: 'system', content: 'private route intent system prompt' },
           { role: 'user', content: `{"current_input":"有几个颜色","credential":"${apiKey}","image":"data:image/png;base64,${'A'.repeat(5000)}"}` },
@@ -54,7 +54,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       response: {
         choices: [{
           message: {
-            content: '{"operation":"plain_chat","relation":"followup","goal":"统计颜色数量","resource_refs":[]}',
+            content: '{"operation":"plain_chat","relation":"followup","goal":"统计颜色数量","task_shape":"single","resource_refs":[]}',
             reasoning_content: 'never persist private reasoning',
           },
         }],
@@ -71,7 +71,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     assert.deepStrictEqual(events[0].header_names, ['X-Trace-Id']);
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
     assert.deepStrictEqual(JSON.parse(events[1].response.choices[0].message.content.text), {
-      operation: 'plain_chat', relation: 'followup', goal: '统计颜色数量', resource_refs: [],
+      operation: 'plain_chat', relation: 'followup', goal: '统计颜色数量', task_shape: 'single', resource_refs: [],
     });
     assert.deepStrictEqual(events[1].response.choices[0].message.reasoning, {
       present: true, chars: 'never persist private reasoning'.length, omitted: true,
@@ -133,11 +133,11 @@ function testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries()
 
 function testRequestKindRecognizesStructuredRouteIntentFallbacks() {
   assert.strictEqual(requestKind('/chat/completions', {
-    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1' } },
+    response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2' } },
   }), 'route_intent');
   assert.strictEqual(requestKind('/chat/completions', {
     response_format: { type: 'json_object' },
-    messages: [{ role: 'system', content: '只返回 route_intent.v1 JSON' }],
+    messages: [{ role: 'system', content: '只返回 route_intent.v2 JSON' }],
   }), 'route_intent');
   assert.strictEqual(requestKind('/chat/completions', {
     messages: [{ role: 'user', content: '你好' }],
@@ -212,7 +212,7 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
       submissionId: 'submit-route-trace',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v1', strict: true } },
+        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2', strict: true } },
         messages: [
           { role: 'system', content: 'route system prompt' },
           { role: 'user', content: '{"current_input":"有几个颜色"}' },

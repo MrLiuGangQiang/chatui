@@ -158,11 +158,21 @@
     return metric ? metric[1].trim() : '';
   }
 
+  function attachmentIsImage(item = {}) {
+    const type = String(item?.type || item?.mime || item?.mimeType || '').trim();
+    if (/^image\//i.test(type)) return true;
+    const name = String(item?.name || item?.filename || '').trim();
+    return /\.(?:png|jpe?g|gif|webp|bmp|svg|avif|heic|heif)$/i.test(name);
+  }
+
   function attachmentDisplayText(message = {}, context = null) {
     const parsed = context || parseContext(message.attachmentContext);
     const prompt = String(parsed?.prompt || '').trim();
     if (prompt) return prompt;
-    const names = (parsed?.attachments || [])
+    const attachments = Array.isArray(parsed?.attachments) ? parsed.attachments : [];
+    const visibleAttachments = attachments.filter(item => !attachmentIsImage(item));
+    if (attachments.length && !visibleAttachments.length) return '';
+    const names = visibleAttachments
       .map(item => String(item?.name || item?.filename || '').trim())
       .filter(Boolean);
     if (names.length) return `\u9644\u4ef6\uff1a${names.join('\u3001')}`;

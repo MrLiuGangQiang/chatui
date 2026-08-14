@@ -71,7 +71,52 @@ async function testSameTurnCompletionStillSupersedesItsEarlierPlaceholder() {
   assert.deepStrictEqual(session.messages.map(message => message.content), ['问题', '这是已完成的回答。']);
 }
 
+async function testSessionWritesKeepWorkingStateIsolatedFromCanonicalSessionArrays() {
+  const sessionA = {
+    id: 'session-a', title: 'A', display: [],
+    messages: [{ role: 'user', content: 'A question', messageIndex: '0' }],
+  };
+  const sessionB = {
+    id: 'session-b', title: 'B', display: [],
+    messages: [{ role: 'user', content: 'B question', messageIndex: '0' }],
+  };
+  const state = {
+    sessions: [sessionA, sessionB],
+    activeSessionId: 'session-a',
+    messages: sessionA.messages,
+    disposedSessionIds: new Set(),
+  };
+  const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  const workflow = sessionDisplay.createSessionDisplayWorkflow({
+    getState: () => state,
+    getActiveSession: () => state.sessions.find(session => session.id === state.activeSessionId),
+    deriveSessionTitle: session => session.title,
+    compactAdjacentDuplicateMessages: sessionPersistence.compactAdjacentDuplicateMessages,
+    sanitizeStoredMessage: message => message,
+    messageRecords,
+    localStorage: storage,
+    snapshotStore: { supported: false },
+  });
+
+  await workflow.saveSessionMessages('session-a', [
+    ...sessionA.messages,
+    { role: 'assistant', content: 'A answer', responseIndex: '1' },
+  ]);
+  state.activeSessionId = 'session-b';
+  state.messages = sessionB.messages.map(message => ({ ...message }));
+  await workflow.saveSessionMessages('session-b', [
+    ...state.messages,
+    { role: 'assistant', content: 'B answer', responseIndex: '1' },
+  ]);
+
+  assert.deepStrictEqual(sessionA.messages.map(message => message.content), ['A question', 'A answer']);
+  assert.deepStrictEqual(sessionB.messages.map(message => message.content), ['B question', 'B answer']);
+  assert.notStrictEqual(sessionA.messages, sessionB.messages);
+  assert.notStrictEqual(state.messages, sessionB.messages);
+}
+
 module.exports = [
+  testSessionWritesKeepWorkingStateIsolatedFromCanonicalSessionArrays,
   testLateMessageWriterCannotEraseAnEarlierCompletedAnswer,
   testSameTurnCompletionStillSupersedesItsEarlierPlaceholder,
 ];

@@ -32,6 +32,13 @@ function createRouter(deps) {
     registerChatStreamJob,
     startChatJob,
     getChatJob,
+    imageBatchJobs,
+    startImageBatchJob,
+    getImageBatchJob,
+    publicImageBatchJob,
+    subscribeImageBatchJob,
+    abortImageBatchJob,
+    disposeImageBatchJob,
     usageStats,
     usageAccessValidator,
     feedbackReviewer,
@@ -62,7 +69,7 @@ function createRouter(deps) {
     requestTrace,
   });
 
-  const { routeChatJobs, routeImageJobs } = createJobRoutes({
+  const { routeChatJobs, routeImageJobs, routeImageBatches } = createJobRoutes({
     sendJson,
     sendMethodNotAllowed,
     imageJobs,
@@ -75,6 +82,13 @@ function createRouter(deps) {
     getImageJob,
     startChatJob,
     getChatJob,
+    imageBatchJobs,
+    startImageBatchJob,
+    getImageBatchJob,
+    publicImageBatchJob,
+    subscribeImageBatchJob,
+    abortImageBatchJob,
+    disposeImageBatchJob,
   });
 
   const { routeUsage } = createUsageRoutes({
@@ -107,6 +121,7 @@ function createRouter(deps) {
     if (!pathname) return 'unknown';
     if (pathname === '/api/chat-jobs' || pathname.startsWith('/api/chat-jobs/')) return 'chat-job';
     if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) return 'image-job';
+    if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) return 'image-batch';
     if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) return 'usage';
     if (pathname.startsWith('/api/')) return 'proxy';
     if (pathname.startsWith('/_core/') || pathname === '/api/core') return 'core';
@@ -159,6 +174,9 @@ function createRouter(deps) {
       }
       if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) {
         return await routeImageJobs(req, res);
+      }
+      if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) {
+        return await routeImageBatches(req, res);
       }
       if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
         return await routeUsage(req, res);

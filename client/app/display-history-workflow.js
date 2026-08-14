@@ -1,6 +1,10 @@
 (function initChatUIAppDisplayHistoryWorkflow(root) {
   // Intentionally not strict: workflow bodies use a dependency scope supplied by app.js.
 
+  const messagePrimitives = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+    || (typeof require === 'function' ? require('../core/message-primitives') : {});
+  const { isDurableImageCompletionMessage } = messagePrimitives;
+
   function createDisplayHistoryWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const messageRecords = deps.messageRecords || root.ChatUIMessageRecords || {};
@@ -222,10 +226,14 @@
         const hasCompletedImage = item => {
           if (!isImagePendingDisplayItem(item)) return false;
           const jobId = String(item.jobId || ''), displayId = String(item.id || ''), responseIndex = String(item.responseIndex || '');
-          return (session.messages || []).some(message => message?.role === 'assistant' && /^\[图片(生成|编辑|修改)完成\]/.test(String(message.content || '')) && (
-            jobId && String(message.imageJobId || '') === jobId ||
-            displayId && String(message.displayItemId || '') === displayId ||
-            responseIndex && String(message.responseIndex || '') === responseIndex
+          return (session.messages || []).some(message => (
+            typeof isDurableImageCompletionMessage === 'function'
+            && isDurableImageCompletionMessage(message)
+            && (
+              jobId && String(message.imageJobId || '') === jobId ||
+              displayId && String(message.displayItemId || '') === displayId ||
+              responseIndex && String(message.responseIndex || '') === responseIndex
+            )
           ));
         };
         const hasCompletedChat = item => !isImagePendingDisplayItem(item) && sessionHasCompletedAssistantForResponse(session, item.responseIndex);
@@ -297,7 +305,7 @@
     }
 
     function durableMediaDescriptorRef(item = {}) {
-      const candidates = [item.src, item.url, item.dataUrl, item.data_url, item.previewSrc, item.preview_src];
+      const candidates = [item.src, item.persistedSrc, item.persisted_src, item.url, item.dataUrl, item.data_url, item.previewSrc, item.preview_src];
       for (const candidate of candidates) {
         const ref = messageRecords.durableMediaRef
           ? messageRecords.durableMediaRef(candidate)
@@ -388,7 +396,9 @@
             ? imagePresentationHtml(normalized, presentation)
             : '';
         const html = descriptorHtml || clarification?.html || persistedHtml;
-        const displayText = presentation.displayText || (normalized.role === 'user' ? normalized.rawText || normalized.content : normalized.content);
+        const displayText = Object.prototype.hasOwnProperty.call(presentation, 'displayText')
+          ? String(presentation.displayText || '')
+          : normalized.role === 'user' ? normalized.rawText || normalized.content : normalized.content;
         const rich = !!html && (
           !!clarification
           || displayItemHasRichMedia({ html })

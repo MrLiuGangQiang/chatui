@@ -148,6 +148,7 @@ function testEighthModelCandidateBindsAssistantHistoryImageByCanonicalIdentity()
     operation: 'edit_image',
     relation: 'new',
     goal: '测试用户目标',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i8', role: 'target' }],
   };
   const imageCandidates = Array.from({ length: 8 }, (_value, index) => {

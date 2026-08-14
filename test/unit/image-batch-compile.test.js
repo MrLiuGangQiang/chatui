@@ -105,6 +105,7 @@ function testRouteIntentTaskShapeFlowsToRouteAndGatesPlanning() {
     operation: 'text_to_image',
     relation: 'new',
     goal: '分别生成一只猫和一只狗',
+    task_shape: 'single',
     resource_refs: [],
   };
   const legacy = routeService.inspectModelRouteResult(JSON.stringify(baseIntent), {

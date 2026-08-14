@@ -155,7 +155,7 @@
       const session = createSession();
       state.sessions.unshift(session);
       state.activeSessionId = session.id;
-      state.messages = session.messages;
+      state.messages = (session.messages || []).map(message => ({ ...message }));
       // Execution mode is derived per request in automatic routing. A new
       // session must never display or persist the previous session's mode.
       state.mode = 'chat';
@@ -227,7 +227,7 @@
       const disposal = disposeSessions(sessions, [nextSession]);
       state.sessions = [nextSession];
       state.activeSessionId = nextSession.id;
-      state.messages = nextSession.messages;
+      state.messages = (nextSession.messages || []).map(message => ({ ...message }));
       state.mode = 'chat';
       state.lastGeneratedImage = null;
       state.editingIndex = null;

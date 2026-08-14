@@ -10,6 +10,7 @@ function editIntent(resourceRefs = [{ candidate_key: 'm1', role: 'target' }]) {
     operation: 'edit_image',
     relation: 'continuation',
     goal: '将目标图片换成黑色',
+    task_shape: 'single',
     resource_refs: resourceRefs,
   };
 }
@@ -156,6 +157,7 @@ function testMalformedOrUnknownIntentStillUsesTheInvalidIntentFailurePath() {
     operation: 'delete_image',
     relation: 'new',
     goal: '删除图片',
+    task_shape: 'single',
     resource_refs: [],
   }), {
     input: '删除图片', attachments: [], context: contextWithMemory([]),

@@ -9,6 +9,10 @@ function makeClientImageJobId() {
   return makeClientJobId('imgjob');
 }
 
+function makeClientBatchJobId() {
+  return makeClientJobId('imgbatch');
+}
+
 function makeClientChatJobId() {
   return makeClientJobId('chatjob');
 }
@@ -244,9 +248,49 @@ async function startImageGenerationJob({ payload, config, jobId, mode = 'image',
   });
 }
 
+
+async function startImageBatchJob({ config, batchId, submissionId = '', tasks = [], headers = {}, signal, onUploadProgress, fetchImpl, parseResponseJson, normalizeError }) {
+  return postJob({
+    fetchImpl,
+    url: '/api/image-batches',
+    signal,
+    parseResponseJson,
+    normalizeError,
+    onUploadProgress,
+    body: {
+      schema_version: 'image_batch_execution.v1',
+      batchId,
+      submissionId,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      headers,
+      tasks,
+    },
+  });
+}
+
+async function getImageBatchJob({ batchId, fetchImpl = fetch, signal, parseResponseJson, normalizeError }) {
+  const response = await fetchImpl(`/api/image-batches/${encodeURIComponent(batchId)}`, { signal });
+  const payload = await parseResponseJson(response);
+  if (!response.ok) throw new Error(normalizeError(null, payload));
+  return payload;
+}
+
+async function abortImageBatchJob({ batchId, fetchImpl = fetch }) {
+  if (!batchId) return null;
+  const response = await fetchImpl(`/api/image-batches/${encodeURIComponent(batchId)}/abort`, { method: 'POST' });
+  return response;
+}
+
+async function disposeImageBatchJob({ batchId, fetchImpl = fetch }) {
+  if (!batchId) return null;
+  return fetchImpl(`/api/image-batches/${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+}
+
 const api = Object.freeze({
   makeClientJobId,
   makeClientImageJobId,
+  makeClientBatchJobId,
   makeClientChatJobId,
   startChatJob,
   registerChatStreamJob,
@@ -256,6 +300,10 @@ const api = Object.freeze({
   makeTerminalJobError,
   waitJobEvent,
   startImageGenerationJob,
+  startImageBatchJob,
+  getImageBatchJob,
+  abortImageBatchJob,
+  disposeImageBatchJob,
 });
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -437,7 +437,7 @@
         images: context.attachments.map(item => ({
           src: item.src,
           filename: item.name || item.filename || 'previous-image.png',
-          label: item.label || item.subject || '',
+          label: item.label || item.subject || item.description || '',
         })),
       };
     }
@@ -467,7 +467,7 @@
         sourceIndex,
         imageId: imageId || makeImageItemId(referenceId, sourceIndex),
         referenceId,
-        label: item.label || item.subject || '',
+        label: item.label || item.subject || item.description || '',
       };
     }
 

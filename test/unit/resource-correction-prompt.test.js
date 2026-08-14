@@ -53,7 +53,7 @@ function compileGoal(goal, input = '你选错了猫，请改用这只猫继续�
     input,
     attachments: [],
     context,
-    semanticAuthority: 'route_intent.v1',
+    semanticAuthority: routeService.ROUTE_INTENT_VERSION,
     executionInput: goal,
   });
 }
@@ -106,7 +106,7 @@ function testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent() {
 
 function testPromptUsesGeneralRulesInsteadOfFailureCasePatches() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /goal 是下游执行模型唯一指令/);
+  assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
   assert.match(prompt, /正例："将目标图中的猫改为白色，保留构图不变。"/);
   assert.doesNotMatch(prompt, /选错了猫|耳朵换成红色|资源纠正/,
     'specific production failures belong in evaluation fixtures, not the system prompt');

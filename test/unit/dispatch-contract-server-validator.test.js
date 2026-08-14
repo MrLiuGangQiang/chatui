@@ -315,9 +315,43 @@ async function testProxyNeverForwardsOuterExecutionProtocolFields() {
   }
 }
 
+async function testBackgroundImageTagValidationAllowsChatOnlyAndRejectsContracts() {
+  const valid = validator.validateProxyExecutionRequest(
+    { requestPurpose: 'background_image_tag', payload: { model: 'chat-model', messages: [{ role: 'user', content: 'a cat' }] } },
+    { targetPath: '/chat/completions', method: 'POST' },
+  );
+  assert.strictEqual(valid.requestPurpose, 'background_image_tag');
+  assert.strictEqual(valid.targetPath, '/chat/completions');
+  assert.strictEqual(validator.validateProxyExecutionRequest(
+    { requestPurpose: 'background_image_tag', payload: {} },
+    { targetPath: '/responses', method: 'POST' },
+  ).targetPath, '/responses');
+
+  const plan = makeDispatchContract({ prompt: 'hello' });
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'background_image_tag', payload: {} },
+    { targetPath: '/images/generations', method: 'POST' },
+  ), 'BACKGROUND_IMAGE_TAG_TARGET_INVALID');
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'background_image_tag', dispatchContract: plan, payload: {} },
+    { targetPath: '/chat/completions', method: 'POST' },
+  ), 'BACKGROUND_IMAGE_TAG_PLAN_FORBIDDEN');
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'background_image_tag', bindingEvidence: [{ key: 'r1' }], payload: {} },
+    { targetPath: '/chat/completions', method: 'POST' },
+  ), 'BACKGROUND_IMAGE_TAG_BINDINGS_FORBIDDEN');
+
+  // The old non-whitelisted purpose stays invalid.
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'image_caption', payload: {} },
+    { targetPath: '/chat/completions', method: 'POST' },
+  ), 'REQUEST_PURPOSE_INVALID');
+}
+
 module.exports = [
   testMissingPurposeAndInvalidPurposeAreRejected,
   testIntentRecognitionCannotCarryFinalContract,
+  testBackgroundImageTagValidationAllowsChatOnlyAndRejectsContracts,
   testFinalChatRequiresExactPromptMediaAndEvidence,
   testFinalImageRequiresExactArgumentsAndRoleBindings,
   testQuotedMessageBindingAuthorizesTextToImageWithoutMediaFiles,

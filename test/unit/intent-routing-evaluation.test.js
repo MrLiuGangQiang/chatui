@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 const assert = require("assert");
 const path = require("path");
@@ -6,13 +6,14 @@ const evaluation = require("../../scripts/lib/intent-routing-evaluation");
 const evaluationCli = require("../../scripts/evaluate-intent-routing");
 const routeService = require("../../client/services/route-service");
 
-const FIXTURE_PATH = path.join(__dirname, "../fixtures/intent-routing-eval.v1.json");
+const FIXTURE_PATH = path.join(__dirname, "../fixtures/intent-routing-eval.v2.json");
 
 function plan(operation, _prompt = "") {
   return JSON.stringify({
     operation,
     relation: "new",
     goal: _prompt || operation,
+    task_shape: 'single',
     resource_refs: [],
   });
 }
@@ -25,11 +26,12 @@ function caseById(suite, id) {
 
 function testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
-  assert.strictEqual(suite.schema_version, "intent-routing-eval.v1");
-  assert.strictEqual(suite.cases.length, 42);
+  assert.strictEqual(suite.schema_version, "intent-routing-eval.v2");
+  assert.strictEqual(suite.cases.length, 44);
   const operations = new Set(suite.cases.map(item => item.expected.operation));
   for (const operation of evaluation.VALID_OPERATIONS) assert.ok(operations.has(operation), `fixture must cover ${operation}`);
   assert.ok(suite.cases.every(item => item.expected.goal && item.expected.clarification && item.expected.resources));
+  assert.ok(suite.cases.every(item => evaluation.VALID_TASK_SHAPES.has(item.expected.task_shape)));
   assert.ok(suite.cases.every(item => !Object.hasOwn(item.expected, "directive")));
 }
 
@@ -57,6 +59,7 @@ function modelIntentForScenario(fixture) {
     operation: fixture.expected.operation,
     relation: Array.isArray(fixture.expected.relation) ? fixture.expected.relation[0] : fixture.expected.relation,
     goal: fixture.expected.goal.concepts.map(alternatives => alternatives[0]).join('，'),
+    task_shape: fixture.expected.task_shape,
     resource_refs: resourceRefs,
   };
 }
@@ -80,7 +83,10 @@ function createScenarioTest(fixture) {
     assert.strictEqual(result.compiled.operation, fixture.expected.operation);
     assert.ok(evaluation.relationMatchesExpectation(fixture.expected.relation, result.compiled.relation), `${fixture.id}: relation mismatch: expected ${JSON.stringify(fixture.expected.relation)}, got ${result.compiled.relation}`);
     assert.strictEqual(result.compiled.readiness, fixture.expected.clarification.required ? "needs_clarification" : "ready");
-    assert.strictEqual(Boolean(result.compiled.dispatch_contract), !fixture.expected.clarification.required);
+    const expectsImagePlanning = fixture.expected.task_shape === 'multi'
+      && !fixture.expected.clarification.required;
+    assert.strictEqual(Boolean(result.compiled.dispatch_contract),
+      !fixture.expected.clarification.required && !expectsImagePlanning);
   };
   Object.defineProperty(runScenario, "name", { value: scenarioTestName(fixture.id) });
   return runScenario;
@@ -96,6 +102,7 @@ function testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource(
     operation: "image_qa",
     relation: "new",
     goal: fixture.input,
+    task_shape: 'single',
     resource_refs: [{ candidate_key: "i2", role: "source" }],
   }));
   assert.strictEqual(result.checks.valid_route, true, "the local compiler must return a structurally valid clarification route");
@@ -121,6 +128,32 @@ function testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText() 
     targetOnlyEdit.expected.goal,
     '只把目标图的背景改为浅灰色，其他内容保持不变。',
   ), true, 'an equivalent target-only constraint must retain the first-image exclusion semantics');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    targetOnlyEdit.expected.goal,
+    targetOnlyEdit.input,
+  ), true, 'the faithful original wording must not fail because the evaluator demands an unstated preservation phrase');
+
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    targetOnlyEdit.expected.goal,
+    '将第二张图的背景改成浅灰色，第一张保持原样。',
+  ), true, 'a faithful keep-the-other-image-unchanged wording must not be rejected lexically');
+
+  const attachmentOnlyFile = caseById(suite, 'attachment-only-current-file-uses-model-goal');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    attachmentOnlyFile.expected.goal,
+    '概述该文件的内容。',
+  ), true, 'the attachment-only default goal must accept the prompt-defined 概述 wording');
+
+
+  const multiRoleReference = caseById(suite, 'content-and-style-references-keep-separate-roles');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    multiRoleReference.expected.goal,
+    '以第一张图的主体构图和第二张图的水彩质感为参考，生成一张产品海报。',
+  ), true, 'natural-language image ordinals remain valid when resource roles are evaluated separately');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    multiRoleReference.expected.goal,
+    '使用候选 i1 和 i2 生成产品海报。',
+  ), false, 'internal candidate keys must remain forbidden in goal text');
 }
 
 function testIntentRoutingEvaluationRejectsSemanticMutations() {
@@ -131,6 +164,7 @@ function testIntentRoutingEvaluationRejectsSemanticMutations() {
     operation: 'plain_chat',
     relation: 'new',
     goal: '把登录页写得更专业。',
+    task_shape: 'single',
     resource_refs: [],
   }));
   assert.strictEqual(lostFacts.checks.goal, false, 'dropping required task facts must fail even when operation is correct');
@@ -147,6 +181,7 @@ function testIntentRoutingEvaluationRejectsSemanticMutations() {
     operation: 'image_compare',
     relation: 'followup',
     goal: '比较两张历史产品图的构图与色调差异。',
+    task_shape: 'single',
     resource_refs: [
       { candidate_key: second.candidate_key, role: 'compare_a' },
       { candidate_key: first.candidate_key, role: 'compare_b' },
@@ -165,6 +200,7 @@ function testIntentRoutingEvaluationRejectsSemanticMutations() {
     operation: 'image_reference_gen',
     relation: 'new',
     goal: '用主体参考图的构图和风格参考图的水彩质感生成产品海报。',
+    task_shape: 'single',
     resource_refs: [
       { candidate_key: roleCatalog[0].candidate_key, role: 'style_reference' },
       { candidate_key: roleCatalog[1].candidate_key, role: 'reference' },
@@ -252,6 +288,49 @@ function testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBounda
   assert.strictEqual(audit.embedded_execution_protocol_field, "");
 }
 
+async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallbacks() {
+  const calls = [];
+  const fetchImpl = async (_url, options = {}) => {
+    const payload = JSON.parse(options.body);
+    calls.push(payload);
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({
+        error: { code: 'invalid_request_error', message: 'This response_format type is unavailable now' },
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (calls.length === 2) {
+      return new Response(JSON.stringify({
+        error: { code: 'invalid_request_error', message: "Prompt must contain the word 'json' to use response_format" },
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: plan('plain_chat', '保持原意') } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const payload = routeService.buildRoutePayload({
+    model: 'router-model',
+    input: '保持原意',
+    context: {},
+  });
+  const original = JSON.parse(JSON.stringify(payload));
+
+  const text = await evaluationCli.requestRouteModel({
+    endpoint: 'https://example.test/v1/chat/completions',
+    apiKey: 'test-key',
+    payload,
+    timeoutMs: 1000,
+    fetchImpl,
+  });
+
+  assert.strictEqual(text, plan('plain_chat', '保持原意'));
+  assert.strictEqual(calls.length, 3, 'json_schema, json_object and instructed plain JSON must each be attempted once');
+  assert.strictEqual(calls[0].response_format.type, 'json_schema');
+  assert.strictEqual(calls[1].response_format.type, 'json_object');
+  assert.strictEqual(calls[2].response_format, undefined);
+  assert.ok(calls[2].messages.at(-1).content.includes('JSON Schema'));
+  assert.deepStrictEqual(payload, original, 'evaluation compatibility must not mutate the production route payload');
+}
+
 async function testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCompilationEvidence() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
   const fixture = caseById(suite, "plain-chat-does-not-inherit-history-image");
@@ -291,5 +370,6 @@ module.exports = [
   testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates,
   testIntentRoutingEvaluationRedactsSecretsAndBinaryFromReportValues,
   testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBoundary,
+  testIntentRoutingEvaluationUsesProductionStructuredOutputFallbacks,
   testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCompilationEvidence,
 ];

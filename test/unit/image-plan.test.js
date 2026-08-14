@@ -64,7 +64,7 @@ function testImagePlanAcceptsOneTaskForSingleFallback() {
   assert.strictEqual(imagePlan.hasExactImagePlan(value), true);
 }
 
-function testImagePlanResponseFormatDeclaresStrictFiveTaskLimit() {
+function testImagePlanResponseFormatDeclaresStructuralTaskLimit() {
   const format = imagePlan.IMAGE_PLAN_RESPONSE_FORMAT;
   assert.strictEqual(format.type, 'json_schema');
   assert.strictEqual(format.json_schema.name, 'chatui_image_plan_v1');
@@ -74,10 +74,21 @@ function testImagePlanResponseFormatDeclaresStrictFiveTaskLimit() {
   assert.strictEqual(schema.additionalProperties, false);
   assert.strictEqual(schema.properties.schema_version.enum[0], 'image_plan.v1');
   assert.strictEqual(schema.properties.tasks.minItems, 1);
-  assert.strictEqual(schema.properties.tasks.maxItems, 5);
-  assert.deepStrictEqual(schema.properties.tasks.items.required, ['task_type', 'prompt', 'input_images', 'size', 'quality', 'background', 'output_format', 'count']);
+  assert.strictEqual(schema.properties.tasks.maxItems, imagePlan.IMAGE_PLAN_ABSOLUTE_MAX_TASKS);
+  assert.deepStrictEqual(
+    schema.properties.tasks.items.required,
+    Object.keys(schema.properties.tasks.items.properties),
+    'strict provider schemas must require every declared task property',
+  );
   assert.strictEqual(schema.properties.tasks.items.properties.task_type.enum.length, 2);
   assert.deepStrictEqual(schema.properties.tasks.items.properties.count, { type: 'integer', minimum: 1, maximum: 4 });
+  assert.deepStrictEqual(schema.properties.tasks.items.properties.label, { type: 'string', minLength: 1, maxLength: 120 });
+}
+
+function testImagePlanAcceptsOptionalLabelAndRejectsInvalidLabel() {
+  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ label: '一只橘色小猫' })])), true, 'optional label is allowed');
+  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ label: '' })])), false, 'empty label is rejected');
+  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ label: 'x'.repeat(121) })])), false, 'over-long label is rejected');
 }
 
 function testImagePlanValidatorFailureCarriesStableErrorCode() {
@@ -91,6 +102,7 @@ module.exports = [
   testImagePlanRejectsInvalidEnvelope,
   testImagePlanRejectsInvalidTaskShape,
   testImagePlanAcceptsOneTaskForSingleFallback,
-  testImagePlanResponseFormatDeclaresStrictFiveTaskLimit,
+  testImagePlanResponseFormatDeclaresStructuralTaskLimit,
+  testImagePlanAcceptsOptionalLabelAndRejectsInvalidLabel,
   testImagePlanValidatorFailureCarriesStableErrorCode,
 ];

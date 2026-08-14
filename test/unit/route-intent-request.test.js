@@ -205,8 +205,10 @@ async function testInvalidCanonicalRouteOutputFailsClosedInsteadOfDroppingBindin
   });
   try {
     const route = await workflow.getEffectiveRoute('edit this image', [], 'session-invalid');
-    assert.strictEqual(route.needClarification, true);
-    assert.strictEqual(route.api, 'clarify');
+    assert.strictEqual(route.needClarification, false);
+    assert.strictEqual(route.api, 'route_error');
+    assert.strictEqual(route.outcome, 'invalid_model_output');
+    assert.strictEqual(route.readiness, 'failed');
     assert.strictEqual(route.dispatchContract, null);
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.deepStrictEqual(route.resources, []);
@@ -270,7 +272,8 @@ async function testQuotedImageTimeoutFailsClosedWithoutLocalMediaSelection() {
       { deadlineMs: 5 },
     );
     assert.strictEqual(requestAborted, true, 'the route request must hit the configured deadline');
-    assert.strictEqual(route.readiness, 'needs_clarification');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.strictEqual(route.outcome, 'transient_error');
     assert.strictEqual(route.dispatchAuthorized, false);
     assert.strictEqual(route.dispatchContract, null);
     assert.strictEqual(route.evidence, 'route_model_timeout');
@@ -317,6 +320,7 @@ function testIntentPayloadUsesShortResourceKeysAndCompilesBindings() {
     operation: 'plain_chat',
     relation: 'followup',
     goal: '测试用户目标',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'context' }],
   };
   const compiled = routeService.inspectModelRouteResult(JSON.stringify(plan), {
@@ -355,6 +359,7 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
           operation: 'text_to_image',
           relation: 'new',
           goal: '画一只鸡',
+          task_shape: 'single',
           resource_refs: [],
         }) } }],
       };

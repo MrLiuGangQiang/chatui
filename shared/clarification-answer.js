@@ -936,9 +936,13 @@
   function pendingResourceOrigins(pending = null) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return [];
-    const resources = Array.isArray(normalized.routeInfo?.resources)
-      ? normalized.routeInfo.resources
-      : [];
+    const routeInfo = normalized.routeInfo || {};
+    const declaredResources = Array.isArray(routeInfo.resources) ? routeInfo.resources : [];
+    const executionResources = [
+      ...(Array.isArray(routeInfo.executionResources?.images) ? routeInfo.executionResources.images : []),
+      ...(Array.isArray(routeInfo.executionResources?.files) ? routeInfo.executionResources.files : []),
+    ];
+    const resources = [...declaredResources, ...executionResources];
     return resources
       .filter(resource => resource && (resource.type === 'image' || resource.type === 'file'))
       .map(resource => ({

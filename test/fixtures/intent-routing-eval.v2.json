@@ -1,6 +1,6 @@
 {
-  "schema_version": "intent-routing-eval.v1",
-  "title": "ChatUI intent routing starter benchmark",
+  "schema_version": "intent-routing-eval.v2",
+  "title": "ChatUI route_intent.v2 semantic routing evaluation",
   "cases": [
     {
       "id": "plain-chat-does-not-inherit-history-image",
@@ -65,7 +65,8 @@
         "resources": {
           "mode": "media_exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -136,7 +137,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -199,7 +201,8 @@
         "resources": {
           "mode": "media_exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -247,7 +250,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -329,7 +333,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -409,7 +414,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -485,7 +491,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -565,7 +572,8 @@
             ],
             [
               "依据",
-              "理由"
+              "理由",
+              "根据"
             ]
           ],
           "forbidden": [
@@ -600,7 +608,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -689,7 +698,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -766,7 +776,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -843,7 +854,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -896,7 +908,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -960,7 +973,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1052,7 +1066,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1128,7 +1143,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1203,7 +1219,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1275,7 +1292,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1343,7 +1361,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1416,7 +1435,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1457,12 +1477,16 @@
         "goal": {
           "concepts": [
             [
-              "文件"
+              "文件",
+              "notes.txt",
+              "附件"
             ],
             [
               "读取",
               "分析",
-              "总结"
+              "总结",
+              "概括",
+              "概述"
             ]
           ],
           "forbidden": [
@@ -1488,7 +1512,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1562,7 +1587,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1632,7 +1658,8 @@
         "resources": {
           "mode": "media_exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1717,7 +1744,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "multi"
       }
     },
     {
@@ -1811,7 +1839,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1904,7 +1933,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -1973,7 +2003,8 @@
         "resources": {
           "mode": "media_exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2026,7 +2057,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2129,7 +2161,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2202,7 +2235,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2268,17 +2302,17 @@
               "浅灰"
             ],
             [
-              "保持",
-              "不变"
-            ],
-            [
               "第一张不要改",
               "第一张图不要修改",
               "不修改第一张",
               "只修改目标图",
               "只将目标图",
               "只把目标图",
-              "目标图"
+              "目标图",
+              "第一张图保持不变",
+              "第一张保持原样",
+              "第一张图保持原样",
+              "第一张保持不变"
             ]
           ],
           "forbidden": [
@@ -2305,7 +2339,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2371,7 +2406,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2427,7 +2463,8 @@
         "resources": {
           "mode": "exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2509,7 +2546,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2582,7 +2620,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2631,7 +2670,8 @@
         "resources": {
           "mode": "media_exact",
           "items": []
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2725,7 +2765,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2812,7 +2853,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -2888,9 +2930,7 @@
             "i2",
             "i3",
             "f1",
-            "m1",
-            "第一张",
-            "第二张"
+            "m1"
           ]
         },
         "clarification": {
@@ -2919,7 +2959,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -3000,9 +3041,7 @@
             "i2",
             "i3",
             "f1",
-            "m1",
-            "第一张",
-            "第二张"
+            "m1"
           ]
         },
         "clarification": {
@@ -3031,7 +3070,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -3107,7 +3147,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -3134,7 +3175,15 @@
           "image_count": 1,
           "file_count": 0,
           "source_message_index": 1,
-          "response_message_index": 2
+          "response_message_index": 2,
+          "images": [
+            {
+              "image_id": "img-history-cat-after-qa",
+              "reference_id": "imgref-history-cat-after-qa",
+              "index": 1
+            }
+          ],
+          "files": []
         },
         "image_candidates": [
           {
@@ -3160,7 +3209,8 @@
             [
               "颜色",
               "改成黑色",
-              "变成黑色"
+              "变成黑色",
+              "改为黑色"
             ],
             [
               "黑色"
@@ -3199,7 +3249,8 @@
               "missing": false
             }
           ]
-        }
+        },
+        "task_shape": "single"
       }
     },
     {
@@ -3226,7 +3277,25 @@
           "image_count": 3,
           "file_count": 0,
           "source_message_index": 1,
-          "response_message_index": 2
+          "response_message_index": 2,
+          "images": [
+            {
+              "image_id": "img-history-product1",
+              "reference_id": "imgref-history-product1",
+              "index": 1
+            },
+            {
+              "image_id": "img-history-product9",
+              "reference_id": "imgref-history-product9",
+              "index": 9
+            },
+            {
+              "image_id": "img-history-product10",
+              "reference_id": "imgref-history-product10",
+              "index": 10
+            }
+          ],
+          "files": []
         },
         "image_candidates": [
           {
@@ -3362,6 +3431,260 @@
               "index": 5,
               "id": "img-history-product5",
               "reference_id": "imgref-history-product5",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "multi-edit-two-current-images",
+      "category": "multi-image-task-shape",
+      "safety_critical": true,
+      "input": "把这两张图分别改成黑白效果，保持各自原有构图不变。",
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-edit-a",
+          "image_id": "img-current-edit-a",
+          "name": "edit-1.png",
+          "type": "image/png",
+          "is_image": true
+        },
+        {
+          "index": 2,
+          "source_index": 2,
+          "media_index": 2,
+          "id": "img-current-edit-b",
+          "image_id": "img-current-edit-b",
+          "name": "edit-2.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-edit-a",
+            "reference_id": "imgref-current-edit-a",
+            "target": "uploaded",
+            "description": "待编辑图片 1"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "current",
+            "image_id": "img-current-edit-b",
+            "reference_id": "imgref-current-edit-b",
+            "target": "uploaded",
+            "description": "待编辑图片 2"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "new",
+        "task_shape": "multi",
+        "goal": {
+          "concepts": [
+            [
+              "两张",
+              "每张"
+            ],
+            [
+              "分别",
+              "各自"
+            ],
+            [
+              "黑白",
+              "单色"
+            ],
+            [
+              "构图"
+            ],
+            [
+              "保持",
+              "保留"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 1,
+              "id": "img-current-edit-a",
+              "reference_id": "imgref-current-edit-a",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "current",
+              "role": "target",
+              "index": 2,
+              "id": "img-current-edit-b",
+              "reference_id": "imgref-current-edit-b",
+              "missing": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "multi-edit-four-history-images",
+      "category": "multi-image-task-shape",
+      "safety_critical": true,
+      "input": "把之前这四张图分别改成卡通风格，保留各自主体和构图。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 四张产品图"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-edit-1",
+            "reference_id": "imgref-history-edit-set",
+            "target": "previous",
+            "description": "历史产品图 1"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-history-edit-2",
+            "reference_id": "imgref-history-edit-set",
+            "target": "previous",
+            "description": "历史产品图 2"
+          },
+          {
+            "index": 3,
+            "source_index": 3,
+            "source": "history",
+            "image_id": "img-history-edit-3",
+            "reference_id": "imgref-history-edit-set",
+            "target": "previous",
+            "description": "历史产品图 3"
+          },
+          {
+            "index": 4,
+            "source_index": 4,
+            "source": "history",
+            "image_id": "img-history-edit-4",
+            "reference_id": "imgref-history-edit-set",
+            "target": "previous",
+            "description": "历史产品图 4"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "task_shape": "multi",
+        "goal": {
+          "concepts": [
+            [
+              "四张",
+              "每张"
+            ],
+            [
+              "分别",
+              "各自"
+            ],
+            [
+              "卡通"
+            ],
+            [
+              "主体"
+            ],
+            [
+              "构图"
+            ],
+            [
+              "保留",
+              "保持"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "i3",
+            "i4",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 1,
+              "id": "img-history-edit-1",
+              "reference_id": "imgref-history-edit-set",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 2,
+              "id": "img-history-edit-2",
+              "reference_id": "imgref-history-edit-set",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 3,
+              "id": "img-history-edit-3",
+              "reference_id": "imgref-history-edit-set",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 4,
+              "id": "img-history-edit-4",
+              "reference_id": "imgref-history-edit-set",
               "missing": false
             }
           ]

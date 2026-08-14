@@ -21,7 +21,14 @@ function testPendingStatusRendersOneEscapedAtomicLine() {
   assert.ok(!html.includes('pending-map'));
   const multiline = formatting.pendingFeedbackHtml('任务 1/2：正在生成\n任务 2/2：等待开始');
   assert.ok(multiline.includes('pending-feedback-multiline'), 'multi-task progress must opt into multiline presentation');
-  assert.ok(multiline.includes('任务 1/2：正在生成<br>任务 2/2：等待开始'), 'multi-task progress must preserve task boundaries as HTML line breaks');
+  assert.strictEqual((multiline.match(/class="pending-feedback-row"/g) || []).length, 2,
+    'multi-task progress must render one independently aligned row per task');
+  assert.strictEqual((multiline.match(/class="pending-orb"/g) || []).length, 2,
+    'every task row must have its own breathing orb');
+  assert.strictEqual((multiline.match(/class="pending-dots"/g) || []).length, 2,
+    'every task row must have its own trailing dot animation');
+  assert.ok(multiline.includes('任务 1/2：正在生成') && multiline.includes('任务 2/2：等待开始'),
+    'multi-task progress must preserve both task texts independently');
   assert.ok(!html.includes('接收任务'));
 }
 
@@ -52,8 +59,9 @@ function testPendingStatusAssetsShipWithoutFixedExecutionMap() {
   assert.ok(flatTheme.includes('.pending-text{'));
   assert.ok(flatTheme.includes('text-overflow:ellipsis!important'));
   assert.ok(flatTheme.includes('white-space:nowrap!important'));
-  assert.ok(flatTheme.includes('.pending-feedback.pending-feedback-multiline .pending-text{'));
-  assert.ok(flatTheme.includes('white-space:normal!important'));
+  assert.ok(flatTheme.includes('.pending-feedback-row{'));
+  assert.ok(flatTheme.includes('.pending-feedback-row .pending-text{'));
+  assert.ok(flatTheme.includes('flex-direction:column!important'));
   assert.ok(flatTheme.includes('background:transparent!important'));
   assert.ok(!submitWorkflow.includes('正在执行：路由预检'));
   assert.ok(!chatWorkflow.includes('正在处理中 请稍后'));
@@ -66,10 +74,10 @@ function testPendingStatusAssetsShipWithoutFixedExecutionMap() {
   assert.ok(app.includes('onStage:l'), 'route events must update the current live status in place');
   assert.ok(!app.includes('setTimeout(()=>l(ROUTE_SLOW_TEXT),10000)'), 'pending status must not be driven by a fixed timer fallback');
   assert.ok(index.includes('styles.css?v=1.3.5-live-status'));
-  assert.ok(index.includes('flat-theme.css?v=2.2.4-live-status'));
+  assert.ok(index.includes('flat-theme.css?v=2.2.5-batch-stable-slots=1'));
   assert.ok(index.includes('execution-status.js?v=1.0.0'));
   assert.ok(index.includes('formatting.js?v=1.2.70-live-status'));
-  assert.ok(index.includes('regenerate-workflow.js?v=1.2.4-live-status'));
+  assert.ok(index.includes('regenerate-workflow.js?v=1.2.6-server-batch-fanout'));
 }
 
 module.exports = [

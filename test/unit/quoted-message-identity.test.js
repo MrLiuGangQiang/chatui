@@ -78,6 +78,7 @@ function testQuotedRouteContextCarriesTheQuoteIdentityIntoCandidates() {
     operation: 'plain_chat',
     relation: 'followup',
     goal: '测试用户目标',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'context' }],
   };
   const result = routeService.inspectModelRouteResult(JSON.stringify(intent), {

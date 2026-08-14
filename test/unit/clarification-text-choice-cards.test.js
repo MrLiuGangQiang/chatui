@@ -45,7 +45,7 @@ function testTextChoiceListUsesSimpleAlignedRows() {
     'text clarification choices must render as one aligned list');
   assert.match(css, /\.markdown-body \.clarification-choice-list>\.clarification-choice-card\{[\s\S]*?width:100%;/,
     'each text choice row must fill the same list width');
-  assert.match(css, /\.clarification-presentation\[data-clarification-choice-options="1"\] \.clarification-choice-number\{[\s\S]*?border-radius:6px;[\s\S]*?background:#eff6ff;/,
+  assert.match(css, /\.clarification-presentation\[data-clarification-choice-options="1"\] \.clarification-choice-list \.clarification-choice-number\{[\s\S]*?border-radius:6px;[\s\S]*?background:#eff6ff;/,
     'text choice numbers must use the quiet badge style rather than the image strip style');
 }
 

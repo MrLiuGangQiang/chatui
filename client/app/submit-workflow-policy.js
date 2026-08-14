@@ -2,6 +2,36 @@
   'use strict';
 
   const INTENT_PIPELINE_DEADLINE_MS = 60000;
+  const ROUTE_OUTCOMES = Object.freeze({
+    READY: 'ready',
+    BUSINESS_CLARIFICATION: 'business_clarification',
+    CONFIGURATION_ERROR: 'configuration_error',
+    TRANSIENT_ERROR: 'transient_error',
+    INVALID_MODEL_OUTPUT: 'invalid_model_output',
+    CANCELLED: 'cancelled',
+  });
+  const ROUTE_OUTCOME_VALUES = new Set(Object.values(ROUTE_OUTCOMES));
+
+  function normalizeRouteOutcome(route = null) {
+    if (!route || typeof route !== 'object' || Array.isArray(route)) return ROUTE_OUTCOMES.INVALID_MODEL_OUTPUT;
+    const declared = String(route.outcome || '').trim();
+    if (ROUTE_OUTCOME_VALUES.has(declared)) return declared;
+    if (route.cancelled === true || route.routeCancelled === true) return ROUTE_OUTCOMES.CANCELLED;
+    if (route.needClarification === true || route.readiness === 'needs_clarification') {
+      return ROUTE_OUTCOMES.BUSINESS_CLARIFICATION;
+    }
+    if (route.dispatchAuthorized === true && route.readiness === 'ready') return ROUTE_OUTCOMES.READY;
+    return ROUTE_OUTCOMES.INVALID_MODEL_OUTPUT;
+  }
+
+  function isRouteFailureOutcome(value = '') {
+    const outcome = typeof value === 'object' ? normalizeRouteOutcome(value) : String(value || '').trim();
+    return [
+      ROUTE_OUTCOMES.CONFIGURATION_ERROR,
+      ROUTE_OUTCOMES.TRANSIENT_ERROR,
+      ROUTE_OUTCOMES.INVALID_MODEL_OUTPUT,
+    ].includes(outcome);
+  }
 
   function parseOptionalMessageIndex(value) {
     if (value === null || value === undefined || typeof value === 'string' && !value.trim()) return null;
@@ -22,6 +52,7 @@
     error.name = 'AbortError';
     error.code = 'ROUTE_INTENT_CANCELLED';
     error.routeCancelled = true;
+    error.routeOutcome = ROUTE_OUTCOMES.CANCELLED;
     return error;
   }
 
@@ -155,6 +186,9 @@
     createIntentPipelineCancellation,
     createPendingTransition,
     buildPendingAssistancePresentation,
+    ROUTE_OUTCOMES,
+    normalizeRouteOutcome,
+    isRouteFailureOutcome,
     INTENT_PIPELINE_DEADLINE_MS,
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

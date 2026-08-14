@@ -195,6 +195,7 @@ async function testHistoricalNativeMarkdownKeepsReadableRouteCandidate() {
     operation: 'file_qa',
     relation: 'followup',
     goal: '测试用户目标',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
   };
   const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), {
@@ -274,6 +275,7 @@ async function testLegacyFileMarkersBecomeAmbiguousClarificationChoices() {
     operation: 'file_qa',
     relation: 'followup',
     goal: '请明确选择其中一个文件。',
+    task_shape: 'single',
     resource_refs: [],
   };
   const inspected = routeService.inspectModelRouteResult(JSON.stringify(intent), {

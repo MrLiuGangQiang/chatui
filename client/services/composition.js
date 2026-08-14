@@ -46,6 +46,7 @@
   const jobs = Object.freeze({
     makeClientJobId: jobService.makeClientJobId,
     makeClientImageJobId: jobService.makeClientImageJobId,
+    makeClientBatchJobId: jobService.makeClientBatchJobId,
     makeClientChatJobId: jobService.makeClientChatJobId,
     startChatJob: options => jobService.startChatJob(withHttpDeps(options)),
     registerChatStreamJob: options => jobService.registerChatStreamJob(withHttpDeps(options)),
@@ -54,6 +55,10 @@
     disposeManagedJob: options => jobService.disposeManagedJob(withHttpDeps(options)),
     waitJobEvent: options => jobService.waitJobEvent(options),
     startImageGenerationJob: options => jobService.startImageGenerationJob(withHttpDeps(options)),
+    startImageBatchJob: options => jobService.startImageBatchJob(withHttpDeps(options)),
+    getImageBatchJob: options => jobService.getImageBatchJob(withHttpDeps(options)),
+    abortImageBatchJob: options => jobService.abortImageBatchJob(withHttpDeps(options)),
+    disposeImageBatchJob: options => jobService.disposeImageBatchJob(withHttpDeps(options)),
   });
 
   const chat = Object.freeze({

@@ -52,6 +52,7 @@ function testModelCanBindTheSingleCurrentFileForADeicticQuestion() {
     operation: 'file_qa',
     relation: 'new',
     goal: '说明所选文件的内容。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
   }), {
     input: '这是什么',
@@ -69,6 +70,7 @@ function testWrongImageOperationIsNotLocallyChangedToFileQa() {
     operation: 'image_qa',
     relation: 'followup',
     goal: '说明历史图片是什么。',
+    task_shape: 'single',
     resource_refs: [],
   }), {
     input: '这是什么',
@@ -89,6 +91,7 @@ function testModelHistoricalImageBindingIsNotDiscardedByCurrentFileRules() {
     operation: 'image_qa',
     relation: 'followup',
     goal: '说明所选历史图片是什么。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i1', role: 'source' }],
   }), {
     input: '这是什么',
@@ -112,6 +115,7 @@ function testExplicitPreviousImageQuestionStillUsesModelSelectedHistory() {
     operation: 'image_qa',
     relation: 'followup',
     goal: '说明所选历史图片是什么。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i1', role: 'source' }],
   }), {
     input: '上一张图是什么',

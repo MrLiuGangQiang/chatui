@@ -22,9 +22,14 @@ class JobStore {
     for (const [id, job] of this.jobs) {
       const age = now - Number(job.updatedAt || job.createdAt || now);
       if (job.status === 'running' && age > this.runningTtlMs) {
+        if (typeof job.onExpire === 'function') {
+          try { job.onExpire(job); } catch {}
+        }
         try { job.controller?.abort(); } catch {}
-        job.status = 'error';
-        job.error = job.error || '任务运行超时，已自动清理';
+        if (job.status === 'running') {
+          job.status = 'error';
+          job.error = job.error || '任务运行超时，已自动清理';
+        }
         job.updatedAt = now;
       }
       if ((job.status === 'done' || job.status === 'error') && age > this.ttlMs) this.jobs.delete(id);
@@ -41,12 +46,15 @@ class JobStore {
           const at = Number(job.updatedAt || job.createdAt || 0);
           if (at < oldestAt) { oldestAt = at; oldestId = id; }
         }
-        if (oldestId) {
-          const job = this.jobs.get(oldestId);
-          try { job?.controller?.abort(); } catch {}
-        }
       }
       if (!oldestId) break;
+      const evictedJob = this.jobs.get(oldestId);
+      if (evictedJob?.status === 'running') {
+        if (typeof evictedJob.onExpire === 'function') {
+          try { evictedJob.onExpire(evictedJob); } catch {}
+        }
+        try { evictedJob.controller?.abort(); } catch {}
+      }
       this.jobs.delete(oldestId);
     }
   }
@@ -56,6 +64,7 @@ function createJobStores() {
   return {
     imageJobs: new JobStore('image'),
     chatJobs: new JobStore('chat'),
+    imageBatchJobs: new JobStore('image_batch'),
   };
 }
 

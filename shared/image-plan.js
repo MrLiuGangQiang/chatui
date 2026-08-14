@@ -14,7 +14,7 @@
   // image_plan.v1 is the second-stage planning protocol for multi-image
   // generation/edit requests. It never carries executable bindings directly:
   // each task references the same candidate_key/role vocabulary as
-  // route_intent.v1, and the local compiler resolves those keys into canonical
+  // route_intent.v2, and the local compiler resolves those keys into canonical
   // dispatch_contract.v1 bindings. A one-task plan is legal and lets the
   // planning model collapse an apparent multi-task request back to single.
   const IMAGE_PLAN_VERSION = 'image_plan.v1';
@@ -29,7 +29,9 @@
   const TASK_FIELDS = Object.freeze([
     'task_type', 'prompt', 'input_images',
     'size', 'quality', 'background', 'output_format', 'count',
+    'label',
   ]);
+  const REQUIRED_TASK_FIELDS = Object.freeze(TASK_FIELDS.filter(field => field !== 'label'));
   const INPUT_IMAGE_FIELDS = Object.freeze(['candidate_key', 'role']);
   const VALID_TASK_TYPES = new Set(['generate', 'edit']);
   const VALID_INPUT_ROLES = new Set(['target', 'reference', 'style_reference', 'mask']);
@@ -82,6 +84,10 @@
     if (task.background !== undefined && !IMAGE_BACKGROUNDS.includes(stringValue(task.background))) return false;
     if (task.output_format !== undefined && !IMAGE_OUTPUT_FORMATS.includes(stringValue(task.output_format))) return false;
     if (task.count !== undefined && (!Number.isInteger(task.count) || task.count < 1 || task.count > 4)) return false;
+    if (task.label !== undefined) {
+      const label = stringValue(task.label);
+      if (!label || label.length > 120) return false;
+    }
     return true;
   }
 
@@ -115,7 +121,7 @@
           tasks: {
             type: 'array',
             minItems: 1,
-            maxItems: IMAGE_PLAN_MAX_TASKS,
+            maxItems: IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
             items: {
               type: 'object',
               additionalProperties: false,
@@ -141,6 +147,7 @@
                 background: { type: 'string', enum: [...IMAGE_BACKGROUNDS] },
                 output_format: { type: 'string', enum: [...IMAGE_OUTPUT_FORMATS] },
                 count: { type: 'integer', minimum: 1, maximum: 4 },
+                label: { type: 'string', minLength: 1, maxLength: 120 },
               },
             },
           },
@@ -155,6 +162,7 @@
     IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
     PLAN_FIELDS,
     TASK_FIELDS,
+    REQUIRED_TASK_FIELDS,
     INPUT_IMAGE_FIELDS,
     VALID_TASK_TYPES,
     VALID_INPUT_ROLES,

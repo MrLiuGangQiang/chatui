@@ -45,8 +45,16 @@ function testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput() {
   );
 }
 
+
+function testReasoningFinishesWhenAnswerStarts() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
+  assert.ok(source.includes('let answerStarted=!1,reasoningCompleted=!1,streamRequestAccepted=!1'), 'the stream should track reasoning completion separately from answer completion');
+  assert.ok(source.includes('if(!reasoningCompleted){reasoningCompleted=!0;if(reasoningEnabled&&reasoningText&&g?.isConnected)updateReasoning(g,reasoningText,{done:!0'), 'the reasoning panel must switch to completed as soon as answer output starts');
+}
+
 module.exports = [
   testAcceptedStreamFailureDoesNotStartFallbackRequest,
   testChatWorkflowGuardsFallbackAfterAcceptance,
   testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput,
+  testReasoningFinishesWhenAnswerStarts,
 ];

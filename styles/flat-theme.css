@@ -3045,15 +3045,24 @@ body{
   white-space:nowrap!important;
 }
 .pending-feedback.pending-feedback-multiline{
-  align-items:flex-start!important;
+  display:inline-flex!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  gap:4px!important;
+  white-space:normal!important;
+  overflow:visible!important;
 }
-.pending-feedback.pending-feedback-multiline .pending-text{
+.pending-feedback-row{
+  display:flex!important;
+  align-items:center!important;
+  min-width:0!important;
+  gap:8px!important;
+  line-height:1.45!important;
+}
+.pending-feedback-row .pending-text{
   overflow:visible!important;
   text-overflow:clip!important;
-  white-space:normal!important;
-}
-.pending-feedback.pending-feedback-multiline .pending-dots{
-  margin-top:8px!important;
+  white-space:nowrap!important;
 }
 .pending-dots{
   display:inline-flex!important;
@@ -3324,6 +3333,90 @@ body{
 .generated-image-item{
   border-radius:14px!important;
   background:transparent!important;
+}
+/* Batch image cards reserve one stable cell per planned task. A child completion
+   only swaps the content of its own cell, avoiding grid/card reflow flashes. */
+.generated-image-batch-grid{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  width:min(100%,920px)!important;
+  max-width:100%!important;
+  gap:10px!important;
+  align-items:flex-start!important;
+}
+.generated-image-batch-grid .generated-image-batch-slot{
+  width:var(--batch-slot-width,180px)!important;
+  min-width:var(--batch-slot-width,180px)!important;
+  max-width:var(--batch-slot-width,180px)!important;
+  min-height:var(--batch-slot-height,120px)!important;
+  aspect-ratio:auto!important;
+  height:var(--batch-slot-height,120px)!important;
+}
+.generated-image-slot-pending{
+  width:100%!important;
+  height:var(--batch-slot-height,120px)!important;
+  min-height:var(--batch-slot-height,120px)!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:7px!important;
+  padding:12px!important;
+  box-sizing:border-box!important;
+  color:var(--text-muted,#64748b)!important;
+  text-align:center!important;
+}
+.generated-image-slot-task,.generated-image-slot-status{display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.generated-image-batch-slot{
+  min-width:0;
+  min-height:120px;
+  overflow:hidden;
+  border-radius:14px;
+  background:rgba(148,163,184,.08);
+  contain:layout paint;
+}
+.generated-image-slot-content{
+  display:flex!important;
+  width:100%!important;
+  height:100%!important;
+  min-height:var(--batch-slot-height,120px)!important;
+  align-items:center;
+  justify-content:center;
+}
+.generated-image-batch-slot[data-image-batch-slot-state="done"]{
+  background:transparent;
+}
+.generated-image-batch-slot .generated-image-item{
+  display:flex;
+  width:100%;
+  min-height:0;
+  align-items:center;
+  justify-content:center;
+}
+.generated-image-slot-skeleton{
+  display:flex;
+  width:100%;
+  height:var(--batch-slot-height,120px)!important;
+  min-height:var(--batch-slot-height,120px)!important;
+  align-items:center;
+  justify-content:center;
+  background:linear-gradient(110deg,rgba(148,163,184,.06) 8%,rgba(148,163,184,.15) 18%,rgba(148,163,184,.06) 33%);
+  background-size:200% 100%;
+  animation:generated-image-slot-shimmer 1.45s ease-in-out infinite;
+}
+.generated-image-slot-skeleton .pending-orb{
+  width:9px;
+  height:9px;
+}
+.batch-status-container{
+  margin-bottom:10px;
+}
+.batch-status-container.batch-status-complete .pending-feedback{
+  opacity:.82;
+}
+@keyframes generated-image-slot-shimmer{
+  0%{background-position:100% 0}
+  100%{background-position:-100% 0}
 }
 .user-attachment-image,
 .generated-thumb{

@@ -29,7 +29,7 @@ function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed
   };
 }
 
-function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, disposeJob, publicJob, subscribeJob, startImageJob, getImageJob, startChatJob, getChatJob }) {
+function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, disposeJob, publicJob, subscribeJob, startImageJob, getImageJob, startChatJob, getChatJob, imageBatchJobs, startImageBatchJob, getImageBatchJob, publicImageBatchJob, subscribeImageBatchJob, abortImageBatchJob, disposeImageBatchJob }) {
   const routeChatJobs = createJobRouteHandler({
     basePath: '/api/chat-jobs',
     store: chatJobs,
@@ -56,7 +56,20 @@ function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, 
     getJob: getImageJob,
   });
 
-  return { routeChatJobs, routeImageJobs };
+  const routeImageBatches = createJobRouteHandler({
+    basePath: '/api/image-batches',
+    store: imageBatchJobs,
+    sendJson,
+    sendMethodNotAllowed,
+    abortJob: abortImageBatchJob,
+    disposeJob: disposeImageBatchJob,
+    publicJob: publicImageBatchJob,
+    subscribeJob: subscribeImageBatchJob,
+    startJob: startImageBatchJob,
+    getJob: getImageBatchJob,
+  });
+
+  return { routeChatJobs, routeImageJobs, routeImageBatches };
 }
 
 module.exports = { createJobRoutes, createJobRouteHandler };

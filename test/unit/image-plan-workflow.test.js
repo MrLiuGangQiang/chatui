@@ -33,7 +33,7 @@ function stageTwoResponse(count) {
   return { choices: [{ message: { content: JSON.stringify({ schema_version: 'image_plan.v1', tasks: planTasks(count) }) } }] };
 }
 
-function createWorkflow({ stageTwo = null, modelCalls = 0 } = {}) {
+function createWorkflow({ stageOne = stageOneIntent(), stageTwo = null, stageTwoError = null, modelCalls = 0 } = {}) {
   const calls = [];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
@@ -42,8 +42,9 @@ function createWorkflow({ stageTwo = null, modelCalls = 0 } = {}) {
     getSessionChatModel: () => 'chat-model',
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
-      const intentPayloads = calls.filter(call => call.payload.response_format?.json_schema?.name === 'chatui_route_intent_v1');
-      if (calls.length === 1) return { choices: [{ message: { content: stageOneIntent() } }] };
+      const intentPayloads = calls.filter(call => call.payload.response_format?.json_schema?.name === 'chatui_route_intent_v2');
+      if (calls.length === 1) return { choices: [{ message: { content: stageOne } }] };
+      if (stageTwoError) throw stageTwoError;
       return stageTwo === null ? { choices: [{ message: { content: 'not json' } }] } : stageTwo;
     },
   });
@@ -65,6 +66,12 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
       ['一张猫', '一张狗', '一张鸟']);
     assert.strictEqual(route.imagePlanCompiled.items.every(item => dispatchContract.hasExactDispatchContract(item.dispatchContract)), true);
     assert.strictEqual(new Set(route.imagePlanCompiled.items.map(item => item.dispatchContract.idempotency_key)).size, 3);
+    assert.deepStrictEqual({
+      logical_rounds: route.modelAttemptLedger.logical_rounds,
+      provider_attempts: route.modelAttemptLedger.provider_attempts,
+      primary_attempts: route.modelAttemptLedger.primary_attempts,
+      planning_attempts: route.modelAttemptLedger.planning_attempts,
+    }, { logical_rounds: 2, provider_attempts: 2, primary_attempts: 1, planning_attempts: 1 });
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -90,6 +97,109 @@ async function testSingleImageRouteDoesNotPayForPlanningCall() {
     const route = await workflow.getEffectiveRoute('画一只猫', [], 'session-plan', null, {});
     assert.strictEqual(calls.length, 1, 'single-image routes keep the legacy zero-extra-call path');
     assert.strictEqual(route.taskShape, 'single');
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
+async function testHistoricalFourImagePlanEditsFirstAndLastTargets() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    const input = '分别将第一张图片和最后一张图片转换为卡通风格，保留各自原有的主体、构图、姿态、背景和主要色彩不变，仅进行卡通化处理。';
+    const context = {
+      recent_messages: [
+        { index: 1, role: 'assistant', content: '[图片生成完成] 四张图片' },
+      ],
+      image_candidates: Array.from({ length: 4 }, (_, index) => ({
+        candidate_key: `i${index + 1}`,
+        index: index + 1,
+        source_index: index + 1,
+        source: 'history',
+        image_id: `batch-image-${index + 1}`,
+        reference_id: 'batch-reference',
+        target: 'previous',
+        description: `第${index + 1}张图片`,
+      })),
+      file_candidates: [],
+    };
+    const stageOne = JSON.stringify({
+      operation: 'edit_image',
+      relation: 'followup',
+      goal: input,
+      task_shape: 'multi',
+      resource_refs: [
+        { candidate_key: 'i1', role: 'target' },
+        { candidate_key: 'i4', role: 'target' },
+      ],
+    });
+    const stageTwo = {
+      choices: [{ message: { content: JSON.stringify({
+        schema_version: 'image_plan.v1',
+        tasks: [
+          {
+            task_type: 'edit',
+            prompt: '将第一张图片转换为卡通风格，保持主体、构图、姿态、背景和主要色彩不变。',
+            input_images: [{ candidate_key: 'i1', role: 'target' }],
+          },
+          {
+            task_type: 'edit',
+            prompt: '将第四张图片转换为卡通风格，保持主体、构图、姿态、背景和主要色彩不变。',
+            input_images: [{ candidate_key: 'i4', role: 'target' }],
+          },
+        ],
+      }) } }],
+    };
+    const { workflow } = createWorkflow({ stageOne, stageTwo });
+    const route = await workflow.getEffectiveRoute(input, [], 'session-history-batch', null, context, {});
+
+    assert.strictEqual(route.needClarification, false);
+    assert.strictEqual(route.imagePlanCompiled.kind, 'batch');
+    assert.deepStrictEqual(route.imagePlanCompiled.items.map(item => item.route.relation), ['followup', 'followup']);
+    assert.deepStrictEqual(route.imagePlanCompiled.items.map(item => item.dispatchContract.bindings[0].resource_id), [
+      'res:image:batch-image-1',
+      'res:image:batch-image-4',
+    ]);
+    assert.strictEqual(routeService.isRouteDispatchable(route), true,
+      'a validated compiled batch must pass the top-level dispatch gate');
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
+async function testFiveTaskPlanRemainsWithinTheProductLimit() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(5) });
+    const route = await workflow.getEffectiveRoute('分别生成五张不同主题的图片', [], 'session-plan', null, {});
+    assert.strictEqual(calls.length, 2);
+    assert.strictEqual(route.needClarification, false);
+    assert.strictEqual(route.taskShape, 'multi');
+    assert.strictEqual(route.imagePlanCompiled.kind, 'batch');
+    assert.strictEqual(route.imagePlanCompiled.items.length, 5);
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
+async function testPlanningRequestFailureDoesNotMisdiagnoseFiveTaskLimit() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    const error = new Error('upstream unavailable');
+    error.statusCode = 503;
+    const { workflow } = createWorkflow({ stageTwoError: error });
+    const route = await workflow.getEffectiveRoute('分别生成五张不同主题的图片', [], 'session-plan', null, {});
+    assert.strictEqual(route.needClarification, false);
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.outcome, 'transient_error');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.match(route.outcomeMessage, /规划模型服务异常/);
+    assert.doesNotMatch(route.outcomeMessage, /减少任务数量|最多生成/);
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -134,9 +244,11 @@ async function testInvalidPlanFailsClosedIntoClarification() {
   try {
     const { workflow } = createWorkflow({ stageTwo: { choices: [{ message: { content: '{"schema_version":"image_plan.v2"}' } }] } });
     const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
-    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.needClarification, false);
     assert.strictEqual(route.dispatchAuthorized, false);
-    assert.match(route.clarificationQuestion, /规划/);
+    assert.strictEqual(route.outcome, 'invalid_model_output');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.match(route.outcomeMessage, /规划/);
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -152,6 +264,9 @@ function testImagePlanPromptExplainsPerTaskEditRoles() {
 module.exports = [
   testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch,
   testSingleImageRouteDoesNotPayForPlanningCall,
+  testFiveTaskPlanRemainsWithinTheProductLimit,
+  testHistoricalFourImagePlanEditsFirstAndLastTargets,
+  testPlanningRequestFailureDoesNotMisdiagnoseFiveTaskLimit,
   testOverLimitPlanReturnsAnExplicitClarification,
   testSingleTaskPlanCollapsesBackToLegacySingleRoute,
   testInvalidPlanFailsClosedIntoClarification,

@@ -76,6 +76,7 @@ function testSubjectlessFileFollowupPublishesBoundedFilesAndPreviousExecutionEvi
     operation: 'file_qa',
     relation: 'followup',
     goal: '读取并说明上一份 Excel 表格的具体内容',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
   }), {
     input: '具体有什么内容',

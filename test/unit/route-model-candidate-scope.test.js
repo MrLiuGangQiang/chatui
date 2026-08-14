@@ -22,6 +22,7 @@ function modelIntent(resourceRefs = []) {
     operation: 'image_qa',
     relation: 'followup',
     goal: '说明所选旧图片是什么。',
+    task_shape: 'single',
     resource_refs: resourceRefs,
   });
 }

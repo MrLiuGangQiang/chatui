@@ -10,7 +10,35 @@ const {
   normalizeImageSelection,
 } = imageReferences;
 
+function coreAttachments() {
+  return root?.ChatUICoreAttachments
+    || root?.ChatUICore?.attachments
+    || (typeof require === 'function' ? require('./attachments') : {});
+}
+
+function uploadedImageAttachmentLabel(item = {}, ordinal = 1) {
+  const helper = coreAttachments()?.imageAttachmentLabel;
+  if (typeof helper === 'function') return helper(item, ordinal);
+  const explicit = String(
+    item.label || item.description || item.semanticDescription || item.semantic_description || item.subject || '',
+  ).replace(/\s+/g, ' ').trim();
+  if (explicit) return explicit.slice(0, 240);
+  const rawName = String(item.name || item.filename || item.file?.name || '').trim();
+  const filename = (rawName.split(/[\\/]/).pop() || '')
+    .replace(/\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i, '')
+    .trim();
+  return (filename || `第 ${Number(ordinal) || 1} 张上传图片`).slice(0, 240);
+}
+
 const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
+const ROUTE_CONTEXT_POLICY = Object.freeze({
+  schema_version: 'route_context_policy.v1',
+  max_serialized_chars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
+  message_excerpt_chars: 240,
+  preferred_image_candidates: 12,
+  preferred_reference_groups: 1,
+  summarize_omitted: false,
+});
 const ROUTE_FILE_CANDIDATE_TEXT_LIMITS = Object.freeze({
   name: 240,
   filename: 240,
@@ -18,9 +46,21 @@ const ROUTE_FILE_CANDIDATE_TEXT_LIMITS = Object.freeze({
   unsupported_reason: 240,
   unsupportedReason: 240,
 });
+const PROTECTED_ROUTE_SOURCES = new Set(['current', 'quoted', 'user_message']);
+
+function sharedContextBudget() {
+  return root?.ChatUISharedContextBudget
+    || (typeof require === 'function' ? require('../../shared/config/context-budget') : null);
+}
 
 function routeContextSize(value) {
   try { return JSON.stringify(value || {}).length; } catch { return Infinity; }
+}
+
+function routeContextTokenSize(value) {
+  const budget = sharedContextBudget();
+  if (typeof budget?.estimateTextTokens !== 'function') return 0;
+  try { return budget.estimateTextTokens(JSON.stringify(value || {})); } catch { return Infinity; }
 }
 
 function truncateRouteContextText(value, maxChars) {
@@ -35,8 +75,7 @@ function compactRouteFileCandidate(candidate = {}) {
   for (const [key, maxChars] of Object.entries(ROUTE_FILE_CANDIDATE_TEXT_LIMITS)) {
     if (next[key] !== undefined && next[key] !== null) next[key] = truncateRouteContextText(next[key], maxChars);
   }
-  // Route recognition only needs file metadata. Never let a persisted payload
-  // or inline file body turn a historical candidate into an unbounded prompt.
+  // Route recognition needs file identity and metadata, never an inline body.
   for (const key of [
     'text', 'content', 'raw', 'dataUrl', 'data_url', 'fileData', 'file_data',
     'src', 'url', 'persistedSrc', 'persisted_src', 'file',
@@ -44,60 +83,198 @@ function compactRouteFileCandidate(candidate = {}) {
   return next;
 }
 
-function isProtectedRouteFileCandidate(candidate = {}) {
-  return ['current', 'quoted', 'user_message'].includes(String(candidate?.source || '').trim());
+function routeSourceIsProtected(value = '') {
+  return PROTECTED_ROUTE_SOURCES.has(String(value || '').trim());
 }
 
-function trimRouteFileCandidatesToSize(context = {}, limit = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
-  const candidates = Array.isArray(context.file_candidates)
-    ? context.file_candidates
-      .filter(candidate => candidate && typeof candidate === 'object' && !Array.isArray(candidate))
-      .map(compactRouteFileCandidate)
-    : [];
-  if (!candidates.length || routeContextSize(context) <= limit) return;
+function routeMessageIdentity(message = {}) {
+  return String(
+    message?.id
+    || message?.displayItemId
+    || message?.display_item_id
+    || message?.messageId
+    || message?.message_id
+    || '',
+  ).trim();
+}
 
-  // buildFileCandidates orders history newest-first. Reserve exact bindings
-  // first, then keep as many recent historical candidates as the remaining
-  // serialized budget allows. This avoids repeatedly stringifying the full
-  // context while deleting hundreds of old files one by one.
-  const candidateSizes = candidates.map(candidate => routeContextSize(candidate));
-  const protectedIndexes = new Set();
-  let selectedSize = 0;
-  let selectedCount = 0;
-  candidates.forEach((candidate, index) => {
-    if (!isProtectedRouteFileCandidate(candidate)) return;
-    protectedIndexes.add(index);
-    selectedSize += candidateSizes[index];
-    selectedCount += 1;
-  });
+function quotedRouteMessageMatches(message = {}, quoted = null) {
+  if (!quoted || typeof quoted !== 'object') return false;
+  const messageId = routeMessageIdentity(message);
+  const quotedId = routeMessageIdentity(quoted);
+  if (messageId && quotedId && messageId === quotedId) return true;
+  const messageResourceId = String(message?.resource_id || message?.resourceId || '').trim();
+  const quotedResourceId = String(quoted?.resource_id || quoted?.resourceId || '').trim();
+  if (messageResourceId && quotedResourceId && messageResourceId === quotedResourceId) return true;
+  const messageIndex = Number(message?.index);
+  const quotedIndex = Number(quoted?.index);
+  return Number.isInteger(messageIndex) && messageIndex >= 1
+    && Number.isInteger(quotedIndex) && quotedIndex >= 1
+    && messageIndex === quotedIndex;
+}
 
-  const baseSize = routeContextSize({ ...context, file_candidates: [] });
-  const available = Math.max(0, Number(limit) - baseSize);
-  const serializedArrayDelta = (size, count) => size + Math.max(0, count - 1);
-  const selectedIndexes = new Set(protectedIndexes);
+function isProtectedRouteMessage(message = {}, quoted = null) {
+  return message?.route_context_protected === true
+    || message?.routeContextProtected === true
+    || routeSourceIsProtected(message?.source)
+    || quotedRouteMessageMatches(message, quoted);
+}
 
-  if (serializedArrayDelta(selectedSize, selectedCount) <= available) {
-    for (let index = 0; index < candidates.length; index += 1) {
-      if (protectedIndexes.has(index)) continue;
-      const nextSize = selectedSize + candidateSizes[index];
-      const nextCount = selectedCount + 1;
-      if (serializedArrayDelta(nextSize, nextCount) > available) break;
-      selectedIndexes.add(index);
-      selectedSize = nextSize;
-      selectedCount = nextCount;
+function cloneRouteContext(context = {}) {
+  const next = {
+    ...context,
+    recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
+    image_candidates: Array.isArray(context.image_candidates) ? [...context.image_candidates] : [],
+    file_candidates: Array.isArray(context.file_candidates)
+      ? context.file_candidates
+        .filter(candidate => candidate && typeof candidate === 'object' && !Array.isArray(candidate))
+        .map(compactRouteFileCandidate)
+      : [],
+    recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [],
+    recent_uploaded_image_references: Array.isArray(context.recent_uploaded_image_references) ? [...context.recent_uploaded_image_references] : [],
+  };
+  if (Array.isArray(context.image_memory_cards)) {
+    Object.defineProperty(next, 'image_memory_cards', {
+      value: context.image_memory_cards,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return next;
+}
+
+function routeContextLimits(options = {}) {
+  const parsedMaxChars = Number(options.maxChars);
+  const maxChars = options.enforceMaxChars === false
+    ? Infinity
+    : Number.isFinite(parsedMaxChars) && parsedMaxChars > 0
+      ? parsedMaxChars
+      : ROUTE_CONTEXT_POLICY.max_serialized_chars;
+  const budget = sharedContextBudget();
+  const contextWindowTokens = options.contextWindowTokens;
+  const maxTokens = options.enforceTokenWindow === false
+    || typeof budget?.inputBudgetForContextWindow !== 'function'
+    ? Infinity
+    : budget.inputBudgetForContextWindow(contextWindowTokens);
+  return Object.freeze({ maxChars, maxTokens });
+}
+
+function routeContextBudgetState(context = {}, limits = {}) {
+  const serializedChars = routeContextSize(context);
+  const estimatedTokens = Number.isFinite(limits.maxTokens) ? routeContextTokenSize(context) : 0;
+  return {
+    serializedChars,
+    estimatedTokens,
+    withinBudget: serializedChars <= limits.maxChars && estimatedTokens <= limits.maxTokens,
+  };
+}
+
+function createRouteContextRequiredOverflowError(context = {}, limits = {}) {
+  const state = routeContextBudgetState(context, limits);
+  const error = new RangeError('Protected route context exceeds the configured model context budget');
+  error.code = 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE';
+  error.statusCode = 400;
+  error.serializedChars = state.serializedChars;
+  error.maxChars = limits.maxChars;
+  error.estimatedTokens = state.estimatedTokens;
+  error.maxTokens = limits.maxTokens;
+  return error;
+}
+
+function routeMessageGroups(messages = []) {
+  const groups = [];
+  let current = [];
+  (Array.isArray(messages) ? messages : []).forEach((message, index) => {
+    if (message?.role === 'user' && current.length) {
+      groups.push(current);
+      current = [];
     }
+    current.push({ index, message });
+  });
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function removeOldestOptionalMessageGroup(context = {}) {
+  const messages = Array.isArray(context.recent_messages) ? context.recent_messages : [];
+  const group = routeMessageGroups(messages)
+    .find(items => !items.some(item => isProtectedRouteMessage(item.message, context.quoted_message)));
+  if (!group) return false;
+  const removed = new Set(group.map(item => item.index));
+  context.recent_messages = messages.filter((_message, index) => !removed.has(index));
+  return true;
+}
+
+function removeOldestOptionalCandidate(list = [], minimumCount = 0) {
+  if (!Array.isArray(list) || list.length <= minimumCount) return false;
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    if (routeSourceIsProtected(list[index]?.source)) continue;
+    list.splice(index, 1);
+    return true;
+  }
+  return false;
+}
+
+function removeOldestOptionalReference(list = [], minimumCount = 0) {
+  return removeOldestOptionalCandidate(list, minimumCount);
+}
+
+function applyRouteContextPolicy(context = {}, options = {}) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    throw new TypeError('Route context must be an object');
+  }
+  const next = cloneRouteContext(context);
+  const limits = routeContextLimits(options);
+  const fits = () => routeContextBudgetState(next, limits).withinBudget;
+  if (fits()) return next;
+
+  // History is optional evidence. Evict complete oldest turns first; never invent
+  // a summary and never alter quoted/current facts.
+  while (!fits() && removeOldestOptionalMessageGroup(next)) {}
+
+  // Keep a useful recent visual catalog when possible, then remove only optional
+  // history if the same canonical budget still requires it.
+  while (!fits() && removeOldestOptionalCandidate(
+    next.image_candidates,
+    ROUTE_CONTEXT_POLICY.preferred_image_candidates,
+  )) {}
+  while (!fits() && removeOldestOptionalReference(
+    next.recent_image_references,
+    ROUTE_CONTEXT_POLICY.preferred_reference_groups,
+  )) {}
+  while (!fits() && removeOldestOptionalReference(
+    next.recent_uploaded_image_references,
+    ROUTE_CONTEXT_POLICY.preferred_reference_groups,
+  )) {}
+
+  // These are duplicate display/cache hints; canonical candidates and execution
+  // state remain available to the router.
+  for (const key of ['latest_assistant_image_result']) {
+    if (!fits() && next[key] !== undefined) delete next[key];
   }
 
-  context.file_candidates = candidates.filter((candidate, index) => selectedIndexes.has(index));
+  while (!fits() && removeOldestOptionalCandidate(next.file_candidates, 0)) {}
+  while (!fits() && removeOldestOptionalCandidate(next.image_candidates, 0)) {}
+  while (!fits() && removeOldestOptionalReference(next.recent_image_references, 0)) {}
+  while (!fits() && removeOldestOptionalReference(next.recent_uploaded_image_references, 0)) {}
+
+  if (!fits()) throw createRouteContextRequiredOverflowError(next, limits);
+  return next;
 }
 
 function compactRouteMessage(message = {}, index = 0) {
-  return {
+  const next = {
     index,
-    id: String(message.displayItemId || message.id || ''),
+    id: routeMessageIdentity(message),
     role: message.role || '',
-    content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '').slice(0, 240),
+    content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '')
+      .slice(0, ROUTE_CONTEXT_POLICY.message_excerpt_chars),
   };
+  const resourceId = String(message.resourceId || message.resource_id || '').trim();
+  const identityAliases = message.identity_aliases || message.identityAliases;
+  if (resourceId) next.resource_id = resourceId;
+  if (Array.isArray(identityAliases) && identityAliases.length) next.identity_aliases = [...identityAliases];
+  return next;
 }
 function parseJsonObject(value) {
   if (!value) return null;
@@ -262,15 +439,28 @@ function collectRecentUploadedImageReferences({ messages = [], limit = 6 } = {})
       updated_at: imageContext?.updatedAt || imageContext?.updated_at || message.updatedAt || null,
       count: attachments.length,
       candidates: attachments.map((item, attachmentIndex) => {
-        const description = String(item.semantic_description || item.semanticDescription || item.description || item.subject || item.label || item.prompt || '').trim();
+        const description = String(
+          item.semantic_description || item.semanticDescription || item.description || item.subject || '',
+        ).replace(/\s+/g, ' ').trim();
+        const label = uploadedImageAttachmentLabel(item, attachmentIndex + 1);
+        const labels = Array.isArray(item.labels) ? item.labels.slice(0, 12) : [];
         return {
           index: attachmentIndex + 1,
           image_id: makeImageItemId(referenceId, attachmentIndex + 1),
           filename: item.name || item.filename || '',
+          label,
           prompt,
           description: description.slice(0, 240),
-          semantic_text: compactCandidateSemanticText([description, item.name || item.filename || '', prompt, assistant ? messageText(assistant) : '']),
-          labels: Array.isArray(item.labels) ? item.labels.slice(0, 12) : [],
+          semantic_text: compactCandidateSemanticText([
+            item.semantic_text || item.semanticText,
+            description,
+            label,
+            item.name || item.filename || '',
+            ...labels,
+            prompt,
+            assistant ? messageText(assistant) : '',
+          ]),
+          labels,
         };
       }),
     });
@@ -279,48 +469,17 @@ function collectRecentUploadedImageReferences({ messages = [], limit = 6 } = {})
 }
 
 function trimRouteContextToTokenWindow(context = {}, contextWindowTokens) {
-  const budget = root?.ChatUISharedContextBudget || (typeof module !== 'undefined' && module.exports ? require('../../shared/config/context-budget') : null);
-  if (!budget?.estimateTextTokens || !budget?.inputBudgetForContextWindow) return context;
-  const limit = budget.inputBudgetForContextWindow(contextWindowTokens);
-  const next = { ...context, recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [] };
-  while (next.recent_messages.length && budget.estimateTextTokens(JSON.stringify(next)) > limit) next.recent_messages.shift();
-  return next;
+  return applyRouteContextPolicy(context, {
+    contextWindowTokens,
+    enforceMaxChars: false,
+  });
 }
 
 function trimRouteContextToSize(context = {}, maxChars = DEFAULT_ROUTE_CONTEXT_MAX_CHARS) {
-  const parsedLimit = Number(maxChars);
-  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_ROUTE_CONTEXT_MAX_CHARS;
-  const next = {
-    ...context,
-    recent_messages: Array.isArray(context.recent_messages) ? [...context.recent_messages] : [],
-    image_candidates: Array.isArray(context.image_candidates) ? [...context.image_candidates] : [],
-    file_candidates: Array.isArray(context.file_candidates) ? [...context.file_candidates] : [],
-    recent_image_references: Array.isArray(context.recent_image_references) ? [...context.recent_image_references] : [],
-    recent_uploaded_image_references: Array.isArray(context.recent_uploaded_image_references) ? [...context.recent_uploaded_image_references] : [],
-  };
-  if (routeContextSize(next) <= limit) return next;
-  while (next.recent_messages.length && routeContextSize(next) > limit) next.recent_messages.shift();
-  while (next.image_candidates.length > 12 && routeContextSize(next) > limit) next.image_candidates.pop();
-  while (next.recent_image_references.length > 1 && routeContextSize(next) > limit) next.recent_image_references.pop();
-  while (next.recent_uploaded_image_references.length > 1 && routeContextSize(next) > limit) next.recent_uploaded_image_references.pop();
-  const shrinkPrompt = item => {
-    if (!item || typeof item !== 'object') return item;
-    const copy = { ...item };
-    if (copy.prompt) copy.prompt = String(copy.prompt).slice(0, 160);
-    if (copy.user_prompt) copy.user_prompt = String(copy.user_prompt).slice(0, 160);
-    if (copy.assistant_response) copy.assistant_response = String(copy.assistant_response).slice(0, 300);
-    if (Array.isArray(copy.candidates)) copy.candidates = copy.candidates.map(candidate => ({ ...candidate, prompt: String(candidate.prompt || '').slice(0, 80) }));
-    return copy;
-  };
-  if (routeContextSize(next) > limit) {
-    next.last_generated_image = shrinkPrompt(next.last_generated_image);
-    next.latest_uploaded_image = shrinkPrompt(next.latest_uploaded_image);
-    next.latest_image_reference = shrinkPrompt(next.latest_image_reference);
-    next.recent_image_references = next.recent_image_references.map(shrinkPrompt);
-    next.recent_uploaded_image_references = next.recent_uploaded_image_references.map(shrinkPrompt);
-  }
-  if (routeContextSize(next) > limit && next.file_candidates.length) trimRouteFileCandidatesToSize(next, limit);
-  return next;
+  return applyRouteContextPolicy(context, {
+    maxChars,
+    enforceTokenWindow: false,
+  });
 }
 
 function compactCandidateSemanticText(values = [], max = 720) {
@@ -382,6 +541,12 @@ function buildImageCandidates(references = []) {
       const key = imageId || `${referenceId}:${sourceIndex}`;
       if (!key || seen.has(key)) continue;
       seen.add(key);
+      const isUploaded = target === 'uploaded' || ['current', 'uploaded', 'user_message'].includes(source);
+      const description = candidate?.description
+        || candidate?.semantic_description
+        || candidate?.semanticDescription
+        || candidate?.subject
+        || (!isUploaded ? candidate?.label : '');
       result.push({
         index,
         source_index: sourceIndex || index,
@@ -391,8 +556,9 @@ function buildImageCandidates(references = []) {
         target,
         source,
         filename: candidate?.filename || '',
+        label: String(candidate?.label || '').slice(0, 240),
         labels: Array.isArray(candidate?.labels) ? candidate.labels.slice(0, 12) : [],
-        description: String(candidate?.description || candidate?.semantic_description || candidate?.semanticDescription || candidate?.subject || candidate?.label || '').slice(0, 240),
+        description: String(description || '').slice(0, 240),
         prompt: String(candidate?.prompt || reference.prompt || reference.user_prompt || '').slice(0, 240),
         semantic_text: compactCandidateSemanticText([
           candidate?.semantic_text,
@@ -710,8 +876,22 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
   const allMessages = Array.isArray(messages) ? messages : [];
   const uploadedReferences = collectRecentUploadedImageReferences({ messages: allMessages, limit: Number.MAX_SAFE_INTEGER });
   const uploadedLatest = uploadedReferences[0] || null;
-  const mergedReferences = Array.isArray(recentImageReferences) ? [...recentImageReferences] : [];
-  for (const reference of uploadedReferences) if (!mergedReferences.some(item => item?.reference_id === reference.reference_id)) mergedReferences.push(reference);
+  // Rebuild generated-image lineage from canonical messages at the core boundary.
+  // Callers may omit the derived recent-reference cache after a refresh; that
+  // omission must not turn durable IndexedDB-backed results into a "no image".
+  const cachedReferences = Array.isArray(recentImageReferences) ? recentImageReferences : [];
+  const derivedImageReferences = cachedReferences.length
+    ? []
+    : collectRecentImageReferences({
+      messages: allMessages,
+      lastGeneratedImage,
+      limit: 6,
+    });
+  const mergedReferences = [...cachedReferences];
+  for (const reference of [...derivedImageReferences, ...uploadedReferences]) {
+    if (!reference?.reference_id) continue;
+    if (!mergedReferences.some(item => item?.reference_id === reference.reference_id)) mergedReferences.push(reference);
+  }
   const resourceExecution = previousResourceExecutionFor(allMessages);
   const focus = conversationFocusFor(allMessages, resourceExecution);
   const execution = previousExecutionFor(allMessages);
@@ -731,34 +911,42 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
     previous_visual_execution: visualExecution,
     conversation_focus: focus,
   };
-  return trimRouteContextToSize(trimRouteContextToTokenWindow(context, contextWindowTokens), maxChars);
+  return applyRouteContextPolicy(context, { maxChars, contextWindowTokens });
 }
 
 function normalizeLastGeneratedImage(value) {
   if (!value) return null;
   const normalizeItem = item => {
-    const description = String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || '').trim();
+    const source = item && typeof item === 'object' ? item : {};
+    const description = String(source.description || source.semantic_description || source.semanticDescription || source.subject || source.label || source.prompt || '').trim();
     return {
-      ...item,
+      ...source,
+      // Route context is intentionally compacted before it reaches this core
+      // module. The compact form calls these entries `candidates` and uses
+      // image_id; normalize both representations so a refresh/cache boundary
+      // cannot turn a durable generated image into an empty image pool.
+      imageId: source.imageId || source.image_id || '',
+      image_id: source.image_id || source.imageId || '',
       description,
-      semantic_text: compactCandidateSemanticText([item.semantic_text, description, item.prompt, item.filename, item.raw, ...(Array.isArray(item.labels) ? item.labels : [])]),
-      labels: Array.isArray(item.labels) ? item.labels.slice(0, 12) : [],
+      semantic_text: compactCandidateSemanticText([source.semantic_text, description, source.prompt, source.filename, source.raw, ...(Array.isArray(source.labels) ? source.labels : [])]),
+      labels: Array.isArray(source.labels) ? source.labels.slice(0, 12) : [],
     };
   };
-  if (!Array.isArray(value.images)) {
-    return {
-      ...value,
-      images: value.src ? [normalizeItem({
-        src: value.src,
-        filename: value.filename || 'generated-image.png',
-        prompt: value.prompt || '',
-        updatedAt: value.updatedAt || null,
-        width: value.width || 0,
-        height: value.height || 0,
-      })] : [],
-    };
-  }
-  return { ...value, images: (value.images || []).map(normalizeItem) };
+  const sourceImages = Array.isArray(value.images)
+    ? value.images
+    : Array.isArray(value.candidates)
+      ? value.candidates
+      : value.src
+        ? [{
+          src: value.src,
+          filename: value.filename || 'generated-image.png',
+          prompt: value.prompt || '',
+          updatedAt: value.updatedAt || null,
+          width: value.width || 0,
+          height: value.height || 0,
+        }]
+        : [];
+  return { ...value, images: sourceImages.map(normalizeItem) };
 }
 
 function extractPersistedImageRefs(html = '') {
@@ -908,7 +1096,7 @@ function collectRecentImageReferences({ messages = [], lastGeneratedImage = null
     count: generated.images.length,
     candidates: generated.images.map((item, index) => ({
       index: index + 1,
-      image_id: makeImageItemId(referenceId, index + 1),
+      image_id: item.imageId || item.image_id || makeImageItemId(referenceId, index + 1),
       filename: item.filename || '',
       prompt: String(item.prompt || generated.prompt || '').slice(0, 240),
       description: String(item.description || item.semantic_description || item.semanticDescription || item.subject || item.label || item.prompt || generated.prompt || '').slice(0, 240),
@@ -929,11 +1117,41 @@ function buildImageMemoryCards({ messages = [], lastGeneratedImage = null, recen
   for (const reference of allReferences) {
     if (!merged.some(item => item?.reference_id === reference?.reference_id)) merged.push(reference);
   }
-  return buildImageCandidates(merged).map((candidate, index) => ({
-    ...candidate,
-    type: 'image',
-    memory_index: index + 1,
-  }));
+
+  // Image memory is ordered newest-first for retrieval, while users can name
+  // either an absolute generation ("the eighth generated image") or a reverse
+  // ordinal ("the second-to-last generation"). Preserve both coordinates on
+  // every flattened image card so the route catalog can publish an exact match
+  // without treating user wording as a semantic keyword search.
+  const generationByReference = new Map();
+  let chronologicalImageOffset = 0;
+  for (let referenceIndex = merged.length - 1; referenceIndex >= 0; referenceIndex -= 1) {
+    const reference = merged[referenceIndex] || {};
+    const referenceId = String(reference.reference_id || '').trim();
+    const imageCount = Array.isArray(reference.candidates) ? reference.candidates.length : 0;
+    generationByReference.set(referenceId, {
+      generation_index: merged.length - referenceIndex,
+      generation_recency_index: referenceIndex + 1,
+      generation_image_count: imageCount,
+      chronological_image_offset: chronologicalImageOffset,
+    });
+    chronologicalImageOffset += imageCount;
+  }
+
+  return buildImageCandidates(merged).map((candidate, index) => {
+    const generation = generationByReference.get(String(candidate.reference_id || '').trim()) || {};
+    const generationImageIndex = Number(candidate.source_index) || 1;
+    return {
+      ...candidate,
+      type: 'image',
+      memory_index: index + 1,
+      chronological_index: Number(generation.chronological_image_offset) + generationImageIndex,
+      generation_index: Number(generation.generation_index) || 0,
+      generation_recency_index: Number(generation.generation_recency_index) || 0,
+      generation_image_index: generationImageIndex,
+      generation_image_count: Number(generation.generation_image_count) || 0,
+    };
+  });
 }
 
 function findImageReferenceById({ messages = [], referenceId = '' } = {}) {
@@ -980,6 +1198,7 @@ function normalizeImagePlanTask(task = {}) {
     task_type: taskType,
     input_images: normalizePlanInputImages(task.input_images || task.inputImages),
     prompt: String(task.prompt || '').trim(),
+    label: String(task.label || '').trim(),
     size: normalizePlanValue(task.size),
     quality: normalizePlanValue(task.quality),
     background: normalizePlanValue(task.background),
@@ -1171,7 +1390,10 @@ function normalizeRoute(route, fallbackMode = 'chat') {
 
 const api = Object.freeze({
   DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
+  ROUTE_CONTEXT_POLICY,
   routeContextSize,
+  routeContextTokenSize,
+  applyRouteContextPolicy,
   compactRouteMessage,
   uploadedFileAttachmentsFromMessage,
   trimRouteContextToTokenWindow,

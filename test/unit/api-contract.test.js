@@ -296,6 +296,28 @@ async function testApiContractFeedbackRequiresModelApprovalBeforeDelivery() {
   assert.deepStrictEqual(acceptedCalls.at(-1)[2], { username: 'tester', routeModel: 'route-test', chatModel: 'gpt-test' });
 }
 
+async function testApiContractImageBatchRouteShapes() {
+  await withServer(async baseUrl => {
+    const missing = await request(baseUrl, '/api/image-batches/missing-batch');
+    assert.strictEqual(missing.res.status, 404);
+    assertJson(missing);
+    assert.deepStrictEqual(missing.json, { error: { message: '\u4efb\u52a1\u4e0d\u5b58\u5728\u6216\u670d\u52a1\u5df2\u91cd\u542f' } });
+
+    const invalid = await request(baseUrl, '/api/image-batches', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ schema_version: 'bad' }),
+    });
+    assert.strictEqual(invalid.res.status, 400);
+    assertJson(invalid);
+    assert.strictEqual(invalid.json.error.code, 'IMAGE_BATCH_EXECUTION_INVALID');
+
+    const wrongMethod = await request(baseUrl, '/api/image-batches/missing-batch', { method: 'POST', body: '{}' });
+    assert.strictEqual(wrongMethod.res.status, 405);
+    assertJson(wrongMethod);
+  });
+}
+
 async function testApiContractJobMissingAndAbortShapes() {
   await withServer(async baseUrl => {
     const missingChat = await request(baseUrl, '/api/chat-jobs/missing-job');
@@ -324,4 +346,5 @@ module.exports = [
   testApiContractUsageAccessValidatorGuardsEveryProtectedRoute,
   testApiContractFeedbackRequiresModelApprovalBeforeDelivery,
   testApiContractJobMissingAndAbortShapes,
+  testApiContractImageBatchRouteShapes,
 ];

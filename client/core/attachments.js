@@ -35,6 +35,43 @@ function formatBytes(bytes = 0) {
   return `${(value / 1024 / 1024).toFixed(value < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+const GENERIC_UPLOAD_IMAGE_STEM_PATTERNS = Object.freeze([
+  /^\d[\d\s_.:-]*$/u,
+  /^(?:img|image|photo|picture|pic|dsc|pxl)[\s_.-]*\d[\d\s_.:-]*$/iu,
+  /^(?:screenshot|screen[\s_-]*shot|screen[\s_-]*capture|截图|截屏|屏幕截图)[\s_.-]*\d[\d\s_.:-]*(?:at[\s_.:-]*\d[\d\s_.:-]*)?$/iu,
+  /^(?:img|image|photo|picture|pic|screenshot|screen[\s_-]*shot|screen[\s_-]*capture|截图|截屏|屏幕截图|图片|照片)$/iu,
+]);
+
+function compactImageAttachmentLabel(value = '', max = 240) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function meaningfulImageFilenameLabel(item = {}) {
+  const rawName = String(item.name || item.filename || item.file?.name || '').trim();
+  if (!rawName) return '';
+  const basename = rawName.replace(/[?#].*$/, '').split(/[\\/]/).pop() || '';
+  const stem = compactImageAttachmentLabel(
+    basename.replace(/\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i, ''),
+  ).replace(/^[\s._-]+|[\s._-]+$/g, '');
+  if (!stem || GENERIC_UPLOAD_IMAGE_STEM_PATTERNS.some(pattern => pattern.test(stem))) return '';
+  return stem;
+}
+
+function imageAttachmentLabel(item = {}, ordinal = 1) {
+  const explicit = [
+    item.label,
+    item.description,
+    item.semanticDescription,
+    item.semantic_description,
+    item.subject,
+  ].map(value => compactImageAttachmentLabel(value)).find(Boolean);
+  if (explicit) return explicit;
+  const filename = meaningfulImageFilenameLabel(item);
+  if (filename) return filename;
+  const index = Number(ordinal);
+  return `第 ${Number.isInteger(index) && index >= 1 ? index : 1} 张上传图片`;
+}
+
 const {
   IMAGE_REFERENCE_PREFIX,
   IMAGE_ITEM_PREFIX,
@@ -174,6 +211,13 @@ function buildRouteAttachmentMetadata(attachments = []) {
     const sourceIndex = Number(
       item.sourceIndex || item.source_index || item.routeIndex || item.route_index,
     ) || index + 1;
+    const description = compactImageAttachmentLabel(
+      item.description || item.semanticDescription || item.semantic_description || '',
+    );
+    const semanticText = compactImageAttachmentLabel(item.semantic_text || item.semanticText || '', 720);
+    const labels = Array.isArray(item.labels)
+      ? item.labels.map(value => compactImageAttachmentLabel(value, 120)).filter(Boolean).slice(0, 12)
+      : [];
     return {
       index: index + 1,
       source_index: sourceIndex,
@@ -184,6 +228,10 @@ function buildRouteAttachmentMetadata(attachments = []) {
       ...(isImage ? {
         image_id: id,
         ...(referenceId ? { reference_id: referenceId } : {}),
+        label: imageAttachmentLabel(item, mediaIndex),
+        ...(description ? { description } : {}),
+        ...(semanticText ? { semantic_text: semanticText } : {}),
+        ...(labels.length ? { labels } : {}),
       } : { file_id: id }),
       name: item.name || (item.file && item.file.name) || 'attachment',
       type: item.type || (item.file && item.file.type) || '',
@@ -203,6 +251,7 @@ const api = Object.freeze({
   isCompressibleRasterImage,
   isInputFileAvailable,
   formatBytes,
+  imageAttachmentLabel,
   looksLikeImageEditInstruction,
   IMAGE_REFERENCE_PREFIX,
   IMAGE_ITEM_PREFIX,

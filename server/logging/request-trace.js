@@ -370,7 +370,7 @@ function isRouteIntentRequest(payload = {}) {
   const schemaName = String(payload?.response_format?.json_schema?.name || '');
   if (/route_intent/i.test(schemaName)) return true;
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
-  return messages.some(message => /route_intent\.v1/i.test(String(message?.content || '')));
+  return messages.some(message => /route_intent\.v(?:1|2)/i.test(String(message?.content || '')));
 }
 
 function requestKind(targetPath = '', payload = {}, kind = '') {

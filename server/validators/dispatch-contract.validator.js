@@ -6,6 +6,7 @@ const capabilityRegistry = require('../../shared/capability-registry');
 const REQUEST_PURPOSES = Object.freeze({
   INTENT_RECOGNITION: 'intent_recognition',
   FINAL_EXECUTION: 'final_execution',
+  BACKGROUND_IMAGE_TAG: 'background_image_tag',
 });
 
 const CHAT_TARGET_PATHS = new Set(['/chat/completions', '/responses']);
@@ -73,7 +74,7 @@ function assertRequestPurpose(body = {}, expected = '') {
   if (!actual) {
     throw executionProtocolError('requestPurpose is required', 'REQUEST_PURPOSE_REQUIRED');
   }
-  if (![REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.FINAL_EXECUTION].includes(actual)) {
+  if (![REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
     throw executionProtocolError('requestPurpose is invalid', 'REQUEST_PURPOSE_INVALID');
   }
   if (expected && actual !== expected) {
@@ -99,6 +100,25 @@ function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = '
     }
   }
   return Object.freeze({ requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION, targetPath: normalizedPath });
+}
+
+function assertBackgroundImageTagRequest(body = {}, { targetPath = '', method = 'POST' } = {}) {
+  const normalizedPath = normalizedTargetPath(targetPath);
+  assertRequestPurpose(body, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG);
+  assertNoEmbeddedExecutionProtocolFields(body.payload || {});
+  if (String(method || 'POST').toUpperCase() !== 'POST' || !CHAT_TARGET_PATHS.has(normalizedPath)) {
+    throw executionProtocolError('Background image tag must use a chat endpoint', 'BACKGROUND_IMAGE_TAG_TARGET_INVALID');
+  }
+  if (hasOuterDispatchContract(body)) {
+    throw executionProtocolError('Background image tag must not include a dispatch contract', 'BACKGROUND_IMAGE_TAG_PLAN_FORBIDDEN');
+  }
+  if (hasOuterBindingEvidence(body)) {
+    const evidence = body.bindingEvidence;
+    if (!Array.isArray(evidence) || evidence.length > 0) {
+      throw executionProtocolError('Background image tag must not carry resource binding evidence', 'BACKGROUND_IMAGE_TAG_BINDINGS_FORBIDDEN');
+    }
+  }
+  return Object.freeze({ requestPurpose: REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG, targetPath: normalizedPath });
 }
 
 function transportApiForPath(targetPath = '', fallback = '') {
@@ -230,6 +250,9 @@ function validateProxyExecutionRequest(body = {}, options = {}) {
   if (purpose === REQUEST_PURPOSES.INTENT_RECOGNITION) {
     return assertIntentRecognitionRequest(body, { targetPath, method });
   }
+  if (purpose === REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG) {
+    return assertBackgroundImageTagRequest(body, { targetPath, method });
+  }
   return assertFinalExecutionRequest(body, { ...options, targetPath, method });
 }
 
@@ -302,6 +325,7 @@ module.exports = {
   imageModeForPath,
   assertRequestPurpose,
   assertIntentRecognitionRequest,
+  assertBackgroundImageTagRequest,
   assertFinalExecutionRequest,
   validateProxyExecutionRequest,
   validateManagedChatRequest,

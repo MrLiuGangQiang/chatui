@@ -41,11 +41,20 @@
     return `<p>${escapeHtml(value).replace(/\n/g, '<br>')}</p>`;
   }
 
+  function pendingDotsHtml() {
+    return '<span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+  }
+
+  function pendingFeedbackRowHtml(value) {
+    return `<span class="pending-feedback-row"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${escapeHtml(value)}</span>${pendingDotsHtml()}</span>`;
+  }
+
   function pendingFeedbackHtml(value) {
     const text = String(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务');
-    const multiline = /\r?\n/.test(text);
-    const renderedText = escapeHtml(text).replace(/\r?\n/g, '<br>');
-    return `<div class="pending-feedback${multiline ? ' pending-feedback-multiline' : ''}" data-live-status="true" role="status" aria-live="polite" aria-atomic="true"><span class="pending-orb" aria-hidden="true"></span><span class="pending-text">${renderedText}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+    const lines = text.split(/\r?\n/);
+    const multiline = lines.length > 1;
+    const rows = lines.map(line => pendingFeedbackRowHtml(line));
+    return `<div class="pending-feedback${multiline ? ' pending-feedback-multiline' : ''}" data-live-status="true" role="status" aria-live="polite" aria-atomic="true">${rows.join('')}</div>`;
   }
 
   function isChatStatusText(value = '') {
@@ -61,6 +70,7 @@
     escapeAttr,
     renderStreamingText,
     pendingFeedbackHtml,
+    pendingFeedbackRowHtml,
     isChatStatusText,
   });
 

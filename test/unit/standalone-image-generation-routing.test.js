@@ -8,6 +8,7 @@ function intent({ operation, relation = 'followup', resourceRefs = [] } = {}) {
     operation,
     relation,
     goal: `处理当前 ${operation} 请求`,
+    task_shape: 'single',
     resource_refs: resourceRefs,
   });
 }
@@ -108,13 +109,7 @@ function testExplicitReferenceStillAuthorizesReferenceGeneration() {
   }]);
 }
 
-function testQuotedTextPromptMisclassifiedAsReferenceGenDegradesToTextToImage() {
-  // User quoted a text generation prompt and asked to generate an image from
-  // it. The route model misclassified the message binding as an image
-  // reference (image_reference_gen). image_reference_gen requires an
-  // image-typed reference, so the local compiler must degrade to
-  // text_to_image with message/context binding instead of forcing a
-  // missing-image clarification.
+function testQuotedTextPromptMisclassificationIsNotSemanticallyRewritten() {
   const input = '基于提示词 生成一只黑色的猫';
   const context = {
     quoted_message: {
@@ -130,11 +125,11 @@ function testQuotedTextPromptMisclassifiedAsReferenceGenDegradesToTextToImage() 
       content: '生成一只黑色的猫，圆眼睛，暖白色室内背景。',
     }],
   };
-  const goal = '生成一只黑色的猫，圆眼睛，暖白色室内背景。';
   const inspected = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'image_reference_gen',
     relation: 'new',
-    goal,
+    goal: '生成一只黑色的猫，圆眼睛，暖白色室内背景。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'reference' }],
   }), {
     input,
@@ -143,30 +138,19 @@ function testQuotedTextPromptMisclassifiedAsReferenceGenDegradesToTextToImage() 
   });
 
   assert.ok(inspected.route, inspected.reason);
-  assert.strictEqual(inspected.route.operationType, 'text_to_image',
-    'a message-only reference binding must degrade to text_to_image');
-  assert.strictEqual(inspected.route.api, 'image_generation');
-  assert.strictEqual(inspected.route.executionPrompt, goal,
-    'the resolved text goal must be sent to image generation');
-  assert.deepStrictEqual(inspected.route.dispatchContract.bindings.map(binding => ({
-    type: binding.type, role: binding.role, resource_id: binding.resource_id,
-  })), [{
-    type: 'message', role: 'context', resource_id: 'res:message:quoted-cat-prompt',
-  }]);
-  assert.strictEqual(inspected.route.clarificationSlots.length, 0,
-    'degraded text_to_image must not force a missing-image clarification');
-  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
+  assert.strictEqual(inspected.route.operationType, 'image_reference_gen');
+  assert.strictEqual(inspected.route.readiness, 'needs_clarification');
+  assert.strictEqual(inspected.route.dispatchContract, null);
+  assert.strictEqual(inspected.route.normalizedFrom, null);
+  assert.strictEqual(inspected.route.normalizationReason, '');
 }
 
-function testStaleTextReferenceDegradesWithoutBlockingGeneration() {
-  // Persisted route results can retain an mN key after the source message was
-  // compacted. The goal remains executable and optional text context must not
-  // turn this recoverable route into an image picker.
-  const goal = '生成一只幼年银灰白虎斑短毛猫，暖白色室内背景。';
+function testStaleTextReferenceCannotAuthorizeAReferenceGenerationRewrite() {
   const inspected = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'image_reference_gen',
     relation: 'new',
-    goal,
+    goal: '生成一只幼年银灰白虎斑短毛猫，暖白色室内背景。',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'm1', role: 'reference' }],
   }), {
     input: '直接生成',
@@ -175,12 +159,11 @@ function testStaleTextReferenceDegradesWithoutBlockingGeneration() {
   });
 
   assert.ok(inspected.route, inspected.reason);
-  assert.strictEqual(inspected.route.operationType, 'text_to_image');
-  assert.strictEqual(inspected.route.api, 'image_generation');
-  assert.strictEqual(inspected.route.executionPrompt, goal);
-  assert.deepStrictEqual(inspected.route.dispatchContract.bindings, []);
-  assert.strictEqual(inspected.route.clarificationSlots.length, 0);
-  assert.strictEqual(routeService.isRouteDispatchable(inspected.route), true);
+  assert.strictEqual(inspected.route.operationType, 'image_reference_gen');
+  assert.strictEqual(inspected.route.readiness, 'needs_clarification');
+  assert.strictEqual(inspected.route.dispatchAuthorized, false);
+  assert.strictEqual(inspected.route.dispatchContract, null);
+  assert.strictEqual(inspected.route.normalizedFrom, null);
 }
 
 module.exports = [
@@ -188,6 +171,6 @@ module.exports = [
   testModelGenerationProposalIsNotOverriddenByPromptAuthoringRules,
   testActualImageGenerationFromAnExistingPromptStillUsesTheImageService,
   testExplicitReferenceStillAuthorizesReferenceGeneration,
-  testQuotedTextPromptMisclassifiedAsReferenceGenDegradesToTextToImage,
-  testStaleTextReferenceDegradesWithoutBlockingGeneration,
+  testQuotedTextPromptMisclassificationIsNotSemanticallyRewritten,
+  testStaleTextReferenceCannotAuthorizeAReferenceGenerationRewrite,
 ];

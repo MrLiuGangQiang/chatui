@@ -8,6 +8,7 @@ function modelIntent(operation = 'plain_chat', resourceRefs = []) {
     operation,
     relation: 'followup',
     goal: '执行用户当前视觉请求。',
+    task_shape: 'single',
     resource_refs: resourceRefs,
   });
 }

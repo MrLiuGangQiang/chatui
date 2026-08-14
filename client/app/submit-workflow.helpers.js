@@ -862,6 +862,7 @@
         responseIndex: String(child.responseIndex || ''),
         mode: String(child.mode || 'image'),
         status: String(child.status || 'running'),
+        ...(child.imageContext ? { imageContext: child.imageContext } : {}),
       })),
     };
   }

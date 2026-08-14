@@ -28,6 +28,7 @@ function compileIntent({ relation = 'followup', refs = [], goal = '处理当前�
     operation: 'plain_chat',
     relation,
     goal,
+    task_shape: 'single',
     resource_refs: refs.map(candidate_key => ({ candidate_key, role: 'context' })),
   }), {
     input,

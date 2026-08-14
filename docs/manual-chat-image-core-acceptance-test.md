@@ -110,7 +110,9 @@ bindingEvidence
 
 #### 本地编译边界
 
-路由模型只返回 `operation`、`relation`、`goal`、`resource_refs` 四字段 `route_intent.v1`。`goal` 描述消歧后的用户目标；协议没有重复版本字段，也没有 API、最终执行参数、上下文策略、幂等键或规范资源 ID，因此不是执行授权。图片、文件和历史消息统一引用候选目录中的 `iN`、`fN`、`mN`；客户端解析显式序号/ID/唯一标签并重建 bindings，由能力注册表统一校验 operation 的资源类型、角色和数量。消息上下文遵循“精确绑定只带所选、明确新任务不带历史、其他默认带窗口内会话”，超限时先丢弃最早普通历史且不生成摘要。最终不可变的 `dispatch_contract.v1` 仍是唯一执行授权；缺失、歧义、不可用、固定模式冲突或跨 API 多任务必须在本地变成澄清合同。
+路由模型只返回 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 五字段 `route_intent.v2`。实时解析器不接受缺少 `task_shape` 的旧四字段结果；`goal` 只消解指代并合并用户明确约束，不补充未提出的创作细节。图片、文件和历史消息统一引用候选目录中的 `iN`、`fN`、`mN`；客户端重建 bindings 并由能力注册表校验资源类型、角色和数量，不得改写模型的 operation/relation。`task_shape=multi` 的图片任务进入二级规划，其他多任务要求拆分。正常上下文和引用/澄清 override 必须共用 `route_context_policy.v1`：按完整旧轮次淘汰普通历史、不生成摘要、不截断当前输入或显式引用；受保护内容超窗时在请求前失败。历史图片支持生成轮次、倒序轮次、全局图片序号、最早切片和语义检索，截断目录用 `resource_catalog.v1` 描述。最终不可变的 `dispatch_contract.v1` 仍是唯一执行授权。
+
+每个任务使用 `route_model_attempt_ledger.v1` 记录真实 provider attempt，primary、fallback、图片规划和协议兼容请求共用最多 6 次预算，并跨澄清续轮继承。路由终态固定为 `ready`、`business_clarification`、`configuration_error`、`transient_error`、`invalid_model_output`、`cancelled`；只有 `business_clarification` 可以创建 pending。
 
 #### 澄清阶段
 
@@ -978,6 +980,84 @@ dispatchAuthorized = false
 
 ---
 
+## ROUTE-CORE-014 历史图片按轮次和位置定位
+
+**前置条件**
+
+在同一会话完成至少 10 次图片生成，部分轮次包含两张以上图片，并记录最早、第三张、第八次生成和倒数第二次生成结果的视觉标记。
+
+**输入**
+
+依次发送：
+
+```text
+修改第八次生成的图
+分析倒数第二次生成的图
+把历史第 3 张图改成黑白
+修改很早之前那张图
+```
+
+**预期结果**
+
+- 分别按 `generation_index`、`generation_recency_index`、`chronological_index` 和有界最早切片发布候选。
+- 不要求目标提示词必须包含相同关键词。
+- 目录截断时存在 `resource_catalog.v1.image_memory`，其 total/published/truncated/strategies 与实际候选一致。
+- 最终 binding 指向正确历史图片，当前/引用候选键不因加入旧图而改变。
+
+---
+
+## ROUTE-CORE-015 多张图片分别修改进入二级规划
+
+**前置条件**
+
+当前轮上传三张可区分图片。
+
+**输入**
+
+```text
+分别把第一张改成黑白、第二张改成夜景、第三张改成水彩风格。
+```
+
+**预期意图和计划**
+
+```text
+operation = edit_image
+task_shape = multi
+image_plan.v1.tasks.length = 3
+每个 task 恰好绑定自己的 target
+```
+
+**通过标准**
+
+- 不把三张图合并成一个多 target 编辑请求。
+- 不退化为 `text_to_image`。
+- `goal` 和每项 prompt 不增加用户未提出的主体、场景或颜色。
+- 结构协议可表达最多 50 项，但产品执行上限仍由编译层按 5 项判断；6 项请求进入明确业务澄清。
+
+---
+
+## ROUTE-CORE-016 统一上下文策略和错误终态
+
+**前置条件**
+
+准备长会话、一个较早的显式引用消息，并可用 G1 注入配置、网络、超时和非法模型输出。
+
+**操作**
+
+1. 在长会话发送短追问，检查路由 payload。
+2. 引用较早消息发送 `这个呢？`。
+3. 构造引用原文本身超过路由模型窗口。
+4. 逐类注入 route model 故障。
+
+**预期结果**
+
+- 正常和引用路径都不出现 `[历史摘要]`，普通旧历史按完整轮次淘汰。
+- `current_input` 与可容纳的 `quoted_message.content` 保持原文；受保护引用超窗时在 provider 请求前返回 `route_context_too_large`。
+- 配置/网络/超时/非法输出分别成为 typed failure，不创建 pending；只有业务信息不足时是 `business_clarification`。
+- 多图规划状态显示“正在拆分多个图片任务”，fallback 状态显示“正在重新确认任务意图”。
+
+---
+
 # D. 澄清和用户选择
 
 ## CLAR-CORE-001 两张相似图片目标不明确
@@ -1074,24 +1154,28 @@ unresolved = size conflict
 
 ---
 
-## CLAR-CORE-004 点击候选后自动继续
+## CLAR-CORE-004 图片整卡选择、独立预览和自动继续
 
 **操作**
 
-在 CLAR-CORE-001 中点击第二张候选图片。
+1. 在 CLAR-CORE-001 中点击第二张图片本体或卡片空白区。
+2. 重新触发后只点击第二张右上角预览按钮。
+3. 用键盘聚焦候选并选择。
+4. 在桌面、约 700px 和约 420px 宽度下观察。
 
 **预期执行**
 
 ```text
-IMG-P2 -> target
+整卡/图片点击：IMG-P2 -> target
+预览按钮点击：只打开预览，不写 clarification_answer
 ```
 
 **预期最终输出**
 
-- 对第二张图执行“改成蓝色”。
-- 第一张不进入最终请求。
-- 用户不需要重新输入完整任务。
-- 只创建一次最终编辑 Job。
+- 每组显示角色、槽位进度、来源和精简标签，图片使用 contain 完整显示。
+- 布局分别为 3/2/1 列；焦点、hover 和选中态可辨认。
+- 对第二张图执行“改成蓝色”，第一张不进入最终请求。
+- 用户不需要重新输入完整任务，只创建一次最终编辑 Job。
 
 ---
 
@@ -2088,6 +2172,21 @@ G1 可让路由模型返回非法 JSON、缺字段或连续非法响应；否则
 
 ---
 
+## PROTO-CORE-012 真实 provider attempt 账本和错误不得伪装澄清
+
+**前置条件**
+
+G1 可让 Structured Output 和 reasoning 参数依次触发兼容降级，并可控制 primary、fallback 和 image plan 响应。
+
+**预期结果**
+
+- `route_model_attempt_ledger.v1.provider_attempts` 与 Network 中真实请求次数一致。
+- primary/fallback/planning/compatibility/reasoning/format 分项计数正确。
+- 澄清续轮继承账本；累计 6 次后第 7 次未发出。
+- 配置、网络、限流、超时、无效 route intent 和无效 image plan 均显示失败，`needClarification=false`，不会持久化 pending。
+
+---
+
 # H. 最终验收标准
 
 以下条件全部满足，才能认为聊天和生图核心功能通过：
@@ -2105,12 +2204,13 @@ G1 可让路由模型返回非法 JSON、缺字段或连续非法响应；否则
 
 - 普通聊天、图片问答、OCR、图片比较、文本生图、参考图生成和图片编辑能够区分。
 - 新任务不继承无关历史图片。
-- 当前图、引用图、历史图和第一张/第二张身份稳定。
-- 模式冲突、目标缺失、目标歧义和参数冲突会进入澄清。
+- 当前图、引用图、历史图、生成轮次、倒序轮次和第一张/第二张身份稳定。
+- 正常与 override 上下文使用同一策略，不生成历史摘要，不截断受保护内容。
+- 模式冲突、目标缺失、目标歧义和参数冲突会进入业务澄清；配置/服务/协议错误显示失败。
 
 ## 澄清
 
-- 能选择时优先显示按钮或图片候选。
+- 能选择时优先显示整卡图片候选；预览按钮与选择动作分离，移动端保持可辨认。
 - 用户完成所有选择前不执行最终请求。
 - 非法编号和过期选择不会触发猜测执行。
 - 澄清中发起新任务时允许选择继续原任务或开始新任务。

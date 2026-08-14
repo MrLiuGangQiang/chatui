@@ -113,14 +113,16 @@ npm test -- --timeout=20000 unit/server-hardening.test.js
 修改用户输入、上下文、意图请求、参数编译、路由、任务生命周期或 HTTP 接入边界时，除受影响模块测试外，至少运行下面的聚焦集合：
 
 ```bash
-npm test -- route-resilience route-deadline-fallback route-live-status route-intent-request
+npm test -- route-resilience route-deadline-fallback route-live-status route-intent-request route-context-policy-source
+npm test -- route-memory-ordinal-retrieval route-model-attempt-budget route-outcome-presentation route-prompt-multi-edit-contract
+npm test -- clarification-image-choice-interaction clarification-choice-workflow clarification-refresh-persistence
 npm test -- submit-workflow-cancellation regenerate-workflow submit-workflow-clarification-answers durable-task-lifecycle task-lifecycle
 npm test -- dispatch-contract message-size-guard
 npm test -- request-body-utf8 server-router-access-log chat-request-error-metadata protocol-message-quality
 npm test -- job-ownership job-routes server-hardening
 ```
 
-这些测试分别冻结：共享绝对 deadline、adapter 忽略取消时的主动结算、deadline 后禁止继续 Structured Output 兼容请求、primary/fallback 预算与错误身份、上下文 fail-closed、停止后的单终态、handoff/completion 幂等、常见中英文否定/重叠/全角参数及排除选项、统一 120,000 字符上限、严格 UTF-8、每请求一条且分类正确的 access log 和协议错误消息质量。新增回归不能只断言一个用户样例；应同时包含正例、近邻反例、冲突或边界输入以及失败路径。
+这些测试分别冻结：共享绝对 deadline、adapter 忽略取消时的主动结算、deadline 后禁止继续 Structured Output 兼容请求、真实 provider-attempt 账本、primary/fallback 错误身份、`route_context_policy.v1` 单一裁剪策略与受保护内容超限、历史图片结构化序号检索、typed route outcome、图片澄清整卡选择/独立预览、停止后的单终态、handoff/completion 幂等、常见中英文否定/重叠/全角参数及排除选项、统一 120,000 字符上限、严格 UTF-8、每请求一条且分类正确的 access log 和协议错误消息质量。新增回归不能只断言一个用户样例；应同时包含正例、近邻反例、冲突或边界输入以及失败路径。
 
 聚焦测试通过不等于发布候选通过。最终工作树仍必须重新执行 `npm run check`；涉及真实模型语义时还必须运行第 6 节独立评测，涉及浏览器或容器行为时必须分别取得真实浏览器 E2E 与 exact Docker runtime 证据。
 
@@ -191,7 +193,7 @@ npm run eval:intent -- \
   --output temp/reports/intent-routing-live.json
 ```
 
-评估输入来自 `test/fixtures/intent-routing-eval.v1.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs` 的最小 `route_intent.v1`；`goal` 说明用户真正想完成的任务，引用/历史消息与图片、文件一样通过候选键绑定。评估器先直接以原始模型四字段作为独立语义证据，检查 operation、relation、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 在本地重建资源绑定并编译最终计划，检查结构合法性、澄清/禁止派发及最终 `dispatch_contract.v1.arguments.prompt` 的语义保真；生产编译器的规范化不能替模型错误兜底得分。跨 API 多任务因无法由单个 `route_intent.v1` 表达，必须进入澄清而不能静默只执行其中一步。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。
+评估输入来自 `test/fixtures/intent-routing-eval.v2.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 的最小 `route_intent.v2`；`goal` 只消解指代并保留用户已提出的约束，`task_shape` 明确单任务、多图片规划任务或需拆分的非图片多任务。评估器直接把原始模型五字段作为独立语义证据，检查 operation、relation、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定并检查澄清、图片规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误 operation/relation 兜底；跨 API 多任务必须由 `task_shape=multi` 触发拆分提示。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。 请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域；这些约束属于生成前协议，不得通过修改评估器或模型返回后的语义归一化掩盖失败。
 
 报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 

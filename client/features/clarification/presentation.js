@@ -124,6 +124,44 @@
     return label.length > max ? `${label.slice(0, max - 1)}…` : label;
   }
 
+  const IMAGE_ROLE_LABELS = Object.freeze({
+    target: '编辑目标',
+    mask: '蒙版',
+    reference: '内容参考',
+    style_reference: '风格参考',
+    source: '分析图片',
+    compare_a: '对比图片 A',
+    compare_b: '对比图片 B',
+    background: '背景参考',
+    subject: '主体参考',
+  });
+  const IMAGE_SOURCE_LABELS = Object.freeze({
+    current: '本轮上传',
+    quoted: '引用消息',
+    history: '历史图片',
+    context: '上下文图片',
+  });
+
+  function imageRoleLabel(role = '') {
+    const key = String(role || '').trim();
+    return IMAGE_ROLE_LABELS[key] || '所需图片';
+  }
+
+  function imageSourceLabel(source = '') {
+    const key = String(source || '').trim();
+    return IMAGE_SOURCE_LABELS[key] || '可用图片';
+  }
+
+  function compactImageChoiceLabel(choice = {}, item = null, ordinal = 1) {
+    const raw = String(
+      choice.label || choice.description || choice.semantic_text || choice.prompt
+      || item?.description || item?.semantic_description || item?.prompt
+      || item?.name || item?.filename || `候选图片 ${ordinal}`,
+    ).replace(/\s+/g, ' ').trim();
+    const semantic = raw.split(/\s*(?:\||·)\s*/).find(part => part && !/\.[a-z0-9]{2,8}$/i.test(part)) || raw;
+    return compactLabel(semantic, 54) || `候选图片 ${ordinal}`;
+  }
+
   function questionHtml(question = '') {
     return escapeHtml(question).replace(/\r?\n/g, '<br>');
   }
@@ -182,21 +220,26 @@
       .filter(slot => slot?.type === 'image' && Array.isArray(slot.choices) && slot.choices.length);
     if (slots.length) {
       const lookup = createImageLookup(options);
-      const multipleSlots = slots.length > 1;
       const imageSections = slots.map((slot, slotIndex) => {
+        const roleLabel = imageRoleLabel(slot.role);
+        const slotProgress = `第 ${slotIndex + 1}/${slots.length} 项`;
         const cards = slot.choices.map((choice, choiceIndex) => {
           const ordinal = choiceIndex + 1;
           const item = resolveChoiceImage(choice, lookup);
           const source = imageSource(item || {});
+          const filename = imageName(item || {}) || String(choice.filename || choice.name || '').trim() || `image-${ordinal}.png`;
+          const labelText = compactImageChoiceLabel(choice, item, ordinal);
+          const sourceText = imageSourceLabel(choice.source);
           const media = source
-            ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" alt="候选图片 ${ordinal}" />`
-            : `<span class="clarification-choice-placeholder" aria-label="候选图片 ${ordinal} 暂时无法预览">图片暂时无法预览</span>`;
-          return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><div class="clarification-choice-media"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span>${media}</div></li>`;
+            ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" data-filename="${escapeHtml(filename)}" alt="${escapeHtml(labelText)}" />`
+            : `<span class="clarification-choice-placeholder" aria-label="${escapeHtml(labelText)} 暂时无法预览">图片暂时无法预览</span>`;
+          const preview = source
+            ? `<button type="button" class="clarification-choice-preview-button" data-preview-src="${escapeHtml(source)}" data-preview-filename="${escapeHtml(filename)}" aria-label="预览${escapeHtml(labelText)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 12s3.4-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.4 5.5-9.2 5.5S2.8 12 2.8 12Z"/><circle cx="12" cy="12" r="2.6"/></svg><span>预览</span></button>`
+            : '';
+          return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><div class="clarification-image-choice-shell"><button type="button" class="clarification-choice-button clarification-image-choice-select" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}" data-choice-label="${escapeHtml(String(choice.label || labelText))}" aria-pressed="false" aria-label="选择${escapeHtml(labelText)}"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span><span class="clarification-choice-media">${media}</span><span class="clarification-image-choice-copy"><span class="clarification-choice-meta">${escapeHtml(sourceText)}</span><span class="clarification-choice-action">选择此图</span></span></button>${preview}</div></li>`;
         }).join('');
-        const heading = multipleSlots
-          ? `<h4 class="clarification-choice-heading">第 ${slotIndex + 1} 组图片</h4>`
-          : '';
-        return `<section class="clarification-choice-section" aria-label="图片候选组 ${slotIndex + 1}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
+        const heading = `<h4 class="clarification-choice-heading"><span class="clarification-choice-role">${escapeHtml(roleLabel)}</span><span class="clarification-choice-progress">${escapeHtml(slotProgress)} · ${slot.choices.length} 张候选</span></h4>`;
+        return `<section class="clarification-choice-section" data-clarification-role="${escapeHtml(slot.role || '')}" aria-label="${escapeHtml(roleLabel)}，${escapeHtml(slotProgress)}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
       }).join('');
 
       // B2: mixed slots — when non-image option slots coexist with image
@@ -217,7 +260,7 @@
         return `<section class="clarification-choice-section" aria-label="${escapeHtml(label || '候选选项')}">${heading}<ol class="clarification-choice-list">${cards}</ol></section>`;
       }).join('');
 
-      const html = `<div class="clarification-presentation" data-clarification-image-choices="1"${optionSlots.length ? ' data-clarification-choice-options="1"' : ''}><p class="clarification-question">${questionHtml(question)}</p>${imageSections}${optionSections}${optionSlots.length ? '' : '<p class="clarification-choice-hint">请回复一个编号（如“2”或“第 2 张”）。一次只能选择一张图片。</p>'}</div>`;
+      const html = `<div class="clarification-presentation" data-clarification-image-choices="1"${optionSlots.length ? ' data-clarification-choice-options="1"' : ''}><p class="clarification-question">${questionHtml(question)}</p>${imageSections}${optionSections}<p class="clarification-choice-hint">点击卡片选择图片；“预览”只查看大图，不会更改选择。每个角色选择一张。</p></div>`;
       return { rawText: question, html, hasImageChoices: true, hasChoices: true };
     }
 

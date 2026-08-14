@@ -2,6 +2,23 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+function assertAssetVersionAtLeast(index, assetPath, minimum) {
+  const marker = `${assetPath}?v=`;
+  const markerIndex = index.indexOf(marker);
+  assert.ok(markerIndex >= 0, `${assetPath} must be loaded with a cache version`);
+
+  const match = index.slice(markerIndex + marker.length).match(/^(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(match, `${assetPath} cache version must begin with a numeric semantic version`);
+  const actual = match.slice(1, 4).map(Number);
+  const comparison = actual.reduce((result, value, position) => (
+    result || Math.sign(value - minimum[position])
+  ), 0);
+  assert.ok(
+    comparison >= 0,
+    `${assetPath} cache version ${actual.join('.')} must be at least ${minimum.join('.')}`,
+  );
+}
+
 const {
   createPromptEnterSubmitController,
   bindPromptEnterSubmitGuard,
@@ -122,8 +139,8 @@ function testBootstrapUsesImeAwarePromptEnterGuard() {
 
   assert.ok(bootstrap.includes('bindPromptInputGuards(),bindPromptEnterSubmitGuard($("prompt"),$("composer"))'));
   assert.ok(!bootstrap.includes('$("prompt").addEventListener("keydown",e=>{"Enter"!==e.key'));
-  assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard'));
-  assert.ok(index.includes('chatui.bundle.js?v=1.3.161-live-status'));
+  assertAssetVersionAtLeast(index, 'bootstrap-workflow.js', [2, 1, 2]);
+  assertAssetVersionAtLeast(index, 'chatui.bundle.js', [1, 3, 161]);
 }
 
 function testBoundGuardUsesPlatformSpecificCompositionEndPolicy() {

@@ -113,6 +113,7 @@ function testSubjectlessImageEditKeepsLatestVisualLineageAddressable() {
     operation: 'edit_image',
     relation: 'continuation',
     goal: '把上一张生成的猫图片换一个颜色，但未指定目标颜色',
+    task_shape: 'single',
     resource_refs: [{ candidate_key: 'i1', role: 'target' }],
   }), {
     input: '换个颜色',
@@ -125,6 +126,51 @@ function testSubjectlessImageEditKeepsLatestVisualLineageAddressable() {
   assert.deepStrictEqual(inspected.route.resources.map(resource => [resource.type, resource.role, resource.id]), [
     ['image', 'target', 'img_imgref_cat-result_1'],
   ]);
+}
+
+function testCompactedGeneratedImageCandidatesRemainAvailableAfterRefresh() {
+  const context = imageRouteContext.buildRouteContext({
+    messages: [],
+    // This is the compact shape produced by route-intent-workflow before the
+    // model request. It has candidates, not full image descriptors.
+    lastGeneratedImage: {
+      reference_id: 'imgref_cat-result',
+      target: 'previous',
+      prompt: '画一只猫',
+      count: 1,
+      candidates: [{
+        image_id: 'img_imgref_cat-result_1',
+        filename: 'cat.png',
+        prompt: '画一只猫',
+      }],
+    },
+    recentImageReferences: [],
+  });
+  const publicInput = publicRouteInput({
+    input: '把它改成白色',
+    context,
+    currentTurn: { messageIndex: 1 },
+  });
+  assert.deepStrictEqual(publicInput.resource_candidates.map(candidate => [candidate.candidate_key, candidate.type, candidate.label]), [
+    ['i1', 'image', '画一只猫'],
+  ]);
+
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'continuation',
+    goal: '把上一张猫图片改成白色',
+    task_shape: 'single',
+    resource_refs: [{ candidate_key: 'i1', role: 'target' }],
+  }), {
+    input: '把它改成白色',
+    attachments: [],
+    context,
+    currentTurn: { messageIndex: 1 },
+  });
+  assert.ok(inspected.route, `${inspected.reason}: ${inspected.error || ''}`);
+  assert.strictEqual(inspected.route.readiness, 'ready');
+  assert.strictEqual(inspected.route.dispatchAuthorized, true);
+  assert.strictEqual(inspected.route.resources[0].id, 'img_imgref_cat-result_1');
 }
 
 function testLaterOrdinaryTextResponseDoesNotHideBoundedVisualEvidence() {
@@ -152,6 +198,7 @@ function testLaterOrdinaryTextResponseDoesNotHideBoundedVisualEvidence() {
 
 module.exports = [
   testSubjectlessImageEditKeepsLatestVisualLineageAddressable,
+  testCompactedGeneratedImageCandidatesRemainAvailableAfterRefresh,
   testLaterOrdinaryTextResponseDoesNotHideBoundedVisualEvidence,
 ];
 

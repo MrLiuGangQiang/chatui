@@ -52,7 +52,7 @@ function createBootstrapDependencies() {
       closeConfigModal() {}, copyConfigField() {}, copyImageActionElement() {}, downloadImageActionElement() {}, enhanceConfigSelects() {}, ensureHistoryAnchorNode() {}, historyAnchorItemsFromState: () => [], isSessionBusy: () => false,
       document: { body, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], visibilityState: 'visible' },
       loadAppVersion: asyncNoop, loadConfig() {}, loadGlobalImageStyleToSessionInput() {}, loadGlobalPromptToSessionInput() {}, loadLastGeneratedImage: asyncNoop, loadModels: asyncNoop, loadReasoningPreference() {}, loadSessionSidebarCollapsed() {}, loadSessions: asyncNoop,
-      markManualMessageScroll() {}, newSession() {}, onSubmit: asyncNoop, openConfigModal() {}, openSessionDrawer() {}, openSessionImageStylePanel() {}, openSessionModelPanel() {}, openSessionPromptPanel() {}, persistBeforePageLeave() {}, refreshActiveSessionOnReturn() {}, renderActiveSession() {}, requestAnimationFrame: callback => callback(), rerenderVisibleMarkdownMessages() {}, resumeActiveOutputFocus() {}, resumeBackgroundSessionJobs() {}, revealNodeAboveComposer() {},
+      markManualMessageScroll() {}, newSession() {}, onSubmit: asyncNoop, openImagePreview() {}, openConfigModal() {}, openSessionDrawer() {}, openSessionImageStylePanel() {}, openSessionModelPanel() {}, openSessionPromptPanel() {}, persistBeforePageLeave() {}, refreshActiveSessionOnReturn() {}, renderActiveSession() {}, requestAnimationFrame: callback => callback(), rerenderVisibleMarkdownMessages() {}, resumeActiveOutputFocus() {}, resumeBackgroundSessionJobs() {}, revealNodeAboveComposer() {},
       saveConfig() {}, saveSessionsMeta() {}, saveSessionImageStyle() {}, saveSessionModel() {}, saveSessionPrompt() {}, scheduleAutoResize() {}, scrollPromptByWheel() {}, scrollToBottom() {}, setReasoningMode() {}, setReasoningType() {}, setSessionSidebarCollapsed() {}, state: { activeSessionId: '', autoMode: true, reasoningMode: false }, stopActiveRun: asyncNoop, toast() {}, toggleApiKeyVisibility() {}, toggleReasoningMenu() {}, updateModeUi() {}, updateSendAvailability() {}, waitForMarkdownReady: asyncNoop, window: browserWindow,
     },
     body,
@@ -122,6 +122,7 @@ async function testBootstrapBindsClarificationChoiceWorkflowFromModuleRegistry()
   assert.strictEqual(received?.saveSessionsMeta, deps.saveSessionsMeta);
   assert.strictEqual(received?.onSubmit, deps.onSubmit);
   assert.strictEqual(received?.toast, deps.toast);
+  assert.strictEqual(received?.openImagePreview, deps.openImagePreview);
 }
 
 module.exports = [

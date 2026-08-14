@@ -56,12 +56,13 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
 
-- `shared/route-intent.js`：作为模型边界最小协议 `route_intent.v1` 的严格 schema 与校验事实来源；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs` 四个字段，`goal` 表达消歧后的用户目标，协议版本由 schema 名称承载而不在每次结果中重复；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份；
+- `shared/route-intent.js`：作为实时模型边界协议 `route_intent.v2` 的严格 schema 与校验事实来源；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 五个字段，协议版本由 schema 名称承载。实时解析器不接受缺少 `task_shape` 的旧四字段结果；历史 v1 数据只能经过显式 adapter 转成 `task_shape=single`。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份。默认 schema 是不可变协议模板；每次请求再基于同一请求实际发布的候选目录实例化约束：`candidate_key` 只能从本轮候选 enum 中选择，空目录直接令 `resource_refs.maxItems=0`。应用状态已经能确定的字段域也在请求前收窄，而不是在模型返回后改写；
 - `client/services/route-service.js`：负责把 canonical route context 投影为模型输入；当前用户消息不得重复进入历史候选，路由窗口内的既有文字消息与经过结构预算裁剪的图片/文件候选全部可见，超限时按明确的容量策略淘汰。引用消息、会话焦点、上一执行资源组和历史候选都只是模型证据，本地不得再按关键词、焦点或 lineage 隐藏候选并替模型判断语义；图片/文件正文和规范资源身份始终保持本地。路由输入长度必须复用 `client/core/preflight-guards.js` 的 `MAX_USER_MESSAGE_CHARS`，不得在 service 或 workflow 中复制另一套阈值。
 - `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；
 - `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；确定性图片参数解析只使用与原文等长的 analysis view 做全半角语法归一化，provider prompt 保留原文。候选必须保留 span、原文 evidence 与否定极性，同一参数的重叠命中按最长 span 优先；常见中英文否定后只有一个合法补集时才可确定性选择，否则进入澄清，不能回落到可能违背否定的 `auto`，澄清选项也不得重新提供已排除值；
 - `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
-- `client/core/message-primitives.js`：统一上下文解析、消息稳定身份和 reasoning 引用文本清理；
+- `client/core/message-primitives.js`：统一上下文解析、消息稳定身份、reasoning 引用文本清理，以及“图片结果已可刷新恢复”的唯一判定；只有带 `image_result` 输出身份且引用 `indexeddb://` 媒体（或等价 canonical presentation/HTML 描述）的 assistant 记录才是 durable image completion，纯 `[图片生成完成]` 文本和输入图片上下文都不能触发任务清理或覆盖完整结果；
+- `client/core/image-route-context.js`：作为 `route_context_policy.v1` 的唯一事实源，统一正常会话和 route-context override 的字符/Token 预算、完整旧轮次淘汰、图片/文件候选裁剪与受保护内容识别；该策略不生成历史摘要，不截断显式引用内容，受保护内容无法容纳时抛出 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE`，workflow 不得复制第二套阈值或压缩算法；
 - `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
 - `client/core/text-hash.js`：统一渲染缓存、性能统计和使用量视图的文本哈希实现，调用方只能通过公开格式使用哈希，不能再复制 FNV-1a 变体。
 
@@ -84,18 +85,19 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 `client/services/route-service.js` 保留路由服务的公共兼容 API，但内部职责已经按以下边界拆分：
 
-- `route-service.js`：从当前附件和有界上下文建立有序候选资源目录，构造路由请求，解析模型返回的 `route_intent.v1`，并把模型选择的短候选键映射回规范资源；本地只做 schema、候选存在性、角色、数量、可用性与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`，不得重新解释用户文本并覆盖模型的 operation、relation、goal 或 resource refs；
+- `route-service.js`：从当前附件和有界上下文建立有序候选资源目录，构造路由请求，解析模型返回的 `route_intent.v2`，并把模型选择的短候选键映射回规范资源；历史图片可按生成轮次、倒序轮次、全局图片序号、最早切片或语义检索从本地 memory cards 发布，截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，明确继续读取不可用资源时可保持 continuation，无历史状态的本轮输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、resource refs 或 task shape；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细；
 - `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做协议能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改；
 - `server/validators/dispatch-contract.validator.js`：在服务端最终执行边界再次校验计划、资源证据、参数和上下文策略。
 
-路由模型输出的 `route_intent.v1` 是唯一语义裁决结果：`operation`、`relation`、`goal` 与 `resource_refs` 都由模型负责。`resource_refs` 非空时，`goal` 必须是已完成资源消解后的自足执行指令，执行层不得再次把原始位置描述交给下游模型重新选择附件。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
+在请求级 schema 已按确定性应用事实收窄允许值之后，路由模型输出的 `route_intent.v2` 是唯一语义裁决结果：未被收窄的 `operation`、`relation`、`goal`、`resource_refs` 与 `task_shape` 都由模型负责，返回后不得做语义改写。`goal` 只消解指代并合并用户已提出的约束，不得补充未提出的创作细节；有资源绑定、历史依赖或图片任务时执行 resolved goal，普通 `relation=new` 的纯文本任务执行原始输入。`task_shape=multi` 的图片任务进入 `image_plan.v1`，非图片或跨 API 多任务由协议字段触发拆分提示，不再依赖中文关键词正则。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
 
 意图管线的可靠性边界如下：
-- 意图识别是延迟敏感路径，`route-service.js` 的 `buildRoutePayload` 对 gpt-5 系列路由模型统一附加浅推理档 `reasoning_effort: low`（`INTENT_REASONING_EFFORT`），历史消息与引用消息内容在 wire 层截断到 240 字符；这些是请求层延迟约束，不改变"路由模型是唯一语义裁决者"的边界，本地不得增加第二套语义系统。
-
-- `client/app/submit-workflow-policy.js` 是 60 秒意图预算和取消错误工厂的唯一事实源。提交、重生成、primary 模型、fallback 模型、Structured Output 兼容调用以及同步响应校验共同消费同一个绝对 `deadlineAt`；相对 deadline 只能缩短、不能延长已有绝对预算。即使底层 request adapter 忽略 `AbortSignal`，外层 race 也必须按截止时间结算，且兼容层每次实际请求前必须重新校验预算，禁止迟到失败在 deadline 后触发下一次 provider 调用。
+- 意图识别是延迟敏感路径，`route-service.js` 的 `buildRoutePayload` 对 gpt-5 系列路由模型统一附加浅推理档 `reasoning_effort: low`（`INTENT_REASONING_EFFORT`）。普通历史消息在 core 层投影为 240 字符摘录；当前输入保持独立完整字段，显式引用消息由统一 route-context policy 保护，不得被 workflow 二次摘要或截断。这些是请求层容量约束，不改变“路由模型是唯一语义裁决者”的边界。
+- `client/app/submit-workflow-policy.js` 是 60 秒意图预算和取消错误工厂的唯一事实源。提交、重生成、primary 模型、fallback 模型、图片任务规划、Structured Output 兼容调用以及同步响应校验共同消费同一个绝对 `deadlineAt`；相对 deadline 只能缩短、不能延长已有绝对预算。即使底层 request adapter 忽略 `AbortSignal`，外层 race 也必须按截止时间结算，且兼容层每次实际请求前必须重新校验预算，禁止迟到失败在 deadline 后触发下一次 provider 调用。
+- `route_model_attempt_ledger.v1` 是任务级真实请求账本：每次执行 `requestJson`/`fetch` 前原子增加 provider attempt，primary、fallback、planning、reasoning fallback 和 format fallback 分项记录；澄清续轮继承同一账本，超过 `MAX_MODEL_CALLS` 时第七次真实请求必须在发送前被阻止。
 - 用户停止与超时是不同终态：停止抛出 `AbortError` / `ROUTE_INTENT_CANCELLED`，超时使用 `ROUTE_INTENT_TIMEOUT`。工作流在持久化澄清、准备 handoff 和提交终态前必须重新检查取消；handoff 与完成/失败/停止事件都必须幂等，同一尝试只能提交一个终态。
-- 核心上下文的构建、裁剪或结构校验失败统一为 `ROUTE_CONTEXT_BUILD_FAILED`，模型调用前失败关闭为 `route_context_unavailable`；只有本地、非执行必需的图片 memory cards 可以独立降级。日志只记录错误 name/code，不记录对话原文。
+- 路由终态固定为 `ready`、`business_clarification`、`configuration_error`、`transient_error`、`invalid_model_output`、`cancelled`。只有 `business_clarification` 可以持久化 pending；鉴权、配置、网络、限流、超时、模型非法输出、规划失败或请求次数超限必须作为失败展示，不能伪装成业务澄清。
+- 核心上下文的读取或结构失败统一为 `ROUTE_CONTEXT_BUILD_FAILED` 并在模型调用前失败关闭为 `route_context_unavailable`；受保护内容超过统一窗口时使用 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE` / `route_context_too_large`。只有本地、非执行必需的图片 memory cards 可以独立降级。日志只记录错误 name/code，不记录对话原文。
 - HTTP 请求错误必须保留 status、provider code 与 retryable 身份。401、403、429 和其他 4xx 不切换第二模型；只有 5xx、明确网络故障或无 4xx status 的明确可重试错误可以尝试模型 fallback。输出非法仍可尝试独立 fallback 模型，但最终仍须通过严格 schema 与执行契约。
 
 ### 3.3 `client/ui/` 与 `client/features/`
@@ -119,7 +121,10 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 - `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线单一绝对 60 秒截止时间、可取消且可主动 race 的请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
 - `client/app/submit-workflow.js` 与 `client/app/regenerate-workflow.js`：共享任务生命周期不变量；停止后不得持久化 assistant 澄清、发起业务 handoff 或提交完成事件，durable handoff 与 terminal event 必须按 submission/job identity 幂等；
-- `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，等待区原位更新且不记录或展示模型隐藏推理链；
+- `client/app/image-batch-workflow.js`：多图计划只向 `/api/image-batches` 提交一次，由服务端 parent/child Job 编排并发；浏览器只轮询 parent job，同时保留每个 child 的 durable snapshot 供刷新恢复。
+- `client/app/image-caption-workflow.js`：生成图片返回后的内部内容标签（如“一只橘色小猫”vs“一条金毛犬”）。标签由 `image_plan.v1` 任务可选的 `label` 字段提供（与生图提示词同一次规划模型调用产出），不再单独调用模型识图或总结；失败时保留提示词派生描述；标签写入图片记录（`description`/`label`/`labels`/`semantic_text`）仅用于路由候选与引用上下文，使“把那只猫改成…”这类指代可绑定到具体图片；标签不渲染到聊天界面，也不阻塞图片结果展示。
+- `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，图片规划显示“正在拆分多个图片任务”，模型 fallback 显示“正在重新确认任务意图”，等待区原位更新且不记录或展示模型隐藏推理链；
+- `client/features/clarification/presentation.js` 与 `client/app/clarification-choice-workflow.js`：图片候选整卡负责选择，独立预览按钮只打开预览且不得改变答案；卡片展示槽位角色、进度、来源与精简标签，并按 3/2/1 列响应桌面、窄屏和手机。
 - `client/services/session-snapshot-recovery.js`：会话快照的降级存储、配额错误恢复、部分快照合并和 revision 保护；它不能替代 canonical message/session store，也不能让 pending display 覆盖已提交消息；
 - `client/app/markdown/engine-primitives.js`：统一 task-list fallback、表格对齐 class、blockquote fence 规范化、实体解码和高亮结果校验；Node 与 Browser Markdown engine 都复用它；
 - `client/app/markdown/sanitizer-policy.js`：统一 DOMPurify 标签、属性、URI 和 style 白名单及 hook。`browser-sanitizer.js` 与 `sanitizer.js` 只负责注入运行时依赖和调用策略，不能各自维护安全白名单。
@@ -262,6 +267,10 @@ GET /
 ### 7.3 图片
 
 图片生成和编辑遵循同一 canonical resource contract。`edit_image` 必须恰好有一个 `target`，并可同时携带内容 `reference`、`style_reference` 和至多一个独立 `mask`；`image_reference_gen` 只生成新图，不得伪装成带 `target` 的编辑。客户端只提交已校验的 source/target/reference/mask 绑定，并把多图角色按实际 multipart 顺序写入可审计映射；服务端 Job 和 proxy 负责验证映射、请求转换、上游调用、结果公开快照和停止/恢复。浏览器负责把结果持久化为稳定媒体引用并提交 canonical message。
+
+多图批量执行使用 `/api/image-batches` 作为唯一的页面到服务端入口：浏览器提交一个 `image_batch_execution.v1`，服务端原子创建 parent batch job 与受同一 principal 约束的 child image job，并复用现有 upstream runner、并发限制、SSE、中止/删除和幂等校验；浏览器只订阅/轮询 parent job，不再在页面内并发派发子任务。
+
+图片结果落库前，`client/app/image-result-workflow.js` 会在持久化返回图片时直接采用 `image_plan.v1` 任务自带的 `label`（见 3.4.1 的 `image-caption-workflow.js`），不单独调用模型；标签写入图片记录供路由使用，不渲染到界面，也不阻塞展示。
 
 ### 7.4 使用统计
 

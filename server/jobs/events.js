@@ -153,4 +153,19 @@ function createJobEvents({ jobSubscribers }) {
   return { notifyJob, subscribeJob, abortJob, disposeJob };
 }
 
-module.exports = { getJobIdFromUrl, publicJob, compactResumeSnapshot, createJobEvents };
+function closeJobSubscribers(jobSubscribers) {
+  if (!jobSubscribers) return 0;
+  let closed = 0;
+  for (const subscribers of jobSubscribers.values()) {
+    if (!subscribers) continue;
+    for (const subscriber of [...subscribers]) {
+      subscribers.delete(subscriber);
+      try { subscriber?.res?.end?.(); } catch {}
+      closed += 1;
+    }
+  }
+  jobSubscribers.clear();
+  return closed;
+}
+
+module.exports = { getJobIdFromUrl, publicJob, compactResumeSnapshot, createJobEvents, closeJobSubscribers };

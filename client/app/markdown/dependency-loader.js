@@ -1,7 +1,7 @@
 (function initMarkdownDependencyLoader(global) {
   'use strict';
 
-  const VERSION = '2.0.3';
+  const VERSION = '2.0.4';
   const DEFAULT_TIMEOUT_MS = 2500;
   const LOCAL_FIRST = true;
   const GLOBAL_ALIASES = Object.freeze({ markdownItTaskLists: 'markdownitTaskLists', markdownItTexmath: 'texmath' });
@@ -11,7 +11,7 @@
       Object.freeze({ id: 'highlight-css', cdn: 'https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/styles/github.min.css', local: './vendor/highlight-github.min.css' }),
     ]),
     scripts: Object.freeze([
-      Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.12/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
+      Object.freeze({ id: 'dompurify', cdn: 'https://registry.npmmirror.com/dompurify/3.4.13/files/dist/purify.min.js', local: './vendor/purify.min.js', global: 'DOMPurify' }),
       Object.freeze({ id: 'markdown-it', cdn: 'https://registry.npmmirror.com/markdown-it/14.2.0/files/dist/markdown-it.min.js', local: './vendor/markdown-it.min.js', global: 'markdownit' }),
       Object.freeze({ id: 'markdown-it-texmath', cdn: 'https://registry.npmmirror.com/markdown-it-texmath/1.0.0/files/texmath.js', local: './vendor/markdown-it-plugins/markdown-it-texmath.min.js', global: 'markdownItTexmath' }),
       Object.freeze({ id: 'markdown-it-multimd-table', cdn: 'https://cdn.jsdelivr.net/npm/markdown-it-multimd-table@4.2.3/dist/markdown-it-multimd-table.min.js', local: './vendor/markdown-it-plugins/markdown-it-multimd-table.min.js', global: 'markdownitMultimdTable' }),
@@ -25,7 +25,7 @@
       Object.freeze({ id: 'markdown-it-sup', cdn: 'https://registry.npmmirror.com/markdown-it-sup/2.0.0/files/dist/markdown-it-sup.min.js', local: './vendor/markdown-it-plugins/markdown-it-sup.min.js', global: 'markdownitSup' }),
       Object.freeze({ id: 'highlight-js', cdn: 'https://registry.npmmirror.com/@highlightjs/cdn-assets/11.11.1/files/highlight.min.js', local: './vendor/highlight-common.min.js', global: 'hljs' }),
       Object.freeze({ id: 'katex', cdn: 'https://registry.npmmirror.com/katex/0.16.47/files/dist/katex.min.js', local: './vendor/katex.min.js', global: 'katex' }),
-      Object.freeze({ id: 'mermaid', cdn: 'https://registry.npmmirror.com/mermaid/11.15.0/files/dist/mermaid.min.js', local: './vendor/mermaid.min.js', global: 'mermaid' }),
+      Object.freeze({ id: 'mermaid', cdn: 'https://registry.npmmirror.com/mermaid/11.16.1/files/dist/mermaid.min.js', local: './vendor/mermaid.min.js', global: 'mermaid' }),
     ]),
   });
 

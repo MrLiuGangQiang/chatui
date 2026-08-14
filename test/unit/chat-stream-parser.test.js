@@ -104,6 +104,29 @@ function testResponsesManagedStreamUsesResponsesParserAndEndpoint() {
   assert.strictEqual(job.data.choices[0].message.content, 'answer');
 }
 
+function testResponsesManagedStreamAppendsUniqueWebSearchSources() {
+  const { handlers } = createHandlers();
+  const job = handlers.makeChatJob(
+    'chatjob-search123',
+    'https://api.example.com/v1',
+    'sk-test',
+    { model: 'search-model', input: [], tools: [{ type: 'web_search' }] },
+    { stream: true, api: 'responses' }
+  );
+  const extractResponsesStreamDelta = require('../../server/proxy/responses-stream').extractResponsesStreamDelta;
+  const chunk = [
+    sse({ type: 'response.output_text.delta', delta: '最新结果' }),
+    sse({ type: 'response.output_text.annotation.added', annotation: { type: 'url_citation', url: 'https://example.com/news', title: '新闻来源' } }),
+    sse({ type: 'response.output_text.annotation.added', annotation: { type: 'url_citation', url: 'https://example.com/news', title: '重复来源' } }),
+    sse({ type: 'response.completed', response: {} }),
+  ].join('');
+  assert.strictEqual(handlers.updateChatJobFromStreamChunk(job, chunk, { notify: false, extractDelta: extractResponsesStreamDelta }), true);
+  assert.match(job.data.choices[0].message.content, /^最新结果/);
+  assert.match(job.data.choices[0].message.content, /### 来源/);
+  assert.match(job.data.choices[0].message.content, /\[新闻来源\]\(https:\/\/example\.com\/news\)/);
+  assert.strictEqual((job.data.choices[0].message.content.match(/example\.com\/news/g) || []).length, 1);
+}
+
 function testChatStreamChunkParserNotifiesPerEventWhenEnabled() {
   const { handlers, notifications } = createHandlers();
   const job = makeJob(handlers);
@@ -126,4 +149,5 @@ module.exports = [
   testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents,
   testChatStreamChunkParserNotifiesPerEventWhenEnabled,
   testResponsesManagedStreamUsesResponsesParserAndEndpoint,
+  testResponsesManagedStreamAppendsUniqueWebSearchSources,
 ];

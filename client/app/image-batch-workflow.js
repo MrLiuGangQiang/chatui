@@ -68,7 +68,6 @@
       jobDurationMs,
       saveSessionMessages,
       cloneMessageList,
-      showRunError,
       playDoneSound,
       getEffectiveImageStylePrompt,
       buildImagePromptWithStylePrompt,
@@ -191,30 +190,57 @@
         return job;
       };
       let lastJob = null;
+      let updateQueue = Promise.resolve();
+      let updateError = null;
       const update = job => {
         lastJob = job;
-        onUpdate(job);
+        updateQueue = updateQueue.then(async () => {
+          if (updateError) return;
+          try {
+            await onUpdate(job);
+          } catch (error) {
+            updateError = error;
+          }
+        });
+        return updateQueue;
+      };
+      const drainUpdates = async () => {
+        await updateQueue;
+        if (updateError) throw updateError;
       };
       const sseAvailable = typeof root?.document !== 'undefined'
         && typeof (root?.EventSource || root?.window?.EventSource || globalThis?.EventSource) === 'function'
         && typeof jobWorkflow.waitJobEvent === 'function';
       if (sseAvailable) {
-        const data = await jobWorkflow.waitJobEvent(
-          `/api/image-batches/${encodeURIComponent(batchId)}/events`,
-          update,
-          {
-            pollJob,
-            signal,
-            isPageUnloading: () => false,
-          },
-        );
-        return lastJob ? { ...lastJob, data } : await pollJob();
+        let data;
+        let eventError = null;
+        try {
+          data = await jobWorkflow.waitJobEvent(
+            `/api/image-batches/${encodeURIComponent(batchId)}/events`,
+            update,
+            {
+              pollJob,
+              signal,
+              isPageUnloading: () => false,
+            },
+          );
+        } catch (error) {
+          eventError = error;
+        }
+        await drainUpdates();
+        if (eventError) throw eventError;
+        if (lastJob) return { ...lastJob, data };
+        const job = await pollJob();
+        await update(job);
+        await drainUpdates();
+        return job;
       }
       const delay = () => new Promise(resolve => setTimeout(resolve, Math.max(0, Number(pollIntervalMs) || 0)));
       while (true) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         const job = await pollJob();
-        update(job);
+        await update(job);
+        await drainUpdates();
         if (job.status === 'done' || job.status === 'error') return job;
         await delay();
       }
@@ -317,6 +343,19 @@
           throw new Error('\u65e0\u6cd5\u4fdd\u5b58\u5b8c\u6574\u7684\u56fe\u7247\u4efb\u52a1\u6062\u590d\u6570\u636e\uff0c\u672a\u5411\u4e0a\u6e38\u53d1\u9001\u8bf7\u6c42');
         }
       }
+
+      const clearBatchRecoveryState = () => {
+        submitHelpers.clearImageBatchIndex?.(root.localStorage, sessionId);
+        prepared.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, sessionId, child.jobId));
+      };
+      const disposeServerBatch = async () => {
+        if (typeof disposeImageBatchJob !== 'function') return;
+        try { await disposeImageBatchJob({ batchId: batchJobId }); } catch {}
+      };
+      const cleanupTerminalBatch = async () => {
+        clearBatchRecoveryState();
+        await disposeServerBatch();
+      };
 
       const started = await startImageBatchJob({
         config,
@@ -421,7 +460,7 @@
           },
         });
       } catch (error) {
-        showRunError(sessionId, error, batchParent, findMessageNodeByDisplayItem(batchParent));
+        if (error?.terminalJob === true) await cleanupTerminalBatch();
         throw error;
       }
 
@@ -470,17 +509,14 @@
         session.messages = cloneMessageList(sessionMessages);
         if (sessionId === state.activeSessionId) state.messages = cloneMessageList(session.messages);
         await saveSessionMessages(sessionId, session.messages);
-        submitHelpers.clearImageBatchIndex?.(root.localStorage, sessionId);
-        prepared.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, sessionId, child.jobId));
-        if (typeof disposeImageBatchJob === 'function') {
-          try { await disposeImageBatchJob({ batchId: batchJobId }); } catch {}
-        }
+        clearBatchRecoveryState();
+        await disposeServerBatch();
         playDoneSound?.();
         onInterfaceCompleted?.({ sessionId, submissionId, jobId: batchJobId, jobKind: 'image_batch' });
       } else {
         const failedTask = tasks.find(task => task?.status === 'error');
         const error = makeTerminalJobError(failedTask?.error?.message || parentJob?.error?.message || '\u591a\u56fe\u4efb\u52a1\u5931\u8d25');
-        showRunError(sessionId, error, batchParent, findMessageNodeByDisplayItem(batchParent));
+        await cleanupTerminalBatch();
         throw error;
       }
       return { batchJobId, parentJob, resultHtml, mergedContext };

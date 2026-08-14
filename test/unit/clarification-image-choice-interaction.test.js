@@ -133,14 +133,12 @@ async function testImageClickSelectsWhilePreviewButtonOnlyPreviews() {
   assert.strictEqual(submissions.length, 1, 'selecting the final required role must resume the task once');
 }
 
-function testImageClarificationLayoutUsesResponsiveColumnsAndUncroppedMedia() {
+function testImageClarificationLayoutUsesAutoFilledColumnsAndUncroppedMedia() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/messages.css'), 'utf8');
-  assert.match(css, /\.markdown-body \.clarification-image-list\{[\s\S]*?grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/,
-    'desktop image clarification must use three adaptive columns');
-  assert.match(css, /@media \(max-width:700px\)\{[\s\S]*?clarification-image-list[\s\S]*?repeat\(2,minmax\(0,1fr\)\)/,
-    'tablet/mobile image clarification must collapse to two columns');
-  assert.match(css, /@media \(max-width:420px\)\{[\s\S]*?clarification-image-list[\s\S]*?minmax\(0,1fr\)/,
-    'narrow phones must use one image card per row');
+  assert.match(css, /\.markdown-body \.clarification-image-list\{[\s\S]*?grid-template-columns:repeat\(auto-fill,100px\)!important/,
+    'edit-target image candidates must derive their per-row count from the available width');
+  assert.doesNotMatch(css, /\.markdown-body \.clarification-image-list\s*\{[^}]*grid-template-columns:(?:repeat\(\d+|minmax\(0,1fr\))/,
+    'viewport overrides must not restore a fixed edit-target column count');
   assert.match(css, /img\.clarification-choice-image[\s\S]*?object-fit:contain!important/,
     'candidate previews must not crop visual differences');
 }
@@ -155,6 +153,6 @@ function testProductionBootstrapPassesThePreviewActionIntoTheChoiceWorkflow() {
 module.exports = [
   testImageClarificationRendersSelectableCardsAndSeparatePreviewControls,
   testImageClickSelectsWhilePreviewButtonOnlyPreviews,
-  testImageClarificationLayoutUsesResponsiveColumnsAndUncroppedMedia,
+  testImageClarificationLayoutUsesAutoFilledColumnsAndUncroppedMedia,
   testProductionBootstrapPassesThePreviewActionIntoTheChoiceWorkflow,
 ];

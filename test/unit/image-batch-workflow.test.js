@@ -130,11 +130,11 @@ async function testRunImageBatchDispatchesOneServerCallAndCommitsMergedResult() 
   }
 }
 
-async function testRunImageBatchKeepsRecoveryIndexOnPartialFailure() {
+async function testRunImageBatchClearsRecoveryStateOnTerminalFailure() {
   const previousLocalStorage = globalThis.localStorage;
   globalThis.localStorage = memoryStorage();
   try {
-    const { deps, session, parent, errors } = makeDeps({ parentStatus: 'error' });
+    const { deps, session, parent, errors, disposed } = makeDeps({ parentStatus: 'error' });
     const workflow = imageBatchWorkflow.createImageBatchWorkflow(deps);
     await assert.rejects(
       () => workflow.runImageBatch(session.id, {
@@ -146,9 +146,43 @@ async function testRunImageBatchKeepsRecoveryIndexOnPartialFailure() {
       }),
       error => error && error.terminalJob === true,
     );
-    assert.ok(submitHelpers.loadImageBatchIndex(globalThis.localStorage, session.id), 'partial batch must keep its recovery index');
-    assert.strictEqual(errors.length, 1, 'the batch failure must surface once');
+    assert.strictEqual(submitHelpers.loadImageBatchIndex(globalThis.localStorage, session.id), null,
+      'a terminal batch cannot recover and must not leave an index that retries forever after reload');
+    assert.strictEqual(submitHelpers.loadImageBatchChild(globalThis.localStorage, session.id, 'imgjob-client-1'), null);
+    assert.strictEqual(submitHelpers.loadImageBatchChild(globalThis.localStorage, session.id, 'imgjob-client-2'), null);
+    assert.deepStrictEqual(disposed, ['imgbatch-test12345'], 'terminal server state must be disposed after local cleanup');
+    assert.strictEqual(errors.length, 0, 'the batch layer must propagate errors and leave presentation to its caller');
     assert.strictEqual(session.messages.some(item => item.role === 'assistant'), false, 'a partial batch must not commit a canonical message');
+  } finally {
+    if (previousLocalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocalStorage;
+  }
+}
+
+async function testRunImageBatchKeepsRecoveryStateOnTransientWaitFailure() {
+  const previousLocalStorage = globalThis.localStorage;
+  globalThis.localStorage = memoryStorage();
+  try {
+    const { deps, session, parent, errors, disposed } = makeDeps({ parentStatus: 'done' });
+    deps.getImageBatchJob = async () => { throw new Error('temporary network failure'); };
+    const workflow = imageBatchWorkflow.createImageBatchWorkflow(deps);
+    await assert.rejects(
+      () => workflow.runImageBatch(session.id, {
+        items: [fixtureItem('a cat'), fixtureItem('a dog')],
+        batchJobId: 'imgbatch-test12345',
+        submissionId: 'submit-batch',
+        batchParent: parent,
+        responseIndex: '1',
+        pollIntervalMs: 0,
+      }),
+      error => error?.message === 'temporary network failure',
+    );
+    assert.ok(submitHelpers.loadImageBatchIndex(globalThis.localStorage, session.id),
+      'a transient wait failure must retain the durable batch index for reload recovery');
+    assert.ok(submitHelpers.loadImageBatchChild(globalThis.localStorage, session.id, 'imgjob-client-1'));
+    assert.ok(submitHelpers.loadImageBatchChild(globalThis.localStorage, session.id, 'imgjob-client-2'));
+    assert.deepStrictEqual(disposed, [], 'a transient wait failure must not destroy the running server batch');
+    assert.strictEqual(errors.length, 0, 'the batch layer must not render the same propagated error itself');
   } finally {
     if (previousLocalStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousLocalStorage;
@@ -207,6 +241,48 @@ async function testRunImageBatchRendersEachCompletedChildBeforeBatchTerminal() {
   }
 }
 
+async function testRunImageBatchSerializesTerminalSnapshotProcessing() {
+  const previousLocalStorage = globalThis.localStorage;
+  globalThis.localStorage = memoryStorage();
+  try {
+    const fixture = makeDeps({ parentStatus: 'done' });
+    let releaseFirstRender;
+    const firstRenderGate = new Promise(resolve => { releaseFirstRender = resolve; });
+    let firstTaskRenderCalls = 0;
+    const defaultImageResultToHtml = fixture.deps.imageResultToHtml;
+    fixture.deps.imageResultToHtml = async (data, elapsed, options = {}) => {
+      if (options.prompt === 'a cat') {
+        firstTaskRenderCalls += 1;
+        await firstRenderGate;
+      }
+      return defaultImageResultToHtml(data, elapsed, options);
+    };
+
+    const workflow = imageBatchWorkflow.createImageBatchWorkflow(fixture.deps);
+    const runPromise = workflow.runImageBatch(fixture.session.id, {
+      items: [fixtureItem('a cat'), fixtureItem('a dog')],
+      batchJobId: 'imgbatch-test12345',
+      submissionId: 'submit-batch',
+      batchParent: fixture.parent,
+      responseIndex: '1',
+      pollIntervalMs: 0,
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    const callsBeforeRelease = firstTaskRenderCalls;
+    releaseFirstRender();
+    await runPromise;
+
+    assert.strictEqual(callsBeforeRelease, 1,
+      'a terminal snapshot must wait for its queued update before the final pass processes the same child');
+    assert.strictEqual(firstTaskRenderCalls, 1,
+      'the same completed child must be converted and persisted exactly once');
+  } finally {
+    if (previousLocalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocalStorage;
+  }
+}
+
 async function testRunImageBatchDoesNotPersistUnchangedRunningState() {
   const previousLocalStorage = globalThis.localStorage;
   globalThis.localStorage = memoryStorage();
@@ -259,9 +335,11 @@ function testBatchWorkflowProvidesPersistenceFallbackToTaskPreparation() {
 
 module.exports = [
   testRunImageBatchDispatchesOneServerCallAndCommitsMergedResult,
-  testRunImageBatchKeepsRecoveryIndexOnPartialFailure,
+  testRunImageBatchClearsRecoveryStateOnTerminalFailure,
+  testRunImageBatchKeepsRecoveryStateOnTransientWaitFailure,
   testWaitImageBatchJobRejectsMissingStatusResponse,
   testRunImageBatchRendersEachCompletedChildBeforeBatchTerminal,
+  testRunImageBatchSerializesTerminalSnapshotProcessing,
   testRunImageBatchDoesNotPersistUnchangedRunningState,
   testBatchWorkflowProvidesPersistenceFallbackToTaskPreparation,
 ];

@@ -14,6 +14,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - [Docker 部署](#docker-部署)
 - [模型配置](#模型配置)
 - [聊天能力](#聊天能力)
+- [联网搜索](#联网搜索)
 - [思考模式](#思考模式)
 - [图片生成与图片编辑](#图片生成与图片编辑)
 - [附件能力](#附件能力)
@@ -46,11 +47,13 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 支持会话级 System Prompt 覆盖。
 - 支持回复完成提示音。
 - 支持模型返回 `output_text`、标准 `choices[].message.content`、SSE delta 等多种兼容格式。
+- 支持通过 Responses API 内置 `web_search` 工具联网搜索，并在回答末尾汇总去重后的来源链接。
 
 ### 自动路由
 
 - 自动判断当前输入应走：
   - `chat`：普通聊天。
+  - `web_search`：需要联网查询实时或最新信息。
   - `image`：文本生成图片。
   - `edit_image`：编辑一个明确目标图，可同时使用内容参考图、风格参考图和 mask。
 - 可配置独立路由模型；未配置时使用聊天模型。实时模型只输出最小、非执行性的五字段 `route_intent.v2`：`operation`、`relation`、`goal`、`resource_refs`、`task_shape`。`task_shape=multi` 明确表示多个独立任务：图片任务进入二级规划，其他任务要求用户拆分；旧四字段 v1 只允许通过显式历史数据适配器迁移，实时解析器不会静默补默认值。`goal` 只消解指代并合并用户已经提出的约束，不得增加未要求的主体、场景、风格、构图或颜色；图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键。模型不能填写版本字段、API、最终参数、上下文策略、幂等键或规范资源 ID；应用仅校验协议与资源并生成不可变的 `dispatch_contract.v1`，它仍是唯一执行授权。
@@ -463,11 +466,7 @@ GET /models
 
 ### 请求链路
 
-聊天请求最终调用：
-
-```text
-POST /chat/completions
-```
+普通聊天默认调用 `POST /chat/completions`；原生文件、Responses reasoning 和联网搜索等能力会调用 `POST /responses`。其中 `web_search` 执行计划始终使用 Responses API。
 
 前端会通过本地代理发送，避免浏览器跨域和直连鉴权问题。
 
@@ -479,6 +478,14 @@ POST /chat/completions
 - Supports parsing OpenAI reasoning deltas (`reasoning_content`, `reasoning`) and Responses API reasoning summary events.
 - 如果流式失败，会尝试普通非流式请求兜底。
 - Reasoning requests are never silently downgraded: the selected effort is sent unchanged and upstream errors are returned as-is.
+
+### 联网搜索
+
+- 用户明确要求“联网搜索 / 上网查询 / web search”时会直接生成 `web_search` 路由；其他最新、实时类问题可由路由模型判定为 `web_search`。
+- 最终请求强制使用 Responses API，并且只允许发送 `tools: [{ "type": "web_search" }]`；普通聊天不能注入该工具。
+- ChatUI 复用当前 Endpoint、API Key 和聊天模型，不需要保存独立的第三方搜索服务密钥；这不代表上游模型调用免费，是否支持及如何计费由当前服务商决定。
+- 回答完成后会从 Responses URL citation / sources 中提取并去重链接，追加为“来源”列表。
+- 当前 Endpoint 或模型不支持内置工具时，会显示明确的兼容性错误，不会静默退化为普通聊天。
 
 ### 重新生成与编辑重发
 

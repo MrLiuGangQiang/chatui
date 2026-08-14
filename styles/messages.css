@@ -433,11 +433,6 @@
 .clarification-presentation[data-clarification-image-choices="1"]{
   width:min(720px,calc(100vw - 112px))!important;
 }
-.markdown-body .clarification-image-list{
-  grid-template-columns:repeat(auto-fill,100px)!important;
-  width:fit-content!important;
-  max-width:100%!important;
-}
 .clarification-choice-media{aspect-ratio:1/1!important;}
 .clarification-presentation{
   display:grid;
@@ -452,18 +447,20 @@
 .clarification-choice-heading{
   display:flex;
   align-items:baseline;
-  justify-content:space-between;
+  justify-content:flex-start;
+  flex-wrap:wrap;
   gap:12px;
   margin:0 0 1px;
   color:#334155;
   font-size:12px;
   line-height:1.4;
+  text-align:left;
 }
 .clarification-choice-role{font-weight:750;}
 .clarification-choice-progress{color:#64748b;font-size:11px;font-weight:500;white-space:nowrap;}
 .markdown-body .clarification-image-list{
   display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,100px));
+  grid-template-columns:repeat(auto-fill,100px)!important;
   align-items:stretch;
   justify-content:start;
   gap:8px;
@@ -701,12 +698,11 @@
 }
 @media (max-width:700px){
   .clarification-presentation{width:min(100%,calc(100vw - 58px));gap:10px;}
-  .markdown-body .clarification-image-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+  .markdown-body .clarification-image-list{gap:8px;}
   .clarification-choice-heading{gap:8px;}
   .markdown-body .clarification-choice-list .clarification-choice-button{font-size:12px;padding:8px 9px;}
 }
 @media (max-width:420px){
-  .markdown-body .clarification-image-list{grid-template-columns:minmax(0,1fr);}
   .clarification-choice-media{aspect-ratio:16/10;}
 }
 
@@ -723,5 +719,5 @@
 /* Regression guard: image clarification candidates remain compact at all viewport sizes. */
 @media (max-width:640px){
   .clarification-presentation{width:min(100%,calc(100vw - 32px));}
-  .markdown-body .clarification-image-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+  .markdown-body .clarification-image-list{gap:6px;}
 }

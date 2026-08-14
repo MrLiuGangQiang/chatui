@@ -126,11 +126,12 @@ async function testResumeImageBatchSkipsCompletedChildrenAndClearsIndex() {
   }
 }
 
-async function testResumeImageBatchRendersRunningChildAndKeepsPartialIndexOnMissingSibling() {
+async function testResumeImageBatchClearsUnrecoverableMissingSiblingState() {
   const sessionId = 'resume-running';
   const state = makeState(sessionId);
   const storage = memoryStorage();
   const events = [];
+  const disposed = [];
   const children = [
     { jobId: 'imgjob-1', prompt: '一张猫', displayItemId: 'display-1', responseIndex: '1', mode: 'image', status: 'running' },
     { jobId: 'imgjob-2', prompt: '一张狗', displayItemId: 'display-2', responseIndex: '1', mode: 'image', status: 'running' },
@@ -159,15 +160,18 @@ async function testResumeImageBatchRendersRunningChildAndKeepsPartialIndexOnMiss
     upsertImageAssistantMessage: () => 0,
     reconcileSuccessfulImageResult() {},
     saveSessionMessages: async () => {},
+    disposeImageBatchJob: async ({ batchId }) => { disposed.push(batchId); },
   };
   global.localStorage = storage;
   try {
     await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeImageBatch(sessionId);
     assert.ok(events.some(event => event === 'poll'), 'running children must poll their managed job');
-    assert.ok(submitHelpers.loadImageBatchIndex(storage, sessionId),
-      'a batch with a missing sibling must keep its recovery index so the remaining child can be retried');
+    assert.strictEqual(submitHelpers.loadImageBatchIndex(storage, sessionId), null,
+      'a missing durable child without pending-submit ownership is unrecoverable and must not retry forever');
     assert.strictEqual(submitHelpers.loadImageBatchChild(storage, sessionId, 'imgjob-1'), null,
-      'a resolved child must clear its own durable snapshot');
+      'terminal batch cleanup must remove the resolved sibling snapshot too');
+    assert.strictEqual(submitHelpers.loadImageBatchChild(storage, sessionId, 'imgjob-2'), null);
+    assert.deepStrictEqual(disposed, ['batch-1']);
   } finally {
     delete global.localStorage;
   }
@@ -448,7 +452,7 @@ module.exports = [
   testBatchSnapshotHelpersRoundTrip,
   testResumeImageBatchWithoutIndexCleansUp,
   testResumeImageBatchSkipsCompletedChildrenAndClearsIndex,
-  testResumeImageBatchRendersRunningChildAndKeepsPartialIndexOnMissingSibling,
+  testResumeImageBatchClearsUnrecoverableMissingSiblingState,
   testResumeImageBatchMergesChildrenIntoOneParentMessage,
   testResumeImageBatchRestoresCompletedSiblingFromDurableIndex,
   testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart,

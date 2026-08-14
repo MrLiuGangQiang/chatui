@@ -7,6 +7,7 @@ const dispatchContract = require('../../shared/dispatch-contract');
 const { makeExecutionFixture, makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 const validator = require('../../server/validators/dispatch-contract.validator');
 const { createOpenAiProxy } = require('../../server/proxy/openai');
+const { applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 
 function expectCode(fn, code) {
   assert.throws(fn, error => error?.code === code, `expected ${code}`);
@@ -98,6 +99,49 @@ async function testFinalChatRequiresExactPromptMediaAndEvidence() {
   expectCode(() => validator.validateManagedChatRequest({ ...body, payload: chatPayload(contract.dispatchContract, { images: 1, prompt: 'different question' }) }), 'DISPATCH_CONTRACT_PAYLOAD_MISMATCH');
   expectCode(() => validator.validateManagedChatRequest({ ...body, payload: chatPayload(contract.dispatchContract), bindingEvidence: [] }), 'DISPATCH_CONTRACT_PAYLOAD_MISMATCH');
   expectCode(() => validator.validateManagedChatRequest({ ...body, payload: chatPayload(contract.dispatchContract, { images: 2 }) }), 'DISPATCH_CONTRACT_PAYLOAD_MISMATCH');
+}
+
+async function testWebSearchResponsesExecutionPreservesOnlyTheAuthorizedTool() {
+  const prompt = '请联网搜索最新的人工智能新闻';
+  const plan = makeDispatchContract({ operation: 'web_search', prompt });
+  const payload = {
+    model: 'search-model',
+    input: [{ role: 'user', content: prompt }],
+    tools: [{ type: 'web_search' }],
+  };
+  const budgeted = applyContextBudgetToOpenAiPayload(payload, {
+    targetPath: '/responses',
+    contextWindowTokens: 8192,
+    summarizeOmitted: false,
+  });
+
+  assert.deepStrictEqual(budgeted.tools, [{ type: 'web_search' }]);
+  assert.notStrictEqual(budgeted, payload);
+  const validated = validator.validateManagedChatRequest({
+    requestPurpose: 'final_execution',
+    dispatchContract: plan,
+    bindingEvidence: [],
+    api: 'responses',
+    payload: budgeted,
+  });
+  assert.strictEqual(validated.transportApi, 'responses');
+  assert.strictEqual(validated.dispatchContract.operation, 'web_search');
+
+  const plainChatPlan = makeDispatchContract({ operation: 'plain_chat', prompt });
+  expectCode(() => validator.validateManagedChatRequest({
+    requestPurpose: 'final_execution',
+    dispatchContract: plainChatPlan,
+    bindingEvidence: [],
+    api: 'responses',
+    payload: budgeted,
+  }), 'EXECUTION_CONTEXT_CONTROL_FORBIDDEN');
+  expectCode(() => validator.validateManagedChatRequest({
+    requestPurpose: 'final_execution',
+    dispatchContract: plan,
+    bindingEvidence: [],
+    api: 'responses',
+    payload: { ...budgeted, tools: [] },
+  }), 'EXECUTION_CONTEXT_TOOL_MISMATCH');
 }
 
 async function testFinalImageRequiresExactArgumentsAndRoleBindings() {
@@ -353,6 +397,7 @@ module.exports = [
   testIntentRecognitionCannotCarryFinalContract,
   testBackgroundImageTagValidationAllowsChatOnlyAndRejectsContracts,
   testFinalChatRequiresExactPromptMediaAndEvidence,
+  testWebSearchResponsesExecutionPreservesOnlyTheAuthorizedTool,
   testFinalImageRequiresExactArgumentsAndRoleBindings,
   testQuotedMessageBindingAuthorizesTextToImageWithoutMediaFiles,
   testJobIdBindsOneImmutableDispatchContract,

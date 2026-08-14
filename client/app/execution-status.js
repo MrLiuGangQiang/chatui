@@ -16,6 +16,10 @@
       prepare: '正在准备回答',
       execute: '正在等待模型生成回答',
     }),
+    web_search: Object.freeze({
+      prepare: '正在准备联网搜索',
+      execute: '正在搜索网页并整理答案',
+    }),
     ocr: Object.freeze({
       prepare: '正在准备文字提取所需图片',
       execute: '正在提取图片文字',

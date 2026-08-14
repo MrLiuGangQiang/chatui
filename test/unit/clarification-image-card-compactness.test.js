@@ -53,20 +53,20 @@ function testImageClarificationCardDoesNotRenderImageNames() {
   );
 }
 
-function testImageClarificationThumbnailsUseCompactDesktopSize() {
+function testImageClarificationThumbnailsUseCompactAutoFilledDesktopTracks() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/messages.css'), 'utf8');
   const dom = new JSDOM(`<!doctype html><style>${css}</style><div class="markdown-body"><div class="clarification-presentation" data-clarification-image-choices="1"><ol class="clarification-image-list"><li class="clarification-choice-card"><div class="clarification-image-choice-shell"><button class="clarification-choice-button clarification-image-choice-select"><span class="clarification-choice-media"></span><span class="clarification-image-choice-copy"></span></button></div></li></ol></div></div>`, {
     pretendToBeVisual: true,
   });
   const listStyle = dom.window.getComputedStyle(dom.window.document.querySelector('.clarification-image-list'));
   const cardStyle = dom.window.getComputedStyle(dom.window.document.querySelector('.clarification-image-choice-select'));
-  assert.strictEqual(listStyle.gridTemplateColumns.replace(/\s+/g, ''), 'repeat(3,100px)',
-    'desktop clarification thumbnails must use the compact 100px card width');
+  assert.strictEqual(listStyle.gridTemplateColumns.replace(/\s+/g, ''), 'repeat(auto-fill,100px)',
+    'clarification thumbnails must keep compact 100px tracks while deriving the per-row count from available width');
   assert.strictEqual(cardStyle.gridTemplateRows.replace(/\s+/g, ''), 'autoauto',
     'cards without a name row must not reserve the previous 76px copy area');
 }
 
 module.exports = [
   testImageClarificationCardDoesNotRenderImageNames,
-  testImageClarificationThumbnailsUseCompactDesktopSize,
+  testImageClarificationThumbnailsUseCompactAutoFilledDesktopTracks,
 ];

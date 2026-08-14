@@ -7,7 +7,7 @@ const chatStreamParser = require('./chat-stream-parser');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
-const { extractResponsesStreamDelta } = require('../proxy/responses-stream');
+const { extractResponsesStreamDelta, extractResponsesSources, webSourcesMarkdown } = require('../proxy/responses-stream');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
@@ -17,6 +17,17 @@ const { assertProviderCapability } = require('../validators/provider-capability.
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
   return Math.max(1, elapsed);
+}
+
+function normalizeWebSearchJobError(job = {}, error = null) {
+  const message = String(error?.message || error || '').trim();
+  const usesWebSearch = Array.isArray(job?.payload?.tools)
+    && job.payload.tools.some(tool => tool?.type === 'web_search');
+  if (!usesWebSearch) return message;
+  if (/(?:web_search|web search|tool).*(?:not supported|unsupported|unknown|invalid|not available)|(?:not supported|unsupported|unknown).*(?:web_search|web search|tool)/i.test(message)) {
+    return '当前 Endpoint 或模型不支持 Responses API 的 web_search 工具，请更换支持联网搜索的模型或服务。';
+  }
+  return message || '联网搜索请求失败，请检查当前 Endpoint 是否支持 Responses API 的 web_search 工具。';
 }
 
 function makeChatJob(jobId, baseUrl, apiKey, payload, { stream = true, extraHeaders = {}, api = 'chat', executionContract = null, submissionId = '' } = {}) {
@@ -136,8 +147,12 @@ try {
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
   const text = await upstream.text();
-  const data = safeParseJson(text);
+  let data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
+  if (job.api === 'responses') {
+    const sourceMarkdown = webSourcesMarkdown(extractResponsesSources(data));
+    if (sourceMarkdown) data = { ...data, output_text: `${normalizeContentText(data?.output_text || data?.output || '')}${sourceMarkdown}` };
+  }
   job.status = 'done';
   job.data = data;
   job.durationMs = elapsedSince(job.serverStartAtMs);
@@ -146,7 +161,7 @@ try {
   const aborted = err?.name === 'AbortError';
   errorLog?.log(err, { source: 'chat_job', traceId: traceSpan?.traceId || '' });
   job.status = 'error';
-  job.error = normalizeUpstreamErrorMessage(err, { aborted });
+  job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
 } finally {
   if (timer) clearTimeout(timer);
   delete job.controller;
@@ -213,7 +228,8 @@ try {
   if (!contentType.toLowerCase().includes('text/event-stream')) {
     const text = await upstream.text();
     const data = safeParseJson(text);
-    const content = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
+    const baseContent = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
+    const content = `${baseContent}${job.api === 'responses' ? webSourcesMarkdown(extractResponsesSources(data)) : ''}`;
     const msg = data?.choices?.[0]?.message || {};
     const outputReasoning = Array.isArray(data?.output) ? data.output.filter(item => /reason/i.test(String(item?.type || item?.role || '')) || item?.summary || item?.summary_text || item?.reasoning) : '';
     const reasoning = normalizeReasoningText(msg.reasoning_content || msg.reasoning || data?.reasoning_summary || data?.summary || data?.reasoning_content || data?.reasoning || outputReasoning || '');
@@ -235,7 +251,7 @@ try {
   const aborted = err?.name === 'AbortError';
   errorLog?.log(err, { source: 'chat_stream_job', traceId: traceSpan?.traceId || '' });
   job.status = 'error';
-  job.error = normalizeUpstreamErrorMessage(err, { aborted });
+  job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
 } finally {
   if (timer) clearTimeout(timer);
   delete job.controller;
@@ -448,4 +464,4 @@ function updateChatJobFromStreamChunk(job, text, options = {}) {
   };
 }
 
-module.exports = { createChatJobHandlers, summarizeChatPayload, releaseChatJobFileData };
+module.exports = { createChatJobHandlers, summarizeChatPayload, releaseChatJobFileData, normalizeWebSearchJobError };

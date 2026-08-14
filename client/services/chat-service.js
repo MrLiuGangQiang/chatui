@@ -159,6 +159,7 @@ function buildResponsesPayload(model, messages, options = {}) {
       summary: options.summary || 'auto',
     };
   }
+  if (options.webSearch === true) payload.tools = [{ type: 'web_search' }];
   if (options.stream !== false) payload.stream = true;
   return payload;
 }

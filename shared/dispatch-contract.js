@@ -366,6 +366,18 @@
     return /<quoted_message(?:\s|>)/i.test(textFromContent(item?.content));
   }
 
+  function hasAuthorizedWebSearchTool(plan = {}, payload = {}) {
+    if (String(plan?.operation || '') !== 'web_search') return false;
+    const tools = payload?.tools;
+    return Array.isArray(tools)
+      && tools.length === 1
+      && tools[0]
+      && typeof tools[0] === 'object'
+      && !Array.isArray(tools[0])
+      && Object.keys(tools[0]).length === 1
+      && tools[0].type === 'web_search';
+  }
+
   function assertChatContextMatchesPlan(plan = {}, payload = {}, transportApi = 'chat') {
     if (!hasExactDispatchContract(plan) || plan.api !== 'chat') {
       throw validationError('Invalid chat dispatch_contract.v1', 'DISPATCH_CONTRACT_INVALID');
@@ -375,8 +387,13 @@
     if (stringValue(payload.instructions)) {
       throw validationError('Top-level instructions are not authorized by the execution plan', 'EXECUTION_CONTEXT_CONTROL_FORBIDDEN');
     }
+    const webSearchAuthorized = hasAuthorizedWebSearchTool(plan, payload);
+    if (String(plan.operation || '') === 'web_search' && !webSearchAuthorized) {
+      throw validationError('Web search execution plan requires the web_search tool', 'EXECUTION_CONTEXT_TOOL_MISMATCH');
+    }
     for (const field of ['tools', 'tool_choice', 'functions', 'function_call']) {
       const value = payload[field];
+      if (field === 'tools' && webSearchAuthorized) continue;
       if (value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0)) {
         throw validationError(`Chat payload ${field} is not authorized by the execution plan`, 'EXECUTION_CONTEXT_CONTROL_FORBIDDEN');
       }

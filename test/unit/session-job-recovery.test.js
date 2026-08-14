@@ -28,7 +28,12 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
     'batch ownership must be released only after every child snapshot is durable and the single server batch has been accepted');
   assert.ok(regenerate.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
     'regenerated batches must complete through the single parent batch identity');
-  assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard') && index.includes('job-resume-workflow.js?v=1.3.2-batch-stable-slots=1') && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep') && index.includes('app.js?v=2.3.9-attachment-only-payload-fix'), 'runtime entry assets should receive cache-version updates with the recovery fix');
+  assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard')
+    && index.includes('job-resume-workflow.js?v=1.3.3-terminal-batch-cleanup')
+    && index.includes('image-batch-workflow.js?v=1.0.2-serialized-terminal-updates')
+    && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep')
+    && index.includes('app.js?v=2.3.10-image-batch-terminal-cleanup'),
+  'runtime entry assets should receive cache-version updates with the recovery fix');
 }
 
 module.exports = [testBackgroundSessionsResumeAndShowBusyStateAfterRestore];

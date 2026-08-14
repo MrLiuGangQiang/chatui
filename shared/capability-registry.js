@@ -10,7 +10,7 @@
 
   const REGISTRY_VERSION = 'capability_registry.v1';
   const IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen', 'edit_image']);
-  const CHAT_OPERATIONS = new Set(['plain_chat', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']);
+  const CHAT_OPERATIONS = new Set(['plain_chat', 'web_search', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']);
   const IMAGE_SIZES = Object.freeze(['auto', '1024x1024', '1024x1536', '1536x1024']);
   const IMAGE_QUALITIES = Object.freeze(['auto', 'low', 'medium', 'high', 'standard', 'hd']);
   const IMAGE_BACKGROUNDS = Object.freeze(['auto', 'transparent', 'opaque']);
@@ -47,6 +47,7 @@
 
   const CAPABILITIES = Object.freeze({
     plain_chat: capability('plain_chat', 'chat', 'chat', CHAT_ARGUMENTS),
+    web_search: capability('web_search', 'chat', 'chat', CHAT_ARGUMENTS),
     file_qa: capability('file_qa', 'chat', 'chat', CHAT_ARGUMENTS),
     multimodal_qa: capability('multimodal_qa', 'chat', 'chat', CHAT_ARGUMENTS),
     image_qa: capability('image_qa', 'chat', 'chat', CHAT_ARGUMENTS),
@@ -71,6 +72,17 @@
   // executable arguments or identities: the compiler still resolves the
   // declared resource scope against the canonical candidate catalog.
   const EXPLICIT_ROUTE_DIRECTIVES = Object.freeze([
+    Object.freeze({
+      operation: 'web_search',
+      relation: 'new',
+      resource_scope: 'none',
+      input_patterns: Object.freeze([
+        /(?:\u8054\u7f51|\u4e0a\u7f51|\u7f51\u7edc)\s*(?:\u641c\u7d22|\u67e5\u8be2|\u67e5\u627e)/i,
+        /(?:\u641c\u7d22|\u67e5\u8be2|\u67e5\u627e)\s*(?:\u7f51\u9875|\u7f51\u7edc|\u6700\u65b0)/i,
+        /\bweb\s*search\b/i,
+      ]),
+      excluded_input_patterns: Object.freeze([]),
+    }),
     Object.freeze({
       operation: 'ocr',
       relation: 'new',
@@ -181,6 +193,7 @@
   const OPTIONAL_MESSAGE_CONTEXT = resourceRequirement('message', ['context']);
   const RESOURCE_REQUIREMENTS = Object.freeze({
     plain_chat: Object.freeze([OPTIONAL_MESSAGE_CONTEXT]),
+    web_search: Object.freeze([OPTIONAL_MESSAGE_CONTEXT]),
     file_qa: Object.freeze([
       resourceRequirement('file', ['attachment'], 1),
       OPTIONAL_MESSAGE_CONTEXT,

@@ -1,4 +1,5 @@
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
+const { webSourcesMarkdown } = require('../proxy/responses-stream');
 
 function markFirstToken(job, elapsedSince = () => 1) {
   if (job.firstTokenMs === null || job.firstTokenMs === undefined) {
@@ -31,17 +32,32 @@ function updateChatJobFromStreamChunk(job, text, { notify = true, notifyChatStre
   const message = job.data.choices[0].message;
   let chunkContent = '';
   let chunkReasoning = '';
+  let streamDone = false;
   for (const eventText of events) {
     const dataText = dataTextFromSseEvent(eventText);
     if (!dataText || dataText === '[DONE]') continue;
     try {
-      const { content, reasoning } = extractDelta(JSON.parse(dataText));
+      const { content, reasoning, sources = [], done = false } = extractDelta(JSON.parse(dataText));
+      if (!Array.isArray(job.webSearchSources)) job.webSearchSources = [];
+      const knownSourceUrls = new Set(job.webSearchSources.map(source => source.url));
+      for (const source of sources) {
+        const url = String(source?.url || '').trim();
+        if (!url || knownSourceUrls.has(url)) continue;
+        knownSourceUrls.add(url);
+        job.webSearchSources.push({ url, title: String(source?.title || url) });
+      }
+      streamDone ||= done === true;
       if (content || reasoning) markFirstToken(job, elapsedSince);
       if (content) { message.content += content; chunkContent += content; }
       if (reasoning) { message.reasoning_content += reasoning; chunkReasoning += reasoning; }
       job.updatedAt = Date.now();
       if (notify && (content || reasoning)) notifyChatStreamJob(job);
     } catch {}
+  }
+  if (streamDone && !job.webSearchSourcesEmitted) {
+    const markdown = webSourcesMarkdown(job.webSearchSources);
+    if (markdown) { message.content += markdown; chunkContent += markdown; }
+    job.webSearchSourcesEmitted = true;
   }
   if (chunkContent || chunkReasoning) {
     job.streamSeq = (job.streamSeq || 0) + 1;

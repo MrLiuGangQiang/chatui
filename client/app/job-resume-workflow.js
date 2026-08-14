@@ -455,7 +455,7 @@
         resumePendingSubmit = deps.resumePendingSubmit,
         loadPendingSubmit = deps.loadPendingSubmit,
         findImageDisplayItemByJob, takePendingLiveItem, persistSessionDisplay,
-        getImageGenerationJob, isMissingJobError, startImageGenerationJob, waitImageGenerationJob, getConfig,
+        getImageGenerationJob, isMissingJobError, disposeImageBatchJob, startImageGenerationJob, waitImageGenerationJob, getConfig,
         imageResultToHtml, normalizeImageContextForStorage, mergeImageResultContexts, renderImageResultContext,
         renderImageBatchResult, patchImageBatchDisplayNode, pendingFeedbackHtml,
         updateSessionDisplayItem, findMessageNodeByDisplayItem, updateMessage, setImageContext,
@@ -612,7 +612,11 @@
           if (child.status === 'done') return;
           const responseIndex = Number.isFinite(Number(child.responseIndex)) ? Number(child.responseIndex) : -1;
           const snapshot = submitHelpers.loadImageBatchChild?.(root.localStorage, e, child.jobId);
-          if (!snapshot?.id) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
+          if (!snapshot?.id) {
+            const error = makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
+            cleanupStalePendingDisplay?.(e, /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/, error.message);
+            throw error;
+          }
           const i = parent || findImageDisplayItemByJob(session, snapshot) || null;
           if (i) {
             i.jobId = snapshot.id || i.jobId || '';
@@ -708,9 +712,19 @@
           .map((child, childIndex) => ({ child, childIndex }))
           .filter(item => item.child.status !== 'done');
         const settled = await Promise.allSettled(pendingChildren.map(item => resumeImageBatchChild(item.child, item.childIndex)));
+        const terminalFailure = settled.find(result => result.status === 'rejected' && (
+          result.reason?.terminalJob === true
+          || (typeof isMissingJobError === 'function' && isMissingJobError(result.reason))
+        ));
         if (aggregate.completed >= aggregate.total && settled.every(result => result.status === 'fulfilled')) {
           submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
           index.children.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId));
+        } else if (terminalFailure) {
+          submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
+          index.children.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId));
+          if (typeof disposeImageBatchJob === 'function') {
+            try { await disposeImageBatchJob({ batchId: index.batchId }); } catch {}
+          }
         }
       } finally {
         state.resumingJobs.delete(resumeKey);

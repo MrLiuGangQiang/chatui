@@ -44,7 +44,7 @@
           operation: {
             type: 'string',
             enum: [
-              'plain_chat', 'file_qa', 'multimodal_qa', 'image_qa',
+              'plain_chat', 'web_search', 'file_qa', 'multimodal_qa', 'image_qa',
               'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image',
             ],
           },

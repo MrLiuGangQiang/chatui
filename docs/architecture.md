@@ -56,9 +56,9 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
 
-- `shared/route-intent.js`：作为实时模型边界协议 `route_intent.v2` 的严格 schema 与校验事实来源；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 五个字段，协议版本由 schema 名称承载。实时解析器不接受缺少 `task_shape` 的旧四字段结果；历史 v1 数据只能经过显式 adapter 转成 `task_shape=single`。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份。默认 schema 是不可变协议模板；每次请求再基于同一请求实际发布的候选目录实例化约束：`candidate_key` 只能从本轮候选 enum 中选择，空目录直接令 `resource_refs.maxItems=0`。应用状态已经能确定的字段域也在请求前收窄，而不是在模型返回后改写；
+- `shared/route-intent.js`：作为实时模型边界协议 `route_intent.v2` 的严格 schema 与校验事实来源；`operation` 包含普通聊天、`web_search`、文件/多模态问答和图片操作；模型输出固定为 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 五个字段，协议版本由 schema 名称承载。实时解析器不接受缺少 `task_shape` 的旧四字段结果；历史 v1 数据只能经过显式 adapter 转成 `task_shape=single`。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份。默认 schema 是不可变协议模板；每次请求再基于同一请求实际发布的候选目录实例化约束：`candidate_key` 只能从本轮候选 enum 中选择，空目录直接令 `resource_refs.maxItems=0`。应用状态已经能确定的字段域也在请求前收窄，而不是在模型返回后改写；
 - `client/services/route-service.js`：负责把 canonical route context 投影为模型输入；当前用户消息不得重复进入历史候选，路由窗口内的既有文字消息与经过结构预算裁剪的图片/文件候选全部可见，超限时按明确的容量策略淘汰。引用消息、会话焦点、上一执行资源组和历史候选都只是模型证据，本地不得再按关键词、焦点或 lineage 隐藏候选并替模型判断语义；图片/文件正文和规范资源身份始终保持本地。路由输入长度必须复用 `client/core/preflight-guards.js` 的 `MAX_USER_MESSAGE_CHARS`，不得在 service 或 workflow 中复制另一套阈值。
-- `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；
+- `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；只有 `operation=web_search` 可以授权精确的 `tools: [{ "type": "web_search" }]`，缺失、增加或向普通聊天注入工具都必须失败关闭；
 - `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；确定性图片参数解析只使用与原文等长的 analysis view 做全半角语法归一化，provider prompt 保留原文。候选必须保留 span、原文 evidence 与否定极性，同一参数的重叠命中按最长 span 优先；常见中英文否定后只有一个合法补集时才可确定性选择，否则进入澄清，不能回落到可能违背否定的 `auto`，澄清选项也不得重新提供已排除值；
 - `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
 - `client/core/message-primitives.js`：统一上下文解析、消息稳定身份、reasoning 引用文本清理，以及“图片结果已可刷新恢复”的唯一判定；只有带 `image_result` 输出身份且引用 `indexeddb://` 媒体（或等价 canonical presentation/HTML 描述）的 assistant 记录才是 durable image completion，纯 `[图片生成完成]` 文本和输入图片上下文都不能触发任务清理或覆盖完整结果；
@@ -99,6 +99,8 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - 路由终态固定为 `ready`、`business_clarification`、`configuration_error`、`transient_error`、`invalid_model_output`、`cancelled`。只有 `business_clarification` 可以持久化 pending；鉴权、配置、网络、限流、超时、模型非法输出、规划失败或请求次数超限必须作为失败展示，不能伪装成业务澄清。
 - 核心上下文的读取或结构失败统一为 `ROUTE_CONTEXT_BUILD_FAILED` 并在模型调用前失败关闭为 `route_context_unavailable`；受保护内容超过统一窗口时使用 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE` / `route_context_too_large`。只有本地、非执行必需的图片 memory cards 可以独立降级。日志只记录错误 name/code，不记录对话原文。
 - HTTP 请求错误必须保留 status、provider code 与 retryable 身份。401、403、429 和其他 4xx 不切换第二模型；只有 5xx、明确网络故障或无 4xx status 的明确可重试错误可以尝试模型 fallback。输出非法仍可尝试独立 fallback 模型，但最终仍须通过严格 schema 与执行契约。
+
+`web_search` 在能力注册表中仍属于 chat 域，但传输层固定为 Responses API。`client/app/chat-workflow.js` 只能根据已授权的不可变执行计划启用搜索，`client/services/chat-service.js` 只负责把该授权投影为单个内置工具；请求经过共享 dispatch contract 与服务端 validator 双重校验后才能发往上游。ChatUI 不接入或保存独立第三方搜索密钥，Endpoint 和模型必须自行支持 Responses API 的内置 `web_search`。
 
 ### 3.3 `client/ui/` 与 `client/features/`
 
@@ -164,7 +166,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.3 `server/jobs/`
 
-聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
+聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。Responses 搜索流由 Job parser 收集 URL citation / sources，在完成事件后统一去重并追加来源 Markdown；Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
 
 ### 4.4 `server/http/`
 
@@ -172,7 +174,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.5 `server/proxy/` 与 `server/security/`
 
-`server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
+`server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化；`responses-stream.js` 是直接 Responses 流的 compact delta、reasoning 与搜索来源归一化边界。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
 
 只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
 本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。

@@ -266,7 +266,7 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   const workflowIndex = index.indexOf('client/app/problem-feedback-workflow.js');
   const serviceIndex = index.indexOf('client/services/model-service.js');
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
-  const appIndex = index.indexOf('./app.js?v=2.3.9-attachment-only-payload-fix');
+  const appIndex = index.search(/<script src="\.\/app\.js\?v=[^"]+"><\/script>/);
 
   assert.ok(index.includes('client/core/problem-feedback.js?v=1.1.1-expected-result-manual'));
   assert.ok(index.includes('problem-feedback-workflow.js?v=1.2.1-clean-format'));

@@ -209,7 +209,8 @@ async function testBatchServerFailureSurfacesOnce() {
       sendImageBatchImpl: async () => { throw new Error('batch failed'); },
     });
     await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
-    assert.strictEqual(fixture.runErrors.some(error => error?.message === 'batch failed'), true);
+    assert.strictEqual(fixture.runErrors.filter(error => error?.message === 'batch failed').length, 1,
+      'the submit boundary must present a propagated batch failure exactly once');
   } finally {
     restore.forEach(fn => fn());
   }

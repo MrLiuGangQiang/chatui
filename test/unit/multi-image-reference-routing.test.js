@@ -42,6 +42,52 @@ function candidateByPrompt(context, prompt) {
   return candidate;
 }
 
+
+function testRefreshRebuildsGeneratedImageCandidatesWithoutReferenceCache() {
+  const sourceImages = Array.from({ length: 13 }, (_, index) => ({
+    name: `image-${index + 1}.png`,
+    type: 'image/png',
+    src: `indexeddb://image-${index + 1}`,
+  }));
+  const messages = [
+    { role: 'user', content: '生成一组图片' },
+    {
+      role: 'assistant',
+      content: '[图片生成完成] 生成一组图片',
+      imageContext: JSON.stringify({
+        schema_version: 'image_result.v1',
+        resultId: 'refresh-result',
+        referenceId: 'imgref_refresh-result',
+        mode: 'image',
+        target: 'previous',
+        attachments: sourceImages,
+      }),
+    },
+  ];
+
+  // Simulate a browser refresh: only canonical session messages are restored;
+  // the derived recentImageReferences cache is not.
+  const context = routeContext.buildRouteContext({ messages });
+  assert.strictEqual(context.image_candidates.length, 13);
+  assert.strictEqual(context.image_candidates[2].image_id, 'img_imgref_refresh-result_3');
+  assert.strictEqual(context.image_candidates[12].image_id, 'img_imgref_refresh-result_13');
+
+  const selected = context.image_candidates.find(item => item.source_index === 3);
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'followup',
+    goal: '将第三张图片转换为真实风格',
+    resource_refs: [{ candidate_key: `i${selected.index}`, role: 'target' }],
+  }), {
+    input: '将第三张换成真实风格的图片',
+    context,
+  });
+  assert.strictEqual(inspected.reason, '');
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.needClarification, false);
+  assert.strictEqual(inspected.route.executionResources.targets[0].id, 'img_imgref_refresh-result_3');
+}
+
 function testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs() {
   const message = assistantImageMessage('semantic-result', '一辆红色消防车', 'indexeddb://fire-engine');
   const context = JSON.parse(message.imageContext);
@@ -288,7 +334,136 @@ async function testSelectedHistoricalUploadedImageRestoresByItsExactRouteId() {
   assert.strictEqual(attachments[0].dataUrl, 'indexeddb://two');
 }
 
+
+function testModelSelectedIndependentTargetsEnterMultiImagePlanningWithoutMissingImageClarification() {
+  const labels = ['助理', '总控', '老板', '前端'];
+  const messages = [
+    { role: 'user', content: '第一张图什么颜色' },
+    {
+      role: 'assistant',
+      content: '[图片生成完成] 第一张图什么颜色',
+      rawText: '[图片生成完成] 第一张图什么颜色',
+      displayItemId: 'color-result',
+      imageContext: JSON.stringify({
+        referenceId: 'color-result',
+        prompt: '第一张图什么颜色',
+        mode: 'image',
+        attachments: labels.map((label, index) => ({
+          id: `color-${index + 1}`,
+          imageId: `color-${index + 1}`,
+          src: `indexeddb://color-${index + 1}`,
+          name: `${label}.png`,
+          type: 'image/png',
+          description: label,
+          semantic_text: label,
+        })),
+      }),
+    },
+  ];
+  const context = routeContext.buildRouteContext({ messages });
+  const input = '把上一条消息中的第一张和最后一张图片，分别做成长通风格';
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'followup',
+    goal: '分别将第一张图片和最后一张图片转换为卡通风格，保留各自原有的主体、构图、姿态、背景和主要色彩不变，仅进行卡通化处理。',
+    task_shape: 'multi',
+    resource_refs: [
+      { candidate_key: 'i1', role: 'target' },
+      { candidate_key: 'i4', role: 'target' },
+    ],
+  }), { input, attachments: [], context });
+
+  assert.strictEqual(inspected.reason, '');
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.needClarification, false);
+  assert.strictEqual(inspected.route.readiness, 'ready');
+  assert.strictEqual(inspected.route.operationType, 'edit_image');
+  assert.strictEqual(routeService.shouldRequestImagePlan(inspected.route), true);
+  assert.deepStrictEqual(inspected.route.selectedImageIndexes, [1, 4]);
+}
+
+
+function multiImageCandidateContext(count = 5, messageIndex = 10) {
+  return {
+    image_candidates: Array.from({ length: count }, (_, index) => ({
+      candidate_key: `i${index + 1}`,
+      type: 'image',
+      source: 'history',
+      message_index: messageIndex,
+      index: index + 1,
+      id: `multi-image-${index + 1}`,
+      resource_id: `res:image:multi-image-${index + 1}`,
+      reference_id: 'imgref-multi',
+      identity_aliases: [],
+      index_aliases: [index + 1],
+      label: `候选图 ${index + 1}`,
+      availability: 'available',
+    })),
+  };
+}
+
+function testNaturalLanguageImageSetSelectionSupportsAllAndDisjointOrdinals() {
+  const context = multiImageCandidateContext();
+  const cases = [
+    ['全都要改成卡通风格', [1, 2, 3, 4, 5]],
+    ['把第一张和第五张改成卡通风格', [1, 5]],
+    ['把第一张到第五张改成卡通风格', [1, 2, 3, 4, 5]],
+    ['把第2-4张改成卡通风格', [2, 3, 4]],
+  ];
+  for (const [input, expectedIndexes] of cases) {
+    const inspected = routeService.compileLocalRoute({
+      operation: 'edit_image',
+      relation: 'followup',
+      arguments: { prompt: input },
+      bindings: [],
+      constraints: [],
+    }, { input, attachments: [], context });
+    assert.strictEqual(inspected.needClarification, false, input);
+    assert.strictEqual(inspected.taskShape, 'multi', input);
+    assert.deepStrictEqual(inspected.selectedImageIndexes, expectedIndexes, input);
+    assert.strictEqual(routeService.shouldRequestImagePlan(inspected), true, input);
+  }
+}
+
+function testNaturalLanguageImageSetSelectionUsesLatestImageGroupInsteadOfMixedHistory() {
+  const context = {
+    image_candidates: [
+      ...multiImageCandidateContext(3, 8).image_candidates,
+      ...multiImageCandidateContext(5, 12).image_candidates.map(candidate => ({
+        ...candidate,
+        id: `${candidate.id}-latest`,
+        resource_id: `${candidate.resource_id}-latest`,
+        reference_id: 'imgref-latest',
+      })),
+    ],
+  };
+  const input = '把上一条消息中的第一张和最后一张图片改成卡通风格';
+  const route = routeService.compileLocalRoute({
+    operation: 'edit_image',
+    relation: 'followup',
+    arguments: { prompt: input },
+    bindings: [],
+    constraints: [],
+  }, { input, attachments: [], context });
+  assert.strictEqual(route.needClarification, false);
+  assert.deepStrictEqual(route.selectedImageIndexes, [1, 5]);
+  assert.deepStrictEqual(route.imageRefs.map(item => item.reference_id), ['imgref-latest', 'imgref-latest']);
+
+  const allInput = '上一条消息中的图片全都要改成卡通风格';
+  const allRoute = routeService.compileLocalRoute({
+    operation: 'edit_image',
+    relation: 'followup',
+    arguments: { prompt: allInput },
+    bindings: [],
+    constraints: [],
+  }, { input: allInput, attachments: [], context });
+  assert.strictEqual(allRoute.needClarification, false);
+  assert.deepStrictEqual(allRoute.selectedImageIndexes, [1, 2, 3, 4, 5]);
+  assert.ok(allRoute.imageRefs.every(item => item.reference_id === 'imgref-latest'));
+}
+
 module.exports = [
+  testRefreshRebuildsGeneratedImageCandidatesWithoutReferenceCache,
   testCanonicalHistoryKeepsSemanticMetadataWhenHtmlAlsoContainsImageRefs,
   testCanonicalHistoryExposesEveryCompletedImageWithStableIds,
   testStandaloneBusinessRequestIsNeverOverriddenByImageKeywordHeuristics,
@@ -299,4 +474,7 @@ module.exports = [
   testSelectedImageIdsRestoreAcrossMultipleHistoricalReferences,
   testMissingSelectedHistoricalImageFailsInsteadOfSilentlyUsingOneImage,
   testSelectedHistoricalUploadedImageRestoresByItsExactRouteId,
+  testModelSelectedIndependentTargetsEnterMultiImagePlanningWithoutMissingImageClarification,
+  testNaturalLanguageImageSetSelectionSupportsAllAndDisjointOrdinals,
+  testNaturalLanguageImageSetSelectionUsesLatestImageGroupInsteadOfMixedHistory,
 ];

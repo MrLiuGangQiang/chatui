@@ -165,12 +165,13 @@
     return `${grid}${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
   }
 
-  function patchImageBatchDisplayNode(node, { total = 0, childContexts = [], statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL } = {}) {
+  function patchImageBatchDisplayNode(node, { total = 0, childContexts = [], statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL, afterPatch = null } = {}) {
     const content = node?.querySelector?.('.content');
     if (!content) return false;
     let grid = content.querySelector('.generated-image-batch-grid');
     if (!grid) {
       content.innerHTML = renderImageBatchResultHtml({ total, childContexts, slotStatuses, slotSizes, slotSize, statusHtml, complete, escapeHtml, downloadAllImagesButtonHtml, transparentPixel });
+      afterPatch?.(node);
       return true;
     }
     grid.dataset.imageBatchTotal = String(Math.max(0, Number(total) || 0));
@@ -217,6 +218,7 @@
     // Remove it once the stable slot grid exists so refresh converges to the new
     // single-card layout without leaving duplicate waiting rows behind.
     content.querySelector('.batch-status-container')?.remove();
+    afterPatch?.(node);
     return true;
   }
 

@@ -6,6 +6,7 @@ const { JSDOM } = require('jsdom');
 const coreAttachments = require('../../client/core/attachments');
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
 const imageResultWorkflow = require('../../client/app/image-result-workflow');
+const { createImageActionsWorkflow } = require('../../client/app/image-actions-workflow');
 const messageRecords = require('../../client/app/message-records');
 
 function imageResultDeps({ width = 512, height = 512 } = {}) {
@@ -276,6 +277,41 @@ function testBatchImageSlotsStayMountedWhileEachTaskCompletes() {
 }
 
 
+function testLiveBatchPatchHydratesNewImagePreviewInteraction() {
+  const dom = new JSDOM('<div class="message assistant"><div class="content"></div></div>');
+  const node = dom.window.document.querySelector('.message');
+  const previews = [];
+  const actions = createImageActionsWorkflow({
+    document: dom.window.document,
+    window: dom.window,
+    navigator: dom.window.navigator,
+    openImagePreview: (src, filename) => previews.push({ src, filename }),
+  });
+
+  const patched = imageResultWorkflow.patchImageBatchDisplayNode(node, {
+    total: 1,
+    childContexts: [{ attachments: [{
+      imageId: 'live-image',
+      src: 'indexeddb://live-image',
+      persistedSrc: 'indexeddb://live-image',
+      displaySrc: 'blob:live-image',
+      filename: 'live-image.png',
+      width: 512,
+      height: 512,
+    }] }],
+    escapeHtml: value => String(value),
+    afterPatch: patchedNode => actions.bindImagePreview(patchedNode),
+  });
+
+  assert.strictEqual(patched, true);
+  const image = node.querySelector('img.generated-thumb');
+  assert.strictEqual(image.dataset.previewBound, '1',
+    'images inserted by a live batch patch must be hydrated immediately instead of waiting for refresh');
+  image.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: false }));
+  assert.deepStrictEqual(previews, [{ src: 'indexeddb://live-image', filename: 'live-image.png' }]);
+}
+
+
 function testSingleImageResultUsesBatchSlotGeometry() {
   const html = imageResultWorkflow.renderImageResultHtml([
     { imageId: 'single', src: 'indexeddb://single', persistedSrc: 'indexeddb://single', displaySrc: 'blob:single', width: 1536, height: 1024 },
@@ -309,6 +345,7 @@ module.exports = [
   testLegacyLatestImageResultGetsStableCompatibilityIdentity,
   testObjectStringifiedMessageIdsAreRepairedCanonically,
   testBatchImageSlotsStayMountedWhileEachTaskCompletes,
+  testLiveBatchPatchHydratesNewImagePreviewInteraction,
   testSingleImageResultUsesBatchSlotGeometry,
   testMultiImageResultDoesNotShowRedundantCountHeader,
 ];

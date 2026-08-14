@@ -55,9 +55,14 @@
       const labels = unique(Array.isArray(raw?.labels) ? raw.labels : []);
       const semanticParts = unique(String(raw?.semantic_text || '').split(/\s*\|\s*/));
       const promptParts = unique(String(raw?.prompt || '').split(/\s*\|\s*/));
+      const isCurrentImage = candidate.type === 'image' && candidate.source === 'current';
+      // A current upload's raw label may be the user's question rather than a
+      // file label. Never replicate that instruction across every image.
       const preferred = candidate.type === 'file'
         ? [filename, ...descriptions]
-        : [filename, ...descriptions, ...labels];
+        : isCurrentImage
+          ? [filename, ...unique([raw?.description, raw?.semantic_description, raw?.semanticDescription, raw?.subject])]
+          : [filename, ...descriptions, ...labels];
       const fallback = [...semanticParts, ...promptParts];
       const parts = unique((preferred.some(Boolean) ? preferred : fallback)).slice(0, 2);
       return (parts.join(' · ') || `${candidate.type || 'resource'} ${candidate.index || ''}`).slice(0, 120);

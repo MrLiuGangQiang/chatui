@@ -1,7 +1,7 @@
 (function initChatUIAppSessionPersistence(root) {
   'use strict';
 
-  const { messageIdentity } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+  const { messageIdentity, isDurableImageCompletionMessage } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
     || (typeof require === 'function' ? require('../core/message-primitives') : {});
 
   function parseMessageOrderIndex(value) {
@@ -78,11 +78,13 @@
       ? turn.assistantIndex
       : turn.userIndex + 1;
     const hasAssistant = list[assistantIndex]?.role === 'assistant';
-    const keepLength = Math.min(
-      list.length,
-      Math.max(turn.userIndex + 1, assistantIndex + (preserveAssistant && hasAssistant ? 1 : 0)),
-    );
-    const removedMessages = list.splice(keepLength);
+    // Regenerating an old answer replaces one branch node; it must not truncate
+    // the conversation that was written after that node. The previous
+    // implementation spliced from the replacement slot to the end, silently
+    // deleting every later user/assistant turn from both memory and storage.
+    const removedMessages = hasAssistant && !preserveAssistant
+      ? list.splice(assistantIndex, 1)
+      : [];
     reindexCanonicalMessagePositions(list);
     return {
       userIndex: turn.userIndex,
@@ -95,6 +97,19 @@
   function ensureAssistantReplacementSlot(messages = [], turn = null, placeholder = {}) {
     if (!Array.isArray(messages) || !turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0) return null;
     if (turn.hasAssistant && messages[turn.assistantIndex]?.role === 'assistant') {
+      if (placeholder?.replacing) {
+        const existing = messages[turn.assistantIndex];
+        messages[turn.assistantIndex] = {
+          role: 'assistant',
+          content: '',
+          rawText: '',
+          html: '',
+          responseIndex: String(turn.assistantIndex),
+          replacing: true,
+          ...(existing?.displayItemId ? { displayItemId: existing.displayItemId } : {}),
+          ...placeholder,
+        };
+      }
       reindexCanonicalMessagePositions(messages);
       return { ...turn, assistantIndex: turn.assistantIndex, hasAssistant: true };
     }
@@ -130,9 +145,8 @@
     } : current;
   }
   function isDurableImageMessage(message) {
-    return /^\[图片(生成|编辑|修改)完成\]/.test(String(message?.content || message?.rawText || ''))
-      || /data-persisted-src=(['"])indexeddb:\/\//i.test(String(message?.html || ''))
-      || /indexeddb:\/\//i.test(String(message?.imageContext || ''));
+    return typeof isDurableImageCompletionMessage === 'function'
+      && isDurableImageCompletionMessage(message);
   }
   function imageResultRevision(message = {}) {
     const context = message?.imageContext;

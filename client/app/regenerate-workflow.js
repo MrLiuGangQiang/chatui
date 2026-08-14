@@ -24,7 +24,7 @@
       quotedFileCandidatesFromContext,
       sendChat, dispatchTaskEvent,
       makeClientChatJobId, makeClientImageJobId, resumeSessionJobs,
-      getPreviousImageAttachments, replaceSessionMessages,
+      getPreviousImageAttachments, replaceSessionMessages, updateSessionDisplayItem, updateMessage,
     } = deps;
     const restorePreviousImageAttachments = getPreviousImageAttachments || root?.getPreviousImageAttachments;
     const window = root;
@@ -37,19 +37,18 @@
       ? dispatchTaskEvent?.(sessionId, { type, ...details })
       : null;
 
-    function discardFollowingMessageNodes(node) {
-      let current=node?.nextElementSibling||null;
-      while(current){const next=current.nextElementSibling;current.classList?.contains("message")&&current.remove?.();current=next}
-    }
     function retainedPendingDisplay(session,responseIndex,preserveAssistant=false){
-      return (session?.display||[]).filter(item=>item?.role!=="assistant"||!Number.isFinite(Number(item.responseIndex))||(preserveAssistant?Number(item.responseIndex)<=responseIndex:Number(item.responseIndex)<responseIndex));
+      // A historical regeneration only replaces the selected answer. Keep
+      // later display items so the rendered conversation and its durable
+      // snapshot stay aligned with state.messages.
+      return (session?.display||[]).slice();
     }
     async function truncateRegenerationBranch(sessionId,turn,preserveAssistant=false){
       const removed=replacementApi.truncateConversationForRegeneration?.(state.messages,turn,{preserveAssistant})||(()=>{
         if(!Array.isArray(state.messages)||!Number.isInteger(turn?.userIndex)||turn.userIndex<0||turn.userIndex>=state.messages.length)return null;
         const assistantIndex=Number.isInteger(turn.assistantIndex)&&turn.assistantIndex>turn.userIndex?turn.assistantIndex:turn.userIndex+1;
         const hasAssistant=state.messages[assistantIndex]?.role==="assistant";
-        state.messages.splice(Math.max(turn.userIndex+1,preserveAssistant&&hasAssistant?assistantIndex+1:assistantIndex));
+        if(hasAssistant&&!preserveAssistant)state.messages.splice(assistantIndex,1);
         state.messages.forEach((message,index)=>{if(message?.role==="user")message.messageIndex=String(index);if(message?.role==="assistant")message.responseIndex=String(index)});
         return {assistantIndex};
       })();
@@ -250,7 +249,6 @@
       const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};
       const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null,{message:state.messages?.[a],userText:s});
       if(!await truncateRegenerationBranch(l,turn,replayPending))return void toast("找不到这条消息上下文，无法重新生成");
-      discardFollowingMessageNodes(e);
       if(replayPending){await replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a});return}
       turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,{...turn,assistantIndex:a,hasAssistant:!1},{responseIndex:String(a),replacing:!0})||turn;
       const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
@@ -358,26 +356,13 @@
           const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
           if(imageBatchPlan){
             const compiledBatch=imageBatchPlan;
-            const batchJobId=task.prepareHandoff("image_batch",makeClientImageJobId?.());
+            const batchJobId=task.prepareHandoff("image_batch",makeClientBatchJobId?.());
             if(!m?.id){const error=new Error("多图重新生成缺少可恢复的显示记录，已停止发送");error.code="IMAGE_BATCH_DISPLAY_ITEM_MISSING";throw error}
             m.jobId=batchJobId;m.pending="1";root?.persistSessionDisplay?.(l);
             e?.dataset&&(e.dataset.jobId=batchJobId);root?.clearPendingFeedback?.(e);root?.clearReasoning?.(e);
-            const batchAggregate={total:compiledBatch.items.length,completed:0,failed:0,statuses:compiledBatch.items.map(()=>"正在准备图片任务")};
-            const batchCommitQueue=typeof submitHelpers.createSerialCommitQueue==="function"?submitHelpers.createSerialCommitQueue():null;
-            const acquireBatchResultCommit=batchCommitQueue?()=>batchCommitQueue.acquire():null;
-            const batchChildIds=compiledBatch.items.map(()=>makeClientImageJobId?.()||`imgjob-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2,6)}`);
-            const batchChildren=compiledBatch.items.map((item,batchIndex)=>{
-              const childExecutionMedia=submitHelpers.projectRouteExecutionMedia?.(item.route,executionPools)||item.executionResources;
-              const childPrompt=String(item.dispatchContract?.arguments?.prompt||"").trim();
-              const childJobId=batchChildIds[batchIndex];
-              return sendImage(childPrompt,{loadingNode:batchIndex===0?e:null,statusPrefix:`任务 ${batchIndex+1}/${compiledBatch.items.length}`,routePrompt:childPrompt,originalPrompt:replayPrompt,attachments:childExecutionMedia.imageInputs||[],maskAttachments:childExecutionMedia.masks||[],executionMedia:childExecutionMedia,dispatchContract:item.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:void 0,submissionId:task.submissionId,clientJobId:childJobId,batchChildKey:submitHelpers.imageBatchChildKey(l,childJobId),batchAggregate,batchIndex,deferBatchCompletion:!0,acquireResultCommit:acquireBatchResultCommit,onDurableHandoff:()=>task.commitHandoff()});
-            });
-            const previousBatchIndex=submitHelpers.loadImageBatchIndex?.(root.localStorage,l);
-            if(previousBatchIndex)previousBatchIndex.children.forEach(child=>submitHelpers.clearImageBatchChild?.(root.localStorage,l,child.jobId));
-            submitHelpers.saveImageBatchIndex?.(root.localStorage,l,{schema_version:submitHelpers.IMAGE_BATCH_VERSION,batchId:batchJobId,submissionId:task.submissionId,sessionId:l,startedAt:Date.now(),children:compiledBatch.items.map((item,batchIndex)=>({jobId:batchChildIds[batchIndex],prompt:String(item.dispatchContract?.arguments?.prompt||"").trim(),displayItemId:m.id,responseIndex:String(m.responseIndex||a),mode:item.mode||"image",status:"running"}))});
-            const batchSettled=await Promise.allSettled(batchChildren);
-            batchSettled.forEach(result=>{if(result.status==="rejected"){batchAggregate.failed+=1;showRunError(l,result.reason,m,e)}});
-            if(batchSettled.every(result=>result.status==="fulfilled"))submitHelpers.clearImageBatchIndex?.(root.localStorage,l);
+            const batchAggregate={total:compiledBatch.items.length,completed:0,failed:0,statuses:compiledBatch.items.map(()=>"正在准备图片任务"),slotSizes:compiledBatch.items.map(item=>String(item?.dispatchContract?.arguments?.size||"auto").trim()||"auto"),slotSize:"auto",imageContext:null,childImageContexts:Array(compiledBatch.items.length).fill(null)};
+            const initialBatchRawText=batchAggregate.statuses.map((status,index)=>`任务 ${index+1}/${batchAggregate.total}：${status}`).join("\n"),initialBatchHtml=typeof deps.renderImageBatchResult==="function"?deps.renderImageBatchResult({}, {total:batchAggregate.total, childContexts:batchAggregate.childImageContexts, statusHtml:deps.pendingFeedbackHtml?.(initialBatchRawText)||"", complete:false}):m.html;updateSessionDisplayItem?.(l,m,"assistant",initialBatchHtml,{html:!0,rawText:initialBatchRawText,pending:!0,responseIndex:m.responseIndex});e?.isConnected&&updateMessage?.(e,initialBatchHtml,{html:!0,rawText:initialBatchRawText,skipSave:!0,preserveLiveMedia:!0});root?.persistSessionDisplay?.(l);await sendImageBatch(l,{items:compiledBatch.items.map(item=>({dispatchContract:item.dispatchContract,executionMedia:submitHelpers.projectRouteExecutionMedia?.(item.route,executionPools)||item.executionResources,prompt:String(item.dispatchContract?.arguments?.prompt||"").trim(),label:String(item.task?.label||"").trim()})),batchJobId,submissionId:task.submissionId,batchParent:m,responseIndex:a,clarificationReplay:replay,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+
           }else{
             const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
             await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});

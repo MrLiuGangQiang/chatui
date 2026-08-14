@@ -167,12 +167,12 @@ function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
     'ordinary regeneration must not replace canonical route recognition with a hand-built context');
   assert.ok(source.includes('const imageBatchPlan=submitHelpers.executableImageBatch?.(p);'),
     'regeneration must inspect the compiled image plan instead of always dispatching the top-level image contract');
-  assert.ok(source.includes('const batchChildren=compiledBatch.items.map((item,batchIndex)=>{'),
-    'a compiled multi-image plan must fan out one canonical image execution per planned task during regeneration');
-  assert.ok(source.includes('liveItem:m,replaceAssistantIndex:void 0'),
+  assert.ok(source.includes('await sendImageBatch(l,{items:compiledBatch.items.map'),
+    'a compiled multi-image plan must delegate to one server batch endpoint instead of browser-side fan-out');
+  assert.ok(source.includes('batchParent:m'),
     'all regenerated batch children must target the same replacement assistant message rather than creating separate messages');
-  assert.ok(source.includes('Promise.allSettled(batchChildren)'),
-    'regeneration must wait for every planned image child before completing the replacement task');
+  assert.ok(source.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
+    'regeneration must complete the replacement task through the single parent batch identity');
   assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
 }
 
@@ -340,13 +340,13 @@ async function testRegenerateTruncatesDiscardedConversationBranchBeforeReplaceme
 
   await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
 
-  assert.deepStrictEqual(fixture.state.messages.map(message => message.content), ['ambiguous regenerate request']);
-  assert.deepStrictEqual(fixture.state.sessions[0].messages.map(message => message.content), ['ambiguous regenerate request']);
-  assert.deepStrictEqual(fixture.state.sessions[0].display, []);
+  assert.deepStrictEqual(fixture.state.messages.map(message => message.content), ['ambiguous regenerate request', 'discarded follow-up', 'discarded answer']);
+  assert.deepStrictEqual(fixture.state.sessions[0].messages.map(message => message.content), ['ambiguous regenerate request', 'discarded follow-up', 'discarded answer']);
+  assert.deepStrictEqual(fixture.state.sessions[0].display, [{ id: 'pending-tail', role: 'assistant', pending: '1', responseIndex: '3' }]);
   assert.strictEqual(fixture.state.sessions[0].pendingClarification || null, null);
   assert.strictEqual(fixture.state.sessions[0].lastGeneratedImage, null);
   assert.strictEqual(fixture.state.lastGeneratedImage, null);
-  assert.strictEqual(trailingNode.removed, true, 'all rendered messages after the regenerated answer must be removed');
+  assert.strictEqual(trailingNode.removed, false, 'historical regeneration must retain rendered messages after the regenerated answer');
 }
 
 async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting() {
@@ -448,3 +448,4 @@ module.exports = [
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
   testRegenerateUsesCanonicalRouteRecognitionContext,
 ];
+

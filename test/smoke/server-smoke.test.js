@@ -73,7 +73,7 @@ async function testServerSmokeCoreEndpoints() {
     const routeMap = await request(baseUrl, '/pages/route.html');
     assert.strictEqual(routeMap.res.status, 200);
     assert.match(routeMap.res.headers.get('content-type') || '', /text\/html/);
-    assert.ok(routeMap.text.includes('你的消息怎样变成任务'));
+    assert.ok(routeMap.text.includes('一条消息怎样被处理'));
 
   });
 }

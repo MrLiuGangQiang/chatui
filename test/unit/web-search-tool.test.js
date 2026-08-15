@@ -158,7 +158,12 @@ async function testChatWorkflowForcesResponsesForAuthorizedWebSearch() {
       isAbortLikeError: () => false,
       formatElapsed: value => String(value),
     });
-    const plan = dispatchContract.compileDispatchContract({ operation: 'web_search', input: prompt });
+    const resolvedPrompt = '查找并汇总最新的 AI 相关新闻。';
+    const plan = dispatchContract.compileDispatchContract({
+      operation: 'web_search',
+      relation: 'followup',
+      input: resolvedPrompt,
+    });
 
     await workflow.sendChat(prompt, [], null, {
       sessionId: session.id,
@@ -178,6 +183,12 @@ async function testChatWorkflowForcesResponsesForAuthorizedWebSearch() {
     assert.strictEqual(streamedRequest.options.api, 'responses');
     assert.strictEqual(streamedRequest.jobId, 'chatjob-web-search');
     assert.deepStrictEqual(streamedRequest.payload.tools, [{ type: 'web_search' }]);
+    const finalInput = streamedRequest.payload.input[streamedRequest.payload.input.length - 1];
+    assert.strictEqual(finalInput.role, 'user');
+    assert.strictEqual(finalInput.content, resolvedPrompt,
+      'the wire instruction must use the resolved execution prompt authorized by the dispatch contract');
+    assert.strictEqual(state.messages[0].content, prompt,
+      "conversation history must preserve the user's original composer text");
   } finally {
     if (previousServices === undefined) delete globalThis.ChatUIServices;
     else globalThis.ChatUIServices = previousServices;

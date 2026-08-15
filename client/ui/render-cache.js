@@ -5,9 +5,10 @@
     || (typeof require === 'function' ? require('../core/text-hash') : {});
   const fnv1a = textHash.contentHash || (value => String(value || ''));
 
-  function createLRUCache(maxEntries = 180, maxChars = 3_000_000) {
+  function createLRUCache(maxEntries = 180, maxChars = 3_000_000, sizeOf = value => String(value ?? '').length) {
     const limit = Math.max(20, Number(maxEntries) || 180);
     const charLimit = Math.max(100_000, Number(maxChars) || 3_000_000);
+    const measure = typeof sizeOf === 'function' ? sizeOf : value => String(value ?? '').length;
     const map = new Map();
     let chars = 0;
     const touch = key => {
@@ -34,7 +35,13 @@
           chars -= old?.size || 0;
           map.delete(key);
         }
-        const item = { value, size: String(value || '').length, at: Date.now() };
+        let measuredSize = 0;
+        try { measuredSize = Number(measure(value)); } catch {}
+        const item = {
+          value,
+          size: Number.isFinite(measuredSize) && measuredSize > 0 ? measuredSize : 0,
+          at: Date.now(),
+        };
         chars += item.size;
         map.set(key, item);
         trim();
@@ -55,7 +62,11 @@
   }
 
   function createRenderCache(options = {}) {
-    const htmlCache = createLRUCache(options.maxEntries || 180, options.maxChars || 3_000_000);
+    const htmlCache = createLRUCache(
+      options.maxEntries || 180,
+      options.maxChars || 3_000_000,
+      entry => String(entry?.raw ?? '').length + String(entry?.value ?? '').length,
+    );
     let hits = 0;
     let misses = 0;
     function keyFor(raw = '') { return `${markdownCacheNamespace(options)}:${fnv1a(raw)}`; }

@@ -46,24 +46,25 @@ function isPublicStaticPath(urlPath) {
   return PUBLIC_ROOT_FILES.has(pathname) || PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix));
 }
 
-function pickCompressedStaticFile(req, filePath) {
+function pickCompressedStaticFile(req, filePath, sourceStat = null) {
   const encoding = String(req.headers['accept-encoding'] || '');
   const ext = path.extname(filePath);
-  if (!['.js', '.css'].includes(ext)) return { filePath, encoding: '' };
-  const sourceMtime = fs.statSync(filePath).mtimeMs;
+  const resolvedSourceStat = sourceStat || fs.statSync(filePath);
+  if (!['.js', '.css'].includes(ext)) return { filePath, encoding: '', stat: resolvedSourceStat };
   const freshVariant = (suffix) => {
     const variantPath = `${filePath}${suffix}`;
     try {
-      return fs.statSync(variantPath).mtimeMs >= sourceMtime ? variantPath : '';
+      const stat = fs.statSync(variantPath);
+      return stat.mtimeMs >= resolvedSourceStat.mtimeMs ? { filePath: variantPath, stat } : null;
     } catch {
-      return '';
+      return null;
     }
   };
-  const brPath = /\bbr\b/.test(encoding) ? freshVariant('.br') : '';
-  if (brPath) return { filePath: brPath, encoding: 'br' };
-  const gzipPath = /\bgzip\b/.test(encoding) ? freshVariant('.gz') : '';
-  if (gzipPath) return { filePath: gzipPath, encoding: 'gzip' };
-  return { filePath, encoding: '' };
+  const br = /\bbr\b/.test(encoding) ? freshVariant('.br') : null;
+  if (br) return { ...br, encoding: 'br' };
+  const gzip = /\bgzip\b/.test(encoding) ? freshVariant('.gz') : null;
+  if (gzip) return { ...gzip, encoding: 'gzip' };
+  return { filePath, encoding: '', stat: resolvedSourceStat };
 }
 
 function parseRequestUrl(req) {
@@ -187,7 +188,7 @@ function serveBundle(req, res, context, kind) {
 }
 
 function staticEtag(filePath, stat, encoding = '') {
-  return `W/"${sha1(`${filePath}:${stat.size}:${Math.floor(stat.mtimeMs)}:${encoding}`).slice(0, 24)}"`;
+  return `W/"${sha1(`${filePath}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${encoding}`).slice(0, 24)}"`;
 }
 
 function serveStatic(req, res, { root, rootWithSep }) {
@@ -205,12 +206,14 @@ function serveStatic(req, res, { root, rootWithSep }) {
     if (statErr || !stat.isFile()) return send(res, 404, 'Not Found');
     let picked;
     try {
-      picked = pickCompressedStaticFile(req, filePath);
+      picked = pickCompressedStaticFile(req, filePath, stat);
     } catch {
-      picked = { filePath, encoding: '' };
+      picked = { filePath, encoding: '', stat };
     }
+    const servedFilePath = picked.filePath || filePath;
+    const servedStat = picked.stat || stat;
     const mime = MIME[path.extname(filePath)] || 'application/octet-stream';
-    const etag = staticEtag(filePath, stat, picked.encoding || preferredEncoding(req));
+    const etag = staticEtag(servedFilePath, servedStat, picked.encoding || preferredEncoding(req));
     const headers = {
       'Content-Type': mime,
       'Cache-Control': cacheControlFor(filePath, url),
@@ -221,9 +224,9 @@ function serveStatic(req, res, { root, rootWithSep }) {
     if (isFresh(req, etag)) return send(res, 304, '', headers);
     if (req.method === 'HEAD') return send(res, 200, '', headers);
 
-    fs.readFile(picked.filePath, (err, data) => {
+    fs.readFile(servedFilePath, (err, data) => {
       if (err) return send(res, 404, 'Not Found');
-      const cacheKey = `${filePath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+      const cacheKey = `${servedFilePath}:${servedStat.size}:${servedStat.mtimeMs}:${servedStat.ctimeMs}`;
       const encoded = picked.encoding ? { body: data, encoding: picked.encoding } : encodeBody(data, preferredEncoding(req), cacheKey, mime);
       if (encoded.encoding) headers['Content-Encoding'] = encoded.encoding;
       send(res, 200, encoded.body, headers);

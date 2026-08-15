@@ -36,6 +36,41 @@ const DEFERRED_MARKDOWN_SCRIPT_PATHS = Object.freeze([
 ]);
 
 const manifestCache = new Map();
+const fileFingerprintCache = new Map();
+const MAX_MANIFEST_CACHE_ENTRIES = 16;
+const MAX_FILE_FINGERPRINT_CACHE_ENTRIES = 512;
+
+function trimCache(cache, maxEntries) {
+  while (cache.size > maxEntries) cache.delete(cache.keys().next().value);
+}
+
+function statFingerprint(stat = {}) {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].map(value => String(value ?? '')).join(':');
+}
+
+function readFileFingerprint(filePath, { encoding = '', retainContent = false } = {}) {
+  const stat = fs.statSync(filePath);
+  const fingerprint = statFingerprint(stat);
+  const cached = fileFingerprintCache.get(filePath);
+  const hasReusableContent = !retainContent
+    || (cached && cached.encoding === encoding && Object.prototype.hasOwnProperty.call(cached, 'content'));
+  if (cached?.fingerprint === fingerprint && hasReusableContent) {
+    fileFingerprintCache.delete(filePath);
+    fileFingerprintCache.set(filePath, cached);
+    return { stat, contentHash: cached.contentHash, ...(retainContent ? { content: cached.content } : {}) };
+  }
+
+  const content = encoding ? fs.readFileSync(filePath, encoding) : fs.readFileSync(filePath);
+  const entry = {
+    fingerprint,
+    contentHash: sha1(content),
+    ...(retainContent ? { content, encoding } : {}),
+  };
+  fileFingerprintCache.delete(filePath);
+  fileFingerprintCache.set(filePath, entry);
+  trimCache(fileFingerprintCache, MAX_FILE_FINGERPRINT_CACHE_ENTRIES);
+  return { stat, contentHash: entry.contentHash, ...(retainContent ? { content } : {}) };
+}
 
 function attrValue(source, name) {
   const pattern = new RegExp(`(?:^|\\s)${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i');
@@ -62,11 +97,11 @@ function manifestSource(html) {
 
 function parseAssetManifest(root, rootWithSep, kind) {
   const indexPath = path.join(root, 'index.html');
-  const source = fs.readFileSync(indexPath, 'utf8');
-  const cacheKey = `${indexPath}:${sha1(source)}`;
+  const observed = readFileFingerprint(indexPath, { encoding: 'utf8', retainContent: true });
+  const source = observed.content;
+  const cacheKey = `${indexPath}:${observed.contentHash}`;
   const cached = manifestCache.get(cacheKey);
   if (cached) return cached[kind] || [];
-  manifestCache.clear();
 
   const manifest = manifestSource(source);
   const css = [];
@@ -88,6 +123,7 @@ function parseAssetManifest(root, rootWithSep, kind) {
   });
   const parsed = { css, js };
   manifestCache.set(cacheKey, parsed);
+  trimCache(manifestCache, MAX_MANIFEST_CACHE_ENTRIES);
   return parsed[kind] || [];
 }
 
@@ -104,9 +140,7 @@ function bundleMetadata(root, rootWithSep, kind) {
   const assets = markdownCoreScripts.concat(parseAssetManifest(root, rootWithSep, kind));
   const parts = [`kind:${kind}`, `bundle:${BUNDLE_VERSION}`];
   const entries = assets.map((asset) => {
-    const stat = fs.statSync(asset.filePath);
-    const content = fs.readFileSync(asset.filePath);
-    const contentHash = sha1(content);
+    const { stat, contentHash } = readFileFingerprint(asset.filePath);
     parts.push(`${asset.urlPath}:${contentHash}`);
     return { ...asset, stat, contentHash };
   });

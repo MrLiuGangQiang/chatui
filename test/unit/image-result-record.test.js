@@ -331,6 +331,50 @@ function testMultiImageResultDoesNotShowRedundantCountHeader() {
 }
 
 
+function testCompletedLiveBatchConvergesToCanonicalRefreshLayout() {
+  const cat = {
+    schema_version: 'image_result.v1', resultId: 'cat-result',
+    attachments: [{ imageId: 'cat', src: 'indexeddb://cat', persistedSrc: 'indexeddb://cat', width: 512, height: 512 }],
+  };
+  const dog = {
+    schema_version: 'image_result.v1', resultId: 'dog-result',
+    attachments: [{ imageId: 'dog', src: 'indexeddb://dog', persistedSrc: 'indexeddb://dog', width: 1536, height: 1024 }],
+  };
+  const merged = imageResultWorkflow.mergeImageResultContexts(cat, dog);
+  const renderDeps = { escapeHtml: value => String(value), downloadAllImagesButtonHtml: () => '' };
+  const options = {
+    total: 2,
+    childContexts: [cat, dog],
+    slotStatuses: ['已完成', '已完成'],
+    imageContext: merged,
+    complete: true,
+  };
+  const liveCompletionHtml = imageResultWorkflow.renderImageBatchResult(merged, options, renderDeps);
+  const refreshedHtml = imageResultWorkflow.renderImageResultContext(merged, {}, renderDeps);
+
+  assert.strictEqual(liveCompletionHtml, refreshedHtml,
+    'the terminal live batch must use the same canonical image layout that a refresh reconstructs');
+
+  const pendingHtml = imageResultWorkflow.renderImageBatchResult(merged, { ...options, complete: false }, renderDeps);
+  const dom = new JSDOM(`<div class="message assistant"><div class="content">${pendingHtml}</div></div>`);
+  const node = dom.window.document.querySelector('.message');
+  const patched = imageResultWorkflow.patchImageBatchDisplayNode(node, {
+    ...options,
+    escapeHtml: renderDeps.escapeHtml,
+    downloadAllImagesButtonHtml: renderDeps.downloadAllImagesButtonHtml,
+  });
+
+  assert.strictEqual(patched, true);
+  assert.strictEqual(node.querySelector('.generated-image-batch-grid'), null,
+    'terminal completion must replace the transient slot grid instead of leaving a layout that changes after refresh');
+  assert.deepStrictEqual(
+    [...node.querySelectorAll('img.generated-thumb')].map(item => item.dataset.imageId),
+    ['cat', 'dog'],
+    'the live terminal layout must keep the same canonical image order as restored history',
+  );
+}
+
+
 function testRestoredImagePresentationUsesPersistedSrcAlias() {
   const displayHistorySource = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/display-history-workflow.js'), 'utf8');
   assert.ok(displayHistorySource.includes('item.src, item.persistedSrc, item.persisted_src'), 'restored image rendering must accept persistedSrc descriptors from canonical snapshots');
@@ -346,6 +390,7 @@ module.exports = [
   testObjectStringifiedMessageIdsAreRepairedCanonically,
   testBatchImageSlotsStayMountedWhileEachTaskCompletes,
   testLiveBatchPatchHydratesNewImagePreviewInteraction,
+  testCompletedLiveBatchConvergesToCanonicalRefreshLayout,
   testSingleImageResultUsesBatchSlotGeometry,
   testMultiImageResultDoesNotShowRedundantCountHeader,
 ];

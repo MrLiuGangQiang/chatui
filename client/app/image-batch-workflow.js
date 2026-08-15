@@ -119,6 +119,7 @@
       return patchImageBatchDisplayNode(node, {
         total: Number(aggregate.total || 0),
         childContexts: Array.isArray(aggregate.childImageContexts) ? aggregate.childImageContexts : [],
+        imageContext: aggregate.imageContext || {},
         slotStatuses: Array.isArray(aggregate.statuses) ? aggregate.statuses : [],
         slotSizes: Array.isArray(aggregate.slotSizes) ? aggregate.slotSizes : [],
         slotSize: aggregate.slotSize || 'auto',

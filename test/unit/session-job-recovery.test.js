@@ -29,8 +29,8 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   assert.ok(regenerate.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
     'regenerated batches must complete through the single parent batch identity');
   assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard')
-    && index.includes('job-resume-workflow.js?v=1.3.3-terminal-batch-cleanup')
-    && index.includes('image-batch-workflow.js?v=1.0.2-serialized-terminal-updates')
+    && index.includes('job-resume-workflow.js?v=1.3.4-canonical-batch-completion')
+    && index.includes('image-batch-workflow.js?v=1.0.3-canonical-batch-completion')
     && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep')
     && index.includes('app.js?v=2.3.10-image-batch-terminal-cleanup'),
   'runtime entry assets should receive cache-version updates with the recovery fix');

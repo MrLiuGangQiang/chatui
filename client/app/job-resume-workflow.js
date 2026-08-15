@@ -550,6 +550,7 @@
           && patchImageBatchDisplayNode(node, {
             total: aggregate.total,
             childContexts,
+            imageContext: recoveredAggregateContext || {},
             statusHtml: renderBatchStatus(),
             complete,
           });

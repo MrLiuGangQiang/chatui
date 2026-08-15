@@ -122,8 +122,8 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 ### 3.4.1 应用策略与 Markdown 边界
 
 - `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线单一绝对 60 秒截止时间、可取消且可主动 race 的请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
-- `client/app/submit-workflow.js` 与 `client/app/regenerate-workflow.js`：共享任务生命周期不变量；停止后不得持久化 assistant 澄清、发起业务 handoff 或提交完成事件，durable handoff 与 terminal event 必须按 submission/job identity 幂等；
-- `client/app/image-batch-workflow.js`：多图计划只向 `/api/image-batches` 提交一次，由服务端 parent/child Job 编排并发；浏览器只轮询 parent job，同时保留每个 child 的 durable snapshot 供刷新恢复。
+- `client/app/submit-workflow.js` 与 `client/app/regenerate-workflow.js`：共享任务生命周期不变量；停止后不得持久化 assistant 澄清、发起业务 handoff 或提交完成事件，durable handoff 与 terminal event 必须按 submission/job identity 幂等。重新生成先同步替换 canonical 分支并立即把所选 assistant 节点投影为 pending 内容，再等待异步快照持久化；旧文本、图片和附件 DOM 都不能继续挂载到新结果完成时；
+- `client/app/image-batch-workflow.js`：多图计划只向 `/api/image-batches` 提交一次，由服务端 parent/child Job 编排并发；浏览器只轮询 parent job，同时保留每个 child 的 durable snapshot 供刷新恢复。批量 slot/grid 只属于执行中的临时投影；进入终态后必须按 canonical `imageContext` 顺序改用 `image-result-workflow.js` 的统一结果渲染器，使实时完成态与刷新恢复态的 DOM、布局和图片位置一致。
 - `client/app/image-caption-workflow.js`：生成图片返回后的内部内容标签（如“一只橘色小猫”vs“一条金毛犬”）。标签由 `image_plan.v1` 任务可选的 `label` 字段提供（与生图提示词同一次规划模型调用产出），不再单独调用模型识图或总结；失败时保留提示词派生描述；标签写入图片记录（`description`/`label`/`labels`/`semantic_text`）仅用于路由候选与引用上下文，使“把那只猫改成…”这类指代可绑定到具体图片；标签不渲染到聊天界面，也不阻塞图片结果展示。
 - `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，图片规划显示“正在拆分多个图片任务”，模型 fallback 显示“正在重新确认任务意图”，等待区原位更新且不记录或展示模型隐藏推理链；
 - `client/features/clarification/presentation.js` 与 `client/app/clarification-choice-workflow.js`：图片候选整卡负责选择，独立预览按钮只打开预览且不得改变答案；卡片展示槽位角色、进度、来源与精简标签，并按 3/2/1 列响应桌面、窄屏和手机。

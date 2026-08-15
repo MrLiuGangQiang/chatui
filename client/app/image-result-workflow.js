@@ -155,7 +155,11 @@
     return `<div class="generated-image-grid generated-image-batch-grid" data-generated-images="1" data-image-batch-total="${count}">${slots}</div>`;
   }
 
-  function renderImageBatchResultHtml({ total = 0, childContexts = [], statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL } = {}) {
+  function renderImageBatchResultHtml({ total = 0, childContexts = [], imageContext = {}, statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL } = {}) {
+    const completedImages = complete ? batchCompletionDescriptors(imageContext, childContexts) : [];
+    if (completedImages.length) {
+      return renderImageResultHtml(completedImages, { escapeHtml, downloadAllImagesButtonHtml, transparentPixel });
+    }
     const grid = renderImageBatchSlotsHtml(total, childContexts, { slotStatuses, slotSizes, slotSize, escapeHtml, transparentPixel });
     if (!grid) return batchStatusHtml(statusHtml, complete);
     const actions = downloadAllImagesButtonHtml();
@@ -165,9 +169,18 @@
     return `${grid}${actions ? `<div class="image-download-row">${actions}</div>` : ''}`;
   }
 
-  function patchImageBatchDisplayNode(node, { total = 0, childContexts = [], statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL, afterPatch = null } = {}) {
+  function patchImageBatchDisplayNode(node, { total = 0, childContexts = [], imageContext = {}, statuses = [], slotStatuses = statuses, slotSizes = [], slotSize = 'auto', statusHtml = '', complete = false, escapeHtml = value => String(value || ''), downloadAllImagesButtonHtml = () => '', transparentPixel = FALLBACK_TRANSPARENT_PIXEL, afterPatch = null } = {}) {
     const content = node?.querySelector?.('.content');
     if (!content) return false;
+    const completedImages = complete ? batchCompletionDescriptors(imageContext, childContexts) : [];
+    if (completedImages.length) {
+      // Pending slots are transient execution UI. Terminal output must switch to
+      // the same canonical renderer used by history restoration, otherwise the
+      // image wrappers, ordinals, and flow position change after a refresh.
+      content.innerHTML = renderImageResultHtml(completedImages, { escapeHtml, downloadAllImagesButtonHtml, transparentPixel });
+      afterPatch?.(node);
+      return true;
+    }
     let grid = content.querySelector('.generated-image-batch-grid');
     if (!grid) {
       content.innerHTML = renderImageBatchResultHtml({ total, childContexts, slotStatuses, slotSizes, slotSize, statusHtml, complete, escapeHtml, downloadAllImagesButtonHtml, transparentPixel });
@@ -235,6 +248,22 @@
       }));
   }
 
+  function batchCompletionDescriptors(imageContext = {}, childContexts = []) {
+    const canonical = imageDescriptorsFromContext(imageContext);
+    if (canonical.length) return canonical;
+    const seen = new Set();
+    const merged = [];
+    for (const context of Array.isArray(childContexts) ? childContexts : []) {
+      for (const item of imageDescriptorsFromContext(context || {})) {
+        const key = String(item.src || item.persistedSrc || '');
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+      }
+    }
+    return merged.map((item, index) => ({ ...item, ordinal: index + 1, sourceIndex: index + 1 }));
+  }
+
   function mergeImageResultContexts(current = {}, addition = {}) {
     const currentImages = imageDescriptorsFromContext(current);
     const addedImages = imageDescriptorsFromContext(addition);
@@ -279,6 +308,7 @@
       ...options,
       total: options.total,
       childContexts: options.childContexts || [],
+      imageContext: options.imageContext || imageContext,
       statusHtml: options.statusHtml || '',
       complete: !!options.complete,
       escapeHtml: deps.escapeHtml,

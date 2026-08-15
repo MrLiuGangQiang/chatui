@@ -248,12 +248,23 @@
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");
       const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};
       const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null,{message:state.messages?.[a],userText:s});
-      if(!await truncateRegenerationBranch(l,turn,replayPending))return void toast("找不到这条消息上下文，无法重新生成");
-      if(replayPending){await replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a});return}
+      // Canonical truncation and replaceSessionMessages mutate the in-memory branch synchronously,
+      // but durable snapshot persistence can be asynchronous. Project the replacement before waiting
+      // so a stale completed image/text node cannot remain mounted and later coexist with its result.
+      const branchCommit=truncateRegenerationBranch(l,turn,replayPending);
+      if(replayPending){
+        const replayStatus=executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文",replayHtml=typeof deps.pendingFeedbackHtml==="function"?deps.pendingFeedbackHtml(replayStatus):replayStatus;
+        resetMessageActionStates(e);
+        if(e?.dataset){delete e.dataset.imageContext;delete e.dataset.attachmentContext;delete e.dataset.jobId}
+        updateMessage?.(e,replayHtml,{html:!0,rawText:replayStatus,skipSave:!0,noScroll:!0,responseIndex:a,preserveLiveMedia:!1});
+        if(!await branchCommit)return void toast("找不到这条消息上下文，无法重新生成");
+        await replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a});return
+      }
       turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,{...turn,assistantIndex:a,hasAssistant:!1},{responseIndex:String(a),replacing:!0})||turn;
       const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
       resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
       const c=prepareRegeneratedResponse(t,e,l,a,executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文");e=c.node;let m=c.liveItem;
+      if(!await branchCommit)return void toast("找不到这条消息上下文，无法重新生成");
       const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
       const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
       const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});

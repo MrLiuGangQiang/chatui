@@ -6,6 +6,7 @@ const taskState = require('../../client/core/task-state');
 const clarification = require('../../shared/clarification-answer');
 require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
+const sessionPersistence = require('../../client/app/session-persistence');
 
 function makeMessageNode() {
   const button = {
@@ -429,6 +430,93 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
 }
 
 
+async function testRegenerateClearsSelectedImageBeforePersistenceCompletes() {
+  let releasePersistence;
+  const persistenceGate = new Promise(resolve => { releasePersistence = resolve; });
+  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const userNode = { dataset: { rawText: 'draw a fox', messageIndex: '0', displayItemId: 'user-immediate-clear' } };
+  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
+  const assistantNode = {
+    dataset: { responseIndex: '1', displayItemId: 'image-old' },
+    oldImageVisible: true,
+    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
+  };
+  const session = { id: 'session-immediate-clear', display: [], messages: [] };
+  const state = {
+    activeSessionId: session.id,
+    autoMode: true,
+    messages: [
+      { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0' },
+      {
+        role: 'assistant', content: '[图片生成完成] draw a fox', rawText: 'old image',
+        html: '<img data-persisted-src="indexeddb://old-image">',
+        imageContext: '{"attachments":[{"src":"indexeddb://old-image"}]}', responseIndex: '1',
+      },
+    ],
+    sessions: [session],
+  };
+  session.messages = state.messages.slice();
+  let prepareCalls = 0;
+  const workflow = regenerateWorkflow.createRegenerateWorkflow({
+    state,
+    taskEvents: taskState.TASK_EVENTS,
+    jobLifecycle: {
+      makeSubmissionId: () => 'submit-immediate-clear',
+      shouldPreservePendingSubmitOnError: () => false,
+    },
+    messageReplacement: sessionPersistence,
+    replaceSessionMessages: () => persistenceGate,
+    isSessionBusy: () => false,
+    findPreviousUserMessageNode: () => userNode,
+    toast: () => {},
+    ensureActiveRun: () => run,
+    resetMessageActionStates: () => {},
+    prepareRegeneratedResponse: () => {
+      prepareCalls += 1;
+      assistantNode.oldImageVisible = false;
+      return { node: assistantNode, liveItem: { id: 'display-immediate-clear', responseIndex: '1' } };
+    },
+    getUserAttachmentContextFromNode: () => '',
+    restoreUserAttachmentsFromContext: async () => [],
+    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
+    parseImageContext: () => null,
+    restoreImageAttachmentsFromContext: async () => [],
+    quotedFileCandidatesFromContext: () => [],
+    createRouteRecognitionUi: () => ({
+      stopSlowNotice() {},
+      async getEffectiveRouteWithSlowNotice() {
+        run.stopped = true;
+        run.abortController.abort();
+        throw new DOMException('Stopped', 'AbortError');
+      },
+    }),
+    getSubmitWorkflow: () => ({ savePendingSubmit: () => true, clearPendingSubmit: () => {} }),
+    dispatchTaskEvent: () => {},
+    resetActionButtonState: () => {},
+    finishSessionTask: () => {},
+    updateResumeStreamButton: () => {},
+    showRunError: () => { throw new Error('cancelled immediate-clear fixture must not render an error'); },
+    updateModeUi: () => {},
+    warnMissingModel: () => false,
+    isImageFile: () => false,
+    sendChat: async () => { throw new Error('cancelled immediate-clear fixture must not send chat'); },
+    sendImage: async () => { throw new Error('cancelled immediate-clear fixture must not send an image'); },
+    resumeSessionJobs: () => {},
+  });
+
+  const regeneration = workflow.regenerateAssistantMessage(assistantNode);
+  const prepareCallsBeforeRelease = prepareCalls;
+  const oldImageVisibleBeforeRelease = assistantNode.oldImageVisible;
+  releasePersistence();
+  await regeneration;
+
+  assert.strictEqual(prepareCallsBeforeRelease, 1,
+    'clicking regenerate must project the replacement immediately instead of waiting for snapshot persistence');
+  assert.strictEqual(oldImageVisibleBeforeRelease, false,
+    'the selected image result must be removed before asynchronous persistence can remount the stale result');
+}
+
+
 async function testRegenerateUsesCanonicalRouteRecognitionContext() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
   assert.ok(source.includes('getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode'));
@@ -445,6 +533,7 @@ module.exports = [
   testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent,
   testRegenerateAbortSignalSuppressesLateNonAbortError,
   testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement,
+  testRegenerateClearsSelectedImageBeforePersistenceCompletes,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
   testRegenerateUsesCanonicalRouteRecognitionContext,
 ];

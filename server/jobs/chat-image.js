@@ -1,7 +1,6 @@
 const { createJobEvents, publicJob } = require('./common');
 const { createChatJobHandlers } = require('./chat');
 const { createImageJobHandlers } = require('./image');
-const { normalizeReasoningText } = require('./reasoning');
 
 function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs, contextWindowTokens, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
   const { notifyJob, subscribeJob, abortJob, disposeJob } = createJobEvents({ jobSubscribers });
@@ -19,4 +18,4 @@ function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeou
   };
 }
 
-module.exports = { createJobHandlers, normalizeReasoningText };
+module.exports = { createJobHandlers };

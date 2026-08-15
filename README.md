@@ -1324,4 +1324,5 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 
 - [Architecture and module boundaries](docs/architecture.md)
 - [Development, checks, and release workflow](docs/development.md)
+- [Manual acceptance suite](docs/manual-acceptance-test.md)
 - [Contribution guide](CONTRIBUTING.md)

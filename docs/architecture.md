@@ -136,7 +136,6 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 ### 3.5 其他浏览器目录
 
 - `client/config/`：公开、非敏感的浏览器配置常量和 storage key；
-- `client/domain/`：领域类型或兼容契约；其中仅供类型文档/测试使用的文件不得加入浏览器资产清单；
 - `test/helpers/`：Node-only 测试源码断言与测试辅助代码，不属于浏览器运行契约，也不得被生产模块依赖。
 
 ### 3.6 浏览器模块注册表与静态加载顺序
@@ -193,7 +192,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 - `server/config/`：服务端环境变量、仅本机 `.env.local` 加载、公开配置和 build identity 装配；本机文件只能补充缺失变量，不能覆盖部署环境，也不能进入版本控制；
 - `server/version-source.js`：读取并校验根目录唯一版本源；
-- `server/errors/`：统一错误类型；
+- `server/errors/http-error.js`：统一服务端错误类型和错误响应载荷；不得再增加只做转发的错误模块；
 - `server/logging/`：安全日志；
 - `server/validators/`：请求校验。
 

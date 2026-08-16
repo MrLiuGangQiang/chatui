@@ -124,6 +124,45 @@ async function testIntentResponsesRemainOneShotJsonEndToEnd() {
   }
 }
 
+async function testIntentResponsesNormalizeOutputArrayForStructuredRouteParsing() {
+  const originalFetch = global.fetch;
+  const routeJson = '{"operation":"plain_chat","relation":"followup","goal":"那还不错","resource_refs":[],"task_shape":"single"}';
+  const upstreamResponse = {
+    object: 'response',
+    model: 'route-model',
+    output: [
+      {
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: 'do not expose hidden reasoning' }],
+      },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: routeJson }],
+      },
+    ],
+  };
+  global.fetch = async () => upstreamJson(200, upstreamResponse);
+
+  try {
+    await withPrivateUpstreamAllowed(async () => {
+      const { proxy } = createProxy();
+      const response = createResponse();
+      await proxy(createRequest({ model: 'route-model', input: 'classify request' }), response);
+
+      assert.strictEqual(response.status, 200);
+      const forwarded = JSON.parse(Buffer.concat(response.chunks).toString('utf8'));
+      assert.deepStrictEqual(forwarded.output, upstreamResponse.output,
+        'the proxy must preserve the native Responses output envelope');
+      assert.strictEqual(forwarded.output_text, routeJson,
+        'one-shot intent consumers must receive the canonical output_text convenience field');
+      assert.ok(!forwarded.output_text.includes('hidden reasoning'));
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testIntentResponsesNeverRetryAsStreamAfterGatewayError() {
   const originalFetch = global.fetch;
   const calls = [];
@@ -186,6 +225,7 @@ async function testIntentResponsesRejectUnexpectedUpstreamSseInsteadOfRelayingIt
 
 module.exports = [
   testIntentResponsesRemainOneShotJsonEndToEnd,
+  testIntentResponsesNormalizeOutputArrayForStructuredRouteParsing,
   testIntentResponsesNeverRetryAsStreamAfterGatewayError,
   testIntentResponsesRejectUnexpectedUpstreamSseInsteadOfRelayingIt,
 ];

@@ -186,6 +186,61 @@ async function testIntentRecognitionFallsBackToNonStreamingChatForExactResponses
   }
 }
 
+async function testNonStreamingChatTransportFallbackUnwrapsContentPartsBeforeRouteValidation() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  const actualRouteService = require('../../client/services/route-service');
+  globalThis.ChatUIRouteService = actualRouteService;
+  const calls = [];
+  const intent = {
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '联苯苄唑溶液能上飞机么',
+    resource_refs: [],
+    task_shape: 'single',
+  };
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'route-secret',
+      routeModel: 'route-model',
+      chatModel: 'route-model',
+    }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'route-model',
+    requestJson: async (url, payload, apiKey, options) => {
+      calls.push({ url, payload, apiKey, options });
+      if (calls.length === 1) {
+        const error = new Error('failed to do request: empty stream chunks');
+        error.statusCode = 500;
+        error.code = 'internal_error';
+        throw error;
+      }
+      return {
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: JSON.stringify(intent) }],
+          },
+        }],
+      };
+    },
+  });
+
+  try {
+    const route = await workflow.getEffectiveRoute(intent.goal, [], 'session-content-parts');
+    assert.strictEqual(calls.length, 2, 'the exact gateway defect must take the one-shot Chat fallback');
+    assert.strictEqual(calls[0].url, 'https://gateway.example/v1/responses');
+    assert.strictEqual(calls[1].url, 'https://gateway.example/v1/chat/completions');
+    assert.strictEqual(calls[1].payload.stream, false, 'the fallback must never enable streaming');
+    assert.strictEqual(route.operationType, 'plain_chat', 'valid content parts must not be rejected as an invalid route');
+    assert.strictEqual(route.readiness, 'ready');
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
 async function testIntentRecognitionDoesNotChangeTransportForOrdinaryResponsesServerError() {
   const previousRouteService = globalThis.ChatUIRouteService;
   const { service } = makeRouteService();
@@ -616,6 +671,7 @@ function testIntentPayloadDoesNotRepeatResourceCatalogInsideContext() {
 module.exports = [
   testIntentRecognitionUsesTheResponsesProxyPath,
   testIntentRecognitionFallsBackToNonStreamingChatForExactResponsesGatewayDefect,
+  testNonStreamingChatTransportFallbackUnwrapsContentPartsBeforeRouteValidation,
   testIntentRecognitionDoesNotChangeTransportForOrdinaryResponsesServerError,
   testAmbiguousRouteUsesDeterministicClarificationWithoutSecondModelCall,
   testIntentWorkflowPreservesCanonicalResourceMetadata,

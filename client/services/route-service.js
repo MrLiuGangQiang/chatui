@@ -1214,8 +1214,23 @@
 
   // ── Response parsing ────────────────────────────────────────────
   function extractRouteText(response = {}) {
-    return response?.choices?.[0]?.message?.content
-      || response?.output_text || '';
+    // Route recognition receives both native Responses envelopes and the
+    // non-streaming Chat Completions compatibility fallback. Reuse the shared
+    // text extractor so `output[].content[].text` and content-part arrays are
+    // unwrapped before the strict route-intent parser runs.
+    const extracted = typeof chatService?.extractChatJobText === 'function'
+      ? chatService.extractChatJobText(response)?.content
+      : '';
+    if (stringValue(extracted)) return String(extracted);
+
+    // A few structured-output adapters expose the parsed value directly rather
+    // than duplicating it in output_text. It is still subjected to the exact
+    // route-intent validator below; this only normalizes its transport shape.
+    const parsed = response?.output_parsed ?? response?.parsed;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      try { return JSON.stringify(parsed); } catch {}
+    }
+    return '';
   }
 
   function parseRouteJson(text = '') {

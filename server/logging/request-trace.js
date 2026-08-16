@@ -16,6 +16,7 @@ const {
   createTraceContext,
 } = require('./logger');
 const dispatchContractContract = require('../../shared/dispatch-contract');
+const { responseOutputText } = require('../proxy/responses-output');
 
 const TRACE_SCHEMA_VERSION = 'request_trace.v1';
 const DEFAULT_TRACE_RELATIVE_PATH = path.join('temp', 'request-trace.ndjson');
@@ -496,7 +497,7 @@ function summarizeResponsePayload(response, {
   if (kind === 'route_intent' || kind === 'chat') {
     const choices = Array.isArray(response.choices) ? response.choices : [];
     const usage = response.usage || {};
-    const outputText = String(response.output_text || '');
+    const outputText = responseOutputText(response);
     const summarizedChoices = choices.slice(0, 4).map((choice, idx) => {
       if (!choice || typeof choice !== 'object') return traceText(choice, { secrets, includeText });
       const msg = choice.message || {};

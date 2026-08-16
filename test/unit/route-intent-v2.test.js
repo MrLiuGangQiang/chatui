@@ -23,6 +23,58 @@ function testLiveRouteParserRejectsLegacyFourFieldOutput() {
   assert.strictEqual(inspected.reason, 'route_intent_invalid');
 }
 
+function testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts() {
+  const intent = {
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '联苯苄唑溶液能上飞机么',
+    resource_refs: [],
+    task_shape: 'single',
+  };
+  const serialized = JSON.stringify(intent);
+  const responseEnvelopes = [
+    {
+      name: 'Responses output content',
+      value: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: serialized }],
+        }],
+      },
+    },
+    {
+      name: 'Chat Completions content parts',
+      value: {
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: serialized }],
+          },
+        }],
+      },
+    },
+    {
+      name: 'parsed structured output',
+      value: { output_parsed: intent },
+    },
+  ];
+
+  for (const envelope of responseEnvelopes) {
+    const text = routeService.extractRouteText(envelope.value);
+    assert.strictEqual(text, serialized, `${envelope.name} must unwrap into the exact JSON text`);
+    const inspected = routeService.inspectModelRouteResult(text, {
+      input: intent.goal,
+      attachments: [],
+      context: {},
+      currentMode: 'chat',
+      autoMode: true,
+    });
+    assert.ok(inspected.route, `${envelope.name} must pass strict route validation`);
+    assert.strictEqual(inspected.route.operationType, 'plain_chat');
+  }
+}
+
 function testLegacyRouteIntentRequiresAnExplicitAdapter() {
   const adapted = routeIntent.adaptLegacyRouteIntentV1(legacyIntent());
   assert.deepStrictEqual(adapted, { ...legacyIntent(), task_shape: 'single' });
@@ -42,6 +94,7 @@ function testLiveRouteSchemaPublishesV2AndRequiresAllFiveFields() {
 
 module.exports = [
   testLiveRouteParserRejectsLegacyFourFieldOutput,
+  testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts,
   testLegacyRouteIntentRequiresAnExplicitAdapter,
   testLiveRouteSchemaPublishesV2AndRequiresAllFiveFields,
 ];

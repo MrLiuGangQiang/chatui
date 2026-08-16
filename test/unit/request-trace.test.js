@@ -87,6 +87,35 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
   });
 }
 
+function testRequestTraceSummarizesResponsesOutputContentWithoutReasoning() {
+  const intent = JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '联苯苄唑溶液能上飞机么',
+    resource_refs: [],
+    task_shape: 'single',
+  });
+  const summary = summarizeResponsePayload({
+    id: 'resp-output-content',
+    model: 'gpt-5.6-luna',
+    output: [
+      {
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: 'private chain of thought must not be logged' }],
+      },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: intent }],
+      },
+    ],
+  }, { kind: 'route_intent', includeText: true });
+
+  assert.strictEqual(summary.output_text.text, intent,
+    'a standard Responses output envelope must retain the final route JSON in the trace');
+  assert.ok(!summary.output_text.text.includes('private chain of thought'));
+}
+
 function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided() {
   withTempTrace(root => {
     const file = path.join(root, 'duration.ndjson');
@@ -389,6 +418,7 @@ async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
 
 module.exports = [
   testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary,
+  testRequestTraceSummarizesResponsesOutputContentWithoutReasoning,
   testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided,
   testDisabledRequestTraceDoesNotCreateAFile,
   testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries,

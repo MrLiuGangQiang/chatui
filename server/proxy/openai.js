@@ -11,6 +11,7 @@ const {
   buildImageEditMultipartBody,
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
+const { normalizeNonStreamingResponsesBody } = require('./responses-output');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const { JOB_ID_CONFLICT_MESSAGE, assertRequestPrincipal, bindJobOwner, jobOwnedBy } = require('../security/job-ownership');
@@ -261,8 +262,16 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       return;
     }
 
-    const text = await upstream.text();
-    const traceDetails = { status: upstream.status, responseText: text, contentType };
+    const rawText = await upstream.text();
+    const normalized = upstream.ok
+      && targetPath === '/responses'
+      && String(body?.requestPurpose || '') === 'intent_recognition'
+      && !wantsStream
+      ? normalizeNonStreamingResponsesBody(rawText)
+      : { text: rawText, normalized: false };
+    const text = normalized.text;
+    const traceDetails = { status: upstream.status, responseText: text, contentType,
+      ...(normalized.normalized ? { responseNormalized: 'responses_output_text' } : {}) };
     if (upstream.ok) requestTrace?.complete?.(traceSpan, traceDetails);
     else requestTrace?.fail?.(traceSpan, { ...traceDetails, error: new Error(`Upstream HTTP ${upstream.status}`) });
     send(res, upstream.status, text, {

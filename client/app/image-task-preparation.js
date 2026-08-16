@@ -38,6 +38,7 @@
       routePrompt = '',
       originalPrompt = '',
       resolvedGoal = '',
+      taskState = null,
       childJobId = '',
       submissionId = '',
     } = {}) {
@@ -106,6 +107,7 @@
             prompt,
             routePrompt: routePrompt || promptFallback || prompt,
             resolvedGoal: resolvedGoal || routePrompt || promptFallback || prompt,
+            taskState,
             mode: productMode,
             target: executionTarget,
             usePreviousImage: usesPriorInput,
@@ -120,6 +122,7 @@
             prompt,
             routePrompt: routePrompt || promptFallback || prompt,
             resolvedGoal: resolvedGoal || routePrompt || promptFallback || prompt,
+            ...(taskState ? { taskState } : {}),
             mode: productMode,
             target: executionTarget,
             usePreviousImage: usesPriorInput,

@@ -5,14 +5,18 @@ const path = require("path");
 const routeService = require("../../client/services/route-service");
 const capabilityRegistry = require("../../shared/capability-registry");
 const dispatchContractContract = require("../../shared/dispatch-contract");
+const taskContinuityContract = require("../../shared/task-continuity");
 
-const SCHEMA_VERSION = "intent-routing-eval.v2";
+const SCHEMA_VERSION = "intent-routing-eval.v3";
 const VALID_OPERATIONS = new Set([
   "plain_chat", "file_qa", "multimodal_qa", "image_qa", "image_compare",
-  "ocr", "text_to_image", "image_reference_gen", "edit_image",
+  "ocr", "text_to_image", "image_reference_gen", "edit_image", "web_search",
 ]);
 const VALID_RELATIONS = new Set(["new", "followup", "continuation"]);
 const VALID_TASK_SHAPES = new Set(["single", "multi"]);
+const VALID_GOAL_MODES = new Set(["replace", "amend"]);
+const IMAGE_TASK_OPERATIONS = new Set(["text_to_image", "image_reference_gen", "edit_image"]);
+const IMAGE_TASK_AMEND_OPERATIONS = new Set(["text_to_image", "edit_image"]);
 const VALID_RESOURCE_TYPES = new Set(["image", "file", "text", "message"]);
 const VALID_RESOURCE_SOURCES = new Set(["current", "quoted", "history", "context"]);
 const VALID_RESOURCE_ROLES = new Set([
@@ -30,10 +34,11 @@ const SCORE_WEIGHTS = Object.freeze({
   operation: 15,
   task_shape: 5,
   goal: 15,
-  readiness: 10,
+  goal_mode: 10,
+  readiness: 5,
   relation: 10,
   resources: 15,
-  clarification: 10,
+  clarification: 5,
   dispatch_contract: 10,
 });
 const SECRET_FIELD_RE = /(?:api[_-]?key|authorization|token|secret|password|base64|data_url|dataurl|blob_url|binary|contents?)/i;
@@ -84,6 +89,10 @@ function validateExpected(expected = {}, label = "expected") {
   if (!isPlainObject(expected)) fail(`${label} must be an object.`);
   if (!VALID_OPERATIONS.has(expected.operation)) fail(`${label}.operation is invalid.`);
   if (!VALID_TASK_SHAPES.has(expected.task_shape)) fail(`${label}.task_shape is invalid.`);
+  if (!VALID_GOAL_MODES.has(expected.goal_mode)) fail(`${label}.goal_mode is invalid.`);
+  if (!IMAGE_TASK_AMEND_OPERATIONS.has(expected.operation) && expected.goal_mode !== "replace") {
+    fail(`${label}.goal_mode must be replace for ${expected.operation}.`);
+  }
   if (!(typeof expected.relation === "string" ? VALID_RELATIONS.has(expected.relation) : (Array.isArray(expected.relation) && expected.relation.length && expected.relation.every(r => VALID_RELATIONS.has(r))))) fail(`${label}.relation is invalid.`);
   if (!isPlainObject(expected.goal)
       || !Array.isArray(expected.goal.concepts)
@@ -99,6 +108,11 @@ function validateExpected(expected = {}, label = "expected") {
   });
   if (expected.goal.forbidden.some(value => !scalar(value).trim())) {
     fail(`${label}.goal.forbidden must contain only non-empty strings.`);
+  }
+  if (own(expected.goal, "intent_forbidden")
+      && (!Array.isArray(expected.goal.intent_forbidden)
+        || expected.goal.intent_forbidden.some(value => !scalar(value).trim()))) {
+    fail(`${label}.goal.intent_forbidden must contain only non-empty strings when present.`);
   }
   if (!isPlainObject(expected.clarification)
       || typeof expected.clarification.required !== "boolean"
@@ -155,9 +169,41 @@ function validateFixtureCase(caseDefinition = {}, seenIds = new Set()) {
   if (!isPlainObject(caseDefinition.context)) fail(`${id}.context must be an object.`);
   if (own(caseDefinition, "current_mode") && !["chat", "image", "edit_image"].includes(caseDefinition.current_mode)) fail(`${id}.current_mode is invalid.`);
   if (own(caseDefinition, "auto_mode") && typeof caseDefinition.auto_mode !== "boolean") fail(`${id}.auto_mode must be boolean.`);
+  const recentMessages = Array.isArray(caseDefinition.context.recent_messages)
+    ? caseDefinition.context.recent_messages
+    : [];
+  const duplicateCurrentMessages = recentMessages.filter(message => (
+    message?.role === "user" && scalar(message?.content) === caseDefinition.input
+  ));
+  if (own(caseDefinition, "current_turn")) {
+    const currentTurn = caseDefinition.current_turn;
+    if (!isPlainObject(currentTurn)
+        || Object.keys(currentTurn).length !== 1
+        || !Number.isInteger(currentTurn.messageIndex)
+        || currentTurn.messageIndex < 1) {
+      fail(`${id}.current_turn must contain exactly one positive integer messageIndex.`);
+    }
+    const currentMessage = recentMessages.find(message => Number(message?.index) === currentTurn.messageIndex);
+    if (!currentMessage || currentMessage.role !== "user" || scalar(currentMessage.content) !== caseDefinition.input) {
+      fail(`${id}.current_turn must identify the current user input in context.recent_messages.`);
+    }
+  } else if (duplicateCurrentMessages.length) {
+    fail(`${id}.current_turn is required when context.recent_messages contains the current user input.`);
+  }
   validateExpected(caseDefinition.expected, `${id}.expected`);
+  if (caseDefinition.expected.goal_mode === "amend") {
+    const previousTaskState = taskContinuityContract.taskContinuityFromExecution(
+      caseDefinition.context.previous_execution || {},
+    );
+    if (!previousTaskState) fail(`${id}.expected.goal_mode=amend requires previous_execution task state.`);
+  }
 
-  const candidates = routeService.buildResourceCandidates(caseDefinition.attachments, caseDefinition.context);
+  const candidates = routeService.buildRouteResourceCandidates({
+    attachments: caseDefinition.attachments,
+    context: caseDefinition.context,
+    input: caseDefinition.input,
+    currentTurn: caseDefinition.current_turn || null,
+  });
   const matchesFixtureLocator = (locator, candidate) => Object.entries(locator).every(([field, value]) => {
     // `role` and `missing` describe the final execution contract, not the
     // source candidate metadata (a message's original role is e.g. assistant).
@@ -198,8 +244,11 @@ function routeSnapshot(route = null) {
     api: scalar(route.operationApi || route.api),
     task_shape: scalar(route.taskShape),
     relation: scalar(route.relation),
+    goal_mode: scalar(route.goalMode),
     goal: scalar(route.userGoal || route.executionPrompt || route.dispatchContract?.arguments?.prompt),
     execution_goal: scalar(route.dispatchContract?.arguments?.prompt || route.executionPrompt),
+    resolved_goal: scalar(route.resolvedImageGoal),
+    task_state: route.imageTaskState || null,
     readiness: scalar(route.readiness),
     dispatch_authorized: route.dispatchAuthorized === true,
     resources: Array.isArray(route.resources) ? route.resources : [],
@@ -215,11 +264,14 @@ function normalizedGoalText(value = "") {
   return scalar(value).normalize("NFKC").toLowerCase().replace(/[\s，。！？!?；;：:、,.()（）【】\[\]"'“”‘’_-]+/g, "");
 }
 
-function goalMatchesExpectation(expected = {}, actual = "") {
+function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
   const text = normalizedGoalText(actual);
   if (!text) return false;
   const concepts = Array.isArray(expected.concepts) ? expected.concepts : [];
-  const forbidden = Array.isArray(expected.forbidden) ? expected.forbidden : [];
+  const forbidden = [
+    ...(Array.isArray(expected.forbidden) ? expected.forbidden : []),
+    ...(options.intentOnly === true && Array.isArray(expected.intent_forbidden) ? expected.intent_forbidden : []),
+  ];
   return concepts.every(alternatives => alternatives.some(value => text.includes(normalizedGoalText(value))))
     && forbidden.every(value => !text.includes(normalizedGoalText(value)));
 }
@@ -265,7 +317,7 @@ function relationMatchesExpectation(expectedRelation, actualRelation) {
 
 function modelSemanticsMatchExpectation(caseDefinition = {}, intent = null) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
-    return { present: false, operation: false, task_shape: false, relation: false, goal: false };
+    return { present: false, operation: false, task_shape: false, relation: false, goal_mode: false, goal: false };
   }
   const expected = caseDefinition.expected || {};
   return {
@@ -273,7 +325,8 @@ function modelSemanticsMatchExpectation(caseDefinition = {}, intent = null) {
     operation: scalar(intent.operation) === scalar(expected.operation),
     task_shape: scalar(intent.task_shape) === scalar(expected.task_shape),
     relation: relationMatchesExpectation(expected.relation, intent.relation),
-    goal: goalMatchesExpectation(expected.goal, intent.goal),
+    goal_mode: scalar(intent.goal_mode) === scalar(expected.goal_mode),
+    goal: goalMatchesExpectation(expected.goal, intent.goal, { intentOnly: true }),
   };
 }
 
@@ -283,7 +336,24 @@ function validateCompiledRoute(route = null) {
   if (!compiled) return { valid: false, errors: ["compiled route is not an object"] };
   if (!VALID_RELATIONS.has(compiled.relation)) errors.push("relation is invalid");
   if (!VALID_TASK_SHAPES.has(compiled.task_shape)) errors.push("task_shape is invalid");
+  if (!VALID_GOAL_MODES.has(compiled.goal_mode)) errors.push("goal_mode is invalid");
   if (!VALID_OPERATIONS.has(compiled.operation) || !capabilityRegistry.capabilityFor(compiled.operation)) errors.push("operation is invalid");
+  if (compiled.goal_mode === "amend" && !IMAGE_TASK_AMEND_OPERATIONS.has(compiled.operation)) {
+    errors.push("goal_mode=amend is invalid for operation");
+  }
+  if (IMAGE_TASK_OPERATIONS.has(compiled.operation)) {
+    if (!taskContinuityContract.hasExactTaskContinuity(compiled.task_state)) {
+      errors.push("image route requires an exact task_continuity.v1 state");
+    } else {
+      if (compiled.task_state.goal_mode !== compiled.goal_mode) errors.push("task state goal_mode does not match route goal_mode");
+      if (taskContinuityContract.renderTaskContinuity(compiled.task_state) !== compiled.resolved_goal) {
+        errors.push("resolved image goal does not match task state rendering");
+      }
+    }
+  } else {
+    if (compiled.goal_mode !== "replace") errors.push("non-image route goal_mode must be replace");
+    if (compiled.task_state !== null) errors.push("non-image route cannot retain image task state");
+  }
   if (!["ready", "needs_clarification"].includes(compiled.readiness)) errors.push("readiness is invalid");
   const keys = new Set();
   for (const [index, resource] of compiled.resources.entries()) {
@@ -377,7 +447,7 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
   const modelResourcesMatch = modelIntent ? modelResourcesMatchExpectation(caseDefinition, modelIntent) : true;
   const modelSemantics = modelIntent
     ? modelSemanticsMatchExpectation(caseDefinition, modelIntent)
-    : { present: false, operation: true, relation: true, goal: true };
+    : { present: false, operation: true, task_shape: true, relation: true, goal_mode: true, goal: true };
   const checks = {
     valid_route: validRoute,
     operation: validRoute
@@ -390,6 +460,9 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
       && goalMatchesExpectation(expected.goal, compiled.goal)
       && (expectsClarification || goalMatchesExpectation(expected.goal, compiled.execution_goal))
       && modelSemantics.goal,
+    goal_mode: validRoute
+      && compiled.goal_mode === expected.goal_mode
+      && modelSemantics.goal_mode,
     readiness: validRoute && compiled.readiness === (expectsClarification ? "needs_clarification" : "ready"),
     relation: validRoute
       && relationMatchesExpectation(expected.relation, compiled.relation)
@@ -474,6 +547,7 @@ function evaluateRouteText(caseDefinition = {}, rawText = "", { apiKey = "" } = 
     context: caseDefinition.context || {},
     currentMode: caseDefinition.current_mode || "chat",
     autoMode: caseDefinition.auto_mode !== false,
+    currentTurn: caseDefinition.current_turn || null,
   });
   const result = scoreRouteCase(caseDefinition, inspection.route, {
     inspection_reason: inspection.reason,
@@ -528,6 +602,7 @@ module.exports = {
   SCORE_WEIGHTS,
   VALID_OPERATIONS,
   VALID_TASK_SHAPES,
+  VALID_GOAL_MODES,
   validateCompiledRoute,
   validateFixtureSuite,
   loadFixtureSuite,

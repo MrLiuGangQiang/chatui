@@ -102,15 +102,18 @@ function testGenerateFamilyPublishesTheBoundedTextTaskBaselineWithoutExposingLeg
   }).input[1].content);
   assert.strictEqual(payload.context.previous_execution.input, undefined,
     'generation results must not expose the edit-only legacy input field');
-  assert.strictEqual(payload.context.previous_execution.resolved_goal, '生成一只猫',
-    'text-only image redesigns need the bounded historical task baseline, not an old image binding');
+  assert.deepStrictEqual(payload.context.previous_execution.task_state, {
+    schema_version: 'task_continuity.v1',
+    goal_mode: 'replace',
+    segments: [{ kind: 'base', text: '生成一只猫' }],
+  }, 'text-only image redesigns need the structured historical task baseline, not an old image binding');
 }
 
 function testPromptUsesGeneralRulesInsteadOfFailureCasePatches() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
-  assert.match(prompt, /正例："将目标图中的猫改为白色，保留构图不变。"/);
-  assert.doesNotMatch(prompt, /选错了猫|耳朵换成红色|资源纠正/,
+  assert.match(prompt, /goal_mode=amend只写当前具体delta.*不复述前序base/);
+  assert.doesNotMatch(prompt, /将目标图中的猫改为白色|选错了猫|耳朵换成红色|资源纠正/,
     'specific production failures belong in evaluation fixtures, not the system prompt');
 }
 

@@ -193,7 +193,13 @@ npm run eval:intent -- \
   --output temp/reports/intent-routing-live.json
 ```
 
-评估输入来自 `test/fixtures/intent-routing-eval.v2.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 的最小 `route_intent.v2`；`goal` 只消解指代并保留用户已提出的约束。`task_shape` 描述本轮是否需要多个独立执行，而非资源数量：`single` 是一次 dispatch 可返回一个可合并结果，多图问答、比较、OCR 和汇总仍为 `single`；`multi` 表示多个独立执行，只有图片生成/编辑的 `multi` 才是可直接执行的多个独立图片结果并进入二级图片规划。非图片或跨 API 的多个必做步骤以 `multi` 标记需要拆分，由执行门禁阻止发送、不会授权图片批次，并要求拆分。`relation` 必须按既定优先级首个命中即停止：纠正或引用正文事实优先于继续语义，继续语义优先于一般历史依赖，最后才是 `new`。评估器直接把原始模型五字段作为独立语义证据，检查 operation、relation、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定并检查澄清、图片规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误 operation/relation 兜底；跨 API 多任务必须由 `task_shape=multi` 触发拆分提示。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。 请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域；这些约束属于生成前协议，不得通过修改评估器或模型返回后的语义归一化掩盖失败。
+评估输入来自 `test/fixtures/intent-routing-eval.v3.json`。模型必须返回只含 `operation`、`relation`、`goal`、`goal_mode`、`resource_refs`、`task_shape` 的最小 `route_intent.v3`；`goal` 只消解指代并保留用户已提出的约束。`relation`、`goal_mode` 与资源绑定分别评估：对话上的 follow-up 可以是完整 `replace`，文字任务 `amend` 可以不绑定旧图，明确不使用旧图只能表现为 `resource_refs=[]`，不能被本地层改写。没有有效前序图片任务状态时，请求级 schema 必须把 `goal_mode` 收窄为 `replace`；非图片操作与 `image_reference_gen` 也只能为 `replace`。
+
+评估器直连供应商时仍复用 `shared/responses-output.js` 解释非流式 envelope，与服务端 `/api/responses` 意图压缩边界使用同一最终文本提取规则；Responses 顶层 `text.format` 只能视为请求/响应格式元数据，不能当成模型输出。若 fixture 的 `context.recent_messages` 含正在评估的当前用户消息，必须显式声明 `current_turn.messageIndex`；评估器和生产提交链路使用同一 current-turn 过滤规则，禁止把当前输入再次作为历史证据发送。
+
+`task_shape` 描述本轮是否需要多个独立执行，而非资源数量：`single` 是一次 dispatch 可返回一个可合并结果，多图问答、比较、OCR 和汇总仍为 `single`；`multi` 表示多个独立执行。所有图片类 `multi` 都进入二级图片规划，父路由必须是无执行合同、无执行授权的 planning envelope，只有 `image_plan.v1` 子路由可独立 dispatch；非图片或跨 API 的 `multi` 由执行门禁阻止发送并要求拆分。评估器直接把原始模型六字段作为独立语义证据，检查 operation、relation、goal mode、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定，校验 `task_continuity.v1` 的 transition/render 结果、批量 `image_task_lineage.v1`、澄清、父规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误语义兜底，也不得给 `resource_refs=[]` 补入最近图片。
+
+默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation/goal mode 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域。每个连续性故障都必须有独立回归：完整重做 `replace`、局部修订 `amend`、刷新恢复、显式损坏状态拒绝、图片类 multi 父路由无 dispatch、批量 child 独立 lineage。不得通过修改评估器、后置归一化或 legacy 文本回退掩盖失败。
 
 报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 

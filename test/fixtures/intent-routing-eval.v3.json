@@ -1,6 +1,6 @@
 {
-  "schema_version": "intent-routing-eval.v2",
-  "title": "ChatUI route_intent.v2 semantic routing evaluation",
+  "schema_version": "intent-routing-eval.v3",
+  "title": "ChatUI route_intent.v3 semantic routing evaluation",
   "cases": [
     {
       "id": "plain-chat-does-not-inherit-history-image",
@@ -32,6 +32,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -96,6 +97,7 @@
       "expected": {
         "operation": "text_to_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -171,6 +173,7 @@
       "expected": {
         "operation": "text_to_image",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -226,6 +229,7 @@
       "expected": {
         "operation": "text_to_image",
         "relation": "continuation",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -292,9 +296,13 @@
         ],
         "file_candidates": []
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -375,9 +383,13 @@
         ],
         "file_candidates": []
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "ocr",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -456,9 +468,13 @@
           }
         ]
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -553,9 +569,13 @@
           }
         ]
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "multimodal_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -651,6 +671,7 @@
       "expected": {
         "operation": "image_compare",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -732,6 +753,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -818,9 +840,13 @@
         ],
         "file_candidates": []
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -875,9 +901,13 @@
         "image_candidates": [],
         "file_candidates": []
       },
+      "current_turn": {
+        "messageIndex": 1
+      },
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -941,6 +971,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1016,6 +1047,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1100,6 +1132,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1184,6 +1217,7 @@
       "expected": {
         "operation": "image_qa",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1253,6 +1287,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1326,6 +1361,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "continuation",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1400,6 +1436,7 @@
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1474,6 +1511,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1553,6 +1591,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1628,6 +1667,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1697,6 +1737,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1803,6 +1844,7 @@
       "expected": {
         "operation": "image_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1898,6 +1940,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -1976,6 +2019,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2023,6 +2067,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2117,6 +2162,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2202,6 +2248,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2293,6 +2340,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2373,6 +2421,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "continuation",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2430,6 +2479,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2508,6 +2558,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2585,6 +2636,7 @@
       "expected": {
         "operation": "file_qa",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2638,6 +2690,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2727,6 +2780,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -2816,6 +2870,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "amend",
         "goal": {
           "concepts": [
             [
@@ -2911,6 +2966,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -3017,6 +3073,7 @@
       "expected": {
         "operation": "image_reference_gen",
         "relation": "new",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -3107,6 +3164,7 @@
       "expected": {
         "operation": "plain_chat",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -3201,6 +3259,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -3394,6 +3453,7 @@
       "expected": {
         "operation": "image_qa",
         "relation": "continuation",
+        "goal_mode": "replace",
         "goal": {
           "concepts": [
             [
@@ -3492,6 +3552,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "new",
+        "goal_mode": "replace",
         "task_shape": "multi",
         "goal": {
           "concepts": [
@@ -3609,6 +3670,7 @@
       "expected": {
         "operation": "edit_image",
         "relation": "followup",
+        "goal_mode": "replace",
         "task_shape": "multi",
         "goal": {
           "concepts": [
@@ -3689,6 +3751,942 @@
             }
           ]
         }
+      }
+    },
+    {
+      "id": "complete-redesign-replaces-task-state-without-old-image",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "你这布局不对：堂屋进门被沙发挡住，卧室1进门也被挡住，厕所和餐厅放在一起。不要参照旧图，按最初要求完整重新设计：18米×8米、严格左右镜像、中央堂屋4.0m×4.6m、底部双开主入口，三处通行与分隔要求都必须满足。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "请生成一张18米×8米的住宅户型图。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "[图片生成完成] 旧版住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "18米",
+              "18m"
+            ],
+            [
+              "8米",
+              "8m"
+            ],
+            [
+              "左右镜像",
+              "镜像对称"
+            ],
+            [
+              "堂屋"
+            ],
+            [
+              "4.0m×4.6m",
+              "4.0米×4.6米"
+            ],
+            [
+              "双开",
+              "主入口"
+            ],
+            [
+              "堂屋入口",
+              "堂屋进门"
+            ],
+            [
+              "通行",
+              "通道",
+              "畅通",
+              "无遮挡",
+              "阻挡",
+              "遮挡",
+              "挡住"
+            ],
+            [
+              "沙发",
+              "家具"
+            ],
+            [
+              "卧室1入口",
+              "卧室1进门",
+              "卧室1门口"
+            ],
+            [
+              "卫生间",
+              "厕所"
+            ],
+            [
+              "餐厅"
+            ],
+            [
+              "分隔",
+              "不相邻"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "L形交通走廊"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "partial-redesign-amends-task-state-without-old-image",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "不要沿用旧图，只在原完整户型文字要求上继续修订：堂屋主入口留出1.2米无遮挡通道，卧室1门口移走全部家具。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 旧版住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "followup",
+        "goal_mode": "amend",
+        "goal": {
+          "concepts": [
+            [
+              "堂屋"
+            ],
+            [
+              "主入口"
+            ],
+            [
+              "1.2米",
+              "1.2m"
+            ],
+            [
+              "无遮挡",
+              "通道"
+            ],
+            [
+              "卧室1"
+            ],
+            [
+              "家具"
+            ],
+            [
+              "移走",
+              "清空"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ],
+          "intent_forbidden": [
+            "L形交通走廊",
+            "餐厅与卫生间相邻"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "new-theme-replaces-prior-image-task-state",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "生成一张火星科研基地的横向概念图：红色沙丘、三个白色穹顶舱、远处两颗卫星，电影级写实光照。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "new",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "火星"
+            ],
+            [
+              "科研基地"
+            ],
+            [
+              "红色沙丘",
+              "沙丘"
+            ],
+            [
+              "三个",
+              "3个"
+            ],
+            [
+              "白色"
+            ],
+            [
+              "穹顶舱"
+            ],
+            [
+              "两颗卫星",
+              "2颗卫星"
+            ],
+            [
+              "写实"
+            ],
+            [
+              "光照"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "住宅",
+            "堂屋",
+            "户型"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "targeted-edit-amends-prior-structured-task-state",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "把上一张海边别墅图的屋顶改成深灰色金属材质，其他建筑结构和黄昏光线保持不变。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片编辑完成] 黄昏海边别墅"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "edit_image",
+          "family": "edit",
+          "input": "海边白色现代别墅，木质坡屋顶，黄昏暖光，保持正面构图。",
+          "resolved_goal": "海边白色现代别墅，木质坡屋顶，黄昏暖光，保持正面构图。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "海边白色现代别墅，木质坡屋顶，黄昏暖光，保持正面构图。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-villa-edit",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-villa-edit",
+            "reference_id": "imgref-history-villa-edit",
+            "target": "previous",
+            "description": "刚完成编辑的黄昏海边白色别墅"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "goal_mode": "amend",
+        "goal": {
+          "concepts": [
+            [
+              "屋顶"
+            ],
+            [
+              "深灰色",
+              "深灰"
+            ],
+            [
+              "金属"
+            ],
+            [
+              "建筑结构",
+              "结构"
+            ],
+            [
+              "黄昏"
+            ],
+            [
+              "保持",
+              "不变"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 1,
+              "id": "img-history-villa-edit",
+              "reference_id": "imgref-history-villa-edit",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "reference-generation-replaces-prior-task-state",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "不要继续刚才的户型文字任务，改为参考这张上传的山水画配色，生成一张极简茶叶包装海报。",
+      "attachments": [
+        {
+          "index": 1,
+          "source_index": 1,
+          "media_index": 1,
+          "id": "img-current-ink-reference",
+          "image_id": "img-current-ink-reference",
+          "name": "ink-reference.png",
+          "type": "image/png",
+          "is_image": true
+        }
+      ],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "current",
+            "image_id": "img-current-ink-reference",
+            "reference_id": "imgref-current-ink-reference",
+            "target": "uploaded",
+            "description": "青绿山水画配色参考"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "image_reference_gen",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "山水画"
+            ],
+            [
+              "配色",
+              "颜色"
+            ],
+            [
+              "极简"
+            ],
+            [
+              "茶叶"
+            ],
+            [
+              "包装"
+            ],
+            [
+              "海报"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "current",
+              "role": "style_reference",
+              "index": 1,
+              "id": "img-current-ink-reference",
+              "reference_id": "imgref-current-ink-reference",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "non-image-followup-never-amends-image-task-state",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "上一个户型要求里的“严格左右镜像对称”具体是什么意思？请用两句话解释。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "户型必须严格左右镜像对称。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "[图片生成完成] 住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "左右镜像",
+              "镜像对称"
+            ],
+            [
+              "意思",
+              "解释"
+            ],
+            [
+              "两句话",
+              "2句话"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "生成图片"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "web-search-with-prior-image-task-always-replaces",
+      "category": "goal-mode-continuity",
+      "safety_critical": true,
+      "input": "搜索2026年8月发布的OpenAI官方产品更新，并按发布日期列出标题。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "web_search",
+        "relation": "new",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "搜索",
+              "检索"
+            ],
+            [
+              "2026年8月"
+            ],
+            [
+              "OpenAI"
+            ],
+            [
+              "官方"
+            ],
+            [
+              "产品更新"
+            ],
+            [
+              "发布日期"
+            ],
+            [
+              "标题"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1",
+            "住宅",
+            "户型"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "multi-text-to-image-replacement-plans-independent-results",
+      "category": "multi-image-task-shape",
+      "safety_critical": true,
+      "input": "分别生成三张独立图片：一张写实雪山日出、一张水彩江南雨巷、一张赛博朋克夜市；每张都要横向构图。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [],
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "new",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "三张",
+              "3张"
+            ],
+            [
+              "分别",
+              "独立"
+            ],
+            [
+              "写实"
+            ],
+            [
+              "雪山"
+            ],
+            [
+              "日出"
+            ],
+            [
+              "水彩"
+            ],
+            [
+              "江南"
+            ],
+            [
+              "雨巷"
+            ],
+            [
+              "赛博朋克"
+            ],
+            [
+              "夜市"
+            ],
+            [
+              "横向"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "multi"
+      }
+    },
+    {
+      "id": "multi-text-to-image-amendment-keeps-shared-prior-specification",
+      "category": "multi-image-task-shape",
+      "safety_critical": true,
+      "input": "不使用旧图，沿用上一版完整户型文字要求，再分别生成日间自然光和夜间暖光两张材质方案。",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "assistant",
+            "content": "[图片生成完成] 住宅户型图"
+          }
+        ],
+        "previous_execution": {
+          "schema_version": "execution_continuity.v1",
+          "operation": "text_to_image",
+          "family": "generate",
+          "input": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "resolved_goal": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。",
+          "task_state": {
+            "schema_version": "task_continuity.v1",
+            "goal_mode": "replace",
+            "segments": [
+              {
+                "kind": "base",
+                "text": "高精度住宅户型平面图，总长18米、总宽8米，堂屋位于中央，旧方案采用L形交通走廊，餐厅与卫生间相邻。"
+              }
+            ]
+          },
+          "result_kind": "image",
+          "result_reference_id": "imgref-history-old-layout",
+          "source_message_index": 2,
+          "source_user_message_index": 1,
+          "context_role": "execution_state",
+          "instruction_authority": "application_state"
+        },
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-old-layout",
+            "reference_id": "imgref-history-old-layout",
+            "target": "previous",
+            "description": "旧版18米×8米住宅户型平面图，L形交通走廊"
+          }
+        ],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "continuation",
+        "goal_mode": "amend",
+        "goal": {
+          "concepts": [
+            [
+              "分别",
+              "独立",
+              "各自",
+              "另一张"
+            ],
+            [
+              "日间"
+            ],
+            [
+              "自然光"
+            ],
+            [
+              "夜间"
+            ],
+            [
+              "暖光"
+            ],
+            [
+              "两张",
+              "2张"
+            ],
+            [
+              "材质方案"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ],
+          "intent_forbidden": [
+            "L形交通走廊",
+            "餐厅与卫生间相邻"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "multi"
       }
     }
   ]

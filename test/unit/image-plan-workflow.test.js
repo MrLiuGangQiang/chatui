@@ -10,6 +10,7 @@ function stageOneIntent(taskShape = 'multi') {
     operation: 'text_to_image',
     relation: 'new',
     goal: '分别生成一只猫、一只狗、一只鸟',
+    goal_mode: 'replace',
     resource_refs: [],
     task_shape: taskShape,
   });
@@ -41,13 +42,30 @@ function createWorkflow({ stageOne = stageOneIntent(), stageTwo = null, stageTwo
     getSessionChatModel: () => 'chat-model',
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
-      const intentPayloads = calls.filter(call => call.payload.text?.format?.name === 'chatui_route_intent_v2');
+      const intentPayloads = calls.filter(call => call.payload.text?.format?.name === 'chatui_route_intent_v3');
       if (calls.length === 1) return { choices: [{ message: { content: stageOne } }] };
       if (stageTwoError) throw stageTwoError;
       return stageTwo === null ? { choices: [{ message: { content: 'not json' } }] } : stageTwo;
     },
   });
   return { workflow, calls };
+}
+
+
+function testMultiImageRouteIsAPlanningEnvelopeWithoutParentDispatchAuthority() {
+  const inspected = routeService.inspectModelRouteResult(stageOneIntent('multi'), {
+    input: '分别生成一只猫、一只狗、一只鸟',
+    attachments: [],
+    context: {},
+  });
+  assert.ok(inspected.route, inspected.reason || inspected.error);
+  assert.strictEqual(inspected.route.taskShape, 'multi');
+  assert.strictEqual(inspected.route.readiness, 'ready');
+  assert.strictEqual(routeService.shouldRequestImagePlan(inspected.route), true);
+  assert.strictEqual(inspected.route.dispatchAuthorized, false,
+    'a multi-image parent must not authorize one accidental pre-plan image request');
+  assert.strictEqual(inspected.route.dispatchContract, null,
+    'only image_plan.v1 child routes may carry executable dispatch contracts');
 }
 
 async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
@@ -261,6 +279,7 @@ function testImagePlanPromptExplainsPerTaskEditRoles() {
 }
 
 module.exports = [
+  testMultiImageRouteIsAPlanningEnvelopeWithoutParentDispatchAuthority,
   testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch,
   testSingleImageRouteDoesNotPayForPlanningCall,
   testFiveTaskPlanRemainsWithinTheProductLimit,

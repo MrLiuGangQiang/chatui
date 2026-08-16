@@ -2,6 +2,8 @@
   'use strict';
 
 const imageReferences = root?.ChatUICoreImageReferences || (typeof require === 'function' ? require('./image-references') : {});
+const taskContinuity = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskContinuity')
+  || (typeof require === 'function' ? require('../../shared/task-continuity') : {});
 const {
   makeImageReferenceId,
   parseImageReferenceId,
@@ -31,7 +33,7 @@ function uploadedImageAttachmentLabel(item = {}, ordinal = 1) {
 }
 
 const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
-const MAX_RESOLVED_IMAGE_GOAL_LENGTH = 4000;
+const MAX_RESOLVED_IMAGE_GOAL_LENGTH = Number(taskContinuity.TASK_CONTINUITY_MAX_RENDERED_LENGTH) || 16000;
 const ROUTE_CONTEXT_POLICY = Object.freeze({
   schema_version: 'route_context_policy.v1',
   max_serialized_chars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
@@ -621,11 +623,28 @@ function executionFromImageMessage(message = {}, index = 0) {
     || imageContext?.routePrompt
     || messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, ''),
   ).trim();
-  const resolvedGoal = String(
-    imageContext?.resolvedGoal
-    || imageContext?.resolved_goal
-    || rawInput,
-  ).trim();
+  const declaredTaskLineage = imageContext?.taskLineage ?? imageContext?.task_lineage;
+  let taskState = null;
+  if (declaredTaskLineage !== null && declaredTaskLineage !== undefined) {
+    if (typeof taskContinuity.taskContinuityFromImageTaskLineage !== 'function') {
+      throw new TypeError('Image task lineage protocol is unavailable');
+    }
+    taskState = taskContinuity.taskContinuityFromImageTaskLineage(declaredTaskLineage);
+    // A multi-result batch has several independent task states and therefore no
+    // implicit single previous_execution. Its images remain resource candidates.
+    if (!taskState) return null;
+  } else {
+    taskState = typeof taskContinuity.taskContinuityFromExecution === 'function'
+      ? taskContinuity.taskContinuityFromExecution({
+          task_state: imageContext?.taskState || imageContext?.task_state,
+          resolved_goal: imageContext?.resolvedGoal || imageContext?.resolved_goal,
+          input: rawInput,
+        })
+      : null;
+  }
+  const resolvedGoal = taskState && typeof taskContinuity.renderTaskContinuity === 'function'
+    ? taskContinuity.renderTaskContinuity(taskState)
+    : String(imageContext?.resolvedGoal || imageContext?.resolved_goal || rawInput).trim();
   const referenceId = makeImageReferenceId(imageContext?.referenceId || imageContext?.reference_id || '');
   if (!operation || !referenceId || !rawInput || !resolvedGoal) return null;
   return {
@@ -634,6 +653,7 @@ function executionFromImageMessage(message = {}, index = 0) {
     family: operation === 'edit_image' ? 'edit' : 'generate',
     input: rawInput.slice(0, 800),
     resolved_goal: resolvedGoal.slice(0, MAX_RESOLVED_IMAGE_GOAL_LENGTH),
+    ...(taskState ? { task_state: taskState } : {}),
     result_kind: 'image',
     result_reference_id: referenceId,
     source_message_index: index + 1,

@@ -14,7 +14,7 @@
   // image_plan.v1 is the second-stage planning protocol for multi-image
   // generation/edit requests. It never carries executable bindings directly:
   // each task references the same candidate_key/role vocabulary as
-  // route_intent.v2, and the local compiler resolves those keys into canonical
+  // route_intent.v3, and the local compiler resolves those keys into canonical
   // dispatch_contract.v1 bindings. A one-task plan is legal and lets the
   // planning model collapse an apparent multi-task request back to single.
   const IMAGE_PLAN_VERSION = 'image_plan.v1';

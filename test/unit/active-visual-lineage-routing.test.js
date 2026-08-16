@@ -104,7 +104,11 @@ function testSubjectlessImageEditKeepsLatestVisualLineageAddressable() {
     operation: 'text_to_image',
     family: 'generate',
     result_kind: 'image',
-    resolved_goal: '画一只猫',
+    task_state: {
+      schema_version: 'task_continuity.v1',
+      goal_mode: 'replace',
+      segments: [{ kind: 'base', text: '画一只猫' }],
+    },
     source_message_index: 2,
     source_user_message_index: 1,
   });

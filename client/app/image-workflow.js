@@ -147,6 +147,7 @@
           routePrompt: t.routePrompt,
           originalPrompt: t.originalPrompt,
           resolvedGoal: t.resolvedGoal,
+          taskState: t.taskState,
           childJobId: t.clientJobId,
           submissionId: t.submissionId || '',
         });
@@ -420,6 +421,7 @@
               prompt: E,
               routePrompt: t.originalPrompt || I.routePrompt || "",
               resolvedGoal: I.resolvedGoal || t.resolvedGoal || E,
+              taskState: I.taskState || t.taskState || null,
               sessionId: n,
               headers: q,
             });

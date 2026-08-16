@@ -106,9 +106,14 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const entries = staticBundle.parseAssetManifest(root, `${root}${path.sep}`, 'js');
   const paths = entries.map(entry => entry.urlPath);
   const registryIndex = paths.indexOf('/client/runtime/module-registry.js');
+  const responsesOutputIndex = paths.indexOf('/shared/responses-output.js');
   const textHashIndex = paths.indexOf('/client/core/text-hash.js');
   const coreIndex = paths.indexOf('/client/core/browser.js');
   const imageExecutionIndex = paths.indexOf('/client/core/image-execution.js');
+  const taskContinuityIndex = paths.indexOf('/shared/task-continuity.js');
+  const imageRouteContextIndex = paths.indexOf('/client/core/image-route-context.js');
+  const attachmentsIndex = paths.indexOf('/client/core/attachments.js');
+  const imageGenerationServiceIndex = paths.indexOf('/client/services/image-generation-service.js');
   const messagePrimitivesIndex = paths.indexOf('/client/core/message-primitives.js');
   const submitHelpersIndex = paths.indexOf('/client/app/submit-workflow.helpers.js');
   const routeServiceIndex = paths.indexOf('/client/services/route-service.js');
@@ -129,9 +134,17 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const workflowIndex = paths.indexOf('/client/app/attachments-workflow.js');
 
   assert.ok(registryIndex >= 0 && registryIndex < textHashIndex, 'the hidden module registry must load before registered browser modules');
+  assert.ok(responsesOutputIndex >= 0 && registryIndex < responsesOutputIndex && responsesOutputIndex < routeServiceIndex,
+    'the shared Responses output interpreter must register before route transport parsing');
   assert.ok(textHashIndex >= 0 && textHashIndex < coreIndex, 'shared text hashing must load before performance/render consumers');
   assert.ok(coreIndex >= 0 && contractIndex > coreIndex, 'the shared file-input contract must register after ChatUICore exists');
   assert.ok(imageExecutionIndex >= 0 && imageExecutionIndex < paths.indexOf('/client/app/image-workflow.js'), 'image execution policy must load before image workflow');
+  assert.ok(taskContinuityIndex >= 0 && taskContinuityIndex < imageRouteContextIndex,
+    'task continuity must register before browser route-context restoration captures the module');
+  assert.ok(taskContinuityIndex < attachmentsIndex,
+    'task continuity must register before shared image-context storage validation');
+  assert.ok(taskContinuityIndex < imageGenerationServiceIndex && taskContinuityIndex < routeServiceIndex,
+    'task continuity must register before image generation and route compilation consumers');
   assert.ok(messagePrimitivesIndex >= 0 && messagePrimitivesIndex < submitHelpersIndex, 'shared message primitives must load before submit workflow helpers');
   assert.ok(sharedPlanIndex >= 0 && sharedPlanIndex < routeServiceIndex, 'the shared dispatch-contract contract must load before route service composition');
   assert.ok(capabilityRegistryIndex >= 0 && capabilityRegistryIndex < routeIntentIndex, 'the capability registry must load before the route-intent protocol');

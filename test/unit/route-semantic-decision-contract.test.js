@@ -5,13 +5,15 @@ const routeService = require('../../client/services/route-service');
 
 function testCorrectionRelationPrecedesExplicitContinuationLanguage() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  const correction = prompt.indexOf('followup=否定/不满/纠正/改选');
+  const correction = prompt.indexOf('followup=本轮主要是在否定/不满/纠正');
   const continuation = prompt.indexOf('continuation=');
   assert.ok(correction >= 0, 'the route contract must define correction/resource-reselection as followup');
   assert.ok(continuation >= 0, 'the route contract must define continuation');
   assert.ok(correction < continuation, 'correction must be evaluated before continuation language');
   assert.match(prompt, /即使含(?:继续|沿用|重试)[^。\n]*followup/,
     'correction must remain followup even when the user also says continue/reuse/retry');
+  assert.match(prompt, /增删\/改变供后续所有结果共同使用的任务要求[^。\n]*随后执行修订结果仍是followup/,
+    'changing shared constraints remains a followup even when a revised result is executed immediately');
 }
 
 function testQuotedFactsOverrideContinuationSemantics() {
@@ -23,6 +25,22 @@ function testQuotedFactsOverrideContinuationSemantics() {
   assert.ok(quotedFollowup < continuation, 'quoted grounding must take precedence over continuation wording');
   assert.match(prompt, /quoted正文作事实也followup，压过继续语义/);
   assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项，且非quoted/);
+}
+
+function testRelationSeparatesFollowupSpeechActsFromAdditionalExecutions() {
+  const prompt = routeService.ROUTE_SYSTEM_PROMPT;
+  assert.match(prompt, /followup=.*询问\/解释\/评价历史内容.*修改既有具体成果.*增删\/改变供后续所有结果共同使用的任务要求/,
+    'questions, explanations, evaluations and revisions of prior work are followups');
+  assert.match(prompt, /continuation=.*另一次执行或新增结果.*而非评价\/解释\/纠正\/修改已有结果或共同任务要求/,
+    'continuation is reserved for another execution or result in the same established task');
+  assert.match(prompt, /continuation可与replace或amend任一goal_mode组合，二者不得互相推导/,
+    'discourse relation and image task-state evolution must remain orthogonal');
+  assert.match(prompt, /delta只规定新增执行的数量、顺序或各结果之间的差异.*共同基础要求继续沿用.*continuation/,
+    'per-result variation deltas belong to additional execution continuity, not specification correction');
+  assert.match(prompt, /task_shape=multi本身不决定relation/,
+    'batch shape alone must not determine discourse relation');
+  assert.match(prompt, /执行请求内的资源使用或排除约束本身只决定resource_refs，不算“纠正上一轮选错资源”/,
+    'resource inclusion or exclusion inside an execution request must not override its primary speech act');
 }
 
 function testContinuationRequiresSameTaskAndExplicitlyAllowsAThemeReset() {
@@ -39,8 +57,8 @@ function testContinuationRequiresSameTaskAndExplicitlyAllowsAThemeReset() {
 
 function testHistoricalDependencyRemainsFollowupWhenBindingIsAmbiguous() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /relation只表示执行依赖[^。\n]*非请求新旧/,
-    'relation must describe execution dependency rather than whether the utterance looks like a new request');
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系[^。\n]*非请求新旧[^。\n]*不由goal_mode或resource_refs推导/,
+    'relation must classify the current speech act independently from task-state evolution');
   assert.match(prompt, /任一ref的source≠current[^。\n]*绝不new/,
     'relation must dereference each selected candidate key back to its published source');
   assert.match(prompt, /明确依赖quoted\/history\/previous_\*execution/,
@@ -89,6 +107,7 @@ function testQuotedTextTransformGoalStaysAnInstructionRatherThanAnAnswer() {
 module.exports = [
   testCorrectionRelationPrecedesExplicitContinuationLanguage,
   testQuotedFactsOverrideContinuationSemantics,
+  testRelationSeparatesFollowupSpeechActsFromAdditionalExecutions,
   testContinuationRequiresSameTaskAndExplicitlyAllowsAThemeReset,
   testHistoricalDependencyRemainsFollowupWhenBindingIsAmbiguous,
   testComposableSameApiRequirementsRemainOneTaskShape,

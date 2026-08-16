@@ -154,6 +154,7 @@
         promptFallback: item.prompt,
         routePrompt: item.prompt,
         originalPrompt: item.prompt,
+        taskState: item.taskState || null,
         childJobId: context.childJobId,
         submissionId: context.submissionId,
       });
@@ -388,7 +389,7 @@
         const child = prepared[index];
         if (!child) return false;
         const elapsed = formatElapsed(jobDurationMs({ metrics: task.data?.metrics, ...task.data }) ?? Date.now() - startedAt);
-        const rendered = await imageResultToHtml(task.data, elapsed, { prompt: child.prompt || '', label: child.label || '', sessionId });
+        const rendered = await imageResultToHtml(task.data, elapsed, { prompt: child.prompt || '', taskState: child.imageContext?.taskState || null, label: child.label || '', sessionId });
         const completedMode = child.mode === 'edit_image' ? 'edit_image' : 'image';
         const childContext = rendered.imageContext
           ? normalizeImageContextForStorage({ ...rendered.imageContext, mode: completedMode, target: 'previous', usePreviousImage: true })

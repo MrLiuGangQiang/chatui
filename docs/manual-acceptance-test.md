@@ -718,11 +718,11 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **评判依据**：实际结果须与“应该输出”逐项一致；以请求次数、错误和是否产生执行 Job为判定证据。
 
 
-### RTE-016 `route_intent.v2` 严格五字段协议｜P0
+### RTE-016 `route_intent.v3` 严格六字段协议｜P0
 - **前置条件**：M6 可用；DevTools 保留路由响应；F1 可返回可控 JSON 时执行非法响应分支。
-- **输入 / 操作**：分别触发普通聊天、生图和修图，检查意图模型响应；再让 F1 返回含 `schema_version`、`api`、`context_policy`、`idempotency_key` 等额外字段，或返回重复/不存在的 `candidate_key`。
-- **应该输出**：有效实时响应只含 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 五个顶层字段；缺少 `task_shape` 的旧四字段响应必须判为无效，不得静默默认。每个资源引用只含 `candidate_key` 与 `role`；候选键仅使用 `iN`、`fN`、`mN`。含额外字段、非法角色、重复引用或不存在候选的响应不得直接执行，只能按修复策略重新识别一次，仍非法则明确失败。
-- **评判依据**：实际结果须与“应该输出”逐项一致；以路由响应 JSON、修复请求次数和“非法响应时没有最终执行 Job”的 Network 记录为判定证据。
+- **输入 / 操作**：分别触发普通聊天、生图和修图，检查意图模型响应；再让 F1 返回缺少 `goal_mode`/`task_shape`、含 `schema_version`、`api`、`context_policy`、`idempotency_key` 等额外字段，或返回重复/不存在的 `candidate_key`。
+- **应该输出**：有效实时响应只含 `operation`、`relation`、`goal`、`goal_mode`、`resource_refs`、`task_shape` 六个顶层字段；缺少任一字段的 v2/v1 形态必须判为无效，不得静默补默认值。每个资源引用只含 `candidate_key` 与 `role`；候选键仅使用 `iN`、`fN`、`mN`。非图片操作和 `image_reference_gen` 只允许 `goal_mode=replace`；没有有效前序任务状态时 schema 也只允许 `replace`。含额外字段、非法 goal mode、非法角色、重复引用或不存在候选的响应不得直接执行，只能按受控修复策略重新识别，仍非法则明确失败。
+- **评判依据**：实际结果须与“应该输出”逐项一致；以路由请求 schema、响应 JSON、修复请求次数和“非法响应时没有最终执行 Job”的 Network 记录为判定证据。
 
 ### RTE-017 九类操作端到端映射｜P0｜环境依赖 M3/M4/M5
 - **前置条件**：M1、M3、M4、M5、M6 可用；准备 T01、T02、T11。
@@ -730,10 +730,10 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **应该输出**：九个任务分别映射为 `plain_chat`、`file_qa`、`multimodal_qa`、`image_qa`、`image_compare`、`ocr`、`text_to_image`、`image_reference_gen`、`edit_image`；前六类进入聊天/Responses 执行，文生图进入 generations，参考生成与编辑进入 edits；每次仅携带该操作允许的资源角色。
 - **评判依据**：实际结果须与“应该输出”逐项一致；以九次 route intent、最终 endpoint、dispatch contract 与 binding evidence 对照表为判定证据，任一操作或 API 错配即 FAIL。
 
-### RTE-018 `new/followup/correction/continuation` 与上下文策略｜P0
+### RTE-018 `new/followup/continuation` 与上下文策略｜P0
 - **前置条件**：M1、M6 可用；会话已有至少三轮带唯一标记的历史。
-- **输入 / 操作**：依次新建独立任务 `计算 17+26，不参考前文`；对已有比较回答追问 `性能方面呢？`；发送 `不是 Python，我指 Java`；在长回答中发送 `继续`；最后引用最早一条消息问 `这个消息多少字？`。
-- **应该输出**：关系分别合理归入 `new`、`followup`、`correction`、`continuation`；独立新任务使用 `history:none`，连续追问使用受控会话历史，精确引用使用 `bound_only` 或等价的精确消息选择；正常和引用 override 使用同一个 `route_context_policy.v1`，超限时按完整旧轮次淘汰且不出现 `[历史摘要]`；当前输入和精确引用不得被截断，受保护内容本身超窗时在 provider 请求前明确失败。
+- **输入 / 操作**：依次新建独立任务 `计算 17+26，不参考前文`；对已有比较回答追问 `性能方面呢？`；发送纠正 `不是 Python，我指 Java`；在长回答中发送 `继续`；最后引用最早一条消息问 `这个消息多少字？`。
+- **应该输出**：关系分别合理归入 `new`、`followup`、`followup`、`continuation`；纠正是 follow-up 语义，不创造协议外 relation。独立新任务使用 `history:none`，连续追问使用受控会话历史，精确引用使用 `bound_only` 或等价的精确消息选择；正常和引用 override 使用同一个 `route_context_policy.v1`，超限时按完整旧轮次淘汰且不出现 `[历史摘要]`；当前输入和精确引用不得被截断，受保护内容本身超窗时在 provider 请求前明确失败。
 - **评判依据**：实际结果须与“应该输出”逐项一致；以 route relation、dispatch `context_policy`、最终 messages/input 顺序和模型回答中的固定标记为判定证据。
 
 ### RTE-019 当前上传优先与独立新图不继承旧图｜P0
@@ -789,6 +789,36 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **输入 / 操作**：逐类触发故障；另构造一次 primary + reasoning/format 兼容 + fallback/规划累计请求，并在澄清续轮继续。
 - **应该输出**：只有资源或参数确实不足时 outcome 为 `business_clarification` 并建立 pending；其余分别为 `configuration_error`、`transient_error` 或 `invalid_model_output`，页面显示失败且 pending 为空。`route_model_attempt_ledger.v1.provider_attempts` 等于真实 HTTP 次数并跨澄清继承，第 7 次请求未发送。
 - **评判依据**：以 Network 次数、route outcome、pending 存储和 ledger 快照为证据。
+
+### RTE-028 图片任务 `replace/amend/resource_refs` 正交｜P0｜核心回归
+- **前置条件**：先完成一张带唯一旧布局标记 `OLD-LAYOUT-731` 的住宅户型图，确保其 `task_continuity.v1` 已持久化；M3、M6 可用。
+- **输入 / 操作**：先发送完整重做请求：`重新设计住宅户型平面图，不参照旧图。18米×8米、严格左右镜像；中央堂屋4.0m×4.6m，底部双开主入口；确保堂屋与卧室1入口无遮挡，卫生间与餐厅明确分隔且不相邻。`；再完成后发送局部文字修订 `保持这套文字规格，但把整体风格改成现代中式，不使用上一张图片。`。
+- **应该输出**：第一轮是 `text_to_image + followup + replace + resource_refs=[]`，执行 prompt 只含本轮完整规格，不含 `OLD-LAYOUT-731`，也不上传旧图；第二轮是 `text_to_image + followup + amend + resource_refs=[]`，恢复前序结构化状态并按顺序追加风格修订，但仍不上传旧图。不得把 `followup` 当作自动继承，也不得把 `resource_refs=[]` 当作建议。
+- **评判依据**：以两轮 route intent、`task_continuity.v1` segments、最终 dispatch prompt、multipart/JSON 请求中图片数量和生成结果为证据。
+
+### RTE-029 图片任务状态生成、持久化、刷新与再修订｜P0
+- **前置条件**：完成一张包含唯一文字要求 `TASK-STATE-842` 的生图结果；可查看会话存储和 IndexedDB。
+- **输入 / 操作**：记录结果 `imageContext.taskState/taskLineage`；硬刷新页面并等待会话恢复；发送只包含增量的 `将背景改为夜景，其余 TASK-STATE-842 要求保持`。
+- **应该输出**：刷新前后的 `task_continuity.v1` 完全一致；恢复后的路由 payload 含 `previous_execution.task_state`；模型可返回 `amend`，编译后的完整文字状态含 base 与新 amendment，且不重复 base、不丢失先前 amendment。结果再次持久化后可进行下一轮修订。
+- **评判依据**：以刷新前后存储快照、路由 payload、segments 顺序、最终执行 prompt 和第二次结果上下文为证据。
+
+### RTE-030 图片类 multi 父规划无执行授权与 child 独立 lineage｜P0｜环境依赖 M7
+- **前置条件**：M3、M4、M6、M7 可用；准备两张可区分目标图。
+- **输入 / 操作**：分别执行 `生成三张彼此独立的海报：春、夏、冬`、`分别把两张目标图改成黑白`、`分别参考两张图生成两张新图`；检查父路由、图片规划、子路由和批量完成上下文。
+- **应该输出**：三个父路由均为图片类 `task_shape=multi` 的 planning envelope，`readiness=ready` 但 `dispatchAuthorized=false`、`dispatchContract=null`；只有 `image_plan.v1` child 各自拥有执行合同。批量结果的 `image_task_lineage.v1` 每个 child 都有独立 `reference_id`、图片 ID 和 `task_state`；异构批次不得暴露最后 child 的聚合级 `taskState/resolvedGoal`。
+- **评判依据**：以父/子编译对象、批量提交 body、完成事件、合并后的 lineage 和刷新后资源目录为证据。
+
+### RTE-031 显式损坏任务状态与 lineage 必须失败关闭｜P0｜环境依赖 F1
+- **前置条件**：F1 或 DevTools 可篡改测试会话中的 `taskState/taskLineage`，不影响其他字段。
+- **输入 / 操作**：分别制造错误版本、缺字段、额外字段、首 segment 非 base、重复 reference、同 reference 冲突状态和超容量 entries；刷新并尝试继续修订。
+- **应该输出**：读取、合并、路由编译或持久化边界在首次接触损坏状态时给出明确协议错误；不回退到 `resolvedGoal/input`，不把损坏状态当作 `replace`，不创建图片 Job，也不部分覆盖原会话。
+- **评判依据**：以错误码、无上游执行请求、原存储未被重写和自动化回归结果为证据。
+
+### RTE-032 `image_reference_gen` 永远建立 replacement 状态｜P0
+- **前置条件**：已有可恢复的旧图片任务状态，并准备一张新的参考图。
+- **输入 / 操作**：发送 `参考这张新图的构图生成一张全新的城市海报`；再发送只包含当前结果修订的后续请求。
+- **应该输出**：第一轮为 `image_reference_gen + goal_mode=replace`，参考图只作为 `reference/style_reference`，不会继承旧文字任务；新结果持久化的是当前完整 goal 对应的 replacement state。后续是否 `amend` 只取决于当前输入是否为增量，不由第一轮 relation 或历史旧图决定。
+- **评判依据**：以 route intent、资源角色、task state base、最终 edits 请求和后续路由 payload 为证据。
 
 ---
 

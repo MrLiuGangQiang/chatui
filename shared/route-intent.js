@@ -1,4 +1,4 @@
-(function initChatUIRouteIntent(root, factory) {
+﻿(function initChatUIRouteIntent(root, factory) {
   'use strict';
 
   const capabilityRegistry = root?.[Symbol.for('chatui.module-registry.v1')]?.get('capabilityRegistry')
@@ -13,21 +13,28 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function createChatUIRouteIntent(capabilityRegistry) {
   'use strict';
 
-  const ROUTE_INTENT_VERSION = 'route_intent.v2';
-  const LEGACY_ROUTE_INTENT_VERSION = 'route_intent.v1';
+  const ROUTE_INTENT_VERSION = 'route_intent.v3';
+  const LEGACY_ROUTE_INTENT_VERSION = 'route_intent.v2';
+  const OLDEST_ROUTE_INTENT_VERSION = 'route_intent.v1';
   const VALID_RELATIONS = new Set(['new', 'followup', 'continuation']);
+  const ROUTE_INTENT_GOAL_MODES = new Set(['replace', 'amend']);
   const VALID_RESOURCE_ROLES = new Set([
     'target', 'reference', 'style_reference', 'mask',
     'source', 'attachment', 'context', 'compare_a', 'compare_b',
   ]);
-  // route_intent.v2 is the live model protocol. All five fields are mandatory;
-  // task_shape is no longer inferred by the parser. Historical four-field v1
-  // values can be migrated only through the explicit adapter below, never by
-  // the live response parser.
-  const LEGACY_ROUTE_INTENT_FIELDS = Object.freeze(['operation', 'relation', 'goal', 'resource_refs']);
+  // route_intent.v3 separates task continuity from resource continuity.
+  // relation describes discourse/execution dependency, goal_mode describes
+  // whether the current goal replaces or amends the previous task state, and
+  // resource_refs independently selects concrete images/files/messages.
+  const ROUTE_INTENT_V1_FIELDS = Object.freeze(['operation', 'relation', 'goal', 'resource_refs']);
   const ROUTE_INTENT_TASK_SHAPE_FIELD = 'task_shape';
+  const ROUTE_INTENT_GOAL_MODE_FIELD = 'goal_mode';
   const ROUTE_INTENT_TASK_SHAPES = new Set(['single', 'multi']);
-  const ROUTE_INTENT_FIELDS = Object.freeze([...LEGACY_ROUTE_INTENT_FIELDS, ROUTE_INTENT_TASK_SHAPE_FIELD]);
+  const ROUTE_INTENT_V2_FIELDS = Object.freeze([...ROUTE_INTENT_V1_FIELDS, ROUTE_INTENT_TASK_SHAPE_FIELD]);
+  const ROUTE_INTENT_FIELDS = Object.freeze([
+    'operation', 'relation', 'goal', ROUTE_INTENT_GOAL_MODE_FIELD, 'resource_refs', ROUTE_INTENT_TASK_SHAPE_FIELD,
+  ]);
+  const LEGACY_ROUTE_INTENT_FIELDS = ROUTE_INTENT_V1_FIELDS;
   const RESOURCE_REF_FIELDS = Object.freeze(['candidate_key', 'role']);
   const ROUTE_INTENT_MAX_RESOURCE_REFS = 16;
   const ROUTE_INTENT_MAX_GOAL_LENGTH = 1000;
@@ -35,7 +42,7 @@
   const ROUTE_INTENT_RESPONSE_FORMAT = Object.freeze({
     type: 'json_schema',
     json_schema: {
-      name: 'chatui_route_intent_v2',
+      name: 'chatui_route_intent_v3',
       strict: true,
       schema: {
         type: 'object',
@@ -58,7 +65,7 @@
             minLength: 1,
             maxLength: ROUTE_INTENT_MAX_GOAL_LENGTH,
           },
-          task_shape: { type: 'string', enum: [...ROUTE_INTENT_TASK_SHAPES] },
+          goal_mode: { type: 'string', enum: [...ROUTE_INTENT_GOAL_MODES] },
           resource_refs: {
             type: 'array',
             maxItems: ROUTE_INTENT_MAX_RESOURCE_REFS,
@@ -78,10 +85,15 @@
               },
             },
           },
+          task_shape: { type: 'string', enum: [...ROUTE_INTENT_TASK_SHAPES] },
         },
       },
     },
   });
+
+  function stringValue(value = '') {
+    return String(value ?? '').trim();
+  }
 
   function routeIntentResponseFormatForCandidates(candidates = [], options = {}) {
     const candidateKeys = [];
@@ -105,6 +117,10 @@
       .map(stringValue)
       .filter(goal => goal.length >= 1 && goal.length <= ROUTE_INTENT_MAX_GOAL_LENGTH))];
     if (allowedGoals.length) schema.properties.goal.enum = allowedGoals;
+    const allowedGoalModes = [...new Set((Array.isArray(options.allowedGoalModes) ? options.allowedGoalModes : [])
+      .map(stringValue)
+      .filter(goalMode => ROUTE_INTENT_GOAL_MODES.has(goalMode)))];
+    if (allowedGoalModes.length) schema.properties.goal_mode.enum = allowedGoalModes;
     const resourceRefs = schema.properties.resource_refs;
     if (!candidateKeys.length) {
       resourceRefs.maxItems = 0;
@@ -112,9 +128,6 @@
       resourceRefs.items.properties.candidate_key.enum = candidateKeys;
     }
     return Object.freeze(responseFormat);
-  }
-  function stringValue(value = '') {
-    return String(value ?? '').trim();
   }
 
   function hasOnlyFields(value, fields) {
@@ -145,14 +158,40 @@
     return ROUTE_INTENT_TASK_SHAPES.has(raw) ? raw : '';
   }
 
+  function routeIntentGoalMode(value = {}) {
+    const raw = stringValue(value?.[ROUTE_INTENT_GOAL_MODE_FIELD]);
+    return ROUTE_INTENT_GOAL_MODES.has(raw) ? raw : '';
+  }
+
   function hasExactRouteIntent(value = {}) {
     return hasOnlyFields(value, ROUTE_INTENT_FIELDS)
+      && ROUTE_INTENT_TASK_SHAPES.has(stringValue(value[ROUTE_INTENT_TASK_SHAPE_FIELD]))
+      && ROUTE_INTENT_GOAL_MODES.has(stringValue(value[ROUTE_INTENT_GOAL_MODE_FIELD]))
+      && hasValidCoreFields(value);
+  }
+
+  function hasExactLegacyRouteIntentV2(value = {}) {
+    return hasOnlyFields(value, ROUTE_INTENT_V2_FIELDS)
       && ROUTE_INTENT_TASK_SHAPES.has(stringValue(value[ROUTE_INTENT_TASK_SHAPE_FIELD]))
       && hasValidCoreFields(value);
   }
 
+  function adaptLegacyRouteIntentV2(value = {}, options = {}) {
+    if (!hasExactLegacyRouteIntentV2(value)) {
+      const error = new TypeError('Invalid route_intent.v2');
+      error.code = 'ROUTE_INTENT_V2_INVALID';
+      throw error;
+    }
+    const goalMode = options.hasPreviousTaskState === true
+      && ['text_to_image', 'edit_image'].includes(stringValue(value.operation))
+      && ['followup', 'continuation'].includes(stringValue(value.relation))
+      ? 'amend'
+      : 'replace';
+    return Object.freeze({ ...value, goal_mode: goalMode });
+  }
+
   function hasExactLegacyRouteIntentV1(value = {}) {
-    return hasOnlyFields(value, LEGACY_ROUTE_INTENT_FIELDS) && hasValidCoreFields(value);
+    return hasOnlyFields(value, ROUTE_INTENT_V1_FIELDS) && hasValidCoreFields(value);
   }
 
   function adaptLegacyRouteIntentV1(value = {}) {
@@ -161,12 +200,12 @@
       error.code = 'ROUTE_INTENT_V1_INVALID';
       throw error;
     }
-    return Object.freeze({ ...value, task_shape: 'single' });
+    return Object.freeze({ ...value, goal_mode: 'replace', task_shape: 'single' });
   }
 
   function assertRouteIntent(value = {}) {
     if (hasExactRouteIntent(value)) return true;
-    const error = new TypeError('Invalid route_intent.v2');
+    const error = new TypeError('Invalid route_intent.v3');
     error.code = 'ROUTE_INTENT_INVALID';
     throw error;
   }
@@ -179,20 +218,28 @@
   return Object.freeze({
     ROUTE_INTENT_VERSION,
     LEGACY_ROUTE_INTENT_VERSION,
+    OLDEST_ROUTE_INTENT_VERSION,
     ROUTE_INTENT_FIELDS,
+    ROUTE_INTENT_V2_FIELDS,
+    ROUTE_INTENT_V1_FIELDS,
     LEGACY_ROUTE_INTENT_FIELDS,
     ROUTE_INTENT_TASK_SHAPE_FIELD,
     ROUTE_INTENT_TASK_SHAPES,
+    ROUTE_INTENT_GOAL_MODE_FIELD,
+    ROUTE_INTENT_GOAL_MODES,
     RESOURCE_REF_FIELDS,
     ROUTE_INTENT_MAX_RESOURCE_REFS,
     ROUTE_INTENT_MAX_GOAL_LENGTH,
     ROUTE_INTENT_RESPONSE_FORMAT,
     routeIntentResponseFormatForCandidates,
     hasExactRouteIntent,
+    hasExactLegacyRouteIntentV2,
+    adaptLegacyRouteIntentV2,
     hasExactLegacyRouteIntentV1,
     adaptLegacyRouteIntentV1,
     assertRouteIntent,
     routeIntentTaskShape,
+    routeIntentGoalMode,
     resourceTypeForCandidateKey,
   });
 });

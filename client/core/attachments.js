@@ -2,6 +2,8 @@
   'use strict';
 
 const imageReferences = root?.ChatUICoreImageReferences || (typeof require === 'function' ? require('./image-references') : {});
+const taskContinuity = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskContinuity')
+  || (typeof require === 'function' ? require('../../shared/task-continuity') : {});
 
 function isImageFile(file = {}) {
   const type = String(file.type || '').toLowerCase();
@@ -135,6 +137,16 @@ function normalizeImageContextForStorage(context = {}) {
     context.masks || context.maskAttachments || context.mask_attachments,
     'mask',
   );
+  if (typeof taskContinuity.normalizeOptionalTaskContinuity !== 'function') {
+    throw new TypeError('Task continuity protocol is unavailable');
+  }
+  const taskState = taskContinuity.normalizeOptionalTaskContinuity(context.taskState ?? context.task_state);
+  if (typeof taskContinuity.normalizeOptionalImageTaskLineage !== 'function') {
+    throw new TypeError('Image task lineage protocol is unavailable');
+  }
+  const taskLineage = taskContinuity.normalizeOptionalImageTaskLineage(
+    context.taskLineage ?? context.task_lineage,
+  );
   return {
     ...(context.schema_version || context.schemaVersion ? { schema_version: context.schema_version || context.schemaVersion } : {}),
     ...(context.resultId || context.result_id ? { resultId: context.resultId || context.result_id } : {}),
@@ -142,6 +154,9 @@ function normalizeImageContextForStorage(context = {}) {
     target: context.target || '',
     prompt: context.prompt || '',
     routePrompt: context.routePrompt || context.route_prompt || '',
+    resolvedGoal: context.resolvedGoal || context.resolved_goal || context.routePrompt || context.route_prompt || context.prompt || '',
+    ...(taskState ? { taskState } : {}),
+    ...(taskLineage ? { taskLineage } : {}),
     content: context.content || '',
     usePreviousImage: !!context.usePreviousImage,
     updatedAt: context.updatedAt || context.updated_at || null,

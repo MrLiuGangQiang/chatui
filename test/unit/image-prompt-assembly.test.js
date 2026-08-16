@@ -136,17 +136,17 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('按operation→task_shape→resource_refs→relation→goal判断'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode'));
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_refs[^。\n]*只绑[^。\n]*必需[^。\n]*最少[^。\n]*明确/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /正例：[“"]将目标图中的猫改为白色，保留构图不变。[”"]/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /edit_image的amend goal同时就是发给目标图的本轮编辑指令/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /reference\s*主体\/构图(?:参考)?/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /style_reference\s*画风\/配色(?:参考)?/);
 }
 
 function testStructuredReferenceSchemaIsStrictProviderCompatible() {
   const schema = routeService.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema;
-  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
+  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
   assert.strictEqual(schema.properties.schema_version, undefined);
   assert.strictEqual(schema.properties.referenced_context, undefined);
   assert.deepStrictEqual(schema.properties.resource_refs.items.required, ['candidate_key', 'role']);

@@ -1,37 +1,9 @@
 'use strict';
 
-// Extract final textual output from a non-streaming Responses or Chat
-// Completions envelope without traversing reasoning/analysis items.
-function extractResponsesOutputText(value, seen = new Set(), depth = 0) {
-  if (depth > 12 || value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value !== 'object') return '';
-  if (seen.has(value)) return '';
-  seen.add(value);
-
-  if (Array.isArray(value)) {
-    return value.map(item => extractResponsesOutputText(item, seen, depth + 1)).filter(Boolean).join('');
-  }
-
-  const type = String(value.type || value.role || '').toLowerCase();
-  if (/reasoning|analysis/.test(type)) return '';
-
-  for (const field of ['output_text', 'text', 'content', 'message', 'delta', 'output']) {
-    if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
-    const text = extractResponsesOutputText(value[field], seen, depth + 1);
-    if (text) return text;
-  }
-  return '';
-}
-
-function responseOutputText(response = {}) {
-  const direct = extractResponsesOutputText(response?.output_text);
-  if (direct) return direct;
-  const responses = extractResponsesOutputText(response?.output);
-  if (responses) return responses;
-  const choice = response?.choices?.[0];
-  return extractResponsesOutputText(choice?.message?.content || choice?.text);
-}
+const {
+  extractResponsesOutputText,
+  responseOutputText,
+} = require('../../shared/responses-output');
 
 function parseNonStreamingResponse(raw = '') {
   const original = String(raw ?? '');

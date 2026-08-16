@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const routeService = require("../client/services/route-service");
 const requestCompatibility = require("../client/services/request-compatibility");
+const { responseOutputText } = require("../shared/responses-output");
 const {
   SCHEMA_VERSION,
   loadFixtureSuite,
@@ -17,7 +18,7 @@ const {
 } = require("./lib/intent-routing-evaluation");
 
 const ROOT = path.resolve(__dirname, "..");
-const DEFAULT_FIXTURE = path.join(ROOT, "test/fixtures/intent-routing-eval.v2.json");
+const DEFAULT_FIXTURE = path.join(ROOT, "test/fixtures/intent-routing-eval.v3.json");
 
 function usage() {
   return [
@@ -210,7 +211,7 @@ async function requestRouteModelOnce({ endpoint, apiKey, payload, deadlineAt, fe
       }
     }
     if (!response.ok) throw providerRequestError(response, body);
-    const text = String(routeService.extractRouteText(body || {}) || "").trim();
+    const text = String(responseOutputText(body || {}) || "").trim();
     if (!text) throw new Error("Route model returned an empty decision.");
     return text;
   } catch (error) {
@@ -246,6 +247,18 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs, fetchIm
   return attempt(payload);
 }
 
+function buildRoutePayloadForCase(caseDefinition = {}, model = "") {
+  return routeService.buildRoutePayload({
+    model,
+    input: caseDefinition.input,
+    attachments: caseDefinition.attachments,
+    context: caseDefinition.context,
+    currentMode: caseDefinition.current_mode || "chat",
+    autoMode: caseDefinition.auto_mode !== false,
+    currentTurn: caseDefinition.current_turn || null,
+  });
+}
+
 function formatCaseResult(result = {}) {
   const reasons = [...(result.failure_reasons || []), ...(result.transport_error ? ["transport_error"] : [])];
   return `[${result.perfect ? "PASS" : "FAIL"}] ${result.id} | ${Number(result.score || 0).toFixed(1)} | ${reasons.join(", ") || "all checks passed"}`;
@@ -275,6 +288,7 @@ function buildCaseReport(caseDefinition, result, { rawText = "", apiKey = "", pa
     input: redactText(caseDefinition.input, apiKey),
     attachments: (caseDefinition.attachments || []).map(item => summarizeAttachmentForReport(item, apiKey)),
     context: summarizeContextForReport(caseDefinition.context || {}, apiKey),
+    current_turn: redactValue(caseDefinition.current_turn || null, apiKey),
     expected: redactValue(caseDefinition.expected, apiKey),
     model_output: result.model_output || { format: "text", value: null, text: "" },
     compiled_result: result.compiled,
@@ -311,14 +325,7 @@ async function runEvaluation(options, { requestRoute = requestRouteModel, log = 
     let payload = null;
     let rawText = "";
     try {
-      payload = routeService.buildRoutePayload({
-        model: options.model,
-        input: caseDefinition.input,
-        attachments: caseDefinition.attachments,
-        context: caseDefinition.context,
-        currentMode: caseDefinition.current_mode || "chat",
-        autoMode: caseDefinition.auto_mode !== false,
-      });
+      payload = buildRoutePayloadForCase(caseDefinition, options.model);
       rawText = await requestRoute({ endpoint, apiKey: options.apiKey, payload, timeoutMs: options.timeoutMs });
       result = evaluateRouteText(caseDefinition, rawText, { apiKey: options.apiKey });
     } catch (error) {
@@ -408,6 +415,7 @@ module.exports = {
   redactErrorMessage,
   defaultOutputPath,
   auditRoutePayload,
+  buildRoutePayloadForCase,
   requestRouteModel,
   qualityGate,
   buildCaseReport,

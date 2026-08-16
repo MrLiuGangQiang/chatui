@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
-const routingFixture = require('../fixtures/intent-routing-eval.v2.json');
+const routingFixture = require('../fixtures/intent-routing-eval.v3.json');
 
 
 function fixtureCase(id) {
@@ -34,6 +34,7 @@ function testPromptKeepsExecutionGoalSeparateFromClarificationUi() {
     operation: 'edit_image',
     relation: 'followup',
     goal,
+    goal_mode: 'replace',
     task_shape: 'single',
     resource_refs: [],
   }), {
@@ -91,6 +92,7 @@ function testPromptAppliesResourcePriorityPerRequiredRole() {
     operation: 'edit_image',
     relation: 'new',
     goal: '使用指定蒙版修改本轮产品图，保留产品主体。',
+    goal_mode: 'replace',
     task_shape: 'single',
     resource_refs: [
       { candidate_key: target.candidate_key, role: 'target' },
@@ -133,8 +135,10 @@ function testPromptRequiresHistoricalTextEvidenceBinding() {
 }
 function testPromptRequiresSelfContainedReferenceGenerationGoal() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /图片goal须独立可执行/);
+  assert.match(prompt, /goal_mode=replace的图片goal须独立可执行/);
   assert.match(prompt, /未提供的创作要素保持未指定/);
+  assert.match(prompt, /goal_mode=amend只写当前具体delta/);
+  assert.match(prompt, /不复述前序base/);
   assert.match(prompt, /不得只写[^。]*(?:基于这个生成|参考上述内容生成|继续生成)/);
 
   const context = {
@@ -150,6 +154,7 @@ function testPromptRequiresSelfContainedReferenceGenerationGoal() {
     operation: 'image_reference_gen',
     relation: 'new',
     goal,
+    goal_mode: 'replace',
     task_shape: 'single',
     resource_refs: [{ candidate_key: reference.candidate_key, role: 'style_reference' }],
   }), {

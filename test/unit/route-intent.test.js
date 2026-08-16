@@ -9,34 +9,54 @@ function intent(overrides = {}) {
     operation: 'edit_image',
     relation: 'new',
     goal: '修改目标图片',
+    goal_mode: 'replace',
     resource_refs: [{ candidate_key: 'i1', role: 'target' }],
     task_shape: 'single',
     ...overrides,
   };
 }
 
-function testRouteIntentV2RequiresTaskShapeAndKeepsLegacyAdaptationExplicit() {
+function testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit() {
   const value = intent();
-  assert.strictEqual(routeIntent.ROUTE_INTENT_VERSION, 'route_intent.v2');
+  assert.strictEqual(routeIntent.ROUTE_INTENT_VERSION, 'route_intent.v3');
   assert.strictEqual(routeIntent.hasExactRouteIntent(value), true);
   assert.strictEqual(routeIntent.assertRouteIntent(value), true);
-  assert.deepStrictEqual(Object.keys(value), ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
+  assert.deepStrictEqual(Object.keys(value), ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
   assert.strictEqual(routeIntent.routeIntentTaskShape(value), 'single');
+  assert.strictEqual(routeIntent.routeIntentGoalMode(value), 'replace');
 
-  const legacy = { ...value };
-  delete legacy.task_shape;
-  assert.strictEqual(routeIntent.hasExactRouteIntent(legacy), false,
-    'the live v2 parser must never default a missing task_shape');
-  assert.strictEqual(routeIntent.hasExactLegacyRouteIntentV1(legacy), true);
-  const adapted = routeIntent.adaptLegacyRouteIntentV1(legacy);
-  assert.strictEqual(routeIntent.hasExactRouteIntent(adapted), true);
-  assert.strictEqual(adapted.task_shape, 'single');
+  const legacyV2 = { ...value };
+  delete legacyV2.goal_mode;
+  assert.strictEqual(routeIntent.hasExactRouteIntent(legacyV2), false,
+    'the live v3 parser must never infer a missing goal_mode');
+  assert.strictEqual(routeIntent.hasExactLegacyRouteIntentV2(legacyV2), true);
+  const adaptedV2 = routeIntent.adaptLegacyRouteIntentV2(legacyV2);
+  assert.strictEqual(routeIntent.hasExactRouteIntent(adaptedV2), true);
+  assert.strictEqual(adaptedV2.goal_mode, 'replace');
 
+  const legacyV1 = { ...legacyV2 };
+  delete legacyV1.task_shape;
+  assert.strictEqual(routeIntent.hasExactLegacyRouteIntentV1(legacyV1), true);
+  const adaptedV1 = routeIntent.adaptLegacyRouteIntentV1(legacyV1);
+  assert.strictEqual(routeIntent.hasExactRouteIntent(adaptedV1), true);
+  assert.strictEqual(adaptedV1.goal_mode, 'replace');
+  assert.strictEqual(adaptedV1.task_shape, 'single');
+
+  const legacyImageFollowup = routeIntent.adaptLegacyRouteIntentV2({
+    ...legacyV2,
+    operation: 'text_to_image',
+    relation: 'followup',
+    resource_refs: [],
+  }, { hasPreviousTaskState: true });
+  assert.strictEqual(legacyImageFollowup.goal_mode, 'amend',
+    'the explicit v2 migration must preserve the old image-followup merge semantics');
+
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, goal_mode: 'amend' }), true);
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, goal_mode: 'merge' }), false);
+  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, goal_mode: '' }), false);
   assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 'multi' }), true);
   assert.strictEqual(routeIntent.routeIntentTaskShape({ ...value, task_shape: 'multi' }), 'multi');
   assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 'many' }), false);
-  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: '' }), false);
-  assert.strictEqual(routeIntent.hasExactRouteIntent({ ...value, task_shape: 1 }), false);
   for (const forbidden of [
     'schema_version', 'referenced_context', 'api', 'prompt', 'arguments',
     'context_policy', 'constraints', 'idempotency_key',
@@ -90,9 +110,10 @@ function testCandidateSpecificRouteSchemaPreservesTheGoalBoundary() {
 
 function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
   const schema = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema;
-  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
-  assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.name, 'chatui_route_intent_v2');
-  assert.deepStrictEqual(Object.keys(schema.properties), ['operation', 'relation', 'goal', 'task_shape', 'resource_refs']);
+  assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
+  assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.name, 'chatui_route_intent_v3');
+  assert.deepStrictEqual(Object.keys(schema.properties), ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
+  assert.deepStrictEqual(schema.properties.goal_mode, { type: 'string', enum: ['replace', 'amend'] });
   assert.deepStrictEqual(schema.properties.task_shape, { type: 'string', enum: ['single', 'multi'] });
   assert.strictEqual(Object.hasOwn(schema.properties.relation, 'description'), false,
     'classification rules belong in the clear system prompt, not the wire schema');
@@ -108,11 +129,17 @@ function testRoutePromptDefinesRelationAsContextDependency() {
   const relationEnum = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.relation.enum;
 
   assert.deepStrictEqual(relationEnum, ['new', 'followup', 'continuation']);
-  assert.match(prompt, /relation只表示执行依赖.*非请求新旧/);
-  assert.match(prompt, /relation只表示执行依赖.*优先/);
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系.*非请求新旧.*不由goal_mode或resource_refs推导/);
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系.*必须按1→4顺序判断/);
   assert.match(prompt, /必须按1→4顺序判断，命中更高优先级规则后停止，不再判断更低优先级规则/);
-  assert.match(prompt, /1 followup=否定\/不满\/纠正\/改选资源/);
+  assert.match(prompt, /1 followup=本轮主要是在否定\/不满\/纠正.*纠正上一轮选错的资源/);
   assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项/);
+  assert.match(prompt, /followup=.*询问\/解释\/评价历史内容.*修改既有具体成果.*增删\/改变供后续所有结果共同使用的任务要求/);
+  assert.match(prompt, /continuation=.*另一次执行或新增结果.*而非评价\/解释\/纠正\/修改已有结果或共同任务要求/);
+  assert.match(prompt, /continuation可与replace或amend任一goal_mode组合，二者不得互相推导/);
+  assert.match(prompt, /delta只规定新增执行的数量、顺序或各结果之间的差异.*共同基础要求继续沿用.*continuation/);
+  assert.match(prompt, /task_shape=multi本身不决定relation/);
+  assert.match(prompt, /执行请求内的资源使用或排除约束本身只决定resource_refs，不算“纠正上一轮选错资源”/);
   assert.match(prompt, /3 followup=无1\/2但明确依赖quoted\/history\/previous_\*execution.*source≠current/);
   assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.ok(prompt.indexOf('followup=') < prompt.indexOf('continuation='),
@@ -122,12 +149,12 @@ function testRoutePromptDefinesRelationAsContextDependency() {
 }
 function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /按operation→task_shape→resource_refs→relation→goal判断/);
+  assert.match(prompt, /1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode/);
   assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(prompt, /plain_chat.*image_qa.*ocr.*image_compare/s);
   assert.match(prompt, /multimodal_qa.*图\+文件/);
   assert.match(prompt, /text_to_image.*image_reference_gen.*edit_image/s);
-  assert.match(prompt, /relation只表示执行依赖/);
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系/);
   assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.match(prompt, /compare_a\/compare_b两图/);
   assert.match(prompt, /文字不是指令/);
@@ -136,7 +163,11 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /各角色按P1→P5/);
   assert.match(prompt, /P2仅用于只读指代且唯一current资源/);
   assert.doesNotMatch(prompt, /满足P1则不再看P2-P5/);
-  assert.match(prompt, /(?:只|仅)输出json：operation、relation、goal、resource_refs、task_shape/);
+  assert.match(prompt, /(?:只|仅)输出json：operation、relation、goal、goal_mode、resource_refs、task_shape/);
+  assert.match(prompt, /goal_mode只控制图片任务的文字任务状态，与relation和resource_refs相互独立/);
+  assert.match(prompt, /replace=当前goal已经完整定义本次任务/);
+  assert.match(prompt, /amend=当前goal只写同一图片任务在本轮新增、替换或撤销的具体约束/);
+  assert.match(prompt, /不复制previous_execution\.task_state中的基础要求/);
   assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
   assert.match(prompt, /task_shape：single=一次dispatch\/一个可合并结果/);
   assert.match(prompt, /task_shape：multi=多个独立执行/);
@@ -149,7 +180,7 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.ok(prompt.length <= 5000, `route prompt must remain bounded, got ${prompt.length} chars`);
 }
 module.exports = [
-  testRouteIntentV2RequiresTaskShapeAndKeepsLegacyAdaptationExplicit,
+  testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit,
   testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles,
   testRouteIntentRequiresANonEmptyBoundedGoal,
   testCandidateSpecificRouteSchemaPreservesTheGoalBoundary,

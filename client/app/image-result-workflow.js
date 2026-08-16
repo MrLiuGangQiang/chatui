@@ -4,6 +4,8 @@
   const FALLBACK_TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   const imageCaptionModule = root?.ChatUIAppImageCaptionWorkflow
     || (typeof require === 'function' ? require('./image-caption-workflow') : {});
+  const taskContinuity = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskContinuity')
+    || (typeof require === 'function' ? require('../../shared/task-continuity') : {});
   const applyImageCaptions = imageCaptionModule.applyImageCaptions || ((images = []) => (Array.isArray(images) ? images : []).map(item => ({ ...item })));
 
   function makeImageResultId(options = {}, deps = {}) {
@@ -264,6 +266,25 @@
     return merged.map((item, index) => ({ ...item, ordinal: index + 1, sourceIndex: index + 1 }));
   }
 
+  function imageTaskLineageFromContext(context = {}) {
+    if (typeof taskContinuity.normalizeOptionalImageTaskLineage !== 'function'
+        || typeof taskContinuity.createImageTaskLineage !== 'function') {
+      throw new TypeError('Image task lineage protocol is unavailable');
+    }
+    const declared = taskContinuity.normalizeOptionalImageTaskLineage(
+      context.taskLineage ?? context.task_lineage,
+    );
+    if (declared) return declared;
+    const taskState = taskContinuity.normalizeOptionalTaskContinuity(context.taskState ?? context.task_state);
+    const referenceId = String(context.referenceId || context.reference_id || context.selectedReferenceId || '').trim();
+    const imageIds = imageDescriptorsFromContext(context)
+      .map(item => String(item.imageId || item.image_id || item.id || '').trim())
+      .filter(Boolean);
+    return taskState && referenceId && imageIds.length
+      ? taskContinuity.createImageTaskLineage({ referenceId, imageIds, taskState })
+      : null;
+  }
+
   function mergeImageResultContexts(current = {}, addition = {}) {
     const currentImages = imageDescriptorsFromContext(current);
     const addedImages = imageDescriptorsFromContext(addition);
@@ -277,7 +298,14 @@
     }
     const resultId = String(current?.resultId || addition?.resultId || '').trim();
     const referenceId = String(current?.referenceId || current?.selectedReferenceId || addition?.referenceId || addition?.selectedReferenceId || '').trim();
-    return {
+    if (typeof taskContinuity.mergeImageTaskLineages !== 'function') {
+      throw new TypeError('Image task lineage protocol is unavailable');
+    }
+    const taskLineage = taskContinuity.mergeImageTaskLineages(
+      imageTaskLineageFromContext(current),
+      imageTaskLineageFromContext(addition),
+    );
+    const merged = {
       schema_version: 'image_result.v1',
       ...current,
       ...addition,
@@ -291,7 +319,16 @@
         ordinal: index + 1,
         sourceIndex: index + 1,
       })),
+      ...(taskLineage ? { taskLineage } : {}),
     };
+    if (taskLineage?.entries.length === 1) {
+      merged.taskState = taskLineage.entries[0].task_state;
+    } else if (taskLineage?.entries.length > 1) {
+      delete merged.taskState;
+      delete merged.task_state;
+      merged.resolvedGoal = '';
+    }
+    return merged;
   }
 
   function renderImageResultContext(imageContext = {}, options = {}, deps = {}) {
@@ -318,6 +355,10 @@
   }
 
   async function imageResultToHtml(result, elapsedText = '', options = {}, deps = {}) {
+    if (typeof taskContinuity.normalizeOptionalTaskContinuity !== 'function') {
+      throw new TypeError('Task continuity protocol is unavailable');
+    }
+    const taskState = taskContinuity.normalizeOptionalTaskContinuity(options.taskState);
     const extracted = deps.extractImageResult(result);
     const fileNames = root?.ChatUIFileNames || (typeof window !== 'undefined' ? window.ChatUIFileNames : null);
     if (extracted && extracted.kind === 'empty') return { html: '没有返回图片数据', raw: extracted.raw, metaText: elapsedText ? `RT ${elapsedText}` : '' };
@@ -382,6 +423,16 @@
     }
 
     const first = storedImages[0];
+    if (typeof taskContinuity.createImageTaskLineage !== 'function') {
+      throw new TypeError('Image task lineage protocol is unavailable');
+    }
+    const taskLineage = taskState
+      ? taskContinuity.createImageTaskLineage({
+          referenceId,
+          imageIds: storedImages.map(item => item.imageId),
+          taskState,
+        })
+      : null;
     const latestImage = {
       resultId,
       referenceId,
@@ -392,6 +443,8 @@
       width: first.width || 0,
       height: first.height || 0,
       images: storedImages.map(item => ({ ...item, displaySrc: '' })),
+      ...(taskState ? { taskState } : {}),
+      ...(taskLineage ? { taskLineage } : {}),
     };
     deps.saveLatestGeneratedImage(options.sessionId, latestImage);
 
@@ -410,6 +463,8 @@
         prompt: options.prompt || '',
         routePrompt: options.routePrompt || '',
         resolvedGoal: options.resolvedGoal || options.routePrompt || options.prompt || '',
+        ...(taskState ? { taskState } : {}),
+        ...(taskLineage ? { taskLineage } : {}),
         mode: 'image',
         target: 'previous',
         referenceId,

@@ -4,6 +4,7 @@ const assert = require('assert');
 const submitWorkflow = require('../../client/app/submit-workflow');
 const jobWorkflow = require('../../client/app/job-workflow');
 const taskState = require('../../client/core/task-state');
+const taskContinuity = require('../../shared/task-continuity');
 const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 function memoryStorage() {
@@ -19,6 +20,7 @@ function replaceGlobal(key, value) {
 
 function batchItem(prompt) {
   const fixture = makeExecutionFixture({ operation: 'text_to_image', relation: 'new', prompt });
+  const imageTaskState = taskContinuity.transitionTaskContinuity({ goalMode: 'replace', goal: prompt });
   return {
     task: { task_type: 'generate', prompt, input_images: [] },
     operation: 'text_to_image',
@@ -32,6 +34,7 @@ function batchItem(prompt) {
       taskShape: 'single', resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
       selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedImageIds: [], selectedReferenceId: '',
       usePreviousImage: false, contextualImagePrompt: prompt, editInstruction: '',
+      imageTaskState, resolvedImageGoal: prompt,
       executionResources: fixture.executionResources, dispatchContract: fixture.dispatchContract,
     },
   };
@@ -42,6 +45,7 @@ function editItem(prompt, imageId) {
     operation: 'edit_image', relation: 'new', prompt,
     resources: [{ key: 'r1', type: 'image', role: 'target', source: 'current', id: imageId }],
   });
+  const imageTaskState = taskContinuity.transitionTaskContinuity({ goalMode: 'replace', goal: prompt });
   return {
     task: { task_type: 'edit', prompt, input_images: [{ candidate_key: 'i1', role: 'target' }] },
     operation: 'edit_image', api: 'image_edit', mode: 'edit_image',
@@ -52,6 +56,7 @@ function editItem(prompt, imageId) {
       taskShape: 'single', resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
       selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [], selectedImageIds: [], selectedReferenceId: '',
       usePreviousImage: false, contextualImagePrompt: prompt, editInstruction: prompt,
+      imageTaskState, resolvedImageGoal: prompt,
       executionResources: fixture.executionResources, dispatchContract: fixture.dispatchContract,
     },
   };
@@ -140,6 +145,11 @@ async function testBatchRouteDelegatesAllChildrenToOneServerCall() {
     assert.strictEqual(call.sessionId, 'session-batch');
     assert.strictEqual(call.options.items.length, 3);
     assert.deepStrictEqual(call.options.items.map(item => item.prompt), ['一张猫', '一张狗', '一张鸟']);
+    assert.deepStrictEqual(
+      call.options.items.map(item => item.taskState?.segments?.[0]?.text),
+      ['一张猫', '一张狗', '一张鸟'],
+      'each planned child must carry its own structured task state into batch execution',
+    );
     assert.ok(/^imgbatch-/.test(call.options.batchJobId), 'the parent batch must use a batch job identity');
     assert.ok(call.options.batchParent?.id, 'all children must aggregate into one parent display item');
     assert.strictEqual(fixture.session.display.filter(item => item?.role === 'assistant').length, 1);

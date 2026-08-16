@@ -28,6 +28,7 @@ function testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts(
     operation: 'plain_chat',
     relation: 'new',
     goal: '联苯苄唑溶液能上飞机么',
+    goal_mode: 'replace',
     resource_refs: [],
     task_shape: 'single',
   };
@@ -36,6 +37,14 @@ function testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts(
     {
       name: 'Responses output content',
       value: {
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'chatui_route_intent_v3',
+            schema: { type: 'object' },
+            strict: true,
+          },
+        },
         output: [{
           type: 'message',
           role: 'assistant',
@@ -77,24 +86,24 @@ function testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts(
 
 function testLegacyRouteIntentRequiresAnExplicitAdapter() {
   const adapted = routeIntent.adaptLegacyRouteIntentV1(legacyIntent());
-  assert.deepStrictEqual(adapted, { ...legacyIntent(), task_shape: 'single' });
+  assert.deepStrictEqual(adapted, { ...legacyIntent(), goal_mode: 'replace', task_shape: 'single' });
   assert.strictEqual(routeIntent.hasExactRouteIntent(adapted), true);
   assert.throws(() => routeIntent.adaptLegacyRouteIntentV1({ ...legacyIntent(), extra: true }), error => (
     error?.code === 'ROUTE_INTENT_V1_INVALID'
   ));
 }
 
-function testLiveRouteSchemaPublishesV2AndRequiresAllFiveFields() {
+function testLiveRouteSchemaPublishesV3AndRequiresAllSixFields() {
   const format = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT;
-  assert.strictEqual(routeIntent.ROUTE_INTENT_VERSION, 'route_intent.v2');
-  assert.strictEqual(format.json_schema.name, 'chatui_route_intent_v2');
+  assert.strictEqual(routeIntent.ROUTE_INTENT_VERSION, 'route_intent.v3');
+  assert.strictEqual(format.json_schema.name, 'chatui_route_intent_v3');
   assert.deepStrictEqual(format.json_schema.schema.required,
-    ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
+    ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
 }
 
 module.exports = [
   testLiveRouteParserRejectsLegacyFourFieldOutput,
   testRouteTextExtractionAcceptsNonStreamingResponsesAndChatContentParts,
   testLegacyRouteIntentRequiresAnExplicitAdapter,
-  testLiveRouteSchemaPublishesV2AndRequiresAllFiveFields,
+  testLiveRouteSchemaPublishesV3AndRequiresAllSixFields,
 ];

@@ -1,6 +1,9 @@
 (function initChatUIImageGenerationService(root) {
   'use strict';
 
+const taskContinuity = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskContinuity')
+  || (typeof require === 'function' ? require('../../shared/task-continuity') : {});
+
 function buildPromptWithTextAttachments(prompt = '', attachments = [], isImageFile = () => false) {
   const textAttachments = attachments.filter(item => item && item.text);
   const unsupportedAttachments = attachments.filter(item => item && !item.text && !isImageFile(item));
@@ -63,7 +66,11 @@ function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
   });
 }
 
-function createImageContext({ prompt = '', routePrompt = '', resolvedGoal = '', attachments = [], masks = [], maskAttachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
+function createImageContext({ prompt = '', routePrompt = '', resolvedGoal = '', taskState = null, attachments = [], masks = [], maskAttachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
+  if (typeof taskContinuity.normalizeOptionalTaskContinuity !== 'function') {
+    throw new TypeError('Task continuity protocol is unavailable');
+  }
+  const exactTaskState = taskContinuity.normalizeOptionalTaskContinuity(taskState);
   const makeId = typeof makeImageItemId === 'function' ? makeImageItemId : ((reference, index) => `img_${reference || 'latest'}_${index || 1}`);
   const targetImages = Array.isArray(attachments) ? attachments : [];
   const maskImages = Array.isArray(masks) && masks.length
@@ -82,6 +89,7 @@ function createImageContext({ prompt = '', routePrompt = '', resolvedGoal = '', 
     prompt,
     routePrompt,
     resolvedGoal: String(resolvedGoal || routePrompt || prompt || '').trim(),
+    ...(exactTaskState ? { taskState: exactTaskState } : {}),
     mode,
     target,
     usePreviousImage: !!usePreviousImage,

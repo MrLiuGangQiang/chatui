@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -40,37 +40,35 @@ function representativeContext() {
   };
 }
 
-function testIntentPayloadCapsReasoningEffortForGpt5RouteModels() {
+function assertMinimalNonStreamingResponsesPayload(payload, label) {
+  assert.strictEqual(payload.stream, false, `${label} must explicitly disable streaming for compatible gateways`);
+  assert.strictEqual(payload.reasoning, undefined, `${label} must not request visible reasoning summaries`);
+  assert.strictEqual(payload.temperature, undefined, `${label} must not carry Chat Completions sampling controls`);
+  assert.deepStrictEqual(Object.keys(payload).sort(), ['input', 'model', 'stream', 'text'], `${label} must use the minimal Responses request shape`);
+  assert.ok(payload.text?.format?.schema, `${label} must retain strict structured output`);
+}
+
+function testIntentPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels() {
   const payload = routeService.buildRoutePayload({
     model: 'gpt-5.6-luna',
     input: '描述一下最后一张图',
     context: representativeContext(),
   });
-  assert.strictEqual(
-    routeService.INTENT_REASONING_EFFORT,
-    'low',
-    'intent routing must run at a shallow, fast reasoning profile',
-  );
-  assert.strictEqual(
-    payload.reasoning_effort,
-    routeService.INTENT_REASONING_EFFORT,
-    'gpt-5 route models must receive the shallow reasoning effort on every intent call',
-  );
-  assert.strictEqual(payload.temperature, 0, 'intent classification stays deterministic');
-  assert.ok(payload.response_format?.json_schema, 'strict structured output stays enabled');
+  assertMinimalNonStreamingResponsesPayload(payload, 'intent recognition');
+  const userPayload = JSON.parse(payload.input[1].content);
+  assert.strictEqual(userPayload.output_format, 'json', 'the gateway-required JSON marker must remain in the user envelope');
 }
 
-function testIntentPayloadOmitsReasoningControlForNonReasoningModels() {
-  const payload = routeService.buildRoutePayload({
-    model: 'deepseek-chat',
-    input: '描述一下最后一张图',
+function testImagePlanPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels() {
+  const payload = routeService.buildImagePlanPayload({
+    model: 'gpt-5.6-luna',
+    input: '分别生成一只猫和一只狗',
+    goal: '分别生成一只猫和一只狗',
     context: representativeContext(),
   });
-  assert.strictEqual(
-    payload.reasoning_effort,
-    undefined,
-    'non-reasoning route models must not receive a reasoning parameter they cannot honor',
-  );
+  assertMinimalNonStreamingResponsesPayload(payload, 'image planning');
+  const userPayload = JSON.parse(payload.input[1].content);
+  assert.strictEqual(userPayload.output_format, 'json', 'image planning must retain the JSON marker in user input');
 }
 
 function testIntentPayloadCapsRecentMessageLength() {
@@ -78,7 +76,7 @@ function testIntentPayloadCapsRecentMessageLength() {
     model: 'gpt-5.6-luna',
     input: '描述一下最后一张图',
     context: representativeContext(),
-  }).messages[1].content);
+  }).input[1].content);
   assert.ok(Array.isArray(userPayload.context.recent_messages) && userPayload.context.recent_messages.length === 2);
   for (const message of userPayload.context.recent_messages) {
     assert.ok(
@@ -95,12 +93,12 @@ function testIntentPayloadStaysBoundedForRepresentativeScenario() {
     context: representativeContext(),
     currentTurn: { messageIndex: 3 },
   });
-  const userContent = JSON.stringify(payload.messages[1].content);
+  const userContent = JSON.stringify(payload.input[1].content);
   assert.ok(
     userContent.length <= 2600,
     `intent user payload must stay bounded for the representative scenario, got ${userContent.length} chars`,
   );
-  const userPayload = JSON.parse(payload.messages[1].content);
+  const userPayload = JSON.parse(payload.input[1].content);
   assert.ok(
     userPayload.resource_candidates.length >= 6,
     'all six historical image candidates must remain visible to the route model',
@@ -108,8 +106,8 @@ function testIntentPayloadStaysBoundedForRepresentativeScenario() {
 }
 
 module.exports = [
-  testIntentPayloadCapsReasoningEffortForGpt5RouteModels,
-  testIntentPayloadOmitsReasoningControlForNonReasoningModels,
+  testIntentPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels,
+  testImagePlanPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels,
   testIntentPayloadCapsRecentMessageLength,
   testIntentPayloadStaysBoundedForRepresentativeScenario,
 ];

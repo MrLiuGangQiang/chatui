@@ -86,13 +86,13 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 `client/services/route-service.js` 保留路由服务的公共兼容 API，但内部职责已经按以下边界拆分：
 
 - `route-service.js`：从当前附件和有界上下文建立有序候选资源目录，构造路由请求，解析模型返回的 `route_intent.v2`，并把模型选择的短候选键映射回规范资源；历史图片可按生成轮次、倒序轮次、全局图片序号、最早切片或语义检索从本地 memory cards 发布，截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，明确继续读取不可用资源时可保持 continuation，无历史状态的本轮输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、resource refs 或 task shape；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细；
-- `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除 `response_format` 的顺序做协议能力降级；普通网络错误不得触发重复请求，原始 payload 不得被修改；
+- `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除结构化格式字段的顺序做协议能力降级；Responses 请求操作 `text.format`，保留的历史 Chat Completions 兼容请求操作 `response_format`。普通网络错误不得触发重复请求，原始 payload 不得被修改；
 - `server/validators/dispatch-contract.validator.js`：在服务端最终执行边界再次校验计划、资源证据、参数和上下文策略。
 
 在请求级 schema 已按确定性应用事实收窄允许值之后，路由模型输出的 `route_intent.v2` 是唯一语义裁决结果：未被收窄的 `operation`、`relation`、`goal`、`resource_refs` 与 `task_shape` 都由模型负责，返回后不得做语义改写。`goal` 只消解指代并合并用户已提出的约束，不得补充未提出的创作细节；有资源绑定、历史依赖或图片任务时执行 resolved goal，普通 `relation=new` 的纯文本任务执行原始输入。`task_shape=multi` 的图片任务进入 `image_plan.v1`，非图片或跨 API 多任务由协议字段触发拆分提示，不再依赖中文关键词正则。本地编译器只从模型实际看到的候选目录重建绑定，以共享能力注册表校验资源类型、角色、数量和可用性，并生成最终、不可变的 `dispatch_contract.v1`；它不能用正则、关键词、会话焦点或资源顺序覆盖模型结果。上下文策略固定为：有消息绑定时 `bound_only`，`relation=new` 且无绑定时 `none`，其他无精确绑定的情况为 `conversation`。最终发送受模型窗口约束，超限时先丢弃最早的非绑定历史，不生成摘要；精确绑定消息与当前消息必须保留，否则失败关闭。未配置意图模型、模型超时、所有模型不可用或输出不符合协议时一律阻止执行，不得降级为本地路由或普通聊天。
 
 意图管线的可靠性边界如下：
-- 意图识别是延迟敏感路径，`route-service.js` 的 `buildRoutePayload` 对 gpt-5 系列路由模型统一附加浅推理档 `reasoning_effort: low`（`INTENT_REASONING_EFFORT`）。普通历史消息在 core 层投影为 240 字符摘录；当前输入保持独立完整字段，显式引用消息由统一 route-context policy 保护，不得被 workflow 二次摘要或截断。这些是请求层容量约束，不改变“路由模型是唯一语义裁决者”的边界。
+- 意图识别与图片任务规划均是非流式、延迟敏感的 Responses 分类请求：`route-service.js` 发送 `model`、`input`、显式 `stream: false` 和严格 `text.format`，不附加 `temperature`、`reasoning` 或 reasoning summary。`/responses` 是首选 transport；只有当该请求返回精确的 HTTP 500 且错误信息包含 `empty stream chunks` 时，`route-intent-workflow.js` 才把该受限文本 payload 转换为非流式 `/chat/completions` 请求。回退同样强制 `stream: false`、保留 structured-output 兼容序列，并且绝不调用 SSE；普通 5xx、网络、限流、超时或其他协议错误不会触发 transport 切换。JSON Schema 是唯一输出约束；普通历史消息在 core 层投影为 240 字符摘录，当前输入保持独立完整字段，显式引用消息由统一 route-context policy 保护，不得被 workflow 二次摘要或截断。这些是请求层容量约束，不改变“路由模型是唯一语义裁决者”的边界。
 - `client/app/submit-workflow-policy.js` 是 60 秒意图预算和取消错误工厂的唯一事实源。提交、重生成、primary 模型、fallback 模型、图片任务规划、Structured Output 兼容调用以及同步响应校验共同消费同一个绝对 `deadlineAt`；相对 deadline 只能缩短、不能延长已有绝对预算。即使底层 request adapter 忽略 `AbortSignal`，外层 race 也必须按截止时间结算，且兼容层每次实际请求前必须重新校验预算，禁止迟到失败在 deadline 后触发下一次 provider 调用。
 - `route_model_attempt_ledger.v1` 是任务级真实请求账本：每次执行 `requestJson`/`fetch` 前原子增加 provider attempt，primary、fallback、planning、reasoning fallback 和 format fallback 分项记录；澄清续轮继承同一账本，超过 `MAX_MODEL_CALLS` 时第七次真实请求必须在发送前被阻止。
 - 用户停止与超时是不同终态：停止抛出 `AbortError` / `ROUTE_INTENT_CANCELLED`，超时使用 `ROUTE_INTENT_TIMEOUT`。工作流在持久化澄清、准备 handoff 和提交终态前必须重新检查取消；handoff 与完成/失败/停止事件都必须幂等，同一尝试只能提交一个终态。
@@ -100,7 +100,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - 核心上下文的读取或结构失败统一为 `ROUTE_CONTEXT_BUILD_FAILED` 并在模型调用前失败关闭为 `route_context_unavailable`；受保护内容超过统一窗口时使用 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE` / `route_context_too_large`。只有本地、非执行必需的图片 memory cards 可以独立降级。日志只记录错误 name/code，不记录对话原文。
 - HTTP 请求错误必须保留 status、provider code 与 retryable 身份。401、403、429 和其他 4xx 不切换第二模型；只有 5xx、明确网络故障或无 4xx status 的明确可重试错误可以尝试模型 fallback。输出非法仍可尝试独立 fallback 模型，但最终仍须通过严格 schema 与执行契约。
 
-`web_search` 在能力注册表中仍属于 chat 域，但传输层固定为 Responses API。`client/app/chat-workflow.js` 只能根据已授权的不可变执行计划启用搜索，`client/services/chat-service.js` 只负责把该授权投影为单个内置工具；请求经过共享 dispatch contract 与服务端 validator 双重校验后才能发往上游。ChatUI 不接入或保存独立第三方搜索密钥，Endpoint 和模型必须自行支持 Responses API 的内置 `web_search`。
+所有运行时文本和多模态模型路径（意图识别、图片任务规划、普通聊天、文件/图片问答、后台图片标签与反馈审核）都以 Responses API 为首选，并使用 `input` 与需要时的 `text.format`。唯一的运行时 transport 例外是意图识别/图片任务规划遇到精确的 HTTP 500 `empty stream chunks`：它们把受限文本 payload 转换为一次性的非流式 `/chat/completions` 请求，仍使用 `stream: false`，而不是 SSE。`web_search` 在能力注册表中仍属于 chat 域，但只有已授权的不可变执行计划才会由 `client/app/chat-workflow.js` 附加内置工具；`client/services/chat-service.js` 只负责把该授权投影为单个工具。请求经过共享 dispatch contract 与服务端 validator 双重校验后才能发往上游。图片生成、图片编辑继续使用 Images API；服务端代理保留 `/chat/completions` 用于历史持久 Chat Job 恢复和该受控兼容回退。ChatUI 不接入或保存独立第三方搜索密钥，Endpoint 和模型必须自行支持 Responses API 的内置 `web_search`。
 
 ### 3.3 `client/ui/` 与 `client/features/`
 
@@ -173,7 +173,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.5 `server/proxy/` 与 `server/security/`
 
-`server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化；`responses-stream.js` 是直接 Responses 流的 compact delta、reasoning 与搜索来源归一化边界。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
+`server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化；`responses-stream.js` 是直接 Responses 流的 compact delta、reasoning 与搜索来源归一化边界。意图识别和图片任务规划始终先使用一次性非流式 JSON Responses 请求：proxy 不得把这类请求升级为 SSE、缓存 SSE 能力，或在上游错误后以 SSE 重试；若上游错误地返回 event stream，proxy 必须返回明确的非流式协议错误。客户端仅可在上游精确返回 HTTP 500 `empty stream chunks` 时发起第二个、仍为 `stream: false` 的 `/chat/completions` 请求；这不是 SSE 重试，其余错误仍按普通错误处理并选择模型 fallback。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
 
 只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
 本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。

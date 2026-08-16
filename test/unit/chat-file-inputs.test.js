@@ -184,6 +184,7 @@ function testResponsesPayloadOmitsReasoningWhenDisabled() {
       ],
     }],
     temperature: 0,
+    stream: false,
   });
   assert.strictEqual(Object.hasOwn(payload, 'reasoning'), false);
   assert.strictEqual(chatService.messagesHaveInputFiles(messages), true);

@@ -96,7 +96,7 @@ function testCompletedImageExecutionProjectsOneDurableStateFact() {
   });
 
   const payload = routeService.buildRoutePayload({ model: 'route-model', input: '不要这个', context });
-  const publicContext = JSON.parse(payload.messages[1].content).context;
+  const publicContext = JSON.parse(payload.input[1].content).context;
   assert.deepStrictEqual(publicContext.previous_execution, {
     operation: 'text_to_image',
     family: 'generate',

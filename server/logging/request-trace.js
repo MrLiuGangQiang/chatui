@@ -367,10 +367,16 @@ function summarizeExecutionContract({
 }
 
 function isRouteIntentRequest(payload = {}) {
-  const schemaName = String(payload?.response_format?.json_schema?.name || '');
+  const schemaName = String(
+    payload?.text?.format?.name
+    || payload?.response_format?.json_schema?.name
+    || '',
+  );
   if (/route_intent/i.test(schemaName)) return true;
-  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
-  return messages.some(message => /route_intent\.v(?:1|2)/i.test(String(message?.content || '')));
+  const items = Array.isArray(payload?.input)
+    ? payload.input
+    : (Array.isArray(payload?.messages) ? payload.messages : []);
+  return items.some(message => /route_intent\.v(?:1|2)/i.test(textFromContent(message?.content)));
 }
 
 function requestKind(targetPath = '', payload = {}, kind = '') {
@@ -400,20 +406,30 @@ function summarizeRequestPayload(payload = {}, {
   if (kind === 'route_intent' || kind === 'chat') {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
     const input = Array.isArray(payload.input) ? payload.input : [];
-    const combined = messages.length ? messages : input;
+    const transport = input.length || payload.text ? 'responses' : 'chat';
+    const combined = transport === 'responses' ? input : messages;
     const msgSummary = summarizeMessages(combined, {
       messageLimit: ROUTE_MESSAGE_LIMIT,
       secrets,
       includeText,
     });
+    const textFormat = payload.text?.format;
     return {
       model,
+      transport,
       messages: msgSummary,
       tools: summarizeTools(payload.tools, { secrets, includeText }),
       stream: !!payload.stream,
       max_tokens: Number(payload.max_tokens || 0) || undefined,
       temperature: Number.isFinite(payload.temperature) ? payload.temperature : undefined,
       top_p: Number.isFinite(payload.top_p) ? payload.top_p : undefined,
+      text_format: textFormat
+        ? {
+          type: String(textFormat.type || ''),
+          name: String(textFormat.name || ''),
+          strict: textFormat.strict === true,
+        }
+        : undefined,
       response_format: payload.response_format
         ? { type: String(payload.response_format.type || '') }
         : undefined,
@@ -480,6 +496,7 @@ function summarizeResponsePayload(response, {
   if (kind === 'route_intent' || kind === 'chat') {
     const choices = Array.isArray(response.choices) ? response.choices : [];
     const usage = response.usage || {};
+    const outputText = String(response.output_text || '');
     const summarizedChoices = choices.slice(0, 4).map((choice, idx) => {
       if (!choice || typeof choice !== 'object') return traceText(choice, { secrets, includeText });
       const msg = choice.message || {};
@@ -501,15 +518,16 @@ function summarizeResponsePayload(response, {
       model,
       choices: summarizedChoices,
       omittedChoices: Math.max(0, choices.length - 4),
+      ...(outputText ? { output_text: traceText(outputText, { secrets, maxChars: 1024, includeText }) } : {}),
       usage: {
-        prompt_tokens: Number(usage.prompt_tokens || 0),
-        completion_tokens: Number(usage.completion_tokens || 0),
+        prompt_tokens: Number(usage.prompt_tokens || usage.input_tokens || 0),
+        completion_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
         total_tokens: Number(usage.total_tokens || 0),
-        ...(Number(usage.prompt_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0)
-          ? { cached_tokens: Number(usage.prompt_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0) }
+        ...(Number(usage.prompt_tokens_details?.cached_tokens || usage.input_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0)
+          ? { cached_tokens: Number(usage.prompt_tokens_details?.cached_tokens || usage.input_tokens_details?.cached_tokens || usage.prompt_cached_tokens || 0) }
           : {}),
-        ...(Number(usage.completion_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0)
-          ? { reasoning_tokens: Number(usage.completion_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0) }
+        ...(Number(usage.completion_tokens_details?.reasoning_tokens || usage.output_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0)
+          ? { reasoning_tokens: Number(usage.completion_tokens_details?.reasoning_tokens || usage.output_tokens_details?.reasoning_tokens || usage.completion_reasoning_tokens || 0) }
           : {}),
       },
       kind,

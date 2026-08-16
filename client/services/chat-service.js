@@ -145,14 +145,35 @@ function messagesHaveInputFiles(messages = []) {
     && message.content.some(part => part?.type === 'input_file' && part?.file_data));
 }
 
+function responsesTextFormat(format = null) {
+  if (!format || typeof format !== 'object' || Array.isArray(format)) return null;
+  const type = String(format.type || '').trim();
+  if (type === 'json_object') return { type: 'json_object' };
+  if (type !== 'json_schema') return null;
+  const schemaFormat = format.json_schema && typeof format.json_schema === 'object'
+    ? format.json_schema
+    : format;
+  const name = String(schemaFormat.name || '').trim();
+  const schema = schemaFormat.schema;
+  if (!name || !schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
+  return {
+    type: 'json_schema',
+    name,
+    strict: schemaFormat.strict === true,
+    schema,
+  };
+}
+
 function buildResponsesPayload(model, messages, options = {}) {
   const payload = { model, input: responsesInputFromChatMessages(messages) };
   // Native file extraction is an evidence-retrieval operation. Responses
   // models can otherwise vary between reading the same input_file and saying
   // that it is unavailable, even when the wire payload and binding contract
-  // are identical. Force deterministic decoding at this boundary; the chat
-  // transport remains unchanged for ordinary non-file conversations.
+  // are identical. Force deterministic decoding at this boundary.
   if (messagesHaveInputFiles(messages)) payload.temperature = 0;
+  if (Number.isFinite(options.temperature)) payload.temperature = Number(options.temperature);
+  const textFormat = responsesTextFormat(options.textFormat || options.responseFormat);
+  if (textFormat) payload.text = { format: textFormat };
   if (options.reasoningEnabled) {
     payload.reasoning = {
       effort: options.reasoningEffort || 'medium',
@@ -160,7 +181,11 @@ function buildResponsesPayload(model, messages, options = {}) {
     };
   }
   if (options.webSearch === true) payload.tools = [{ type: 'web_search' }];
-  if (options.stream !== false) payload.stream = true;
+  // Preserve an explicit non-streaming choice on the wire. Some OpenAI-compatible
+  // gateways incorrectly treat an omitted Responses `stream` field as SSE, so
+  // intent and other one-shot requests must send `stream: false` explicitly.
+  if (typeof options.stream === 'boolean') payload.stream = options.stream;
+  else payload.stream = true;
   return payload;
 }
 

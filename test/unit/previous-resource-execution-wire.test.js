@@ -49,7 +49,7 @@ function testPreviousReadOnlyExecutionPublishesExactCandidateKeys() {
     input: '把猫的颜色改成黑色，背景保持不变。',
     attachments: [],
     context: previousImageQaContext(),
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.previous_resource_execution, {
     operation: 'image_qa',

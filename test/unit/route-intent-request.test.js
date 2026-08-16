@@ -21,11 +21,11 @@ function makeRouteService() {
       buildRoutePayload: ({ model, input }) => ({
         model,
         temperature: 0,
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: 'test', strict: true, schema: { type: 'object' } },
+        text: {
+          format: { type: 'json_schema', name: 'test', strict: true, schema: { type: 'object' } },
         },
-        messages: [{ role: 'user', content: String(input || '') }],
+        input: [{ role: 'user', content: String(input || '') }],
+        stream: false,
       }),
       extractRouteText: response => response?.text || '',
       inspectModelRouteResult: () => ({ route }),
@@ -54,8 +54,8 @@ async function testAmbiguousRouteUsesDeterministicClarificationWithoutSecondMode
   globalThis.ChatUIRouteService = {
     buildRoutePayload: ({ model, input }) => ({
       model, temperature: 0,
-      response_format: { type: 'json_schema', json_schema: { name: 'test', schema: { type: 'object' } } },
-      messages: [{ role: 'user', content: String(input || '') }],
+      text: { format: { type: 'json_schema', name: 'test', schema: { type: 'object' } } },
+      input: [{ role: 'user', content: String(input || '') }],
     }),
     extractRouteText: response => response?.text || '',
     inspectModelRouteResult: () => ({ route: clarificationRoute }),
@@ -84,7 +84,7 @@ async function testAmbiguousRouteUsesDeterministicClarificationWithoutSecondMode
   }
 }
 
-async function testIntentRecognitionUsesTheChatCompletionsProxyPath() {
+async function testIntentRecognitionUsesTheResponsesProxyPath() {
   const previousRouteService = globalThis.ChatUIRouteService;
   const { route, service } = makeRouteService();
   globalThis.ChatUIRouteService = service;
@@ -110,12 +110,111 @@ async function testIntentRecognitionUsesTheChatCompletionsProxyPath() {
     const result = await workflow.getEffectiveRoute('画一只猫', [], 'session-1', { 'X-Test': 'yes' });
     assert.strictEqual(result, route);
     assert.strictEqual(calls.length, 1);
-    assert.strictEqual(calls[0][0], 'https://gateway.example/v1/chat/completions');
+    assert.strictEqual(calls[0][0], 'https://gateway.example/v1/responses');
     assert.strictEqual(calls[0][1].model, 'route-model');
+    assert.ok(Array.isArray(calls[0][1].input));
+    assert.ok(calls[0][1].text?.format);
+    assert.strictEqual(Object.hasOwn(calls[0][1], 'messages'), false);
     assert.strictEqual(calls[0][2], 'route-secret');
     assert.strictEqual(calls[0][3].method, 'POST');
     assert.deepStrictEqual(calls[0][3].headers, { 'X-Test': 'yes' });
     assert.ok(calls[0][3].signal, 'intent requests must carry the cancellation signal');
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
+
+async function testIntentRecognitionFallsBackToNonStreamingChatForExactResponsesGatewayDefect() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  const { route, service } = makeRouteService();
+  globalThis.ChatUIRouteService = service;
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'route-secret',
+      routeModel: 'route-model',
+      chatModel: 'route-model',
+    }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'route-model',
+    requestJson: async (url, payload, apiKey, options) => {
+      calls.push({ url, payload, apiKey, options });
+      if (calls.length === 1) {
+        const error = new Error('failed to do request: empty stream chunks');
+        error.statusCode = 500;
+        error.code = 'internal_error';
+        throw error;
+      }
+      return { text: '{}' };
+    },
+  });
+
+  try {
+    const result = await workflow.getEffectiveRoute('画一只猫', [], 'session-1');
+    assert.strictEqual(result, route);
+    assert.strictEqual(calls.length, 2, 'the exact Responses gateway defect must receive one non-streaming Chat fallback');
+
+    const [responsesCall, chatCall] = calls;
+    assert.strictEqual(responsesCall.url, 'https://gateway.example/v1/responses');
+    assert.strictEqual(responsesCall.payload.stream, false);
+    assert.ok(Array.isArray(responsesCall.payload.input));
+    assert.ok(responsesCall.payload.text?.format);
+    assert.strictEqual(responsesCall.options.requestPurpose, 'intent_recognition');
+
+    assert.strictEqual(chatCall.url, 'https://gateway.example/v1/chat/completions');
+    assert.strictEqual(chatCall.payload.stream, false, 'the fallback must remain one-shot JSON, not SSE');
+    assert.ok(Array.isArray(chatCall.payload.messages));
+    assert.strictEqual(Object.hasOwn(chatCall.payload, 'input'), false);
+    assert.strictEqual(Object.hasOwn(chatCall.payload, 'text'), false);
+    assert.deepStrictEqual(chatCall.payload.response_format, {
+      type: 'json_schema',
+      json_schema: {
+        name: 'test',
+        strict: true,
+        schema: { type: 'object' },
+      },
+    });
+    assert.strictEqual(chatCall.options.requestPurpose, 'intent_recognition');
+    assert.strictEqual(chatCall.options.method, 'POST');
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
+async function testIntentRecognitionDoesNotChangeTransportForOrdinaryResponsesServerError() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  const { service } = makeRouteService();
+  globalThis.ChatUIRouteService = service;
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({
+      baseUrl: 'https://gateway.example/v1',
+      apiKey: 'route-secret',
+      routeModel: 'route-model',
+      chatModel: 'route-model',
+    }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'route-model',
+    requestJson: async (url, payload, apiKey, options) => {
+      calls.push({ url, payload, apiKey, options });
+      const error = new Error('upstream temporarily unavailable');
+      error.statusCode = 500;
+      error.code = 'internal_error';
+      throw error;
+    },
+  });
+
+  try {
+    await workflow.getEffectiveRoute('画一只猫', [], 'session-1');
+    assert.strictEqual(calls.length, 1, 'ordinary server errors must retain the existing model-error behavior');
+    assert.strictEqual(calls[0].url, 'https://gateway.example/v1/responses');
+    assert.strictEqual(calls[0].payload.stream, false);
   } finally {
     if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previousRouteService;
@@ -133,7 +232,7 @@ async function testIntentWorkflowPreservesCanonicalResourceMetadata() {
   globalThis.ChatUIRouteService = {
     buildRoutePayload: options => {
       captured.push(options);
-      return { model: options.model, messages: [{ role: 'user', content: options.input }] };
+      return { model: options.model, input: [{ role: 'user', content: options.input }] };
     },
     extractRouteText: response => response?.text || '',
     inspectModelRouteResult: () => ({ route }),
@@ -190,7 +289,7 @@ async function testIntentWorkflowPreservesCanonicalResourceMetadata() {
 async function testInvalidCanonicalRouteOutputFailsClosedInsteadOfDroppingBindings() {
   const previousRouteService = globalThis.ChatUIRouteService;
   globalThis.ChatUIRouteService = {
-    buildRoutePayload: ({ model, input }) => ({ model, messages: [{ role: 'user', content: input }] }),
+    buildRoutePayload: ({ model, input }) => ({ model, input: [{ role: 'user', content: input }] }),
     extractRouteText: response => response?.text || '',
     inspectModelRouteResult: () => ({ route: null, reason: 'route_compilation_failed' }),
   };
@@ -222,6 +321,7 @@ async function testQuotedImageTimeoutFailsClosedWithoutLocalMediaSelection() {
   const previousRouteService = globalThis.ChatUIRouteService;
   const actualRouteService = require('../../client/services/route-service');
   globalThis.ChatUIRouteService = actualRouteService;
+  let requestStarted = false;
   let requestAborted = false;
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
@@ -231,6 +331,7 @@ async function testQuotedImageTimeoutFailsClosedWithoutLocalMediaSelection() {
     getSessionRouteModel: () => 'route-model',
     getSessionChatModel: () => 'route-model',
     requestJson: (_url, _payload, _apiKey, options = {}) => new Promise((resolve, reject) => {
+      requestStarted = true;
       const rejectAsAborted = () => {
         requestAborted = true;
         const error = new Error('aborted');
@@ -269,8 +370,9 @@ async function testQuotedImageTimeoutFailsClosedWithoutLocalMediaSelection() {
       'session-quoted-timeout',
       null,
       context,
-      { deadlineMs: 5 },
+      { deadlineMs: 100 },
     );
+    assert.strictEqual(requestStarted, true, 'the test deadline must leave enough time to dispatch the request before testing cancellation');
     assert.strictEqual(requestAborted, true, 'the route request must hit the configured deadline');
     assert.strictEqual(route.readiness, 'failed');
     assert.strictEqual(route.outcome, 'transient_error');
@@ -303,7 +405,7 @@ function testIntentPayloadUsesShortResourceKeysAndCompilesBindings() {
       }],
       file_candidates: [],
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   const candidates = payload.resource_candidates;
   assert.deepStrictEqual(candidates.map(candidate => candidate.candidate_key), ['i1', 'm1', 'm2'],
@@ -392,7 +494,7 @@ function testPromptReferenceKeepsTheCompleteBoundedTextWindow() {
         { index: 4, id: 'message-4', resource_id: 'res:message:message-4', role: 'assistant', content: 'a cinematic sunset mountain landscape prompt' },
       ],
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.recent_messages.map(item => item.index), [1, 2, 3, 4]);
   assert.deepStrictEqual(payload.resource_candidates.filter(item => item.type === 'message').map(item => item.candidate_key), ['m1', 'm2', 'm3', 'm4']);
@@ -422,7 +524,7 @@ function testIntentPayloadIncludesBoundedTextHistoryWithoutHistoricalMediaBodies
       },
       conversation_focus: { kind: 'image' },
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.resource_candidates.map(candidate => [candidate.candidate_key, candidate.type]), [['i1', 'image']],
     'the active visual result must remain addressable even when the follow-up omits the word “图片”');
@@ -502,7 +604,7 @@ function testIntentPayloadDoesNotRepeatResourceCatalogInsideContext() {
         name: 'report.pdf',
       }],
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.ok(!payload.context.image_candidates, 'image candidates should only appear in the canonical resource catalog');
   assert.ok(!payload.context.file_candidates, 'file candidates should only appear in the canonical resource catalog');
@@ -512,7 +614,9 @@ function testIntentPayloadDoesNotRepeatResourceCatalogInsideContext() {
 
 
 module.exports = [
-  testIntentRecognitionUsesTheChatCompletionsProxyPath,
+  testIntentRecognitionUsesTheResponsesProxyPath,
+  testIntentRecognitionFallsBackToNonStreamingChatForExactResponsesGatewayDefect,
+  testIntentRecognitionDoesNotChangeTransportForOrdinaryResponsesServerError,
   testAmbiguousRouteUsesDeterministicClarificationWithoutSecondModelCall,
   testIntentWorkflowPreservesCanonicalResourceMetadata,
   testInvalidCanonicalRouteOutputFailsClosedInsteadOfDroppingBindings,

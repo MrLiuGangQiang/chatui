@@ -31,7 +31,7 @@ function publicRouteInput({ input, messages }) {
     context,
     currentTurn: { messageIndex: messages.length },
   });
-  return { context, payload: JSON.parse(payload.messages[1].content) };
+  return { context, payload: JSON.parse(payload.input[1].content) };
 }
 
 function testSubjectlessFileFollowupPublishesBoundedFilesAndPreviousExecutionEvidence() {

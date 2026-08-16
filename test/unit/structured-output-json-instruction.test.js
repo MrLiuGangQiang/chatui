@@ -8,9 +8,16 @@ async function assertFirstStructuredAttemptContainsJson(payload, label) {
   let calls = 0;
   const result = await compatibility.requestJsonWithStructuredOutputFallback(async body => {
     calls += 1;
-    const input = (Array.isArray(body.messages) ? body.messages : [])
+    const messages = Array.isArray(body.input)
+      ? body.input
+      : (Array.isArray(body.messages) ? body.messages : []);
+    const input = messages.map(message => String(message?.content || '')).join('\n');
+    const userInput = messages
+      .filter(message => message?.role === 'user')
       .map(message => String(message?.content || ''))
       .join('\n');
+    assert.ok(/\bjson\b/i.test(userInput),
+      `${label} must carry the JSON-mode marker in the user message for gateways that drop system messages`);
     if (!/\bjson\b/.test(input)) {
       const error = new Error("Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'.");
       error.code = 'invalid_request_error';
@@ -24,22 +31,30 @@ async function assertFirstStructuredAttemptContainsJson(payload, label) {
 }
 
 async function testRouteIntentPromptSatisfiesJsonObjectInputContractInitially() {
-  await assertFirstStructuredAttemptContainsJson(routeService.buildRoutePayload({
+  const payload = routeService.buildRoutePayload({
     model: 'route-model',
     input: '你好',
     attachments: [],
     context: {},
-  }), 'route intent');
+  });
+  assert.ok(Array.isArray(payload.input));
+  assert.ok(payload.text?.format);
+  assert.strictEqual(Object.hasOwn(payload, 'messages'), false);
+  await assertFirstStructuredAttemptContainsJson(payload, 'route intent');
 }
 
 async function testImagePlanPromptSatisfiesJsonObjectInputContractInitially() {
-  await assertFirstStructuredAttemptContainsJson(routeService.buildImagePlanPayload({
+  const payload = routeService.buildImagePlanPayload({
     model: 'route-model',
     input: '分别画一只猫和一只狗',
     goal: '分别生成一张猫图和一张狗图',
     attachments: [],
     context: {},
-  }), 'image plan');
+  });
+  assert.ok(Array.isArray(payload.input));
+  assert.ok(payload.text?.format);
+  assert.strictEqual(Object.hasOwn(payload, 'messages'), false);
+  await assertFirstStructuredAttemptContainsJson(payload, 'image plan');
 }
 
 function testImagePlanStrictSchemaRequiresEveryDeclaredTaskField() {

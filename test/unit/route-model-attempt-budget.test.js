@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
@@ -37,14 +37,14 @@ function fakeRouteService() {
   return {
     buildRoutePayload: ({ model, input }) => ({
       model,
-      reasoning_effort: 'low',
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'route_attempt_test', strict: true, schema: { type: 'object' } },
+      reasoning: { effort: 'low', summary: 'auto' },
+      text: {
+        format: { type: 'json_schema', name: 'route_attempt_test', strict: true, schema: { type: 'object' } },
       },
-      messages: [{ role: 'user', content: String(input || '') }],
+      input: [{ role: 'user', content: String(input || '') }],
+      stream: false,
     }),
-    extractRouteText: response => String(response?.text || ''),
+    extractRouteText: response => String(response?.output_text || response?.text || ''),
     inspectModelRouteResult: text => ({
       route: text === 'valid' ? readyRoute() : text === 'clarify' ? clarificationRoute() : null,
     }),
@@ -71,9 +71,9 @@ async function testCompatibilityRetriesCountEveryProviderRequest() {
   try {
     const workflow = makeWorkflow(async (_url, payload) => {
       payloads.push(payload);
-      if (payloads.length === 6) return { text: 'valid' };
-      if (payload.reasoning_effort) throw new Error('reasoning_effort is not supported by this endpoint');
-      throw new Error(`response_format ${payload.response_format?.type || 'plain'} unsupported`);
+      if (payloads.length === 6) return { output_text: 'valid' };
+      if (payload.reasoning) throw new Error('reasoning is not supported by this endpoint');
+      throw new Error(`text.format ${payload.text?.format?.type || 'plain'} unsupported`);
     });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
 
@@ -96,14 +96,52 @@ async function testCompatibilityRetriesCountEveryProviderRequest() {
   }
 }
 
+async function testResponsesGatewayTransportFallbackCountsBothNonStreamingAttempts() {
+  const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
+  const calls = [];
+  try {
+    const workflow = makeWorkflow(async (url, payload) => {
+      calls.push({ url, payload });
+      if (calls.length === 1) {
+        const error = new Error('failed to do request: empty stream chunks');
+        error.statusCode = 500;
+        error.code = 'internal_error';
+        throw error;
+      }
+      assert.match(url, /\/chat\/completions$/);
+      assert.strictEqual(payload.stream, false);
+      return { output_text: 'valid' };
+    });
+    const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
+
+    assert.strictEqual(calls.length, 2);
+    assert.match(calls[0].url, /\/responses$/);
+    assert.match(calls[1].url, /\/chat\/completions$/);
+    assert.deepStrictEqual(route.modelAttemptLedger, {
+      schema_version: 'route_model_attempt_ledger.v1',
+      max_provider_attempts: 6,
+      logical_rounds: 1,
+      provider_attempts: 2,
+      primary_attempts: 2,
+      fallback_attempts: 0,
+      planning_attempts: 0,
+      compatibility_attempts: 1,
+      reasoning_fallback_attempts: 0,
+      format_fallback_attempts: 0,
+    }, 'the transport fallback must be counted as two real provider attempts');
+  } finally {
+    restore();
+  }
+}
+
 async function testProviderBudgetBlocksTheSeventhCompatibilityAttempt() {
   const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
   let calls = 0;
   try {
     const workflow = makeWorkflow(async (_url, payload) => {
       calls += 1;
-      if (payload.reasoning_effort) throw new Error('reasoning_effort is not supported by this endpoint');
-      return { text: 'valid' };
+      if (payload.reasoning) throw new Error('reasoning is not supported by this endpoint');
+      return { output_text: 'valid' };
     });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts', null, null, {
       modelAttemptLedger: {
@@ -151,6 +189,7 @@ async function testClarificationRerouteContinuesTheSameAttemptLedger() {
 
 module.exports = [
   testCompatibilityRetriesCountEveryProviderRequest,
+  testResponsesGatewayTransportFallbackCountsBothNonStreamingAttempts,
   testProviderBudgetBlocksTheSeventhCompatibilityAttempt,
   testClarificationRerouteContinuesTheSameAttemptLedger,
 ];

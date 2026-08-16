@@ -153,7 +153,7 @@
         const reasoningEnabled = options.reasoning === undefined ? !!state.reasoningMode : !!options.reasoning;
         if (!reasoningEnabled || !isGpt5ReasoningModel(options.model)) return {};
         const effort = normalizeReasoningType(options.reasoningEffort || state.reasoningType);
-        return REASONING_EFFORTS.includes(effort) ? { reasoning_effort: effort } : {};
+        return REASONING_EFFORTS.includes(effort) ? { reasoning: { effort, summary: 'auto' } } : {};
       }
     }
 

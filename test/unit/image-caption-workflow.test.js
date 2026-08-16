@@ -77,9 +77,7 @@ async function testImageTagDescribeSummarizesPromptsAndNeverSendsVision() {
       seen.payload = payload;
       seen.apiKey = apiKey;
       seen.options = options;
-      return {
-        choices: [{ message: { content: '1. 一只橘色小猫\n2. 一条金毛犬' } }],
-      };
+      return { output_text: '1. 一只橘色小猫\n2. 一条金毛犬' };
     },
   });
   const tags = await workflow.describeGeneratedImages(
@@ -93,11 +91,13 @@ async function testImageTagDescribeSummarizesPromptsAndNeverSendsVision() {
     { index: 1, description: '一只橘色小猫' },
     { index: 2, description: '一条金毛犬' },
   ]);
-  assert.strictEqual(seen.url, 'https://upstream.test/v1/chat/completions');
+  assert.strictEqual(seen.url, 'https://upstream.test/v1/responses');
   assert.strictEqual(seen.payload.model, 'chat-model');
+  assert.ok(Array.isArray(seen.payload.input));
+  assert.strictEqual(Object.hasOwn(seen.payload, 'messages'), false);
   assert.strictEqual(seen.apiKey, 'k');
   assert.strictEqual(seen.options.requestPurpose, 'background_image_tag');
-  const serialized = JSON.stringify(seen.payload.messages);
+  const serialized = JSON.stringify(seen.payload.input);
   assert.ok(serialized.includes('an orange cat on a sofa'), 'generation prompt must be sent');
   assert.ok(serialized.includes('a golden retriever in the park'), 'generation prompt must be sent');
   assert.ok(!/image_url|data:image|type:\s*["']image/i.test(serialized), 'payload must never embed image pixels');
@@ -109,7 +109,7 @@ async function testImageTagDescribeFallsBackToOverallPrompt() {
     getConfig: () => ({ baseUrl: 'https://upstream.test/v1', chatModel: 'chat-model' }),
     requestJson: async (url, payload, apiKey, options) => {
       seen.payload = payload;
-      return { choices: [{ message: { content: '1. 一只橘色小猫' } }] };
+      return { output_text: '1. 一只橘色小猫' };
     },
   });
   const tags = await workflow.describeGeneratedImages(
@@ -117,7 +117,7 @@ async function testImageTagDescribeFallsBackToOverallPrompt() {
     { prompt: 'a fluffy orange cat' },
   );
   assert.deepStrictEqual(tags, [{ index: 1, description: '一只橘色小猫' }]);
-  assert.ok(JSON.stringify(seen.payload.messages).includes('a fluffy orange cat'));
+  assert.ok(JSON.stringify(seen.payload.input).includes('a fluffy orange cat'));
 }
 
 async function testImageTagDescribeFailsSilently() {

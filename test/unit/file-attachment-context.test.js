@@ -185,7 +185,7 @@ async function testHistoricalNativeMarkdownKeepsReadableRouteCandidate() {
     attachments: [],
     context: routeContext,
   });
-  const routeUser = JSON.parse(payload.messages[1].content);
+  const routeUser = JSON.parse(payload.input[1].content);
   assert.ok(routeUser.resource_candidates.some(candidate => candidate.candidate_key === 'f1'
     && candidate.type === 'file'
     && candidate.source === 'history'
@@ -233,7 +233,7 @@ async function testNativeInputMarkerWithoutContentStaysUnavailableInHistory() {
     model: 'route-model',
     input: 'summarize that file',
     context: routeContext,
-  }).messages[1].content);
+  }).input[1].content);
   const unavailable = routeUser.resource_candidates.filter(candidate => candidate.type === 'file');
   assert.strictEqual(unavailable.length, 1, 'unavailable files remain in the catalog so the compiler can explain why they cannot execute');
   assert.strictEqual(unavailable[0].availability, 'unavailable');
@@ -266,7 +266,7 @@ async function testLegacyFileMarkersBecomeAmbiguousClarificationChoices() {
     attachments: [],
     context,
   });
-  const routeUser = JSON.parse(payload.messages[1].content);
+  const routeUser = JSON.parse(payload.input[1].content);
   const fileCandidates = routeUser.resource_candidates.filter(candidate => candidate.type === 'file');
   assert.strictEqual(fileCandidates.length, 2, 'the wire payload publishes every file in the bounded catalog for model selection');
   assert.deepStrictEqual(new Set(fileCandidates.map(candidate => candidate.label)), new Set(['AI需求&BUG跟踪表.xlsx', 'AI_Coding全员推广成本预算表.xlsx']));

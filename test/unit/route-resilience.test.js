@@ -22,13 +22,12 @@ function routeService(route = readyRoute()) {
   return {
     buildRoutePayload: ({ model, input }) => ({
       model,
-      messages: [{ role: 'user', content: String(input || '') }],
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: 'route_test', strict: true, schema: { type: 'object' } },
+      input: [{ role: 'user', content: String(input || '') }],
+      text: {
+        format: { type: 'json_schema', name: 'route_test', strict: true, schema: { type: 'object' } },
       },
     }),
-    extractRouteText: response => String(response?.text || ''),
+    extractRouteText: response => String(response?.output_text || response?.text || ''),
     inspectModelRouteResult: text => text === 'valid' ? { route } : { route: null },
   };
 }
@@ -119,7 +118,7 @@ async function testExpiredAbsoluteRouteDeadlineBlocksTheRequest() {
     const workflow = makeWorkflow({
       requestJson: async () => {
         calls += 1;
-        return { text: 'valid' };
+        return { output_text: 'valid' };
       },
     });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-a', null, null, {
@@ -139,7 +138,7 @@ async function testRouteDeadlineSettlesEvenWhenTheAdapterIgnoresAbort() {
     const workflow = makeWorkflow({
       requestJson: async () => {
         await new Promise(resolve => setTimeout(resolve, 90));
-        return { text: 'valid' };
+        return { output_text: 'valid' };
       },
     });
     const startedAt = Date.now();
@@ -168,7 +167,7 @@ async function testStructuredOutputCompatibilityDoesNotRetryAfterDeadline() {
         if (calls === 1) {
           return new Promise((_resolve, reject) => { rejectFirstRequest = reject; });
         }
-        return { text: 'valid' };
+        return { output_text: 'valid' };
       },
     });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-a', null, null, {
@@ -177,7 +176,7 @@ async function testStructuredOutputCompatibilityDoesNotRetryAfterDeadline() {
     assert.strictEqual(route.evidence, 'route_model_timeout');
     assert.strictEqual(calls, 1);
 
-    const lateError = new Error('response_format json_schema is unsupported');
+    const lateError = new Error('text.format json_schema is unsupported');
     lateError.statusCode = 400;
     rejectFirstRequest(lateError);
     await new Promise(resolve => setImmediate(resolve));
@@ -198,7 +197,7 @@ async function testRouteDeadlineIncludesSynchronousResponseValidation() {
   };
   const restore = replaceGlobal('ChatUIRouteService', slowRouteService);
   try {
-    const workflow = makeWorkflow({ requestJson: async () => ({ text: 'valid' }) });
+    const workflow = makeWorkflow({ requestJson: async () => ({ output_text: 'valid' }) });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-a', null, null, {
       deadlineAt: Date.now() + 5,
     });
@@ -246,7 +245,7 @@ async function testParentCancellationPropagatesInsteadOfBecomingTimeout() {
     const workflow = makeWorkflow({
       requestJson: async () => {
         await new Promise(resolve => setTimeout(resolve, 90));
-        return { text: 'valid' };
+        return { output_text: 'valid' };
       },
     });
     setTimeout(() => parent.abort(), 5);
@@ -281,7 +280,7 @@ async function testCoreRouteContextFailureStopsBeforeModelInvocation() {
     };
     const workflow = makeWorkflow({
       state,
-      requestJson: async () => { calls += 1; return { text: 'valid' }; },
+      requestJson: async () => { calls += 1; return { output_text: 'valid' }; },
     });
     assert.throws(
       () => workflow.buildRouteContext('session-a'),
@@ -316,7 +315,7 @@ async function testRouteContextCompactionFailureStopsBeforeModelInvocation() {
       },
       requestJson: async () => {
         calls += 1;
-        return { text: 'valid' };
+        return { output_text: 'valid' };
       },
     });
     const route = await workflow.getEffectiveRoute('follow up', [], 'session-a');
@@ -345,7 +344,7 @@ function testOptionalImageMemoryFailurePreservesCoreRouteContext() {
         mode: 'chat', autoMode: true, activeSessionId: 'session-a', sessions: [],
         messages: [{ role: 'user', content: 'keep this context', displayItemId: 'message-a' }],
       },
-      requestJson: async () => ({ text: 'valid' }),
+      requestJson: async () => ({ output_text: 'valid' }),
     });
     const context = workflow.buildRouteContext('session-a');
     assert.strictEqual(context.recent_messages.length, 1);

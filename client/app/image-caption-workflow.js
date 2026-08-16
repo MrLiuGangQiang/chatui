@@ -10,6 +10,10 @@
   // because it is silent to the user. Tags are stored on the image record for
   // routing only and are never rendered in the chat UI.
 
+  const chatService = root?.ChatUIChatService
+    || root?.ChatUIServices?.chat
+    || (typeof require === 'function' ? require('../services/chat-service') : {});
+
   const MAX_CAPTION_IMAGES = 8;
   const DEFAULT_TIMEOUT_MS = 15000;
   const MAX_DESCRIPTION_LENGTH = 120;
@@ -133,6 +137,7 @@
 
   function createImageCaptionWorkflow(deps = {}) {
     const requestJson = deps.requestJson;
+    const buildResponsesPayload = deps.buildResponsesPayload || chatService.buildResponsesPayload;
     const getConfig = deps.getConfig || (() => ({}));
     const extractChatJobText = deps.extractChatJobText
       || (data => ({
@@ -161,8 +166,9 @@
         language: options.language || '',
       });
       if (!messages.length) return [];
-      const payload = { model, temperature: 0, messages };
-      const url = `${baseUrl}/chat/completions`;
+      if (typeof buildResponsesPayload !== 'function') return [];
+      const payload = buildResponsesPayload(model, messages, { stream: false, temperature: 0 });
+      const url = `${baseUrl}/responses`;
       const optionTimeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : timeoutMs;
       let controller = null;
       let timer = null;

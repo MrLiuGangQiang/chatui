@@ -119,6 +119,9 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     if (method !== 'GET' && upstreamPath === '/images/generations') {
       safeLog('[image-generation-proxy] upstream json', { model: outboundPayload.model || '', fields: Object.keys(outboundPayload) });
     }
+    // Streaming is an explicit browser-to-upstream transport contract. Intent
+    // recognition deliberately omits it so the route model always returns one
+    // bounded JSON response instead of opening an SSE connection.
     const wantsStream = method !== 'GET' && outboundPayload && outboundPayload.stream === true;
     const isImageEdit = method !== 'GET' && upstreamPath === '/images/edits';
     const imageEditFiles = isImageEdit ? extractImageEditFiles(body) : [];
@@ -190,6 +193,15 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
     traceContentType = contentType;
     const isEventStream = contentType.toLowerCase().includes('text/event-stream');
+
+    if (String(body?.requestPurpose || '') === 'intent_recognition' && !wantsStream && isEventStream) {
+      const responseText = await upstream.text();
+      const error = new Error('Intent recognition upstream returned an unexpected streaming response');
+      const traceDetails = { status: upstream.status, responseText, contentType };
+      requestTrace?.fail?.(traceSpan, { ...traceDetails, error });
+      sendError(res, 502, '意图识别上游错误地返回了流式响应；请将该接口配置为非流式 Responses。', 'INTENT_RESPONSE_STREAM_UNEXPECTED');
+      return;
+    }
 
     if (wantsStream || isEventStream) {
       const chatJob = proxyChatJob;

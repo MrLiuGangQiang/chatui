@@ -33,7 +33,7 @@ function testBoundedMediaCatalogCrossesTheModelBoundaryWithoutLocalSemanticFilte
     attachments: [],
     context: boundedImageContext(),
   };
-  const payload = JSON.parse(routeService.buildRoutePayload({ model: 'route-model', ...options }).messages[1].content);
+  const payload = JSON.parse(routeService.buildRoutePayload({ model: 'route-model', ...options }).input[1].content);
   assert.deepStrictEqual(payload.resource_candidates.map(candidate => [candidate.candidate_key, candidate.type]), [
     ['i1', 'image'],
     ['m1', 'message'],

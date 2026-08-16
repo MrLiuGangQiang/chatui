@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const imageRouteContext = require('../../client/core/image-route-context');
@@ -79,7 +79,7 @@ function publicRouteInput({ input, context, currentTurn }) {
     context,
     currentTurn,
   });
-  return JSON.parse(payload.messages[1].content);
+  return JSON.parse(payload.input[1].content);
 }
 
 function testSubjectlessImageEditKeepsLatestVisualLineageAddressable() {

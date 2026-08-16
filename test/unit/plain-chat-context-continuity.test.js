@@ -42,7 +42,7 @@ function testShortOrdinalFollowupReceivesCompleteBoundedPriorTextWindow() {
     input: '第一条',
     context: ordinalConversationContext(),
     currentTurn: { messageIndex: 5 },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(
     payload.context.recent_messages.map(item => item.index),
@@ -91,7 +91,7 @@ function testShortImplicitQuestionReceivesPriorContextWithoutExplicitDeictic() {
     input: '暗号是什么',
     context,
     currentTurn: { messageIndex: 3 },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.recent_messages.map(item => item.index), [1, 2]);
   assert.deepStrictEqual(payload.resource_candidates.map(item => item.candidate_key), ['m1', 'm2']);
@@ -111,7 +111,7 @@ function testVisualContinuationReceivesBoundedChatHistoryForIntentResolution() {
     input: '再换一个场景',
     context,
     currentTurn: { messageIndex: 2 },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.recent_messages.map(item => item.index), [1]);
   assert.deepStrictEqual(payload.resource_candidates.filter(item => item.type === 'message').map(item => item.candidate_key), ['m1']);

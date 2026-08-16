@@ -36,7 +36,7 @@ function testQuotedMessageAndLatestTaskReachIntentRecognitionTogether() {
     input: '这个呢',
     context,
     currentTurn: { messageIndex: 4 },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.recent_messages.map(item => item.index), [1, 2, 3]);
   assert.strictEqual(payload.context.quoted_message.content, '海盐-7391');
@@ -58,7 +58,7 @@ function testQuotedIntentContextExcludesUnrelatedSessionHistory() {
     input: '这个呢',
     context: quoteContext,
     currentTurn: { messageIndex: 4 },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.context.recent_messages, [{
     index: 1,

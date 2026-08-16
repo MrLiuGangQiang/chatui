@@ -5,6 +5,8 @@
     || (typeof require === 'function' ? require('../services/request-compatibility') : {});
   const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
   const requestJsonWithReasoningParamFallback = requestCompatibility.requestJsonWithReasoningParamFallback;
+  const isNonStreamingResponsesEmptyStreamChunks = requestCompatibility.isNonStreamingResponsesEmptyStreamChunks;
+  const chatCompletionsPayloadFromResponsesPayload = requestCompatibility.chatCompletionsPayloadFromResponsesPayload;
   const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const createBoundedIntentRequest = submitWorkflowPolicy.createBoundedIntentRequest;
@@ -51,7 +53,7 @@
       reasoning_fallback_attempts: nonNegativeInteger(source.reasoning_fallback_attempts),
       format_fallback_attempts: nonNegativeInteger(source.format_fallback_attempts),
     };
-    const formatKey = payload => String(payload?.response_format?.type || 'plain');
+    const formatKey = payload => String(payload?.text?.format?.type || payload?.response_format?.type || 'plain');
     return Object.freeze({
       beginRound(descriptor = {}, payload = {}) {
         if (state.provider_attempts >= MAX_MODEL_CALLS) throw createModelAttemptBudgetError();
@@ -60,11 +62,11 @@
           phase: String(descriptor.phase || 'routing'),
           modelRole: String(descriptor.modelRole || 'primary'),
           providerAttempts: 0,
-          originalReasoning: !!payload?.reasoning_effort,
+          originalReasoning: !!(payload?.reasoning_effort || payload?.reasoning),
           originalFormat: formatKey(payload),
         };
       },
-      recordProviderAttempt(round = {}, payload = {}) {
+      recordProviderAttempt(round = {}, payload = {}, metadata = {}) {
         if (state.provider_attempts >= MAX_MODEL_CALLS) throw createModelAttemptBudgetError();
         round.providerAttempts = nonNegativeInteger(round.providerAttempts) + 1;
         state.provider_attempts += 1;
@@ -72,7 +74,11 @@
         else if (round.modelRole === 'fallback') state.fallback_attempts += 1;
         else state.primary_attempts += 1;
         if (round.providerAttempts > 1) state.compatibility_attempts += 1;
-        if (round.originalReasoning && !payload?.reasoning_effort) state.reasoning_fallback_attempts += 1;
+        // Responses -> Chat Completions transport fallback intentionally omits
+        // Responses-only reasoning fields. It is not a reasoning capability
+        // rejection and must not inflate the reasoning fallback counter.
+        if (round.originalReasoning && !payload?.reasoning_effort && !payload?.reasoning
+            && metadata?.transportFallback !== true) state.reasoning_fallback_attempts += 1;
         if (formatKey(payload) !== round.originalFormat) state.format_fallback_attempts += 1;
       },
       snapshot() { return Object.freeze({ ...state }); },
@@ -442,9 +448,9 @@
           headers || {},
           intentDeadline.signal,
           routeOptions,
-          nextPayload => {
+          (nextPayload, requestMetadata = {}) => {
             intentDeadline.assertActive();
-            attemptLedger.recordProviderAttempt(round, nextPayload);
+            attemptLedger.recordProviderAttempt(round, nextPayload, requestMetadata);
           },
         );
       });
@@ -657,16 +663,19 @@
     }
 
 
-    // Intent requests use the shared OpenAI-compatible request adapter.
+    // Intent recognition and image-plan calls are one-shot JSON requests. Some
+    // gateways have a broken non-streaming Responses implementation: they return
+    // 500 "empty stream chunks" even when stream:false was sent. Keep Responses
+    // as the primary API, but retry that exact gateway defect through the
+    // non-streaming Chat Completions transport. This is never an SSE fallback.
     async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null) {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
-      const apiUrl = `${baseUrl}/chat/completions`;
-      const assertAttemptActive = nextPayload => {
-        if (typeof beforeAttempt === 'function') beforeAttempt(nextPayload);
+      const assertAttemptActive = (nextPayload, requestMetadata = {}) => {
+        if (typeof beforeAttempt === 'function') beforeAttempt(nextPayload, requestMetadata);
       };
-      const request = typeof deps.requestJson === 'function'
+      const requestFor = (apiUrl, requestMetadata = {}) => (typeof deps.requestJson === 'function'
         ? nextPayload => {
-          assertAttemptActive(nextPayload);
+          assertAttemptActive(nextPayload, requestMetadata);
           return deps.requestJson(apiUrl, nextPayload, config.apiKey, {
             method: 'POST',
             headers: headers || {},
@@ -676,7 +685,7 @@
           });
         }
         : async nextPayload => {
-          assertAttemptActive(nextPayload);
+          assertAttemptActive(nextPayload, requestMetadata);
           const resp = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -688,26 +697,51 @@
             signal,
           });
           if (!resp.ok) {
-            const err = new Error('Route model HTTP ' + resp.status);
-            err.statusCode = resp.status;
+            let raw = '';
+            let parsed = null;
+            try {
+              raw = await resp.text();
+              parsed = raw ? JSON.parse(raw) : null;
+            } catch {}
+            const providerError = parsed?.error && typeof parsed.error === 'object' ? parsed.error : parsed;
+            const err = new Error(String(providerError?.message || parsed?.message || raw || `Route model HTTP ${resp.status}`));
+            err.statusCode = Number(resp.status) || 0;
+            err.status = err.statusCode;
+            err.code = String(providerError?.code || providerError?.type || 'HTTP_REQUEST_FAILED');
             throw err;
           }
           return resp.json();
-        };
+        });
 
-      // Keep structured-output compatibility fallback for endpoints/models that
-      // reject json_schema, while preserving the application request adapter's
-      // positional contract (url, payload, apiKey, options).
-      let attempt = nextPayload => request(nextPayload);
-      if (typeof requestJsonWithReasoningParamFallback === 'function') {
-        const inner = attempt;
-        attempt = nextPayload => requestJsonWithReasoningParamFallback(inner, nextPayload);
+      const requestWithCompatibility = (apiUrl, nextPayload, requestMetadata = {}) => {
+        // Keep structured-output compatibility fallback for endpoints/models that
+        // reject json_schema, while preserving the application request adapter's
+        // positional contract (url, payload, apiKey, options).
+        let attempt = requestFor(apiUrl, requestMetadata);
+        if (typeof requestJsonWithReasoningParamFallback === 'function') {
+          const inner = attempt;
+          attempt = body => requestJsonWithReasoningParamFallback(inner, body);
+        }
+        if (typeof requestJsonWithStructuredOutputFallback === 'function') {
+          const inner = attempt;
+          attempt = body => requestJsonWithStructuredOutputFallback(inner, body);
+        }
+        return attempt(nextPayload);
+      };
+
+      try {
+        return await requestWithCompatibility(`${baseUrl}/responses`, payload, { transportApi: 'responses' });
+      } catch (error) {
+        if (typeof isNonStreamingResponsesEmptyStreamChunks !== 'function'
+            || !isNonStreamingResponsesEmptyStreamChunks(error)
+            || typeof chatCompletionsPayloadFromResponsesPayload !== 'function') throw error;
+        const chatPayload = chatCompletionsPayloadFromResponsesPayload(payload);
+        if (!chatPayload) throw error;
+        return requestWithCompatibility(`${baseUrl}/chat/completions`, chatPayload, {
+          transportApi: 'chat',
+          transportFallback: true,
+        });
       }
-      if (typeof requestJsonWithStructuredOutputFallback === 'function') {
-        const inner = attempt;
-        attempt = nextPayload => requestJsonWithStructuredOutputFallback(inner, nextPayload);
-      }
-      return attempt(payload);
     }
 
     // ── Intent trace (for debugging) ──────────────────────────────

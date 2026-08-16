@@ -42,7 +42,7 @@ function createWorkflow({ stageOne = stageOneIntent(), stageTwo = null, stageTwo
     getSessionChatModel: () => 'chat-model',
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
-      const intentPayloads = calls.filter(call => call.payload.response_format?.json_schema?.name === 'chatui_route_intent_v2');
+      const intentPayloads = calls.filter(call => call.payload.text?.format?.name === 'chatui_route_intent_v2');
       if (calls.length === 1) return { choices: [{ message: { content: stageOne } }] };
       if (stageTwoError) throw stageTwoError;
       return stageTwo === null ? { choices: [{ message: { content: 'not json' } }] } : stageTwo;
@@ -58,7 +58,7 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(3) });
     const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
     assert.strictEqual(calls.length, 2, 'multi-image routes pay for exactly one planning call');
-    assert.strictEqual(calls[1].payload.response_format.json_schema.name, 'chatui_image_plan_v1');
+    assert.strictEqual(calls[1].payload.text.format.name, 'chatui_image_plan_v1');
     assert.strictEqual(route.taskShape, 'multi');
     assert.strictEqual(route.imagePlanCompiled.kind, 'batch');
     assert.strictEqual(route.imagePlanCompiled.items.length, 3);

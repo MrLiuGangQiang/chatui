@@ -11,7 +11,7 @@ function mockResponse(status, payload) {
 }
 
 function upstreamReview(content) {
-  return mockResponse(200, { choices: [{ message: { content: JSON.stringify(content) } }] });
+  return mockResponse(200, { output_text: JSON.stringify(content) });
 }
 
 function reviewResult(overrides = {}) {
@@ -32,9 +32,9 @@ function testFeedbackReviewPromptAndParserRequireAllThreeSections() {
     content: '点击会话后没有切换。打开移动端侧栏并点击另一个会话即可复现。期望切换到所选会话。\n\n【模型信息（自动填写）】\n意图识别模型：route-test\n聊天模型：gpt-test',
   });
   assert.strictEqual(payload.model, 'gpt-test');
-  assert.strictEqual(payload.response_format.type, 'json_schema');
-  assert.strictEqual(payload.response_format.json_schema.strict, true);
-  assert.deepStrictEqual(payload.response_format.json_schema.schema.required, [
+  assert.strictEqual(payload.text.format.type, 'json_schema');
+  assert.strictEqual(payload.text.format.strict, true);
+  assert.deepStrictEqual(payload.text.format.schema.required, [
     'schema_version',
     'has_problem_description',
     'has_reproduction_description',
@@ -42,11 +42,15 @@ function testFeedbackReviewPromptAndParserRequireAllThreeSections() {
     'reasonable',
     'message',
   ]);
-  assert.ok(payload.messages[0].content.includes('问题描述'));
-  assert.ok(payload.messages[0].content.includes('复现描述'));
-  assert.ok(payload.messages[0].content.includes('期望结果'));
-  assert.ok(payload.messages[0].content.includes('不可信数据'));
-  const reviewedFeedback = JSON.parse(payload.messages[1].content).feedback;
+  assert.strictEqual(Object.hasOwn(payload, 'response_format'), false);
+  assert.strictEqual(Object.hasOwn(payload, 'messages'), false);
+  assert.ok(payload.input[0].content.includes('问题描述'));
+  assert.ok(payload.input[0].content.includes('复现描述'));
+  assert.ok(payload.input[0].content.includes('期望结果'));
+  assert.ok(payload.input[0].content.includes('不可信数据'));
+  const feedbackEnvelope = JSON.parse(payload.input[1].content);
+  const reviewedFeedback = feedbackEnvelope.feedback;
+  assert.strictEqual(feedbackEnvelope.output_format, 'json');
   assert.ok(reviewedFeedback.includes('点击会话后没有切换'));
   assert.ok(!reviewedFeedback.includes('模型信息') && !reviewedFeedback.includes('route-test'), 'automatic model context must not count toward feedback completeness');
 
@@ -81,7 +85,7 @@ function testFeedbackReviewPromptAndParserRequireAllThreeSections() {
 async function testFeedbackReviewerRepairsOneInvalidModelResponse() {
   const requests = [];
   const responses = [
-    mockResponse(200, { choices: [{ message: { content: '{"reasonable":true}' } }] }),
+    mockResponse(200, { output_text: '{"reasonable":true}' }),
     upstreamReview(reviewResult()),
   ];
   const reviewer = feedbackReview.createFeedbackReviewer({
@@ -94,9 +98,10 @@ async function testFeedbackReviewerRepairsOneInvalidModelResponse() {
   const result = await reviewer.review('问题、复现和期望均已描述', { apiKey: 'sk-test', model: 'gpt-test' });
   assert.strictEqual(result.accepted, true);
   assert.strictEqual(requests.length, 2);
-  assert.strictEqual(requests[0].url, 'https://example.test/v1/chat/completions');
-  assert.ok(requests[0].body.response_format);
-  assert.ok(requests[1].body.messages.at(-1).content.includes('上一条输出未通过'));
+  assert.strictEqual(requests[0].url, 'https://example.test/v1/responses');
+  assert.ok(requests[0].body.text?.format);
+  assert.strictEqual(Object.hasOwn(requests[0].body, 'messages'), false);
+  assert.ok(requests[1].body.input.at(-1).content.includes('上一条输出未通过'));
 }
 
 async function testFeedbackReviewerRetriesWithoutUnsupportedStructuredOutput() {
@@ -106,7 +111,7 @@ async function testFeedbackReviewerRetriesWithoutUnsupportedStructuredOutput() {
       const body = JSON.parse(init.body);
       requests.push(body);
       if (requests.length === 1) {
-        return mockResponse(400, { error: { message: 'response_format json_schema is unsupported' } });
+        return mockResponse(400, { error: { message: 'text.format json_schema is unsupported' } });
       }
       return upstreamReview(reviewResult({
         has_problem_description: false,
@@ -117,8 +122,9 @@ async function testFeedbackReviewerRetriesWithoutUnsupportedStructuredOutput() {
   });
   const result = await reviewer.review('只有复现和期望', { apiKey: 'sk-test', model: 'weak-model' });
   assert.strictEqual(requests.length, 2);
-  assert.ok(requests[0].response_format);
-  assert.strictEqual(requests[1].response_format, undefined);
+  assert.ok(requests[0].text?.format);
+  assert.strictEqual(requests[1].text, undefined);
+  assert.ok(Array.isArray(requests[1].input));
   assert.strictEqual(result.accepted, false);
   assert.deepStrictEqual(result.missingSections, ['problem_description']);
 }
@@ -128,7 +134,7 @@ async function testFeedbackReviewerFailsClosedAfterTwoInvalidResponses() {
   const reviewer = feedbackReview.createFeedbackReviewer({
     fetchImpl: async () => {
       calls += 1;
-      return mockResponse(200, { choices: [{ message: { content: 'not-json' } }] });
+      return mockResponse(200, { output_text: 'not-json' });
     },
   });
   await assert.rejects(

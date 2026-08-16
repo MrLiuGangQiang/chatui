@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
@@ -36,8 +36,8 @@ function readyRoute() {
 
 function routeServiceFor(textToRoute = () => readyRoute()) {
   return {
-    buildRoutePayload: ({ model }) => ({ model, messages: [], response_format: { type: 'json_schema' } }),
-    extractRouteText: response => String(response?.text || ''),
+    buildRoutePayload: ({ model }) => ({ model, input: [], text: { format: { type: 'json_schema' } } }),
+    extractRouteText: response => String(response?.output_text || response?.text || ''),
     inspectModelRouteResult: text => ({ route: textToRoute(text) }),
   };
 }

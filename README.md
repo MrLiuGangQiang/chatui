@@ -466,7 +466,7 @@ GET /models
 
 ### 请求链路
 
-普通聊天默认调用 `POST /chat/completions`；原生文件、Responses reasoning 和联网搜索等能力会调用 `POST /responses`。其中 `web_search` 执行计划始终使用 Responses API。
+聊天、意图识别、图片任务规划、原生文件、多模态问答、后台文本标签、反馈审核、reasoning 和联网搜索等运行时文本模型请求优先调用 `POST /responses`。意图识别和图片任务规划始终先使用一次性非流式 JSON 请求，并显式发送 `stream: false`；代理绝不会将其升级或重试为 SSE。仅当上游 `/responses` 对这类请求精确返回 HTTP 500 且错误信息包含 `empty stream chunks` 时，客户端才会把同一请求转换为 `POST /chat/completions` 再试一次，仍强制 `stream: false`，绝不切换到 SSE；其他错误维持原有失败和模型 fallback 语义。图片生成与编辑仍调用 Images API；代理继续保留 `/chat/completions`，用于已持久化的历史 Chat Job 恢复、兼容调用及这一个受限的路由网关兼容回退。`web_search` 仍只有在不可变执行计划明确授权时才会附加内置工具。
 
 前端会通过本地代理发送，避免浏览器跨域和直连鉴权问题。
 

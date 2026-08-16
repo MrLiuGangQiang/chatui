@@ -5,7 +5,7 @@ const routeService = require('../../client/services/route-service');
 
 function goalSchemaFor(options) {
   return routeService.buildRoutePayload({ model: 'route-model', ...options })
-    .response_format.json_schema.schema.properties.goal;
+    .text.format.schema.properties.goal;
 }
 
 function testStatelessCurrentOnlyRequestKeepsCurrentInputAsExactGoalAuthority() {

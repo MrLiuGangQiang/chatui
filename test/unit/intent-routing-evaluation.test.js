@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const assert = require("assert");
 const path = require("path");
@@ -281,11 +281,12 @@ function testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBounda
   assert.strictEqual(options.minValidRoute, 0);
   const audit = evaluationCli.auditRoutePayload({
     model: "router-model",
-    messages: [{ role: "user", content: JSON.stringify({ resource_candidates: [{ type: "image", candidate_key: "i1" }] }) }],
+    input: [{ role: "user", content: JSON.stringify({ resource_candidates: [{ type: "image", candidate_key: "i1" }] }) }],
   }, "test-key");
   assert.strictEqual(audit.contains_api_key, false);
   assert.strictEqual(audit.contains_data_url, false);
   assert.strictEqual(audit.embedded_execution_protocol_field, "");
+  assert.strictEqual(audit.transport, "responses");
 }
 
 async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallbacks() {
@@ -295,16 +296,16 @@ async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallback
     calls.push(payload);
     if (calls.length === 1) {
       return new Response(JSON.stringify({
-        error: { code: 'invalid_request_error', message: 'This response_format type is unavailable now' },
+        error: { code: 'invalid_request_error', message: 'This text.format type is unavailable now' },
       }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
     if (calls.length === 2) {
       return new Response(JSON.stringify({
-        error: { code: 'invalid_request_error', message: "Prompt must contain the word 'json' to use response_format" },
+        error: { code: 'invalid_request_error', message: "Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'." },
       }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response(JSON.stringify({
-      choices: [{ message: { content: plan('plain_chat', '保持原意') } }],
+      output_text: plan('plain_chat', '保持原意'),
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   const payload = routeService.buildRoutePayload({
@@ -315,7 +316,7 @@ async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallback
   const original = JSON.parse(JSON.stringify(payload));
 
   const text = await evaluationCli.requestRouteModel({
-    endpoint: 'https://example.test/v1/chat/completions',
+    endpoint: 'https://example.test/v1/responses',
     apiKey: 'test-key',
     payload,
     timeoutMs: 1000,
@@ -324,10 +325,10 @@ async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallback
 
   assert.strictEqual(text, plan('plain_chat', '保持原意'));
   assert.strictEqual(calls.length, 3, 'json_schema, json_object and instructed plain JSON must each be attempted once');
-  assert.strictEqual(calls[0].response_format.type, 'json_schema');
-  assert.strictEqual(calls[1].response_format.type, 'json_object');
-  assert.strictEqual(calls[2].response_format, undefined);
-  assert.ok(calls[2].messages.at(-1).content.includes('JSON Schema'));
+  assert.strictEqual(calls[0].text.format.type, 'json_schema');
+  assert.strictEqual(calls[1].text.format.type, 'json_object');
+  assert.strictEqual(calls[2].text, undefined);
+  assert.ok(calls[2].input.at(-1).content.includes('JSON Schema'));
   assert.deepStrictEqual(payload, original, 'evaluation compatibility must not mutate the production route payload');
 }
 

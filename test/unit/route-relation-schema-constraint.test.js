@@ -42,7 +42,7 @@ function relationEnum(input, context) {
     model: 'route-model',
     input,
     context,
-  }).response_format.json_schema.schema.properties.relation.enum;
+  }).text.format.schema.properties.relation.enum;
 }
 
 function testEllipticalOrdinalWithExactPriorExecutionIsConstrainedToContinuation() {

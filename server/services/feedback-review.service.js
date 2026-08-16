@@ -13,28 +13,26 @@ const REQUIRED_SECTION_LABELS = Object.freeze({
 
 const FEEDBACK_REVIEW_RESPONSE_FORMAT = Object.freeze({
   type: 'json_schema',
-  json_schema: {
-    name: 'chatui_feedback_review_v1',
-    strict: true,
-    schema: {
-      type: 'object',
-      additionalProperties: false,
-      required: [
-        'schema_version',
-        'has_problem_description',
-        'has_reproduction_description',
-        'has_expected_result',
-        'reasonable',
-        'message',
-      ],
-      properties: {
-        schema_version: { type: 'string', const: FEEDBACK_REVIEW_SCHEMA_VERSION },
-        has_problem_description: { type: 'boolean' },
-        has_reproduction_description: { type: 'boolean' },
-        has_expected_result: { type: 'boolean' },
-        reasonable: { type: 'boolean' },
-        message: { type: 'string' },
-      },
+  name: 'chatui_feedback_review_v1',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'schema_version',
+      'has_problem_description',
+      'has_reproduction_description',
+      'has_expected_result',
+      'reasonable',
+      'message',
+    ],
+    properties: {
+      schema_version: { type: 'string', const: FEEDBACK_REVIEW_SCHEMA_VERSION },
+      has_problem_description: { type: 'boolean' },
+      has_reproduction_description: { type: 'boolean' },
+      has_expected_result: { type: 'boolean' },
+      reasonable: { type: 'boolean' },
+      message: { type: 'string' },
     },
   },
 });
@@ -59,10 +57,12 @@ function createFeedbackReviewPayload({ content = '', model = '' } = {}) {
     model: String(model || '').trim(),
     temperature: 0,
     stream: false,
-    response_format: FEEDBACK_REVIEW_RESPONSE_FORMAT,
-    messages: [
+    text: { format: FEEDBACK_REVIEW_RESPONSE_FORMAT },
+    input: [
       { role: 'system', content: FEEDBACK_REVIEW_SYSTEM_PROMPT },
-      { role: 'user', content: JSON.stringify({ feedback: normalizedFeedback(content) }) },
+      // Retain an explicit marker in user input for OpenAI-compatible gateways
+      // that validate JSON mode against user content rather than all input items.
+      { role: 'user', content: JSON.stringify({ feedback: normalizedFeedback(content), output_format: 'json' }) },
     ],
   };
 }
@@ -133,7 +133,7 @@ function upstreamErrorMessage(payload, fallback = '') {
 
 function structuredOutputUnsupported(status, message = '') {
   return Number(status) >= 400 && Number(status) < 500
-    && /response_format|json_schema|structured.?output/i.test(message)
+    && /response[_\s-]?format|text\.format|json[_\s-]?schema|structured.?output/i.test(message)
     && /unsupported|not support|unknown|invalid parameter|unrecognized/i.test(message);
 }
 
@@ -156,7 +156,7 @@ function createFeedbackReviewer({
   baseUrl = DEFAULT_UPSTREAM_BASE_URL,
   timeoutMs = FEEDBACK_REVIEW_TIMEOUT_MS,
 } = {}) {
-  const endpoint = `${String(baseUrl || DEFAULT_UPSTREAM_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
+  const endpoint = `${String(baseUrl || DEFAULT_UPSTREAM_BASE_URL).replace(/\/+$/, '')}/responses`;
 
   async function request(payload, apiKey) {
     let response;
@@ -197,7 +197,10 @@ function createFeedbackReviewer({
     } catch (error) {
       if (!structuredOutputUnsupported(error.upstreamStatus, error.upstreamMessage)) throw error;
       activePayload = { ...initialPayload };
-      delete activePayload.response_format;
+      const text = { ...(activePayload.text || {}) };
+      delete text.format;
+      if (Object.keys(text).length) activePayload.text = text;
+      else delete activePayload.text;
       first = await request(activePayload, apiKey);
     }
 
@@ -206,8 +209,8 @@ function createFeedbackReviewer({
 
     const repairPayload = {
       ...activePayload,
-      messages: [
-        ...activePayload.messages,
+      input: [
+        ...activePayload.input,
         { role: 'assistant', content: String(first.text || '').slice(0, 2000) },
         { role: 'user', content: FEEDBACK_REVIEW_REPAIR_PROMPT },
       ],

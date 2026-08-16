@@ -70,7 +70,7 @@ async function testModelSelectedMultiImageCompositionReachesImageEditsWithBothSe
 
   const wire = JSON.parse(routeService.buildRoutePayload({
     model: 'route-model', input, context, attachments: [],
-  }).messages[1].content);
+  }).input[1].content);
   assert.ok(wire.resource_candidates.some(candidate => candidate.candidate_key === catKey));
   assert.ok(wire.resource_candidates.some(candidate => candidate.candidate_key === colorFishKey));
 

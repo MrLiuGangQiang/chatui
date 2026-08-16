@@ -47,7 +47,7 @@ function testRoutePayloadUsesOnlyShortCandidateKeysForResourceSelection() {
         }],
       },
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.resource_candidates.map(candidate => candidate.candidate_key), ['i1', 'm1']);
   assert.deepStrictEqual(payload.context.recent_messages.map(message => message.index), [7],
@@ -90,7 +90,7 @@ function testImageMemoryAddsRetrievedOlderCardsAlongsideBoundedCandidates() {
         },
       ],
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.deepStrictEqual(payload.resource_candidates, [{
     candidate_key: 'i1',
@@ -126,7 +126,7 @@ function testStandaloneRequestReceivesCompactExecutionAndFocusEvidence() {
       conversation_focus: { kind: 'image', text_format: 'markdown', source_message_index: 88 },
       conversation_continuity: { relation: 'followup', anchor: 'old task '.repeat(100), inherited: true },
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.strictEqual(payload.context.last_generated_image.count, 4);
   assert.strictEqual(payload.context.previous_execution.operation, 'edit_image');
@@ -170,7 +170,7 @@ function testClarificationWireContextKeepsOnlySemanticRoutingFacts() {
       image_candidates: [{ index: 1, image_id: selectedImageId, resource_id: selectedResourceId, source: 'history', label: '第一张产品图' }],
       clarification_context: rawClarification,
     },
-  }).messages[1].content);
+  }).input[1].content);
   const compact = payload.context.clarification_context;
 
   assert.deepStrictEqual(payload.resource_candidates.map(candidate => candidate.candidate_key), ['i1'],
@@ -215,7 +215,7 @@ function testEstablishedClarificationResourceRemainsInTheModelCatalog() {
         answer_complete: false,
       },
     },
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.ok(payload.resource_candidates.some(candidate => candidate.label === '猫'),
     'a pre-clarification binding must stay visible even when the short answer mentions only the unresolved resource');

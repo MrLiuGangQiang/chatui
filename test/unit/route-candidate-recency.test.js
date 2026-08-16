@@ -22,7 +22,7 @@ function testMessageCandidatesCarryTheirMessageIndexAsRecencySignal() {
     input: '基于这个生成图片',
     attachments: [],
     context: sharkPromptContext(),
-  }).messages[1].content);
+  }).input[1].content);
 
   const messages = payload.resource_candidates.filter(candidate => candidate.type === 'message');
   assert.deepStrictEqual(

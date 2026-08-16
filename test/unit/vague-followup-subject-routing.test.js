@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const imageRouteContext = require('../../client/core/image-route-context');
@@ -130,7 +130,7 @@ function testConversationFocusIsPublishedAsEvidenceOnly() {
   const payload = routeService.buildRoutePayload({
     model: 'route-model', input: '要复杂一点', attachments: [], context,
   });
-  const publicInput = JSON.parse(payload.messages[1].content);
+  const publicInput = JSON.parse(payload.input[1].content);
   assert.strictEqual(publicInput.context.conversation_focus.kind, 'text');
   assert.strictEqual(publicInput.context.last_generated_image.count, 1);
 }

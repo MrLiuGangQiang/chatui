@@ -88,7 +88,7 @@ function testEditFamilyPreviousExecutionInputTravelsOnTheWire() {
     attachments: [],
     context: contextWith(),
     currentTurn: { messageIndex: 3 },
-  }).messages[1].content);
+  }).input[1].content);
   assert.strictEqual(payload.context.previous_execution.input, '把耳朵换成红色',
     'the model needs the prior task content to produce a self-contained goal');
 }
@@ -99,7 +99,7 @@ function testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent() {
     input: '不要这个，重新生成',
     attachments: [],
     context: contextWith({ previous_execution: previousExecution('text_to_image', '生成一只猫') }),
-  }).messages[1].content);
+  }).input[1].content);
   assert.strictEqual(payload.context.previous_execution.input, undefined,
     'generation dissatisfaction must not silently inherit an old generation prompt');
 }

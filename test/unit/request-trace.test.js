@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -36,12 +36,12 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     const logger = createRequestTraceLogger({ enabled: true, root, filePath: file, onError: error => { throw error; } });
     const span = logger.begin({
       source: 'proxy',
-      target: `https://user:password@example.com/v1/chat/completions?api_key=${apiKey}`,
-      targetPath: '/chat/completions',
+      target: `https://user:password@example.com/v1/responses?api_key=${apiKey}`,
+      targetPath: '/responses',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2', strict: true } },
-        messages: [
+        text: { format: { type: 'json_schema', name: 'chatui_route_intent_v2', strict: true, schema: { type: 'object' } } },
+        input: [
           { role: 'system', content: 'private route intent system prompt' },
           { role: 'user', content: `{"current_input":"有几个颜色","credential":"${apiKey}","image":"data:image/png;base64,${'A'.repeat(5000)}"}` },
         ],
@@ -52,12 +52,8 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     logger.complete(span, {
       status: 200,
       response: {
-        choices: [{
-          message: {
-            content: '{"operation":"plain_chat","relation":"followup","goal":"统计颜色数量","task_shape":"single","resource_refs":[]}',
-            reasoning_content: 'never persist private reasoning',
-          },
-        }],
+        output_text: '{"operation":"plain_chat","relation":"followup","goal":"统计颜色数量","task_shape":"single","resource_refs":[]}',
+        usage: { input_tokens: 12, output_tokens: 8 },
       },
     });
 
@@ -67,14 +63,18 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
     assert.strictEqual(events[1].event, 'request.completed');
     assert.strictEqual(events[0].trace_id, events[1].trace_id);
     assert.strictEqual(events[0].kind, 'route_intent');
-    assert.strictEqual(events[0].target, 'https://example.com/v1/chat/completions');
+    assert.strictEqual(events[0].target, 'https://example.com/v1/responses');
     assert.deepStrictEqual(events[0].header_names, ['X-Trace-Id']);
+    assert.strictEqual(events[0].request.transport, 'responses');
+    assert.deepStrictEqual(events[0].request.text_format, {
+      type: 'json_schema', name: 'chatui_route_intent_v2', strict: true,
+    });
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
-    assert.deepStrictEqual(JSON.parse(events[1].response.choices[0].message.content.text), {
+    assert.deepStrictEqual(JSON.parse(events[1].response.output_text.text), {
       operation: 'plain_chat', relation: 'followup', goal: '统计颜色数量', task_shape: 'single', resource_refs: [],
     });
-    assert.deepStrictEqual(events[1].response.choices[0].message.reasoning, {
-      present: true, chars: 'never persist private reasoning'.length, omitted: true,
+    assert.deepStrictEqual(events[1].response.usage, {
+      prompt_tokens: 12, completion_tokens: 8, total_tokens: 0,
     });
 
     const raw = fs.readFileSync(file, 'utf8');
@@ -92,9 +92,9 @@ function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided(
     const file = path.join(root, 'duration.ndjson');
     const logger = createRequestTraceLogger({ enabled: true, root, filePath: file });
     const span = logger.begin({
-      target: 'https://example.com/v1/chat/completions',
-      targetPath: '/chat/completions',
-      payload: { model: 'route-model', messages: [] },
+      target: 'https://example.com/v1/responses',
+      targetPath: '/responses',
+      payload: { model: 'route-model', input: [] },
       kind: 'route_intent',
     });
     span.startedAt = Date.now() - 25;
@@ -132,16 +132,19 @@ function testImageResponsesAreSummarizedWithoutPersistingBase64OrSignedQueries()
 }
 
 function testRequestKindRecognizesStructuredRouteIntentFallbacks() {
+  assert.strictEqual(requestKind('/responses', {
+    text: { format: { type: 'json_schema', name: 'chatui_route_intent_v2' } },
+  }), 'route_intent');
+  assert.strictEqual(requestKind('/responses', {
+    text: { format: { type: 'json_object' } },
+    input: [{ role: 'system', content: '只返回 route_intent.v2 JSON' }],
+  }), 'route_intent');
+  assert.strictEqual(requestKind('/responses', {
+    input: [{ role: 'user', content: '你好' }],
+  }), 'chat');
   assert.strictEqual(requestKind('/chat/completions', {
     response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2' } },
-  }), 'route_intent');
-  assert.strictEqual(requestKind('/chat/completions', {
-    response_format: { type: 'json_object' },
-    messages: [{ role: 'system', content: '只返回 route_intent.v2 JSON' }],
-  }), 'route_intent');
-  assert.strictEqual(requestKind('/chat/completions', {
-    messages: [{ role: 'user', content: '你好' }],
-  }), 'chat');
+  }), 'route_intent', 'historical Chat Completions trace recognition remains supported');
   assert.strictEqual(requestKind('/images/generations', { model: 'gpt-image-2' }), 'image_generation');
 }
 
@@ -191,7 +194,7 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
       ok: true,
       headers: { get: name => String(name).toLowerCase() === 'content-type' ? 'application/json; charset=utf-8' : null },
       text: async () => JSON.stringify({
-        choices: [{ message: { content: '{"operation":"plain_chat","relation":"followup"}' } }],
+        output_text: '{"operation":"plain_chat","relation":"followup"}',
       }),
     });
     const { proxy } = createOpenAiProxy({
@@ -201,7 +204,7 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
       updateChatJobFromStreamChunk: () => {},
       upstreamTimeoutMs: 1000,
       allowedProxyMethods: new Set(['POST']),
-      allowedProxyPaths: [/^\/chat\/completions$/],
+      allowedProxyPaths: [/^\/responses$/],
       requestTrace: logger,
     });
     const body = JSON.stringify({
@@ -212,15 +215,15 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
       submissionId: 'submit-route-trace',
       payload: {
         model: 'route-model',
-        response_format: { type: 'json_schema', json_schema: { name: 'chatui_route_intent_v2', strict: true } },
-        messages: [
+        text: { format: { type: 'json_schema', name: 'chatui_route_intent_v2', strict: true, schema: { type: 'object' } } },
+        input: [
           { role: 'system', content: 'route system prompt' },
-          { role: 'user', content: '{"current_input":"有几个颜色"}' },
+          { role: 'user', content: '{"current_input":"有几个颜色","output_format":"json"}' },
         ],
       },
     });
     const request = Readable.from([body]);
-    request.url = '/api/chat/completions';
+    request.url = '/api/responses';
     request.method = 'POST';
     request.headers = { 'content-type': 'application/json' };
     const response = createProxyResponse();
@@ -232,8 +235,9 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
     assert.strictEqual(events[0].kind, 'route_intent');
     assert.strictEqual(events[0].submission_id, 'submit-route-trace');
     assert.strictEqual(events[1].submission_id, 'submit-route-trace');
+    assert.strictEqual(events[0].request.transport, 'responses');
     assert.match(events[0].request.messages.items[1].content.text, /有几个颜色/);
-    assert.match(events[1].response.choices[0].message.content.text, /plain_chat/);
+    assert.match(events[1].response.output_text.text, /plain_chat/);
     assert.ok(!fs.readFileSync(file, 'utf8').includes(apiKey));
   } finally {
     global.fetch = originalFetch;

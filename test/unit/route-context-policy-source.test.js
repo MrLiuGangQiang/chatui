@@ -77,7 +77,7 @@ function testCurrentInputRemainsExactAfterHistoryPolicy() {
     model: 'route-model',
     input: currentInput,
     context: bounded,
-  }).messages[1].content);
+  }).input[1].content);
   assert.strictEqual(payload.current_input, currentInput,
     'the current input is a required top-level field and must bypass history eviction unchanged');
 }

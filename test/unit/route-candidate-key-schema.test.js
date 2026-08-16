@@ -4,7 +4,7 @@ const assert = require('assert');
 const routeService = require('../../client/services/route-service');
 
 function routeResourceRefSchema(payload = {}) {
-  return payload.response_format.json_schema.schema.properties.resource_refs;
+  return payload.text.format.schema.properties.resource_refs;
 }
 
 function testEmptyCandidateCatalogForbidsEveryResourceReferenceAtTheProviderSchemaBoundary() {
@@ -14,7 +14,7 @@ function testEmptyCandidateCatalogForbidsEveryResourceReferenceAtTheProviderSche
     attachments: [],
     context: {},
   });
-  const wire = JSON.parse(payload.messages[1].content);
+  const wire = JSON.parse(payload.input[1].content);
   assert.deepStrictEqual(wire.resource_candidates, []);
   assert.strictEqual(routeResourceRefSchema(payload).maxItems, 0,
     'an empty published catalog must make invented candidate keys structurally impossible');
@@ -34,7 +34,7 @@ function testCandidateKeySchemaEnumeratesOnlyTheCatalogPublishedInTheSameRequest
       }],
     },
   });
-  const wire = JSON.parse(payload.messages[1].content);
+  const wire = JSON.parse(payload.input[1].content);
   const publishedKeys = wire.resource_candidates.map(candidate => candidate.candidate_key);
   const candidateSchema = routeResourceRefSchema(payload).items.properties.candidate_key;
 

@@ -110,7 +110,7 @@ function endpointFor(baseUrl = "") {
   if (!/^https?:\/\//i.test(normalized)) throw new Error("--base-url must start with http:// or https://.");
   const parsed = new URL(normalized);
   if (parsed.username || parsed.password) throw new Error("--base-url must not contain credentials.");
-  return `${normalized}/chat/completions`;
+  return `${normalized}/responses`;
 }
 
 function safeBaseUrl(baseUrl = "") {
@@ -160,16 +160,18 @@ function auditRoutePayload(payload = {}, apiKey = "") {
   };
   walk(payload);
   const protocolField = keys.find(key => /(?:requestPurpose|dispatchContract|bindingEvidence)/i.test(key));
+  const requestItems = Array.isArray(payload.input)
+    ? payload.input
+    : (Array.isArray(payload.messages) ? payload.messages : []);
   return {
     payload_bytes: Buffer.byteLength(serialized, "utf8"),
-    message_count: Array.isArray(payload.messages) ? payload.messages.length : 0,
+    transport: Array.isArray(payload.input) || payload.text ? "responses" : "chat",
+    message_count: requestItems.length,
     contains_api_key: apiKey ? serialized.includes(apiKey) : false,
     contains_data_url: /data:[^\s"']+;base64,/i.test(serialized),
     contains_binary_field: /(?:base64|arraybuffer|blob|bytes|buffer)/i.test(serialized),
     embedded_execution_protocol_field: protocolField || "",
-    user_content_redacted: Array.isArray(payload.messages)
-      ? redactValue(payload.messages.find(message => message?.role === "user")?.content || "", apiKey)
-      : "",
+    user_content_redacted: redactValue(requestItems.find(message => message?.role === "user")?.content || "", apiKey),
   };
 }
 

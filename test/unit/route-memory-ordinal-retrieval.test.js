@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -110,7 +110,7 @@ function testSemanticMemoryRetrievalHasAnExplicitCatalogBudget() {
     model: 'route-model',
     input: '把橘猫改成黑白',
     context: memoryOnlyContext(cards),
-  }).messages[1].content);
+  }).input[1].content);
 
   assert.strictEqual(payload.resource_candidates.length, 12,
     'normal semantic retrieval must obey the model-facing image-memory budget');

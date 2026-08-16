@@ -66,7 +66,9 @@ function testRuntimeTextPayloadBuildersUseResponsesContract() {
     type: 'json_schema',
     name: routeService.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.name,
     strict: true,
-    schema: routeService.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema,
+    schema: chatService.strictStructuredOutputProviderSchema(
+      routeService.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema,
+    ),
   });
   assert.ok(feedbackPayload.text?.format?.schema, 'feedback review must use Responses text.format');
   assert.strictEqual(evaluationCli.endpointFor('https://gateway.example/v1'), 'https://gateway.example/v1/responses');

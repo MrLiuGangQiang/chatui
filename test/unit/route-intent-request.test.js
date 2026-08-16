@@ -589,7 +589,9 @@ function testIntentPayloadIncludesBoundedTextHistoryWithoutHistoricalMediaBodies
     'the router must receive the bounded text history even for a visual continuation');
   assert.strictEqual(payload.context.latest_assistant_image_result, undefined, 'execution output text must not be duplicated into route context');
   assert.strictEqual(payload.context.last_generated_image.prompt, undefined, 'the prior image prompt remains local execution state');
-  assert.strictEqual(payload.context.previous_execution.input, undefined, 'the prior execution input remains local execution state');
+  assert.strictEqual(payload.context.previous_execution.input, undefined, 'the edit-only prior execution input remains local execution state');
+  assert.strictEqual(payload.context.previous_execution.resolved_goal, oldPrompt.slice(0, 1000),
+    'the route model receives a bounded image-task baseline needed for a later text-only redesign');
   assert.ok(JSON.stringify(payload).length < 10000, 'bounded text excerpts must replace the multi-kilobyte execution history');
 }
 

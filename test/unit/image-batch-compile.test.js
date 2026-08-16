@@ -134,6 +134,10 @@ function testRouteIntentTaskShapeFlowsToRouteAndGatesPlanning() {
     task_shape: 'multi',
   }), { input: '解释一下', attachments: [], context: {} });
   assert.ok(multiChat.route, multiChat.reason);
+  assert.strictEqual(multiChat.route.taskShape, 'multi');
+  assert.strictEqual(multiChat.route.readiness, 'needs_clarification',
+    'non-image multi routes must fail closed instead of dispatching as one task');
+  assert.strictEqual(multiChat.route.dispatchAuthorized, false);
   assert.strictEqual(routeService.shouldRequestImagePlan(multiChat.route), false,
     'task_shape must only authorize image generation/edit planning');
 }

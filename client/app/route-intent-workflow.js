@@ -5,6 +5,7 @@
     || (typeof require === 'function' ? require('../services/request-compatibility') : {});
   const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
   const requestJsonWithReasoningParamFallback = requestCompatibility.requestJsonWithReasoningParamFallback;
+  const requestJsonWithToolChoiceParamFallback = requestCompatibility.requestJsonWithToolChoiceParamFallback;
   const isNonStreamingResponsesEmptyStreamChunks = requestCompatibility.isNonStreamingResponsesEmptyStreamChunks;
   const chatCompletionsPayloadFromResponsesPayload = requestCompatibility.chatCompletionsPayloadFromResponsesPayload;
   const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
@@ -99,15 +100,9 @@
     // consumes the remaining budget; it never starts a second model-specific
     // timeout window.
 
-    // ── Default routes ────────────────────────────────────────────
-    function routeCompilationOptions(config = {}, mode = 'chat', autoMode = true) {
-      return {
-        currentMode: mode,
-        autoMode,
-        defaults: {
-          imageSize: String(config.imageSize || 'auto').trim() || 'auto',
-        },
-      };
+    // ── Route compilation context ─────────────────────────────────
+    function routeCompilationOptions(_config = {}, mode = 'chat', autoMode = true) {
+      return { currentMode: mode, autoMode };
     }
 
     function routeFailureOutcome(reason = '') {
@@ -721,6 +716,10 @@
         if (typeof requestJsonWithReasoningParamFallback === 'function') {
           const inner = attempt;
           attempt = body => requestJsonWithReasoningParamFallback(inner, body);
+        }
+        if (typeof requestJsonWithToolChoiceParamFallback === 'function') {
+          const inner = attempt;
+          attempt = body => requestJsonWithToolChoiceParamFallback(inner, body);
         }
         if (typeof requestJsonWithStructuredOutputFallback === 'function') {
           const inner = attempt;

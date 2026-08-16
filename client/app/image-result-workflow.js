@@ -409,6 +409,7 @@
         resultId,
         prompt: options.prompt || '',
         routePrompt: options.routePrompt || '',
+        resolvedGoal: options.resolvedGoal || options.routePrompt || options.prompt || '',
         mode: 'image',
         target: 'previous',
         referenceId,

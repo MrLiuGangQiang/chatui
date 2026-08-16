@@ -180,6 +180,27 @@
     }
   }
 
+  function toolChoiceParamUnsupported(error) {
+    const code = String(error?.code || error?.error?.code || '').toLowerCase();
+    const message = String(error?.message || error?.error?.message || error || '').toLowerCase();
+    const text = `${code} ${message}`;
+    if (!/tool[_\s-]?choice|tools?/.test(text)) return false;
+    return /unsupported|not\s+support(?:ed)?|unknown|unrecognized|invalid|not\s+permitted|not\s+allowed|extra\s+input|unexpected|reject(?:ed|s)?/.test(text);
+  }
+
+  async function requestJsonWithToolChoiceParamFallback(request, payload) {
+    if (typeof request !== 'function') throw new TypeError('requestJsonWithToolChoiceParamFallback requires a request function');
+    if (!Object.prototype.hasOwnProperty.call(payload || {}, 'tool_choice')) return request(payload);
+    try {
+      return await request(payload);
+    } catch (error) {
+      if (!toolChoiceParamUnsupported(error)) throw error;
+      const compatible = { ...payload };
+      delete compatible.tool_choice;
+      return request(compatible);
+    }
+  }
+
   async function requestJsonWithStructuredOutputFallback(request, payload) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithStructuredOutputFallback requires a request function');
     try {
@@ -206,6 +227,7 @@
     withStructuredOutputFormat,
     withoutStructuredOutputFormat,
     reasoningParamUnsupported,
+    toolChoiceParamUnsupported,
     errorStatusCode,
     isNonStreamingResponsesEmptyStreamChunks,
     chatCompletionsResponseFormatFromResponsesTextFormat,
@@ -215,6 +237,7 @@
     fallbackPayloads,
     requestJsonWithStructuredOutputFallback,
     requestJsonWithReasoningParamFallback,
+    requestJsonWithToolChoiceParamFallback,
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('requestCompatibility', api);

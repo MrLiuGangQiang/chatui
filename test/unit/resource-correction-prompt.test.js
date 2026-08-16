@@ -93,7 +93,7 @@ function testEditFamilyPreviousExecutionInputTravelsOnTheWire() {
     'the model needs the prior task content to produce a self-contained goal');
 }
 
-function testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent() {
+function testGenerateFamilyPublishesTheBoundedTextTaskBaselineWithoutExposingLegacyInput() {
   const payload = JSON.parse(routeService.buildRoutePayload({
     model: 'route-model',
     input: '不要这个，重新生成',
@@ -101,12 +101,14 @@ function testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent() {
     context: contextWith({ previous_execution: previousExecution('text_to_image', '生成一只猫') }),
   }).input[1].content);
   assert.strictEqual(payload.context.previous_execution.input, undefined,
-    'generation dissatisfaction must not silently inherit an old generation prompt');
+    'generation results must not expose the edit-only legacy input field');
+  assert.strictEqual(payload.context.previous_execution.resolved_goal, '生成一只猫',
+    'text-only image redesigns need the bounded historical task baseline, not an old image binding');
 }
 
 function testPromptUsesGeneralRulesInsteadOfFailureCasePatches() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
+  assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(prompt, /正例："将目标图中的猫改为白色，保留构图不变。"/);
   assert.doesNotMatch(prompt, /选错了猫|耳朵换成红色|资源纠正/,
     'specific production failures belong in evaluation fixtures, not the system prompt');
@@ -117,6 +119,6 @@ module.exports = [
   testApplicationDoesNotPatchAnUnresolvedModelGoal,
   testNewConcreteInstructionRemainsUnchanged,
   testEditFamilyPreviousExecutionInputTravelsOnTheWire,
-  testGenerateFamilyDoesNotExposePreviousPromptAsInheritedTaskContent,
+  testGenerateFamilyPublishesTheBoundedTextTaskBaselineWithoutExposingLegacyInput,
   testPromptUsesGeneralRulesInsteadOfFailureCasePatches,
 ];

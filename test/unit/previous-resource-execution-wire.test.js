@@ -66,7 +66,7 @@ function testPreviousReadOnlyExecutionPublishesExactCandidateKeys() {
 function testRoutePromptUsesExecutionAnchorThenUniqueHistoricalSemantics() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /P4[^。\n]*previous_resource_execution\.resource_refs/);
-  assert.match(prompt, /P5[^。\n]*history[^。\n]*(?:名称|主体|特征)[^。\n]*唯一匹配/);
+  assert.match(prompt, /P5历史名称\/主体\/特征相似不自动绑定[^。\n]*明确指代\/沿用\/参考\/修改/);
   assert.doesNotMatch(prompt, /猫图|品种问答|改成黑色/,
     'the production prompt must express a general routing rule rather than encode the regression example');
 }

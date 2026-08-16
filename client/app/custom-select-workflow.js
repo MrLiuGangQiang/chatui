@@ -87,7 +87,7 @@
       updateCustomSelect(selectElement);
     }
 
-    function enhanceConfigSelects(ids = ['chatModel', 'routeModel', 'imageModel', 'imageSize', 'sessionChatModel']) {
+    function enhanceConfigSelects(ids = ['chatModel', 'routeModel', 'imageModel', 'sessionChatModel']) {
       ids.forEach(id => {
         const selectElement = typeof id === 'string' ? getElement(id) : id;
         if (!selectElement || selectElement.closest('.custom-select')) return;

@@ -37,6 +37,7 @@
       editInstruction = '',
       routePrompt = '',
       originalPrompt = '',
+      resolvedGoal = '',
       childJobId = '',
       submissionId = '',
     } = {}) {
@@ -73,19 +74,16 @@
       const stylePrompt = canonical.operation === 'edit_image' ? '' : getEffectiveImageStylePrompt(sessionId, config);
       const styledPrompt = buildImagePromptWithStylePrompt(roleAwarePrompt, stylePrompt);
       const planArguments = contract.arguments || {};
-      const requestedSize = String(planArguments.size || '').trim() && planArguments.size !== 'auto'
-        ? planArguments.size
-        : config.imageSize;
       const payload = typeof imagesService.buildImageRequestPayload === 'function'
         ? imagesService.buildImageRequestPayload({
             model: config.imageModel,
             prompt: styledPrompt,
-            size: requestedSize,
+            size: 'auto',
             quality: planArguments.quality,
             background: planArguments.background,
             output_format: planArguments.output_format,
           })
-        : { model: config.imageModel, prompt: styledPrompt };
+        : { model: config.imageModel, prompt: styledPrompt, size: 'auto' };
       if (Number(planArguments.count) > 1) payload.n = Number(planArguments.count);
       if (imageInputs.length > 1) payload.image_role_map = JSON.stringify(buildImageRoleMap(imageInputs));
       if (!String(payload.prompt || '').trim()) {
@@ -94,11 +92,9 @@
         error.statusCode = 400;
         throw error;
       }
-      if (config.imageSize && config.imageSize !== 'auto' && !payload.size) payload.size = config.imageSize;
-
       const materializedContract = dispatchContract.withArguments(contract, {
         prompt: String(payload.prompt || '').trim(),
-        size: payload.size || 'auto',
+        size: 'auto',
         quality: payload.quality || 'auto',
         background: payload.background || 'auto',
         output_format: payload.output_format || 'auto',
@@ -109,6 +105,7 @@
         ? imagesService.createImageContext({
             prompt,
             routePrompt: routePrompt || promptFallback || prompt,
+            resolvedGoal: resolvedGoal || routePrompt || promptFallback || prompt,
             mode: productMode,
             target: executionTarget,
             usePreviousImage: usesPriorInput,
@@ -122,6 +119,7 @@
         : {
             prompt,
             routePrompt: routePrompt || promptFallback || prompt,
+            resolvedGoal: resolvedGoal || routePrompt || promptFallback || prompt,
             mode: productMode,
             target: executionTarget,
             usePreviousImage: usesPriorInput,

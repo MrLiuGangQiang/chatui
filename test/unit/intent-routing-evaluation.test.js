@@ -289,6 +289,42 @@ function testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBounda
   assert.strictEqual(audit.transport, "responses");
 }
 
+async function testIntentRoutingEvaluationUsesProductionToolChoiceFallback() {
+  const calls = [];
+  const fetchImpl = async (_url, options = {}) => {
+    const request = JSON.parse(options.body);
+    calls.push(request);
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({
+        error: { code: 'unsupported_parameter', message: 'The tool_choice parameter is not supported.' },
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({
+      output_text: plan('plain_chat', '保持原意'),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  const payload = routeService.buildRoutePayload({
+    model: 'router-model',
+    input: '保持原意',
+    context: {},
+  });
+  const original = JSON.parse(JSON.stringify(payload));
+
+  const text = await evaluationCli.requestRouteModel({
+    endpoint: 'https://example.test/v1/responses',
+    apiKey: 'test-key',
+    payload,
+    timeoutMs: 1000,
+    fetchImpl,
+  });
+
+  assert.strictEqual(text, plan('plain_chat', '保持原意'));
+  assert.strictEqual(calls.length, 2, 'the live evaluator must retry once without an unsupported tool_choice parameter');
+  assert.strictEqual(calls[0].tool_choice, 'none');
+  assert.strictEqual(Object.hasOwn(calls[1], 'tool_choice'), false);
+  assert.deepStrictEqual(payload, original, 'evaluation compatibility must not mutate the production route payload');
+}
+
 async function testIntentRoutingEvaluationUsesProductionStructuredOutputFallbacks() {
   const calls = [];
   const fetchImpl = async (_url, options = {}) => {
@@ -371,6 +407,7 @@ module.exports = [
   testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates,
   testIntentRoutingEvaluationRedactsSecretsAndBinaryFromReportValues,
   testIntentRoutingEvaluationCliParsesZeroThresholdAndAuditsPayloadBoundary,
+  testIntentRoutingEvaluationUsesProductionToolChoiceFallback,
   testIntentRoutingEvaluationUsesProductionStructuredOutputFallbacks,
   testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCompilationEvidence,
 ];

@@ -96,19 +96,19 @@ async function testClickSelectionUsesLocalProtocolAndSupportsPartialThenComplete
 
 async function testLegacyRenderedArgumentChoiceIsCanonicalizedBeforeSubmission() {
   const pending = {
-    id: 'clarify-legacy-size',
-    originalText: '画一只猫，尺寸 1024x1024 和 1024x1536',
-    clarificationText: '请选择图片尺寸。',
+    id: 'clarify-legacy-quality',
+    originalText: '画一只猫，同时要求高质量和低质量',
+    clarificationText: '请选择图片质量。',
     routeInfo: {
       clarificationSlots: [{
-        key: 'r_arg_size', type: 'text', role: 'source', reason: 'ambiguous', choices: [
-          { key: 'v_1024x1024', label: '方图', value: '1024x1024' },
-          { key: 'v_1024x1536', label: '竖图', value: '1024x1536' },
+        key: 'r_arg_quality', type: 'text', role: 'source', reason: 'ambiguous', choices: [
+          { key: 'v_low', label: '低质量', value: 'low' },
+          { key: 'v_high', label: '高质量', value: 'high' },
         ],
       }],
     },
   };
-  const dom = new JSDOM(`<!doctype html><div id="messages"><div class="message" data-clarification-id="${pending.id}"><div class="clarification-presentation"><button class="clarification-choice-button" data-resource-key="r_arg_size" data-choice-key="v_1024x1536" data-choice-label="竖图">竖图</button></div></div></div>`);
+  const dom = new JSDOM(`<!doctype html><div id="messages"><div class="message" data-clarification-id="${pending.id}"><div class="clarification-presentation"><button class="clarification-choice-button" data-resource-key="r_arg_quality" data-choice-key="v_high" data-choice-label="高质量">高质量</button></div></div></div>`);
   const state = { activeSessionId: 'session-1', sessions: [{ id: 'session-1', pendingClarification: pending }] };
   const submissions = [];
   const workflow = choiceWorkflow.createClarificationChoiceWorkflow({
@@ -126,7 +126,7 @@ async function testLegacyRenderedArgumentChoiceIsCanonicalizedBeforeSubmission()
   assert.deepStrictEqual(answer.answers, [{ resource_key: 'p1', choice_key: 'v2' }]);
   assert.deepStrictEqual(
     clarificationAnswer.applyClarificationAnswer(answer, state.sessions[0].pendingClarification.routeInfo.clarificationSlots, { clarificationId: pending.id }).selectedParameters,
-    { size: '1024x1536' },
+    { quality: 'high' },
   );
 }
 

@@ -140,6 +140,10 @@ function testStructuredOutputFallbackClassifierRecognizesOnlyProtocolCapabilityE
     message: "Invalid schema for text.format 'chatui_route_intent_v2': 'uniqueItems' is not permitted.",
   }), true);
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error('json_schema is not allowed by this endpoint')), true);
+  assert.strictEqual(compatibility.structuredOutputUnsupported({
+    code: 'invalid_json_schema',
+    message: "Invalid schema for response_format 'chatui_route_intent_v2': In context=('properties', 'goal'), is not allowed in string literals for structured outputs (strict=true).",
+  }), true, 'the reported strict goal-string schema rejection must enter the structured-output fallback path');
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error("Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'.")), true);
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error('invalid schema for unrelated request body')), false);
   assert.strictEqual(compatibility.structuredOutputUnsupported(new Error('timeout while waiting')), false);
@@ -249,6 +253,30 @@ function testEmptyStreamChunksClassifierIsExactAndNonStreamingOnly() {
   assert.strictEqual(compatibility.isNonStreamingResponsesEmptyStreamChunks(new Error('network timeout')), false);
 }
 
+
+async function testToolChoiceParamFallbackRetriesOnceWithoutToolChoice() {
+  const payload = responsesRoutePayload({ tool_choice: 'none' });
+  const attempts = [];
+  const result = await compatibility.requestJsonWithToolChoiceParamFallback(async body => {
+    attempts.push(body);
+    if (attempts.length === 1) throw new Error('tool_choice is not supported by this endpoint');
+    return { output_text: '{}' };
+  }, payload);
+
+  assert.deepStrictEqual(result, { output_text: '{}' });
+  assert.strictEqual(attempts.length, 2);
+  assert.strictEqual(attempts[0], payload);
+  assert.strictEqual(Object.hasOwn(attempts[1], 'tool_choice'), false);
+  assert.strictEqual(payload.tool_choice, 'none', 'the original payload must remain immutable across the retry');
+}
+
+function testToolChoiceParamClassifierRecognizesOnlyCapabilityErrors() {
+  assert.strictEqual(compatibility.toolChoiceParamUnsupported(new Error('tool_choice is not supported by this endpoint')), true);
+  assert.strictEqual(compatibility.toolChoiceParamUnsupported(new Error('invalid parameter: tools are not allowed')), true);
+  assert.strictEqual(compatibility.toolChoiceParamUnsupported(new Error('timeout while waiting for tool choice')), false);
+  assert.strictEqual(compatibility.toolChoiceParamUnsupported(new Error('network unavailable')), false);
+}
+
 function testReasoningParamClassifierRecognizesOnlyCapabilityErrors() {
   assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('reasoning is not supported by this endpoint')), true);
   assert.strictEqual(compatibility.reasoningParamUnsupported(new Error('invalid parameter: reasoning.effort is not allowed')), true);
@@ -271,5 +299,7 @@ module.exports = [
   testReasoningParamFallbackSkipsWhenNoReasoningParam,
   testNonStreamingResponsesPayloadConvertsToStrictChatCompletionsPayload,
   testEmptyStreamChunksClassifierIsExactAndNonStreamingOnly,
+  testToolChoiceParamFallbackRetriesOnceWithoutToolChoice,
+  testToolChoiceParamClassifierRecognizesOnlyCapabilityErrors,
   testReasoningParamClassifierRecognizesOnlyCapabilityErrors,
 ];

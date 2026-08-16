@@ -45,7 +45,6 @@ async function runIndependentEditRoute(count) {
       task_type: 'edit',
       prompt: `将第 ${index + 1} 张图片改成黑白效果，保留原有主体和构图。`,
       input_images: [{ candidate_key: `i${index + 1}`, role: 'target' }],
-      size: 'auto',
       quality: 'auto',
       background: 'auto',
       output_format: 'auto',
@@ -109,14 +108,16 @@ async function testMainRoutePreservesFourIndependentImageEdits() {
 }
 
 
-function testRoutePromptKeepsCrossOperationStepsVisible() {
+function testRoutePromptDefinesMultiAsIndependentExecutionAndGatesNonImageSplits() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /multi=独立dispatch\/结果或跨operation步骤/);
-  assert.match(prompt, /跨operation取首个必做步骤/);
-  assert.match(prompt, /不跳前置/);
-  assert.match(prompt, /图片multi[^。\n]*其他multi[^。\n]*拆分/);
+  assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
+  assert.match(prompt, /task_shape：multi=多个独立执行/);
+  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/);
+  assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
+  assert.match(prompt, /非图片或跨operation的多个必做步骤.*task_shape=multi.*需要拆分/);
+  assert.match(prompt, /operation 填第一个必做步骤.*goal 保留全部任务/);
+  assert.match(prompt, /不会进入图片规划或授权图片批次/);
 }
-
 function testRoutePromptSeparatesEditTargetsFromReferenceGeneration() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /多图分别改→edit_image\+multi\(target各绑\)/);
@@ -128,6 +129,6 @@ function testRoutePromptSeparatesEditTargetsFromReferenceGeneration() {
 module.exports = [
   testMainRoutePreservesTwoIndependentImageEdits,
   testMainRoutePreservesFourIndependentImageEdits,
-  testRoutePromptKeepsCrossOperationStepsVisible,
+  testRoutePromptDefinesMultiAsIndependentExecutionAndGatesNonImageSplits,
   testRoutePromptSeparatesEditTargetsFromReferenceGeneration,
 ];

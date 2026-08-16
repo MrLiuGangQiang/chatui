@@ -48,13 +48,26 @@ function assertMinimalNonStreamingResponsesPayload(payload, label) {
   assert.ok(payload.text?.format?.schema, `${label} must retain strict structured output`);
 }
 
+function assertMinimalIntentResponsesPayload(payload) {
+  assert.strictEqual(payload.stream, false, 'intent recognition must explicitly disable streaming');
+  assert.strictEqual(payload.reasoning, undefined, 'intent recognition must keep normal model reasoning available');
+  assert.strictEqual(payload.temperature, undefined, 'intent recognition must not add a sampling override');
+  assert.strictEqual(payload.max_output_tokens, undefined, 'intent recognition must not cap reasoning with a transport limit');
+  assert.strictEqual(payload.tool_choice, 'none', 'intent recognition must explicitly disable tools');
+  assert.strictEqual(Object.hasOwn(payload, 'tools'), false, 'the classifier request must not include tools');
+  assert.deepStrictEqual(Object.keys(payload).sort(), [
+    'input', 'model', 'stream', 'text', 'tool_choice',
+  ]);
+  assert.ok(payload.text?.format?.schema, 'intent recognition must retain strict structured output');
+}
+
 function testIntentPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels() {
   const payload = routeService.buildRoutePayload({
     model: 'gpt-5.6-luna',
     input: '描述一下最后一张图',
     context: representativeContext(),
   });
-  assertMinimalNonStreamingResponsesPayload(payload, 'intent recognition');
+  assertMinimalIntentResponsesPayload(payload);
   const userPayload = JSON.parse(payload.input[1].content);
   assert.strictEqual(userPayload.output_format, 'json', 'the gateway-required JSON marker must remain in the user envelope');
 }

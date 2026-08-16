@@ -11,14 +11,18 @@
   const REGISTRY_VERSION = 'capability_registry.v1';
   const IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen', 'edit_image']);
   const CHAT_OPERATIONS = new Set(['plain_chat', 'web_search', 'file_qa', 'multimodal_qa', 'image_qa', 'image_compare', 'ocr']);
-  const IMAGE_SIZES = Object.freeze(['auto', '1024x1024', '1024x1536', '1536x1024']);
+  // Image dimensions are intentionally not a routing, planning, or user
+  // setting. The provider receives its automatic size mode for every image
+  // request; textual dimensions remain part of the creative prompt only.
+  const IMAGE_SIZE_DEFAULT = 'auto';
+  const IMAGE_SIZES = Object.freeze([IMAGE_SIZE_DEFAULT]);
   const IMAGE_QUALITIES = Object.freeze(['auto', 'low', 'medium', 'high', 'standard', 'hd']);
   const IMAGE_BACKGROUNDS = Object.freeze(['auto', 'transparent', 'opaque']);
   const IMAGE_OUTPUT_FORMATS = Object.freeze(['auto', 'png', 'jpeg', 'webp']);
 
   const IMAGE_ARGUMENTS = Object.freeze({
     prompt: Object.freeze({ type: 'string', required: true, minLength: 1 }),
-    size: Object.freeze({ type: 'enum', values: IMAGE_SIZES, default: 'auto' }),
+    size: Object.freeze({ type: 'enum', values: IMAGE_SIZES, default: IMAGE_SIZE_DEFAULT, fixed: true }),
     quality: Object.freeze({ type: 'enum', values: IMAGE_QUALITIES, default: 'auto' }),
     background: Object.freeze({ type: 'enum', values: IMAGE_BACKGROUNDS, default: 'auto' }),
     output_format: Object.freeze({ type: 'enum', values: IMAGE_OUTPUT_FORMATS, default: 'auto' }),
@@ -492,15 +496,6 @@
     if (!text) return [];
     const result = [];
 
-    for (const match of text.matchAll(/\b(\d{3,4})\s*[x×*]\s*(\d{3,4})\b/gi)) {
-      addMatch(result, view, 'size', `${match[1]}x${match[2]}`, match);
-    }
-    [
-      [/\b(?:square|square image)\b|(?:正方形|方形|方图)/gi, '1024x1024'],
-      [/\b(?:portrait|vertical)\b|(?:竖图|竖版|纵向|竖屏)/gi, '1024x1536'],
-      [/\b(?:landscape|horizontal)\b|(?:横图|横版|横向|横屏)/gi, '1536x1024'],
-    ].forEach(([pattern, value]) => result.push(...collectPatternMatches(view, pattern, 'size', value)));
-
     [
       [/\b(?:low quality|draft quality)\b|(?:低质量|草稿质量|快速预览)/gi, 'low'],
       [/\b(?:medium quality)\b|(?:中等质量|标准质量)/gi, 'medium'],
@@ -537,7 +532,7 @@
 
   function normalizeDefaults(defaults = {}) {
     return {
-      size: normalizeArgumentValue('size', defaults.size || defaults.imageSize || 'auto') || 'auto',
+      size: IMAGE_SIZE_DEFAULT,
       quality: normalizeArgumentValue('quality', defaults.quality || defaults.imageQuality || 'auto') || 'auto',
       background: normalizeArgumentValue('background', defaults.background || defaults.imageBackground || 'auto') || 'auto',
       output_format: normalizeArgumentValue('output_format', defaults.output_format || defaults.outputFormat || defaults.format || 'auto') || 'auto',
@@ -579,6 +574,11 @@
       if (name === 'prompt') {
         resolved.prompt = stringValue(input);
         evidence.prompt = Object.freeze([]);
+      } else if (spec.fixed) {
+        // A fixed execution default is never sourced from the prompt, a saved
+        // UI setting, an image-plan task, or a clarification replay.
+        resolved[name] = spec.default;
+        evidence[name] = Object.freeze([]);
       } else {
         const hasOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, name);
         const items = byName.get(name) || [];
@@ -643,14 +643,12 @@
 
   function choicesForArgument(name = '', values = null) {
     const labels = {
-      size: { '1024x1024': '方图 1024 × 1024', '1024x1536': '竖图 1024 × 1536', '1536x1024': '横图 1536 × 1024' },
       quality: { low: '低质量', medium: '中等质量', high: '高质量', standard: '标准质量', hd: 'HD 质量' },
       background: { transparent: '透明背景', opaque: '不透明背景' },
       output_format: { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' },
       count: { 1: '1 张', 2: '2 张', 3: '3 张', 4: '4 张' },
     };
-    const registeredValues = name === 'size' ? IMAGE_SIZES
-      : name === 'quality' ? IMAGE_QUALITIES
+    const registeredValues = name === 'quality' ? IMAGE_QUALITIES
         : name === 'background' ? IMAGE_BACKGROUNDS
           : name === 'output_format' ? IMAGE_OUTPUT_FORMATS
             : name === 'count' ? [1, 2, 3, 4]
@@ -666,7 +664,7 @@
     const conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
     const invalid = Array.isArray(result.invalid) ? result.invalid : [];
     if (conflicts.length) {
-      const labels = { size: '图片尺寸', quality: '图片质量', background: '背景模式', output_format: '输出格式', count: '生成数量' };
+      const labels = { quality: '图片质量', background: '背景模式', output_format: '输出格式', count: '生成数量' };
       const hasEmptyDomain = conflicts.some(item => !Array.isArray(item.values) || item.values.length === 0);
       const hasExclusions = conflicts.some(item => Array.isArray(item.excludedValues) && item.excludedValues.length > 0);
       const details = conflicts.map(item => {
@@ -681,7 +679,6 @@
     }
     if (invalid.length) {
       const first = invalid[0];
-      if (first.name === 'size') return `图片尺寸“${first.value}”不在当前支持范围内，请选择 auto、1024x1024、1024x1536 或 1536x1024。`;
       if (first.name === 'count') return '单次图片数量当前支持 1 到 4，请给出范围内的数量。';
       return `图片参数 ${first.name} 的值“${first.value}”无效，请重新选择。`;
     }
@@ -812,6 +809,7 @@
     RESOURCE_REQUIREMENTS,
     IMAGE_OPERATIONS,
     CHAT_OPERATIONS,
+    IMAGE_SIZE_DEFAULT,
     IMAGE_SIZES,
     IMAGE_QUALITIES,
     IMAGE_BACKGROUNDS,

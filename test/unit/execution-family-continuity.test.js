@@ -85,6 +85,7 @@ function testCompletedImageExecutionProjectsOneDurableStateFact() {
     operation: 'text_to_image',
     family: 'generate',
     input: '帮我生成一个宣传图',
+    resolved_goal: '帮我生成一个宣传图',
     result_kind: 'image',
     result_reference_id: 'imgref_previous',
     source_message_index: 2,
@@ -103,12 +104,15 @@ function testCompletedImageExecutionProjectsOneDurableStateFact() {
     result_kind: 'image',
     source_message_index: 2,
     source_user_message_index: 1,
-  }, 'the router receives only the small continuity facts it needs, not the prior image prompt or internal metadata');
+    resolved_goal: '帮我生成一个宣传图',
+  }, 'the router receives only the bounded task baseline needed to classify a text-only image redesign, never durable resource IDs or internal metadata');
   const publicContextText = JSON.stringify(publicContext);
   assert.ok(!publicContextText.includes(context.previous_execution.result_reference_id));
-  // Generate-family results are not resource-correction subjects: their prior
-  // input stays local so the model cannot mis-inherit a rejected generation.
+  // Generate-family results do not expose the legacy edit-instruction field;
+  // they publish a bounded resolved goal so a later text-only redesign can
+  // preserve the design task without binding the old image.
   assert.strictEqual(publicContext.previous_execution.input, undefined);
+  assert.strictEqual(publicContext.previous_execution.resolved_goal, context.previous_execution.resolved_goal);
   assert.ok(publicContext.recent_messages.some(message => message.content.includes(context.previous_execution.input)),
     'the bounded conversation window may still contain the original user-visible prompt');
   assert.ok(!publicContextText.includes('instruction_authority'));

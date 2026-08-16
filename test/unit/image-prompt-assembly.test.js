@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -136,12 +136,12 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('顺序operation→resource_refs→relation→task_shape→goal'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('按operation→task_shape→resource_refs→relation→goal判断'));
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_refs[^。\n]*只绑[^。\n]*必需[^。\n]*最少[^。\n]*明确/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('正例："将目标图中的猫改为白色，保留构图不变。"'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('reference 主体/构图参考'));
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('style_reference 画风/配色参考'));
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /正例：[“"]将目标图中的猫改为白色，保留构图不变。[”"]/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /reference\s*主体\/构图(?:参考)?/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /style_reference\s*画风\/配色(?:参考)?/);
 }
 
 function testStructuredReferenceSchemaIsStrictProviderCompatible() {

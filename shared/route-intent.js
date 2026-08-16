@@ -30,6 +30,7 @@
   const ROUTE_INTENT_FIELDS = Object.freeze([...LEGACY_ROUTE_INTENT_FIELDS, ROUTE_INTENT_TASK_SHAPE_FIELD]);
   const RESOURCE_REF_FIELDS = Object.freeze(['candidate_key', 'role']);
   const ROUTE_INTENT_MAX_RESOURCE_REFS = 16;
+  const ROUTE_INTENT_MAX_GOAL_LENGTH = 1000;
 
   const ROUTE_INTENT_RESPONSE_FORMAT = Object.freeze({
     type: 'json_schema',
@@ -51,18 +52,15 @@
           relation: {
             type: 'string',
             enum: [...VALID_RELATIONS],
-            description: 'Execution dependency, not request novelty. Determine in order: (1) use followup for correction, dissatisfaction, resource reselection, operation changes, modification/supplement of an existing result, or quoted source content; quoted grounding is followup even when continuation/repeat wording appears; (2) use continuation for explicit same-operation continue/repeat/retry/next-item semantics, including a repeated generation that requests a new variant and an elliptical ordinal next-item request; (3) otherwise use followup if any selected candidate source is history/context or a required non-current candidate is unresolved; (4) use new only with no historical dependency and when resource_refs is empty or every selected candidate source is current. Step 2 wins over non-current history/context and unavailable resource provenance, but not quoted grounding.',
           },
           goal: {
             type: 'string',
             minLength: 1,
-            maxLength: 600,
-            description: 'The complete downstream instruction. Preserve every explicit requirement. When task_shape is multi, retain all requested tasks in order: operation selects the first mandatory step and must never drop later tasks from goal.',
+            maxLength: ROUTE_INTENT_MAX_GOAL_LENGTH,
           },
           task_shape: { type: 'string', enum: [...ROUTE_INTENT_TASK_SHAPES] },
           resource_refs: {
             type: 'array',
-            description: 'Bind only candidates published in resource_candidates. If goal uses facts from a quoted or history message, bind that message with role context even after resolving its text into goal. Omit missing or ambiguous roles so the local execution layer can clarify safely.',
             maxItems: ROUTE_INTENT_MAX_RESOURCE_REFS,
             items: {
               type: 'object',
@@ -72,12 +70,10 @@
                 candidate_key: {
                   type: 'string',
                   pattern: '^[ifm][1-9]\\d*$',
-                  description: 'Must exactly match a candidate_key present in the current resource_candidates array. Never invent a key. An unavailable candidate may be selected only when it is the explicitly required resource so the local compiler can report unavailability.',
                 },
                 role: {
                   type: 'string',
                   enum: [...VALID_RESOURCE_ROLES],
-                  description: 'Use context for quoted/history message content that supplies facts to goal; goal text never replaces provenance binding.',
                 },
               },
             },
@@ -107,7 +103,7 @@
     if (allowedRelations.length) schema.properties.relation.enum = allowedRelations;
     const allowedGoals = [...new Set((Array.isArray(options.allowedGoals) ? options.allowedGoals : [])
       .map(stringValue)
-      .filter(goal => goal.length >= 1 && goal.length <= 600))];
+      .filter(goal => goal.length >= 1 && goal.length <= ROUTE_INTENT_MAX_GOAL_LENGTH))];
     if (allowedGoals.length) schema.properties.goal.enum = allowedGoals;
     const resourceRefs = schema.properties.resource_refs;
     if (!candidateKeys.length) {
@@ -137,7 +133,7 @@
     return !!capabilityRegistry.capabilityFor?.(value.operation)
       && VALID_RELATIONS.has(value.relation)
       && stringValue(value.goal).length >= 1
-      && stringValue(value.goal).length <= 600
+      && stringValue(value.goal).length <= ROUTE_INTENT_MAX_GOAL_LENGTH
       && Array.isArray(value.resource_refs)
       && value.resource_refs.length <= ROUTE_INTENT_MAX_RESOURCE_REFS
       && value.resource_refs.every(validResourceRef)
@@ -189,6 +185,7 @@
     ROUTE_INTENT_TASK_SHAPES,
     RESOURCE_REF_FIELDS,
     ROUTE_INTENT_MAX_RESOURCE_REFS,
+    ROUTE_INTENT_MAX_GOAL_LENGTH,
     ROUTE_INTENT_RESPONSE_FORMAT,
     routeIntentResponseFormatForCandidates,
     hasExactRouteIntent,

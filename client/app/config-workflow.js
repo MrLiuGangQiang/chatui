@@ -2,7 +2,7 @@
   'use strict';
 
   const DEFAULT_BASE_URL = 'https://ingress.lfans.cn/v1';
-  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
+  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
 
   function createConfigWorkflow(deps = {}) {
     const { state, getElement, localStorage, document, window, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, saveSessionsMeta, toast } = deps;
@@ -30,9 +30,43 @@
 
     async function loadPublicContext(){try{const e=await window?.fetch?.("/api/config/public");if(!e?.ok)return;const t=await e.json(),s=t?.config?.context;if(s&&"object"==typeof s&&!Array.isArray(s))state.publicContext={...s}}catch{}}
 
-    function loadConfig(){const e=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{})),legacyApiKey=String(e.apiKey||""),persistedApiKey=readPersistedApiKey()||readLegacySessionApiKey();legacyApiKey&&delete e.apiKey;const t={...defaults,...e,apiKey:persistedApiKey||legacyApiKey};t.apiKey&&!readPersistedApiKey()&&writePersistedApiKey(t.apiKey);getElement("baseUrl").value=t.baseUrl||defaults.baseUrl,getElement("baseUrl").readOnly=!1,getElement("apiKey").value=t.apiKey||"",getElement("imageSize").value=t.imageSize||defaults.imageSize,updateCustomSelect(getElement("imageSize")),getElement("systemPrompt").value=t.systemPrompt||"",getElement("imageStylePrompt")&&(getElement("imageStylePrompt").value=t.imageStylePrompt||""),state.models=Array.isArray(t.models)?t.models:[],state.modelMeta=normalizeModelMeta(state.models,t.modelMeta||{});const n=new Set(state.models),a=n.has(t.chatModel)?t.chatModel:"",i=n.has(t.routeModel)?t.routeModel:"",o=n.has(t.imageModel)?t.imageModel:"";renderModelOptions(a,o,i),(legacyApiKey||t.chatModel!==a||t.routeModel!==i||t.imageModel!==o)&&saveConfig(!0),void loadPublicContext()}
+    function loadConfig(){
+      const stored=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{}));
+      const legacyApiKey=String(stored.apiKey||"");
+      const legacyImageSize=Object.prototype.hasOwnProperty.call(stored,"imageSize");
+      const persistedApiKey=readPersistedApiKey()||readLegacySessionApiKey();
+      if(legacyApiKey)delete stored.apiKey;
+      if(legacyImageSize)delete stored.imageSize;
+      const config={...defaults,...stored,apiKey:persistedApiKey||legacyApiKey};
+      if(config.apiKey&&!readPersistedApiKey())writePersistedApiKey(config.apiKey);
+      const baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
+      if(baseEl){baseEl.value=config.baseUrl||defaults.baseUrl;baseEl.readOnly=!1}
+      if(apiEl)apiEl.value=config.apiKey||"";
+      if(systemEl)systemEl.value=config.systemPrompt||"";
+      if(styleEl)styleEl.value=config.imageStylePrompt||"";
+      state.models=Array.isArray(config.models)?config.models:[];
+      state.modelMeta=normalizeModelMeta(state.models,config.modelMeta||{});
+      const availableModels=new Set(state.models),chatModel=availableModels.has(config.chatModel)?config.chatModel:"",routeModel=availableModels.has(config.routeModel)?config.routeModel:"",imageModel=availableModels.has(config.imageModel)?config.imageModel:"";
+      renderModelOptions(chatModel,imageModel,routeModel);
+      if(legacyApiKey||legacyImageSize||config.chatModel!==chatModel||config.routeModel!==routeModel||config.imageModel!==imageModel)saveConfig(!0);
+      void loadPublicContext()
+    }
 
-    function getConfig(){const e=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),sizeEl=getElement("imageSize"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");const storedModels=Array.isArray(e.models)?e.models:[],models=Array.isArray(state.models)&&state.models.length?state.models:storedModels,context=state.publicContext&&"object"==typeof state.publicContext?state.publicContext:e.context&&"object"==typeof e.context?e.context:{};return{baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, ""),apiKey:String(apiEl?apiEl.value:readPersistedApiKey()||"").trim(),chatModel:String(chatEl?chatEl.value:e.chatModel||"").trim(),routeModel:String(routeEl?routeEl.value:e.routeModel||"").trim(),imageModel:String(imageEl?imageEl.value:e.imageModel||"").trim(),imageSize:sizeEl?.value||e.imageSize||defaults.imageSize,systemPrompt:String(systemEl?systemEl.value:e.systemPrompt||"").trim(),imageStylePrompt:String(styleEl?styleEl.value:e.imageStylePrompt||"").trim(),models,context}}
+    function getConfig(){
+      const stored=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
+      const storedModels=Array.isArray(stored.models)?stored.models:[],models=Array.isArray(state.models)&&state.models.length?state.models:storedModels,context=state.publicContext&&"object"==typeof state.publicContext?state.publicContext:stored.context&&"object"==typeof stored.context?stored.context:{};
+      return{
+        baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, ""),
+        apiKey:String(apiEl?apiEl.value:readPersistedApiKey()||"").trim(),
+        chatModel:String(chatEl?chatEl.value:stored.chatModel||"").trim(),
+        routeModel:String(routeEl?routeEl.value:stored.routeModel||"").trim(),
+        imageModel:String(imageEl?imageEl.value:stored.imageModel||"").trim(),
+        systemPrompt:String(systemEl?systemEl.value:stored.systemPrompt||"").trim(),
+        imageStylePrompt:String(styleEl?styleEl.value:stored.imageStylePrompt||"").trim(),
+        models,
+        context,
+      }
+    }
 
     function cleanupLegacyConfigCache(){localStorage.removeItem("openapi-chat-image-config"),localStorage.removeItem("openapi-chat-image-config-v1")}
 
@@ -40,7 +74,28 @@
 
     function restoreSavedRoutingModels(saved={}){for(const id of ["chatModel","routeModel"]){const element=getElement(id);if(!element)continue;element.value=String(saved[id]||"");updateCustomSelect(element)}}
 
-    function saveConfig(e=!1){cleanupLegacyConfigCache();const previous=readJsonStorage(CONFIG_KEY,{}),t=getConfig(),routingModelChanged=String(previous.chatModel||"").trim()!==t.chatModel||String(previous.routeModel||"").trim()!==t.routeModel;if(routingModelChanged&&hasBusySession())return restoreSavedRoutingModels(previous),toast?.("\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b"),!1;writePersistedApiKey(t.apiKey),localStorage.setItem(CONFIG_KEY,JSON.stringify({baseUrl:t.baseUrl,chatModel:t.chatModel,routeModel:t.routeModel,imageModel:t.imageModel,imageSize:t.imageSize,systemPrompt:t.systemPrompt,imageStylePrompt:t.imageStylePrompt,models:Array.isArray(state.models)?state.models:[],modelMeta:state.modelMeta||{}})),e||closeConfigModal();return!0}
+    function saveConfig(e=!1){
+      cleanupLegacyConfigCache();
+      const previous=readJsonStorage(CONFIG_KEY,{}),config=getConfig(),routingModelChanged=String(previous.chatModel||"").trim()!==config.chatModel||String(previous.routeModel||"").trim()!==config.routeModel;
+      if(routingModelChanged&&hasBusySession()){
+        restoreSavedRoutingModels(previous);
+        toast?.("\u4efb\u52a1\u8fdb\u884c\u4e2d\uff0c\u8bf7\u505c\u6b62\u6216\u7b49\u5f85\u6240\u6709\u4efb\u52a1\u5b8c\u6210\u540e\u518d\u5207\u6362\u804a\u5929\u6216\u610f\u56fe\u8bc6\u522b\u6a21\u578b");
+        return!1
+      }
+      writePersistedApiKey(config.apiKey);
+      localStorage.setItem(CONFIG_KEY,JSON.stringify({
+        baseUrl:config.baseUrl,
+        chatModel:config.chatModel,
+        routeModel:config.routeModel,
+        imageModel:config.imageModel,
+        systemPrompt:config.systemPrompt,
+        imageStylePrompt:config.imageStylePrompt,
+        models:Array.isArray(state.models)?state.models:[],
+        modelMeta:state.modelMeta||{},
+      }));
+      if(!e)closeConfigModal();
+      return!0
+    }
 
     function openConfigModal(){document.body.classList.add("modal-open"),getElement("configModal").classList.add("show"),getElement("configModal").setAttribute("aria-hidden","false"),window.setTimeout.call(window,()=>getElement("apiKey")?.focus(),0)}
 

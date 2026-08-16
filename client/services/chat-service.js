@@ -145,6 +145,26 @@ function messagesHaveInputFiles(messages = []) {
     && message.content.some(part => part?.type === 'input_file' && part?.file_data));
 }
 
+// Strict structured-output implementations share a conservative JSON Schema
+// subset. Keep protocol-level validation expressive locally, but remove these
+// unsupported lexical/cardinality keywords from the provider-facing copy. The
+// local route/image-plan validators remain the authority for every removed rule.
+const STRICT_STRUCTURED_OUTPUT_PROVIDER_UNSUPPORTED_KEYWORDS = new Set([
+  'minLength', 'maxLength', 'pattern', 'format',
+  'minItems', 'maxItems', 'uniqueItems', 'contains', 'minContains', 'maxContains',
+]);
+
+function strictStructuredOutputProviderSchema(schema = {}) {
+  if (Array.isArray(schema)) return schema.map(item => strictStructuredOutputProviderSchema(item));
+  if (!schema || typeof schema !== 'object') return schema;
+  const compacted = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (STRICT_STRUCTURED_OUTPUT_PROVIDER_UNSUPPORTED_KEYWORDS.has(key)) continue;
+    compacted[key] = strictStructuredOutputProviderSchema(value);
+  }
+  return compacted;
+}
+
 function responsesTextFormat(format = null) {
   if (!format || typeof format !== 'object' || Array.isArray(format)) return null;
   const type = String(format.type || '').trim();
@@ -156,11 +176,12 @@ function responsesTextFormat(format = null) {
   const name = String(schemaFormat.name || '').trim();
   const schema = schemaFormat.schema;
   if (!name || !schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
+  const strict = schemaFormat.strict === true;
   return {
     type: 'json_schema',
     name,
-    strict: schemaFormat.strict === true,
-    schema,
+    strict,
+    schema: strict ? strictStructuredOutputProviderSchema(schema) : schema,
   };
 }
 
@@ -181,6 +202,8 @@ function buildResponsesPayload(model, messages, options = {}) {
     };
   }
   if (options.webSearch === true) payload.tools = [{ type: 'web_search' }];
+  const toolChoice = String(options.toolChoice || '').trim();
+  if (toolChoice) payload.tool_choice = toolChoice;
   // Preserve an explicit non-streaming choice on the wire. Some OpenAI-compatible
   // gateways incorrectly treat an omitted Responses `stream` field as SSE, so
   // intent and other one-shot requests must send `stream: false` explicitly.
@@ -340,6 +363,7 @@ const api = Object.freeze({
   buildUserContentWithAttachments,
   responsesInputFromChatMessages,
   messagesHaveInputFiles,
+  strictStructuredOutputProviderSchema,
   buildResponsesPayload,
   requestJson,
   reportExecutionRejection,

@@ -46,8 +46,8 @@ function testMessageCandidatesCarryTheirMessageIndexAsRecencySignal() {
 
 function testRoutePromptDeclaresRecencyPriorityAsAGeneralRule() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /message_index\s*越大越新/);
-  assert.match(prompt, /模糊指代[^。\n]*(?:选|绑定)[^。\n]*最大message_index/);
+  assert.match(prompt, /message_index大者更新/);
+  assert.match(prompt, /模糊指代[^。\n]*选最大/);
   // 必须是通用机制，而不是针对具体失败句式打的补丁。
   assert.doesNotMatch(prompt, /基于这个生成图片|鲨鱼|提示词文本/,
     'recency priority must be a general mechanism, not a scenario patch');

@@ -138,6 +138,7 @@
         ...(context.resultId || context.result_id ? { resultId: context.resultId || context.result_id } : {}),
         prompt: context.prompt || '',
         routePrompt: context.routePrompt || context.route_prompt || '',
+        resolvedGoal: context.resolvedGoal || context.resolved_goal || context.routePrompt || context.route_prompt || context.prompt || '',
         content: context.content || '',
         mode: context.mode || 'image',
         target: context.target || 'new',

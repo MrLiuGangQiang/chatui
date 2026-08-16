@@ -389,8 +389,8 @@
   }
 
   // Early route compilers emitted semantic argument keys such as
-  // r_arg_size / v_1024x1024. Those are domain values masquerading as
-  // protocol identifiers, so they cannot cross the strict answer boundary.
+  // r_arg_quality / v_high. Those are domain values masquerading as protocol
+  // identifiers, so they cannot cross the strict answer boundary.
   // Migrate only that historical shape to opaque pN/vN identifiers while
   // retaining the argument metadata that gives the selection its meaning.
   function normalizeClarificationSlots(slots = []) {

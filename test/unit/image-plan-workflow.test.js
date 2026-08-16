@@ -21,7 +21,6 @@ function planTasks(count) {
     task_type: 'generate',
     prompt: `一张${names[index] || `图${index}`}`,
     input_images: [],
-    size: 'auto',
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',

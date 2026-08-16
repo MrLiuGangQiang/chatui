@@ -43,7 +43,7 @@ function compile({ operation = 'plain_chat', relation = 'new', input = '', resou
   });
 }
 
-function testCapabilityRegistryParsesTypedImageArguments() {
+function testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize() {
   const input = 'Generate 2 images, portrait, transparent background, export PNG, high quality';
   const result = capabilities.resolveExecutionArguments({
     operation: 'text_to_image',
@@ -52,13 +52,14 @@ function testCapabilityRegistryParsesTypedImageArguments() {
   });
   assert.deepStrictEqual(result.arguments, {
     prompt: input,
-    size: '1024x1536',
+    size: 'auto',
     quality: 'high',
     background: 'transparent',
     output_format: 'png',
     count: 2,
   });
-  assert.deepStrictEqual(result.evidence.size, ['portrait']);
+  assert.deepStrictEqual(result.evidence.size, []);
+  assert.strictEqual(result.candidates.some(candidate => candidate.name === 'size'), false);
   assert.strictEqual(capabilities.validateArguments('text_to_image', result.arguments), true);
 }
 
@@ -150,22 +151,22 @@ function testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics() {
   assert.ok(/均被排除|没有可用/.test(capabilities.clarificationQuestion(fullyExcludedBackground)));
 }
 
-function testCapabilityRegistryNormalizesFullWidthSyntaxWithoutChangingThePrompt() {
+function testCapabilityRegistryNormalizesFullWidthSyntaxWithoutTurningDimensionsIntoArguments() {
   const input = '生成２张１０２４×１０２４的猫图片，ｎ：２';
   const result = capabilities.resolveExecutionArguments({ operation: 'text_to_image', input });
-  assert.strictEqual(result.arguments?.size, '1024x1024');
+  assert.strictEqual(result.arguments?.size, 'auto');
   assert.strictEqual(result.arguments?.count, 2);
   assert.strictEqual(result.arguments?.prompt, input, 'the provider prompt must retain the original user text');
-  assert.ok(result.evidence.size.some(value => value.includes('１０２４×１０２４')));
+  assert.deepStrictEqual(result.evidence.size, []);
 }
 
 function testCapabilityRegistryFailsClosedOnConflictingParameters() {
   const result = capabilities.resolveExecutionArguments({
     operation: 'text_to_image',
-    input: 'Generate a landscape image, but it must also be portrait',
+    input: 'Generate a high quality image, but it must also use low quality',
   });
   assert.strictEqual(result.arguments, null);
-  assert.strictEqual(result.conflicts[0].name, 'size');
+  assert.strictEqual(result.conflicts[0].name, 'quality');
   assert.ok(capabilities.clarificationQuestion(result).length > 0);
 }
 
@@ -281,10 +282,10 @@ function testQuotedMessageBindingUsesCanonicalRuntimeRouteFields() {
 }
 
 module.exports = [
-  testCapabilityRegistryParsesTypedImageArguments,
+  testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize,
   testCapabilityRegistryDoesNotConfuseSubjectCountersWithImageCount,
   testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics,
-  testCapabilityRegistryNormalizesFullWidthSyntaxWithoutChangingThePrompt,
+  testCapabilityRegistryNormalizesFullWidthSyntaxWithoutTurningDimensionsIntoArguments,
   testCapabilityRegistryFailsClosedOnConflictingParameters,
   testCapabilityRegistryEnforcesOperationBindingSemantics,
   testDispatchContractIsStableValidatedAndImmutable,

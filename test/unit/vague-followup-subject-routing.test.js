@@ -201,10 +201,10 @@ function testExplicitNewImageRequestRemainsModelDirected() {
 
 function testPromptDeclaresContextAsEvidence() {
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_candidates.*context.*事实/);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /candidate_key回查source[^。]*followup/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /任一ref的source≠current[^。]*绝不new/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择[^。\n]*operation[^。\n]*必需角色/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /各角色按P1→P5/);
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 2200);
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 5000);
 }
 
 module.exports = [

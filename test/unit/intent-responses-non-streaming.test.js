@@ -30,7 +30,7 @@ function createResponse() {
   return response;
 }
 
-function createRequest(payload) {
+function createRequest(payload, path = '/api/responses') {
   const body = JSON.stringify({
     baseUrl: 'http://127.0.0.1:18765/v1',
     apiKey: 'test-route-key',
@@ -39,7 +39,7 @@ function createRequest(payload) {
     payload: { stream: false, ...(payload || {}) },
   });
   const request = attachTestPrincipal(Readable.from([body]));
-  request.url = '/api/responses';
+  request.url = path;
   request.headers = { 'content-type': 'application/json' };
   return request;
 }
@@ -74,7 +74,7 @@ function createProxy() {
     updateChatJobFromStreamChunk: () => {},
     upstreamTimeoutMs: 1000,
     allowedProxyMethods: new Set(['POST']),
-    allowedProxyPaths: [/^\/responses$/],
+    allowedProxyPaths: [/^\/responses$/, /^\/chat\/completions$/],
   });
 }
 
@@ -99,10 +99,11 @@ async function withPrivateUpstreamAllowed(run) {
 async function testIntentResponsesRemainOneShotJsonEndToEnd() {
   const originalFetch = global.fetch;
   const calls = [];
-  const expected = { object: 'response', output_text: '{"operation":"plain_chat"}' };
+  const upstream = { object: 'response', id: 'resp-internal', output_text: '{"operation":"plain_chat"}' };
+  const expected = { output_text: '{"operation":"plain_chat"}' };
   global.fetch = async (_url, options = {}) => {
     calls.push(requestRecord(options));
-    return upstreamJson(200, expected);
+    return upstreamJson(200, upstream);
   };
 
   try {
@@ -128,12 +129,16 @@ async function testIntentResponsesNormalizeOutputArrayForStructuredRouteParsing(
   const originalFetch = global.fetch;
   const routeJson = '{"operation":"plain_chat","relation":"followup","goal":"那还不错","resource_refs":[],"task_shape":"single"}';
   const upstreamResponse = {
+    id: 'resp-provider-only',
     object: 'response',
     model: 'route-model',
+    usage: { input_tokens: 999, output_tokens: 999 },
+    tools: [{ type: 'image_generation' }],
     output: [
       {
         type: 'reasoning',
         content: [{ type: 'reasoning_text', text: 'do not expose hidden reasoning' }],
+        encrypted_content: 'do-not-forward-encrypted-reasoning',
       },
       {
         type: 'message',
@@ -152,11 +157,75 @@ async function testIntentResponsesNormalizeOutputArrayForStructuredRouteParsing(
 
       assert.strictEqual(response.status, 200);
       const forwarded = JSON.parse(Buffer.concat(response.chunks).toString('utf8'));
-      assert.deepStrictEqual(forwarded.output, upstreamResponse.output,
-        'the proxy must preserve the native Responses output envelope');
-      assert.strictEqual(forwarded.output_text, routeJson,
-        'one-shot intent consumers must receive the canonical output_text convenience field');
+      assert.deepStrictEqual(forwarded, { output_text: routeJson },
+        'the intent boundary must expose only the schema-constrained answer');
+      assert.strictEqual(Object.hasOwn(forwarded, 'output'), false);
+      assert.strictEqual(Object.hasOwn(forwarded, 'usage'), false);
+      assert.strictEqual(Object.hasOwn(forwarded, 'tools'), false);
       assert.ok(!forwarded.output_text.includes('hidden reasoning'));
+      assert.ok(!forwarded.output_text.includes('encrypted-reasoning'));
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+
+async function testIntentChatFallbackResponseIsReducedToOutputText() {
+  const originalFetch = global.fetch;
+  const routeJson = '{"operation":"plain_chat","relation":"new","goal":"hello","resource_refs":[],"task_shape":"single"}';
+  const upstreamResponse = {
+    id: 'chatcmpl-provider-only',
+    object: 'chat.completion',
+    usage: { prompt_tokens: 999, completion_tokens: 999 },
+    choices: [{
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: routeJson }],
+      },
+    }],
+  };
+  global.fetch = async () => upstreamJson(200, upstreamResponse);
+
+  try {
+    await withPrivateUpstreamAllowed(async () => {
+      const { proxy } = createProxy();
+      const response = createResponse();
+      await proxy(createRequest({ model: 'route-model', input: 'classify request' }, '/api/chat/completions'), response);
+
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(JSON.parse(Buffer.concat(response.chunks).toString('utf8')), { output_text: routeJson });
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+
+async function testIntentResponsesRejectSuccessfulEnvelopeWithoutOutputText() {
+  const originalFetch = global.fetch;
+  const upstreamResponse = {
+    id: 'resp-without-output-text',
+    object: 'response',
+    usage: { input_tokens: 999 },
+    output: [{
+      type: 'reasoning',
+      encrypted_content: 'must-not-leak',
+    }],
+  };
+  global.fetch = async () => upstreamJson(200, upstreamResponse);
+
+  try {
+    await withPrivateUpstreamAllowed(async () => {
+      const { proxy } = createProxy();
+      const response = createResponse();
+      await proxy(createRequest({ model: 'route-model', input: 'classify request' }), response);
+
+      assert.strictEqual(response.status, 502);
+      const body = Buffer.concat(response.chunks).toString('utf8');
+      assert.strictEqual(JSON.parse(body).error?.code, 'INTENT_RESPONSE_OUTPUT_MISSING');
+      assert.ok(!body.includes('resp-without-output-text'));
+      assert.ok(!body.includes('must-not-leak'));
     });
   } finally {
     global.fetch = originalFetch;
@@ -226,6 +295,8 @@ async function testIntentResponsesRejectUnexpectedUpstreamSseInsteadOfRelayingIt
 module.exports = [
   testIntentResponsesRemainOneShotJsonEndToEnd,
   testIntentResponsesNormalizeOutputArrayForStructuredRouteParsing,
+  testIntentChatFallbackResponseIsReducedToOutputText,
+  testIntentResponsesRejectSuccessfulEnvelopeWithoutOutputText,
   testIntentResponsesNeverRetryAsStreamAfterGatewayError,
   testIntentResponsesRejectUnexpectedUpstreamSseInsteadOfRelayingIt,
 ];

@@ -235,6 +235,10 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs, fetchIm
     const inner = attempt;
     attempt = nextPayload => requestCompatibility.requestJsonWithReasoningParamFallback(inner, nextPayload);
   }
+  if (typeof requestCompatibility.requestJsonWithToolChoiceParamFallback === "function") {
+    const inner = attempt;
+    attempt = nextPayload => requestCompatibility.requestJsonWithToolChoiceParamFallback(inner, nextPayload);
+  }
   if (typeof requestCompatibility.requestJsonWithStructuredOutputFallback === "function") {
     const inner = attempt;
     attempt = nextPayload => requestCompatibility.requestJsonWithStructuredOutputFallback(inner, nextPayload);

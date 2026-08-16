@@ -11,7 +11,7 @@ const {
   buildImageEditMultipartBody,
 } = require('../jobs/image');
 const { createResponsesCompactStreamNormalizer } = require('./responses-stream');
-const { normalizeNonStreamingResponsesBody } = require('./responses-output');
+const { compactNonStreamingIntentBody } = require('./responses-output');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const { JOB_ID_CONFLICT_MESSAGE, assertRequestPrincipal, bindJobOwner, jobOwnedBy } = require('../security/job-ownership');
@@ -263,15 +263,26 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     }
 
     const rawText = await upstream.text();
-    const normalized = upstream.ok
-      && targetPath === '/responses'
+    const isNonStreamingIntent = upstream.ok
       && String(body?.requestPurpose || '') === 'intent_recognition'
-      && !wantsStream
-      ? normalizeNonStreamingResponsesBody(rawText)
+      && !wantsStream;
+    const normalized = isNonStreamingIntent
+      ? compactNonStreamingIntentBody(rawText)
       : { text: rawText, normalized: false };
+    if (isNonStreamingIntent && !normalized.normalized) {
+      const error = new Error('Intent recognition upstream response has no usable output text');
+      requestTrace?.fail?.(traceSpan, {
+        status: upstream.status,
+        contentType,
+        response: { intentOutput: 'missing' },
+        error,
+      });
+      sendError(res, 502, '意图识别上游响应缺少可用的 output_text。', 'INTENT_RESPONSE_OUTPUT_MISSING');
+      return;
+    }
     const text = normalized.text;
     const traceDetails = { status: upstream.status, responseText: text, contentType,
-      ...(normalized.normalized ? { responseNormalized: 'responses_output_text' } : {}) };
+      ...(normalized.normalized ? { responseNormalized: 'intent_output_text_only' } : {}) };
     if (upstream.ok) requestTrace?.complete?.(traceSpan, traceDetails);
     else requestTrace?.fail?.(traceSpan, { ...traceDetails, error: new Error(`Upstream HTTP ${upstream.status}`) });
     send(res, upstream.status, text, {

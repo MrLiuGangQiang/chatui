@@ -50,7 +50,7 @@ function testImagePlanRejectsInvalidTaskShape() {
       { candidate_key: 'i1', role: 'target' },
     ],
   })])), false, 'duplicate role bindings inside one task must fail');
-  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ size: '999x999' })])), false);
+  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ size: 'auto' })])), false, 'size is not a planner task field');
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ quality: 'ultra' })])), false);
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ background: 'glass' })])), false);
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ output_format: 'gif' })])), false);

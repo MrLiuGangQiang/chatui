@@ -34,7 +34,7 @@ function testRouteContractDeclaresCanonicalBindingRoles() {
   assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'resource_refs', 'task_shape']);
   assert.strictEqual(schema.properties.api, undefined);
   assert.strictEqual(schema.properties.arguments, undefined);
-  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /target 要改的图/);
+  assert.match(routeService.ROUTE_SYSTEM_PROMPT, /target\s*(?:要)?改(?:的)?图/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /plain_chat\/web_search\/text_to_image不绑图\/文件/);
 }
 
@@ -238,7 +238,7 @@ function testImageEditWithoutAResourceFailsClosedBeforeDispatch() {
 }
 
 function testArgumentClarificationUsesCanonicalParameterSlotsAndReplaysTheSelection() {
-  const prompt = '画一只猫，尺寸 1024x1024 和 1024x1536';
+  const prompt = '画一只猫，同时要求高质量和低质量';
   const draft = localRouteDraft({ operation: 'text_to_image', prompt });
   const route = inspect(draft);
   const [slot] = route.clarificationSlots;
@@ -254,27 +254,27 @@ function testArgumentClarificationUsesCanonicalParameterSlotsAndReplaysTheSelect
     key: 'p1',
     type: 'parameter',
     role: 'argument',
-    parameter_name: 'size',
+    parameter_name: 'quality',
     choices: [
-      { key: 'v1', value: '1024x1024' },
-      { key: 'v2', value: '1024x1536' },
+      { key: 'v1', value: 'high' },
+      { key: 'v2', value: 'low' },
     ],
   });
 
   const pending = clarificationAnswer.createPendingClarification({
-    id: 'clarify-size',
+    id: 'clarify-quality',
     messages: [{ role: 'user', content: prompt }],
     clarificationText: route.clarificationQuestion,
     routeInfo: route,
   });
   const answer = clarificationAnswer.createClarificationAnswer({
     clarificationId: pending.id,
-    answers: [{ resource_key: slot.key, choice_key: 'v2' }],
-    freeText: '选择竖图',
+    answers: [{ resource_key: slot.key, choice_key: 'v1' }],
+    freeText: '选择高质量',
   });
   const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
   assert.strictEqual(applied.complete, true);
-  assert.deepStrictEqual(applied.application.selectedParameters, { size: '1024x1536' });
+  assert.deepStrictEqual(applied.application.selectedParameters, { quality: 'high' });
 
   const resumed = routeService.compileLocalRoute(draft, {
     input: prompt,
@@ -283,7 +283,19 @@ function testArgumentClarificationUsesCanonicalParameterSlotsAndReplaysTheSelect
   });
   assert.strictEqual(resumed.needClarification, false);
   assert.strictEqual(routeService.isRouteDispatchable(resumed), true);
-  assert.strictEqual(resumed.dispatchContract.arguments.size, '1024x1536');
+  assert.strictEqual(resumed.dispatchContract.arguments.quality, 'high');
+  assert.strictEqual(resumed.dispatchContract.arguments.size, 'auto');
+}
+
+function testImageDimensionsRemainPromptTextAndNeverOpenParameterClarification() {
+  const prompt = '重新设计住宅平面图，参考 1536×1024 的横向示意和 1024x1024 的方形标注；保留堂屋，堂屋后面不设置卧室。';
+  const route = inspect(localRouteDraft({ operation: 'text_to_image', prompt }));
+
+  assert.strictEqual(route.needClarification, false);
+  assert.strictEqual(routeService.isRouteDispatchable(route), true);
+  assert.strictEqual(route.dispatchContract.arguments.size, 'auto');
+  assert.strictEqual(route.dispatchContract.arguments.prompt, prompt);
+  assert.strictEqual(route.clarificationSlots.some(slot => slot.parameter_name === 'size'), false);
 }
 
 function testResolvedImageChoiceSeedsTheRerouteCatalogAndExecutionMedia() {
@@ -778,6 +790,7 @@ module.exports = [
   testUnknownLocalBindingRoleFailsClosed,
   testImageEditWithoutAResourceFailsClosedBeforeDispatch,
   testArgumentClarificationUsesCanonicalParameterSlotsAndReplaysTheSelection,
+  testImageDimensionsRemainPromptTextAndNeverOpenParameterClarification,
   testResolvedImageChoiceSeedsTheRerouteCatalogAndExecutionMedia,
   testResolvedClarificationBindingSurvivesModelRouteWithoutMediaRef,
   testFirstEditClarificationSelectionSurvivesModelAbstention,

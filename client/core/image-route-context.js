@@ -31,6 +31,7 @@ function uploadedImageAttachmentLabel(item = {}, ordinal = 1) {
 }
 
 const DEFAULT_ROUTE_CONTEXT_MAX_CHARS = 256 * 1024;
+const MAX_RESOLVED_IMAGE_GOAL_LENGTH = 4000;
 const ROUTE_CONTEXT_POLICY = Object.freeze({
   schema_version: 'route_context_policy.v1',
   max_serialized_chars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
@@ -620,13 +621,19 @@ function executionFromImageMessage(message = {}, index = 0) {
     || imageContext?.routePrompt
     || messageText(message).replace(/^\[图片(生成|编辑|修改)完成\]\s*/, ''),
   ).trim();
+  const resolvedGoal = String(
+    imageContext?.resolvedGoal
+    || imageContext?.resolved_goal
+    || rawInput,
+  ).trim();
   const referenceId = makeImageReferenceId(imageContext?.referenceId || imageContext?.reference_id || '');
-  if (!operation || !referenceId || !rawInput) return null;
+  if (!operation || !referenceId || !rawInput || !resolvedGoal) return null;
   return {
     schema_version: 'execution_continuity.v1',
     operation,
     family: operation === 'edit_image' ? 'edit' : 'generate',
     input: rawInput.slice(0, 800),
+    resolved_goal: resolvedGoal.slice(0, MAX_RESOLVED_IMAGE_GOAL_LENGTH),
     result_kind: 'image',
     result_reference_id: referenceId,
     source_message_index: index + 1,

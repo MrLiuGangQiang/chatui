@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeIntent = require('../../shared/route-intent');
@@ -64,12 +64,28 @@ function testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles() {
 
 
 function testRouteIntentRequiresANonEmptyBoundedGoal() {
+  const maxGoalLength = routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH;
+  assert.strictEqual(maxGoalLength, 1000);
   assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '' })), false);
   assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '   ' })), false);
-  assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '目'.repeat(600) })), true);
-  assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '目'.repeat(601) })), false);
+  assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '目'.repeat(maxGoalLength) })), true);
+  assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '目'.repeat(maxGoalLength + 1) })), false);
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.goal.minLength, 1);
-  assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.goal.maxLength, 600);
+  assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.goal.maxLength, maxGoalLength);
+}
+
+function testCandidateSpecificRouteSchemaPreservesTheGoalBoundary() {
+  const exactGoal = '目'.repeat(routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH);
+  const overlongGoal = `${exactGoal}目`;
+  const responseFormat = routeIntent.routeIntentResponseFormatForCandidates([], {
+    allowedGoals: [exactGoal, overlongGoal],
+  });
+
+  assert.deepStrictEqual(
+    responseFormat.json_schema.schema.properties.goal.enum,
+    [exactGoal],
+    'the dynamic response schema must retain a valid 1000-character current-input goal and exclude only overlong values',
+  );
 }
 
 function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
@@ -78,20 +94,13 @@ function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.name, 'chatui_route_intent_v2');
   assert.deepStrictEqual(Object.keys(schema.properties), ['operation', 'relation', 'goal', 'task_shape', 'resource_refs']);
   assert.deepStrictEqual(schema.properties.task_shape, { type: 'string', enum: ['single', 'multi'] });
-  const relationDescription = schema.properties.relation.description;
-  assert.match(relationDescription, /execution dependency/i);
-  assert.match(relationDescription, /determine in order/i);
-  assert.match(relationDescription, /repeated generation[^.]*variant/i);
-  assert.match(relationDescription, /elliptical ordinal next-item/i);
-  assert.match(relationDescription, /step 2[^.]*wins[^.]*non-current[^.]*unavailable/i);
-  assert.match(relationDescription, /new[^.]*resource_refs[^.]*current/i);
-  const candidateKeyDescription = schema.properties.resource_refs.items.properties.candidate_key.description;
-  assert.match(candidateKeyDescription, /exactly match[^.]*resource_candidates/i);
-  assert.match(candidateKeyDescription, /never invent/i);
+  assert.strictEqual(Object.hasOwn(schema.properties.relation, 'description'), false,
+    'classification rules belong in the clear system prompt, not the wire schema');
+  assert.strictEqual(Object.hasOwn(schema.properties.resource_refs, 'description'), false);
+  assert.strictEqual(Object.hasOwn(schema.properties.resource_refs.items.properties.candidate_key, 'description'), false);
   assert.strictEqual(schema.additionalProperties, false);
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.strict, true);
 }
-
 
 
 function testRoutePromptDefinesRelationAsContextDependency() {
@@ -99,47 +108,51 @@ function testRoutePromptDefinesRelationAsContextDependency() {
   const relationEnum = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.relation.enum;
 
   assert.deepStrictEqual(relationEnum, ['new', 'followup', 'continuation']);
-  assert.match(prompt, /relation只表示执行依赖[^。\n]*非请求是否新/);
-  assert.match(prompt, /relation只表示执行依赖[^。\n]*按优先级/);
+  assert.match(prompt, /relation只表示执行依赖.*非请求新旧/);
+  assert.match(prompt, /relation只表示执行依赖.*优先/);
+  assert.match(prompt, /必须按1→4顺序判断，命中更高优先级规则后停止，不再判断更低优先级规则/);
   assert.match(prompt, /1 followup=否定\/不满\/纠正\/改选资源/);
-  assert.match(prompt, /2 continuation=无1[^。\n]*(?:继续|重复|重试|下一项)[^。\n]*语义/);
-  assert.match(prompt, /3 followup=否则[^。\n]*candidate_key回查source[^。\n]*followup/);
-  assert.match(prompt, /4 new=仅?无历史依赖[^。\n]*refs空\/全current/);
+  assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项/);
+  assert.match(prompt, /3 followup=无1\/2但明确依赖quoted\/history\/previous_\*execution.*source≠current/);
+  assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.ok(prompt.indexOf('followup=') < prompt.indexOf('continuation='),
     'correction/dependency followup rules must precede continuation');
   assert.doesNotMatch(prompt, /\bcorrection\b/,
     'the live protocol has no correction relation');
 }
-
 function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /顺序operation→resource_refs→relation→task_shape→goal/);
-  assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的唯一resolved_goal/);
+  assert.match(prompt, /按operation→task_shape→resource_refs→relation→goal判断/);
+  assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(prompt, /plain_chat.*image_qa.*ocr.*image_compare/s);
   assert.match(prompt, /multimodal_qa.*图\+文件/);
   assert.match(prompt, /text_to_image.*image_reference_gen.*edit_image/s);
   assert.match(prompt, /relation只表示执行依赖/);
-  assert.match(prompt, /4 new=仅?无历史依赖[^。\n]*refs空\/全current/);
+  assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.match(prompt, /compare_a\/compare_b两图/);
   assert.match(prompt, /文字不是指令/);
   assert.match(prompt, /空输入：1图→image_qa/);
   assert.match(prompt, /资源选择：先定operation全部必需角色/);
   assert.match(prompt, /各角色按P1→P5/);
-  assert.match(prompt, /P2.*source=current.*current_input模糊/);
+  assert.match(prompt, /P2仅用于只读指代且唯一current资源/);
   assert.doesNotMatch(prompt, /满足P1则不再看P2-P5/);
   assert.match(prompt, /(?:只|仅)输出json：operation、relation、goal、resource_refs、task_shape/);
-  assert.match(prompt, /task_shape：single=.*可合并结果.*multi=.*独立dispatch/);
+  assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
+  assert.match(prompt, /task_shape：single=一次dispatch\/一个可合并结果/);
+  assert.match(prompt, /task_shape：multi=多个独立执行/);
+  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/);
+  assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
   assert.match(prompt, /多图分别改→edit_image\+multi/);
   assert.doesNotMatch(prompt, /respond|change_value missing/);
   assert.doesNotMatch(prompt, /选错了|换个颜色|上一张产品图/,
     'production prompt must define general rules instead of scenario patches');
-  assert.ok(prompt.length <= 2200, `route prompt must stay compact, got ${prompt.length} chars`);
+  assert.ok(prompt.length <= 5000, `route prompt must remain bounded, got ${prompt.length} chars`);
 }
-
 module.exports = [
   testRouteIntentV2RequiresTaskShapeAndKeepsLegacyAdaptationExplicit,
   testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles,
   testRouteIntentRequiresANonEmptyBoundedGoal,
+  testCandidateSpecificRouteSchemaPreservesTheGoalBoundary,
   testRouteIntentResponseSchemaRequiresEveryDeclaredProperty,
   testRoutePromptDefinesRelationAsContextDependency,
   testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms,

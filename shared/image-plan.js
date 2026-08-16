@@ -28,7 +28,7 @@
   const PLAN_FIELDS = Object.freeze(['schema_version', 'tasks']);
   const TASK_FIELDS = Object.freeze([
     'task_type', 'prompt', 'input_images',
-    'size', 'quality', 'background', 'output_format', 'count',
+    'quality', 'background', 'output_format', 'count',
     'label',
   ]);
   const REQUIRED_TASK_FIELDS = Object.freeze(TASK_FIELDS.filter(field => field !== 'label'));
@@ -36,9 +36,6 @@
   const VALID_TASK_TYPES = new Set(['generate', 'edit']);
   const VALID_INPUT_ROLES = new Set(['target', 'reference', 'style_reference', 'mask']);
 
-  const IMAGE_SIZES = Object.freeze(Array.isArray(capabilityRegistry?.IMAGE_SIZES) && capabilityRegistry.IMAGE_SIZES.length
-    ? capabilityRegistry.IMAGE_SIZES
-    : ['auto', '1024x1024', '1024x1536', '1536x1024']);
   const IMAGE_QUALITIES = Object.freeze(Array.isArray(capabilityRegistry?.IMAGE_QUALITIES) && capabilityRegistry.IMAGE_QUALITIES.length
     ? capabilityRegistry.IMAGE_QUALITIES
     : ['auto', 'low', 'medium', 'high', 'standard', 'hd']);
@@ -79,7 +76,6 @@
     if (!VALID_TASK_TYPES.has(stringValue(task.task_type)) || !prompt || prompt.length > 4000) return false;
     if (!Array.isArray(task.input_images) || task.input_images.length > 16 || !task.input_images.every(validInputImage)) return false;
     if (new Set(task.input_images.map(ref => `${ref.candidate_key}|${ref.role}`)).size !== task.input_images.length) return false;
-    if (task.size !== undefined && !IMAGE_SIZES.includes(stringValue(task.size))) return false;
     if (task.quality !== undefined && !IMAGE_QUALITIES.includes(stringValue(task.quality))) return false;
     if (task.background !== undefined && !IMAGE_BACKGROUNDS.includes(stringValue(task.background))) return false;
     if (task.output_format !== undefined && !IMAGE_OUTPUT_FORMATS.includes(stringValue(task.output_format))) return false;
@@ -142,7 +138,6 @@
                     },
                   },
                 },
-                size: { type: 'string', enum: [...IMAGE_SIZES] },
                 quality: { type: 'string', enum: [...IMAGE_QUALITIES] },
                 background: { type: 'string', enum: [...IMAGE_BACKGROUNDS] },
                 output_format: { type: 'string', enum: [...IMAGE_OUTPUT_FORMATS] },

@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
+const routeIntent = require('../../shared/route-intent');
 
 function inspect(intent, input, options = {}) {
   const result = routeService.inspectModelRouteResult(JSON.stringify({ task_shape: options.taskShape || 'single', ...intent }), {
@@ -69,7 +70,7 @@ function testRoutePromptForbidsInventingUnrequestedCreativeDetails() {
   assert.doesNotMatch(prompt, /写清主体、场景、构图、风格、颜色、文字/);
 }
 
-function testReadOnlyMultiImageQuestionDoesNotAskSplitOrMerge() {
+function testReadOnlyMultiImageShapeRequiresClarificationWithoutRewritingTheModelOutput() {
   const route = inspect({
     operation: 'image_qa',
     relation: 'new',
@@ -88,14 +89,46 @@ function testReadOnlyMultiImageQuestionDoesNotAskSplitOrMerge() {
       { index: 3, source: 'current', id: 'img-c', image_id: 'img-c', reference_id: 'ref-c' },
     ] },
   });
-  assert.notStrictEqual(route.readiness, 'needs_clarification');
-  assert.notStrictEqual(route.clarificationQuestion, '本轮请求包含多个不同执行任务，为避免静默吞并，请选择分开做（本轮只提交其中一个任务）或合并做（将多个意图合并为一条指令后重发）。');
+
+  assert.strictEqual(route.taskShape, 'multi', 'the compiler must preserve the model-owned semantic field');
+  assert.strictEqual(route.needClarification, true);
+  assert.strictEqual(route.dispatchAuthorized, false);
+  assert.strictEqual(route.readiness, 'needs_clarification');
+  assert.strictEqual(
+    route.clarificationQuestion,
+    '本轮请求包含多个不同执行任务，为避免静默吞并，请选择分开做（本轮只提交其中一个任务）或合并做（将多个意图合并为一条指令后重发）。',
+  );
+}
+
+function testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation() {
+  const goal = '图'.repeat(routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH);
+  const route = inspect({
+    operation: 'text_to_image',
+    relation: 'new',
+    goal,
+    resource_refs: [],
+  }, '生成一张图片');
+
+  assert.strictEqual(route.userGoal, goal);
+  assert.strictEqual(route.executionPrompt, goal);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+
+  const rejected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'text_to_image',
+    relation: 'new',
+    goal: `${goal}图`,
+    resource_refs: [],
+    task_shape: 'single',
+  }), { input: '生成一张图片', attachments: [], context: {} });
+  assert.strictEqual(rejected.route, null);
+  assert.strictEqual(rejected.reason, 'route_intent_invalid');
 }
 
 module.exports = [
   testStandaloneNewTextTaskExecutesTheRawUserInput,
   testConversationDependentTextTaskExecutesTheResolvedGoalWithoutRegexGates,
   testResourceResolvedTaskExecutesTheResolvedGoal,
-  testReadOnlyMultiImageQuestionDoesNotAskSplitOrMerge,
+  testReadOnlyMultiImageShapeRequiresClarificationWithoutRewritingTheModelOutput,
+  testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation,
   testRoutePromptForbidsInventingUnrequestedCreativeDetails,
 ];

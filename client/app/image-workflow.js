@@ -146,6 +146,7 @@
           editInstruction: t.editInstruction,
           routePrompt: t.routePrompt,
           originalPrompt: t.originalPrompt,
+          resolvedGoal: t.resolvedGoal,
           childJobId: t.clientJobId,
           submissionId: t.submissionId || '',
         });
@@ -418,6 +419,7 @@
             b = await imageResultToHtml(x, v, {
               prompt: E,
               routePrompt: t.originalPrompt || I.routePrompt || "",
+              resolvedGoal: I.resolvedGoal || t.resolvedGoal || E,
               sessionId: n,
               headers: q,
             });

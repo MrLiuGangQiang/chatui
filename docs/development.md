@@ -117,7 +117,7 @@ npm test -- route-resilience route-deadline-fallback route-live-status route-int
 npm test -- route-memory-ordinal-retrieval route-model-attempt-budget route-outcome-presentation route-prompt-multi-edit-contract
 npm test -- clarification-image-choice-interaction clarification-choice-workflow clarification-refresh-persistence
 npm test -- submit-workflow-cancellation regenerate-workflow submit-workflow-clarification-answers durable-task-lifecycle task-lifecycle
-npm test -- dispatch-contract message-size-guard
+npm test -- dispatch-contract image-size-auto-policy message-size-guard
 npm test -- request-body-utf8 server-router-access-log chat-request-error-metadata protocol-message-quality
 npm test -- job-ownership job-routes server-hardening
 ```
@@ -193,7 +193,7 @@ npm run eval:intent -- \
   --output temp/reports/intent-routing-live.json
 ```
 
-评估输入来自 `test/fixtures/intent-routing-eval.v2.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 的最小 `route_intent.v2`；`goal` 只消解指代并保留用户已提出的约束，`task_shape` 明确单任务、多图片规划任务或需拆分的非图片多任务。评估器直接把原始模型五字段作为独立语义证据，检查 operation、relation、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定并检查澄清、图片规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误 operation/relation 兜底；跨 API 多任务必须由 `task_shape=multi` 触发拆分提示。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。 请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域；这些约束属于生成前协议，不得通过修改评估器或模型返回后的语义归一化掩盖失败。
+评估输入来自 `test/fixtures/intent-routing-eval.v2.json`。模型必须返回只含 `operation`、`relation`、`goal`、`resource_refs`、`task_shape` 的最小 `route_intent.v2`；`goal` 只消解指代并保留用户已提出的约束。`task_shape` 描述本轮是否需要多个独立执行，而非资源数量：`single` 是一次 dispatch 可返回一个可合并结果，多图问答、比较、OCR 和汇总仍为 `single`；`multi` 表示多个独立执行，只有图片生成/编辑的 `multi` 才是可直接执行的多个独立图片结果并进入二级图片规划。非图片或跨 API 的多个必做步骤以 `multi` 标记需要拆分，由执行门禁阻止发送、不会授权图片批次，并要求拆分。`relation` 必须按既定优先级首个命中即停止：纠正或引用正文事实优先于继续语义，继续语义优先于一般历史依赖，最后才是 `new`。评估器直接把原始模型五字段作为独立语义证据，检查 operation、relation、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定并检查澄清、图片规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误 operation/relation 兜底；跨 API 多任务必须由 `task_shape=multi` 触发拆分提示。默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。 请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域；这些约束属于生成前协议，不得通过修改评估器或模型返回后的语义归一化掩盖失败。
 
 报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 

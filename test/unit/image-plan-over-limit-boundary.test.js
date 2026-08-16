@@ -10,7 +10,6 @@ function task(index) {
     task_type: 'generate',
     prompt: `生成第 ${index + 1} 张图片`,
     input_images: [],
-    size: 'auto',
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',

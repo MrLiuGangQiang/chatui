@@ -7,7 +7,7 @@ function routeResourceRefSchema(payload = {}) {
   return payload.text.format.schema.properties.resource_refs;
 }
 
-function testEmptyCandidateCatalogForbidsEveryResourceReferenceAtTheProviderSchemaBoundary() {
+function testEmptyCandidateCatalogFallsBackToLocalResourceValidationWhenProviderSchemaUsesTheStrictSubset() {
   const payload = routeService.buildRoutePayload({
     model: 'route-model',
     input: '把这张图的背景换成蓝色。',
@@ -16,8 +16,24 @@ function testEmptyCandidateCatalogForbidsEveryResourceReferenceAtTheProviderSche
   });
   const wire = JSON.parse(payload.input[1].content);
   assert.deepStrictEqual(wire.resource_candidates, []);
-  assert.strictEqual(routeResourceRefSchema(payload).maxItems, 0,
-    'an empty published catalog must make invented candidate keys structurally impossible');
+  assert.strictEqual(Object.hasOwn(routeResourceRefSchema(payload), 'maxItems'), false,
+    'provider strict schemas omit unsupported array-cardinality keywords');
+
+  const result = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'new',
+    goal: '把目标图的背景换成蓝色。',
+    task_shape: 'single',
+    resource_refs: [{ candidate_key: 'i1', role: 'target' }],
+  }), {
+    input: '把这张图的背景换成蓝色。',
+    attachments: [],
+    context: {},
+  });
+  assert.ok(result.route, result.reason || result.error || 'route compilation failed');
+  assert.strictEqual(result.route.needClarification, true,
+    'an invented resource must remain non-dispatchable when the provider subset cannot express maxItems=0');
+  assert.strictEqual(result.route.dispatchAuthorized, false);
 }
 
 function testCandidateKeySchemaEnumeratesOnlyTheCatalogPublishedInTheSameRequest() {
@@ -54,6 +70,6 @@ function testCandidateKeySchemaEnumeratesOnlyTheCatalogPublishedInTheSameRequest
 }
 
 module.exports = [
-  testEmptyCandidateCatalogForbidsEveryResourceReferenceAtTheProviderSchemaBoundary,
+  testEmptyCandidateCatalogFallsBackToLocalResourceValidationWhenProviderSchemaUsesTheStrictSubset,
   testCandidateKeySchemaEnumeratesOnlyTheCatalogPublishedInTheSameRequest,
 ];

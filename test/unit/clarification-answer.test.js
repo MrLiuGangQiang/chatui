@@ -12,9 +12,9 @@ function slots() {
       ],
     },
     {
-      key: 'p1', type: 'parameter', role: 'argument', reason: 'ambiguous', parameter_name: 'size', choices: [
-        { key: 'v1', label: '方图', value: '1024x1024' },
-        { key: 'v2', label: '竖图', value: '1024x1536' },
+      key: 'p1', type: 'parameter', role: 'argument', reason: 'ambiguous', parameter_name: 'quality', choices: [
+        { key: 'v1', label: '低质量', value: 'low' },
+        { key: 'v2', label: '高质量', value: 'high' },
       ],
     },
   ];
@@ -107,7 +107,7 @@ function testApplyingAnswerSeparatesResourceAndParameterSelections() {
   });
   const applied = clarificationAnswer.applyClarificationAnswer(answer, slots(), { clarificationId: 'clarify-1' });
   assert.strictEqual(applied.complete, true);
-  assert.deepStrictEqual(applied.selectedParameters, { size: '1024x1536' });
+  assert.deepStrictEqual(applied.selectedParameters, { quality: 'high' });
   assert.deepStrictEqual(applied.selectedResources, [{
     resource_key: 'r1', choice_key: 'c2', type: 'image', role: 'target', source: 'history', index: 2,
     id: 'img-b', resource_id: 'res:image:img-b', reference_id: 'ref-b', label: '图片 B',

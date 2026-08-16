@@ -39,14 +39,14 @@ function normalizeOutputFormat(value) {
   return ['png', 'jpeg', 'webp'].includes(text) ? text : '';
 }
 
-function buildImageRequestPayload({ model, prompt, size = 'auto', quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
+function buildImageRequestPayload({ model, prompt, quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
   const normalizedPrompt = String(prompt || '').trim();
-  const payload = { model, prompt: normalizedPrompt };
-  const resolvedSize = normalizeAutoValue(size);
+  // Size is deliberately not an exposed generation control. Keeping the wire
+  // value explicit makes every supported image endpoint use provider auto mode.
+  const payload = { model, prompt: normalizedPrompt, size: 'auto' };
   const resolvedQuality = normalizeAutoValue(quality);
   const resolvedBackground = normalizeAutoValue(background);
   const resolvedFormat = normalizeOutputFormat(output_format || format);
-  if (resolvedSize) payload.size = resolvedSize;
   if (resolvedQuality) payload.quality = resolvedQuality;
   if (resolvedBackground) payload.background = resolvedBackground;
   if (resolvedFormat) payload.output_format = resolvedFormat;
@@ -57,14 +57,13 @@ function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
   return buildImageRequestPayload({
     model,
     prompt: task.prompt || prompt,
-    size: task.size,
     quality: task.quality,
     background: task.background,
     format: task.format || task.output_format || task.outputFormat,
   });
 }
 
-function createImageContext({ prompt = '', routePrompt = '', attachments = [], masks = [], maskAttachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
+function createImageContext({ prompt = '', routePrompt = '', resolvedGoal = '', attachments = [], masks = [], maskAttachments = [], mode = 'image', target = 'new', usePreviousImage = false, selectedReferenceId = '', selectedIndexes = [], selectedImageIds = [], makeImageItemId = null } = {}) {
   const makeId = typeof makeImageItemId === 'function' ? makeImageItemId : ((reference, index) => `img_${reference || 'latest'}_${index || 1}`);
   const targetImages = Array.isArray(attachments) ? attachments : [];
   const maskImages = Array.isArray(masks) && masks.length
@@ -82,6 +81,7 @@ function createImageContext({ prompt = '', routePrompt = '', attachments = [], m
   return {
     prompt,
     routePrompt,
+    resolvedGoal: String(resolvedGoal || routePrompt || prompt || '').trim(),
     mode,
     target,
     usePreviousImage: !!usePreviousImage,

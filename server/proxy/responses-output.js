@@ -1,9 +1,7 @@
 'use strict';
 
-// Extract final textual output from a non-streaming Responses envelope without
-// traversing reasoning/analysis items. OpenAI-compatible gateways commonly
-// return this canonical `output` array while omitting the convenience
-// `output_text` field that older clients expect.
+// Extract final textual output from a non-streaming Responses or Chat
+// Completions envelope without traversing reasoning/analysis items.
 function extractResponsesOutputText(value, seen = new Set(), depth = 0) {
   if (depth > 12 || value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -28,32 +26,56 @@ function extractResponsesOutputText(value, seen = new Set(), depth = 0) {
 
 function responseOutputText(response = {}) {
   const direct = extractResponsesOutputText(response?.output_text);
-  return direct || extractResponsesOutputText(response?.output);
+  if (direct) return direct;
+  const responses = extractResponsesOutputText(response?.output);
+  if (responses) return responses;
+  const choice = response?.choices?.[0];
+  return extractResponsesOutputText(choice?.message?.content || choice?.text);
+}
+
+function parseNonStreamingResponse(raw = '') {
+  const original = String(raw ?? '');
+  if (!original.trim()) return { original, response: null };
+  try {
+    const response = JSON.parse(original);
+    return response && typeof response === 'object' && !Array.isArray(response)
+      ? { original, response }
+      : { original, response: null };
+  } catch {
+    return { original, response: null };
+  }
 }
 
 function normalizeNonStreamingResponsesBody(raw = '') {
-  const original = String(raw ?? '');
-  if (!original.trim()) return Object.freeze({ text: original, normalized: false });
-  try {
-    const response = JSON.parse(original);
-    if (!response || typeof response !== 'object' || Array.isArray(response)) {
-      return Object.freeze({ text: original, normalized: false });
-    }
-    const outputText = responseOutputText(response);
-    if (!outputText || (typeof response.output_text === 'string' && response.output_text === outputText)) {
-      return Object.freeze({ text: original, normalized: false });
-    }
-    return Object.freeze({
-      text: JSON.stringify({ ...response, output_text: outputText }),
-      normalized: true,
-    });
-  } catch {
+  const { original, response } = parseNonStreamingResponse(raw);
+  if (!response) return Object.freeze({ text: original, normalized: false });
+  const outputText = responseOutputText(response);
+  if (!outputText || (typeof response.output_text === 'string' && response.output_text === outputText)) {
     return Object.freeze({ text: original, normalized: false });
   }
+  return Object.freeze({
+    text: JSON.stringify({ ...response, output_text: outputText }),
+    normalized: true,
+  });
+}
+
+// Intent recognition is an internal classifier boundary. Browser code needs only
+// the schema-constrained answer; upstream IDs, usage, tools, and encrypted
+// reasoning must never cross this boundary.
+function compactNonStreamingIntentBody(raw = '') {
+  const { original, response } = parseNonStreamingResponse(raw);
+  if (!response) return Object.freeze({ text: original, normalized: false });
+  const outputText = responseOutputText(response);
+  if (!outputText) return Object.freeze({ text: original, normalized: false });
+  return Object.freeze({
+    text: JSON.stringify({ output_text: outputText }),
+    normalized: true,
+  });
 }
 
 module.exports = {
   extractResponsesOutputText,
   responseOutputText,
   normalizeNonStreamingResponsesBody,
+  compactNonStreamingIntentBody,
 };

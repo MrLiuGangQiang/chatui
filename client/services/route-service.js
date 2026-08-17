@@ -123,7 +123,9 @@
     structuredLimit: 12,
     earlyHistoryLimit: 4,
   });
-  const EMPTY_MULTI_IMAGE_ANALYSIS_GOAL = '请分析所有已上传图片，分别说明每张图片的主要内容。';
+  const EMPTY_IMAGE_ANALYSIS_GOAL = '请分析所有已上传图片，分别说明每张图片的主要内容。';
+  const EMPTY_FILE_ANALYSIS_GOAL = '请阅读并概括所有已上传文件的主要内容。';
+  const EMPTY_MULTIMODAL_ANALYSIS_GOAL = '请结合分析所有已上传图片和文件，说明各自内容及其关联。';
   // The model proposes a relation, but the execution boundary owns strong
   // discourse facts that can be derived deterministically from the current
   // input plus an available image lineage. Keep these cues narrow: generic
@@ -210,7 +212,7 @@
     '【goal_mode】goal_mode只控制图片任务的文字任务状态，与relation和resource_refs相互独立。replace=当前goal已经完整定义本次任务，不合并previous_execution.task_state；amend=当前goal只写同一图片任务在本轮新增、替换或撤销的具体约束，不复制previous_execution.task_state中的基础要求，并在存在有效前序状态时按顺序合并，当前要求优先。plain_chat、web_search、文件/看图类任务以及image_reference_gen一律replace。',
     '图片任务选择规则：当前goal完整、自足、可单独定义新任务时用replace，即使relation是followup；当前输入只改变前序图片文字任务的一部分时用amend。拒绝使用历史资源只影响resource_refs，不直接决定goal_mode；仍按文字任务是完整替换还是增量修订判断。goal必须写本轮实际要求，不得写“保留上述要求”等空泛指代。',
     'goal_mode=replace的图片goal须独立可执行：写入用户明确的内容、保留项和修改项，未提供的创作要素保持未指定，不得只写“基于这个生成”“参考上述内容生成”或“继续生成”。goal_mode=amend只写当前具体delta，明确本轮改变、增加或撤销什么，不复述前序base；edit_image的amend goal同时就是发给目标图的本轮编辑指令。',
-    '【歧义与空输入】资源歧义或必需角色缺失时，仍输出你能确定的operation、relation、goal与refs；省略不确定角色，由执行层澄清，绝不在goal中提问。空输入：1图→image_qa；仅多张current图→image_qa且source全绑；1文件→file_qa；其余多资源→refs=[]澄清。',
+    '【歧义与空输入】资源歧义或必需角色缺失时，仍输出你能确定的operation、relation、goal与refs；省略不确定角色，由执行层澄清，绝不在goal中提问。空输入且当前上传附件全部可用时，由浏览器在请求模型前确定性预路由：仅图片→image_qa且绑定全部current图片；仅文件→file_qa且绑定全部current文件；图片+文件→multimodal_qa且绑定全部current附件；三种情形都使用固定的非空分析goal。其余空输入按资源歧义处理。',
     '【快速核对】“分别把两张图改黑白”是edit_image+multi，两个target；“比较两张图的颜色”是image_compare+single，compare_a/compare_b；“根据这张图生成一张海报”是image_reference_gen+single，图片为reference，不是target。',
   ].join('\n');
 
@@ -1745,7 +1747,7 @@
     }
     return issues;
   }
-  function emptyCurrentImageSetDefault(intent = {}, options = {}) {
+  function emptyCurrentAttachmentSetDefault(intent = {}, options = {}) {
     const input = Object.prototype.hasOwnProperty.call(options, 'input')
       ? stringValue(options.input)
       : stringValue(options.current_input);
@@ -1754,29 +1756,49 @@
     const currentMedia = catalog.filter(candidate => (
       candidate?.source === 'current' && ['image', 'file'].includes(candidate?.type)
     ));
-    const currentImages = currentMedia.filter(candidate => (
-      candidate.type === 'image' && candidate.availability !== 'unavailable'
-    ));
-    if (currentImages.length <= 1
-        || currentImages.length !== currentMedia.length
-        || currentImages.length > ROUTE_INTENT_MAX_RESOURCE_REFS) {
+    const availableMedia = currentMedia.filter(candidate => candidate.availability !== 'unavailable');
+    if (!currentMedia.length
+        || availableMedia.length !== currentMedia.length
+        || currentMedia.length > ROUTE_INTENT_MAX_RESOURCE_REFS) {
       return { intent, applied: false };
     }
+    const currentImages = currentMedia.filter(candidate => candidate.type === 'image');
+    const currentFiles = currentMedia.filter(candidate => candidate.type === 'file');
+    const operation = currentImages.length && currentFiles.length
+      ? 'multimodal_qa'
+      : currentImages.length
+        ? 'image_qa'
+        : 'file_qa';
+    const goal = operation === 'multimodal_qa'
+      ? EMPTY_MULTIMODAL_ANALYSIS_GOAL
+      : operation === 'image_qa'
+        ? EMPTY_IMAGE_ANALYSIS_GOAL
+        : EMPTY_FILE_ANALYSIS_GOAL;
     return {
       applied: true,
       intent: {
         ...intent,
-        operation: 'image_qa',
+        operation,
         relation: 'new',
-        goal: EMPTY_MULTI_IMAGE_ANALYSIS_GOAL,
+        goal,
         goal_mode: 'replace',
         task_shape: 'single',
-        resource_refs: currentImages.map(candidate => ({
+        resource_refs: currentMedia.map(candidate => ({
           candidate_key: candidate.candidate_key,
-          role: 'source',
+          role: candidate.type === 'image' ? 'source' : 'attachment',
         })),
       },
     };
+  }
+
+  // An empty submission with current attachments carries no textual task
+  // ambiguity. Compile the canonical inspection route before calling a route
+  // model so a provider cannot turn an otherwise deterministic upload into an
+  // invalid empty-goal response or omit part of the submitted media set.
+  function compileEmptyCurrentAttachmentSetRoute(options = {}) {
+    const defaulted = emptyCurrentAttachmentSetDefault({}, options);
+    if (!defaulted.applied) return { route: null, reason: '' };
+    return compileRouteIntent(defaulted.intent, options);
   }
 
   function routeIntentToDraft(intent = {}, options = {}) {
@@ -1837,10 +1859,10 @@
       // history resources during binding, supplementation, or clarification.
       const candidateCatalog = modelRouteCandidateCatalog(options);
       const scopedOptions = { ...options, candidateCatalog };
-      // With no user text, a current turn containing only multiple images has
-      // one deterministic default: analyze the submitted set. A model-selected
-      // subset would silently discard attachments the user sent in this turn.
-      const defaulted = emptyCurrentImageSetDefault(intent, scopedOptions);
+      // With no user text, the complete usable current attachment set has one
+      // protocol-defined default: inspect everything submitted in this turn. A
+      // model-selected subset would silently discard uploaded images or files.
+      const defaulted = emptyCurrentAttachmentSetDefault(intent, scopedOptions);
       const effectiveIntent = defaulted.intent;
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
@@ -1870,7 +1892,7 @@
       const compiledRoute = route ? {
         ...route,
         taskShape,
-        ...(defaulted.applied ? { inputDefault: 'all_current_images' } : {}),
+        ...(defaulted.applied ? { inputDefault: 'all_current_attachments' } : {}),
       } : null;
       return {
         route: compiledRoute,
@@ -4445,6 +4467,7 @@
     wireResourceCandidates,
     extractRouteText,
     inspectModelRouteResult,
+    compileEmptyCurrentAttachmentSetRoute,
     compileLocalRoute,
     isRouteDispatchable,
     createExplicitTextToImageRoute,

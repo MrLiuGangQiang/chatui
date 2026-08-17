@@ -84,6 +84,39 @@ async function testAmbiguousRouteUsesDeterministicClarificationWithoutSecondMode
   }
 }
 
+async function testEmptyCurrentAttachmentSetSkipsResponsesRouting() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  const route = {
+    mode: 'chat', api: 'chat', operationType: 'image_qa', operationApi: 'chat', operationMode: 'chat',
+    relation: 'new', readiness: 'ready', dispatchAuthorized: true, needClarification: false,
+    taskShape: 'single', inputDefault: 'all_current_attachments',
+  };
+  globalThis.ChatUIRouteService = {
+    compileEmptyCurrentAttachmentSetRoute: () => ({ route }),
+    buildRoutePayload: () => { throw new Error('empty attachment input must not build a route-model request'); },
+  };
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'route-secret', routeModel: 'route-model', chatModel: 'chat-model' }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'chat-model',
+    requestJson: async (...args) => { calls.push(args); throw new Error('must not call Responses'); },
+  });
+  try {
+    const result = await workflow.getEffectiveRoute('', [
+      { type: 'image/png', name: 'diagram.png', imageId: 'image-diagram' },
+      { type: 'text/plain', name: 'notes.txt', fileId: 'file-notes' },
+    ], 'session-1');
+    assert.strictEqual(result, route);
+    assert.strictEqual(calls.length, 0,
+      'an empty image-and-file upload must compile locally instead of spending a Responses route request');
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
 async function testIntentRecognitionUsesTheResponsesProxyPath() {
   const previousRouteService = globalThis.ChatUIRouteService;
   const { route, service } = makeRouteService();
@@ -126,9 +159,9 @@ async function testIntentRecognitionUsesTheResponsesProxyPath() {
 }
 
 
-async function testIntentRecognitionFallsBackToNonStreamingChatForExactResponsesGatewayDefect() {
+async function testIntentRecognitionKeepsResponsesOnlyForExactGatewayDefect() {
   const previousRouteService = globalThis.ChatUIRouteService;
-  const { route, service } = makeRouteService();
+  const { service } = makeRouteService();
   globalThis.ChatUIRouteService = service;
   const calls = [];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
@@ -143,98 +176,25 @@ async function testIntentRecognitionFallsBackToNonStreamingChatForExactResponses
     getSessionChatModel: () => 'route-model',
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
-      if (calls.length === 1) {
-        const error = new Error('failed to do request: empty stream chunks');
-        error.statusCode = 500;
-        error.code = 'internal_error';
-        throw error;
-      }
-      return { text: '{}' };
+      const error = new Error('failed to do request: empty stream chunks');
+      error.statusCode = 500;
+      error.code = 'internal_error';
+      throw error;
     },
   });
 
   try {
     const result = await workflow.getEffectiveRoute('画一只猫', [], 'session-1');
-    assert.strictEqual(result, route);
-    assert.strictEqual(calls.length, 2, 'the exact Responses gateway defect must receive one non-streaming Chat fallback');
-
-    const [responsesCall, chatCall] = calls;
-    assert.strictEqual(responsesCall.url, 'https://gateway.example/v1/responses');
-    assert.strictEqual(responsesCall.payload.stream, false);
-    assert.ok(Array.isArray(responsesCall.payload.input));
-    assert.ok(responsesCall.payload.text?.format);
-    assert.strictEqual(responsesCall.options.requestPurpose, 'intent_recognition');
-
-    assert.strictEqual(chatCall.url, 'https://gateway.example/v1/chat/completions');
-    assert.strictEqual(chatCall.payload.stream, false, 'the fallback must remain one-shot JSON, not SSE');
-    assert.ok(Array.isArray(chatCall.payload.messages));
-    assert.strictEqual(Object.hasOwn(chatCall.payload, 'input'), false);
-    assert.strictEqual(Object.hasOwn(chatCall.payload, 'text'), false);
-    assert.deepStrictEqual(chatCall.payload.response_format, {
-      type: 'json_schema',
-      json_schema: {
-        name: 'test',
-        strict: true,
-        schema: { type: 'object' },
-      },
-    });
-    assert.strictEqual(chatCall.options.requestPurpose, 'intent_recognition');
-    assert.strictEqual(chatCall.options.method, 'POST');
-  } finally {
-    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
-    else globalThis.ChatUIRouteService = previousRouteService;
-  }
-}
-
-async function testNonStreamingChatTransportFallbackUnwrapsContentPartsBeforeRouteValidation() {
-  const previousRouteService = globalThis.ChatUIRouteService;
-  const actualRouteService = require('../../client/services/route-service');
-  globalThis.ChatUIRouteService = actualRouteService;
-  const calls = [];
-  const intent = {
-    operation: 'plain_chat',
-    relation: 'new',
-    goal: '联苯苄唑溶液能上飞机么',
-    resource_refs: [],
-    task_shape: 'single',
-  };
-  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
-    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
-    getConfig: () => ({
-      baseUrl: 'https://gateway.example/v1',
-      apiKey: 'route-secret',
-      routeModel: 'route-model',
-      chatModel: 'route-model',
-    }),
-    getSessionRouteModel: () => 'route-model',
-    getSessionChatModel: () => 'route-model',
-    requestJson: async (url, payload, apiKey, options) => {
-      calls.push({ url, payload, apiKey, options });
-      if (calls.length === 1) {
-        const error = new Error('failed to do request: empty stream chunks');
-        error.statusCode = 500;
-        error.code = 'internal_error';
-        throw error;
-      }
-      return {
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: JSON.stringify(intent) }],
-          },
-        }],
-      };
-    },
-  });
-
-  try {
-    const route = await workflow.getEffectiveRoute(intent.goal, [], 'session-content-parts');
-    assert.strictEqual(calls.length, 2, 'the exact gateway defect must take the one-shot Chat fallback');
+    assert.strictEqual(calls.length, 1,
+      'a Responses transport defect must fail the route instead of issuing a hidden Chat Completions request');
     assert.strictEqual(calls[0].url, 'https://gateway.example/v1/responses');
-    assert.strictEqual(calls[1].url, 'https://gateway.example/v1/chat/completions');
-    assert.strictEqual(calls[1].payload.stream, false, 'the fallback must never enable streaming');
-    assert.strictEqual(route.operationType, 'plain_chat', 'valid content parts must not be rejected as an invalid route');
-    assert.strictEqual(route.readiness, 'ready');
+    assert.strictEqual(calls[0].payload.stream, false);
+    assert.ok(Array.isArray(calls[0].payload.input));
+    assert.ok(calls[0].payload.text?.format);
+    assert.strictEqual(calls[0].options.requestPurpose, 'intent_recognition');
+    assert.strictEqual(result.needClarification, false);
+    assert.strictEqual(result.dispatchAuthorized, false);
+    assert.strictEqual(result.modelAttemptLedger.provider_attempts, 1);
   } finally {
     if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previousRouteService;
@@ -685,9 +645,9 @@ function testIntentPayloadDoesNotRepeatResourceCatalogInsideContext() {
 
 
 module.exports = [
+  testEmptyCurrentAttachmentSetSkipsResponsesRouting,
   testIntentRecognitionUsesTheResponsesProxyPath,
-  testIntentRecognitionFallsBackToNonStreamingChatForExactResponsesGatewayDefect,
-  testNonStreamingChatTransportFallbackUnwrapsContentPartsBeforeRouteValidation,
+  testIntentRecognitionKeepsResponsesOnlyForExactGatewayDefect,
   testIntentRecognitionDoesNotChangeTransportForOrdinaryResponsesServerError,
   testAmbiguousRouteUsesDeterministicClarificationWithoutSecondModelCall,
   testIntentWorkflowPreservesCanonicalResourceMetadata,

@@ -74,9 +74,8 @@ function testRuntimeTextPayloadBuildersUseResponsesContract() {
   assert.strictEqual(evaluationCli.endpointFor('https://gateway.example/v1'), 'https://gateway.example/v1/responses');
 }
 
-function testActiveTextCallsitesKeepResponsesPrimaryWithOneNonStreamingRouteFallback() {
+function testActiveTextCallsitesKeepResponsesPrimaryWithoutRouteTransportFallback() {
   const expectedLegacyChatCompletionFiles = [
-    'client/app/route-intent-workflow.js',
     'server/jobs/chat.js',
     'server/logging/request-trace.js',
     'server/proxy/openai.js',
@@ -91,7 +90,7 @@ function testActiveTextCallsitesKeepResponsesPrimaryWithOneNonStreamingRouteFall
   ].filter(relativePath => source(relativePath).includes('/chat/completions'))
     .sort();
   assert.deepStrictEqual(actualLegacyChatCompletionFiles, expectedLegacyChatCompletionFiles,
-    'only the explicit route gateway fallback and existing proxy/job compatibility boundaries may retain /chat/completions');
+    'only existing proxy/job compatibility boundaries may retain /chat/completions; route control flow must stay Responses-only');
 
   const chatWorkflow = source('client/app/chat-workflow.js');
   const routeWorkflow = source('client/app/route-intent-workflow.js');
@@ -105,12 +104,12 @@ function testActiveTextCallsitesKeepResponsesPrimaryWithOneNonStreamingRouteFall
     'ordinary final chats must use the shared Responses payload builder');
   assert.match(routeWorkflow, /\$\{baseUrl\}\/responses/,
     'route intent recognition and multi-image planning must call Responses first');
-  assert.match(routeWorkflow, /isNonStreamingResponsesEmptyStreamChunks/,
-    'the route transport fallback must be gated by the exact non-streaming Responses gateway defect');
-  assert.match(routeWorkflow, /chatCompletionsPayloadFromResponsesPayload/,
-    'the route fallback must translate the strict Responses payload before using Chat Completions');
-  assert.match(routeWorkflow, /\$\{baseUrl\}\/chat\/completions/,
-    'the only active Chat Completions route call is the guarded one-shot fallback');
+  assert.doesNotMatch(routeWorkflow, /isNonStreamingResponsesEmptyStreamChunks/,
+    'route control flow must not retain a transport-specific fallback classifier');
+  assert.doesNotMatch(routeWorkflow, /chatCompletionsPayloadFromResponsesPayload/,
+    'route control flow must not translate a Responses payload into Chat Completions');
+  assert.doesNotMatch(routeWorkflow, /\$\{baseUrl\}\/chat\/completions/,
+    'route intent, instruction materialization, and image planning must never call Chat Completions');
   assert.match(captionWorkflow, /\$\{baseUrl\}\/responses/,
     'background image tags must call Responses');
   assert.match(feedbackService, /\/responses/,
@@ -126,6 +125,6 @@ function testImagesRemainOnImagesApi() {
 
 module.exports = [
   testRuntimeTextPayloadBuildersUseResponsesContract,
-  testActiveTextCallsitesKeepResponsesPrimaryWithOneNonStreamingRouteFallback,
+  testActiveTextCallsitesKeepResponsesPrimaryWithoutRouteTransportFallback,
   testImagesRemainOnImagesApi,
 ];

@@ -63,7 +63,7 @@ function testExplicitImageSubsetStillUsesOnlyTheRequestedImages() {
 function testRoutePromptDeclaresTheEmptyMultiImageDefault() {
   assert.match(
     routeService.ROUTE_SYSTEM_PROMPT,
-    /仅多张current图→image_qa且source全绑/,
+    /空输入且当前上传附件全部可用时.*仅图片→image_qa.*仅文件→file_qa.*图片\+文件→multimodal_qa/s,
     'the model prompt and deterministic compiler must agree on the empty multi-image default',
   );
 }

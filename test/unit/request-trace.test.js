@@ -87,6 +87,38 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
   });
 }
 
+function testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCredentials() {
+  withTempTrace(root => {
+    const file = path.join(root, 'full.ndjson');
+    const apiKey = 'sk-full-trace-secret-123456';
+    const system = `full system ${'x'.repeat(2200)}`;
+    const output = JSON.stringify({ route: `full output ${'y'.repeat(2200)}` });
+    const logger = createRequestTraceLogger({ enabled: true, fullText: true, root, filePath: file });
+    const span = logger.begin({
+      target: 'https://example.com/v1/responses',
+      targetPath: '/responses',
+      kind: 'route_intent',
+      secrets: [apiKey],
+      payload: {
+        model: 'route-model',
+        input: [
+          { role: 'system', content: `${system} ${apiKey}` },
+          { role: 'user', content: '画一个中国美女 一个俄罗斯美女 给我两个图' },
+        ],
+      },
+    });
+    logger.complete(span, { status: 200, response: { output_text: output } });
+
+    const events = readTrace(file);
+    const systemTrace = events[0].request.messages.items[0].content;
+    assert.strictEqual(systemTrace.truncated, false);
+    assert.ok(systemTrace.text.includes(system));
+    assert.ok(!systemTrace.text.includes(apiKey));
+    assert.strictEqual(events[1].response.output_text.truncated, false);
+    assert.strictEqual(events[1].response.output_text.text, output);
+  });
+}
+
 function testRequestTraceSummarizesResponsesOutputContentWithoutReasoning() {
   const intent = JSON.stringify({
     operation: 'plain_chat',
@@ -418,6 +450,7 @@ async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
 
 module.exports = [
   testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary,
+  testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCredentials,
   testRequestTraceSummarizesResponsesOutputContentWithoutReasoning,
   testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided,
   testDisabledRequestTraceDoesNotCreateAFile,

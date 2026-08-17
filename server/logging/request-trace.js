@@ -32,6 +32,10 @@ function requestTraceEnabled(env = process.env) {
   return envFlag(env.CHATUI_REQUEST_TRACE, false);
 }
 
+function requestTraceFullEnabled(env = process.env) {
+  return envFlag(env.CHATUI_REQUEST_TRACE_FULL, false);
+}
+
 function hashText(value = '') {
   return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex').slice(0, 16);
 }
@@ -83,10 +87,13 @@ function summarizeContextProjection(value = {}) {
   };
 }
 
-function summarizeSystemContent(content) {
+function summarizeSystemContent(content, options = {}) {
   let serialized;
   try { serialized = typeof content === 'string' ? content : JSON.stringify(content); }
   catch { serialized = String(content || ''); }
+  if (options.includeSystemText === true) {
+    return { ...traceText(serialized, options), sha256: hashText(serialized) };
+  }
   return { chars: serialized.length, sha256: hashText(serialized), omitted: true };
 }
 
@@ -141,7 +148,7 @@ function summarizeMessages(messages = [], options = {}) {
     const role = String(msg.role || '');
     const isSystem = role === 'system';
     if (isSystem) {
-      return { index: idx, role, content: summarizeSystemContent(msg.content) };
+      return { index: idx, role, content: summarizeSystemContent(msg.content, options) };
     }
     if (Array.isArray(msg.content)) {
       return {
@@ -395,6 +402,8 @@ function summarizeRequestPayload(payload = {}, {
   kind = 'api_proxy',
   targetPath = '',
   includeText = true,
+  includeSystemText = false,
+  maxTextChars = DEFAULT_TEXT_LIMIT,
   secrets = [],
   fileCount = 0,
   maskCount = 0,
@@ -413,6 +422,8 @@ function summarizeRequestPayload(payload = {}, {
       messageLimit: ROUTE_MESSAGE_LIMIT,
       secrets,
       includeText,
+      includeSystemText,
+      maxChars: maxTextChars,
     });
     const textFormat = payload.text?.format;
     return {
@@ -473,6 +484,7 @@ function summarizeResponsePayload(response, {
   kind = 'api_proxy',
   contentType = '',
   includeText = true,
+  maxTextChars = 1024,
   secrets = [],
 } = {}) {
   if (!response) return null;
@@ -508,7 +520,7 @@ function summarizeResponsePayload(response, {
         finishReason: String(choice.finish_reason || choice.finishReason || ''),
         message: {
           role: String(msg.role || ''),
-          content: traceText(content, { secrets, maxChars: 1024, includeText }),
+          content: traceText(content, { secrets, maxChars: maxTextChars, includeText }),
           ...(reasoning ? { reasoning: { present: true, chars: String(reasoning).length, omitted: true } } : {}),
         },
       };
@@ -519,7 +531,7 @@ function summarizeResponsePayload(response, {
       model,
       choices: summarizedChoices,
       omittedChoices: Math.max(0, choices.length - 4),
-      ...(outputText ? { output_text: traceText(outputText, { secrets, maxChars: 1024, includeText }) } : {}),
+      ...(outputText ? { output_text: traceText(outputText, { secrets, maxChars: maxTextChars, includeText }) } : {}),
       usage: {
         prompt_tokens: Number(usage.prompt_tokens || usage.input_tokens || 0),
         completion_tokens: Number(usage.completion_tokens || usage.output_tokens || 0),
@@ -592,6 +604,7 @@ function createRequestTraceLogger({
   root = process.cwd(),
   enabled = requestTraceEnabled(),
   includeText = !envFlag(process.env.CHATUI_REQUEST_TRACE_NO_TEXT),
+  fullText = requestTraceFullEnabled(),
   maxBytes = positiveInteger(process.env.CHATUI_REQUEST_TRACE_MAX_BYTES, DEFAULT_TRACE_MAX_BYTES),
   rotations = positiveInteger(process.env.CHATUI_REQUEST_TRACE_ROTATIONS, DEFAULT_TRACE_ROTATIONS),
   filePath = '',
@@ -599,6 +612,7 @@ function createRequestTraceLogger({
 } = {}) {
   const resolvedFile = filePath ? resolveFilePath(filePath, root) : resolveTraceFile(root);
   const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
+  const textLimit = fullText ? Number.MAX_SAFE_INTEGER : DEFAULT_TEXT_LIMIT;
 
   function reportError(err) {
     if (typeof onError === 'function') onError(err);
@@ -683,6 +697,8 @@ function createRequestTraceLogger({
         kind: resolvedKind,
         targetPath,
         includeText,
+        includeSystemText: fullText,
+        maxTextChars: textLimit,
         secrets: span.secrets,
         fileCount,
         maskCount,
@@ -726,6 +742,7 @@ function createRequestTraceLogger({
         kind: span.kind,
         contentType,
         includeText,
+        maxTextChars: textLimit,
         secrets: span.secrets,
       });
     }
@@ -788,6 +805,7 @@ function createRequestTraceLogger({
     enabled: !!enabled,
     filePath: resolvedFile,
     includeText: !!includeText,
+    fullText: !!fullText,
     maxBytes,
     rotations,
     record: write,
@@ -805,6 +823,7 @@ module.exports = {
   DEFAULT_TRACE_MAX_BYTES,
   DEFAULT_TRACE_ROTATIONS,
   requestTraceEnabled,
+  requestTraceFullEnabled,
   sanitizeTarget,
   traceText,
   requestKind,

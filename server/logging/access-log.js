@@ -50,6 +50,9 @@ function createAccessLogger({
     if (!enabled) return false;
     try {
       const timestampMs = now();
+      const audit = req?._accessAudit && typeof req._accessAudit === 'object' && !Array.isArray(req._accessAudit)
+        ? req._accessAudit
+        : {};
       const line = {
         schema_version: ACCESS_SCHEMA_VERSION,
         timestamp: new Date(timestampMs).toISOString(),
@@ -66,6 +69,10 @@ function createAccessLogger({
         request_bytes: Number(requestBytes) || 0,
         response_bytes: Number(responseBytes) || 0,
         route: String(route || ''),
+        ...(audit.request_purpose ? { request_purpose: String(audit.request_purpose).slice(0, 64) } : {}),
+        ...(audit.submission_id ? { submission_id: redactString(String(audit.submission_id).slice(0, 96)) } : {}),
+        ...(audit.model ? { model: redactString(String(audit.model).slice(0, 120)) } : {}),
+        ...(audit.response_format ? { response_format: String(audit.response_format).slice(0, 96) } : {}),
         timestamp_ms: timestampMs,
       };
       return writer.writeLine(line);

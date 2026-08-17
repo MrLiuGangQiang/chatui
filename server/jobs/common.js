@@ -4,6 +4,7 @@ const { normalizeExtraHeaders } = require('../proxy/headers');
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { Agent, ProxyAgent } = require('undici');
 const { safeLog, redactUrl } = require('../logging/safe-log');
+const { redactString } = require('../logging/logger');
 const { normalizeBaseUrl, assertResolvedUpstreamUrl, createPublicLookup, privateUpstreamAllowed } = require('../security/url-policy');
 const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
 const fileInputs = require('../../shared/file-inputs');
@@ -77,6 +78,39 @@ function isResponsesFileDataRequest(body, requestUrl = '') {
   if (/^\/api\/responses\/?$/.test(pathname)) return true;
   const isManagedChat = pathname.startsWith('/api/chat-jobs') || /^\/api\/chat-stream-jobs\/?$/.test(pathname);
   return isManagedChat && body?.api === 'responses';
+}
+
+const ACCESS_AUDIT_PURPOSES = new Set([
+  'intent_recognition',
+  'image_instruction_materialization',
+  'final_execution',
+  'background_image_tag',
+]);
+
+function accessAuditText(value, maxLength = 120) {
+  return redactString(String(value || '').replace(/[\r\n\t]+/g, ' ').trim()).slice(0, maxLength);
+}
+
+// This metadata intentionally excludes prompts, API keys, headers, resources,
+// and raw model output. It makes a sequence of successful Responses calls
+// attributable to one submission and one structured stage in access.ndjson.
+function proxyAccessAudit(body = {}) {
+  const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)
+    ? body.payload
+    : {};
+  const requestedPurpose = accessAuditText(body?.requestPurpose, 64);
+  const requestPurpose = ACCESS_AUDIT_PURPOSES.has(requestedPurpose) ? requestedPurpose : '';
+  const responseFormat = accessAuditText(
+    payload?.text?.format?.name || payload?.text?.format?.type || payload?.response_format?.type,
+    96,
+  );
+  const audit = {
+    ...(requestPurpose ? { request_purpose: requestPurpose } : {}),
+    ...(accessAuditText(body?.submissionId, 96) ? { submission_id: accessAuditText(body?.submissionId, 96) } : {}),
+    ...(accessAuditText(payload?.model, 120) ? { model: accessAuditText(payload?.model, 120) } : {}),
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+  };
+  return Object.freeze(audit);
 }
 
 function responsesInputFileDataParts(payload = {}) {
@@ -182,6 +216,7 @@ async function extractProxyRequest(req, res) {
         bodyBytes: Buffer.byteLength(rawBody, 'utf8'),
       });
     }
+    if (req && typeof req === 'object') req._accessAudit = proxyAccessAudit(body);
   } catch (err) {
     sendJson(res, err.statusCode || 400, { error: { message: err.message || String(err), code: err.code || 'INVALID_REQUEST_BODY' } });
     return null;
@@ -320,4 +355,4 @@ function findJobOr404(store, id, res, principal) {
   return job;
 }
 
-module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, CHAT_FILE_BODY_BYTES, MAX_FILE_INPUT_DECODED_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, isResponsesFileDataRequest, responsesInputFileDataParts, inspectFileDataUri, inspectResponsesFileData, validateChatRequestBody, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };
+module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, CHAT_FILE_BODY_BYTES, MAX_FILE_INPUT_DECODED_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, isResponsesFileDataRequest, proxyAccessAudit, responsesInputFileDataParts, inspectFileDataUri, inspectResponsesFileData, validateChatRequestBody, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };

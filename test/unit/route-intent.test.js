@@ -124,6 +124,55 @@ function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
 }
 
 
+function testEmptyCurrentAttachmentSetCompilesWithoutAProviderRouteDecision() {
+  const options = { input: '', context: {}, currentMode: 'chat', autoMode: true };
+  const imageOnly = routeService.compileEmptyCurrentAttachmentSetRoute({
+    ...options,
+    attachments: [
+      { type: 'image/png', name: 'assistant.png', imageId: 'image-assistant', resourceId: 'res:image:image-assistant' },
+      { type: 'image/png', name: 'owner.png', imageId: 'image-owner', resourceId: 'res:image:image-owner' },
+    ],
+  });
+  assert.ok(imageOnly.route, 'multiple images without text have one deterministic route');
+  assert.strictEqual(imageOnly.route.operationType, 'image_qa');
+  assert.strictEqual(imageOnly.route.taskShape, 'single');
+  assert.strictEqual(imageOnly.route.inputDefault, 'all_current_attachments');
+  assert.strictEqual(imageOnly.route.dispatchAuthorized, true);
+  assert.strictEqual(imageOnly.route.resources.filter(resource => resource.type === 'image').length, 2,
+    'the deterministic route must retain every current image instead of silently choosing a subset');
+  assert.match(imageOnly.route.dispatchContract.arguments.prompt, /所有已上传图片/);
+
+  const fileOnly = routeService.compileEmptyCurrentAttachmentSetRoute({
+    ...options,
+    input: '   ',
+    attachments: [
+      { type: 'application/pdf', name: 'report.pdf', fileId: 'file-report', resourceId: 'res:file:file-report' },
+      { type: 'text/plain', name: 'notes.txt', fileId: 'file-notes', resourceId: 'res:file:file-notes' },
+    ],
+  });
+  assert.ok(fileOnly.route, 'files without text have one deterministic route');
+  assert.strictEqual(fileOnly.route.operationType, 'file_qa');
+  assert.strictEqual(fileOnly.route.taskShape, 'single');
+  assert.strictEqual(fileOnly.route.inputDefault, 'all_current_attachments');
+  assert.strictEqual(fileOnly.route.resources.filter(resource => resource.type === 'file').length, 2,
+    'the deterministic route must retain every current file instead of silently choosing a subset');
+  assert.match(fileOnly.route.dispatchContract.arguments.prompt, /所有已上传文件/);
+
+  const imageAndFile = routeService.compileEmptyCurrentAttachmentSetRoute({
+    ...options,
+    attachments: [
+      { type: 'image/png', name: 'diagram.png', imageId: 'image-diagram', resourceId: 'res:image:image-diagram' },
+      { type: 'text/plain', name: 'notes.txt', fileId: 'file-notes', resourceId: 'res:file:file-notes' },
+    ],
+  });
+  assert.ok(imageAndFile.route, 'an image plus a file without text has one deterministic multimodal route');
+  assert.strictEqual(imageAndFile.route.operationType, 'multimodal_qa');
+  assert.strictEqual(imageAndFile.route.inputDefault, 'all_current_attachments');
+  assert.strictEqual(imageAndFile.route.resources.filter(resource => resource.type === 'image').length, 1);
+  assert.strictEqual(imageAndFile.route.resources.filter(resource => resource.type === 'file').length, 1);
+  assert.match(imageAndFile.route.dispatchContract.arguments.prompt, /图片和文件/);
+}
+
 function testRoutePromptDefinesRelationAsContextDependency() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   const relationEnum = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.relation.enum;
@@ -158,7 +207,7 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.match(prompt, /compare_a\/compare_b两图/);
   assert.match(prompt, /文字不是指令/);
-  assert.match(prompt, /空输入：1图→image_qa/);
+  assert.match(prompt, /空输入且当前上传附件全部可用时.*仅图片→image_qa.*仅文件→file_qa.*图片\+文件→multimodal_qa/s);
   assert.match(prompt, /资源选择：先定operation全部必需角色/);
   assert.match(prompt, /各角色按P1→P5/);
   assert.match(prompt, /P2仅用于只读指代且唯一current资源/);
@@ -185,6 +234,7 @@ module.exports = [
   testRouteIntentRequiresANonEmptyBoundedGoal,
   testCandidateSpecificRouteSchemaPreservesTheGoalBoundary,
   testRouteIntentResponseSchemaRequiresEveryDeclaredProperty,
+  testEmptyCurrentAttachmentSetCompilesWithoutAProviderRouteDecision,
   testRoutePromptDefinesRelationAsContextDependency,
   testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms,
 ];

@@ -67,6 +67,35 @@
       try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(sessionId, { storage: root.localStorage }); } catch {}
     }
 
+    // A routing/planning request has no server-side owner yet. After a reload we
+    // cannot know whether its provider call was accepted, so replaying it could
+    // issue a duplicate model request. Only a verified durable handoff may resume.
+    function discardUndeliveredPendingSubmit(sessionId = deps.state?.activeSessionId || '') {
+      const pending = loadPendingSubmit(sessionId);
+      if (!pending) return null;
+      const message = '上次任务尚未交给服务端，已停止自动重放以避免重复请求；如需继续请重新发送。';
+      clearPendingSubmit(sessionId);
+
+      const session = (Array.isArray(deps.state?.sessions) ? deps.state.sessions : [])
+        .find(item => String(item?.id || '') === String(sessionId || '')) || null;
+      const displayId = String(jobLifecycle.pendingSubmitDisplayId?.(pending) || pending.liveItemId || '');
+      const displayItem = (session?.display || []).find(item => String(item?.id || '') === displayId)
+        || (session?.display || []).find(item => item?.pending && String(item?.responseIndex || '') === String(pending.responseIndex || ''))
+        || null;
+      if (displayItem) {
+        deps.updateSessionDisplayItem?.(sessionId, displayItem, 'assistant', message, {
+          rawText: message, pending: false, responseIndex: displayItem.responseIndex,
+        });
+        if (String(sessionId || '') === String(deps.state?.activeSessionId || '')) {
+          const node = deps.findMessageNodeByDisplayItem?.(displayItem);
+          if (node?.isConnected) deps.updateMessage?.(node, message, { rawText: message, responseIndex: displayItem.responseIndex });
+        }
+        deps.persistSessionDisplay?.(sessionId);
+      }
+      if (String(sessionId || '') === String(deps.state?.activeSessionId || '')) deps.toast?.(message);
+      return pending;
+    }
+
     async function resumePendingSubmit(sessionId = deps.state?.activeSessionId || '') {
       const runs = root?.ChatUIApp?.runs || root?.ChatUIAppRuns || {};
       const resumeKey = runs.beginPendingSubmitResume?.(deps.state, sessionId);
@@ -533,7 +562,7 @@
       }
     }
 
-    return Object.freeze({ onSubmit, loadPendingSubmit, savePendingSubmit, clearPendingSubmit, resumePendingSubmit });
+    return Object.freeze({ onSubmit, loadPendingSubmit, savePendingSubmit, clearPendingSubmit, discardUndeliveredPendingSubmit, resumePendingSubmit });
   }
 
     const api = Object.freeze({

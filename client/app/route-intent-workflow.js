@@ -6,8 +6,6 @@
   const requestJsonWithStructuredOutputFallback = requestCompatibility.requestJsonWithStructuredOutputFallback;
   const requestJsonWithReasoningParamFallback = requestCompatibility.requestJsonWithReasoningParamFallback;
   const requestJsonWithToolChoiceParamFallback = requestCompatibility.requestJsonWithToolChoiceParamFallback;
-  const isNonStreamingResponsesEmptyStreamChunks = requestCompatibility.isNonStreamingResponsesEmptyStreamChunks;
-  const chatCompletionsPayloadFromResponsesPayload = requestCompatibility.chatCompletionsPayloadFromResponsesPayload;
   const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const createBoundedIntentRequest = submitWorkflowPolicy.createBoundedIntentRequest;
@@ -75,11 +73,9 @@
         else if (round.modelRole === 'fallback') state.fallback_attempts += 1;
         else state.primary_attempts += 1;
         if (round.providerAttempts > 1) state.compatibility_attempts += 1;
-        // Responses -> Chat Completions transport fallback intentionally omits
-        // Responses-only reasoning fields. It is not a reasoning capability
-        // rejection and must not inflate the reasoning fallback counter.
-        if (round.originalReasoning && !payload?.reasoning_effort && !payload?.reasoning
-            && metadata?.transportFallback !== true) state.reasoning_fallback_attempts += 1;
+        if (round.originalReasoning && !payload?.reasoning_effort && !payload?.reasoning) {
+          state.reasoning_fallback_attempts += 1;
+        }
         if (formatKey(payload) !== round.originalFormat) state.format_fallback_attempts += 1;
       },
       snapshot() { return Object.freeze({ ...state }); },
@@ -672,6 +668,18 @@
           }
         };
 
+        const deterministicEmptyAttachmentSet = typeof routeSvc.compileEmptyCurrentAttachmentSetRoute === 'function'
+          ? routeSvc.compileEmptyCurrentAttachmentSetRoute({
+            input, attachments: attachmentMeta, context,
+            ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
+            currentTurn: routeOptions?.currentTurn || null,
+          })
+          : null;
+        if (deterministicEmptyAttachmentSet?.route) {
+          emitStage('recognizing_intent', { modelRole: 'deterministic' });
+          return finalizeRoute(deterministicEmptyAttachmentSet.route, 'empty_current_attachment_set');
+        }
+
         const payload = routeSvc.buildRoutePayload({
           model: primaryModel, input, attachments: attachmentMeta, context,
           currentMode: deps.state?.mode || 'chat',
@@ -742,11 +750,9 @@
     }
 
 
-    // Intent recognition, instruction materialization, and image-plan calls are one-shot JSON requests. Some
-    // gateways have a broken non-streaming Responses implementation: they return
-    // 500 "empty stream chunks" even when stream:false was sent. Keep Responses
-    // as the primary API, but retry that exact gateway defect through the
-    // non-streaming Chat Completions transport. This is never an SSE fallback.
+    // Intent recognition, instruction materialization, and image-plan calls are
+    // one-shot JSON requests. Their transport is Responses-only; compatibility
+    // negotiation may adjust rejected request parameters, but never changes API.
     async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null, requestPurpose = 'intent_recognition') {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
       const compatibilityProfile = compatibilityProfileFor(baseUrl, payload?.model || config?.routeModel || config?.chatModel);
@@ -813,19 +819,11 @@
         return attempt(nextPayload);
       };
 
-      try {
-        return await requestWithCompatibility(`${baseUrl}/responses`, payload, { transportApi: 'responses' });
-      } catch (error) {
-        if (typeof isNonStreamingResponsesEmptyStreamChunks !== 'function'
-            || !isNonStreamingResponsesEmptyStreamChunks(error)
-            || typeof chatCompletionsPayloadFromResponsesPayload !== 'function') throw error;
-        const chatPayload = chatCompletionsPayloadFromResponsesPayload(payload);
-        if (!chatPayload) throw error;
-        return requestWithCompatibility(`${baseUrl}/chat/completions`, chatPayload, {
-          transportApi: 'chat',
-          transportFallback: true,
-        });
-      }
+      // Control-model routing is deliberately Responses-only. A successful
+      // route must never be retried through Chat Completions merely because a
+      // gateway has a transport-specific defect; surface that Responses error
+      // instead and keep duplicate-request analysis tied to one API family.
+      return requestWithCompatibility(`${baseUrl}/responses`, payload, { transportApi: 'responses' });
     }
 
     // ── Intent trace (for debugging) ──────────────────────────────

@@ -247,6 +247,53 @@ function testQuotaFallbackNeverReplacesARecoverableExecutionContract() {
   }), true, 'the last valid quoted-image edit owner must remain resumable');
 }
 
+function testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay() {
+  const storage = makeStorage();
+  const previousStorage = global.localStorage;
+  global.localStorage = storage;
+  const session = {
+    id: 'session-a',
+    messages: [{ role: 'user', content: 'draw two portraits' }],
+    display: [{ id: 'pending-submit-submit-a', role: 'assistant', rawText: '正在识别任务…', pending: true, responseIndex: '1' }],
+  };
+  const state = { sessions: [session], activeSessionId: session.id };
+  const updates = [];
+  const toasts = [];
+  try {
+    jobWorkflow.savePendingSubmit(session.id, {
+      submissionId: 'submit-a', stage: 'routing', rawPromptText: 'draw two portraits', responseIndex: 1,
+    }, { storage });
+    const workflow = submitWorkflow.createSubmitWorkflow({
+      state,
+      updateSessionDisplayItem: (_sessionId, item, role, content, options) => {
+        updates.push({ item, role, content, options });
+        item.role = role;
+        item.rawText = options.rawText;
+        item.pending = options.pending;
+      },
+      persistSessionDisplay: () => {},
+      findMessageNodeByDisplayItem: () => null,
+      updateMessage: () => { throw new Error('a detached pending display must not require DOM access'); },
+      toast: message => toasts.push(message),
+      getEffectiveRoute: () => { throw new Error('undelivered recovery must not replay routing'); },
+    });
+
+    const discarded = workflow.discardUndeliveredPendingSubmit(session.id);
+    assert.strictEqual(discarded.submissionId, 'submit-a');
+    assert.strictEqual(jobWorkflow.loadPendingSubmit(session.id, { storage }), null,
+      'a request without a server-owned job must be removed before the UI is made available again');
+    assert.strictEqual(updates.length, 1);
+    assert.strictEqual(updates[0].options.pending, false);
+    assert.match(updates[0].content, /停止自动重放/);
+    assert.strictEqual(session.display[0].pending, false,
+      'the page must replace the stale “recovering” indicator with an explicit manual-retry message');
+    assert.deepStrictEqual(toasts, [updates[0].content]);
+  } finally {
+    if (previousStorage === undefined) delete global.localStorage;
+    else global.localStorage = previousStorage;
+  }
+}
+
 function testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff() {
   const pending = {
     stage: 'handoff',
@@ -268,9 +315,14 @@ function testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff() {
     'a durable job from another submission must never steal ownership');
 
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const resumeStart = app.indexOf('function resumeSessionJobs');
+  const resumeEnd = app.indexOf('function resumeBackgroundSessionJobs', resumeStart);
+  const resumeSource = app.slice(resumeStart, resumeEnd);
   assert.ok(app.includes('findPendingSubmitHandoffJob?.(pendingSubmit,{chatJob,imageJob})'));
-  assert.ok(app.includes('if(pendingSubmit&&!handoffOwner)return void setTimeout(()=>getSubmitWorkflow().resumePendingSubmit(e),0)'),
-    'pending-submit must remain authoritative unless the handoff snapshot matches its job and submission identity');
+  assert.ok(resumeSource.includes('if(pendingSubmit&&!handoffOwner){getSubmitWorkflow().discardUndeliveredPendingSubmit?.(e);return void finishSessionTask(e)}'),
+    'a pending submit without a verified durable handoff must be cleared instead of replaying its uncertain route/planning request');
+  assert.ok(!resumeSource.includes('resumePendingSubmit'),
+    'refresh recovery must never replay a pre-handoff pending submit; only a durable chat/image/batch job may be resumed');
 }
 
 function testExplicitCancellationIsNotRecoverablePageLeave() {
@@ -347,6 +399,7 @@ module.exports = [
   testDisposedSessionCannotRecreatePendingOwner,
   testJobSnapshotMustRetainFinalExecutionContractBeforeHandoff,
   testQuotaFallbackNeverReplacesARecoverableExecutionContract,
+  testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay,
   testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff,
   testExplicitCancellationIsNotRecoverablePageLeave,
   testImageHandoffUsesTheSameClientJobIdentity,

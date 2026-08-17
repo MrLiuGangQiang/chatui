@@ -51,15 +51,15 @@ function fakeRouteService() {
   };
 }
 
-function makeWorkflow(requestJson) {
+function makeWorkflow(requestJson, { chatModel = 'route-fallback' } = {}) {
   return routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'chat', autoMode: true, activeSessionId: 'session-attempts', sessions: [], messages: [] },
     getConfig: () => ({
       baseUrl: 'https://gateway.example/v1', apiKey: 'route-secret',
-      routeModel: 'route-primary', chatModel: 'route-fallback',
+      routeModel: 'route-primary', chatModel,
     }),
     getSessionRouteModel: () => 'route-primary',
-    getSessionChatModel: () => 'route-fallback',
+    getSessionChatModel: () => chatModel,
     buildRouteAttachmentMetadata: () => [],
     requestJson,
   });
@@ -108,39 +108,25 @@ async function testCompatibilityNegotiationAvoidsCartesianRetriesAndCachesWorkin
   }
 }
 
-async function testResponsesGatewayTransportFallbackCountsBothNonStreamingAttempts() {
+async function testResponsesGatewayDefectNeverSwitchesToChatCompletions() {
   const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
   const calls = [];
   try {
     const workflow = makeWorkflow(async (url, payload) => {
       calls.push({ url, payload });
-      if (calls.length === 1) {
-        const error = new Error('failed to do request: empty stream chunks');
-        error.statusCode = 500;
-        error.code = 'internal_error';
-        throw error;
-      }
-      assert.match(url, /\/chat\/completions$/);
-      assert.strictEqual(payload.stream, false);
-      return { output_text: 'valid' };
-    });
+      const error = new Error('failed to do request: empty stream chunks');
+      error.statusCode = 500;
+      error.code = 'internal_error';
+      throw error;
+    }, { chatModel: 'route-primary' });
     const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
 
-    assert.strictEqual(calls.length, 2);
+    assert.strictEqual(calls.length, 1,
+      'the exact Responses gateway defect must not create a second Chat Completions provider attempt');
     assert.match(calls[0].url, /\/responses$/);
-    assert.match(calls[1].url, /\/chat\/completions$/);
-    assert.deepStrictEqual(route.modelAttemptLedger, {
-      schema_version: 'route_model_attempt_ledger.v1',
-      max_provider_attempts: 6,
-      logical_rounds: 1,
-      provider_attempts: 2,
-      primary_attempts: 2,
-      fallback_attempts: 0,
-      planning_attempts: 0,
-      compatibility_attempts: 1,
-      reasoning_fallback_attempts: 0,
-      format_fallback_attempts: 0,
-    }, 'the transport fallback must be counted as two real provider attempts');
+    assert.strictEqual(route.modelAttemptLedger.provider_attempts, 1);
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.strictEqual(route.needClarification, false);
   } finally {
     restore();
   }
@@ -201,7 +187,7 @@ async function testClarificationRerouteContinuesTheSameAttemptLedger() {
 
 module.exports = [
   testCompatibilityNegotiationAvoidsCartesianRetriesAndCachesWorkingProfile,
-  testResponsesGatewayTransportFallbackCountsBothNonStreamingAttempts,
+  testResponsesGatewayDefectNeverSwitchesToChatCompletions,
   testProviderBudgetBlocksTheSeventhCompatibilityAttempt,
   testClarificationRerouteContinuesTheSameAttemptLedger,
 ];

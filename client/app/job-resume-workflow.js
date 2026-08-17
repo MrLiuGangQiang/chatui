@@ -196,6 +196,7 @@
                 armStreamingOutputFocus(e, n, {
                   margin: 72,
                   clearStaleFocus: !0,
+                  tailLock: !1,
                 }),
                 updateResumeStreamButton());
             }
@@ -799,6 +800,7 @@
                 armStreamingOutputFocus(e, t, {
                   margin: 72,
                   clearStaleFocus: !0,
+                  tailLock: !1,
                 }),
                 updateResumeStreamButton());
             }
@@ -839,6 +841,7 @@
               armStreamingOutputFocus(e, t, {
                 margin: 72,
                 clearStaleFocus: !0,
+                tailLock: !1,
               }),
               updateResumeStreamButton());
           }

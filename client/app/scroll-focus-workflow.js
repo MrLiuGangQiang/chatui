@@ -503,6 +503,10 @@
     function streamTailLockFor(node, options = {}) {
       if (options.tailLock !== undefined) return options.tailLock !== false;
       if (node?.dataset?.streamTailLock === "0") return false;
+      // Streaming output is anchored by the live message itself. Letting the
+      // session-tail observer move the whole list at the same time makes every
+      // visible message jump, even for ordinary tail responses.
+      if (node?.dataset?.streaming === "1") return false;
       if (node?.dataset?.streamTailLock === "1") return true;
       // Recovery can reconnect a durable job without the original submit option.
       // If another message follows the live node, it is a historical replacement,
@@ -718,8 +722,8 @@
       const focusBottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
       const tailLock = streamTailLockFor(node, options);
       let delta = 0;
-      if (tailLock && nodeRect.bottom > focusBottom) delta = nodeRect.bottom - focusBottom;
-      else if (nodeRect.bottom < focusTop || nodeRect.top > focusBottom) delta = nodeRect.top - focusTop;
+      if (tailLock) delta = nodeRect.bottom - focusBottom;
+      else delta = nodeRect.top - focusTop;
       if (Math.abs(delta) <= 1) return false;
       setMessagesProgrammaticScroll(480);
       el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + delta));

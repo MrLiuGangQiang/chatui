@@ -104,13 +104,20 @@ function testHistoricalStreamDoesNotRaceTheSessionTailLock() {
     'stream growth in a historical replacement must not snap the viewport to the unrelated session tail');
 }
 
-function testNormalTailStreamKeepsTailLock() {
-  const { state, workflow, output } = createScrollFixture();
-  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: true });
-  assert.strictEqual(state.bottomScrollLocked, true, 'a new tail response must keep tail compensation enabled');
-  assert.strictEqual(output.dataset.streamTailLock, '1');
-}
+function testNormalStreamingOutputDoesNotRaceTheSessionTailLock() {
+  const { document, state, workflow, messages, output, mutationObservers } = createScrollFixture();
+  workflow.activateBottomScrollLock();
+  messages.scrollTop = 220;
 
+  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true });
+
+  assert.strictEqual(state.bottomScrollLocked, false,
+    'a normal streaming response must use the live-output anchor as its only scroll writer');
+  assert.strictEqual(output.dataset.streamTailLock, '0');
+  mutationObservers[0].callback([{ type: 'childList', addedNodes: [document.createElement('span')], removedNodes: [] }]);
+  assert.strictEqual(messages.scrollTop, 220,
+    'a tail stream must not let the session-tail observer pull every visible message after a token update');
+}
 
 function testRecoveredHistoricalStreamInfersItsNonTailPlacement() {
   const { state, workflow, output } = createScrollFixture({ later: true });
@@ -134,25 +141,48 @@ function testResumeOutputAnchorsToHistoricalStreamingMessage() {
   assert.strictEqual(state.userScrollLocked, false);
 }
 
+function testResumeOutputAnchorsPartiallyVisibleStreamingMessageOnFirstClick() {
+  const { state, workflow, messages, output } = createScrollFixture();
+  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: false });
+  output.getBoundingClientRect = () => {
+    const top = 80 - messages.scrollTop;
+    return { top, bottom: top + 380, left: 80, right: 820, width: 740, height: 380 };
+  };
+  state.userScrollLocked = true;
+  messages.scrollTop = 200;
+
+  workflow.resumeActiveOutputFocus();
+
+  assert.strictEqual(messages.scrollTop, 44,
+    'continue output must anchor a partially visible historical stream on the first click rather than treating overlap as already focused');
+}
+
 function testStreamingHoverKeepsScrollerWidthStable() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
   assert.match(css, /\.messages\{[\s\S]{0,500}scrollbar-gutter:stable!important;[\s\S]{0,500}overflow-anchor:none!important;/,
     'the streaming message scroller must reserve its scrollbar gutter so hover-revealed scrollbars cannot rewrap live text and cause a render/scroll flicker loop');
 }
 
-function testChatWorkflowMarksReplacementsAsNonTailStreams() {
-  const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
-  assert.ok(source.includes('streamTailLock=!Number.isFinite(n.replaceAssistantIndex)'),
-    'the chat workflow must classify regenerated responses as historical/non-tail streams');
-  assert.ok(source.includes('tailLock:streamTailLock'),
-    'the chat workflow must pass the stream placement policy into the shared scroll focus workflow');
+function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
+  const chatSource = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
+  const messageSource = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
+  const resumeSource = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
+  assert.ok(chatSource.includes('streamTailLock=!1'),
+    'chat streams must opt out of the competing session-tail lock from their first frame');
+  assert.ok(chatSource.includes('tailLock:streamTailLock'),
+    'the chat workflow must pass the live-output scroll policy into the shared scroll focus workflow');
+  assert.ok(messageSource.includes('tailLock: s.tailLock === true'),
+    'stream updates without an explicit tail-lock opt-in must keep the live output as the only scroll writer');
+  assert.strictEqual((resumeSource.match(/tailLock: !1/g) || []).length, 3,
+    'recovered image and chat streams must also disable the competing session-tail lock');
 }
 
 module.exports = [
   testHistoricalStreamDoesNotRaceTheSessionTailLock,
-  testNormalTailStreamKeepsTailLock,
+  testNormalStreamingOutputDoesNotRaceTheSessionTailLock,
   testRecoveredHistoricalStreamInfersItsNonTailPlacement,
   testResumeOutputAnchorsToHistoricalStreamingMessage,
+  testResumeOutputAnchorsPartiallyVisibleStreamingMessageOnFirstClick,
   testStreamingHoverKeepsScrollerWidthStable,
-  testChatWorkflowMarksReplacementsAsNonTailStreams,
+  testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock,
 ];

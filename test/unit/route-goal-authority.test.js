@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -27,7 +27,24 @@ function testStandaloneNewTextTaskExecutesTheRawUserInput() {
   assert.strictEqual(route.userGoal, '用正式商务语气重写并补充下一步计划。');
 }
 
-function testConversationDependentTextTaskExecutesTheResolvedGoalWithoutRegexGates() {
+function testTextToImageParametersComeOnlyFromTheRawUserTurn() {
+  const input = '画一个中国美女 一个俄罗斯美女 给我两张图';
+  const route = inspect({
+    operation: 'text_to_image',
+    relation: 'new',
+    // This represents a bad advisory route summary. It must neither erase the
+    // user's count nor turn it into the exclusion-based 1/3/4 clarification.
+    goal: '画一位中国美女和一位俄罗斯美女。',
+    resource_refs: [],
+  }, input);
+
+  assert.strictEqual(route.needClarification, false);
+  assert.strictEqual(route.dispatchContract.arguments.count, 2);
+  assert.strictEqual(route.executionPrompt, '画一位中国美女和一位俄罗斯美女。');
+  assert.strictEqual(route.dispatchContract.arguments.prompt, '画一位中国美女和一位俄罗斯美女。');
+}
+
+function testConversationDependentTextTaskPreservesRawUserInputAlongsideResolvedGoal() {
   const input = '这个方面呢';
   const goal = '继续说明上一轮主题在性能方面的差异。';
   const route = inspect({
@@ -38,11 +55,34 @@ function testConversationDependentTextTaskExecutesTheResolvedGoalWithoutRegexGat
   }, input, {
     context: { recent_messages: [{ index: 1, role: 'assistant', content: '上一轮回答' }] },
   });
-  assert.strictEqual(route.executionPrompt, goal);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.match(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(route.executionPrompt.includes(input));
+  assert.ok(route.executionPrompt.includes(goal));
+  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
 }
 
-function testResourceResolvedTaskExecutesTheResolvedGoal() {
+function testResourceBoundRouteDoesNotDiscardLongCurrentRequirementsForRouteGoal() {
+  const requiredTail = `不得改动品牌名称、联系人、预算上限和上线日期：${'约束'.repeat(1400)}`;
+  const input = `请分析这个合同，并重点核对违约责任。${requiredTail}`;
+  const goal = '分析所选合同中的违约责任。';
+  const route = inspect({
+    operation: 'file_qa',
+    relation: 'new',
+    goal,
+    resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
+  }, input, {
+    attachments: [{ id: 'contract', fileId: 'contract', name: 'contract.pdf', type: 'application/pdf', hasExtractedText: true }],
+    context: {
+      image_candidates: [],
+      file_candidates: [{ index: 1, source: 'current', file_id: 'contract', name: 'contract.pdf', has_extracted_text: true }],
+    },
+  });
+  assert.ok(route.executionPrompt.includes(requiredTail), 'the final provider prompt must retain requirements beyond route goal capacity');
+  assert.ok(route.executionPrompt.includes(goal));
+  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
+}
+
+function testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal() {
   const input = '这是什么';
   const goal = '概述所选合同文件的主要条款。';
   const route = inspect({
@@ -57,8 +97,10 @@ function testResourceResolvedTaskExecutesTheResolvedGoal() {
       file_candidates: [{ index: 1, source: 'current', file_id: 'contract', name: 'contract.pdf', has_extracted_text: true }],
     },
   });
-  assert.strictEqual(route.executionPrompt, goal);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.match(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(route.executionPrompt.includes(input));
+  assert.ok(route.executionPrompt.includes(goal));
+  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
 }
 
 function testRoutePromptForbidsInventingUnrequestedCreativeDetails() {
@@ -126,8 +168,10 @@ function testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation() {
 
 module.exports = [
   testStandaloneNewTextTaskExecutesTheRawUserInput,
-  testConversationDependentTextTaskExecutesTheResolvedGoalWithoutRegexGates,
-  testResourceResolvedTaskExecutesTheResolvedGoal,
+  testTextToImageParametersComeOnlyFromTheRawUserTurn,
+  testConversationDependentTextTaskPreservesRawUserInputAlongsideResolvedGoal,
+  testResourceBoundRouteDoesNotDiscardLongCurrentRequirementsForRouteGoal,
+  testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal,
   testReadOnlyMultiImageShapeRequiresClarificationWithoutRewritingTheModelOutput,
   testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation,
   testRoutePromptForbidsInventingUnrequestedCreativeDetails,

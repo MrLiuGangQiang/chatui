@@ -62,7 +62,9 @@ function testModelCanBindTheSingleCurrentFileForADeicticQuestion() {
 
   assert.ok(result.route, result.error || result.reason);
   assertCurrentFileRoute(result.route);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '说明所选文件的内容。');
+  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('这是什么'));
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('说明所选文件的内容。'));
 }
 
 function testWrongImageOperationIsNotLocallyChangedToFileQa() {
@@ -107,7 +109,9 @@ function testModelHistoricalImageBindingIsNotDiscardedByCurrentFileRules() {
     id: resource.id,
     source: resource.source,
   })), [{ type: 'image', id: 'history-image-1', source: 'history' }]);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '说明所选历史图片是什么。');
+  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('这是什么'));
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('说明所选历史图片是什么。'));
 }
 
 function testExplicitPreviousImageQuestionStillUsesModelSelectedHistory() {

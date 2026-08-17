@@ -100,6 +100,17 @@
     // consumes the remaining budget; it never starts a second model-specific
     // timeout window.
 
+    // Compatibility is a capability negotiation, not a fresh Cartesian retry
+    // matrix for every routing stage. Keep the learned profile private to this
+    // workflow instance and key it by the actual endpoint/model pair.
+    const compatibilityCapabilityCache = new Map();
+    const compatibilityKey = (baseUrl = '', model = '') => `${String(baseUrl).replace(/\/+$/, '')}::${String(model || '').trim()}`;
+    const compatibilityProfileFor = (baseUrl = '', model = '') => {
+      const key = compatibilityKey(baseUrl, model);
+      if (!compatibilityCapabilityCache.has(key)) compatibilityCapabilityCache.set(key, {});
+      return compatibilityCapabilityCache.get(key);
+    };
+
     // ── Route compilation context ─────────────────────────────────
     function routeCompilationOptions(_config = {}, mode = 'chat', autoMode = true) {
       return { currentMode: mode, autoMode };
@@ -617,6 +628,13 @@
             }
             return completeRoute({
               ...materializedRoute,
+              // The planning envelope deliberately has no parent dispatch contract
+              // and therefore is not authorized. Once every child has been compiled
+              // and validated, the batch itself is the executable route. Keep the
+              // parent contract empty, but mark the route authorized so the generic
+              // outcome normalizer does not misclassify this valid batch as an
+              // invalid model result before the submit workflow can hand it off.
+              dispatchAuthorized: true,
               taskShape: 'multi',
               imagePlan: inspected.plan,
               imagePlanCompiled: compiled,
@@ -731,6 +749,7 @@
     // non-streaming Chat Completions transport. This is never an SSE fallback.
     async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null, requestPurpose = 'intent_recognition') {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
+      const compatibilityProfile = compatibilityProfileFor(baseUrl, payload?.model || config?.routeModel || config?.chatModel);
       const assertAttemptActive = (nextPayload, requestMetadata = {}) => {
         if (typeof beforeAttempt === 'function') beforeAttempt(nextPayload, requestMetadata);
       };
@@ -781,15 +800,15 @@
         let attempt = requestFor(apiUrl, requestMetadata);
         if (typeof requestJsonWithReasoningParamFallback === 'function') {
           const inner = attempt;
-          attempt = body => requestJsonWithReasoningParamFallback(inner, body);
+          attempt = body => requestJsonWithReasoningParamFallback(inner, body, compatibilityProfile);
         }
         if (typeof requestJsonWithToolChoiceParamFallback === 'function') {
           const inner = attempt;
-          attempt = body => requestJsonWithToolChoiceParamFallback(inner, body);
+          attempt = body => requestJsonWithToolChoiceParamFallback(inner, body, compatibilityProfile);
         }
         if (typeof requestJsonWithStructuredOutputFallback === 'function') {
           const inner = attempt;
-          attempt = body => requestJsonWithStructuredOutputFallback(inner, body);
+          attempt = body => requestJsonWithStructuredOutputFallback(inner, body, compatibilityProfile);
         }
         return attempt(nextPayload);
       };

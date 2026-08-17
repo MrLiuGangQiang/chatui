@@ -54,8 +54,8 @@ function testImageEditKeepsItsProviderInstructionButPersistsTheMergedTaskGoal() 
   }, editGoal, context);
 
   const mergedGoal = `任务基础要求：\n${baseGoal}\n\n修订要求（按顺序应用，后者优先）：\n1. ${editGoal}`;
-  assert.strictEqual(route.dispatchContract.arguments.prompt, editGoal,
-    'an image-edit provider request must remain the model-selected edit delta');
+  assert.ok(route.dispatchContract.arguments.prompt.endsWith(editGoal),
+    'an image-edit provider request must retain the model-selected edit delta even when semantic context carries its inherited goal');
   assert.strictEqual(route.resolvedImageGoal, mergedGoal,
     'the task state carried into the completed edit must retain the initial specification plus the edit');
 
@@ -102,9 +102,15 @@ function testTextOnlyRedesignInheritsTheOriginalGoalAcrossImageEdits() {
   assert.strictEqual(route.operationType, 'text_to_image');
   assert.deepStrictEqual(route.resources, [], 'not referencing the old image must keep image bindings empty');
   assert.strictEqual(route.userGoal, currentGoal, 'the model-owned goal remains the current change request');
-  assert.strictEqual(route.executionPrompt, expected);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, expected,
-    'the actual image request must combine the historical specification and the current correction');
+  assert.ok(route.executionPrompt.endsWith(expected),
+    'the execution envelope must retain the complete inherited specification and the current correction');
+  assert.ok(route.executionPrompt === expected || route.executionPrompt.startsWith('[execution_semantic_context.v1]'),
+    'the route may carry a semantic envelope internally, but it must retain the complete inherited design goal');
+  assert.ok(route.dispatchContract.arguments.prompt.endsWith(expected),
+    'the actual image request must retain the complete inherited design goal after semantic context is compiled');
+  assert.ok(route.dispatchContract.arguments.prompt === expected
+    || route.dispatchContract.arguments.prompt.startsWith('[execution_semantic_context.v1]'),
+  'the dispatched prompt must either be the goal itself or the lossless semantic envelope that contains it');
 }
 
 function testExplicitNewImageTaskDoesNotInheritThePreviousGoal() {
@@ -124,8 +130,10 @@ function testExplicitNewImageTaskDoesNotInheritThePreviousGoal() {
     resource_refs: [],
   }, '不要原来的住宅要求，从零开始生成赛博朋克咖啡店。', context);
 
-  assert.strictEqual(route.executionPrompt, newGoal);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, newGoal);
+  assert.ok(route.executionPrompt.endsWith(newGoal));
+  assert.ok(route.dispatchContract.arguments.prompt.endsWith(newGoal));
+  assert.ok(!route.executionPrompt.includes(baseGoal) && !route.dispatchContract.arguments.prompt.includes(baseGoal),
+    'an explicit new image task must not inherit the previous task goal, even when raw input is preserved in a semantic envelope');
 }
 
 function testRoutePromptSeparatesTextGoalInheritanceFromOldImageReference() {

@@ -54,6 +54,7 @@
     const saveActivePromptDraft = deps.saveActivePromptDraft || (() => {});
     const restorePromptDraft = deps.restorePromptDraft || (() => {});
     const saveActiveAttachmentDraft = deps.saveActiveAttachmentDraft || (() => {});
+    const flushPendingDisplayCheckpoints = deps.flushPendingDisplayCheckpoints || (() => {});
     const restoreAttachmentDraft = deps.restoreAttachmentDraft || (() => {});
     const saveSessionsMeta = deps.saveSessionsMeta || (() => {});
     const saveChatHistory = deps.saveChatHistory || (() => {});
@@ -148,7 +149,7 @@
       const state = getState();
       saveActivePromptDraft();
       saveActiveAttachmentDraft();
-      try { saveChatHistory(); saveDisplayHistory(); } catch (err) { console.warn('save session before new session failed', err); }
+      try { flushPendingDisplayCheckpoints(state.activeSessionId); saveDisplayHistory(); saveChatHistory(); } catch (err) { console.warn('save session before new session failed', err); }
       state.editingIndex = null;
       state.editingNode = null;
       state.editingQuoteContext = "";

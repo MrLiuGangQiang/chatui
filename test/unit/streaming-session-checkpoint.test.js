@@ -165,6 +165,16 @@ function testRootStreamingProjectionCheckpointsStateBeforeSkippingDuplicateDomWo
     'the state checkpoint must happen before deferDomUpdate returns');
   assert.ok(leaveSource.includes('flushPendingDisplayCheckpoints(),saveDisplayHistory()'),
     'page leave must force all unexpired stream checkpoints before session snapshot flushing');
+
+  const switchStart = source.indexOf('function switchSession(');
+  assert.ok(switchStart >= 0);
+  const switchSource = source.slice(switchStart, switchStart + 700);
+  assert.ok(switchSource.includes('flushPendingDisplayCheckpoints(t?.id||state.activeSessionId),saveDisplayHistory()'),
+    'switching sessions must flush the active stream before persisting history');
+
+  const sessionUiSource = fs.readFileSync(path.join(__dirname, '../../client/app/session-ui-workflow.js'), 'utf8');
+  assert.ok(sessionUiSource.includes('flushPendingDisplayCheckpoints(state.activeSessionId); saveDisplayHistory();'),
+    'creating a new session must flush the active stream before persisting history');
 }
 
 module.exports = [

@@ -60,7 +60,9 @@ function testModelSelectedCurrentImagesAreAuthoritativeForComparison() {
       ['upload-3', 'current', 'compare_b'],
     ],
   );
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '比较所选两张产品图的构图与色调差异。');
+  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('比较第一张和第三张产品图的构图与色调差异。'));
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('比较所选两张产品图的构图与色调差异。'));
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 
@@ -114,9 +116,10 @@ function testStartAndPenultimateOcrUsesResolvedGoalAndTwoSelectedImages() {
       ['upload-3', 3, 'source'],
     ],
   );
-  assert.strictEqual(result.route.executionPrompt, goal);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, goal);
-  assert.ok(!result.route.dispatchContract.arguments.prompt.includes('倒数第二张'));
+  assert.match(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.executionPrompt.includes(input));
+  assert.ok(result.route.executionPrompt.includes(goal));
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, result.route.executionPrompt);
 
   const pools = submitHelpers.buildExecutionResourcePools({ current: attachments }, {
     isImageFile: item => String(item?.type || '').startsWith('image/'),
@@ -124,7 +127,7 @@ function testStartAndPenultimateOcrUsesResolvedGoalAndTwoSelectedImages() {
   const executionMedia = submitHelpers.projectRouteExecutionMedia(result.route, pools);
   assert.deepStrictEqual(executionMedia.chatImages.map(item => item.imageId), ['upload-1', 'upload-3']);
 
-  const content = chatService.buildUserContentWithAttachments(goal, executionMedia.chatImages);
+  const content = chatService.buildUserContentWithAttachments(result.route.dispatchContract.arguments.prompt, executionMedia.chatImages);
   assert.strictEqual(content.filter(part => part.type === 'image_url').length, 2);
   const bindingEvidence = dispatchContract.bindingEvidenceFromMedia({ images: executionMedia.chatImages });
   assert.strictEqual(dispatchContract.assertPayloadMatchesDispatchContract(result.route.dispatchContract, {
@@ -148,7 +151,9 @@ function testModelOperationIsNotOverriddenByLocalIntentRules() {
   assert.strictEqual(result.route.operationType, 'plain_chat');
   assert.strictEqual(result.route.relation, 'followup');
   assert.deepStrictEqual(result.route.resources, []);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '回答用户当前的文本问题。');
+  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('提取这图里面的文字'));
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('回答用户当前的文本问题。'));
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 

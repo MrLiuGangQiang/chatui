@@ -651,7 +651,10 @@ function executionFromImageMessage(message = {}, index = 0) {
     schema_version: 'execution_continuity.v1',
     operation,
     family: operation === 'edit_image' ? 'edit' : 'generate',
-    input: rawInput.slice(0, 800),
+    // Preserve the original execution text verbatim. It is durable evidence
+    // for a later continuation; truncating it here caused long image requests
+    // to lose explicit constraints after their first completed result.
+    input: rawInput,
     resolved_goal: resolvedGoal.slice(0, MAX_RESOLVED_IMAGE_GOAL_LENGTH),
     ...(taskState ? { task_state: taskState } : {}),
     result_kind: 'image',

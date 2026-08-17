@@ -501,7 +501,7 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
   const previousRouteService = globalThis.ChatUIRouteService;
   const routeService = require('../../client/services/route-service');
   globalThis.ChatUIRouteService = routeService;
-  let calls = 0;
+  const calls = [];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
     getConfig: () => ({
@@ -510,7 +510,7 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
     getSessionRouteModel: () => 'reasoning-route-model',
     getSessionChatModel: () => 'chat-model',
     requestJson: async (_url, payload) => {
-      calls += 1;
+      calls.push(payload);
       const formatName = payload.text?.format?.name;
       if (formatName === 'chatui_route_intent_v3') {
         return {
@@ -523,24 +523,19 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
           }) } }],
         };
       }
-      if (formatName === 'chatui_image_instruction_v1') {
-        return {
-          choices: [{ message: { content: JSON.stringify({
-            schema_version: 'image_instruction.v1',
-            status: 'ready',
-            instruction: '一只白色海鸥在晴朗蓝天中展翅飞翔，写实野生动物摄影，清晰羽毛细节。',
-            clarification: '',
-          }) } }],
-        };
-      }
       throw new Error(`unexpected structured request: ${formatName || '<missing>'}`);
     },
   });
 
   try {
     const route = await workflow.getEffectiveRoute('画一只鸡', [], 'session-model-image');
-    assert.strictEqual(calls, 2,
-      'a ready image route must use the configured intent model once for semantics and once for execution-instruction materialization');
+    assert.strictEqual(calls.length, 1,
+      'a self-contained new text-to-image request must use only the intent model before provider execution');
+    assert.strictEqual(calls[0].text?.format?.name, 'chatui_route_intent_v3');
+    assert.strictEqual(calls.some(payload => payload.text?.format?.name === 'chatui_image_instruction_v1'), false,
+      'standalone new text-to-image must not invoke redundant instruction materialization');
+    assert.strictEqual(route.dispatchContract.arguments.prompt, '画一只鸟',
+      'the provider receives the route model’s canonical standalone instruction directly');
     assert.strictEqual(route.operationType, 'text_to_image');
     assert.strictEqual(route.relation, 'new');
     assert.strictEqual(routeService.isRouteDispatchable(route), true);

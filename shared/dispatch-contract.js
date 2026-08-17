@@ -206,7 +206,7 @@
   }
 
   function compileDispatchContract({
-    operation = '', relation = 'new', input = '', defaults = {}, overrides = {},
+    operation = '', relation = 'new', input = '', prompt = input, parameterInput = input, defaults = {}, overrides = {},
     bindings = [], constraints = [],
   } = {}) {
     const normalizedOperation = stringValue(operation);
@@ -222,9 +222,13 @@
       error.code = 'DISPATCH_CONTRACT_OPERATION_UNSUPPORTED';
       throw error;
     }
+    // A dispatch plan can carry a richer routing envelope while preserving a
+    // canonical provider prompt. Parameter authority remains separate so model
+    // summaries and envelopes cannot reinterpret explicit user controls.
     const argumentResult = capabilityRegistry.resolveExecutionArguments?.({
       operation: normalizedOperation,
-      input,
+      input: parameterInput,
+      prompt,
       defaults,
       overrides,
     });

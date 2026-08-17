@@ -219,6 +219,20 @@ function testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText() 
   ), false, 'internal candidate keys must remain forbidden in goal text');
 }
 
+function testIntentRoutingEvaluationExtractsRouteResolutionWithoutIgnoringRawExecutionContext() {
+  const rawInput = `完整用户要求：${'保留项'.repeat(600)}`;
+  const resolvedGoal = '分析所选合同中的违约责任。';
+  const executionPrompt = [
+    '[execution_semantic_context.v1]',
+    '用户原始本轮要求（完整保留，优先遵循）：',
+    rawInput,
+    '路由消解（仅用于识别指代、上下文和已选资源；不得新增、删除或覆盖用户原始要求）：',
+    resolvedGoal,
+  ].join('\n\n');
+  assert.ok(executionPrompt.includes(rawInput));
+  assert.strictEqual(evaluation.executionGoalForEvaluation(executionPrompt), resolvedGoal);
+}
+
 function testIntentRoutingEvaluationRejectsSemanticMutations() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
 
@@ -532,6 +546,7 @@ module.exports = [
   ...REAL_ROUTING_SCENARIO_TESTS,
   testIntentRoutingEvaluationRejectsAnIntentThatSelectsAnUnknownResource,
   testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText,
+  testIntentRoutingEvaluationExtractsRouteResolutionWithoutIgnoringRawExecutionContext,
   testIntentRoutingEvaluationRejectsSemanticMutations,
   testIntentRoutingEvaluationDoesNotLetTheCompilerHideModelSemanticMutations,
   testIntentRoutingEvaluationUsesStrictAggregateAndSafetyGates,

@@ -872,6 +872,7 @@
         responseIndex: String(child.responseIndex || ''),
         mode: String(child.mode || 'image'),
         status: String(child.status || 'running'),
+        label: String(child.label || ''),
         ...(child.imageContext ? { imageContext: child.imageContext } : {}),
       })),
     };
@@ -899,6 +900,65 @@
 
   function clearImageBatchChild(storage, sessionId = '', jobId = '') {
     try { storage?.removeItem?.(imageBatchChildKey(sessionId, jobId)); return true; } catch { return false; }
+  }
+
+  // The parent index is a convenience pointer, not the only proof that a batch
+  // exists. A refresh can interrupt an unrelated localStorage write, so every
+  // child also carries enough ownership data to rebuild that pointer. This is
+  // deliberately limited to the current session and to one persisted parent
+  // card; it must never guess a batch from unrelated single-image jobs.
+  function listImageBatchChildren(storage, sessionId = '') {
+    if (!storage || typeof storage.key !== 'function') return [];
+    const prefix = `${IMAGE_BATCH_CHILD_PREFIX}:${sessionId || 'default'}:`;
+    const keys = [];
+    try {
+      const length = Math.max(0, Number(storage.length) || 0);
+      for (let index = 0; index < length; index += 1) {
+        const key = String(storage.key(index) || '');
+        if (key.startsWith(prefix)) keys.push(key);
+      }
+    } catch { return []; }
+    return keys.map(key => {
+      const jobId = key.slice(prefix.length);
+      const snapshot = loadImageBatchChild(storage, sessionId, jobId);
+      return snapshot && typeof snapshot === 'object' ? { key, jobId, snapshot } : null;
+    }).filter(Boolean);
+  }
+
+  function recoverImageBatchIndex(storage, sessionId = '', { batchId = '', displayItemId = '' } = {}) {
+    const expectedBatchId = String(batchId || '').trim();
+    const expectedDisplayItemId = String(displayItemId || '').trim();
+    if (!expectedBatchId || !expectedDisplayItemId) return null;
+    const children = listImageBatchChildren(storage, sessionId)
+      .map(({ jobId, snapshot }) => ({ jobId, snapshot }))
+      .filter(({ snapshot }) => String(snapshot.displayItemId || '').trim() === expectedDisplayItemId)
+      .filter(({ snapshot }) => !snapshot.batchId || String(snapshot.batchId) === expectedBatchId)
+      .filter(({ jobId, snapshot }) => String(snapshot.id || '') === jobId
+        && String(snapshot.prompt || '').trim()
+        && String(snapshot.requestPurpose || '') === 'final_execution');
+    // A batch always has at least two children. Requiring that invariant is what
+    // prevents this recovery path from taking ownership of an ordinary image job.
+    if (children.length < 2) return null;
+    const recovered = normalizeImageBatchIndex({
+      schema_version: IMAGE_BATCH_VERSION,
+      batchId: expectedBatchId,
+      submissionId: String(children[0]?.snapshot?.submissionId || ''),
+      sessionId: String(sessionId || ''),
+      startedAt: Math.min(...children.map(({ snapshot }) => Math.max(0, Number(snapshot.startedAt) || Date.now()))),
+      children: children.map(({ jobId, snapshot }) => ({
+        jobId,
+        prompt: String(snapshot.prompt),
+        label: String(snapshot.label || ''),
+        displayItemId: expectedDisplayItemId,
+        responseIndex: String(snapshot.responseIndex ?? ''),
+        mode: String(snapshot.mode || 'image'),
+        status: String(snapshot.status || 'running'),
+        ...(snapshot.imageContext ? { imageContext: snapshot.imageContext } : {}),
+      })),
+    });
+    if (!recovered) return null;
+    saveImageBatchIndex(storage, sessionId, recovered);
+    return recovered;
   }
 
   // Concurrent image children share session message state. Their result
@@ -944,6 +1004,8 @@
     clearImageBatchIndex,
     loadImageBatchChild,
     clearImageBatchChild,
+    listImageBatchChildren,
+    recoverImageBatchIndex,
     buildExecutionPreviewText,
     mediaIdentity,
     mergeContinuationAttachments,

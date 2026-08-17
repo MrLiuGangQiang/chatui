@@ -9,6 +9,9 @@
     if (/The image data you provided does not represent a valid image/i.test(text)) {
       return '图片数据无效：请重新上传有效的 PNG/JPG 图片后再试';
     }
+    if (/\binvalid_file\b|file you uploaded is badly formatted or corrupted|uploaded file.*(?:badly formatted|corrupted)/i.test(text)) {
+      return '上传的文件格式不正确或文件已损坏，无法被接口读取。请确认文件可正常打开后重新导出或重新上传。';
+    }
     return text;
   }
 

@@ -65,32 +65,44 @@ function makeWorkflow(requestJson) {
   });
 }
 
-async function testCompatibilityRetriesCountEveryProviderRequest() {
+async function testCompatibilityNegotiationAvoidsCartesianRetriesAndCachesWorkingProfile() {
   const restore = replaceGlobal('ChatUIRouteService', fakeRouteService());
   const payloads = [];
   try {
     const workflow = makeWorkflow(async (_url, payload) => {
       payloads.push(payload);
-      if (payloads.length === 6) return { output_text: 'valid' };
       if (payload.reasoning) throw new Error('reasoning is not supported by this endpoint');
-      throw new Error(`text.format ${payload.text?.format?.type || 'plain'} unsupported`);
+      if (payload.text?.format) throw new Error(`text.format ${payload.text.format.type} unsupported`);
+      return { output_text: 'valid' };
     });
-    const route = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
+    const first = await workflow.getEffectiveRoute('hello', [], 'session-attempts');
+    const second = await workflow.getEffectiveRoute('hello again', [], 'session-attempts');
 
-    assert.strictEqual(payloads.length, 6, 'the compatibility matrix should perform six real HTTP attempts');
-    assert.deepStrictEqual(route.modelAttemptLedger, {
+    assert.strictEqual(payloads.length, 5,
+      'one negotiation must use four non-duplicated variants, then the cached endpoint/model profile must make the next logical route request once');
+    assert.deepStrictEqual(payloads.slice(0, 4).map(payload => [!!payload.reasoning, payload.text?.format?.type || 'plain']), [
+      [true, 'json_schema'],
+      [false, 'json_schema'],
+      [false, 'json_object'],
+      [false, 'plain'],
+    ], 'a format fallback must never reintroduce a rejected reasoning parameter');
+    assert.deepStrictEqual(payloads.slice(4).map(payload => [!!payload.reasoning, payload.text?.format?.type || 'plain']), [
+      [false, 'plain'],
+    ], 'later planning/routing stages for the same endpoint/model must reuse the learned compatible profile');
+    assert.deepStrictEqual(first.modelAttemptLedger, {
       schema_version: 'route_model_attempt_ledger.v1',
       max_provider_attempts: 6,
       logical_rounds: 1,
-      provider_attempts: 6,
-      primary_attempts: 6,
+      provider_attempts: 4,
+      primary_attempts: 4,
       fallback_attempts: 0,
       planning_attempts: 0,
-      compatibility_attempts: 5,
+      compatibility_attempts: 3,
       reasoning_fallback_attempts: 3,
-      format_fallback_attempts: 4,
+      format_fallback_attempts: 2,
     });
-    assert.strictEqual(route.modelCalls, 6, 'the legacy counter must mirror real provider attempts');
+    assert.strictEqual(second.modelAttemptLedger.provider_attempts, 1,
+      'a fresh task ledger still reports the single cached-profile provider attempt');
   } finally {
     restore();
   }
@@ -188,7 +200,7 @@ async function testClarificationRerouteContinuesTheSameAttemptLedger() {
 }
 
 module.exports = [
-  testCompatibilityRetriesCountEveryProviderRequest,
+  testCompatibilityNegotiationAvoidsCartesianRetriesAndCachesWorkingProfile,
   testResponsesGatewayTransportFallbackCountsBothNonStreamingAttempts,
   testProviderBudgetBlocksTheSeventhCompatibilityAttempt,
   testClarificationRerouteContinuesTheSameAttemptLedger,

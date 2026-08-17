@@ -65,6 +65,29 @@ function imageContextWithPrevious(operation = 'text_to_image') {
   };
 }
 
+function testCompletedImageExecutionRetainsTheCompleteOriginalInstructionForLaterContinuations() {
+  const longInstruction = `生成一张发布会主视觉，保留全部明确限制。${'细节'.repeat(600)}`;
+  const messages = [
+    { role: 'user', content: longInstruction },
+    {
+      role: 'assistant',
+      content: `[图片生成完成] ${longInstruction}`,
+      kind: 'image',
+      imageContext: JSON.stringify({
+        mode: 'image', prompt: longInstruction, routePrompt: longInstruction,
+        referenceId: 'imgref_long_instruction',
+      }),
+    },
+    { role: 'user', content: '换成夜景，其他保持不变。' },
+  ];
+  const context = imageRouteContext.buildRouteContext({ messages });
+  assert.strictEqual(
+    context.previous_execution.input,
+    longInstruction,
+    'future routing must retain the complete prior image instruction instead of an 800-character prefix',
+  );
+}
+
 function testCompletedImageExecutionProjectsOneDurableStateFact() {
   const messages = [
     { role: 'user', content: '帮我生成一个宣传图' },
@@ -376,6 +399,7 @@ function testGenerationContentReadinessRemainsASeparateGate() {
 }
 
 module.exports = [
+  testCompletedImageExecutionRetainsTheCompleteOriginalInstructionForLaterContinuations,
   testCompletedImageExecutionProjectsOneDurableStateFact,
   testExplicitReferenceGenerationLineageSurvivesStorageProjection,
   testLaterCompletedChatPreventsStaleVisualInheritance,

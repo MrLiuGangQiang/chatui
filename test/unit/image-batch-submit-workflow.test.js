@@ -62,7 +62,7 @@ function editItem(prompt, imageId) {
   };
 }
 
-function makeFixture({ items = [], attachments = [], outerExecutionResources = null, sendImageBatchImpl = null, omitDisplayItemId = false } = {}) {
+function makeFixture({ items = [], attachments = [], outerExecutionResources = null, sendImageBatchImpl = null, omitDisplayItemId = false, parentDispatchContract = undefined, getEffectiveRouteImpl = null } = {}) {
   const session = { id: 'session-batch', messages: [], display: [] };
   const state = {
     activeSessionId: session.id, sessions: [session], messages: [], attachments: attachments || [],
@@ -82,7 +82,7 @@ function makeFixture({ items = [], attachments = [], outerExecutionResources = n
     usePreviousImage: false, contextualImagePrompt: '分别生成一只猫、一只狗、一只鸟', editInstruction: '',
   };
   if (items.length) routeBase.imagePlanCompiled = { kind: 'batch', items };
-  const finalRoute = { ...routeBase, dispatchContract: items[0]?.dispatchContract || null, executionResources: outerExecutionResources || items[0]?.executionResources || null };
+  const finalRoute = { ...routeBase, dispatchContract: parentDispatchContract === undefined ? items[0]?.dispatchContract || null : parentDispatchContract, executionResources: outerExecutionResources || items[0]?.executionResources || null };
 
   const workflow = submitWorkflow.createSubmitWorkflow({
     state, taskEvents: taskState.TASK_EVENTS,
@@ -105,7 +105,7 @@ function makeFixture({ items = [], attachments = [], outerExecutionResources = n
     clearAttachments: () => {}, clearQuotedMessage: () => {}, getQuotedMessage: () => null,
     scheduleAutoResize: () => {}, setSessionBusy: () => {}, prepareReplacementResponse: () => null,
     pendingFeedbackHtml: text => text, hasImageAttachments: () => false, normalizeRoute: value => value,
-    getEffectiveRoute: async () => finalRoute,
+    getEffectiveRoute: async () => getEffectiveRouteImpl ? getEffectiveRouteImpl(finalRoute) : finalRoute,
     createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
     updateModeUi: () => {}, warnMissingModel: () => false, updateMessage: () => {},
     showRunError: (_sessionId, error) => { runErrors.push(error); },
@@ -153,6 +153,67 @@ async function testBatchRouteDelegatesAllChildrenToOneServerCall() {
     assert.ok(/^imgbatch-/.test(call.options.batchJobId), 'the parent batch must use a batch job identity');
     assert.ok(call.options.batchParent?.id, 'all children must aggregate into one parent display item');
     assert.strictEqual(fixture.session.display.filter(item => item?.role === 'assistant').length, 1);
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
+async function testConcurrentSubmitsShareOneRoutePipeline() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIRouteService', { isRouteDispatchable: () => true, cleanQuotedContent: v => String(v || ''), buildQuotedRouteContent: ({ text }) => text }),
+  ];
+  try {
+    let routeCalls = 0;
+    let releaseRoute;
+    const routeGate = new Promise(resolve => { releaseRoute = resolve; });
+    const fixture = makeFixture({
+      items: [batchItem('一张中国美女人像'), batchItem('一张俄罗斯美女人像')],
+      parentDispatchContract: null,
+      getEffectiveRouteImpl: async route => {
+        routeCalls += 1;
+        await routeGate;
+        return route;
+      },
+    });
+    const first = fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+    for (let attempt = 0; attempt < 20 && routeCalls === 0; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.strictEqual(routeCalls, 1, 'the first submit must reach exactly one route pipeline');
+    const second = fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(routeCalls, 1,
+      'a second submit during routing must not start a duplicate model pipeline for the same session');
+    releaseRoute();
+    await Promise.all([first, second]);
+    assert.strictEqual(fixture.batchCalls.length, 1,
+      'deduplicating the route entry must still allow the original batch handoff to complete');
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
+async function testCompiledBatchDoesNotRequireAnInvalidParentImagePrompt() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIRouteService', { isRouteDispatchable: () => true, cleanQuotedContent: v => String(v || ''), buildQuotedRouteContent: ({ text }) => text }),
+  ];
+  try {
+    const fixture = makeFixture({
+      items: [batchItem('一张中国美女人像'), batchItem('一张俄罗斯美女人像')],
+      parentDispatchContract: null,
+    });
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+    assert.strictEqual(fixture.batchCalls.length, 1,
+      'a validated batch owns child prompts and must reach the batch handoff without a parent dispatch contract');
+    assert.deepStrictEqual(fixture.batchCalls[0].options.items.map(item => item.prompt), ['一张中国美女人像', '一张俄罗斯美女人像']);
+    assert.strictEqual(fixture.runErrors.length, 0,
+      'the single-image prompt guard must not reject a compiled batch before handoff');
   } finally {
     restore.forEach(fn => fn());
   }
@@ -254,6 +315,8 @@ async function testBatchHandoffAndInterfaceCompletionUseTheParentIdentity() {
 
 module.exports = [
   testBatchRouteDelegatesAllChildrenToOneServerCall,
+  testConcurrentSubmitsShareOneRoutePipeline,
+  testCompiledBatchDoesNotRequireAnInvalidParentImagePrompt,
   testBatchWithMediaChildKeepsItsCanonicalExecutionProjection,
   testBatchProjectsEachChildAgainstItsOwnTarget,
   testBatchServerFailureSurfacesOnce,

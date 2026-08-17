@@ -166,17 +166,28 @@
     return /unsupported|not\s+support(?:ed)?|unknown|unrecognized|invalid|not\s+permitted|not\s+allowed|extra\s+input|unexpected|reject(?:ed|s)?/.test(text);
   }
 
-  async function requestJsonWithReasoningParamFallback(request, payload) {
+  function withoutReasoningParams(payload = {}) {
+    const compatible = { ...payload };
+    delete compatible.reasoning_effort;
+    delete compatible.reasoning;
+    return compatible;
+  }
+
+  // `state` is a caller-owned, request-session capability record. It keeps a
+  // structured-output fallback from reintroducing a parameter that this same
+  // endpoint/model already rejected earlier in the negotiation.
+  async function requestJsonWithReasoningParamFallback(request, payload, state = null) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithReasoningParamFallback requires a request function');
-    if (!payload?.reasoning_effort && !payload?.reasoning) return request(payload);
+    const candidate = state?.reasoning === false ? withoutReasoningParams(payload) : payload;
+    if (!candidate?.reasoning_effort && !candidate?.reasoning) return request(candidate);
     try {
-      return await request(payload);
+      const response = await request(candidate);
+      if (state) state.reasoning = true;
+      return response;
     } catch (error) {
       if (!reasoningParamUnsupported(error)) throw error;
-      const compatible = { ...payload };
-      delete compatible.reasoning_effort;
-      delete compatible.reasoning;
-      return request(compatible);
+      if (state) state.reasoning = false;
+      return request(withoutReasoningParams(candidate));
     }
   }
 
@@ -188,29 +199,52 @@
     return /unsupported|not\s+support(?:ed)?|unknown|unrecognized|invalid|not\s+permitted|not\s+allowed|extra\s+input|unexpected|reject(?:ed|s)?/.test(text);
   }
 
-  async function requestJsonWithToolChoiceParamFallback(request, payload) {
+  function withoutToolChoice(payload = {}) {
+    const compatible = { ...payload };
+    delete compatible.tool_choice;
+    return compatible;
+  }
+
+  async function requestJsonWithToolChoiceParamFallback(request, payload, state = null) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithToolChoiceParamFallback requires a request function');
-    if (!Object.prototype.hasOwnProperty.call(payload || {}, 'tool_choice')) return request(payload);
+    const candidate = state?.toolChoice === false ? withoutToolChoice(payload) : payload;
+    if (!Object.prototype.hasOwnProperty.call(candidate || {}, 'tool_choice')) return request(candidate);
     try {
-      return await request(payload);
+      const response = await request(candidate);
+      if (state) state.toolChoice = true;
+      return response;
     } catch (error) {
       if (!toolChoiceParamUnsupported(error)) throw error;
-      const compatible = { ...payload };
-      delete compatible.tool_choice;
-      return request(compatible);
+      if (state) state.toolChoice = false;
+      return request(withoutToolChoice(candidate));
     }
   }
 
-  async function requestJsonWithStructuredOutputFallback(request, payload) {
+  function formatType(payload = {}) {
+    return String(payload?.text?.format?.type || payload?.response_format?.type || 'plain');
+  }
+
+  function knownStructuredOutputPayload(payload = {}, state = null) {
+    const mode = String(state?.structuredOutput || '');
+    if (!mode || mode === formatType(payload)) return payload;
+    return [payload, ...fallbackPayloads(payload)].find(candidate => formatType(candidate) === mode) || payload;
+  }
+
+  async function requestJsonWithStructuredOutputFallback(request, payload, state = null) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithStructuredOutputFallback requires a request function');
+    const candidate = knownStructuredOutputPayload(payload, state);
     try {
-      return await request(payload);
+      const response = await request(candidate);
+      if (state) state.structuredOutput = formatType(candidate);
+      return response;
     } catch (error) {
-      if (!structuredOutputFormat(payload) || !structuredOutputUnsupported(error)) throw error;
+      if (!structuredOutputFormat(candidate) || !structuredOutputUnsupported(error)) throw error;
       let lastError = error;
-      for (const fallbackPayload of fallbackPayloads(payload)) {
+      for (const fallbackPayload of fallbackPayloads(candidate)) {
         try {
-          return await request(fallbackPayload);
+          const response = await request(fallbackPayload);
+          if (state) state.structuredOutput = formatType(fallbackPayload);
+          return response;
         } catch (fallbackError) {
           if (!structuredOutputUnsupported(fallbackError)) throw fallbackError;
           lastError = fallbackError;
@@ -228,6 +262,10 @@
     withoutStructuredOutputFormat,
     reasoningParamUnsupported,
     toolChoiceParamUnsupported,
+    withoutReasoningParams,
+    withoutToolChoice,
+    formatType,
+    knownStructuredOutputPayload,
     errorStatusCode,
     isNonStreamingResponsesEmptyStreamChunks,
     chatCompletionsResponseFormatFromResponsesTextFormat,

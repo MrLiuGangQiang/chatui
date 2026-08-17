@@ -176,6 +176,8 @@
           responseIndex: context.responseIndex ?? null,
           liveItemRawText: '',
           submissionId: context.submissionId || '',
+          batchId: context.batchId || '',
+          label: String(item.label || item.task?.label || '').trim(),
         },
       };
     }
@@ -303,6 +305,7 @@
           displayItemId: batchParent.id,
           responseIndex: batchParent.responseIndex || responseIndex,
           submissionId,
+          batchId: batchJobId,
         }));
       }
 

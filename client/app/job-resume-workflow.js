@@ -29,7 +29,23 @@
       (typeof require === "function" ? require("./submit-workflow.helpers") : {});
 
     function loadImageBatch(sessionId = deps.state?.activeSessionId || '') {
-      return submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;
+      const stored = submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;
+      if (stored) return stored;
+
+      // A batch parent card is persisted together with the session snapshot.
+      // If its compact index was lost during a refresh, rebuild the index from
+      // the session-scoped child snapshots instead of falling through to one
+      // arbitrary child image job.
+      const session = deps.state?.sessions?.find(item => item?.id === sessionId);
+      const parent = (session?.display || []).find(item => {
+        const batchId = String(item?.jobId || '').trim();
+        return batchId.startsWith('imgbatch-') && (String(item?.pending || '') === '1' || !!item?.id);
+      });
+      if (!parent?.id) return null;
+      return submitHelpers.recoverImageBatchIndex?.(root.localStorage, sessionId, {
+        batchId: String(parent.jobId || ''),
+        displayItemId: String(parent.id || ''),
+      }) || null;
     }
 
     function invalidResumeContract(message) {
@@ -464,7 +480,7 @@
       } = deps;
       const resumeKey = `image_batch:${e}`;
       if (state.resumingJobs.has(resumeKey)) return;
-      const index = submitHelpers.loadImageBatchIndex?.(root.localStorage, e);
+      const index = loadImageBatch(e);
       if (!index || !Array.isArray(index.children) || !index.children.length) {
         return void finishSessionTask(e, { resumeKey });
       }

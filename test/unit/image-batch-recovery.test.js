@@ -8,7 +8,13 @@ const jobWorkflow = require('../../client/app/job-workflow');
 
 function memoryStorage() {
   const values = new Map();
-  return { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };
+  return {
+    get length() { return values.size; },
+    key: index => [...values.keys()][index] || null,
+    getItem: key => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key),
+  };
 }
 
 function makeState(sessionId) {
@@ -67,6 +73,34 @@ function testBatchSnapshotHelpersRoundTrip() {
 
   assert.strictEqual(submitHelpers.normalizeImageBatchIndex({ schema_version: 'image_batch.v1', batchId: 'b', children: [{ jobId: '', prompt: 'x' }] }), null);
   assert.strictEqual(submitHelpers.imageBatchChildKey(sessionId, 'imgjob-1'), 'openapi-chat-image-batch-child-v1:session-keys:imgjob-1');
+}
+
+function testRefreshRebuildsMissingBatchIndexFromParentAndChildren() {
+  const sessionId = 'refresh-rebuild-batch';
+  const storage = memoryStorage();
+  const parentId = 'display-batch-parent';
+  const batchId = 'imgbatch-refresh-parent';
+  const first = { ...childSnapshot('imgjob-refresh-1', '中国美女'), displayItemId: parentId, responseIndex: '7', batchId };
+  const second = { ...childSnapshot('imgjob-refresh-2', '俄罗斯美女'), displayItemId: parentId, responseIndex: '7', batchId };
+  storage.setItem(submitHelpers.imageBatchChildKey(sessionId, first.id), JSON.stringify(first));
+  storage.setItem(submitHelpers.imageBatchChildKey(sessionId, second.id), JSON.stringify(second));
+  const state = makeState(sessionId);
+  state.sessions[0].display.push({ id: parentId, role: 'assistant', jobId: batchId, pending: '1', responseIndex: '7' });
+
+  global.localStorage = storage;
+  try {
+    const workflow = jobResumeWorkflow.createJobResumeWorkflow({ state });
+    const rebuilt = workflow.loadImageBatch(sessionId);
+    assert.ok(rebuilt, 'a refresh must recover the missing batch index from the persisted parent and both children');
+    assert.strictEqual(rebuilt.batchId, batchId);
+    assert.deepStrictEqual(rebuilt.children.map(child => child.jobId).sort(), [first.id, second.id].sort());
+    assert.ok(submitHelpers.loadImageBatchIndex(storage, sessionId), 'the recovered parent ownership must be written back before routing resumes');
+    assert.strictEqual(submitHelpers.recoverImageBatchIndex(storage, sessionId, {
+      batchId: 'imgbatch-not-the-parent', displayItemId: parentId,
+    }), null, 'child snapshots may only rebuild the exact persisted batch parent, never an arbitrary job');
+  } finally {
+    delete global.localStorage;
+  }
 }
 
 async function testResumeImageBatchWithoutIndexCleansUp() {
@@ -287,17 +321,21 @@ async function testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart() 
   const sessionId = 'resume-running-follow';
   const state = makeState(sessionId);
   const storage = memoryStorage();
-  const parent = { id: 'display-running-parent', role: 'assistant', pending: '1', responseIndex: '0', imageContext: '' };
+  const batchId = 'imgbatch-running-follow';
+  const parent = { id: 'display-running-parent', role: 'assistant', jobId: batchId, pending: '1', responseIndex: '0', imageContext: '' };
   state.sessions[0].display.push(parent);
   const children = ['cat', 'dog', 'bird'].map(imageId => ({
     jobId: `imgjob-${imageId}`, prompt: imageId, displayItemId: parent.id,
     responseIndex: '0', mode: 'image', status: 'running',
   }));
-  saveIndex(storage, sessionId, children, 'batch-running-follow');
+  saveIndex(storage, sessionId, children, batchId);
   children.forEach(child => storage.setItem(
     submitHelpers.imageBatchChildKey(sessionId, child.jobId),
-    JSON.stringify(childSnapshot(child.jobId, child.prompt)),
+    JSON.stringify({ ...childSnapshot(child.jobId, child.prompt), displayItemId: parent.id, batchId }),
   ));
+  // Simulate the production failure: the parent pointer disappears during a
+  // refresh while the durable children and the persisted parent card survive.
+  submitHelpers.clearImageBatchIndex(storage, sessionId);
   const waited = [];
   let starts = 0;
   const deps = {
@@ -331,7 +369,7 @@ async function testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart() 
   try {
     await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeImageBatch(sessionId);
     assert.deepStrictEqual(waited.sort(), children.map(child => child.jobId).sort(),
-      'a refresh must attach to every existing running child job');
+      'a refresh with a missing parent index must rebuild the batch and attach to every existing child job');
     assert.strictEqual(starts, 0,
       'a running provider job must not be POSTed again with the same job id');
     const message = state.sessions[0].messages.find(item => item.role === 'assistant');
@@ -450,6 +488,7 @@ async function testResumeImageBatchFallsBackToPendingSubmitWhenAChildSnapshotIsM
 
 module.exports = [
   testBatchSnapshotHelpersRoundTrip,
+  testRefreshRebuildsMissingBatchIndexFromParentAndChildren,
   testResumeImageBatchWithoutIndexCleansUp,
   testResumeImageBatchSkipsCompletedChildrenAndClearsIndex,
   testResumeImageBatchClearsUnrecoverableMissingSiblingState,

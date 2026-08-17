@@ -218,7 +218,7 @@
     '你是 ChatUI 多图任务规划器。route_goal 是已经物化的、唯一可执行的任务说明；把它忠实拆成 image_plan.v1。context 与 resource_candidates 只提供事实和资源，绝不把其中的聊天指代、历史命令或未选方案当作任务要求。每个 task 对应一个独立、可并发的生图或编辑结果。',
     '规则：每个 task 的 prompt 必须独立完整、可直接执行，消除“它/这个/刚才/继续”等指代；generate 无输入图时 task_type=generate 且 input_images=[]，需要参考图时用 reference/style_reference；edit 必须恰好一个 target。',
     'input_images 只使用给出的 resource_candidates 的 candidate_key 和角色，不编造 ID；同一张图可被多个任务引用；多图编辑时按子任务指定 target/reference/mask，不同子任务的 target 可以不同。',
-    `任务数必须等于用户明确要求的独立结果数，范围 1..${IMAGE_PLAN_ABSOLUTE_MAX_TASKS}；不得因产品执行上限自行截断、合并或遗漏。quality/background/output_format 用 auto，count=1，除非用户明确要求同一内容的多个变体。`,
+    `任务数必须等于用户明确要求的独立结果数，范围 1..${IMAGE_PLAN_ABSOLUTE_MAX_TASKS}；不得因产品执行上限自行截断、合并或遗漏。quality/background/output_format/count 是唯一的执行参数来源：每个字段都必须填写；未指定时分别填 auto/auto/auto/1，明确要求同一内容的多个变体时才提高该 task 的 count。task.prompt 只描述要生成或编辑的画面，绝不写数量、格式、质量、背景或“不要生成 N 张”等参数控制语句。`,
     '反例：task.prompt="基于上一条提示词继续生成一张猫的图片" 不合格——必须写清完整画面描述（主体、场景、风格、修改项）；如 task.prompt="生成一张橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格的图片"。',
     '每个 task 用 label 给出一行简短内容标签（如“一只橘色小猫”“雪山日出”），用于后续按内容指代图片；label 只总结该 task 画面主体，不超过 20 字。',
     '只输出 json 对象，字段仅为 schema_version="image_plan.v1" 和 tasks，不输出解释或 Markdown。',
@@ -838,7 +838,7 @@
     const resolvedGoal = taskState && typeof renderTaskContinuity === 'function'
       ? renderTaskContinuity(taskState)
       : stringValue(previous.resolved_goal || previous.resolvedGoal || previous.input);
-    const input = family === 'edit' ? stringValue(previous.input).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH) : '';
+    const input = family === 'edit' ? stringValue(previous.input) : '';
     return compactWireOptional({
       operation: previous.operation || '',
       family,
@@ -1288,7 +1288,56 @@
       && !route?.dispatchContract;
   }
 
+  function hasRouteResourceBindings(route = {}) {
+    const collections = [
+      route?.resources,
+      route?.imageRefs,
+      route?.fileRefs,
+      route?.messageRefs,
+      route?.dispatchContract?.bindings,
+    ];
+    if (collections.some(collection => Array.isArray(collection) && collection.length > 0)) return true;
+
+    const projection = route?.executionResources;
+    if (!projection || typeof projection !== 'object') return false;
+    return [
+      projection.images,
+      projection.files,
+      projection.messages,
+      projection.targets,
+      projection.masks,
+      projection.references,
+      projection.imageInputs,
+      projection.chatImages,
+      projection.chatFiles,
+      projection.selectedMessageRefs,
+    ].some(collection => Array.isArray(collection) && collection.length > 0);
+  }
+
+  // A newly requested text-to-image task that is already self-contained has no
+  // conversational state for the instruction materializer to resolve.  Passing
+  // it through another model only repeats the route model's canonical goal and
+  // adds an avoidable provider call.  Keep this predicate deliberately narrow:
+  // edits, follow-ups, amendments, named/history references, and every bound
+  // resource continue through materialization.
+  function isSelfContainedNewImageRoute(route = {}) {
+    if (imageOperationForRoute(route) !== 'text_to_image') return false;
+    if (stringValue(route?.relation) !== 'new') return false;
+    if ((stringValue(route?.goalMode) || 'replace') !== 'replace') return false;
+    if (route?.readiness !== 'ready' || route?.needClarification === true) return false;
+    if (hasRouteResourceBindings(route)) return false;
+
+    const instruction = stringValue(
+      route?.userGoal
+      || route?.executionPrompt
+      || route?.resolvedImageGoal
+      || route?.dispatchContract?.arguments?.prompt,
+    );
+    return Boolean(instruction) && !hasUnresolvedImageInstructionReference(instruction);
+  }
+
   function requiresImageInstructionMaterialization(route = {}) {
+    if (isSelfContainedNewImageRoute(route)) return false;
     const operation = imageOperationForRoute(route);
     const finalImageExecution = IMAGE_RELATION_OPERATIONS.has(operation)
       && route?.readiness === 'ready'
@@ -1492,10 +1541,33 @@
     return renderTaskContinuity(state);
   }
 
+  const EXECUTION_SEMANTIC_CONTEXT_VERSION = 'execution_semantic_context.v1';
+
+  function semanticExecutionContext(input = '', goal = '') {
+    const rawInput = stringValue(input);
+    const resolvedGoal = stringValue(goal);
+    if (!rawInput || !resolvedGoal || rawInput === resolvedGoal) return resolvedGoal || rawInput;
+
+    // The route model resolves ellipsis and selects resources, but it must never
+    // become the only copy of the user's request. Keeping the exact current
+    // message in the provider-facing prompt prevents the bounded route `goal`
+    // field from silently deleting explicit requirements on resource-bound and
+    // follow-up turns. The resolution is deliberately advisory: it may explain
+    // what a pronoun refers to, but cannot add, remove, or override a constraint
+    // from the raw user message.
+    return [
+      `[${EXECUTION_SEMANTIC_CONTEXT_VERSION}]`,
+      '用户原始本轮要求（完整保留，优先遵循）：',
+      rawInput,
+      '路由消解（仅用于识别指代、上下文和已选资源；不得新增、删除或覆盖用户原始要求）：',
+      resolvedGoal,
+    ].join('\n\n');
+  }
+
   function executionPromptForIntent(intent = {}, options = {}, taskState = null) {
     const input = stringValue(options.input || options.current_input);
     const operation = stringValue(intent.operation);
-    const goal = stringValue(intent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
+    const goal = stringValue(intent.goal);
     if (!goal) return input;
     if (operation === 'text_to_image') {
       const state = taskState || imageTaskContinuityForIntent(intent, options);
@@ -1507,11 +1579,12 @@
     if (operation === 'edit_image' || operation === 'image_reference_gen') return goal;
     if (!input || goal === input) return goal || input;
 
-    // A resolved goal becomes authoritative when execution depends on projected
-    // resources or conversation state. Standalone new text stays byte-for-byte
-    // aligned with the current composer input.
-    if (Array.isArray(intent.resource_refs) && intent.resource_refs.length) return goal;
-    if (stringValue(intent.relation) !== 'new') return goal;
+    // For standalone requests, retain the user's bytes exactly. When execution
+    // depends on resources or conversation state, retain those same bytes and
+    // carry the model's disambiguation alongside them instead of replacing them
+    // with the bounded route summary.
+    if (Array.isArray(intent.resource_refs) && intent.resource_refs.length) return semanticExecutionContext(input, goal);
+    if (stringValue(intent.relation) !== 'new') return semanticExecutionContext(input, goal);
     return input;
   }
 
@@ -1772,6 +1845,7 @@
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);
+      const resolvedImageGoal = resolvedImageGoalForIntent(effectiveIntent, options, taskState);
       const draft = routeIntentToDraft(effectiveIntent, scopedOptions);
       const taskShape = typeof routeIntentTaskShape === 'function'
         ? routeIntentTaskShape(effectiveIntent)
@@ -1785,8 +1859,13 @@
         semanticAuthority: ROUTE_INTENT_VERSION,
         forcedClarificationIssues: draft.forcedClarificationIssues,
         userGoal: goal,
-        resolvedImageGoal: resolvedImageGoalForIntent(effectiveIntent, options, taskState),
+        resolvedImageGoal,
         executionInput: executionPromptForIntent(effectiveIntent, options, taskState),
+        // Execution envelopes retain raw user wording for transparent routing,
+        // while image providers receive only the canonical task continuity goal.
+        ...(stringValue(effectiveIntent.operation) === 'text_to_image'
+          ? { providerPrompt: resolvedImageGoal }
+          : {}),
       });
       const compiledRoute = route ? {
         ...route,
@@ -3792,9 +3871,19 @@
       : registered.api === 'chat'
         ? stringValue(options.executionInput) || input
         : input;
+    // Parameter extraction has a narrower authority than the provider prompt.
+    // It must read the raw user turn only; route-model wording is advisory and
+    // can never turn a requested value into a conflicting/excluded parameter.
+    const parameterInput = Object.prototype.hasOwnProperty.call(options, 'parameterInput')
+      ? stringValue(options.parameterInput)
+      : input;
+    const providerPrompt = Object.prototype.hasOwnProperty.call(options, 'providerPrompt')
+      ? stringValue(options.providerPrompt)
+      : executionInput;
     const argResult = resolveExecutionArguments({
       operation: op,
-      input: executionInput,
+      input: parameterInput,
+      prompt: providerPrompt,
       defaults: options.defaults || {},
       overrides: argumentOverrides,
     });
@@ -3979,6 +4068,8 @@
           operation: op,
           relation,
           input: executionInput,
+          prompt: providerPrompt,
+          parameterInput,
           defaults: options.defaults || {},
           overrides: argumentOverrides,
           bindings: executionBindings,
@@ -4152,13 +4243,15 @@
   }
 
   function imagePlanTaskOverrides(task = {}) {
-    const overrides = {};
-    for (const name of ['quality', 'background', 'output_format']) {
-      const value = stringValue(task[name]);
-      if (value && value !== 'auto') overrides[name] = value;
-    }
-    if (Number.isInteger(task.count) && task.count >= 1) overrides.count = task.count;
-    return overrides;
+    // Planner controls are structured authority. In particular, `auto` means
+    // auto, not "fall back to a saved UI default". Never re-parse free-form
+    // task.prompt for these values.
+    return {
+      quality: stringValue(task.quality) || 'auto',
+      background: stringValue(task.background) || 'auto',
+      output_format: stringValue(task.output_format) || 'auto',
+      count: Number.isInteger(task.count) && task.count >= 1 ? task.count : 1,
+    };
   }
 
   function shouldRequestImagePlan(route = {}) {
@@ -4218,6 +4311,10 @@
       }, {
         ...options,
         input: stringValue(task.prompt),
+        // The plan's JSON fields exclusively control provider parameters. The
+        // natural-language child prompt is provider content, never a second
+        // parameter parser input.
+        parameterInput: '',
         semanticAuthority: IMAGE_PLAN_VERSION,
         overrides: { ...(options.overrides || {}), ...imagePlanTaskOverrides(task) },
       });
@@ -4368,6 +4465,8 @@
     buildImageInstructionPayload,
     inspectImagePlanResult,
     inspectImageInstructionResult,
+    hasRouteResourceBindings,
+    isSelfContainedNewImageRoute,
     requiresImageInstructionMaterialization,
     applyMaterializedImageInstruction,
     clarifyImageInstructionRoute,

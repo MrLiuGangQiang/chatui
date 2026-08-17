@@ -34,6 +34,10 @@ function inspect(intent, input = INPUT, context = baseContext) {
   return result.route;
 }
 
+function assertPromptRetainsGoal(prompt, goal, message = 'prompt must retain the model-resolved goal') {
+  assert.ok(String(prompt || '').endsWith(String(goal || '')), message);
+}
+
 function testIndependentGenerationWithoutRefsUsesSelfContainedImageGoal() {
   const input = '基于这个生成图片';
   const goal = '生成一幅超写实野生动物摄影作品：一只成年非洲草原象独自伫立在金色稀树草原中央，夕阳侧后方的暖光勾勒耳缘、象牙、粗粝褶皱皮肤与扬起的尘埃，电影级构图。';
@@ -47,9 +51,9 @@ function testIndependentGenerationWithoutRefsUsesSelfContainedImageGoal() {
     file_candidates: [],
   });
   assert.strictEqual(route.needClarification, false);
-  assert.strictEqual(route.executionPrompt, goal);
-  assert.strictEqual(route.contextualImagePrompt, goal);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assertPromptRetainsGoal(route.executionPrompt, goal, 'execution prompt must retain the self-contained image goal');
+  assertPromptRetainsGoal(route.contextualImagePrompt, goal, 'contextual prompt must retain the self-contained image goal');
+  assertPromptRetainsGoal(route.dispatchContract.arguments.prompt, goal, 'dispatch prompt must retain the self-contained image goal');
   assert.notStrictEqual(route.dispatchContract.arguments.prompt, input);
 }
 
@@ -63,9 +67,9 @@ function testFollowupWithoutRefsUsesTheResolvedImageGoal() {
   });
 
   assert.strictEqual(route.needClarification, false);
-  assert.strictEqual(route.executionPrompt, goal);
-  assert.strictEqual(route.contextualImagePrompt, goal);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assertPromptRetainsGoal(route.executionPrompt, goal, 'execution prompt must retain the self-contained image goal');
+  assertPromptRetainsGoal(route.contextualImagePrompt, goal, 'contextual prompt must retain the self-contained image goal');
+  assertPromptRetainsGoal(route.dispatchContract.arguments.prompt, goal, 'dispatch prompt must retain the self-contained image goal');
   assert.notStrictEqual(route.dispatchContract.arguments.prompt, input);
 }
 
@@ -73,8 +77,10 @@ function testReferencedMessageUsesTheModelsSelfContainedGoal() {
   const goal = `${DESC_CN}\n\n生成一张符合该描述的人像图片。`;
   const route = inspect(textToImageIntent({ goal, messageKeys: ['m1'] }));
   assert.strictEqual(route.needClarification, false);
-  assert.strictEqual(route.contextualImagePrompt, goal);
-  assert.deepStrictEqual(route.dispatchContract.arguments, {
+  assertPromptRetainsGoal(route.contextualImagePrompt, goal, 'contextual prompt must retain the self-contained image goal');
+  assertPromptRetainsGoal(route.dispatchContract.arguments.prompt, goal,
+    'the selected message goal must survive semantic prompt assembly');
+  assert.deepStrictEqual({ ...route.dispatchContract.arguments, prompt: goal }, {
     prompt: goal,
     size: 'auto',
     quality: 'auto',
@@ -96,7 +102,7 @@ function testOmittedHistoricalReferenceIsNotRecoveredLocally() {
   const route = inspect(textToImageIntent({ goal: input, messageKeys: [] }), input);
   assert.strictEqual(route.needClarification, false);
   assert.deepStrictEqual(route.resources, []);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, input);
+  assertPromptRetainsGoal(route.dispatchContract.arguments.prompt, input, 'dispatch prompt must retain the input when the model explicitly selects it as the goal');
 }
 
 function testMultipleModelSelectedMessagesAreProjectedWithoutLocalChoiceLogic() {
@@ -104,7 +110,7 @@ function testMultipleModelSelectedMessagesAreProjectedWithoutLocalChoiceLogic() 
   const route = inspect(textToImageIntent({ goal, messageKeys: ['m1', 'm2'] }));
   assert.strictEqual(route.needClarification, false);
   assert.deepStrictEqual(route.executionResources.messages.map(resource => resource.id), ['message-1', 'message-2']);
-  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assertPromptRetainsGoal(route.dispatchContract.arguments.prompt, goal, 'dispatch prompt must retain the self-contained image goal');
 }
 
 function testUnknownMessageCandidateFailsClosed() {
@@ -131,7 +137,9 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
     context: baseContext,
   });
   assert.ok(result.route, result.error || result.reason);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, goal);
+  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes('简洁一点'));
+  assert.ok(result.route.dispatchContract.arguments.prompt.includes(goal));
   assert.deepStrictEqual(result.route.executionResources.messages.map(resource => resource.id), ['message-1']);
 }
 

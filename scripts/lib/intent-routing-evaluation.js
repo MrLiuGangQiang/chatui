@@ -264,6 +264,18 @@ function normalizedGoalText(value = "") {
   return scalar(value).normalize("NFKC").toLowerCase().replace(/[\s，。！？!?；;：:、,.()（）【】\[\]"'“”‘’_-]+/g, "");
 }
 
+const EXECUTION_SEMANTIC_CONTEXT_PREFIX = "[execution_semantic_context.v1]";
+const EXECUTION_SEMANTIC_RESOLUTION_HEADING = "路由消解（仅用于识别指代、上下文和已选资源；不得新增、删除或覆盖用户原始要求）：";
+
+function executionGoalForEvaluation(value = "") {
+  const text = scalar(value).trim();
+  if (!text.startsWith(EXECUTION_SEMANTIC_CONTEXT_PREFIX)) return text;
+  const headingIndex = text.indexOf(EXECUTION_SEMANTIC_RESOLUTION_HEADING);
+  if (headingIndex < 0) return text;
+  return text.slice(headingIndex + EXECUTION_SEMANTIC_RESOLUTION_HEADING.length).trim();
+}
+
+
 function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
   const text = normalizedGoalText(actual);
   if (!text) return false;
@@ -458,7 +470,10 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
       && modelSemantics.task_shape,
     goal: validRoute
       && goalMatchesExpectation(expected.goal, compiled.goal)
-      && (expectsClarification || goalMatchesExpectation(expected.goal, compiled.execution_goal))
+      && (expectsClarification || goalMatchesExpectation(
+        expected.goal,
+        executionGoalForEvaluation(compiled.execution_goal),
+      ))
       && modelSemantics.goal,
     goal_mode: validRoute
       && compiled.goal_mode === expected.goal_mode
@@ -609,6 +624,7 @@ module.exports = {
   resourcesMatchExpectation,
   clarificationMatchesExpectation,
   goalMatchesExpectation,
+  executionGoalForEvaluation,
   relationMatchesExpectation,
   modelResourcesMatchExpectation,
   scoreRouteCase,

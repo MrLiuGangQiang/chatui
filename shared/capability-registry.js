@@ -552,7 +552,7 @@
     return [...new Set(items.map(item => JSON.stringify(item.value)))].map(value => JSON.parse(value));
   }
 
-  function resolveExecutionArguments({ operation = '', input = '', defaults = {}, overrides = {} } = {}) {
+  function resolveExecutionArguments({ operation = '', input = '', prompt = input, defaults = {}, overrides = {} } = {}) {
     const registered = capabilityFor(operation);
     if (!registered) {
       return Object.freeze({ arguments: null, evidence: Object.freeze({}), conflicts: Object.freeze([]), invalid: Object.freeze([argumentError('operation', 'unsupported_operation', operation)]) });
@@ -572,7 +572,11 @@
 
     for (const [name, spec] of Object.entries(registered.arguments)) {
       if (name === 'prompt') {
-        resolved.prompt = stringValue(input);
+        // The provider prompt and the text that controls provider parameters are
+        // intentionally separate. Route/image-plan semantic context may enrich
+        // the prompt, but only the raw user turn (or a structured planner field)
+        // is allowed to choose count, quality, format, or background.
+        resolved.prompt = stringValue(prompt);
         evidence.prompt = Object.freeze([]);
       } else if (spec.fixed) {
         // A fixed execution default is never sourced from the prompt, a saved

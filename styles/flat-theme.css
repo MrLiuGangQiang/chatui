@@ -4265,6 +4265,9 @@ body{
   max-height:100%!important;
   overflow-y:auto!important;
   overflow-x:hidden!important;
+  /* Reserve the scrollbar lane before hover reveals it. Otherwise a live
+     message can repeatedly rewrap while output pinning corrects its height. */
+  scrollbar-gutter:stable!important;
   overscroll-behavior-y:contain!important;
   overflow-anchor:none!important;
 }

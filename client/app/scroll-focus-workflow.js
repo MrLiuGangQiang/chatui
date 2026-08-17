@@ -177,9 +177,10 @@
     }
 
     function observeBottomLockTree(rootNode, { includeRoot = true, full = false } = {}) {
-      if (!rootNode || !("ResizeObserver" in window)) return;
+      const win = getWindow();
+      if (!rootNode || !win || !("ResizeObserver" in win)) return;
       if (!bottomLockObserver) {
-        bottomLockObserver = new ResizeObserver(() => {
+        bottomLockObserver = new win.ResizeObserver(() => {
           if (isBottomLocked()) requestBottomScroll({ reason: "resize-observer", beforePaint: true });
         });
       }
@@ -226,8 +227,9 @@
         const el = $("messages");
         if (!el) return;
         scheduleBottomLockObserverRefresh();
-        if (!bottomLockMutationObserver && "MutationObserver" in window) {
-          bottomLockMutationObserver = new MutationObserver(observeBottomLockMutations);
+        const win = getWindow();
+        if (!bottomLockMutationObserver && win && "MutationObserver" in win) {
+          bottomLockMutationObserver = new win.MutationObserver(observeBottomLockMutations);
           bottomLockMutationObserver.observe(el, {
             childList: true,
             subtree: true,
@@ -498,15 +500,35 @@
       }
     }
 
+    function streamTailLockFor(node, options = {}) {
+      if (options.tailLock !== undefined) return options.tailLock !== false;
+      if (node?.dataset?.streamTailLock === "0") return false;
+      if (node?.dataset?.streamTailLock === "1") return true;
+      // Recovery can reconnect a durable job without the original submit option.
+      // If another message follows the live node, it is a historical replacement,
+      // not the session tail, so a bottom lock would fight the output anchor.
+      for (let sibling = node?.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+        if (sibling.matches?.(".message")) return false;
+      }
+      return true;
+    }
+
+    // A normal stream lives at the session tail, so tail compensation and output
+    // pinning agree. A regenerated historical response may have later messages;
+    // in that case only pin the live response and never race it with a list-bottom
+    // correction from the mutation/resize observers.
     function lockToStreamingOutput(node, options = {}) {
       with (deps) {
         if (!node?.isConnected) return;
+        const tailLock = streamTailLockFor(node, options);
         state.streamFocusLocked = true;
-        state.bottomScrollLocked = true;
+        state.bottomScrollLocked = tailLock;
         state.userScrollLocked = false;
         state.autoScrollLocked = true;
         state.activeOutputNode = node;
-        pinNodeBottomToTarget(node, options);
+        if (node.dataset) node.dataset.streamTailLock = tailLock ? "1" : "0";
+        if (!tailLock) cancelBottomScrollFrame();
+        if (!options.skipPin) pinNodeBottomToTarget(node, options);
       }
     }
 
@@ -556,16 +578,17 @@
       with (deps) {
         if (!sessionId || !node) return;
         const margin = Number.isFinite(options.margin) ? options.margin : 72;
+        const tailLock = streamTailLockFor(node, options);
         if (options.clearStaleFocus) {
           state.streamFocusLocked = false;
           state.autoScrollLocked = false;
           state.userScrollLocked = false;
-          state.bottomScrollLocked = true;
+          state.bottomScrollLocked = tailLock;
           state.outputPinSuppressUntil = 0;
           cancelScrollTimer();
         }
         setActiveOutputForSession(sessionId, node);
-        if (sessionId === state.activeSessionId && node.isConnected) lockToStreamingOutput(node, { margin });
+        if (sessionId === state.activeSessionId && node.isConnected) lockToStreamingOutput(node, { margin, tailLock });
         else updateResumeStreamButton();
       }
     }
@@ -684,19 +707,44 @@
       }
     }
 
+    function focusStreamingOutputMessage(node, options = {}) {
+      const el = deps.$("messages");
+      if (!el || !node?.isConnected) return false;
+      const margin = Number.isFinite(options.margin) ? options.margin : 72;
+      const messagesRect = el.getBoundingClientRect?.();
+      const nodeRect = node.getBoundingClientRect?.();
+      if (!messagesRect || !nodeRect) return false;
+      const focusTop = messagesRect.top + Math.max(16, Math.min(48, Math.round(margin / 2)));
+      const focusBottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
+      const tailLock = streamTailLockFor(node, options);
+      let delta = 0;
+      if (tailLock && nodeRect.bottom > focusBottom) delta = nodeRect.bottom - focusBottom;
+      else if (nodeRect.bottom < focusTop || nodeRect.top > focusBottom) delta = nodeRect.top - focusTop;
+      if (Math.abs(delta) <= 1) return false;
+      setMessagesProgrammaticScroll(480);
+      el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + delta));
+      deps.state.lastMessageScrollTop = el.scrollTop;
+      return true;
+    }
+
     function resumeActiveOutputFocus() {
       with (deps) {
         const node = getActiveOutputForSession(state.activeSessionId);
         if (!node?.isConnected) return;
         const margin = 72;
+        const tailLock = streamTailLockFor(node);
         try { root?.ChatUIApp?.appContext?.getWorkflowModule?.('historyAnchorNav')?.cancelPendingJump?.({ clearSpacer: true }); } catch {}
         state.resumeButtonSuppressUntil = now() + 900;
         state.outputPinSuppressUntil = 0;
         $("resumeStreamBtn")?.classList.remove("show");
         $("resumeStreamBtn")?.setAttribute("aria-hidden", "true");
-        lockToStreamingOutput(node, { margin });
-        settleActiveOutput(node, { margin, frames: 24 });
-        raf(() => lockToStreamingOutput(node, { margin }));
+        // Resume from the live message's own geometry. This prevents a historical
+        // regeneration from first jumping to the unrelated session tail and then
+        // being pulled back to the response on every incoming token.
+        focusStreamingOutputMessage(node, { margin, tailLock });
+        cleanupActiveOutputSettler();
+        lockToStreamingOutput(node, { margin, tailLock, skipPin: true });
+        queueResumeButtonUpdate();
       }
     }
 

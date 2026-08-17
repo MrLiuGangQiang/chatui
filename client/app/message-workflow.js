@@ -6,6 +6,7 @@
     delete node.dataset.streaming;
     delete node.dataset.streamKind;
     delete node.dataset.streamRunToken;
+    delete node.dataset.streamTailLock;
     delete node.dataset.pendingFeedback;
     delete node.dataset.jobId;
     if (node.__displayItem) {
@@ -583,7 +584,7 @@
         if (managesStreamingOutput) {
           if (e.dataset.sessionId !== streamSessionId || state.activeOutputNode !== e) setActiveOutputForSession(streamSessionId, e);
           if (streamSessionId === state.activeSessionId && e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked || state.activeOutputNode !== e || s.forceStreamFocus)) {
-            armStreamingOutputFocus(streamSessionId, e, { margin: 72, clearStaleFocus: !!s.clearStaleFocus });
+            armStreamingOutputFocus(streamSessionId, e, { margin: 72, clearStaleFocus: !!s.clearStaleFocus, tailLock: s.tailLock !== false });
           }
         }
         const restoreViewport = s.noScroll && !managesStreamingOutput ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
@@ -634,7 +635,7 @@
 
         if (restoreViewport) restoreViewport();
         else if (managesStreamingOutput) {
-          if (!state.userScrollLocked && (s.forceScroll || shouldFollowScroll() || state.activeOutputNode === e)) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+          if (!state.userScrollLocked && (s.forceScroll || shouldFollowScroll() || state.activeOutputNode === e)) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72, tailLock: s.tailLock !== false });
         } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         updateResumeStreamButton();
       }

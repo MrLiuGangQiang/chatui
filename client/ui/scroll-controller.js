@@ -10,16 +10,12 @@ function activeOutputBottomTarget({ composerTop, viewportHeight, margin = 24 }) 
   return Math.max(80, (Number.isFinite(composerTop) ? composerTop : viewportHeight) - margin);
 }
 
-function isNodeAwayFromOutputFocus({ nodeRect, messagesRect = null, composerTop, viewportHeight, margin = 72, anchorMode = 'bottom' }) {
+function isNodeAwayFromOutputFocus({ nodeRect, messagesRect = null, composerTop, viewportHeight, margin = 72 }) {
   if (!nodeRect) return false;
   const focusBottom = (Number.isFinite(composerTop) ? composerTop : viewportHeight) - margin;
   const viewportTop = messagesRect?.top || 0;
   const viewportBottom = messagesRect?.bottom ? Math.min(messagesRect.bottom, focusBottom) : focusBottom;
   const tolerance = Math.max(48, Math.min(140, margin));
-  if (anchorMode === 'top') {
-    const focusTop = viewportTop + Math.max(16, Math.min(48, Math.round(margin / 2)));
-    return nodeRect.top > focusTop + tolerance || nodeRect.top < focusTop - tolerance || nodeRect.top > viewportBottom || nodeRect.bottom < viewportTop;
-  }
   return nodeRect.bottom > viewportBottom + tolerance || nodeRect.bottom < viewportTop + 80 || nodeRect.top > viewportBottom || nodeRect.bottom < viewportTop;
 }
 

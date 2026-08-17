@@ -520,13 +520,11 @@
       return false;
     }
 
-    // A live response at the display tail must keep its latest token above the
-    // composer. A regenerated response with later messages must instead keep its
-    // own top stable: pinning its bottom moves the entire lower history every
-    // token and creates the visible flicker/jump loop.
-    function streamingAnchorModeFor(node) {
-      return hasLaterMessageSibling(node) ? "top" : "bottom";
-    }
+    // Every live response follows its newest output at the same bottom target.
+    // Historical regeneration still opts out of the session-tail observer above,
+    // but it must not switch to a top anchor: continue output means continue
+    // from the message end, and a single end-anchor keeps later messages stable
+    // as the streamed message grows.
 
     function messagesCanScroll(el) {
       const computedStyle = deps.getComputedStyle?.(el) || getWindow()?.getComputedStyle?.(el) || root?.getComputedStyle?.(el);
@@ -652,28 +650,15 @@
       const nodeRect = node.getBoundingClientRect?.();
       if (!messagesRect || !nodeRect) return false;
       const bottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
-      let delta = 0;
-      if (nodeRect.bottom > bottom + 1) delta = nodeRect.bottom - bottom;
-      else if (nodeRect.bottom < messagesRect.top) delta = -(messagesRect.top - nodeRect.bottom + margin);
-      return scrollMessagesByDelta(el, delta);
-    }
-
-    function pinNodeTopToTarget(node, options = {}) {
-      if (!node?.isConnected) return false;
-      const el = deps.$?.("messages");
-      if (!el) return false;
-      const margin = Number.isFinite(options.margin) ? options.margin : 72;
-      const messagesRect = el.getBoundingClientRect?.();
-      const nodeRect = node.getBoundingClientRect?.();
-      if (!messagesRect || !nodeRect) return false;
-      const focusTop = messagesRect.top + Math.max(16, Math.min(48, Math.round(margin / 2)));
-      return scrollMessagesByDelta(el, nodeRect.top - focusTop);
+      // Do not use a different “bring it above the viewport” correction when
+      // the live message is far away. That creates a transitional position on
+      // the first click and lets the next stream frame move it again. The end
+      // target is the sole geometry contract in both directions.
+      return scrollMessagesByDelta(el, nodeRect.bottom - bottom);
     }
 
     function pinActiveOutputToAnchor(node, options = {}) {
-      return streamingAnchorModeFor(node) === "top"
-        ? pinNodeTopToTarget(node, options)
-        : pinNodeBottomToTarget(node, options);
+      return pinNodeBottomToTarget(node, options);
     }
 
     function scrollToActiveOutput(node, options = {}) {
@@ -705,16 +690,11 @@
         const nodeRect = node.getBoundingClientRect();
         const messagesRect = $("messages")?.getBoundingClientRect();
         const composer = document.querySelector(".composer")?.getBoundingClientRect();
-        const anchorMode = streamingAnchorModeFor(node);
-        return window.ChatUI?.scroll?.isNodeAwayFromOutputFocus ? window.ChatUI.scroll.isNodeAwayFromOutputFocus({ nodeRect, messagesRect, composerTop: composer?.top, viewportHeight: innerHeight, margin: 72, anchorMode }) : (() => {
+        return window.ChatUI?.scroll?.isNodeAwayFromOutputFocus ? window.ChatUI.scroll.isNodeAwayFromOutputFocus({ nodeRect, messagesRect, composerTop: composer?.top, viewportHeight: innerHeight, margin: 72 }) : (() => {
           const target = (composer?.top || innerHeight) - 72;
           const top = messagesRect?.top || 0;
           const bottom = messagesRect?.bottom ? Math.min(messagesRect.bottom, target) : target;
           const tolerance = 72;
-          if (anchorMode === "top") {
-            const focusTop = top + Math.max(16, Math.min(48, Math.round(72 / 2)));
-            return nodeRect.top > focusTop + tolerance || nodeRect.top < focusTop - tolerance || nodeRect.top > bottom || nodeRect.bottom < top;
-          }
           return nodeRect.bottom > bottom + tolerance || nodeRect.bottom < top + 80 || nodeRect.top > bottom || nodeRect.bottom < top;
         })();
       }
@@ -776,12 +756,8 @@
       const messagesRect = el.getBoundingClientRect?.();
       const nodeRect = node.getBoundingClientRect?.();
       if (!messagesRect || !nodeRect) return false;
-      const focusTop = messagesRect.top + Math.max(16, Math.min(48, Math.round(margin / 2)));
       const focusBottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
-      const delta = streamingAnchorModeFor(node) === "top"
-        ? nodeRect.top - focusTop
-        : nodeRect.bottom - focusBottom;
-      return scrollMessagesByDelta(el, delta, 480);
+      return scrollMessagesByDelta(el, nodeRect.bottom - focusBottom, 480);
     }
 
     function resumeActiveOutputFocus() {

@@ -94,7 +94,7 @@ function createScrollFixture({ outputRect = { top: 120, bottom: 300 }, later = f
     callbacks.forEach(callback => callback());
   };
 
-  return { dom, document, state, workflow, messages, output, mutationObservers, rafCallbacks, flushRafs };
+  return { dom, document, state, workflow, messages, output, laterNode: messages.querySelectorAll('.message')[1] || null, mutationObservers, rafCallbacks, flushRafs };
 }
 
 function testHistoricalStreamDoesNotRaceTheSessionTailLock() {
@@ -107,9 +107,10 @@ function testHistoricalStreamDoesNotRaceTheSessionTailLock() {
   assert.strictEqual(state.streamFocusLocked, true);
   assert.strictEqual(state.bottomScrollLocked, false, 'a historical replacement must not retain a competing session-tail lock');
   assert.strictEqual(output.dataset.streamTailLock, '0');
+  const outputAnchorScrollTop = messages.scrollTop;
 
   mutationObservers[0].callback([{ type: 'childList', addedNodes: [document.createElement('span')], removedNodes: [] }]);
-  assert.strictEqual(messages.scrollTop, 220,
+  assert.strictEqual(messages.scrollTop, outputAnchorScrollTop,
     'stream growth in a historical replacement must not snap the viewport to the unrelated session tail');
 }
 
@@ -123,8 +124,9 @@ function testNormalStreamingOutputDoesNotRaceTheSessionTailLock() {
   assert.strictEqual(state.bottomScrollLocked, false,
     'a normal streaming response must use the live-output anchor as its only scroll writer');
   assert.strictEqual(output.dataset.streamTailLock, '0');
+  const outputAnchorScrollTop = messages.scrollTop;
   mutationObservers[0].callback([{ type: 'childList', addedNodes: [document.createElement('span')], removedNodes: [] }]);
-  assert.strictEqual(messages.scrollTop, 220,
+  assert.strictEqual(messages.scrollTop, outputAnchorScrollTop,
     'a tail stream must not let the session-tail observer pull every visible message after a token update');
 }
 
@@ -144,8 +146,8 @@ function testResumeOutputAnchorsToHistoricalStreamingMessage() {
 
   workflow.resumeActiveOutputFocus();
 
-  assert.strictEqual(messages.scrollTop, 1_064,
-    'continue output must first align the historical streaming message itself instead of jumping to the session tail or a fixed viewport target');
+  assert.strictEqual(messages.scrollTop, 872,
+    'continue output must align the historical streaming message end with the output target in one movement instead of stopping at an intermediate viewport position');
   assert.strictEqual(state.bottomScrollLocked, false, 'resuming a historical stream must preserve its no-tail-lock policy');
   assert.strictEqual(state.userScrollLocked, false);
 }
@@ -162,8 +164,24 @@ function testResumeOutputAnchorsPartiallyVisibleStreamingMessageOnFirstClick() {
 
   workflow.resumeActiveOutputFocus();
 
-  assert.strictEqual(messages.scrollTop, 44,
-    'continue output must anchor a partially visible historical stream on the first click rather than treating overlap as already focused');
+  assert.strictEqual(messages.scrollTop, 32,
+    'continue output must anchor the visible historical stream end on the first click rather than treating overlap as already focused');
+}
+
+function testResumeFromAboveViewportTargetsTheOutputEndInOneMove() {
+  const { state, workflow, messages, output } = createScrollFixture({ later: true });
+  output.getBoundingClientRect = () => {
+    const top = 1_000 - messages.scrollTop;
+    return { top, bottom: top + 300, left: 80, right: 820, width: 740, height: 300 };
+  };
+  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: false });
+  state.userScrollLocked = true;
+  messages.scrollTop = 1_400;
+
+  workflow.resumeActiveOutputFocus();
+
+  assert.strictEqual(messages.scrollTop, 872,
+    'continue output must move an above-viewport historical stream directly to its end target instead of first parking it near the viewport top');
 }
 
 function testResumeUsesWindowComputedStyleWhenNoDependencyIsInjected() {
@@ -181,7 +199,7 @@ function testResumeUsesWindowComputedStyleWhenNoDependencyIsInjected() {
 
     assert.doesNotThrow(() => workflow.resumeActiveOutputFocus(),
       'the resume path must use the browser getComputedStyle API when the workflow dependency is not injected');
-    assert.strictEqual(messages.scrollTop, 44);
+    assert.strictEqual(messages.scrollTop, 32);
   } finally {
     if (previousGetComputedStyle === undefined) delete global.getComputedStyle;
     else global.getComputedStyle = previousGetComputedStyle;
@@ -200,35 +218,42 @@ function testResumeCancelsQueuedTokenPinBeforeAnchoring() {
   messages.scrollTop = 200;
 
   workflow.resumeActiveOutputFocus();
-  assert.strictEqual(messages.scrollTop, 44, 'the first click must place the historical message anchor');
+  assert.strictEqual(messages.scrollTop, 252, 'the first click must place the historical message end at the output target');
   flushRafs();
-  assert.strictEqual(messages.scrollTop, 44,
-    'a token pin queued before the click must be cancelled instead of undoing the first-click anchor');
+  assert.strictEqual(messages.scrollTop, 252,
+    'a token pin queued before the click must be cancelled instead of undoing the first-click end anchor');
 }
 
-function testHistoricalStreamingKeepsItsTopAnchorAcrossTokenGrowth() {
-  const { workflow, messages, output, flushRafs } = createScrollFixture({ later: true });
+function testHistoricalStreamingKeepsLaterMessagesStableAtTheOutputEnd() {
+  const { workflow, messages, output, laterNode, flushRafs } = createScrollFixture({ later: true });
   let height = 600;
   output.getBoundingClientRect = () => {
     const top = 400 - messages.scrollTop;
     return { top, bottom: top + height, left: 80, right: 820, width: 740, height };
+  };
+  laterNode.getBoundingClientRect = () => {
+    const top = 400 + height + 26 - messages.scrollTop;
+    return { top, bottom: top + 200, left: 80, right: 820, width: 740, height: 200 };
   };
   workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: false });
   messages.scrollTop = 364;
 
   workflow.scrollToActiveOutput(output, { force: true, active: true, tailLock: false });
   flushRafs();
-  assert.strictEqual(messages.scrollTop, 364,
-    'a historical stream with later messages must retain the live message top instead of bottom-pinning the list on every token');
+  assert.strictEqual(messages.scrollTop, 572,
+    'a historical stream must align its latest output end directly with the output target instead of using a separate above-viewport correction');
+  const laterMessageTop = laterNode.getBoundingClientRect().top;
 
   height += 160;
   workflow.scrollToActiveOutput(output, { force: true, active: true, tailLock: false });
   flushRafs();
-  assert.strictEqual(messages.scrollTop, 364,
-    'stream growth must not repeatedly move lower history messages by rewriting the scroller position');
+  assert.strictEqual(messages.scrollTop, 732,
+    'each streamed growth frame must advance by the output-end growth only');
+  assert.strictEqual(laterNode.getBoundingClientRect().top, laterMessageTop,
+    'following an in-place historical stream end must keep later messages at a stable viewport position instead of making them flash');
 }
 
-function testHistoricalResumeAnchorSurvivesTheNextToken() {
+function testHistoricalResumeEndAnchorSurvivesTheNextToken() {
   const { state, workflow, messages, output, flushRafs } = createScrollFixture({ later: true });
   output.getBoundingClientRect = () => {
     const top = 80 - messages.scrollTop;
@@ -239,25 +264,25 @@ function testHistoricalResumeAnchorSurvivesTheNextToken() {
   messages.scrollTop = 200;
 
   workflow.resumeActiveOutputFocus();
-  assert.strictEqual(messages.scrollTop, 44,
-    'the first continue-output click must place the historical live message at its top anchor');
+  assert.strictEqual(messages.scrollTop, 252,
+    'the first continue-output click must place the historical live message end at the output target');
 
   workflow.scrollToActiveOutput(output, { force: true, active: true, tailLock: false });
   flushRafs();
-  assert.strictEqual(messages.scrollTop, 44,
-    'the next token must preserve the first-click historical top anchor instead of replacing it with a bottom anchor');
+  assert.strictEqual(messages.scrollTop, 252,
+    'the next token must preserve the first-click output-end anchor instead of replacing it with a second anchor mode');
 }
 
-function testHistoricalTopAnchorKeepsContinueButtonFocused() {
+function testHistoricalEndAnchorKeepsContinueButtonFocused() {
   const { workflow, messages, output } = createScrollFixture({ later: true });
   output.getBoundingClientRect = () => {
     const top = 400 - messages.scrollTop;
     return { top, bottom: top + 600, left: 80, right: 820, width: 740, height: 600 };
   };
-  messages.scrollTop = 364;
+  messages.scrollTop = 572;
 
   assert.strictEqual(workflow.isNodeAwayFromOutputFocus(output), false,
-    'a historical live message whose top is at the focus target is already in focus even when its growing bottom extends below the composer');
+    'a historical live message whose end is at the output target is already focused even when its top is above the viewport');
 }
 
 function testTailStreamingStillPinsTheOutputBottom() {
@@ -319,11 +344,12 @@ module.exports = [
   testRecoveredHistoricalStreamInfersItsNonTailPlacement,
   testResumeOutputAnchorsToHistoricalStreamingMessage,
   testResumeOutputAnchorsPartiallyVisibleStreamingMessageOnFirstClick,
+  testResumeFromAboveViewportTargetsTheOutputEndInOneMove,
   testResumeUsesWindowComputedStyleWhenNoDependencyIsInjected,
   testResumeCancelsQueuedTokenPinBeforeAnchoring,
-  testHistoricalStreamingKeepsItsTopAnchorAcrossTokenGrowth,
-  testHistoricalResumeAnchorSurvivesTheNextToken,
-  testHistoricalTopAnchorKeepsContinueButtonFocused,
+  testHistoricalStreamingKeepsLaterMessagesStableAtTheOutputEnd,
+  testHistoricalResumeEndAnchorSurvivesTheNextToken,
+  testHistoricalEndAnchorKeepsContinueButtonFocused,
   testTailStreamingStillPinsTheOutputBottom,
   testProgrammaticStreamScrollNeverRearmsTailLock,
   testStreamingHoverKeepsScrollerWidthStable,

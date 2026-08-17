@@ -46,8 +46,8 @@
     if (!deps.state) throw new Error('state is required');
 
     // Finalization can still change layout after a historical stream receives its
-    // last token. Use the same placement-aware anchor as live updates so that
-    // completion cannot reintroduce a one-frame bottom jump.
+    // last token. Use the same output-end anchor as live updates so completion
+    // cannot reintroduce a second, conflicting scroll position.
     const pinActiveOutputToAnchor = deps.pinActiveOutputToAnchor || deps.pinNodeBottomToTarget || (() => {});
     const documentRef = deps.document || root.document;
     if (typeof documentRef?.addEventListener === 'function' && !documentRef.__chatuiUserRawCopyBound) {

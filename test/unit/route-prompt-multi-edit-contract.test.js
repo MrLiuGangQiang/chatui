@@ -64,7 +64,18 @@ async function runIndependentEditRoute(count) {
     getSessionChatModel: () => 'chat-model',
     requestJson: async (url, payload) => {
       calls.push({ url, payload });
-      return calls.length === 1 ? routeResponse(intent) : routeResponse(plan);
+      const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_route_intent_v3') return routeResponse(intent);
+      if (formatName === 'chatui_image_instruction_v1') {
+        return routeResponse({
+          schema_version: 'image_instruction.v1',
+          status: 'ready',
+          instruction: '将已绑定的每张目标图片分别转换为黑白效果，保留各自原有主体和构图。',
+          clarification: '',
+        });
+      }
+      if (formatName === 'chatui_image_plan_v1') return routeResponse(plan);
+      throw new Error(`unexpected structured request: ${formatName || '<missing>'}`);
     },
   });
   const route = await workflow.getEffectiveRoute(input, [], `multi-edit-${count}`, null, context, {});
@@ -72,7 +83,9 @@ async function runIndependentEditRoute(count) {
 }
 
 function assertIndependentEditBatch({ route, calls }, count) {
-  assert.strictEqual(calls.length, 2, 'independent edits require route classification plus one image-plan call');
+  assert.strictEqual(calls.length, 3, 'independent edits require route classification, instruction materialization, and one image-plan call');
+  assert.strictEqual(calls[1].payload.text?.format?.name, 'chatui_image_instruction_v1');
+  assert.strictEqual(calls[2].payload.text?.format?.name, 'chatui_image_plan_v1');
   assert.strictEqual(route.operationType, 'edit_image');
   assert.strictEqual(route.taskShape, 'multi');
   assert.strictEqual(route.needClarification, false);

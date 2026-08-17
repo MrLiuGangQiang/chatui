@@ -2,9 +2,11 @@
 
 const dispatchContractContract = require('../../shared/dispatch-contract');
 const capabilityRegistry = require('../../shared/capability-registry');
+const imageInstructionContract = require('../../shared/image-instruction');
 
 const REQUEST_PURPOSES = Object.freeze({
   INTENT_RECOGNITION: 'intent_recognition',
+  IMAGE_INSTRUCTION_MATERIALIZATION: 'image_instruction_materialization',
   FINAL_EXECUTION: 'final_execution',
   BACKGROUND_IMAGE_TAG: 'background_image_tag',
 });
@@ -74,7 +76,7 @@ function assertRequestPurpose(body = {}, expected = '') {
   if (!actual) {
     throw executionProtocolError('requestPurpose is required', 'REQUEST_PURPOSE_REQUIRED');
   }
-  if (![REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
+  if (![REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
     throw executionProtocolError('requestPurpose is invalid', 'REQUEST_PURPOSE_INVALID');
   }
   if (expected && actual !== expected) {
@@ -100,6 +102,25 @@ function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = '
     }
   }
   return Object.freeze({ requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION, targetPath: normalizedPath });
+}
+
+function assertImageInstructionMaterializationRequest(body = {}, { targetPath = '', method = 'POST' } = {}) {
+  const normalizedPath = normalizedTargetPath(targetPath);
+  assertRequestPurpose(body, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION);
+  assertNoEmbeddedExecutionProtocolFields(body.payload || {});
+  if (String(method || 'POST').toUpperCase() !== 'POST' || !CHAT_TARGET_PATHS.has(normalizedPath)) {
+    throw executionProtocolError('Image instruction materialization must use a chat endpoint', 'IMAGE_INSTRUCTION_MATERIALIZATION_TARGET_INVALID');
+  }
+  if (hasOuterDispatchContract(body)) {
+    throw executionProtocolError('Image instruction materialization must not include a dispatch contract', 'IMAGE_INSTRUCTION_MATERIALIZATION_PLAN_FORBIDDEN');
+  }
+  if (hasOuterBindingEvidence(body)) {
+    const evidence = body.bindingEvidence;
+    if (!Array.isArray(evidence) || evidence.length > 0) {
+      throw executionProtocolError('图片执行指令物化请求不得携带资源绑定证据', 'IMAGE_INSTRUCTION_MATERIALIZATION_BINDINGS_FORBIDDEN');
+    }
+  }
+  return Object.freeze({ requestPurpose: REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, targetPath: normalizedPath });
 }
 
 function assertBackgroundImageTagRequest(body = {}, { targetPath = '', method = 'POST' } = {}) {
@@ -133,6 +154,21 @@ function imageModeForPath(targetPath = '', fallback = '') {
   if (IMAGE_EDIT_TARGET_PATHS.has(normalizedPath)) return 'edit_image';
   if (IMAGE_GENERATION_TARGET_PATHS.has(normalizedPath)) return 'image';
   return fallback === 'edit_image' ? 'edit_image' : fallback === 'image' ? 'image' : '';
+}
+
+function assertStandaloneImageExecutionInstruction(plan = {}) {
+  const capability = capabilityRegistry.capabilityFor(plan?.operation);
+  if (!capability || !['image_generation', 'image_edit'].includes(capability.api)) return true;
+  if (typeof imageInstructionContract.hasUnresolvedImageInstructionReference !== 'function') {
+    throw executionProtocolError('Image instruction protocol is unavailable', 'IMAGE_INSTRUCTION_PROTOCOL_UNAVAILABLE', 500);
+  }
+  if (imageInstructionContract.hasUnresolvedImageInstructionReference(plan?.arguments?.prompt)) {
+    throw executionProtocolError(
+      'Image execution prompt must be a standalone instruction and cannot contain unresolved conversation references',
+      'IMAGE_INSTRUCTION_NOT_STANDALONE',
+    );
+  }
+  return true;
 }
 
 function assertFinalExecutionRequest(body = {}, {
@@ -169,6 +205,7 @@ function assertFinalExecutionRequest(body = {}, {
   if (!dispatchContractContract.hasExactDispatchContract(candidatePlan)) {
     throw executionProtocolError('Final execution requests require a valid dispatch_contract.v1', 'DISPATCH_CONTRACT_REQUIRED');
   }
+  assertStandaloneImageExecutionInstruction(candidatePlan);
 
   // Design doc v2.7 6.7: when the final-execution request carries model-
   // emitted structured changes, verify the changes path family against the
@@ -250,6 +287,9 @@ function validateProxyExecutionRequest(body = {}, options = {}) {
   if (purpose === REQUEST_PURPOSES.INTENT_RECOGNITION) {
     return assertIntentRecognitionRequest(body, { targetPath, method });
   }
+  if (purpose === REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION) {
+    return assertImageInstructionMaterializationRequest(body, { targetPath, method });
+  }
   if (purpose === REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG) {
     return assertBackgroundImageTagRequest(body, { targetPath, method });
   }
@@ -325,7 +365,9 @@ module.exports = {
   imageModeForPath,
   assertRequestPurpose,
   assertIntentRecognitionRequest,
+  assertImageInstructionMaterializationRequest,
   assertBackgroundImageTagRequest,
+  assertStandaloneImageExecutionInstruction,
   assertFinalExecutionRequest,
   validateProxyExecutionRequest,
   validateManagedChatRequest,

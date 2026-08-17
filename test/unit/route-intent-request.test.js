@@ -509,23 +509,38 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
     }),
     getSessionRouteModel: () => 'reasoning-route-model',
     getSessionChatModel: () => 'chat-model',
-    requestJson: async () => {
+    requestJson: async (_url, payload) => {
       calls += 1;
-      return {
-        choices: [{ message: { content: JSON.stringify({
-          operation: 'text_to_image',
-          relation: 'new',
-          goal: '画一只鸡',
-          task_shape: 'single',
-          resource_refs: [],
-        }) } }],
-      };
+      const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_route_intent_v3') {
+        return {
+          choices: [{ message: { content: JSON.stringify({
+            operation: 'text_to_image',
+            relation: 'new',
+            goal: '画一只鸟',
+            task_shape: 'single',
+            resource_refs: [],
+          }) } }],
+        };
+      }
+      if (formatName === 'chatui_image_instruction_v1') {
+        return {
+          choices: [{ message: { content: JSON.stringify({
+            schema_version: 'image_instruction.v1',
+            status: 'ready',
+            instruction: '一只白色海鸥在晴朗蓝天中展翅飞翔，写实野生动物摄影，清晰羽毛细节。',
+            clarification: '',
+          }) } }],
+        };
+      }
+      throw new Error(`unexpected structured request: ${formatName || '<missing>'}`);
     },
   });
 
   try {
     const route = await workflow.getEffectiveRoute('画一只鸡', [], 'session-model-image');
-    assert.strictEqual(calls, 1, 'all task semantics must come from the configured intent model');
+    assert.strictEqual(calls, 2,
+      'a ready image route must use the configured intent model once for semantics and once for execution-instruction materialization');
     assert.strictEqual(route.operationType, 'text_to_image');
     assert.strictEqual(route.relation, 'new');
     assert.strictEqual(routeService.isRouteDispatchable(route), true);

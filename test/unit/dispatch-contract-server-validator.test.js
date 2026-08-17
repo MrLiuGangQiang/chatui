@@ -166,9 +166,25 @@ async function testFinalImageRequiresExactArgumentsAndRoleBindings() {
   expectCode(() => validator.validateManagedImageRequest({ ...body, mode: 'image' }, { mode: 'image', files: [] }), 'DISPATCH_CONTRACT_API_MISMATCH');
 }
 
+async function testFinalImageRejectsUnresolvedConversationReferencesBeforeProviderDispatch() {
+  const contract = imageContract({ prompt: '按照方案A重新生成' });
+  const file = { routeResourceKey: 'r1', routeRole: 'target', routeId: 'target-1', routeReferenceId: '', routeResourceId: 'res:image:target-1', routeSource: 'current' };
+  const bindingEvidence = dispatchContract.bindingEvidenceFromMedia(contract.executionResources);
+  expectCode(() => validator.validateManagedImageRequest({
+    requestPurpose: 'final_execution',
+    mode: 'edit_image',
+    dispatchContract: contract.dispatchContract,
+    bindingEvidence,
+    payload: { model: 'gpt-image-1', prompt: '按照方案A重新生成' },
+    files: [file],
+    masks: [],
+  }, { files: [file] }), 'IMAGE_INSTRUCTION_NOT_STANDALONE');
+}
+
 async function testQuotedMessageBindingAuthorizesTextToImageWithoutMediaFiles() {
+  const standalonePrompt = '一座被白雪覆盖的山峰位于日出云海之上，柔和金色晨光，电影感风景摄影。';
   const contract = makeExecutionFixture({
-    prompt: '基于这个描述再生成一张图片。',
+    prompt: standalonePrompt,
     operation: 'text_to_image',
     relation: 'followup',
     resources: [{
@@ -182,7 +198,7 @@ async function testQuotedMessageBindingAuthorizesTextToImageWithoutMediaFiles() 
     mode: 'image',
     dispatchContract: contract.dispatchContract,
     bindingEvidence,
-    payload: { model: 'gpt-image-2', prompt: '基于这个描述再生成一张图片。' },
+    payload: { model: 'gpt-image-2', prompt: standalonePrompt },
     files: [],
     masks: [],
   };
@@ -399,6 +415,7 @@ module.exports = [
   testFinalChatRequiresExactPromptMediaAndEvidence,
   testWebSearchResponsesExecutionPreservesOnlyTheAuthorizedTool,
   testFinalImageRequiresExactArgumentsAndRoleBindings,
+  testFinalImageRejectsUnresolvedConversationReferencesBeforeProviderDispatch,
   testQuotedMessageBindingAuthorizesTextToImageWithoutMediaFiles,
   testJobIdBindsOneImmutableDispatchContract,
   testServerRejectsSemanticallyInvalidImageBindingCombinations,

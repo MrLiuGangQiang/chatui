@@ -8,6 +8,7 @@
     validating_route: '正在校验意图和资源选择',
     retrying_route_model: '正在重新确认任务意图',
     planning_image_tasks: '正在拆分多个图片任务',
+    materializing_image_instruction: '正在整理完整的图片执行指令',
     preparing_clarification: '正在准备需要补充的信息',
   });
 

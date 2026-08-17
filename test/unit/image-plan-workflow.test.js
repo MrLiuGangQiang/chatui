@@ -33,7 +33,23 @@ function stageTwoResponse(count) {
   return { choices: [{ message: { content: JSON.stringify({ schema_version: 'image_plan.v1', tasks: planTasks(count) }) } }] };
 }
 
-function createWorkflow({ stageOne = stageOneIntent(), stageTwo = null, stageTwoError = null, modelCalls = 0 } = {}) {
+function materializationResponse(instruction = '分别生成一只猫、一只狗和一只鸟，每张图都是独立结果。') {
+  return {
+    choices: [{ message: { content: JSON.stringify({
+      schema_version: 'image_instruction.v1',
+      status: 'ready',
+      instruction,
+      clarification: '',
+    }) } }],
+  };
+}
+
+function createWorkflow({
+  stageOne = stageOneIntent(),
+  materialization = materializationResponse(),
+  stageTwo = null,
+  stageTwoError = null,
+} = {}) {
   const calls = [];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
@@ -42,10 +58,14 @@ function createWorkflow({ stageOne = stageOneIntent(), stageTwo = null, stageTwo
     getSessionChatModel: () => 'chat-model',
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
-      const intentPayloads = calls.filter(call => call.payload.text?.format?.name === 'chatui_route_intent_v3');
-      if (calls.length === 1) return { choices: [{ message: { content: stageOne } }] };
-      if (stageTwoError) throw stageTwoError;
-      return stageTwo === null ? { choices: [{ message: { content: 'not json' } }] } : stageTwo;
+      const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_route_intent_v3') return { choices: [{ message: { content: stageOne } }] };
+      if (formatName === 'chatui_image_instruction_v1') return materialization;
+      if (formatName === 'chatui_image_plan_v1') {
+        if (stageTwoError) throw stageTwoError;
+        return stageTwo === null ? { choices: [{ message: { content: 'not json' } }] } : stageTwo;
+      }
+      throw new Error(`unexpected structured request: ${formatName || '<missing>'}`);
     },
   });
   return { workflow, calls };
@@ -74,8 +94,13 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
   try {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(3) });
     const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
-    assert.strictEqual(calls.length, 2, 'multi-image routes pay for exactly one planning call');
-    assert.strictEqual(calls[1].payload.text.format.name, 'chatui_image_plan_v1');
+    assert.strictEqual(calls.length, 3, 'multi-image routes materialize once before making exactly one planning call');
+    assert.strictEqual(calls[1].payload.text.format.name, 'chatui_image_instruction_v1');
+    assert.strictEqual(calls[2].payload.text.format.name, 'chatui_image_plan_v1');
+    const planningInput = JSON.parse(calls[2].payload.input[1].content);
+    assert.strictEqual(planningInput.current_input, undefined,
+      'the multi-image planner must consume the materialized route goal instead of a raw conversational request');
+    assert.strictEqual(planningInput.route_goal, '分别生成一只猫、一只狗和一只鸟，每张图都是独立结果。');
     assert.strictEqual(route.taskShape, 'multi');
     assert.strictEqual(route.imagePlanCompiled.kind, 'batch');
     assert.strictEqual(route.imagePlanCompiled.items.length, 3);
@@ -88,7 +113,7 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
       provider_attempts: route.modelAttemptLedger.provider_attempts,
       primary_attempts: route.modelAttemptLedger.primary_attempts,
       planning_attempts: route.modelAttemptLedger.planning_attempts,
-    }, { logical_rounds: 2, provider_attempts: 2, primary_attempts: 1, planning_attempts: 1 });
+    }, { logical_rounds: 3, provider_attempts: 3, primary_attempts: 2, planning_attempts: 1 });
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -192,7 +217,7 @@ async function testFiveTaskPlanRemainsWithinTheProductLimit() {
   try {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(5) });
     const route = await workflow.getEffectiveRoute('分别生成五张不同主题的图片', [], 'session-plan', null, {});
-    assert.strictEqual(calls.length, 2);
+    assert.strictEqual(calls.length, 3);
     assert.strictEqual(route.needClarification, false);
     assert.strictEqual(route.taskShape, 'multi');
     assert.strictEqual(route.imagePlanCompiled.kind, 'batch');

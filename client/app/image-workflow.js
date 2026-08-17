@@ -83,28 +83,51 @@
         let r = 0,
           l = null,
           T = 0;
-        let d =
-          n === state.activeSessionId
-            ? t.loadingNode ||
-              addMessage(
-                "assistant",
-                pendingImageCard(statusText(preparationStatus)),
-                { html: !0, rawText: statusText(preparationStatus), skipSave: !0 },
-              )
-            : null;
+        const parseCanonicalResponseIndex = value => {
+          if (value === null || value === undefined || String(value).trim() === '') return null;
+          const index = Number(value);
+          return Number.isFinite(index) && index >= 0 ? index : null;
+        };
+        const requestedResponseIndex = parseCanonicalResponseIndex(t.replaceAssistantIndex)
+          ?? parseCanonicalResponseIndex(t.responseIndex);
         const c =
           t.liveItem ||
           appendSessionDisplayMessage(
             n,
             "assistant",
             pendingImageCard(statusText(preparationStatus)),
-            { html: !0, rawText: statusText(preparationStatus), pending: !0 },
+            {
+              html: !0,
+              rawText: statusText(preparationStatus),
+              pending: !0,
+              ...(requestedResponseIndex === null ? {} : { responseIndex: requestedResponseIndex }),
+            },
           );
         if (!c?.id) {
           const error = new Error("图片任务缺少可恢复的显示记录，已停止发送");
           error.code = "IMAGE_DISPLAY_ITEM_MISSING";
           throw error;
         }
+        const canonicalResponseIndex = requestedResponseIndex
+          ?? parseCanonicalResponseIndex(c.responseIndex);
+        if (canonicalResponseIndex !== null) c.responseIndex = String(canonicalResponseIndex);
+        const responseIndexOptions = canonicalResponseIndex === null
+          ? {}
+          : { responseIndex: canonicalResponseIndex };
+        let d =
+          n === state.activeSessionId
+            ? t.loadingNode ||
+              addMessage(
+                "assistant",
+                pendingImageCard(statusText(preparationStatus)),
+                {
+                  html: !0,
+                  rawText: statusText(preparationStatus),
+                  skipSave: !0,
+                  ...responseIndexOptions,
+                },
+              )
+            : null;
         // Batch children without a DOM node must remain display-only. Never
         // treat a synthetic/inert loading-node placeholder as a message node:
         // it has no dataset and would fail while binding displayItemId.
@@ -125,6 +148,7 @@
             html: !0,
             rawText: statusText(preparationStatus),
             skipSave: !0,
+            ...responseIndexOptions,
           });
         }
         if (c) {
@@ -134,6 +158,7 @@
             html: !0,
             rawText: statusText(preparationStatus),
             pending: !0,
+            ...responseIndexOptions,
           });
           persistSessionDisplay(n);
         }
@@ -240,11 +265,13 @@
                   html: !0,
                   rawText: status,
                   skipSave: !0,
+                  ...responseIndexOptions,
                 });
                 updateLiveDisplay(n, c, "assistant", html, {
                   html: !0,
                   rawText: status,
                   pending: !0,
+                  ...responseIndexOptions,
                   runToken: a.token,
                   noScroll: !shouldFollowScroll(),
                 });

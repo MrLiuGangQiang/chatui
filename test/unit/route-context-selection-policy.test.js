@@ -6,6 +6,7 @@ const routeService = require('../../client/services/route-service');
 const submitHelpers = require('../../client/app/submit-workflow.helpers');
 const chatWorkflow = require('../../client/app/chat-workflow');
 const contextBudget = require('../../shared/config/context-budget');
+const imageRouteContext = require('../../client/core/image-route-context');
 
 function message(index, role, content) {
   return {
@@ -61,6 +62,59 @@ function testExactMultipleMessagesKeepConversationOrder() {
   );
 }
 
+function testRouteProjectionAcceptsDurableMessageIdWhenDisplayIdDiffers() {
+  const liveMessages = [
+    {
+      role: 'user',
+      id: 'message-durable-user-1',
+      displayItemId: 'display-user-1',
+      content: '请记住这个前提',
+    },
+    {
+      role: 'assistant',
+      id: 'message-durable-assistant-2',
+      displayItemId: 'display-assistant-2',
+      content: '已经记住这个前提',
+    },
+  ];
+  const routeContext = imageRouteContext.buildRouteContext({ messages: liveMessages });
+  const result = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'followup',
+    goal: '基于上一条回答继续说明',
+    task_shape: 'single',
+    resource_refs: [{ candidate_key: 'm2', role: 'context' }],
+  }), {
+    input: '为什么？',
+    context: routeContext,
+  });
+  assert.ok(result.route, result.error || result.reason);
+  assert.strictEqual(result.route.messageRefs[0].message_id, 'message-durable-assistant-2');
+
+  const projection = submitHelpers.projectRouteMessageContext(result.route, liveMessages);
+  assert.ok(projection, 'a stable durable id must resolve even when the display item has a different id');
+  assert.deepStrictEqual(projection.messages.map(item => item.content), ['已经记住这个前提']);
+}
+
+function testRouteProjectionStillRejectsAnAbsentBoundMessage() {
+  const route = {
+    messageRefs: [{
+      source: 'history',
+      index: 1,
+      message_id: 'message-that-no-longer-exists',
+    }],
+  };
+  const projection = submitHelpers.projectRouteMessageContext(route, [
+    {
+      role: 'assistant',
+      id: 'message-durable-assistant-2',
+      displayItemId: 'display-assistant-2',
+      content: '当前消息',
+    },
+  ]);
+  assert.strictEqual(projection, null, 'an actually absent bound message must remain fail-closed');
+}
+
 function testExplicitNewTaskDropsConversationHistory() {
   const route = compileIntent({ relation: 'new', refs: [], goal: '解释量子纠缠', input: '解释量子纠缠' });
   assert.strictEqual(route.dispatchContract.context_policy.history, 'none');
@@ -112,6 +166,8 @@ function testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary() {
 module.exports = [
   testExactSingleMessageUsesBoundOnlyHistory,
   testExactMultipleMessagesKeepConversationOrder,
+  testRouteProjectionAcceptsDurableMessageIdWhenDisplayIdDiffers,
+  testRouteProjectionStillRejectsAnAbsentBoundMessage,
   testExplicitNewTaskDropsConversationHistory,
   testUncertainFollowupKeepsConversationHistory,
   testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary,

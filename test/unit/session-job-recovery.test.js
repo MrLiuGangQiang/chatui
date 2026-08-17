@@ -32,7 +32,7 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
     && index.includes('job-resume-workflow.js?v=1.3.4-canonical-batch-completion')
     && index.includes('image-batch-workflow.js?v=1.0.3-canonical-batch-completion')
     && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep')
-    && index.includes('app.js?v=2.3.10-image-batch-terminal-cleanup'),
+    && index.includes('app.js?v=2.3.11-canonical-waiting-position'),
   'runtime entry assets should receive cache-version updates with the recovery fix');
 }
 

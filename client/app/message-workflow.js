@@ -114,7 +114,14 @@
 
     function scrollQuotedMessageToStart(target, margin = 18) {
       if (!target?.isConnected) return false;
-      try { root.ChatUIScrollDebug?.releaseBottomScrollLock?.({ bumpVersion: true, suppressMs: 1800 }); } catch {}
+      // A quote jump is an explicit user navigation action. Cancel every pending
+      // tail/output-focus writer before changing scrollTop, otherwise a queued
+      // layout settle can immediately pull the viewport back to the newest reply.
+      try { deps.markManualMessageScroll?.({ type: 'quote-jump' }); } catch {}
+      try { root.markManualMessageScroll?.({ type: 'quote-jump' }); } catch {}
+      try { root.cancelSessionTailFocusAfterLayout?.(); } catch {}
+      try { deps.cancelScrollTimer?.(); } catch {}
+      try { root.ChatUIScrollDebug?.releaseBottomScrollLock?.({ bumpVersion: true, suppressMs: 2600 }); } catch {}
       try { root.ChatUIScrollDebug?.cleanupBottomScrollLock?.(); } catch {}
       const messages = deps.$?.('messages') || target.closest?.('#messages,.messages');
       if (!messages?.getBoundingClientRect) {
@@ -705,7 +712,22 @@
         if (role === "assistant") download?.addEventListener("click", () => downloadAnswerFile(node, download));
         else download?.remove();
 
-        $("messages").appendChild(node);
+        const messagesContainer = $("messages");
+        const displayApi = root?.ChatUIAppDisplayItems || {};
+        const canonicalIndex = role === "user" ? options.messageIndex : options.responseIndex;
+        const hasCanonicalIndex = canonicalIndex !== undefined
+          && canonicalIndex !== null
+          && String(canonicalIndex).trim() !== ""
+          && Number.isFinite(Number(canonicalIndex))
+          && Number(canonicalIndex) >= 0;
+        if (hasCanonicalIndex && typeof displayApi.insertMessageNodeAtDisplayPosition === "function") {
+          displayApi.insertMessageNodeAtDisplayPosition(messagesContainer, node, {
+            role,
+            messageIndex: options.messageIndex,
+            responseIndex: options.responseIndex,
+          });
+        }
+        if (node.parentNode !== messagesContainer) messagesContainer.appendChild(node);
         if (progressive) renderMarkdownProgressively(node, String(rawText || ""), node.dataset.rawHash);
         else if (options.deferEnhance) {
           node.dataset.renderedHash = node.dataset.rawHash;

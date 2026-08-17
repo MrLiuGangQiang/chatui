@@ -112,15 +112,34 @@
     return imageAttachmentIndexGuide(list, options);
   }
 
+  // A route reference is compiled from the compact route context, while the
+  // final dispatch resolves it against the live session message. Both records
+  // may carry more than one durable identifier (for example `id` plus a UI
+  // `displayItemId`). Treat these as aliases rather than rejecting the message
+  // because a different, still-valid alias happens to be first on one side.
+  function messageIdentityAliases(message = {}) {
+    const aliases = [
+      message?.message_id,
+      message?.messageId,
+      message?.id,
+      message?.display_item_id,
+      message?.displayItemId,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return [...new Set(aliases)];
+  }
+
   function messageIdentity(message = {}) {
-    return String(
-      message?.displayItemId ||
-        message?.display_item_id ||
-        message?.id ||
-        message?.messageId ||
-        message?.message_id ||
-        "",
-    );
+    return messageIdentityAliases(message)[0] || '';
+  }
+
+  function messageMatchesIdentity(message = {}, expectedIdentity = '') {
+    const expected = String(expectedIdentity || '').trim();
+    return !expected || messageIdentityAliases(message).includes(expected);
+  }
+
+  function messagesShareIdentity(left = {}, right = {}) {
+    const leftAliases = new Set(messageIdentityAliases(left));
+    return leftAliases.size > 0 && messageIdentityAliases(right).some(alias => leftAliases.has(alias));
   }
 
   function imageReferenceFromItem(item = {}) {
@@ -408,7 +427,6 @@
     const refs = Array.isArray(route?.messageRefs) ? route.messageRefs : [];
     if (!refs.length) return null;
     const source = Array.isArray(sessionMessages) ? sessionMessages : [];
-    const quotedId = messageIdentity(explicitQuotedMessage);
     const selected = [];
     const seen = new Set();
     let usesExplicitQuote = false;
@@ -422,23 +440,15 @@
       if (
         explicitQuotedMessage &&
         refSource === 'quoted' &&
-        (!refId || !quotedId || refId === quotedId)
+        messageMatchesIdentity(explicitQuotedMessage, refId)
       ) {
         message = explicitQuotedMessage;
         usesExplicitQuote = true;
-        const quotedSessionIndex = quotedId
-          ? source.findIndex(item => messageIdentity(item) === quotedId)
-          : -1;
+        const quotedSessionIndex = source.findIndex(item => messagesShareIdentity(item, explicitQuotedMessage));
         if (quotedSessionIndex >= 0) conversationOrder = quotedSessionIndex + 1;
       } else if (Number.isInteger(index) && index >= 1) {
         message = source[index - 1] || null;
-        if (
-          message &&
-          refId &&
-          messageIdentity(message) &&
-          messageIdentity(message) !== refId
-        )
-          message = null;
+        if (message && !messageMatchesIdentity(message, refId)) message = null;
       }
       if (!message) return null;
       const key = refId || messageIdentity(message) || `index:${index}`;

@@ -206,8 +206,31 @@
       }
     }
 
+    function canonicalDisplayItemIndex(item) {
+      const raw = item?.role === 'user' ? item?.messageIndex : item?.role === 'assistant' ? item?.responseIndex : '';
+      if (raw === null || raw === undefined || String(raw).trim() === '') return NaN;
+      const index = Number(raw);
+      return Number.isFinite(index) && index >= 0 ? index : NaN;
+    }
+
+    function orderDisplayItems(items = []) {
+      return (items || [])
+        .map((item, order) => ({ item, order, index: canonicalDisplayItemIndex(item) }))
+        .sort((left, right) => {
+          const leftIndexed = Number.isFinite(left.index);
+          const rightIndexed = Number.isFinite(right.index);
+          if (leftIndexed && rightIndexed) return left.index - right.index || left.order - right.order;
+          if (leftIndexed !== rightIndexed) return leftIndexed ? -1 : 1;
+          return left.order - right.order;
+        })
+        .map(entry => entry.item);
+    }
+
     function pendingDisplayItems(items = []) {
-      return compactDisplayItems((items || []).filter(item => item?.pending === '1').map(sanitizeStoredDisplayItem));
+      const pending = (items || [])
+        .filter(item => item?.pending === '1')
+        .map(sanitizeStoredDisplayItem);
+      return compactDisplayItems(orderDisplayItems(pending));
     }
 
     function clearPendingDisplayCheckpoint(sessionId) {
@@ -311,7 +334,9 @@
       session.display ||= [];
       const existingIndex = session.display.findIndex(candidate => candidate === item || candidate?.id && candidate.id === item.id);
       if (item.pending === '1') {
-        if (existingIndex < 0) session.display.push(item);
+        if (existingIndex >= 0) session.display.splice(existingIndex, 1);
+        session.display.push(item);
+        session.display = orderDisplayItems(session.display);
       } else if (existingIndex >= 0) {
         session.display.splice(existingIndex, 1);
       }

@@ -447,6 +447,7 @@
             intentDeadline.assertActive();
             attemptLedger.recordProviderAttempt(round, nextPayload, requestMetadata);
           },
+          descriptor.requestPurpose || 'intent_recognition',
         );
       });
       let config = {};
@@ -500,15 +501,80 @@
           return failRoute('route_model_unconfigured');
         }
 
-        // Stage 2: only multi-image routes pay for a second model call. The
-        // planning model is authoritative for task decomposition and per-task
-        // prompts; a one-task plan collapses back to the normal single path.
+        async function materializeImageInstruction(route, source = '') {
+          if (!route
+              || typeof routeSvc.requiresImageInstructionMaterialization !== 'function'
+              || !routeSvc.requiresImageInstructionMaterialization(route)) return route;
+          if (typeof routeSvc.buildImageInstructionPayload !== 'function'
+              || typeof routeSvc.inspectImageInstructionResult !== 'function'
+              || typeof routeSvc.applyMaterializedImageInstruction !== 'function'
+              || typeof routeSvc.clarifyImageInstructionRoute !== 'function') {
+            return routeFailureRoute(
+              route,
+              'image_instruction_materializer_unavailable',
+              '本次未执行：图片执行指令物化模块不可用，请重试。',
+            );
+          }
+          emitStage('materializing_image_instruction', { modelRole: 'primary', operation: route.operationType });
+          const payload = routeSvc.buildImageInstructionPayload({
+            model: primaryModel,
+            input,
+            route,
+            attachments: attachmentMeta,
+            context,
+            currentTurn: routeOptions?.currentTurn || null,
+          });
+          try {
+            intentDeadline.assertActive();
+            const response = await requestWithinDeadline(payload, {
+              phase: 'instruction_materialization',
+              modelRole: 'primary',
+              requestPurpose: 'image_instruction_materialization',
+            });
+            intentDeadline.assertActive();
+            const raw = routeSvc.extractRouteText(response);
+            const inspected = routeSvc.inspectImageInstructionResult(raw);
+            if (!inspected?.materialization) {
+              return routeFailureRoute(
+                route,
+                inspected?.reason || 'image_instruction_invalid',
+                '本次未执行：无法得到有效的完整图片执行指令，请重试。',
+              );
+            }
+            if (inspected.materialization.status === 'needs_clarification') {
+              return routeSvc.clarifyImageInstructionRoute(route, inspected.materialization.clarification);
+            }
+            return routeSvc.applyMaterializedImageInstruction(route, inspected.materialization.instruction, { context });
+          } catch (error) {
+            if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
+            if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+            if (error?.code === 'MODEL_CALL_BUDGET_EXCEEDED') return failRoute('model_calls_exceeded', 'model_call_budget');
+            console.warn('[route] image instruction materialization failed', {
+              name: String(error?.name || 'Error'),
+              code: String(error?.code || 'IMAGE_INSTRUCTION_MATERIALIZATION_FAILED'),
+            });
+            return routeFailureRoute(
+              route,
+              routeErrorReason(error),
+              '本次未执行：无法整理完整的图片执行指令，请重试。',
+            );
+          }
+        }
+
+        // Stage 2: materialize the provider-facing instruction for every ready
+        // image route before either direct execution or multi-image decomposition.
+        // The image provider never receives a raw conversational reference such as
+        // “按方案A/照你说的/上述内容”.
         async function finalizeRoute(route, source = '') {
-          if (!route || typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(route)) {
-            return completeRoute(route, source);
+          const materializedRoute = await materializeImageInstruction(route, source);
+          if (!materializedRoute || materializedRoute.needClarification) {
+            return completeRoute(materializedRoute, source);
+          }
+          if (typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
+            return completeRoute(materializedRoute, source);
           }
           emitStage('planning_image_tasks', { modelRole: 'primary' });
-          const goal = String(route.userGoal || route.dispatchContract?.arguments?.prompt || input || '').trim();
+          const goal = String(materializedRoute.userGoal || materializedRoute.dispatchContract?.arguments?.prompt || input || '').trim();
           const planPayload = routeSvc.buildImagePlanPayload({
             model: primaryModel,
             input,
@@ -525,7 +591,7 @@
             const inspected = routeSvc.inspectImagePlanResult(raw);
             if (!inspected?.plan) {
               return completeRoute(routeFailureRoute(
-                route,
+                materializedRoute,
                 'image_plan_invalid',
                 '本次未执行：多图任务规划模型返回了无效结构，请重试。',
               ), source);
@@ -535,22 +601,22 @@
               attachments: attachmentMeta,
               context,
               ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
-              relation: route.relation,
+              relation: materializedRoute.relation,
               currentTurn: routeOptions?.currentTurn || null,
             });
             if (!compiled.ok) {
-              return completeRoute(imagePlanFailureRoute(route, compiled.question || '多图任务无法执行，请调整后重试。'), source);
+              return completeRoute(imagePlanFailureRoute(materializedRoute, compiled.question || '多图任务无法执行，请调整后重试。'), source);
             }
             if (compiled.kind === 'single') {
               return completeRoute({
-                ...(compiled.item.route || route),
+                ...(compiled.item.route || materializedRoute),
                 taskShape: 'single',
                 imagePlan: null,
                 imagePlanCompiled: null,
               }, source);
             }
             return completeRoute({
-              ...route,
+              ...materializedRoute,
               taskShape: 'multi',
               imagePlan: inspected.plan,
               imagePlanCompiled: compiled,
@@ -564,7 +630,7 @@
               code: String(error?.code || ''),
             });
             const reason = routeErrorReason(error);
-            return completeRoute(routeFailureRoute(route, reason, imagePlanRequestFailureQuestion(error)), source);
+            return completeRoute(routeFailureRoute(materializedRoute, reason, imagePlanRequestFailureQuestion(error)), source);
           }
         }
 
@@ -658,12 +724,12 @@
     }
 
 
-    // Intent recognition and image-plan calls are one-shot JSON requests. Some
+    // Intent recognition, instruction materialization, and image-plan calls are one-shot JSON requests. Some
     // gateways have a broken non-streaming Responses implementation: they return
     // 500 "empty stream chunks" even when stream:false was sent. Keep Responses
     // as the primary API, but retry that exact gateway defect through the
     // non-streaming Chat Completions transport. This is never an SSE fallback.
-    async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null) {
+    async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null, requestPurpose = 'intent_recognition') {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
       const assertAttemptActive = (nextPayload, requestMetadata = {}) => {
         if (typeof beforeAttempt === 'function') beforeAttempt(nextPayload, requestMetadata);
@@ -675,7 +741,7 @@
             method: 'POST',
             headers: headers || {},
             signal,
-            requestPurpose: 'intent_recognition',
+            requestPurpose,
             submissionId: routeOptions?.submissionId || '',
           });
         }

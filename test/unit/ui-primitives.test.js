@@ -267,6 +267,22 @@ function testUiScrollAutoFollowLocksOnUserDepartureAndRecoversAtBottom() {
   assert.strictEqual(follow.isNearBottom(scroller), true);
   assert.strictEqual(scrollApi.isNearBottom({ scrollHeight: 1000, clientHeight: 200, scrollTop: 749 }, 50), false);
   assert.strictEqual(scrollApi.isNearBottom({ scrollHeight: 1000, clientHeight: 200, scrollTop: 750 }, 50), true);
+  assert.strictEqual(scrollApi.isNodeAwayFromOutputFocus({
+    nodeRect: { top: 36, bottom: 636 },
+    messagesRect: { top: 0, bottom: 500 },
+    composerTop: 500,
+    viewportHeight: 600,
+    margin: 72,
+    anchorMode: 'top',
+  }), false, 'a historical output is focused when its top is aligned even if its growing bottom extends below the composer');
+  assert.strictEqual(scrollApi.isNodeAwayFromOutputFocus({
+    nodeRect: { top: 160, bottom: 760 },
+    messagesRect: { top: 0, bottom: 500 },
+    composerTop: 500,
+    viewportHeight: 600,
+    margin: 72,
+    anchorMode: 'top',
+  }), true, 'a historical output whose top leaves the focus band must show the continue-output affordance');
 }
 
 module.exports = [

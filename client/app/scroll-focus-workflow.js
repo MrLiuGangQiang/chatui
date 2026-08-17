@@ -298,16 +298,29 @@
         const manualIntent = now() < manualScrollIntentUntil;
         if (shouldRespectManualScroll({ gap, threshold, manualIntent, eventType: event?.type }) /* manualIntent && event?.type === "scroll" && gap > threshold */) {
           releaseBottomScrollLock({ bumpVersion: true });
-        } else if (gap <= threshold) {
-          state.bottomScrollLocked = true;
-          state.userScrollLocked = false;
-          state.autoScrollLocked = true;
-          state.isAutoFollowing = true;
-          state.userScrolledAway = false;
-        } else if (!programmatic && manualIntent && event?.type === "scroll") {
-          releaseBottomScrollLock({ bumpVersion: true });
-        } else if (isBottomLocked()) {
-          requestBottomScroll({ reason: "locked-scroll-compensation" });
+        } else {
+          const activeOutput = getActiveOutputForSession(state.activeSessionId);
+          const liveOutputFocus = !!(state.streamFocusLocked && activeOutput?.isConnected && activeOutput.dataset.streaming === "1");
+          if (liveOutputFocus) {
+            // Programmatic stream scrolling often reaches the physical list bottom.
+            // Do not let that scroll event resurrect the tail observer: the live
+            // output anchor is the sole writer until this stream completes.
+            state.bottomScrollLocked = false;
+            state.userScrollLocked = false;
+            state.autoScrollLocked = true;
+            state.isAutoFollowing = true;
+            state.userScrolledAway = false;
+          } else if (gap <= threshold) {
+            state.bottomScrollLocked = true;
+            state.userScrollLocked = false;
+            state.autoScrollLocked = true;
+            state.isAutoFollowing = true;
+            state.userScrolledAway = false;
+          } else if (!programmatic && manualIntent && event?.type === "scroll") {
+            releaseBottomScrollLock({ bumpVersion: true });
+          } else if (isBottomLocked()) {
+            requestBottomScroll({ reason: "locked-scroll-compensation" });
+          }
         }
         state.lastMessageScrollTop = el.scrollTop;
         queueResumeButtonUpdate();
@@ -500,6 +513,42 @@
       }
     }
 
+    function hasLaterMessageSibling(node) {
+      for (let sibling = node?.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+        if (sibling.matches?.(".message")) return true;
+      }
+      return false;
+    }
+
+    // A live response at the display tail must keep its latest token above the
+    // composer. A regenerated response with later messages must instead keep its
+    // own top stable: pinning its bottom moves the entire lower history every
+    // token and creates the visible flicker/jump loop.
+    function streamingAnchorModeFor(node) {
+      return hasLaterMessageSibling(node) ? "top" : "bottom";
+    }
+
+    function messagesCanScroll(el) {
+      const computedStyle = deps.getComputedStyle?.(el) || getWindow()?.getComputedStyle?.(el) || root?.getComputedStyle?.(el);
+      return !!(el && el.scrollHeight > el.clientHeight + 1 && computedStyle?.overflowY !== "visible");
+    }
+
+    function scrollMessagesByDelta(el, delta, programmaticMs = 260) {
+      if (!el || Math.abs(delta) <= 1) return false;
+      setMessagesProgrammaticScroll(programmaticMs);
+      if (messagesCanScroll(el)) {
+        el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + delta));
+        deps.state.lastMessageScrollTop = el.scrollTop;
+      } else {
+        const win = getWindow();
+        const doc = deps.document || root?.document;
+        const scrollY = win?.scrollY || doc?.documentElement?.scrollTop || doc?.body?.scrollTop || 0;
+        win?.scrollTo?.({ top: Math.max(0, scrollY + delta), behavior: "auto" });
+        deps.state.lastMessageScrollTop = el.scrollTop;
+      }
+      return true;
+    }
+
     function streamTailLockFor(node, options = {}) {
       if (options.tailLock !== undefined) return options.tailLock !== false;
       if (node?.dataset?.streamTailLock === "0") return false;
@@ -511,10 +560,7 @@
       // Recovery can reconnect a durable job without the original submit option.
       // If another message follows the live node, it is a historical replacement,
       // not the session tail, so a bottom lock would fight the output anchor.
-      for (let sibling = node?.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
-        if (sibling.matches?.(".message")) return false;
-      }
-      return true;
+      return !hasLaterMessageSibling(node);
     }
 
     // A normal stream lives at the session tail, so tail compensation and output
@@ -532,7 +578,7 @@
         state.activeOutputNode = node;
         if (node.dataset) node.dataset.streamTailLock = tailLock ? "1" : "0";
         if (!tailLock) cancelBottomScrollFrame();
-        if (!options.skipPin) pinNodeBottomToTarget(node, options);
+        if (!options.skipPin) pinActiveOutputToAnchor(node, options);
       }
     }
 
@@ -552,7 +598,7 @@
         const pin = () => {
           if (!node?.isConnected || state.userScrollLocked) return false;
           if (node.dataset.sessionId && node.dataset.sessionId !== state.activeSessionId) return false;
-          pinNodeBottomToTarget(node, options);
+          pinActiveOutputToAnchor(node, options);
           return true;
         };
         const tick = () => {
@@ -598,30 +644,36 @@
     }
 
     function pinNodeBottomToTarget(node, options = {}) {
-      with (deps) {
-        if (!node?.isConnected) return;
-        const el = $("messages");
-        if (!el) return;
-        setMessagesProgrammaticScroll();
-        const margin = Number.isFinite(options.margin) ? options.margin : 72;
-        const target = activeOutputBottomTarget(margin);
-        const messagesRect = el.getBoundingClientRect();
-        const nodeRect = node.getBoundingClientRect();
-        const bottom = Math.min(messagesRect.bottom, target);
-        const canScroll = el.scrollHeight > el.clientHeight + 1 && getComputedStyle(el).overflowY !== "visible";
-        if (canScroll) {
-          if (nodeRect.bottom > bottom + 1) el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + (nodeRect.bottom - bottom)));
-          else if (nodeRect.bottom < messagesRect.top) el.scrollTop = Math.max(0, el.scrollTop - (messagesRect.top - nodeRect.bottom + margin));
-          state.lastMessageScrollTop = el.scrollTop;
-        } else {
-          const delta = nodeRect.bottom - bottom;
-          if (Math.abs(delta) > 1) {
-            const scrollY = window.scrollY || document.documentElement?.scrollTop || document.body?.scrollTop || 0;
-            window.scrollTo({ top: Math.max(0, scrollY + delta), behavior: "auto" });
-          }
-          state.lastMessageScrollTop = el.scrollTop;
-        }
-      }
+      if (!node?.isConnected) return false;
+      const el = deps.$?.("messages");
+      if (!el) return false;
+      const margin = Number.isFinite(options.margin) ? options.margin : 72;
+      const messagesRect = el.getBoundingClientRect?.();
+      const nodeRect = node.getBoundingClientRect?.();
+      if (!messagesRect || !nodeRect) return false;
+      const bottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
+      let delta = 0;
+      if (nodeRect.bottom > bottom + 1) delta = nodeRect.bottom - bottom;
+      else if (nodeRect.bottom < messagesRect.top) delta = -(messagesRect.top - nodeRect.bottom + margin);
+      return scrollMessagesByDelta(el, delta);
+    }
+
+    function pinNodeTopToTarget(node, options = {}) {
+      if (!node?.isConnected) return false;
+      const el = deps.$?.("messages");
+      if (!el) return false;
+      const margin = Number.isFinite(options.margin) ? options.margin : 72;
+      const messagesRect = el.getBoundingClientRect?.();
+      const nodeRect = node.getBoundingClientRect?.();
+      if (!messagesRect || !nodeRect) return false;
+      const focusTop = messagesRect.top + Math.max(16, Math.min(48, Math.round(margin / 2)));
+      return scrollMessagesByDelta(el, nodeRect.top - focusTop);
+    }
+
+    function pinActiveOutputToAnchor(node, options = {}) {
+      return streamingAnchorModeFor(node) === "top"
+        ? pinNodeTopToTarget(node, options)
+        : pinNodeBottomToTarget(node, options);
     }
 
     function scrollToActiveOutput(node, options = {}) {
@@ -653,11 +705,17 @@
         const nodeRect = node.getBoundingClientRect();
         const messagesRect = $("messages")?.getBoundingClientRect();
         const composer = document.querySelector(".composer")?.getBoundingClientRect();
-        return window.ChatUI?.scroll?.isNodeAwayFromOutputFocus ? window.ChatUI.scroll.isNodeAwayFromOutputFocus({ nodeRect, messagesRect, composerTop: composer?.top, viewportHeight: innerHeight, margin: 72 }) : (() => {
+        const anchorMode = streamingAnchorModeFor(node);
+        return window.ChatUI?.scroll?.isNodeAwayFromOutputFocus ? window.ChatUI.scroll.isNodeAwayFromOutputFocus({ nodeRect, messagesRect, composerTop: composer?.top, viewportHeight: innerHeight, margin: 72, anchorMode }) : (() => {
           const target = (composer?.top || innerHeight) - 72;
           const top = messagesRect?.top || 0;
           const bottom = messagesRect?.bottom ? Math.min(messagesRect.bottom, target) : target;
-          return nodeRect.bottom > bottom + 72 || nodeRect.bottom < top + 80 || nodeRect.top > bottom || nodeRect.bottom < top;
+          const tolerance = 72;
+          if (anchorMode === "top") {
+            const focusTop = top + Math.max(16, Math.min(48, Math.round(72 / 2)));
+            return nodeRect.top > focusTop + tolerance || nodeRect.top < focusTop - tolerance || nodeRect.top > bottom || nodeRect.bottom < top;
+          }
+          return nodeRect.bottom > bottom + tolerance || nodeRect.bottom < top + 80 || nodeRect.top > bottom || nodeRect.bottom < top;
         })();
       }
     }
@@ -720,15 +778,10 @@
       if (!messagesRect || !nodeRect) return false;
       const focusTop = messagesRect.top + Math.max(16, Math.min(48, Math.round(margin / 2)));
       const focusBottom = Math.min(messagesRect.bottom, activeOutputBottomTarget(margin));
-      const tailLock = streamTailLockFor(node, options);
-      let delta = 0;
-      if (tailLock) delta = nodeRect.bottom - focusBottom;
-      else delta = nodeRect.top - focusTop;
-      if (Math.abs(delta) <= 1) return false;
-      setMessagesProgrammaticScroll(480);
-      el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + delta));
-      deps.state.lastMessageScrollTop = el.scrollTop;
-      return true;
+      const delta = streamingAnchorModeFor(node) === "top"
+        ? nodeRect.top - focusTop
+        : nodeRect.bottom - focusBottom;
+      return scrollMessagesByDelta(el, delta, 480);
     }
 
     function resumeActiveOutputFocus() {
@@ -745,8 +798,12 @@
         // Resume from the live message's own geometry. This prevents a historical
         // regeneration from first jumping to the unrelated session tail and then
         // being pulled back to the response on every incoming token.
-        focusStreamingOutputMessage(node, { margin, tailLock });
+        // A token can already have queued an output-pin frame when the button is
+        // clicked. Cancel it before measuring; otherwise that stale frame runs
+        // after this handler and undoes the first-click message anchor.
+        cancelScrollTimer();
         cleanupActiveOutputSettler();
+        focusStreamingOutputMessage(node, { margin, tailLock });
         lockToStreamingOutput(node, { margin, tailLock, skipPin: true });
         queueResumeButtonUpdate();
       }
@@ -789,6 +846,7 @@
       settleActiveOutput,
       armStreamingOutputFocus,
       pinNodeBottomToTarget,
+      pinActiveOutputToAnchor,
       scrollToActiveOutput,
       isNodeAwayFromOutputFocus,
       setActiveOutputForSession,

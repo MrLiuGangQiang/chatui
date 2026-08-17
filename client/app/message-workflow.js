@@ -45,6 +45,10 @@
   function createMessageWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
+    // Finalization can still change layout after a historical stream receives its
+    // last token. Use the same placement-aware anchor as live updates so that
+    // completion cannot reintroduce a one-frame bottom jump.
+    const pinActiveOutputToAnchor = deps.pinActiveOutputToAnchor || deps.pinNodeBottomToTarget || (() => {});
     const documentRef = deps.document || root.document;
     if (typeof documentRef?.addEventListener === 'function' && !documentRef.__chatuiUserRawCopyBound) {
       documentRef.__chatuiUserRawCopyBound = true;
@@ -450,7 +454,7 @@
               e.dataset.markdownFinalEnhanced = result?.enhanced ? "1" : "";
               e.dataset.markdownFinalMode = result?.mode || "incremental-final";
               if (result?.reason) e.dataset.markdownFinalReason = result.reason;
-              if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+              if (streamingFinalShouldPin && canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 });
             } else {
               const result = e.__markdownStreamingRenderer.final(contentNode, rawValue);
               rendered = !!result;
@@ -459,7 +463,7 @@
               e.dataset.markdownFinalEnhanced = result?.enhanced ? "1" : "";
               e.dataset.markdownFinalMode = result?.mode || "final";
               if (result?.reason) e.dataset.markdownFinalReason = result.reason;
-              if (streamingFinalShouldPin && canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+              if (streamingFinalShouldPin && canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 });
             }
           } catch {}
           delete e.__markdownLiveStream;
@@ -478,7 +482,7 @@
         clearStreamingState();
         if (e === state.activeOutputNode && !s.skipSave) {
           state.streamFocusLocked = false;
-          if (canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 });
+          if (canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 });
         }
         e.dataset.rawText = rawValue;
         e.dataset.rawHash = rawHash;
@@ -521,7 +525,7 @@
         }
         if (e.dataset.progressiveRendering !== '1') syncWebPreviews(e, rawValue);
         if (streamingFinalShouldPin && canAutoFollowNow()) {
-          const pinFinal = () => { if (canAutoFollowNow()) pinNodeBottomToTarget(e, { margin: 72 }); };
+          const pinFinal = () => { if (canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 }); };
           requestAnimationFrame?.(pinFinal);
         }
         delete e.dataset.markdownFinalEnhanced;

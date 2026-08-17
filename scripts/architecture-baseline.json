@@ -8,7 +8,7 @@
     "client/app/job-resume-workflow.js": 2,
     "client/app/message-workflow.js": 4,
     "client/app/reasoning-workflow.js": 22,
-    "client/app/scroll-focus-workflow.js": 36,
+    "client/app/scroll-focus-workflow.js": 35,
     "client/app/submit-workflow.js": 1
   }
 }

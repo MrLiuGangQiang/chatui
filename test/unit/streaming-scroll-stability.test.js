@@ -300,6 +300,48 @@ function testResumeFirstClickCommitsPersistentLiveOutputAnchor() {
     'the persistent anchor must survive the next streamed render');
 }
 
+
+function testResumeFirstClickProgrammaticScrollIsNotMisreadAsManualIntent() {
+  const { state, workflow, messages, output } = createScrollFixture({ later: true });
+  let height = 600;
+  output.getBoundingClientRect = () => {
+    const top = 80 - messages.scrollTop;
+    return { top, bottom: top + height, left: 80, right: 820, width: 740, height };
+  };
+
+  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: false });
+
+  // The user wheels up to read earlier history while the stream follows. The
+  // wheel gesture opens the manual-scroll intent window and releases the
+  // auto-follow lock, which is what makes the continue-output button appear.
+  workflow.markManualMessageScroll({ type: 'wheel', deltaY: -120, target: output, currentTarget: messages });
+  messages.scrollTop = 200;
+  // The native scroll event that follows the wheel still lands inside the
+  // manual-intent window.
+  workflow.markManualMessageScroll({ type: 'scroll', target: output, currentTarget: messages });
+  assert.strictEqual(state.userScrollLocked, true, 'scrolling away must release the follow lock so the button can show');
+
+  // First click on the continue-output button. It aligns the live message end
+  // and opens a programmatic-scroll window for the scroll write it performs.
+  workflow.resumeActiveOutputFocus();
+  assert.strictEqual(messages.scrollTop, 252, 'the first continue click must align the live message end');
+
+  // The browser reports the click's programmatic scroll event. Even though the
+  // earlier wheel gesture is still inside the manual-intent window, this scroll
+  // is programmatic and must not be misread as a second manual scroll that
+  // releases the just-acquired anchor again.
+  workflow.markManualMessageScroll({ type: 'scroll', target: output, currentTarget: messages });
+  assert.strictEqual(state.userScrollLocked, false,
+    'the first-click programmatic scroll must not be mistaken for a new manual scroll');
+  assert.strictEqual(state.streamFocusLocked, true,
+    'the first click must keep the persistent live-output focus after its own scroll event');
+
+  height += 160;
+  workflow.commitStreamingOutput(output, { sessionId: 'session-a', tailLock: false });
+  assert.strictEqual(messages.scrollTop, 412,
+    'the next token must keep following the first-click output-end anchor without requiring a second click');
+}
+
 function testHistoricalResumeEndAnchorSurvivesTheNextToken() {
   const { state, workflow, messages, output, flushRafs } = createScrollFixture({ later: true });
   output.getBoundingClientRect = () => {
@@ -402,6 +444,7 @@ module.exports = [
   testResumeUsesWindowComputedStyleWhenNoDependencyIsInjected,
   testResumeCancelsQueuedTokenPinBeforeAnchoring,
   testResumeFirstClickCommitsPersistentLiveOutputAnchor,
+  testResumeFirstClickProgrammaticScrollIsNotMisreadAsManualIntent,
   testHistoricalStreamingKeepsLaterMessagesStableAtTheOutputEnd,
   testHistoricalResumeEndAnchorSurvivesTheNextToken,
   testHistoricalEndAnchorKeepsContinueButtonFocused,

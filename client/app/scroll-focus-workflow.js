@@ -296,7 +296,7 @@
         const threshold = bottomThreshold(options);
         const programmatic = now() < state.programmaticScrollUntil;
         const manualIntent = now() < manualScrollIntentUntil;
-        if (shouldRespectManualScroll({ gap, threshold, manualIntent, eventType: event?.type }) /* manualIntent && event?.type === "scroll" && gap > threshold */) {
+        if (!programmatic && shouldRespectManualScroll({ gap, threshold, manualIntent, eventType: event?.type }) /* manualIntent && event?.type === "scroll" && gap > threshold */) {
           releaseBottomScrollLock({ bumpVersion: true });
         } else {
           const activeOutput = getActiveOutputForSession(state.activeSessionId);

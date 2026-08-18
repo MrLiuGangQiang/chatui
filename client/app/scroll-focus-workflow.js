@@ -636,8 +636,15 @@
           cancelScrollTimer();
         }
         setActiveOutputForSession(sessionId, node);
-        if (sessionId === state.activeSessionId && node.isConnected) lockToStreamingOutput(node, { margin, tailLock });
-        else updateResumeStreamButton();
+        // The stream renderer mutates the message immediately after this setup.
+        // Do not pin the *old* message geometry here: doing so writes one scroll
+        // position before the content grows and a second one after it grows,
+        // making the messages below a historical stream visibly flash.
+        // The message workflow commits the single post-render output-end pin in
+        // the same task as the DOM update.
+        if (sessionId === state.activeSessionId && node.isConnected) {
+          lockToStreamingOutput(node, { margin, tailLock, skipPin: options.skipPin === true });
+        } else updateResumeStreamButton();
       }
     }
 

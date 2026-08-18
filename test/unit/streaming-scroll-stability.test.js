@@ -97,6 +97,22 @@ function createScrollFixture({ outputRect = { top: 120, bottom: 300 }, later = f
   return { dom, document, state, workflow, messages, output, laterNode: messages.querySelectorAll('.message')[1] || null, mutationObservers, rafCallbacks, flushRafs };
 }
 
+function testStreamFollowCanAcquireBeforeRenderWithoutPinningStaleGeometry() {
+  const { state, workflow, messages, output } = createScrollFixture({ outputRect: { top: 220, bottom: 420 } });
+  messages.scrollTop = 140;
+
+  workflow.armStreamingOutputFocus('session-a', output, {
+    clearStaleFocus: true,
+    tailLock: false,
+    skipPin: true,
+  });
+
+  assert.strictEqual(state.streamFocusLocked, true);
+  assert.strictEqual(state.activeOutputNode, output);
+  assert.strictEqual(messages.scrollTop, 140,
+    'stream focus acquisition must not scroll using the pre-render message height');
+}
+
 function testHistoricalStreamDoesNotRaceTheSessionTailLock() {
   const { document, state, workflow, messages, output, mutationObservers } = createScrollFixture();
   workflow.activateBottomScrollLock();
@@ -339,6 +355,7 @@ function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
 }
 
 module.exports = [
+  testStreamFollowCanAcquireBeforeRenderWithoutPinningStaleGeometry,
   testHistoricalStreamDoesNotRaceTheSessionTailLock,
   testNormalStreamingOutputDoesNotRaceTheSessionTailLock,
   testRecoveredHistoricalStreamInfersItsNonTailPlacement,

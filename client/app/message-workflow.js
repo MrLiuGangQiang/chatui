@@ -588,7 +588,16 @@
         if (managesStreamingOutput) {
           if (e.dataset.sessionId !== streamSessionId || state.activeOutputNode !== e) setActiveOutputForSession(streamSessionId, e);
           if (streamSessionId === state.activeSessionId && e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked || state.activeOutputNode !== e || s.forceStreamFocus)) {
-            armStreamingOutputFocus(streamSessionId, e, { margin: 72, clearStaleFocus: !!s.clearStaleFocus, tailLock: s.tailLock === true });
+            // Acquire stream-follow state now, but do not pin yet. The renderer
+            // changes this message's height immediately below; pinning its old
+            // geometry first and its new geometry in a RAF produces two visible
+            // viewport positions and makes following messages flash.
+            armStreamingOutputFocus(streamSessionId, e, {
+              margin: 72,
+              clearStaleFocus: !!s.clearStaleFocus,
+              tailLock: s.tailLock === true,
+              skipPin: true,
+            });
           }
         }
         const restoreViewport = s.noScroll && !managesStreamingOutput ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
@@ -639,7 +648,15 @@
 
         if (restoreViewport) restoreViewport();
         else if (managesStreamingOutput) {
-          if (!state.userScrollLocked && (s.forceScroll || shouldFollowScroll() || state.activeOutputNode === e)) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72, tailLock: s.tailLock === true });
+          if (!state.userScrollLocked && (s.forceScroll || shouldFollowScroll() || state.activeOutputNode === e)) {
+            // This is deliberately synchronous with the stream renderer's DOM
+            // mutation. A queued RAF allows the taller live message to paint
+            // before compensation, then shifts every later message on the next
+            // frame. One post-render end-anchor write keeps the lower history
+            // visually stationary and is also the exact geometry used by the
+            // “continue viewing output” action.
+            pinActiveOutputToAnchor(e, { margin: 72, tailLock: s.tailLock === true });
+          }
         } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         updateResumeStreamButton();
       }

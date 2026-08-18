@@ -104,7 +104,6 @@ function testStreamFollowCanAcquireBeforeRenderWithoutPinningStaleGeometry() {
   workflow.armStreamingOutputFocus('session-a', output, {
     clearStaleFocus: true,
     tailLock: false,
-    skipPin: true,
   });
 
   assert.strictEqual(state.streamFocusLocked, true);
@@ -269,6 +268,38 @@ function testHistoricalStreamingKeepsLaterMessagesStableAtTheOutputEnd() {
     'following an in-place historical stream end must keep later messages at a stable viewport position instead of making them flash');
 }
 
+function testResumeFirstClickCommitsPersistentLiveOutputAnchor() {
+  const { state, workflow, messages, output } = createScrollFixture({ later: true });
+  let height = 600;
+  output.getBoundingClientRect = () => {
+    const top = 80 - messages.scrollTop;
+    return { top, bottom: top + height, left: 80, right: 820, width: 740, height };
+  };
+
+  workflow.armStreamingOutputFocus('session-a', output, { clearStaleFocus: true, tailLock: false });
+  state.userScrollLocked = true;
+  messages.scrollTop = 200;
+
+  workflow.resumeActiveOutputFocus();
+
+  assert.strictEqual(messages.scrollTop, 252,
+    'the first continue click must align the live message end immediately');
+  assert.strictEqual(state.streamFocusLocked, true,
+    'the first continue click must acquire the persistent live-output focus state');
+  assert.strictEqual(state.userScrollLocked, false,
+    'the first continue click must release manual-scroll suppression for the active stream');
+  assert.strictEqual(state.activeOutputNode, output,
+    'the anchor must remain the streaming message, not the session tail');
+
+  height += 160;
+  workflow.commitStreamingOutput(output, { sessionId: 'session-a', tailLock: false });
+
+  assert.strictEqual(messages.scrollTop, 412,
+    'the next token must reuse the first-click live-message-end anchor without requiring a second click');
+  assert.strictEqual(state.streamFocusLocked, true,
+    'the persistent anchor must survive the next streamed render');
+}
+
 function testHistoricalResumeEndAnchorSurvivesTheNextToken() {
   const { state, workflow, messages, output, flushRafs } = createScrollFixture({ later: true });
   output.getBoundingClientRect = () => {
@@ -346,10 +377,16 @@ function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
     'the chat workflow must pass the live-output scroll policy into the shared scroll focus workflow');
   assert.ok(messageSource.includes('tailLock: s.tailLock === true'),
     'stream updates without an explicit tail-lock opt-in must keep the live output as the only scroll writer');
+  assert.ok(messageSource.includes('commitStreamingOutput(e, { margin: 72, tailLock: s.tailLock === true, sessionId: streamSessionId })'),
+    'new, regenerated, and edited chat streams must commit the same live-message-end anchor after local rendering');
+  assert.ok(messageSource.includes('e.__streamCanonicalPlacement'),
+    'canonical message placement must be private stream state rather than a per-token list mutation');
   assert.strictEqual((messageSource.match(/pinActiveOutputToAnchor\(e, \{ margin: 72 \}\)/g) || []).length, 4,
     'stream completion must preserve the placement-aware anchor instead of reintroducing a bottom pin');
   assert.ok(appSource.includes('function pinActiveOutputToAnchor(e,t={}){return getScrollFocusWorkflow().pinActiveOutputToAnchor(e,t)}'),
     'the browser entry point must inject the placement-aware output anchor into message finalization');
+  assert.ok(appSource.includes('function commitStreamingOutput(e,t={}){return getScrollFocusWorkflow().commitStreamingOutput(e,t)}'),
+    'the browser entry point must expose the same streaming commit path to every renderer');
   assert.strictEqual((resumeSource.match(/tailLock: !1/g) || []).length, 3,
     'recovered image and chat streams must also disable the competing session-tail lock');
 }
@@ -364,6 +401,7 @@ module.exports = [
   testResumeFromAboveViewportTargetsTheOutputEndInOneMove,
   testResumeUsesWindowComputedStyleWhenNoDependencyIsInjected,
   testResumeCancelsQueuedTokenPinBeforeAnchoring,
+  testResumeFirstClickCommitsPersistentLiveOutputAnchor,
   testHistoricalStreamingKeepsLaterMessagesStableAtTheOutputEnd,
   testHistoricalResumeEndAnchorSurvivesTheNextToken,
   testHistoricalEndAnchorKeepsContinueButtonFocused,

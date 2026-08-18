@@ -49,6 +49,12 @@
     // last token. Use the same output-end anchor as live updates so completion
     // cannot reintroduce a second, conflicting scroll position.
     const pinActiveOutputToAnchor = deps.pinActiveOutputToAnchor || deps.pinNodeBottomToTarget || (() => {});
+    const commitStreamingOutput = deps.commitStreamingOutput || pinActiveOutputToAnchor;
+    const setDatasetValue = (node, key, value) => {
+      if (!node?.dataset) return;
+      const normalized = String(value ?? '');
+      if (node.dataset[key] !== normalized) node.dataset[key] = normalized;
+    };
     const documentRef = deps.document || root.document;
     if (typeof documentRef?.addEventListener === 'function' && !documentRef.__chatuiUserRawCopyBound) {
       documentRef.__chatuiUserRawCopyBound = true;
@@ -410,8 +416,8 @@
 
     function updateMessage(e, t, s = {}) {
       with (deps) {
-        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
-        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) setDatasetValue(e, 'messageIndex', s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) setDatasetValue(e, 'responseIndex', s.responseIndex);
         const displayApi = root?.ChatUIAppDisplayItems || {};
         const canonicalRole = e.classList?.contains('user') ? 'user' : e.classList?.contains('assistant') || e.classList?.contains('error') ? 'assistant' : '';
         const canonicalIndex = canonicalRole === 'user' ? e.dataset.messageIndex : e.dataset.responseIndex;
@@ -477,7 +483,9 @@
         delete e.dataset.streamingMarkdownMode;
         delete e.dataset.streamingMarkdownConsumed;
         delete e.dataset.streamingMarkdownTail;
+        delete e.__lastStreamingRaw;
         delete e.dataset.lastStreamingRaw;
+        delete e.__streamCanonicalPlacement;
 
         clearStreamingState();
         if (e === state.activeOutputNode && !s.skipSave) {
@@ -488,8 +496,8 @@
         e.dataset.rawHash = rawHash;
         if (s.skipSave) e.dataset.persist = "0";
         else delete e.dataset.persist;
-        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
-        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) setDatasetValue(e, 'messageIndex', s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) setDatasetValue(e, 'responseIndex', s.responseIndex);
 
         if (!rendered) {
           if (s.html) {
@@ -553,16 +561,27 @@
     function updateMessageContentLight(e, t, s = {}) {
       with (deps) {
         if (shouldSuppressRunUi(s.sessionId || state.activeSessionId, s.runToken) || !e) return;
-        if (void 0 !== s.messageIndex && null !== s.messageIndex) e.dataset.messageIndex = String(s.messageIndex);
-        if (void 0 !== s.responseIndex && null !== s.responseIndex) e.dataset.responseIndex = String(s.responseIndex);
+        if (void 0 !== s.messageIndex && null !== s.messageIndex) setDatasetValue(e, 'messageIndex', s.messageIndex);
+        if (void 0 !== s.responseIndex && null !== s.responseIndex) setDatasetValue(e, 'responseIndex', s.responseIndex);
         const displayApi = root?.ChatUIAppDisplayItems || {};
         const canonicalRole = e?.classList?.contains('user') ? 'user' : e?.classList?.contains('assistant') || e?.classList?.contains('error') ? 'assistant' : '';
         const canonicalIndex = canonicalRole === 'user' ? e?.dataset?.messageIndex : e?.dataset?.responseIndex;
-        e = displayApi.reconcileCanonicalMessageNode?.($("messages"), e, { role: canonicalRole, index: canonicalIndex }) || e;
+        const chatStream = s.streamKind === 'chat' && !s.html && !e.classList?.contains('user');
+        const streamPlacementKey = chatStream && canonicalRole && canonicalIndex !== undefined && canonicalIndex !== null && canonicalIndex !== ''
+          ? `${canonicalRole}:${canonicalIndex}`
+          : '';
+        // Canonical placement is a stream-start concern. Reconciliation walks
+        // the whole message list and can move the live node; doing that for
+        // every token turns an otherwise local content update into a mutation
+        // of the entire history. Keep later deltas inside this message only.
+        const alreadyPlaced = !!(streamPlacementKey
+          && e.__streamCanonicalPlacement === streamPlacementKey
+          && e.parentNode === $("messages"));
+        if (!alreadyPlaced) e = displayApi.reconcileCanonicalMessageNode?.($("messages"), e, { role: canonicalRole, index: canonicalIndex }) || e;
+        if (streamPlacementKey) e.__streamCanonicalPlacement = streamPlacementKey;
         const contentNode = e?.querySelector('.content');
         if (!contentNode) return;
         const rawValue = String(s.rawText ?? t ?? '');
-        const chatStream = s.streamKind === 'chat' && !s.html && !e.classList?.contains('user');
         const rawHash = chatStream ? '' : chatuiContentHash(rawValue);
         if (!s.html && !chatStream && !e.classList?.contains('user') && e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.forceRender) {
           cleanupGeneratedImageNumberArtifacts(e);
@@ -571,17 +590,17 @@
 
         e.dataset.rawText = rawValue;
         if (chatStream) {
-          e.dataset.streamingRawLength = String(rawValue.length);
+          e.__streamingRawLength = rawValue.length;
           if (!e.dataset.rawHash) e.dataset.rawHash = 'streaming';
-          if (e.dataset.lastStreamingRaw === rawValue) {
+          if (e.__lastStreamingRaw === rawValue) {
             updateResumeStreamButton();
             return;
           }
-          e.dataset.lastStreamingRaw = rawValue;
+          e.__lastStreamingRaw = rawValue;
         } else {
           e.dataset.rawHash = rawHash;
-          delete e.dataset.streamingRawLength;
-          delete e.dataset.lastStreamingRaw;
+          delete e.__streamingRawLength;
+          delete e.__lastStreamingRaw;
         }
         const streamSessionId = s.sessionId || state.activeSessionId;
         const managesStreamingOutput = !!(chatStream && streamSessionId);
@@ -601,10 +620,10 @@
           }
         }
         const restoreViewport = s.noScroll && !managesStreamingOutput ? (state.userScrollLocked ? preserveMessageViewport(e) : preserveMessageBottomAnchor(e, 72)) : null;
-        e.dataset.streaming = '1';
-        if (void 0 !== s.streamKind) e.dataset.streamKind = s.streamKind || '';
-        if (void 0 !== s.runToken) e.dataset.streamRunToken = s.runToken || '';
-        if (s.skipSave) e.dataset.persist = '0';
+        setDatasetValue(e, 'streaming', '1');
+        if (void 0 !== s.streamKind) setDatasetValue(e, 'streamKind', s.streamKind || '');
+        if (void 0 !== s.runToken) setDatasetValue(e, 'streamRunToken', s.runToken || '');
+        if (s.skipSave) setDatasetValue(e, 'persist', '0');
 
         if (chatStream && shouldProgressiveRenderMarkdown(rawValue)) {
           delete e.__markdownStreamingRenderer;
@@ -655,7 +674,7 @@
             // frame. One post-render end-anchor write keeps the lower history
             // visually stationary and is also the exact geometry used by the
             // “continue viewing output” action.
-            pinActiveOutputToAnchor(e, { margin: 72, tailLock: s.tailLock === true });
+            commitStreamingOutput(e, { margin: 72, tailLock: s.tailLock === true, sessionId: streamSessionId });
           }
         } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         updateResumeStreamButton();

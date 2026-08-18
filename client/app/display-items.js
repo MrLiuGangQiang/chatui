@@ -76,10 +76,14 @@ function setMessageNodeIndex(node, role, index) {
   const key = normalizedRole === 'user' ? 'messageIndex' : normalizedRole === 'assistant' ? 'responseIndex' : '';
   if (!key) return node;
   const otherKey = key === 'messageIndex' ? 'responseIndex' : 'messageIndex';
-  node.dataset[key] = String(index);
-  delete node.dataset[otherKey];
+  const value = String(index);
+  // Rewriting an unchanged dataset value emits an attribute mutation in real
+  // browsers. During a stream that wakes the list-level layout observer even
+  // though neither this message nor its canonical position has changed.
+  if (node.dataset[key] !== value) node.dataset[key] = value;
+  if (Object.prototype.hasOwnProperty.call(node.dataset, otherKey)) delete node.dataset[otherKey];
   if (node.__displayItem) {
-    node.__displayItem[key] = String(index);
+    node.__displayItem[key] = value;
     delete node.__displayItem[otherKey];
   }
   return node;
@@ -125,8 +129,12 @@ function reconcileCanonicalMessageNode(container, node, { role = '', index = nul
     const candidateIndex = messageNodeIndex(candidate, candidateRole);
     return Number.isFinite(candidateIndex) && candidateIndex > expectedIndex;
   });
-  if (anchor?.parentNode === container) container.insertBefore(node, anchor);
-  else if (node.parentNode !== container || node !== container.lastElementChild) container.appendChild(node);
+  if (anchor?.parentNode === container) {
+    // insertBefore(node, node.nextElementSibling) still removes and reinserts
+    // `node`. Repeating that for each stream chunk invalidates every sibling
+    // below the response and is the source of the visible history flicker.
+    if (node.parentNode !== container || node.nextElementSibling !== anchor) container.insertBefore(node, anchor);
+  } else if (node.parentNode !== container || node !== container.lastElementChild) container.appendChild(node);
   return node;
 }
 

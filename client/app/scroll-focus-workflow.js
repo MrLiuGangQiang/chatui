@@ -574,7 +574,7 @@
         state.userScrollLocked = false;
         state.autoScrollLocked = true;
         state.activeOutputNode = node;
-        if (node.dataset) node.dataset.streamTailLock = tailLock ? "1" : "0";
+        if (node.dataset && node.dataset.streamTailLock !== (tailLock ? "1" : "0")) node.dataset.streamTailLock = tailLock ? "1" : "0";
         if (!tailLock) cancelBottomScrollFrame();
         if (!options.skipPin) pinActiveOutputToAnchor(node, options);
       }
@@ -635,6 +635,7 @@
           state.outputPinSuppressUntil = 0;
           cancelScrollTimer();
         }
+        if (node.dataset && node.dataset.streaming !== "1") node.dataset.streaming = "1";
         setActiveOutputForSession(sessionId, node);
         // The stream renderer mutates the message immediately after this setup.
         // Do not pin the *old* message geometry here: doing so writes one scroll
@@ -643,9 +644,32 @@
         // The message workflow commits the single post-render output-end pin in
         // the same task as the DOM update.
         if (sessionId === state.activeSessionId && node.isConnected) {
-          lockToStreamingOutput(node, { margin, tailLock, skipPin: options.skipPin === true });
+          // Starting a stream is state-only. The one and only anchor write is
+          // committed after the current message has finished its local render.
+          // This rule is shared by new messages, regeneration, and edit/resend.
+          lockToStreamingOutput(node, { margin, tailLock, skipPin: true });
         } else updateResumeStreamButton();
       }
+    }
+
+    function commitStreamingOutput(node, options = {}) {
+      if (!node?.isConnected) return false;
+      const sessionId = options.sessionId || node.dataset?.sessionId || deps.state.activeSessionId;
+      if (!sessionId || sessionId !== deps.state.activeSessionId) return false;
+      if (node.dataset?.streaming !== '1') return false;
+      const tailLock = streamTailLockFor(node, options);
+      setActiveOutputForSession(sessionId, node);
+      if (deps.state.userScrollLocked && options.force !== true) {
+        updateResumeStreamButton();
+        return false;
+      }
+      // Keep the anchor state alive across every local streaming render. In
+      // particular, a resume-button click must not only move once; the next
+      // chunk must continue from the same output-end anchor.
+      lockToStreamingOutput(node, { ...options, tailLock, skipPin: true });
+      const pinned = pinNodeBottomToTarget(node, options);
+      updateResumeStreamButton();
+      return pinned;
     }
 
     function pinNodeBottomToTarget(node, options = {}) {
@@ -684,7 +708,11 @@
             const pending = pendingActiveOutput;
             pendingActiveOutput = null;
             if (!pending?.node?.isConnected) return queueResumeButtonUpdate();
-            if (!state.userScrollLocked) lockToStreamingOutput(pending.node, pending.options);
+            if (!state.userScrollLocked && pending.node.dataset?.streaming === '1') {
+              commitStreamingOutput(pending.node, pending.options);
+            } else if (!state.userScrollLocked) {
+              pinNodeBottomToTarget(pending.node, pending.options);
+            }
             queueResumeButtonUpdate();
           });
         }
@@ -709,7 +737,7 @@
 
     function setActiveOutputForSession(sessionId, node) {
       with (deps) {
-        if (sessionId && node) node.dataset.sessionId = sessionId;
+        if (sessionId && node && node.dataset.sessionId !== sessionId) node.dataset.sessionId = sessionId;
         if (sessionId) {
           if (node) state.activeOutputSessions.set(sessionId, node);
           else state.activeOutputSessions.delete(sessionId);
@@ -786,8 +814,10 @@
         // after this handler and undoes the first-click message anchor.
         cancelScrollTimer();
         cleanupActiveOutputSettler();
-        focusStreamingOutputMessage(node, { margin, tailLock });
-        lockToStreamingOutput(node, { margin, tailLock, skipPin: true });
+        // Resume through the same commit path used by every subsequent chunk.
+        // The first click both aligns the message end and establishes the
+        // persistent output-end anchor for all later local renders.
+        commitStreamingOutput(node, { margin, tailLock, sessionId: state.activeSessionId, force: true });
         queueResumeButtonUpdate();
       }
     }
@@ -830,6 +860,7 @@
       armStreamingOutputFocus,
       pinNodeBottomToTarget,
       pinActiveOutputToAnchor,
+      commitStreamingOutput,
       scrollToActiveOutput,
       isNodeAwayFromOutputFocus,
       setActiveOutputForSession,

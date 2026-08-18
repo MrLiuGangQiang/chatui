@@ -102,7 +102,10 @@
           if(dots) dots.hidden=completed;
           setReasoningPanelExpanded(panel,!1!==s.expanded);
         }
-        scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive});
+        const ownsLiveOutput = e?.dataset?.streaming === "1" && (state.activeOutputNode === e || s.followActive === !0);
+        if (ownsLiveOutput) {
+          (deps.commitStreamingOutput || scrollToActiveOutput)(e,{force:!0,active:!0,margin:72,tailLock:s.tailLock===!0,sessionId:e.dataset.sessionId||state.activeSessionId});
+        } else scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive});
       }
     }
 

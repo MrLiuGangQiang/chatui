@@ -30,6 +30,19 @@ function testImageInstructionProtocolRequiresAnExecutableInstructionOrClarificat
   assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('基于这个描述再生成一张图片。'), true);
   assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('一座雪山位于日出云海之上，电影感风景摄影。'), false);
   assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference(ready.instruction), false);
+  // Negated references are self-contained: the model explicitly says it does
+  // NOT reuse a previous design/plan, so no downstream resolution is needed.
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('不参考或沿用之前的设计，重新设计一张住宅平面图。'), false,
+    'a negated reference must not be treated as an unresolved instruction reference');
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('不要根据之前的方案，直接画一只猫。'), false);
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('重新设计，无需沿用上面那个方案。'), false);
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('请勿参考之前的版本，从零开始画。'), false);
+
+  // A genuine reference (including one negated across a sentence boundary)
+  // must still be rejected.
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('根据之前的方案生成。'), true);
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('参考上面那个版本，改一下配色。'), true);
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('根据上面的方案生成。不要参考之前的版本。'), true);
 }
 
 function testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol() {

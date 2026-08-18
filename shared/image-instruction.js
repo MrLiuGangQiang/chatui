@@ -43,8 +43,31 @@
     return String(value ?? '').trim();
   }
 
+  // A reference is only unresolved when the model actually asks a downstream
+  // step to reuse it. "不参考/不要沿用/无需根据" explicitly negate the reference,
+  // which makes the instruction self-contained; only a non-negated reference
+  // (and a negation on the other side of a sentence boundary) is unresolved.
+  const NEGATION_MARKER_PATTERN = /(?:无需|无须|不用|不必|不需|不|勿|别|禁止|don'?t|cannot|can'?t|not|never)/i;
+  const SENTENCE_BOUNDARY_PATTERN = /[。！？；!?;]/;
+
+  function hasNegatedReferenceWindow(text = '', index = 0) {
+    const start = Math.max(0, index - 12);
+    const window = text.slice(start, index);
+    if (!NEGATION_MARKER_PATTERN.test(window)) return false;
+    return !SENTENCE_BOUNDARY_PATTERN.test(window);
+  }
+
   function hasUnresolvedImageInstructionReference(instruction = '') {
-    return UNRESOLVED_IMAGE_INSTRUCTION_REFERENCE_PATTERN.test(stringValue(instruction));
+    const text = stringValue(instruction);
+    if (!text) return false;
+    const baseFlags = UNRESOLVED_IMAGE_INSTRUCTION_REFERENCE_PATTERN.flags;
+    const flags = baseFlags.includes('g') ? baseFlags : baseFlags + 'g';
+    const pattern = new RegExp(UNRESOLVED_IMAGE_INSTRUCTION_REFERENCE_PATTERN.source, flags);
+    for (const match of text.matchAll(pattern)) {
+      if (hasNegatedReferenceWindow(text, match.index)) continue;
+      return true;
+    }
+    return false;
   }
 
   function hasOnlyFields(value, fields) {

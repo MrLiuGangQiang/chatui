@@ -191,7 +191,7 @@
         if ((item.responseIndex === '' || item.responseIndex === null || item.responseIndex === undefined) && responseIndex !== '' && responseIndex !== null && responseIndex !== undefined) { item.responseIndex = String(responseIndex); changed = true; }
         if (item.pending !== '1') { item.pending = '1'; changed = true; }
         const currentText = String(item.rawText || '').trim();
-        const currentIsStatus = !currentText || deps.isChatStatusText?.(currentText) || /^(?:\u6b63\u5728|\u5df2\u6536\u5230|\u4efb\u52a1\u6b63\u5728)/.test(currentText);
+        const currentIsStatus = !currentText || deps.isChatStatusText?.(currentText);
         if (currentIsStatus && currentText !== statusText) {
           item.rawText = statusText;
           item.html = typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(statusText) : item.html || '';

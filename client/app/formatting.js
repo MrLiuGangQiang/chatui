@@ -59,7 +59,48 @@
 
   function isChatStatusText(value = '') {
     if (executionStatus.isExecutionStatusText?.(value)) return true;
-    return /正在执行：|正在接收任务|正在准备消息|正在识别任务|正在连接模型|正在启动图片任务|正在处理中 请稍后|正在处理|正在思考|正在恢复聊天任务|恢复任务不存在|已停止恢复|已收到|请稍等|已等待/.test(String(value || ''));
+    const text = String(value || '').trim();
+    if (!text) return false;
+    // Status projections are app-generated, short phrases (optionally followed
+    // by the elapsed-seconds suffix). Real assistant content must never match,
+    // even when it contains words like "请稍等"/"已收到"/"已等待" mid-sentence:
+    // classifying real content as status previously wiped streamed answers on
+    // refresh and dropped completed replies from reloaded history.
+    const statusPhrase = [
+      '正在执行：[^…]*',
+      '正在接收任务',
+      '正在准备消息',
+      '正在识别任务',
+      '正在连接模型',
+      '正在启动图片任务',
+      '正在处理中[\\s　]+请稍后',
+      '正在处理',
+      '正在思考',
+      '正在恢复聊天任务',
+      '正在等待模型生成回答',
+      '正在准备执行任务',
+      '正在读取当前对话上下文',
+      '正在准备图片生成参数',
+      '正在准备回答',
+      '正在等待任务结果',
+      '正在搜索网页并整理答案',
+      '正在提取图片文字',
+      '正在比较所选图片',
+      '正在分析图片',
+      '正在分析文件',
+      '正在结合图片和文件分析',
+      '正在准备图片',
+      '正在准备文件内容',
+      '正在准备图片和文件',
+      '正在准备图片生成参数',
+      '正在准备参考图生成任务',
+      '正在准备图片修改任务',
+      '正在生成图片',
+      '正在修改图片',
+      '正在基于参考图生成图片',
+    ].join('|');
+    return new RegExp('^(?:' + statusPhrase + ')(?:…)?(?:\\s*已等待\\s*\\d+\\s*秒…?)?$').test(text)
+      || /^(?:已收到…?|请稍等…?|已等待\s*\d+\s*秒…?|已停止恢复…?|恢复任务不存在[\s\S]*|任务\s*\d+(?:\/\d+)?：[\s\S]*)$/.test(text);
   }
 
   const api = Object.freeze({

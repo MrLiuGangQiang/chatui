@@ -14,8 +14,15 @@ function testStatelessCurrentOnlyRequestKeepsCurrentInputAsExactGoalAuthority() 
     { type: 'image/png', is_image: true, image_id: 'img-a', name: 'a.png', index: 1 },
     { type: 'image/png', is_image: true, image_id: 'img-b', name: 'b.png', index: 2 },
   ];
-  assert.deepStrictEqual(goalSchemaFor({ input, attachments, context: {} }).enum, [input],
-    'without historical semantic state, current_input is the exact goal authority');
+  const goal = goalSchemaFor({ input, attachments, context: {} });
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(goal, 'enum'), false,
+    'strict provider schemas must not embed the current input as a goal enum literal');
+  assert.deepStrictEqual(goal, { type: 'string' });
+  const compiled = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat', relation: 'new', goal: input, goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }), { input, attachments, context: {} });
+  assert.strictEqual(compiled.route.userGoal, input,
+    'without historical semantic state, current_input stays the exact goal authority at the local compile boundary');
 }
 
 function testConcreteSequentialEditKeepsOnlyTheNewCurrentInstructionAsGoalAuthority() {
@@ -44,8 +51,8 @@ function testConcreteSequentialEditKeepsOnlyTheNewCurrentInstructionAsGoalAuthor
     }],
     file_candidates: [],
   };
-  assert.deepStrictEqual(goalSchemaFor({ input, context }).enum, [input],
-    'a new concrete edit instruction must not copy completed prior instructions into goal');
+  assert.deepStrictEqual(goalSchemaFor({ input, context }), { type: 'string' },
+    'a new concrete edit instruction must keep the wire goal as a plain string and never copy completed prior instructions into it');
 }
 
 function testResourceOnlyCorrectionStillLetsTheModelResolveTheInheritedGoal() {

@@ -152,6 +152,9 @@ function messagesHaveInputFiles(messages = []) {
 const STRICT_STRUCTURED_OUTPUT_PROVIDER_UNSUPPORTED_KEYWORDS = new Set([
   'minLength', 'maxLength', 'pattern', 'format',
   'minItems', 'maxItems', 'uniqueItems', 'contains', 'minContains', 'maxContains',
+  // Numeric range keywords and const are also outside the strict structured-output
+  // subset; every removed rule is re-enforced by the local protocol validators.
+  'const', 'minimum', 'maximum', 'multipleOf', 'exclusiveMinimum', 'exclusiveMaximum',
 ]);
 
 function strictStructuredOutputProviderSchema(schema = {}) {

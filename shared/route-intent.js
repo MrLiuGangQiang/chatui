@@ -113,10 +113,12 @@
       .map(stringValue)
       .filter(relation => VALID_RELATIONS.has(relation)))];
     if (allowedRelations.length) schema.properties.relation.enum = allowedRelations;
-    const allowedGoals = [...new Set((Array.isArray(options.allowedGoals) ? options.allowedGoals : [])
-      .map(stringValue)
-      .filter(goal => goal.length >= 1 && goal.length <= ROUTE_INTENT_MAX_GOAL_LENGTH))];
-    if (allowedGoals.length) schema.properties.goal.enum = allowedGoals;
+    // The current input is deliberately NOT emitted as a goal enum literal:
+    // strict structured-output gateways reject long user-derived string
+    // literals inside the schema. Goal non-emptiness, the length cap, and the
+    // exact-input goal rule are all enforced by the local route-intent
+    // validator and the compile boundary, so the wire schema keeps goal as a
+    // plain string.
     const allowedGoalModes = [...new Set((Array.isArray(options.allowedGoalModes) ? options.allowedGoalModes : [])
       .map(stringValue)
       .filter(goalMode => ROUTE_INTENT_GOAL_MODES.has(goalMode)))];

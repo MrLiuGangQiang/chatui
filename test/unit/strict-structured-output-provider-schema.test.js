@@ -8,6 +8,7 @@ const routeIntent = require('../../shared/route-intent');
 const UNSUPPORTED_STRICT_PROVIDER_KEYWORDS = new Set([
   'minLength', 'maxLength', 'pattern', 'format',
   'minItems', 'maxItems', 'uniqueItems', 'contains', 'minContains', 'maxContains',
+  'const', 'minimum', 'maximum', 'multipleOf', 'exclusiveMinimum', 'exclusiveMaximum',
 ]);
 
 function unsupportedKeywordPaths(value, path = '$', paths = []) {
@@ -68,8 +69,8 @@ function testRouteGoalLengthRulesRemainLocalWhileTheWireSchemaStaysPortable() {
     minLength: 1,
     maxLength: routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH,
   }, 'the canonical local validator must retain the non-empty and bounded goal contract');
-  assert.deepStrictEqual(providerGoalSchema, { type: 'string', enum: [input] },
-    'the strict wire schema must not send minLength/maxLength to gateways that reject string lexical constraints');
+  assert.deepStrictEqual(providerGoalSchema, { type: 'string' },
+    'the strict wire schema must send the goal as a plain string: no minLength/maxLength and no user-input enum literal');
   assert.strictEqual(routeIntent.hasExactRouteIntent({
     operation: 'plain_chat',
     relation: 'new',
@@ -102,6 +103,8 @@ function testProviderSchemaSanitizerDoesNotMutateCallerOwnedSchema() {
     properties: {
       value: { type: 'string', minLength: 1, maxLength: 5, pattern: '^[a-z]+$' },
       items: { type: 'array', minItems: 1, maxItems: 2, items: { type: 'string' } },
+      fixed: { type: 'string', const: 'v1' },
+      count: { type: 'integer', minimum: 1, maximum: 4, multipleOf: 1 },
     },
   };
   const compacted = chatService.strictStructuredOutputProviderSchema(source);
@@ -110,6 +113,8 @@ function testProviderSchemaSanitizerDoesNotMutateCallerOwnedSchema() {
   assert.strictEqual(source.properties.value.minLength, 1);
   assert.strictEqual(source.properties.value.maxLength, 5);
   assert.strictEqual(source.properties.items.maxItems, 2);
+  assert.strictEqual(source.properties.fixed.const, 'v1');
+  assert.strictEqual(source.properties.count.minimum, 1);
 }
 
 module.exports = [

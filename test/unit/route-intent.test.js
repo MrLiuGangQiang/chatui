@@ -94,18 +94,17 @@ function testRouteIntentRequiresANonEmptyBoundedGoal() {
   assert.strictEqual(routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema.properties.goal.maxLength, maxGoalLength);
 }
 
-function testCandidateSpecificRouteSchemaPreservesTheGoalBoundary() {
+function testCandidateSpecificRouteSchemaNeverEmitsUserGoalAsALiteral() {
   const exactGoal = '目'.repeat(routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH);
-  const overlongGoal = `${exactGoal}目`;
+  const overlongGoal = exactGoal + '目';
   const responseFormat = routeIntent.routeIntentResponseFormatForCandidates([], {
     allowedGoals: [exactGoal, overlongGoal],
   });
+  const goalSchema = responseFormat.json_schema.schema.properties.goal;
 
-  assert.deepStrictEqual(
-    responseFormat.json_schema.schema.properties.goal.enum,
-    [exactGoal],
-    'the dynamic response schema must retain a valid 1000-character current-input goal and exclude only overlong values',
-  );
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(goalSchema, 'enum'), false,
+    'the dynamic response schema must never embed a user-derived goal as an enum string literal: strict providers reject long literals');
+  assert.strictEqual(goalSchema.type, 'string');
 }
 
 function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
@@ -232,7 +231,7 @@ module.exports = [
   testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit,
   testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles,
   testRouteIntentRequiresANonEmptyBoundedGoal,
-  testCandidateSpecificRouteSchemaPreservesTheGoalBoundary,
+  testCandidateSpecificRouteSchemaNeverEmitsUserGoalAsALiteral,
   testRouteIntentResponseSchemaRequiresEveryDeclaredProperty,
   testEmptyCurrentAttachmentSetCompilesWithoutAProviderRouteDecision,
   testRoutePromptDefinesRelationAsContextDependency,

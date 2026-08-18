@@ -42,14 +42,17 @@ function normalizeOutputFormat(value) {
   return ['png', 'jpeg', 'webp'].includes(text) ? text : '';
 }
 
-function buildImageRequestPayload({ model, prompt, quality = 'auto', background = 'auto', format = 'auto', output_format } = {}) {
+function buildImageRequestPayload({ model, prompt, size = '', quality = '', background = '', format = '', output_format } = {}) {
   const normalizedPrompt = String(prompt || '').trim();
-  // Size is deliberately not an exposed generation control. Keeping the wire
-  // value explicit makes every supported image endpoint use provider auto mode.
-  const payload = { model, prompt: normalizedPrompt, size: 'auto' };
+  // Provider auto mode is the default: size and quality are only forwarded
+  // when the user explicitly selected or requested a value, so an unspecified
+  // generation/edit request never carries `size: 'auto'` or a default quality.
+  const payload = { model, prompt: normalizedPrompt };
+  const resolvedSize = normalizeAutoValue(size);
   const resolvedQuality = normalizeAutoValue(quality);
   const resolvedBackground = normalizeAutoValue(background);
   const resolvedFormat = normalizeOutputFormat(output_format || format);
+  if (resolvedSize) payload.size = resolvedSize;
   if (resolvedQuality) payload.quality = resolvedQuality;
   if (resolvedBackground) payload.background = resolvedBackground;
   if (resolvedFormat) payload.output_format = resolvedFormat;
@@ -60,6 +63,7 @@ function buildGptImage2TaskPayload({ model, task = {}, prompt = '' } = {}) {
   return buildImageRequestPayload({
     model,
     prompt: task.prompt || prompt,
+    size: task.size,
     quality: task.quality,
     background: task.background,
     format: task.format || task.output_format || task.outputFormat,

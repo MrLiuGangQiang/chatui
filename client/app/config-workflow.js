@@ -2,7 +2,7 @@
   'use strict';
 
   const DEFAULT_BASE_URL = 'https://ingress.lfans.cn/v1';
-  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
+  const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
 
   function createConfigWorkflow(deps = {}) {
     const { state, getElement, localStorage, document, window, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, saveSessionsMeta, toast } = deps;
@@ -33,27 +33,26 @@
     function loadConfig(){
       const stored=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{}));
       const legacyApiKey=String(stored.apiKey||"");
-      const legacyImageSize=Object.prototype.hasOwnProperty.call(stored,"imageSize");
       const persistedApiKey=readPersistedApiKey()||readLegacySessionApiKey();
       if(legacyApiKey)delete stored.apiKey;
-      if(legacyImageSize)delete stored.imageSize;
       const config={...defaults,...stored,apiKey:persistedApiKey||legacyApiKey};
       if(config.apiKey&&!readPersistedApiKey())writePersistedApiKey(config.apiKey);
-      const baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
+      const baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),sizeEl=getElement("imageSize"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
       if(baseEl){baseEl.value=config.baseUrl||defaults.baseUrl;baseEl.readOnly=!1}
       if(apiEl)apiEl.value=config.apiKey||"";
+      if(sizeEl){sizeEl.value=config.imageSize||defaults.imageSize;updateCustomSelect(sizeEl)}
       if(systemEl)systemEl.value=config.systemPrompt||"";
       if(styleEl)styleEl.value=config.imageStylePrompt||"";
       state.models=Array.isArray(config.models)?config.models:[];
       state.modelMeta=normalizeModelMeta(state.models,config.modelMeta||{});
       const availableModels=new Set(state.models),chatModel=availableModels.has(config.chatModel)?config.chatModel:"",routeModel=availableModels.has(config.routeModel)?config.routeModel:"",imageModel=availableModels.has(config.imageModel)?config.imageModel:"";
       renderModelOptions(chatModel,imageModel,routeModel);
-      if(legacyApiKey||legacyImageSize||config.chatModel!==chatModel||config.routeModel!==routeModel||config.imageModel!==imageModel)saveConfig(!0);
+      if(legacyApiKey||config.chatModel!==chatModel||config.routeModel!==routeModel||config.imageModel!==imageModel)saveConfig(!0);
       void loadPublicContext()
     }
 
     function getConfig(){
-      const stored=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
+      const stored=readJsonStorage(CONFIG_KEY,{}),baseEl=getElement("baseUrl"),apiEl=getElement("apiKey"),chatEl=getElement("chatModel"),routeEl=getElement("routeModel"),imageEl=getElement("imageModel"),sizeEl=getElement("imageSize"),systemEl=getElement("systemPrompt"),styleEl=getElement("imageStylePrompt");
       const storedModels=Array.isArray(stored.models)?stored.models:[],models=Array.isArray(state.models)&&state.models.length?state.models:storedModels,context=state.publicContext&&"object"==typeof state.publicContext?state.publicContext:stored.context&&"object"==typeof stored.context?stored.context:{};
       return{
         baseUrl:(baseEl?.value.trim()||DEFAULT_BASE_URL).replace(/\/+$/, ""),
@@ -61,6 +60,7 @@
         chatModel:String(chatEl?chatEl.value:stored.chatModel||"").trim(),
         routeModel:String(routeEl?routeEl.value:stored.routeModel||"").trim(),
         imageModel:String(imageEl?imageEl.value:stored.imageModel||"").trim(),
+        imageSize:String(sizeEl?sizeEl.value:stored.imageSize||defaults.imageSize).trim()||defaults.imageSize,
         systemPrompt:String(systemEl?systemEl.value:stored.systemPrompt||"").trim(),
         imageStylePrompt:String(styleEl?styleEl.value:stored.imageStylePrompt||"").trim(),
         models,
@@ -88,6 +88,7 @@
         chatModel:config.chatModel,
         routeModel:config.routeModel,
         imageModel:config.imageModel,
+        imageSize:config.imageSize,
         systemPrompt:config.systemPrompt,
         imageStylePrompt:config.imageStylePrompt,
         models:Array.isArray(state.models)?state.models:[],

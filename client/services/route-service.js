@@ -151,11 +151,6 @@
   // image-choice clarification.
   const HISTORICAL_IMAGE_REFERENCE_PATTERN = /(?:\u5386\u53f2|\u4e4b\u524d|\u6b64\u524d|\u4ee5\u524d|\u524d\u9762|\u4e0a\u6b21|\u521a\u624d|\u8fc7\u53bb|previous|last|history)[^\u3002\uff01\uff1f!?\n]{0,24}(?:\u56fe\u7247|\u56fe\u50cf|\u7167\u7247|\u56fe|image|photo)/i;
   const IMAGE_GENERATION_INTENT_PATTERN = /(?:\u751f\u6210|\u753b|\u7ed8\u5236|\u5236\u4f5c|\u521b\u5efa|\bgenerate\b|\bdraw\b|\bcreate\b)/i;
-  // A generic “结合附件/根据下面内容 + 生成图片”请求是文字生图：
-  // 上传的图片只是附带附件，不是生成参考。
-  const ATTACHMENT_TEXT_GENERATION_PATTERN = /^(?:\u8bf7|\u9ebb\u70e6)?\s*(?:\u7ed3\u5408|\u6839\u636e|\u57fa\u4e8e|\u56f4\u7ed5|\u6309\u7167)\s*(?:\u9644\u4ef6|\u4ee5\u4e0b\u5185\u5bb9|\u4e0b\u9762\u5185\u5bb9|\u4e0b\u8ff0\u5185\u5bb9|\u8fd9\u4e9b\u5185\u5bb9|\u4e0a\u9762\u5185\u5bb9|\u4e0a\u8ff0\u5185\u5bb9)(?:\s*\u548c\s*(?:\u4ee5\u4e0b\u5185\u5bb9|\u4e0b\u9762\u5185\u5bb9|\u4e0b\u8ff0\u5185\u5bb9|\u8fd9\u4e9b\u5185\u5bb9|\u4e0a\u9762\u5185\u5bb9|\u4e0a\u8ff0\u5185\u5bb9|\u5185\u5bb9))?\s*[\uff0c,\u3002]?\s*(?:\u5e2e\u6211|\u8bf7|\u9ebb\u70e6)?\s*(?:\u751f\u6210|\u753b|\u7ed8\u5236|\u521b\u4f5c|\u5236\u4f5c|\u521b\u5efa)\s*(?:\u4e00|\u4e00\u4e2a|\u5f20|\u5e45|\u53ea|\u5957)?/i;
-  // 显式要求使用/参考附图的表述不算文字生图，保留参考生成。
-  const EXPLICIT_IMAGE_REFERENCE_WORDING_PATTERN = /(?:\u53c2\u8003|\u57fa\u4e8e|\u6309\u7167|\u4ee5).{0,24}(?:\u8fd9|\u90a3|\u4e0a\u4e00|\u4e4b\u524d|\u521a\u624d)?(?:\u5f20)?\u56fe(?:\u7247)?|(?:\u7ed3\u5408|\u6839\u636e|\u56f4\u7ed5|\u7528)\s*(?:\u9644\u4ef6|\u5185\u5bb9)?\s*(?:\u91cc\u7684|\u4e2d\u7684|\u4e2d|\u7684)?\s*(?:\u8fd9|\u90a3|\u8fd9\u4e9b|\u90a3\u4e9b|\u8be5)?\s*(?:[\u4e00\u4e8c\u4e24\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\d]*\u5f20)?\u56fe(?:\u7247|\u50cf)?/i;
   // A request that explicitly names a historical text prompt/description has a
   // semantic source dependency. It is never safe to treat the current turn as
   // the complete generation prompt merely because the route model omitted a
@@ -200,7 +195,6 @@
     '【判断顺序】必须依次完成：1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode。operation决定执行能力，task_shape决定一次或多次执行，resource_refs决定具体资源，relation决定对话/执行依赖，goal写本轮可执行要求，goal_mode决定图片任务文字状态是替换还是修订。',
     '【operation】plain_chat=普通文字任务；web_search=需要实时检索；file_qa=读取或分析文件；image_qa=看图、描述、翻译图片内容或根据图片写提示词；ocr=识别图片文字；image_compare=比较两张图；multimodal_qa=必须同时读取图+文件；text_to_image=仅根据文字生成新图；image_reference_gen=使用图片参考生成新图；edit_image=修改既有图片。',
     '边界：改现有图→edit_image(target=被改图)；参考图生新图→image_reference_gen；看图写提示词/翻译/分析→image_qa；仅图文共存不等于multimodal_qa。image_compare 必须是比较任务，不要因有多张图就选它；ocr 只在用户明确要识别图中文字时选择。',
-    '【附件与生图】“结合附件/根据下面内容+生成一张图/一页PPT”等以文字内容为主的生成请求，上传的图片只是附带附件：operation 保持 text_to_image，不绑定图片；只有明确要求使用/参考图片（参考这张图/按图/用图里的/结合图里的元素）才选 image_reference_gen。',
     '【task_shape】task_shape描述本轮需要几次独立执行，而不是资源数量。task_shape：single=一次dispatch/一个可合并结果；只要同operation+同资源集可一次回答→single。多图看/比/OCR/汇总→single，即使涉及多张图也只返回一个聚合答案。',
     'task_shape：multi=多个独立执行。对于可直接执行的图片生成/编辑任务，multi=多个独立图片结果：多图分别改→edit_image+multi(target各绑)，分别参考生多张→image_reference_gen+multi；共同参考生一张→image_reference_gen+single。',
     '非图片或跨operation的多个必做步骤同样属于multi，但不可直接执行：operation 填第一个必做步骤，task_shape=multi 仅标记“需要拆分”，goal 保留全部任务；它不会进入图片规划或授权图片批次，执行层会澄清。',
@@ -4417,32 +4411,6 @@
     return true;
   }
 
-  // “结合附件/根据下面内容 + 生成图片”且当前上传了图片时，是文字生图：
-  // 图片只是附带附件，不应变成多图参考生成任务。
-  // 这里确定性编译 text_to_image 并跳过意图模型；显式参考附图的请求交回模型。
-  function compileAttachmentTextGenerationRoute(options = {}) {
-    const input = stringValue(options.input);
-    if (!input) return { route: null, reason: 'empty_input' };
-    if (!ATTACHMENT_TEXT_GENERATION_PATTERN.test(input)) return { route: null, reason: 'no_attachment_text_generation_pattern' };
-    if (EXPLICIT_IMAGE_REFERENCE_WORDING_PATTERN.test(input)) return { route: null, reason: 'explicit_image_reference' };
-    const catalog = routeCompilationCandidateCatalog(options);
-    if (!catalog.some(candidate => candidate?.type === 'image' && candidate?.source === 'current')) {
-      return { route: null, reason: 'no_current_image_attachments' };
-    }
-    try {
-      const route = compileLocalRoute({
-        operation: 'text_to_image',
-        relation: 'new',
-        arguments: { prompt: input },
-        bindings: [],
-        constraints: [],
-      }, { ...options, input, candidateCatalog: catalog });
-      return isRouteDispatchable(route) ? { route, reason: '' } : { route: null, reason: 'not_dispatchable' };
-    } catch {
-      return { route: null, reason: 'compile_failed' };
-    }
-  }
-
   function createExplicitTextToImageRoute(input = '') {
     const prompt = stringValue(input);
     if (!prompt) return null;
@@ -4503,7 +4471,6 @@
     compileLocalRoute,
     isRouteDispatchable,
     createExplicitTextToImageRoute,
-    compileAttachmentTextGenerationRoute,
     cleanQuotedContent,
     buildQuotedImagePlaceholders,
     buildQuotedRouteContent,

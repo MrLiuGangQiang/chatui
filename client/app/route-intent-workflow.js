@@ -680,24 +680,6 @@
           return finalizeRoute(deterministicEmptyAttachmentSet.route, 'empty_current_attachment_set');
         }
 
-        // “结合附件/根据下面内容+生成图片”且当前上传了图片时，
-        // 图片只是附带附件，不应转成多图参考生成任务。确定性编译
-        // text_to_image 并跳过意图模型调用，避免模型根据通用附件词语
-        // 虚构出图片绑定；显式参考附图的请求仍走模型。
-        const attachmentTextGenerationRoute = typeof routeSvc.compileAttachmentTextGenerationRoute === 'function'
-          ? routeSvc.compileAttachmentTextGenerationRoute({
-            input,
-            attachments: attachmentMeta,
-            context,
-            ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
-            currentTurn: routeOptions?.currentTurn || null,
-          })
-          : null;
-        if (attachmentTextGenerationRoute?.route) {
-          emitStage('recognizing_intent', { modelRole: 'deterministic' });
-          return finalizeRoute(attachmentTextGenerationRoute.route, 'attachment_text_generation');
-        }
-
         const payload = routeSvc.buildRoutePayload({
           model: primaryModel, input, attachments: attachmentMeta, context,
           currentMode: deps.state?.mode || 'chat',

@@ -430,10 +430,11 @@
         });
       }
       if (role === 'mask' && result.length > 1) {
-        // The provider accepts a single mask per edit. A stale or duplicated
-        // persisted context may carry several; keep the first distinct mask so
-        // a resumed edit can proceed instead of being rejected by the server
-        // with an opaque '最多支持一个 mask 附件' error.
+        // The provider accepts one mask per edit. Identical duplicate
+        // representations of the same mask collapse to one; genuinely
+        // distinct masks are an invalid persisted state and must fail with a
+        // clear, terminal error instead of silently dropping user data or
+        // looping the resume retry.
         const seen = new Set();
         const distinct = [];
         for (const item of result) {
@@ -442,11 +443,12 @@
           seen.add(key);
           distinct.push(item);
         }
-        if (distinct.length !== result.length) {
-          console.warn('[image-context] normalized duplicate masks before restore', {
-            source: result.length,
-            distinct: distinct.length,
-          });
+        if (distinct.length > 1) {
+          const error = new Error('检测到多张蒙版，编辑任务仅支持一张蒙版，请重新发起并选择一张蒙版。');
+          error.code = 'IMAGE_MASK_CARDINALITY_EXCEEDED';
+          error.statusCode = 400;
+          error.terminalJob = true;
+          throw error;
         }
         result.length = 0;
         result.push(distinct[0]);

@@ -391,10 +391,17 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
       const role = options.role || 'target';
       restoredRoles.push(role);
       return role === 'mask'
-        ? [{ attachmentId: 'mask-1', name: 'mask.png', type: 'image/png' }]
-        : [{ attachmentId: 'target-1', name: 'target.png', type: 'image/png' }];
+        ? [{ attachmentId: 'mask-1', name: 'mask.png', type: 'image/png', routeRole: 'mask', routeResourceKey: 'r2', routeResourceId: 'res:image:mask-1', routeSource: 'current' }]
+        : [{ attachmentId: 'target-1', name: 'target.png', type: 'image/png', routeRole: 'target', routeResourceKey: 'r1', routeResourceId: 'res:image:target-1', routeSource: 'current' }];
     },
-    imageFilesToJobPayload: async list => list.map(item => ({ name: item.name, data: item.attachmentId })),
+    imageFilesToJobPayload: async list => list.map(item => ({
+      name: item.name,
+      data: item.attachmentId,
+      routeRole: item.routeRole,
+      routeResourceKey: item.routeResourceKey,
+      routeResourceId: item.routeResourceId,
+      routeSource: item.routeSource,
+    })),
     startImageGenerationJob: async (payload, config, jobId, options) => {
       restarts.push({ payload, config, jobId, options });
       throw stopAfterRestart;
@@ -463,7 +470,91 @@ async function testRestoredEditAttachmentsKeepCompleteExecutionBinding() {
   assert.strictEqual(restoredMasks.length, 0, 'no masks in this context');
 }
 
+
+async function testResumeClearsStaleJobWithMultipleMasks() {
+  const missing = new Error('missing managed job');
+  let cleared = 0;
+  let restarts = 0;
+  const resumePlan = makeDispatchContract({
+    operation: 'edit_image',
+    prompt: 'edit',
+    resources: [
+      { key: 'r1', type: 'image', role: 'target', source: 'current', id: 'target-1' },
+      { key: 'r2', type: 'image', role: 'mask', source: 'current', id: 'mask-1' },
+    ],
+  });
+  const resumeEvidence = resumePlan.bindings.map(({ key, type, role, resource_id, source }) => ({ key, type, role, resource_id, source }));
+  const state = {
+    activeSessionId: 'session-stale',
+    sessions: [{ id: 'session-stale', display: [], messages: [] }],
+    resumingJobs: new Set(),
+    followingImageJobs: new Set(),
+  };
+  const shown = [];
+  const workflow = jobResumeWorkflow.createJobResumeWorkflow({
+    state,
+    window: { ChatUIApp: { runs: {} } },
+    loadImageJob: () => ({
+      id: 'imgjob-stale-masks',
+      mode: 'edit_image',
+      requestPurpose: 'final_execution',
+      dispatchContract: resumePlan,
+      bindingEvidence: resumeEvidence,
+      payload: { prompt: 'edit' },
+      imageContext: {
+        mode: 'edit_image',
+        attachments: [{ id: 'target-1', src: 'indexeddb://target-1' }],
+        masks: [
+          { id: 'mask-1', src: 'indexeddb://mask-1', routeRole: 'mask' },
+          { id: 'mask-2', src: 'indexeddb://mask-2', routeRole: 'mask' },
+        ],
+      },
+    }),
+    clearImageJob() { cleared += 1; },
+    hasSuccessfulImageResult: () => false,
+    isFollowingImageJob: () => false,
+    findImageDisplayItemByJob: () => null,
+    takePendingLiveItem: () => ({ id: 'display-stale', responseIndex: '1' }),
+    normalizeImageContextForStorage: value => value,
+    persistSessionDisplay() {},
+    setSessionBusy() {},
+    pendingFeedbackHtml: text => text,
+    updateLiveDisplay() {},
+    shouldFollowScroll: () => false,
+    setInterval: () => 2,
+    clearInterval() {},
+    getConfig: () => ({ baseUrl: 'https://api.example.com/v1' }),
+    getImageGenerationJob: async () => { throw missing; },
+    isMissingJobError: error => error === missing,
+    restoreImageAttachmentsFromContext: async (value, options = {}) => {
+      const role = options.role || 'target';
+      return role === 'mask'
+        ? [
+          { attachmentId: 'mask-1', name: 'mask.png', type: 'image/png', routeRole: 'mask', routeResourceKey: 'r2', routeResourceId: 'res:image:mask-1', routeSource: 'current' },
+          { attachmentId: 'mask-2', name: 'mask2.png', type: 'image/png', routeRole: 'mask', routeResourceKey: 'r3', routeResourceId: 'res:image:mask-2', routeSource: 'current' },
+        ]
+        : [{ attachmentId: 'target-1', name: 'target.png', type: 'image/png', routeRole: 'target', routeResourceKey: 'r1', routeResourceId: 'res:image:target-1', routeSource: 'current' }];
+    },
+    imageFilesToJobPayload: async list => list.map(item => ({ name: item.name, data: item.attachmentId, routeRole: item.routeRole, routeResourceKey: item.routeResourceKey, routeResourceId: item.routeResourceId, routeSource: item.routeSource })),
+    startImageGenerationJob: async () => { restarts += 1; },
+    showRunError(sessionId, error) { shown.push(error); },
+    findMessageNodeByDisplayItem: () => null,
+    addMessage() {},
+    finishSessionTask: (sessionId, options = {}) => {
+      state.resumingJobs.delete(options.resumeKey);
+      state.followingImageJobs.delete(options.jobId);
+    },
+  });
+
+  await workflow.resumeImageJob('session-stale');
+  assert.strictEqual(restarts, 0, 'the invalid stale job must never be re-posted');
+  assert.ok(cleared >= 1, 'the stuck stale job must be cleared so the retry loop stops');
+  assert.strictEqual(shown[0]?.code, 'IMAGE_MASK_CARDINALITY_EXCEEDED');
+  assert.strictEqual(shown[0]?.terminalJob, true);
+}
+
 module.exports = [
+  testResumeClearsStaleJobWithMultipleMasks,
   testRestoredEditAttachmentsKeepCompleteExecutionBinding,
   testImageMaskContextPersistsAndRestoresRoleSeparately,
   testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings,

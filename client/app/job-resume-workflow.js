@@ -290,6 +290,42 @@
                   throw new Error(
                     "恢复图片编辑任务失败：额外附件数据已丢失，请重新上传图片",
                   );
+                // A stale or duplicated persisted job can restore an invalid
+                // request (multiple masks, or files whose binding metadata no
+                // longer matches the contract). Validate before re-posting; on
+                // mismatch clear the stuck job and fail terminally so the user
+                // can re-issue a fresh request instead of looping on 400s.
+                if (uploadMasks.length > 1) {
+                  clearImageJob(e);
+                  const maskError = new Error(
+                    "恢复图片编辑任务失败：该任务包含多张蒙版，请重新发起并选择一张蒙版。"
+                  );
+                  maskError.code = "IMAGE_MASK_CARDINALITY_EXCEEDED";
+                  maskError.terminalJob = true;
+                  throw maskError;
+                }
+                if (typeof dispatchContractContract?.assertPayloadMatchesDispatchContract === "function") {
+                  try {
+                    dispatchContractContract.assertPayloadMatchesDispatchContract(
+                      s.dispatchContract,
+                      {
+                        payload: s.payload || {},
+                        mode: "edit_image",
+                        files: uploadFiles,
+                        masks: uploadMasks,
+                        bindingEvidence: s.bindingEvidence || [],
+                      },
+                    );
+                  } catch (contractError) {
+                    clearImageJob(e);
+                    const staleError = new Error(
+                      "恢复图片编辑任务失败：附件与任务绑定不一致，请重新发起该任务。"
+                    );
+                    staleError.code = "IMAGE_RESUME_BINDING_MISMATCH";
+                    staleError.terminalJob = true;
+                    throw staleError;
+                  }
+                }
                 (await startImageGenerationJob(s.payload, t, s.id, {
                   mode: "edit_image",
                   requestPurpose: s.requestPurpose || "final_execution",

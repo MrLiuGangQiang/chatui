@@ -39,6 +39,20 @@
     return Number.isFinite(index) && index >= 0 ? index : null;
   }
 
+  function resolveSubmitResponseIndex({
+    resumedResponseIndex = null,
+    replacementResponseIndex = null,
+    sessionMessageCount = 0,
+    stateMessageCount = 0,
+  } = {}) {
+    const resumed = parseOptionalMessageIndex(resumedResponseIndex);
+    if (resumed !== null) return resumed;
+    const replacement = parseOptionalMessageIndex(replacementResponseIndex);
+    if (replacement !== null) return replacement;
+    const sessionCount = Math.max(0, Number(sessionMessageCount) || 0);
+    return sessionCount > 0 ? sessionCount : Math.max(0, Number(stateMessageCount) || 0);
+  }
+
   function createIntentPipelineTimeout(deadlineAt = 0) {
     const error = new Error('ROUTE_INTENT_TIMEOUT');
     error.code = 'ROUTE_INTENT_TIMEOUT';
@@ -181,6 +195,7 @@
 
   const api = Object.freeze({
     parseOptionalMessageIndex,
+    resolveSubmitResponseIndex,
     createBoundedIntentRequest,
     createIntentPipelineTimeout,
     createIntentPipelineCancellation,

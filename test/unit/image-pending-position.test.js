@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const { JSDOM } = require('jsdom');
@@ -298,7 +298,7 @@ function testCanonicalWaitingPositionBundleIsCacheBusted() {
     'client/app/chat-workflow.js?v=1.6.2-canonical-waiting-position',
     'client/app/image-workflow.js?v=1.6.6-canonical-waiting-position',
     'client/app/message-workflow.js?v=1.3.43-canonical-waiting-position',
-    'app.js?v=2.3.11-canonical-waiting-position',
+    'app.js?v=2.3.12-edit-pending-slot',
   ]) {
     assert.ok(index.includes(asset), `the browser must load the cache-busted ${asset} implementation`);
   }

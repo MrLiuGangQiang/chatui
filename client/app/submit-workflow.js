@@ -12,6 +12,7 @@
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const {
     parseOptionalMessageIndex,
+    resolveSubmitResponseIndex,
     createBoundedIntentRequest,
     createPendingTransition,
     buildPendingAssistancePresentation,
@@ -253,9 +254,8 @@
             if(!resumePendingSubmit)$("prompt").value="",state.promptDrafts.set(sessionId,""),clearAttachments(),clearQuotedMessage?.(),scheduleAutoResize();
             setSessionBusy(sessionId,!0);
             const sessionForReply=isTargetActive()?getActiveSession():targetSession;
-            const resumedResponseIndex=parseOptionalMessageIndex(resumePendingSubmit?.responseIndex);
-            responseIndex=resumedResponseIndex!==null?resumedResponseIndex:(Array.isArray(sessionForReply?.messages)&&sessionForReply.messages.length?sessionForReply.messages.length:state.messages.length);
-            const prepareManagedChatJobForLiveItem=(jobMode=submitMode)=>{if("chat"!==jobMode)return"";if(!preparedChatJobId){const generatedJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():"";preparedChatJobId=String(generatedJobId||`chatjob-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2,6)}`)}if(!liveItem)return preparedChatJobId;liveItem.jobId=preparedChatJobId;liveItem.responseIndex=String(responseIndex);assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=String(responseIndex));persistSessionDisplay(sessionId);return preparedChatJobId};
+            responseIndex=resolveSubmitResponseIndex({resumedResponseIndex:resumePendingSubmit?.responseIndex,replacementResponseIndex:replacement?.responseIndex,sessionMessageCount:sessionForReply?.messages?.length,stateMessageCount:state.messages?.length});
+            const prepareManagedChatJobForLiveItem=(jobMode=submitMode)=>{if("chat"!==jobMode)return"";if(!preparedChatJobId){const generatedJobId=typeof makeClientChatJobId==="function"?makeClientChatJobId():"";preparedChatJobId=String(generatedJobId||`chatjob-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2,6)}`)}if(!liveItem)return preparedChatJobId;liveItem.jobId=preparedChatJobId;const canonicalEditIndex=String(replacement?.responseIndex??responseIndex);liveItem.responseIndex=canonicalEditIndex;assistantNode&&(assistantNode.dataset.jobId=preparedChatJobId,assistantNode.dataset.responseIndex=canonicalEditIndex);persistSessionDisplay(sessionId);return preparedChatJobId};
             const routingStatus=executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文";
             if(resumePendingSubmit){
               const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.(resumePendingSubmit)||resumePendingSubmit.liveItemId||"";

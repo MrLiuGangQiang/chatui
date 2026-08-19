@@ -297,6 +297,7 @@
                 // can re-issue a fresh request instead of looping on 400s.
                 if (uploadMasks.length > 1) {
                   clearImageJob(e);
+                  try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(e, { storage: root.localStorage }); } catch {}
                   const maskError = new Error(
                     "恢复图片编辑任务失败：该任务包含多张蒙版，请重新发起并选择一张蒙版。"
                   );
@@ -318,6 +319,7 @@
                     );
                   } catch (contractError) {
                     clearImageJob(e);
+                    try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(e, { storage: root.localStorage }); } catch {}
                     const staleError = new Error(
                       "恢复图片编辑任务失败：附件与任务绑定不一致，请重新发起该任务。"
                     );

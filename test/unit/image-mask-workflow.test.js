@@ -294,7 +294,7 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   ], 'the role map must describe every uploaded image in exact multipart order');
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片1：作为内容参考/);
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片2：仅作为风格参考/);
-  assert.ok(source.includes('随附图片角色（按上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
+  assert.ok(source.includes('随附图片角色（依上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
   assert.ok(source.includes('payload.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
   assert.ok(source.includes('buildImageRoleMap(imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
   assert.ok(source.includes('buildImageRoleGuide(imageInputs, contract)'), 'the final image prompt must derive precise target/reference rules from the validated execution contract');
@@ -491,6 +491,7 @@ async function testResumeClearsStaleJobWithMultipleMasks() {
     followingImageJobs: new Set(),
   };
   const shown = [];
+  const cleanedMessages = [];
   const workflow = jobResumeWorkflow.createJobResumeWorkflow({
     state,
     window: { ChatUIApp: { runs: {} } },
@@ -538,6 +539,7 @@ async function testResumeClearsStaleJobWithMultipleMasks() {
     imageFilesToJobPayload: async list => list.map(item => ({ name: item.name, data: item.attachmentId, routeRole: item.routeRole, routeResourceKey: item.routeResourceKey, routeResourceId: item.routeResourceId, routeSource: item.routeSource })),
     startImageGenerationJob: async () => { restarts += 1; },
     showRunError(sessionId, error) { shown.push(error); },
+    cleanupStalePendingDisplay(sessionId, regex, message) { cleanedMessages.push(message); },
     findMessageNodeByDisplayItem: () => null,
     addMessage() {},
     finishSessionTask: (sessionId, options = {}) => {
@@ -549,8 +551,8 @@ async function testResumeClearsStaleJobWithMultipleMasks() {
   await workflow.resumeImageJob('session-stale');
   assert.strictEqual(restarts, 0, 'the invalid stale job must never be re-posted');
   assert.ok(cleared >= 1, 'the stuck stale job must be cleared so the retry loop stops');
-  assert.strictEqual(shown[0]?.code, 'IMAGE_MASK_CARDINALITY_EXCEEDED');
-  assert.strictEqual(shown[0]?.terminalJob, true);
+  assert.strictEqual(cleanedMessages.length, 1);
+  assert.match(cleanedMessages[0], /多张蒙版/);
 }
 
 module.exports = [

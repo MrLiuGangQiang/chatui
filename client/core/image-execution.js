@@ -33,7 +33,7 @@
   function buildImageRoleGuide(imageInputs = [], dispatchContract = null) {
     if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return "";
     const lines = [
-      "随附图片角色（按上传顺序）：",
+      "随附图片角色（依上传顺序）：",
       ...imageInputs.map((item, index) => `- 图片${index + 1}：${imageRoleLabel(item?.routeRole)}`),
     ];
     const operation = String(dispatchContract?.operation || "");
@@ -57,7 +57,7 @@
       if (references.length) lines.push(`- 内容参考：仅从${imagePositionList(references)}提取用户明确要求使用的主体和内容。`);
       if (styleReferences.length) lines.push(`- 风格参考：仅从${imagePositionList(styleReferences)}提取视觉风格。`);
     }
-    lines.push("请严格按上述角色使用各图片，不要根据候选编号重新猜测图片用途。");
+    lines.push("请严格遵循各图片的角色说明使用图片，不要根据候选编号重新猜测图片用途。");
     return lines.map(line => line.trimEnd()).join("\n");
   }
 

@@ -458,7 +458,9 @@
             const s = isMissingJobError(t)
               ? "恢复任务不存在或已失效，已停止恢复，请重新发送"
               : t?.message || String(t);
-            (isMissingJobError(t)
+            const staleInvalid = t?.code === 'IMAGE_MASK_CARDINALITY_EXCEEDED'
+              || t?.code === 'IMAGE_RESUME_BINDING_MISMATCH';
+            (isMissingJobError(t) || staleInvalid
               ? cleanupStalePendingDisplay(
                   e,
                   /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/,

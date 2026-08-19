@@ -9,6 +9,7 @@ const imageGenerationService = require('../../client/services/image-generation-s
 const imageContextWorkflow = require('../../client/app/image-context-workflow');
 const imageService = require('../../client/services/image-service');
 const { prepareImageJobRequest } = require('../../server/jobs/image');
+const executionProtocolValidator = require('../../server/validators/dispatch-contract.validator');
 
 function isImageFile(item = {}) {
   return String(item.type || item.file?.type || '').startsWith('image/');
@@ -156,7 +157,8 @@ async function testDirectMultiReferenceGenerationSendsValidRequest() {
   assert.deepStrictEqual(files.map(file => file.routeRole), ['reference', 'reference']);
   assert.ok(files.every(file => file.routeResourceKey && file.routeResourceId), 'reference files must carry binding metadata');
 
-  // The exact body the client would send must pass the real server validation.
+  // The exact body the client would send must pass the real server validation,
+  // including the standalone-instruction and binding protocol checks.
   const accepted = prepareImageJobRequest({
     payload: dispatches[0].payload,
     files,
@@ -164,6 +166,25 @@ async function testDirectMultiReferenceGenerationSendsValidRequest() {
   });
   assert.strictEqual(accepted.mode, 'edit_image');
   assert.deepStrictEqual(accepted.files.map(file => file.routeRole), ['reference', 'reference']);
+
+  const protocol = executionProtocolValidator.validateManagedImageRequest(
+    {
+      requestPurpose: 'final_execution',
+      dispatchContract: dispatches[0].options.dispatchContract,
+      bindingEvidence: dispatches[0].options.bindingEvidence,
+      payload: dispatches[0].payload,
+      mode: accepted.mode,
+    },
+    {
+      payload: accepted.payload,
+      mode: accepted.mode,
+      files: accepted.files,
+      masks: accepted.masks,
+      bindingEvidence: dispatches[0].options.bindingEvidence,
+    },
+  );
+  assert.strictEqual(protocol.requestPurpose, 'final_execution');
+  assert.strictEqual(protocol.dispatchContract.operation, 'image_reference_gen');
 }
 
 module.exports = [

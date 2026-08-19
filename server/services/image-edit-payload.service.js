@@ -143,24 +143,6 @@ function dataFiles(files = []) {
   return normalizeFileList(files);
 }
 
-// Collapse duplicate representations of the same file (identical bytes or
-// name) so a single mask listed in multiple slots is never counted twice.
-function dedupeImageFiles(list = []) {
-  const seen = new Set();
-  const result = [];
-  for (const file of dataFiles(list)) {
-    const data = String(file?.data || file?.dataUrl || file?.data_url || '').replace(/\s+/g, '');
-    const name = String(file?.name || '').trim();
-    // The same file represented twice (identical bytes and name) is one file;
-    // two distinct files sharing placeholder bytes are still two files.
-    const key = data ? data + '\u0000' + name : name;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    result.push(file);
-  }
-  return result;
-}
-
 function imageFilesOnly(files = []) {
   return dataFiles(files).filter(file => !isTaggedMaskFile(file));
 }
@@ -385,7 +367,6 @@ module.exports = {
   extractImageEditFiles,
   extractImageEditMasks,
   dataFiles,
-  dedupeImageFiles,
   hasEmbeddedBinaryData,
   hasEmbeddedDataUrl,
   hasFilePayloadData,

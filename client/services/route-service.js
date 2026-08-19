@@ -4099,43 +4099,13 @@
         });
         executionResources = buildExecutionResourceProjection(normalizedPlan, projectedResources, registered);
       } catch (error) {
-        // The edit provider accepts a single mask. When the route carries
-        // more than one mask, do not guess and do not execute: ask the user to
-        // pick the one mask to use, reusing the image-choice clarification.
-        const maskCardinality = Array.isArray(error?.issues)
-          ? error.issues.find(issue => issue?.code === 'binding_cardinality'
-            && issue?.type === 'image'
-            && Array.isArray(issue?.roles) && issue.roles.includes('mask'))
-          : null;
-        const maskResources = projectedResources.filter(resource => (
-          resource?.type === 'image' && resource?.role === 'mask'
-        ));
-        if (maskCardinality && maskResources.length > 1) {
-          clarificationSlots.push({
-            key: 'r' + ((Array.isArray(clarificationSlots) ? clarificationSlots.length : 0) + 1),
-            type: 'image',
-            role: 'mask',
-            reason: 'ambiguous',
-            choices: maskResources.map((resource, index) => ({
-              key: `c${index + 1}`,
-              source: stringValue(resource.source) || 'history',
-              index: Number(resource.index) || index + 1,
-              id: stringValue(resource.id),
-              resource_id: stringValue(resource.resource_id),
-              reference_id: stringValue(resource.reference_id),
-              label: stringValue(resource.id || resource.resource_id || `候选图片 ${index + 1}`),
-            })),
-          });
-          finalClarificationQuestion = '编辑任务仅支持一张蒙版，请选择一张用作蒙版。';
-        } else {
-          const [safeIssue] = normalizeResourceClarificationIssues(
-            [unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' })],
-            projectedResources,
-            clarificationSlots,
-          );
-          clarificationSlots.push(safeIssue);
-          finalClarificationQuestion = '当前请求的资源角色组合无法安全执行，请重新选择资源后继续。';
-        }
+        const [safeIssue] = normalizeResourceClarificationIssues(
+          [unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' })],
+          projectedResources,
+          clarificationSlots,
+        );
+        clarificationSlots.push(safeIssue);
+        finalClarificationQuestion = '当前请求的资源角色组合无法安全执行，请重新选择资源后继续。';
       }
     }
 

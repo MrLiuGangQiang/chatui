@@ -429,30 +429,6 @@
           routeRole: item.routeRole || item.route_role || item.role || (role === 'mask' ? 'mask' : ''),
         });
       }
-      if (role === 'mask' && result.length > 1) {
-        // The provider accepts one mask per edit. Identical duplicate
-        // representations of the same mask collapse to one; genuinely
-        // distinct masks are an invalid persisted state and must fail with a
-        // clear, terminal error instead of silently dropping user data or
-        // looping the resume retry.
-        const seen = new Set();
-        const distinct = [];
-        for (const item of result) {
-          const key = String(item.dataUrl || item.src || item.name || '').trim();
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          distinct.push(item);
-        }
-        if (distinct.length > 1) {
-          const error = new Error('检测到多张蒙版，编辑任务仅支持一张蒙版，请重新发起并选择一张蒙版。');
-          error.code = 'IMAGE_MASK_CARDINALITY_EXCEEDED';
-          error.statusCode = 400;
-          error.terminalJob = true;
-          throw error;
-        }
-        result.length = 0;
-        result.push(distinct[0]);
-      }
       return result;
     }
 

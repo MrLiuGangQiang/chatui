@@ -681,7 +681,38 @@ async function testTwoImageRoleMapMatchesSerializedFileIdentity() {
   assert.deepStrictEqual(prepared.files.map(file => file.routeRole), ['reference', 'reference']);
 }
 
+
+function testDuplicateMaskAttachmentsCollapseBeforeCardinalityCheck() {
+  const target = imageFile({ routeRole: 'target', routeResourceKey: 'r1', routeId: 'target-1', routeReferenceId: '' });
+  const mask = imageFile({ routeRole: 'mask', routeResourceKey: 'r2', routeId: 'mask-1', routeReferenceId: '' });
+  // The role map covers only the non-mask files (imageInputs); masks are sent
+  // separately, matching the client's buildImageRoleMap contract.
+  const roleMap = JSON.stringify([
+    { position: 1, role: 'target', resource_key: 'r1', id: 'target-1', reference_id: '' },
+  ]);
+
+  // The same mask bytes listed twice in the masks array is one mask.
+  const duplicate = prepareImageJobRequest({
+    payload: { model: 'gpt-image-1', prompt: 'edit', image_role_map: roleMap },
+    files: [target],
+    masks: [mask, { ...mask }],
+  });
+  assert.strictEqual(duplicate.masks.length, 1, 'duplicate mask bytes must collapse to a single mask');
+  assert.strictEqual(duplicate.files.length, 1);
+
+  // Two genuinely distinct masks are still rejected.
+  assert.throws(
+    () => prepareImageJobRequest({
+      payload: { model: 'gpt-image-1', prompt: 'edit', image_role_map: roleMap },
+      files: [target],
+      masks: [{ ...mask, data: 'AAAA' }, { ...mask, data: 'BBBB' }],
+    }),
+    err => err.statusCode === 400 && err.message === '图片编辑任务最多支持一个 mask 附件',
+  );
+}
+
 module.exports = [
+  testDuplicateMaskAttachmentsCollapseBeforeCardinalityCheck,
   testTwoImageRoleMapMatchesSerializedFileIdentity,
   testImageUpstreamBaseHeadersContract,
   testImageJobStateMutationHelpersContract,

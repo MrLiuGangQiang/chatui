@@ -14,6 +14,7 @@ const {
   ensureImageEditPrompt,
   extractImageEditFiles,
   extractImageEditMasks,
+  dedupeImageFiles,
   imageJobTargetPath,
   imageJobTargetUrl,
   isTaggedMaskFile,
@@ -75,7 +76,19 @@ function prepareImageJobRequest(body = {}) {
   let payload = body.payload || {};
   const files = extractImageEditFiles(body);
   const imageFiles = files.filter(item => !isTaggedMaskFile(item));
-  const masks = extractImageEditMasks(body);
+  let masks = extractImageEditMasks(body);
+  // A single edit accepts one mask. The same mask bytes may be represented in
+  // more than one slot (tagged file plus masks array); collapse identical
+  // masks before the cardinality check so a genuinely single-mask edit is
+  // never rejected as 'at most one mask'.
+  const deduplicatedMasks = dedupeImageFiles(masks);
+  if (deduplicatedMasks.length !== masks.length) {
+    safeLog?.('[image-job] collapsed duplicate mask attachments', {
+      source: masks.length,
+      distinct: deduplicatedMasks.length,
+    });
+    masks = deduplicatedMasks;
+  }
   validateImageRoleMap(payload, imageFiles);
   if (masks.length > 1) {
     throw createImageJobValidationError('图片编辑任务最多支持一个 mask 附件');

@@ -463,7 +463,23 @@ async function testRestoredEditAttachmentsKeepCompleteExecutionBinding() {
   assert.strictEqual(restoredMasks.length, 0, 'no masks in this context');
 }
 
+
+async function testRestoredMasksAreCappedToOneDistinctMask() {
+  const contextApi = makeContextWorkflow();
+  const context = {
+    mode: 'edit_image',
+    attachments: [{ id: 'target-1', name: 'target.png', type: 'image/png', src: 'indexeddb://target-1', routeRole: 'target' }],
+    masks: [
+      { id: 'mask-1', name: 'mask.png', type: 'image/png', src: 'indexeddb://mask-1', routeRole: 'mask', routeResourceKey: 'r2' },
+      { id: 'mask-2', name: 'mask2.png', type: 'image/png', src: 'indexeddb://mask-2', routeRole: 'mask', routeResourceKey: 'r3' },
+    ],
+  };
+  const restored = await contextApi.restoreImageAttachmentsFromContext(context, { role: 'mask' });
+  assert.strictEqual(restored.length, 1, 'a stale context with multiple masks must restore a single mask for the edit provider');
+}
+
 module.exports = [
+  testRestoredMasksAreCappedToOneDistinctMask,
   testRestoredEditAttachmentsKeepCompleteExecutionBinding,
   testImageMaskContextPersistsAndRestoresRoleSeparately,
   testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings,

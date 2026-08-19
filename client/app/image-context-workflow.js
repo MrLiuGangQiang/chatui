@@ -429,6 +429,28 @@
           routeRole: item.routeRole || item.route_role || item.role || (role === 'mask' ? 'mask' : ''),
         });
       }
+      if (role === 'mask' && result.length > 1) {
+        // The provider accepts a single mask per edit. A stale or duplicated
+        // persisted context may carry several; keep the first distinct mask so
+        // a resumed edit can proceed instead of being rejected by the server
+        // with an opaque '最多支持一个 mask 附件' error.
+        const seen = new Set();
+        const distinct = [];
+        for (const item of result) {
+          const key = String(item.dataUrl || item.src || item.name || '').trim();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          distinct.push(item);
+        }
+        if (distinct.length !== result.length) {
+          console.warn('[image-context] normalized duplicate masks before restore', {
+            source: result.length,
+            distinct: distinct.length,
+          });
+        }
+        result.length = 0;
+        result.push(distinct[0]);
+      }
       return result;
     }
 

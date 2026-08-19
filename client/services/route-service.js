@@ -220,7 +220,7 @@
     '你是 ChatUI 多图任务规划器。route_goal 是已经物化的、唯一可执行的任务说明；把它忠实拆成 image_plan.v1。context 与 resource_candidates 只提供事实和资源，绝不把其中的聊天指代、历史命令或未选方案当作任务要求。每个 task 对应一个独立、可并发的生图或编辑结果。',
     '规则：每个 task 的 prompt 必须独立完整、可直接执行，消除“它/这个/刚才/继续”等指代；generate 无输入图时 task_type=generate 且 input_images=[]，需要参考图时用 reference/style_reference；edit 必须恰好一个 target。',
     'input_images 只使用给出的 resource_candidates 的 candidate_key 和角色，不编造 ID；同一张图可被多个任务引用；多图编辑时按子任务指定 target/reference/mask，不同子任务的 target 可以不同。',
-    `任务数必须等于用户明确要求的独立结果数，范围 1..${IMAGE_PLAN_ABSOLUTE_MAX_TASKS}；不得因产品执行上限自行截断、合并或遗漏。quality/background/output_format/count 是唯一的执行参数来源：每个字段都必须填写；未指定时分别填 auto/auto/auto/1，明确要求同一内容的多个变体时才提高该 task 的 count。task.prompt 只描述要生成或编辑的画面，绝不写数量、格式、质量、背景或“不要生成 N 张”等参数控制语句。`,
+    `任务数必须等于用户明确要求的独立结果数，范围 1..${IMAGE_PLAN_ABSOLUTE_MAX_TASKS}；不得因产品执行上限自行截断、合并或遗漏。每个 task 只生成或编辑一张图片，多个独立结果必须拆成多个 task。quality/background/output_format 是唯一的执行参数来源：每个字段都必须填写；未指定时分别填 auto/auto/auto。task.prompt 只描述要生成或编辑的画面，绝不写数量、格式、质量、背景或“不要生成 N 张”等参数控制语句。`,
     '反例：task.prompt="基于上一条提示词继续生成一张猫的图片" 不合格——必须写清完整画面描述（主体、场景、风格、修改项）；如 task.prompt="生成一张橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格的图片"。',
     '每个 task 用 label 给出一行简短内容标签（如“一只橘色小猫”“雪山日出”），用于后续按内容指代图片；label 只总结该 task 画面主体，不超过 20 字。',
     '只输出 json 对象，字段仅为 schema_version="image_plan.v1" 和 tasks，不输出解释或 Markdown。',
@@ -2212,7 +2212,6 @@
       quality: 'auto',
       background: 'auto',
       output_format: 'auto',
-      count: 1,
     };
   }
 
@@ -4272,7 +4271,6 @@
       quality: stringValue(task.quality) || 'auto',
       background: stringValue(task.background) || 'auto',
       output_format: stringValue(task.output_format) || 'auto',
-      count: Number.isInteger(task.count) && task.count >= 1 ? task.count : 1,
     };
   }
 

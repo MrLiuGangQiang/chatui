@@ -27,7 +27,6 @@
     quality: Object.freeze({ type: 'enum', values: IMAGE_QUALITIES, default: 'auto' }),
     background: Object.freeze({ type: 'enum', values: IMAGE_BACKGROUNDS, default: 'auto' }),
     output_format: Object.freeze({ type: 'enum', values: IMAGE_OUTPUT_FORMATS, default: 'auto' }),
-    count: Object.freeze({ type: 'integer', min: 1, max: 4, default: 1, wireName: 'n' }),
   });
 
   const CHAT_ARGUMENTS = Object.freeze({
@@ -355,10 +354,6 @@
   }
 
   function normalizeArgumentValue(name = '', value) {
-    if (name === 'count') {
-      const number = Number(value);
-      return Number.isInteger(number) ? number : value;
-    }
     const text = stringValue(value);
     if (name === 'output_format') return normalizeOutputFormat(text);
     if (['size', 'quality', 'background'].includes(name)) return text.toLowerCase();
@@ -486,9 +481,6 @@
     return selected.sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
   }
 
-  function chineseCount(value = '') {
-    return ({ '一': 1, '二': 2, '两': 2, '三': 3, '四': 4 })[value] || Number(value);
-  }
 
   function parseImageParameterCandidates(input = '', operation = '') {
     if (!IMAGE_OPERATIONS.has(operation)) return [];
@@ -513,20 +505,6 @@
       addMatch(result, view, 'output_format', match[1] || match[2], match);
     }
 
-    if (operation !== 'edit_image') {
-      // A measure word attached directly to the subject is not an image-count
-      // directive. For example, “画一张猫，再画一条狗，给我两张图” describes
-      // independent subjects and a final output count; parsing “一张猫” as n=1
-      // creates a false 1-vs-2 conflict before multi-image planning can run.
-      // Treat Chinese counters as a count only when they are followed by an
-      // image/output noun. English remains explicit through images/pictures.
-      for (const match of text.matchAll(/(?:生成|画|绘制|制作|创建|来|给我|generate|create|make)\s*([1-4一二三四两])\s*(?:(?:张|幅)\s*(?=图(?:片)?|画(?:作)?|images?|pictures?)|个\s*(?=图(?:片)?|images?|pictures?)|images?|pictures?)/gi)) {
-        addMatch(result, view, 'count', chineseCount(match[1]), match);
-      }
-      for (const match of text.matchAll(/\b(?:n|count)\s*[=:：]\s*([1-4])\b/gi)) {
-        addMatch(result, view, 'count', Number(match[1]), match);
-      }
-    }
 
     return removeShadowedParameterMatches(result);
   }
@@ -537,7 +515,6 @@
       quality: normalizeArgumentValue('quality', defaults.quality || defaults.imageQuality || 'auto') || 'auto',
       background: normalizeArgumentValue('background', defaults.background || defaults.imageBackground || 'auto') || 'auto',
       output_format: normalizeArgumentValue('output_format', defaults.output_format || defaults.outputFormat || defaults.format || 'auto') || 'auto',
-      count: normalizeArgumentValue('count', defaults.count ?? defaults.n ?? 1),
     };
   }
 
@@ -653,13 +630,11 @@
       quality: { low: '低质量', medium: '中等质量', high: '高质量', standard: '标准质量', hd: 'HD 质量' },
       background: { transparent: '透明背景', opaque: '不透明背景' },
       output_format: { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' },
-      count: { 1: '1 张', 2: '2 张', 3: '3 张', 4: '4 张' },
     };
     const registeredValues = name === 'size' ? IMAGE_SIZES
       : name === 'quality' ? IMAGE_QUALITIES
         : name === 'background' ? IMAGE_BACKGROUNDS
           : name === 'output_format' ? IMAGE_OUTPUT_FORMATS
-            : name === 'count' ? [1, 2, 3, 4]
               : [];
     const requested = Array.isArray(values) ? values : registeredValues;
     return [...new Set(requested.map(value => normalizeArgumentValue(name, value)))]
@@ -672,7 +647,7 @@
     const conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
     const invalid = Array.isArray(result.invalid) ? result.invalid : [];
     if (conflicts.length) {
-      const labels = { size: '图片尺寸', quality: '图片质量', background: '背景模式', output_format: '输出格式', count: '生成数量' };
+      const labels = { size: '图片尺寸', quality: '图片质量', background: '背景模式', output_format: '输出格式' };
       const hasEmptyDomain = conflicts.some(item => !Array.isArray(item.values) || item.values.length === 0);
       const hasExclusions = conflicts.some(item => Array.isArray(item.excludedValues) && item.excludedValues.length > 0);
       const details = conflicts.map(item => {
@@ -688,7 +663,6 @@
     if (invalid.length) {
       const first = invalid[0];
       if (first.name === 'size') return '图片尺寸“' + first.value + '”不在当前支持范围内，请选择 auto、1024x1024、1024x1536 或 1536x1024。';
-      if (first.name === 'count') return '单次图片数量当前支持 1 到 4，请给出范围内的数量。';
       return `图片参数 ${first.name} 的值“${first.value}”无效，请重新选择。`;
     }
     return '';
@@ -718,7 +692,7 @@
     'preserve_constraints',
     'output',
   ]);
-  const CHANGES_OUTPUT_LEAVES = Object.freeze(['size', 'quality', 'background', 'format', 'count']);
+  const CHANGES_OUTPUT_LEAVES = Object.freeze(['size', 'quality', 'background', 'format']);
   const FORBIDDEN_CHANGES_PREFIXES = Object.freeze([
     'prompt', 'request', 'operation', 'api', 'provider',
     'credentials', 'resource', 'resources', 'binding', 'bindings', 'lifecycle',

@@ -48,7 +48,6 @@ async function runIndependentEditRoute(count) {
       quality: 'auto',
       background: 'auto',
       output_format: 'auto',
-      count: 1,
     })),
   };
   const calls = [];

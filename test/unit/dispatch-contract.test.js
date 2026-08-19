@@ -56,7 +56,6 @@ function testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize() {
     quality: 'high',
     background: 'transparent',
     output_format: 'png',
-    count: 2,
   });
   assert.deepStrictEqual(result.evidence.size, []);
   assert.strictEqual(result.candidates.some(candidate => candidate.name === 'size'), false);
@@ -64,17 +63,14 @@ function testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize() {
 }
 
 
-function testCapabilityRegistryDoesNotConfuseSubjectCountersWithImageCount() {
+function testCapabilityRegistryDoesNotParseImageCountDirectives() {
   const input = '画一张猫、一条狗，给我两张图';
   const result = capabilities.resolveExecutionArguments({
     operation: 'text_to_image',
     input,
   });
-  assert.deepStrictEqual(result.arguments?.count, 2,
-    'the final “两张图” output request must remain the only count directive');
-  assert.deepStrictEqual(result.candidates.filter(candidate => candidate.name === 'count').map(candidate => [candidate.value, candidate.evidence]), [
-    [2, '给我两张'],
-  ], '“一张猫” is a subject measure word, not a conflicting image count');
+  assert.strictEqual(result.candidates.some(candidate => candidate.name === 'count'), false,
+    'image count is no longer a provider parameter; multi-image output is split into one image per request');
   assert.strictEqual(result.conflicts.length, 0);
 }
 
@@ -155,7 +151,7 @@ function testCapabilityRegistryNormalizesFullWidthSyntaxWithoutTurningDimensions
   const input = '生成２张１０２４×１０２４的猫图片，ｎ：２';
   const result = capabilities.resolveExecutionArguments({ operation: 'text_to_image', input });
   assert.strictEqual(result.arguments?.size, 'auto');
-  assert.strictEqual(result.arguments?.count, 2);
+  assert.strictEqual(result.candidates.some(candidate => candidate.name === 'count'), false);
   assert.strictEqual(result.arguments?.prompt, input, 'the provider prompt must retain the original user text');
   assert.deepStrictEqual(result.evidence.size, []);
 }
@@ -283,7 +279,7 @@ function testQuotedMessageBindingUsesCanonicalRuntimeRouteFields() {
 
 module.exports = [
   testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize,
-  testCapabilityRegistryDoesNotConfuseSubjectCountersWithImageCount,
+  testCapabilityRegistryDoesNotParseImageCountDirectives,
   testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics,
   testCapabilityRegistryNormalizesFullWidthSyntaxWithoutTurningDimensionsIntoArguments,
   testCapabilityRegistryFailsClosedOnConflictingParameters,

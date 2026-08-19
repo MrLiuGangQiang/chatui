@@ -28,7 +28,7 @@
   const PLAN_FIELDS = Object.freeze(['schema_version', 'tasks']);
   const TASK_FIELDS = Object.freeze([
     'task_type', 'prompt', 'input_images',
-    'quality', 'background', 'output_format', 'count',
+    'quality', 'background', 'output_format',
     'label',
   ]);
   const REQUIRED_TASK_FIELDS = Object.freeze(TASK_FIELDS.filter(field => field !== 'label'));
@@ -79,7 +79,6 @@
     if (task.quality !== undefined && !IMAGE_QUALITIES.includes(stringValue(task.quality))) return false;
     if (task.background !== undefined && !IMAGE_BACKGROUNDS.includes(stringValue(task.background))) return false;
     if (task.output_format !== undefined && !IMAGE_OUTPUT_FORMATS.includes(stringValue(task.output_format))) return false;
-    if (task.count !== undefined && (!Number.isInteger(task.count) || task.count < 1 || task.count > 4)) return false;
     if (task.label !== undefined) {
       const label = stringValue(task.label);
       if (!label || label.length > 120) return false;
@@ -141,7 +140,6 @@
                 quality: { type: 'string', enum: [...IMAGE_QUALITIES] },
                 background: { type: 'string', enum: [...IMAGE_BACKGROUNDS] },
                 output_format: { type: 'string', enum: [...IMAGE_OUTPUT_FORMATS] },
-                count: { type: 'integer', minimum: 1, maximum: 4 },
                 label: { type: 'string', minLength: 1, maxLength: 120 },
               },
             },

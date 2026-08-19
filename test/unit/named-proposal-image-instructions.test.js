@@ -122,7 +122,6 @@ function testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRaw
         quality: 'auto',
         background: 'auto',
         output_format: 'auto',
-        count: 1,
       },
       {
         task_type: 'generate',
@@ -131,7 +130,6 @@ function testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRaw
         quality: 'auto',
         background: 'auto',
         output_format: 'auto',
-        count: 1,
       },
     ],
   };

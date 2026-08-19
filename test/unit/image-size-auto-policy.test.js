@@ -36,7 +36,6 @@ function testDimensionsNeverBecomeExecutionArgumentsOrClarificationChoices() {
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',
-    count: 1,
   });
   assert.strictEqual(result.candidates.some(candidate => candidate.name === 'size'), false);
   assert.strictEqual(result.conflicts.some(conflict => conflict.name === 'size'), false);
@@ -62,7 +61,6 @@ function testImagePlannerHasNoSizeFieldOrSizeInstruction() {
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',
-    count: 1,
   };
   const plan = { schema_version: 'image_plan.v1', tasks: [task] };
   const properties = imagePlan.IMAGE_PLAN_RESPONSE_FORMAT.json_schema.schema.properties.tasks.items.properties;

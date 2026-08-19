@@ -86,7 +86,6 @@ function testReferencedMessageUsesTheModelsSelfContainedGoal() {
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',
-    count: 1,
   });
   assert.deepStrictEqual(route.dispatchContract.bindings.map(binding => ({
     type: binding.type,

@@ -29,7 +29,6 @@ function testImageEditTextEntriesContract() {
     model: 'gpt-image-1',
     prompt: '改一下 [image-data-omitted]',
     size: '1024x1024',
-    n: '2',
     input_fidelity: 'high',
     output_format: 'png',
     output_compression: '90',
@@ -64,7 +63,7 @@ function testImageEditForwardFieldBoundaryContract() {
 
   assert.strictEqual(imageEditPayload.shouldForwardImageEditField({}, 'prompt', `改图 ${dataUrl}`), true);
   assert.strictEqual(imageEditPayload.shouldForwardImageEditField({}, 'unknown', 'value'), false);
-  assert.strictEqual(imageEditPayload.shouldForwardImageEditField({}, 'n', 2), true);
+  assert.strictEqual(imageEditPayload.shouldForwardImageEditField({}, 'n', 2), false);
   assert.strictEqual(imageEditPayload.shouldForwardImageEditField({}, 'size', '1024x1024'), true);
 }
 
@@ -82,7 +81,6 @@ function testOpenAiImageEditPayloadUsesSharedTextEntries() {
     model: 'gpt-image-1',
     prompt: '改成黑白',
     size: '1024x1024',
-    n: '2',
     images: ['data:image/png;base64,' + PNG_1PX, 'data:image/png;base64,' + PNG_1PX],
     masks: ['data:image/png;base64,' + PNG_1PX],
   });
@@ -101,7 +99,7 @@ function testMultipartBodyUsesSharedTextEntries() {
   assert.ok(body.includes('name="model"'));
   assert.ok(body.includes('name="prompt"'));
   assert.ok(body.includes('name="image"; filename="one.png"'));
-  assert.ok(body.includes('name="n"'), 'multipart must forward the generation count');
+  assert.ok(!body.includes('name="n"'));
   assert.ok(!body.includes('name="unknown"'));
   assert.ok(!body.includes('skip-me'));
 }

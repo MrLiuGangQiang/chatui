@@ -88,7 +88,6 @@
             output_format: planArguments.output_format,
           })
         : { model: config.imageModel, prompt: styledPrompt };
-      if (Number(planArguments.count) > 1) payload.n = Number(planArguments.count);
       if (imageInputs.length > 1) payload.image_role_map = JSON.stringify(buildImageRoleMap(imageInputs));
       if (!String(payload.prompt || '').trim()) {
         const error = new Error('Image task prompt is missing');
@@ -102,7 +101,6 @@
         quality: payload.quality || 'auto',
         background: payload.background || 'auto',
         output_format: payload.output_format || 'auto',
-        count: Number(payload.n) || Number(planArguments.count) || 1,
       });
 
       const imageContext = typeof imagesService.createImageContext === 'function'

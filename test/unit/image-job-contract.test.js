@@ -495,8 +495,7 @@ function testImageUpstreamRequestEditMultipartContract() {
   assert.ok(multipart.includes('name="prompt"'));
   assert.ok(multipart.includes('[image-data-omitted]'));
   assert.ok(!multipart.includes('data:image/png;base64'));
-  assert.ok(multipart.includes('name="n"'), 'the edit payload must forward the requested generation count');
-  assert.ok(multipart.includes('2'), 'the forwarded n field must retain its numeric value');
+  assert.ok(!multipart.includes('name="n"'));
   assert.ok(!multipart.includes('name="unknown"'));
   assert.ok(!multipart.includes('skip-me'));
   assert.strictEqual(countOccurrences(multipart, 'name="image[]"; filename='), 2);

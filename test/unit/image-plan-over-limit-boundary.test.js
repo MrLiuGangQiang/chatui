@@ -13,7 +13,6 @@ function task(index) {
     quality: 'auto',
     background: 'auto',
     output_format: 'auto',
-    count: 1,
   };
 }
 

@@ -487,13 +487,12 @@
     const actualPrompt = normalizedComparableText(payload.prompt);
     if (normalizedComparableText(expectedPrompt) !== actualPrompt) throw validationError('Image payload prompt disagrees with the execution plan');
     const optionalFields = [
-      ['size', 'size'], ['quality', 'quality'], ['background', 'background'], ['output_format', 'output_format'], ['count', 'n'],
+      ['size', 'size'], ['quality', 'quality'], ['background', 'background'], ['output_format', 'output_format'],
     ];
     for (const [argumentName, payloadName] of optionalFields) {
       const expected = plan.arguments[argumentName];
       const actual = payload[payloadName];
-      const omittedDefault = expected === 'auto' && (actual === undefined || actual === null || actual === '' || actual === 'auto')
-        || argumentName === 'count' && expected === 1 && (actual === undefined || actual === null || actual === 1);
+      const omittedDefault = expected === 'auto' && (actual === undefined || actual === null || actual === '' || actual === 'auto');
       if (!omittedDefault && actual !== expected) throw validationError(`Image payload ${payloadName} disagrees with the execution plan`);
     }
     const supplied = bindingEvidenceFromMedia({

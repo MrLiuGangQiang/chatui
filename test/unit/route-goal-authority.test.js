@@ -39,7 +39,7 @@ function testTextToImageParametersComeOnlyFromTheRawUserTurn() {
   }, input);
 
   assert.strictEqual(route.needClarification, false);
-  assert.strictEqual(route.dispatchContract.arguments.count, 2);
+  assert.strictEqual(Object.hasOwn(route.dispatchContract.arguments, 'count'), false, 'count is no longer an image argument');
   assert.strictEqual(route.executionPrompt, '画一位中国美女和一位俄罗斯美女。');
   assert.strictEqual(route.dispatchContract.arguments.prompt, '画一位中国美女和一位俄罗斯美女。');
 }

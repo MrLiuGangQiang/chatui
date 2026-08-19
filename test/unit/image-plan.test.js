@@ -54,9 +54,7 @@ function testImagePlanRejectsInvalidTaskShape() {
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ quality: 'ultra' })])), false);
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ background: 'glass' })])), false);
   assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ output_format: 'gif' })])), false);
-  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ count: 0 })])), false);
-  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ count: 5 })])), false);
-  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ count: 1.5 })])), false);
+  assert.strictEqual(imagePlan.hasExactImagePlan(plan([task({ count: 2 })])), false, 'count is no longer a planner task field');
 }
 
 function testImagePlanAcceptsOneTaskForSingleFallback() {
@@ -81,7 +79,7 @@ function testImagePlanResponseFormatDeclaresStructuralTaskLimit() {
     'strict provider schemas must require every declared task property',
   );
   assert.strictEqual(schema.properties.tasks.items.properties.task_type.enum.length, 2);
-  assert.deepStrictEqual(schema.properties.tasks.items.properties.count, { type: 'integer', minimum: 1, maximum: 4 });
+  assert.strictEqual(Object.hasOwn(schema.properties.tasks.items.properties, 'count'), false);
   assert.deepStrictEqual(schema.properties.tasks.items.properties.label, { type: 'string', minLength: 1, maxLength: 120 });
 }
 

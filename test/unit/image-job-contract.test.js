@@ -3,6 +3,10 @@ const { Readable } = require('stream');
 
 const { createImageJobHandlers, prepareImageJobRequest, createImageJobFromRequestBody, buildImageUpstreamRequest, createImageJobValidationError, formatImageJobError, imageUpstreamBaseHeaders, markImageJobDone, markImageJobFailed, parseImageUpstreamResponse, resolveImageJobMode, runImageJob } = require('../../server/jobs/image');
 const { publicJob } = require('../../server/jobs/common');
+const executionResources = require('../../client/core/execution-resources');
+const imageExecution = require('../../client/core/image-execution');
+const storedAttachments = require('../../client/core/attachments');
+const imageService = require('../../client/services/image-service');
 const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 const { bindJobOwner } = require('../../server/security/job-ownership');
 const { attachTestPrincipal, makeTestPrincipal } = require('../helpers/request-principal-fixture');
@@ -642,7 +646,43 @@ function testImageJobPublicSnapshotContract() {
   assert.deepStrictEqual(publicJob({ id: 'imgjob-error1', status: 'error', createdAt: 1, updatedAt: 2, error: '失败' }).error, { message: '失败' });
 }
 
+
+// A two-image reference/edit question is the simplest multi-image case. The
+// client role map and the serialized file payload must agree on the identity
+// fields; otherwise the server rejects the job with
+// '图片角色映射与稳定资源绑定不一致' (regression for the two-image upload flow).
+async function testTwoImageRoleMapMatchesSerializedFileIdentity() {
+  const attA = { id: 'att_a1', imageId: 'img_imgref-latest_1', attachmentId: 'img_imgref-latest_1', name: 'a.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA', referenceId: 'imgref-latest', sourceIndex: 1 };
+  const attB = { id: 'att_a2', imageId: 'img_imgref-latest_2', attachmentId: 'img_imgref-latest_2', name: 'b.png', type: 'image/png', dataUrl: 'data:image/png;base64,BBBB', referenceId: 'imgref-latest', sourceIndex: 2 };
+  const resources = {
+    version: 'execution_resources.v2', operation: 'image_reference_gen', api: 'image_edit', relation: 'new',
+    images: [
+      { key: 'r1', type: 'image', role: 'reference', source: 'current', index: 1, id: 'att_a1', resource_id: 'res:image:att_a1', reference_id: '', identity_aliases: ['att_a1', 'img_imgref-latest_1'], index_aliases: [1], missing: false },
+      { key: 'r2', type: 'image', role: 'reference', source: 'current', index: 2, id: 'att_a2', resource_id: 'res:image:att_a2', reference_id: '', identity_aliases: ['att_a2', 'img_imgref-latest_2'], index_aliases: [2], missing: false },
+    ],
+    files: [], messages: [],
+  };
+  const current = [attA, attB].map((item, index) => ({ ...item, routeSource: 'current', sourceIndex: index + 1, media_index: index + 1 }));
+  const media = executionResources.projectExecutionMedia(resources, {
+    imagePools: { current, quoted: [], history: [], context: [] },
+    filePools: { current: [], quoted: [], history: [], context: [] },
+    messagePools: { current: [], quoted: [], history: [], context: [] },
+  });
+  const roleMap = imageExecution.buildImageRoleMap(media.imageInputs);
+  const persisted = media.imageInputs.map(item => storedAttachments.normalizeStoredImageAttachment({ ...item, src: item.dataUrl }));
+  const files = (await Promise.all(persisted.map(item => imageService.imageFileToJobPayload(item, async () => 'data:image/png;base64,AAAA')))).filter(Boolean);
+  assert.strictEqual(files.length, 2);
+
+  const prepared = prepareImageJobRequest({
+    payload: { model: 'gpt-image-1', prompt: '合并参考图', image_role_map: JSON.stringify(roleMap) },
+    files,
+  });
+  assert.strictEqual(prepared.mode, 'edit_image');
+  assert.deepStrictEqual(prepared.files.map(file => file.routeRole), ['reference', 'reference']);
+}
+
 module.exports = [
+  testTwoImageRoleMapMatchesSerializedFileIdentity,
   testImageUpstreamBaseHeadersContract,
   testImageJobStateMutationHelpersContract,
   testImageJobErrorFormatterContract,

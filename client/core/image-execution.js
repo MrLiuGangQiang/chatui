@@ -67,8 +67,12 @@
       position: index + 1,
       role: String(item?.routeRole || ""),
       resource_key: String(item?.routeResourceKey || ""),
-      id: String(item?.routeId || ""),
-      reference_id: String(item?.routeReferenceId || ""),
+      // The serialized file derives routeId from routeId/imageId/id and
+      // routeReferenceId from routeReferenceId/referenceId. Use the exact
+      // same fallback chain so the server's role-map/binding consistency
+      // check never compares two different identity representations.
+      id: String(item?.routeId || item?.imageId || item?.image_id || item?.id || ""),
+      reference_id: String(item?.routeReferenceId || item?.referenceId || item?.reference_id || ""),
     }));
   }
 

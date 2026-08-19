@@ -455,8 +455,8 @@ async function testRestoredEditAttachmentsKeepCompleteExecutionBinding() {
     routeRole: 'target',
     routeResourceId: 'res:image:target-1',
     routeSource: 'current',
-    routeId: 'img_imgref-restore-binding_1',
-    routeReferenceId: 'imgref-restore-binding',
+    routeId: 'target-1',
+    routeReferenceId: 'ref-1',
   }, 'a restored edit attachment must retain the complete atomic execution binding');
 
   const restoredMasks = await contextApi.restoreImageAttachmentsFromContext(normalized, { role: 'mask' });

@@ -122,6 +122,12 @@ function normalizeStoredImageAttachment(item = {}, fallbackRole = '') {
     routeRole: item.routeRole || item.route_role || item.role || fallbackRole,
     routeResourceId: item.routeResourceId || item.route_resource_id || item.resource_id || item.resourceId || '',
     routeSource: item.routeSource || item.route_source || item.source || '',
+    // The role map and the serialized file must agree on identity. Keeping
+    // the projection-assigned routeId/routeReferenceId here prevents the
+    // upload boundary from deriving a different id (imageId fallback) than
+    // the image_role_map was built from.
+    routeId: item.routeId || item.route_id || '',
+    routeReferenceId: item.routeReferenceId || item.route_reference_id || '',
   };
 }
 

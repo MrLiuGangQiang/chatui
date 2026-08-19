@@ -225,7 +225,22 @@
     return 'text';
   }
 
-  function buildPresentation(message = {}) {
+  function refreshAttachmentContextForEdit(value = '', nextPrompt = '') {
+    if (!value) return value;
+    try {
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const prompt = String(nextPrompt || '').trim();
+        parsed.prompt = prompt;
+        if (parsed.content === undefined) parsed.content = prompt;
+        else if (typeof parsed.content === 'string') parsed.content = prompt;
+        return typeof value === 'string' ? JSON.stringify(parsed) : parsed;
+      }
+    } catch {}
+    return value;
+  }
+
+    function buildPresentation(message = {}) {
     const existing = sanitizePresentation(message.presentation);
     const kind = detectPresentationKind(message, existing);
     const attachmentContext = parseContext(message.attachmentContext);
@@ -311,6 +326,7 @@
     stripBase64Placeholder,
     extractMetricText,
     attachmentDisplayText,
+    refreshAttachmentContextForEdit,
     imageCompletionText,
     detectPresentationKind,
     buildPresentation,

@@ -2,6 +2,7 @@
 
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { feedbackUserContent } = require('./feedback-content.service');
+const { responseOutputText } = require('../../shared/responses-output');
 
 const FEEDBACK_REVIEW_SCHEMA_VERSION = 'feedback_review.v1';
 const FEEDBACK_REVIEW_TIMEOUT_MS = 20_000;
@@ -83,7 +84,8 @@ function assistantText(payload = null) {
   if (Array.isArray(message?.content)) {
     return message.content.map(part => typeof part === 'string' ? part : part?.text || part?.output_text || '').join('');
   }
-  return String(payload?.output_text || payload?.content || '');
+  const extracted = responseOutputText(payload || {});
+  return extracted || String(payload?.output_text || payload?.content || '');
 }
 
 function missingSections(raw = {}) {

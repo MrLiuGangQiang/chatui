@@ -144,9 +144,32 @@ async function testFeedbackReviewerFailsClosedAfterTwoInvalidResponses() {
   assert.strictEqual(calls, 2);
 }
 
+function testAssistantTextExtractsResponsesOutputArray() {
+  const json = JSON.stringify(reviewResult({ reasonable: false, message: '请具体说明期望结果。' }));
+  const extracted = feedbackReview.assistantText({
+    output: [{ type: 'message', content: [{ type: 'output_text', text: json }] }],
+  });
+  assert.strictEqual(extracted, json);
+  const parsed = feedbackReview.parseFeedbackReviewResult(extracted);
+  assert.strictEqual(parsed.accepted, false);
+  assert.strictEqual(parsed.message, '请具体说明期望结果。');
+}
+
+async function testFeedbackReviewerAcceptsResponsesOutputArrayRejection() {
+  const json = JSON.stringify(reviewResult({ reasonable: false, message: '请补充期望结果。' }));
+  const reviewer = feedbackReview.createFeedbackReviewer({
+    fetchImpl: async () => mockResponse(200, { output: [{ type: 'message', content: [{ type: 'output_text', text: json }] }] }),
+  });
+  const result = await reviewer.review('问题描述和复现都有，但期望结果不具体', { apiKey: 'sk-test', model: 'gpt-test' });
+  assert.strictEqual(result.accepted, false);
+  assert.strictEqual(result.message, '请补充期望结果。');
+}
+
 module.exports = [
   testFeedbackReviewPromptAndParserRequireAllThreeSections,
   testFeedbackReviewerRepairsOneInvalidModelResponse,
   testFeedbackReviewerRetriesWithoutUnsupportedStructuredOutput,
   testFeedbackReviewerFailsClosedAfterTwoInvalidResponses,
+  testAssistantTextExtractsResponsesOutputArray,
+  testFeedbackReviewerAcceptsResponsesOutputArrayRejection,
 ];

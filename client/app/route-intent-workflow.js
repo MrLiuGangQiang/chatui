@@ -572,10 +572,130 @@
         // image route before either direct execution or multi-image decomposition.
         // The image provider never receives a raw conversational reference such as
         // “按方案A/照你说的/上述内容”.
+
+        // A multi-reference image task (more than one image input) cannot be
+        // expressed as a single provider edit (one image, one mask). It is
+        // decomposed: analyze every reference image, then generate one new
+        // image from the analysis plus the original requirements.
+        const REFERENCE_ANALYSIS_SYSTEM_PROMPT = '你是图片分析与文生图合成器。先逐张分析参考图片（内容、主体、构图、风格、配色、文字与排版等要点），再结合用户的原始要求，输出一段完整、自足、可直接用于文生图的新图描述。要求：写清主体、场景、构图、风格、配色、文字与排版要求；不要输出分析过程或分点，只输出最终描述；不要出现“参考图/图1/图2/第一张/第二张/上面的图/刚才的图”等任何指代参考图的表述，也不要出现图片序号或文件名。\n\n用户原始要求：{goal}';
+
+        function boundReferenceImages(route, attachments) {
+          // Only multi-reference tasks decompose: at least two reference /
+          // style_reference images. A single-image edit (one target, optional
+          // one mask) stays on the direct edit path.
+          const images = (Array.isArray(route?.resources) ? route.resources : [])
+            .filter(resource => resource?.type === 'image'
+              && ['reference', 'style_reference'].includes(resource?.role));
+          if (images.length <= 1) return [];
+          const sourceList = Array.isArray(attachments) ? attachments : [];
+          const byResourceId = new Map();
+          const byIndex = new Map();
+          sourceList.forEach((item, index) => {
+            const resourceId = String(item?.routeResourceId || item?.resource_id || item?.resourceId || '').trim();
+            if (resourceId) byResourceId.set(resourceId, item);
+            byIndex.set(Number(item?.sourceIndex || item?.source_index || index + 1), item);
+          });
+          const resolved = [];
+          for (const resource of images) {
+            const resourceId = String(resource?.resource_id || resource?.resourceId || '').trim();
+            const item = byResourceId.get(resourceId)
+              || byIndex.get(Number(resource?.index) || 0)
+              || null;
+            const dataUrl = String(item?.dataUrl || item?.src || '').trim();
+            if (!/^data:image\//i.test(dataUrl)) return [];
+            resolved.push({
+              dataUrl,
+              name: String(item?.name || item?.filename || resource?.id || `参考图 ${resolved.length + 1}`),
+            });
+          }
+          return resolved;
+        }
+
+        async function decomposeMultiReferenceImageTask(route, source, { goal = '' } = {}) {
+          if (!route || route.needClarification
+              || !['image_reference_gen', 'edit_image'].includes(String(route.operationType || ''))) {
+            return route;
+          }
+          const refImages = boundReferenceImages(route, attachments);
+          if (!refImages.length) return route;
+          const composedGoal = String(goal
+            || route.userGoal
+            || route.executionPrompt
+            || route.dispatchContract?.arguments?.prompt
+            || input || '').trim();
+          const analysisPayload = {
+            model: primaryModel,
+            input: [{
+              role: 'user',
+              content: [
+                { type: 'input_text', text: REFERENCE_ANALYSIS_SYSTEM_PROMPT.replace('{goal}', composedGoal) },
+                ...refImages.map(image => ({ type: 'input_image', image_url: image.dataUrl })),
+              ],
+            }],
+            stream: false,
+          };
+          try {
+            intentDeadline.assertActive();
+            emitStage('analyzing_reference_images', { modelRole: 'primary', imageCount: refImages.length });
+            const response = await requestWithinDeadline(analysisPayload, {
+              phase: 'reference_analysis',
+              modelRole: 'primary',
+              requestPurpose: 'image_instruction_materialization',
+            });
+            intentDeadline.assertActive();
+            const analysis = String(routeSvc.extractRouteText(response) || '').trim();
+            if (!analysis) {
+              return routeFailureRoute(route, 'reference_analysis_invalid', '本次未执行：参考图分析未返回有效结果，请重试。');
+            }
+            // Prefix the composed description with a generation directive so
+            // the local compiler keeps text_to_image instead of re-reading the
+            // analysis text as a visual-edit request.
+            const finalPrompt = '请生成一张图片：\n' + analysis;
+            const generated = typeof routeSvc.compileLocalRoute === 'function'
+              ? routeSvc.compileLocalRoute({
+                operation: 'text_to_image',
+                relation: 'new',
+                arguments: { prompt: finalPrompt },
+                bindings: [],
+                constraints: [],
+              }, { input: finalPrompt, attachments: [], context: {} })
+              : null;
+            if (!generated || typeof routeSvc.isRouteDispatchable !== 'function' || !routeSvc.isRouteDispatchable(generated)) {
+              return routeFailureRoute(route, 'reference_analysis_invalid', '本次未执行：参考图分析结果无法编译为生图任务，请重试。');
+            }
+            return {
+              ...generated,
+              referenceAnalysis: analysis,
+              referenceAnalysisSource: String(route.operationType || ''),
+            };
+          } catch (error) {
+            if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
+            if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+            if (error?.code === 'MODEL_CALL_BUDGET_EXCEEDED') return failRoute('model_calls_exceeded', 'model_call_budget');
+            console.warn('[route] reference analysis model failed', {
+              name: String(error?.name || 'Error'),
+              code: String(error?.code || ''),
+            });
+            return routeFailureRoute(route, routeErrorReason(error), '本次未执行：参考图分析失败，请重试。');
+          }
+        }
+
         async function finalizeRoute(route, source = '') {
           const materializedRoute = await materializeImageInstruction(route, source);
           if (!materializedRoute || materializedRoute.needClarification) {
             return completeRoute(materializedRoute, source);
+          }
+          // Multi-reference image tasks are decomposed: analyze the reference
+          // images first, then generate a single new image from the analysis
+          // plus the original requirements. Single-image edits stay direct.
+          const decomposed = await decomposeMultiReferenceImageTask(materializedRoute, source, {
+            goal: String(materializedRoute.userGoal
+              || materializedRoute.executionPrompt
+              || materializedRoute.dispatchContract?.arguments?.prompt
+              || input || '').trim(),
+          });
+          if (decomposed && decomposed !== materializedRoute) {
+            return completeRoute(decomposed, source);
           }
           if (typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
             return completeRoute(materializedRoute, source);

@@ -108,6 +108,7 @@ const IMAGE_EDIT_MULTIPART_FIELDS = new Set([
   'user',
   'input_fidelity',
   'response_format',
+  'n',
 ]);
 
 function shouldForwardImageEditField(payload, key, value) {

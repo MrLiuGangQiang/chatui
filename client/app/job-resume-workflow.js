@@ -20,6 +20,24 @@
     const settleSessionTask =
       deps.settleSessionTask ||
       ((sessionId, options = {}) => finishSessionTask(sessionId, options));
+
+    // A persisted job that cannot be reconciled with its dispatch contract is
+    // internal stale state, not a user error. Silently discard it and remove the
+    // pending placeholder so the user can simply re-issue a fresh request.
+    function discardInvalidImageJob(sessionId = '') {
+      try { deps.clearImageJob?.(sessionId); } catch {}
+      try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(sessionId, { storage: root.localStorage }); } catch {}
+      const session = deps.state?.sessions?.find(item => item?.id === sessionId);
+      if (session?.display?.length) {
+        const reversedIndex = [...session.display].reverse().findIndex(item => item?.pending
+          && /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/.test(item?.rawText || ''));
+        if (reversedIndex >= 0) {
+          session.display.splice(session.display.length - 1 - reversedIndex, 1);
+          try { deps.persistSessionDisplay?.(sessionId); } catch {}
+        }
+      }
+      deps.finishSessionTask?.(sessionId, { resumeKey: `image:${sessionId}` });
+    }
     const dispatchContractContract =
       root?.[Symbol.for("chatui.module-registry.v1")]?.get("dispatchContract") ||
       root?.ChatUIDispatchContract ||
@@ -296,14 +314,8 @@
                 // mismatch clear the stuck job and fail terminally so the user
                 // can re-issue a fresh request instead of looping on 400s.
                 if (uploadMasks.length > 1) {
-                  clearImageJob(e);
-                  try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(e, { storage: root.localStorage }); } catch {}
-                  const maskError = new Error(
-                    "恢复图片编辑任务失败：该任务包含多张蒙版，请重新发起并选择一张蒙版。"
-                  );
-                  maskError.code = "IMAGE_MASK_CARDINALITY_EXCEEDED";
-                  maskError.terminalJob = true;
-                  throw maskError;
+                  discardInvalidImageJob(e);
+                  return;
                 }
                 if (typeof dispatchContractContract?.assertPayloadMatchesDispatchContract === "function") {
                   try {
@@ -318,14 +330,8 @@
                       },
                     );
                   } catch (contractError) {
-                    clearImageJob(e);
-                    try { root?.ChatUIAppJobWorkflow?.clearPendingSubmit?.(e, { storage: root.localStorage }); } catch {}
-                    const staleError = new Error(
-                      "恢复图片编辑任务失败：附件与任务绑定不一致，请重新发起该任务。"
-                    );
-                    staleError.code = "IMAGE_RESUME_BINDING_MISMATCH";
-                    staleError.terminalJob = true;
-                    throw staleError;
+                    discardInvalidImageJob(e);
+                    return;
                   }
                 }
                 (await startImageGenerationJob(s.payload, t, s.id, {

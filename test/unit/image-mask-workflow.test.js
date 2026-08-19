@@ -551,8 +551,8 @@ async function testResumeClearsStaleJobWithMultipleMasks() {
   await workflow.resumeImageJob('session-stale');
   assert.strictEqual(restarts, 0, 'the invalid stale job must never be re-posted');
   assert.ok(cleared >= 1, 'the stuck stale job must be cleared so the retry loop stops');
-  assert.strictEqual(cleanedMessages.length, 1);
-  assert.match(cleanedMessages[0], /多张蒙版/);
+  assert.strictEqual(shown.length, 0, 'invalid stale state must be discarded silently, not surfaced as a user error');
+  assert.strictEqual(cleanedMessages.length, 0, 'invalid stale state must be discarded without persisting an error placeholder');
 }
 
 module.exports = [

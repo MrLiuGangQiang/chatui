@@ -67,7 +67,16 @@ function buildImageCompletionMessage({ prompt = '', mode = 'image' } = {}) {
 }
 
 async function imageFileToJobPayload(attachment, readFileAsDataURL) {
-  const file = attachment?.file;
+  let file = attachment?.file;
+  if (file && typeof root?.compressImageIfNeeded === 'function') {
+    try {
+      const compressed = await root.compressImageIfNeeded(file);
+      if (compressed?.file) {
+        file = compressed.file;
+        attachment = { ...attachment, file, name: file.name || attachment.name, type: file.type || attachment.type };
+      }
+    } catch {}
+  }
   const existingDataUrl = String(attachment?.dataUrl || attachment?.src || attachment?.previewUrl || '');
   const dataUrl = file ? await readFileAsDataURL(file) : existingDataUrl;
   if (!String(dataUrl || '').startsWith('data:')) return null;

@@ -413,7 +413,21 @@
       for (const item of attachments) {
         if (!item?.src) continue;
         const file = await imageRefToFile(item.src, item.name || 'image.png');
-        result.push({ file, name: item.name || file.name, type: item.type || file.type || 'image/png', size: file.size, dataUrl: item.src, text: '', fromPrevious: !!item.fromPrevious, sourceIndex: Number(item.sourceIndex) || 0, imageId: item.imageId || '', referenceId: item.referenceId || '', routeResourceKey: item.routeResourceKey || '', routeRole: item.routeRole || (role === 'mask' ? 'mask' : ''), routeSource: item.routeSource || '' });
+        // Restored attachments cross the execution boundary as one atomic
+        // binding: keep the complete route metadata (key/type/role/id/source)
+        // from the persisted context, otherwise imageFilesToJobPayload rejects
+        // the partial binding with EXECUTION_RESOURCE_BINDING_INVALID after a
+        // refresh/resume of an edit or reference-generation job.
+        result.push({
+          ...item,
+          file,
+          name: item.name || file.name,
+          type: item.type || file.type || 'image/png',
+          size: file.size,
+          dataUrl: item.src,
+          text: '',
+          routeRole: item.routeRole || item.route_role || item.role || (role === 'mask' ? 'mask' : ''),
+        });
       }
       return result;
     }

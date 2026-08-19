@@ -12,6 +12,7 @@ const imageWorkflow = require('../../client/app/image-workflow');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
 const jobService = require('../../client/services/job-service');
 const submitHelpers = require('../../client/app/submit-workflow.helpers');
+const imageService = require('../../client/services/image-service');
 const { makeExecutionFixture, makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 function isImageFile(item = {}) {
@@ -414,7 +415,56 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
   assert.deepStrictEqual(restarts[0].options.masks.map(item => item.data), ['mask-1']);
 }
 
+
+async function testRestoredEditAttachmentsKeepCompleteExecutionBinding() {
+  const contextApi = makeContextWorkflow();
+  const context = imageGenerationService.createImageContext({
+    prompt: 'replace the sky',
+    mode: 'edit_image',
+    selectedReferenceId: 'imgref-restore-binding',
+    attachments: [{
+      id: 'target-1',
+      name: 'target.png',
+      type: 'image/png',
+      src: 'indexeddb://target-1',
+      routeRole: 'target',
+      routeResourceKey: 'r1',
+      routeResourceType: 'image',
+      routeResourceId: 'res:image:target-1',
+      routeSource: 'current',
+      routeId: 'target-1',
+      routeReferenceId: 'ref-1',
+      sourceIndex: 1,
+    }],
+  });
+  const normalized = contextApi.normalizeImageContextForStorage(context);
+  const restored = await contextApi.restoreImageAttachmentsFromContext(normalized);
+  assert.strictEqual(restored.length, 1);
+
+  // A refresh/resume restores the edit attachment and re-serializes it into the
+  // job payload. The restored attachment must keep the complete atomic
+  // execution binding; dropping routeResourceId/routeResourceType here made
+  // every resumed edit fail with EXECUTION_RESOURCE_BINDING_INVALID.
+  const payload = await imageService.imageFileToJobPayload(restored[0], async () => 'data:image/png;base64,AAAA');
+  assert.deepStrictEqual(payload, {
+    name: 'target.png',
+    type: 'image/png',
+    data: 'AAAA',
+    routeResourceKey: 'r1',
+    routeResourceType: 'image',
+    routeRole: 'target',
+    routeResourceId: 'res:image:target-1',
+    routeSource: 'current',
+    routeId: 'img_imgref-restore-binding_1',
+    routeReferenceId: 'imgref-restore-binding',
+  }, 'a restored edit attachment must retain the complete atomic execution binding');
+
+  const restoredMasks = await contextApi.restoreImageAttachmentsFromContext(normalized, { role: 'mask' });
+  assert.strictEqual(restoredMasks.length, 0, 'no masks in this context');
+}
+
 module.exports = [
+  testRestoredEditAttachmentsKeepCompleteExecutionBinding,
   testImageMaskContextPersistsAndRestoresRoleSeparately,
   testCanonicalImageDispatchSendsOnlyTargetAndMaskBindings,
   testImageWorkflowRejectsNonCanonicalDispatchBeforeRequest,

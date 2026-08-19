@@ -144,7 +144,7 @@
     if (!hasRouteBindingMetadata(resource)) return Object.freeze({});
     const binding = normalizedBinding(resource);
     if (!validateBinding(binding)) {
-      throw validationError('Execution resource binding is incomplete', 'EXECUTION_RESOURCE_BINDING_INVALID');
+      throw validationError('图片信息不完整，请重新上传图片后再试', 'EXECUTION_RESOURCE_BINDING_INVALID');
     }
     return Object.freeze({
       routeResourceKey: binding.key,

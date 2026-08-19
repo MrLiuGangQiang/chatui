@@ -37,7 +37,7 @@ function validateImageRoleMap(payload = {}, imageFiles = []) {
   const taggedFiles = imageFiles.filter(file => String(file?.routeRole || '').trim());
   if (encoded === undefined || encoded === null || encoded === '') {
     if (imageFiles.length > 1 && taggedFiles.length) {
-      throw createImageJobValidationError('多图任务缺少图片角色映射');
+      throw createImageJobValidationError('无法确定多张图片各自的用途，请重新上传后再试');
     }
     return;
   }
@@ -45,10 +45,10 @@ function validateImageRoleMap(payload = {}, imageFiles = []) {
   try {
     entries = typeof encoded === 'string' ? JSON.parse(encoded) : encoded;
   } catch {
-    throw createImageJobValidationError('图片参考图角色映射无效');
+    throw createImageJobValidationError('参考图片的用途信息无效，请重新上传后再试');
   }
   if (!Array.isArray(entries) || entries.length !== imageFiles.length) {
-    throw createImageJobValidationError('图片参考图角色映射与附件数量不一致');
+    throw createImageJobValidationError('参考图片数量与用途说明不一致，请重新上传后再试');
   }
   const allowedRoles = new Set(['target', 'reference', 'style_reference']);
   const resourceKeys = new Set();
@@ -65,7 +65,7 @@ function validateImageRoleMap(payload = {}, imageFiles = []) {
         || resourceKey !== String(file.routeResourceKey || '')
         || String(entry.id || '') !== String(file.routeId || '')
         || String(entry.reference_id || '') !== String(file.routeReferenceId || '')) {
-      throw createImageJobValidationError('图片角色映射与稳定资源绑定不一致');
+      throw createImageJobValidationError('图片用途信息不一致，请重新上传图片后再试');
     }
     resourceKeys.add(resourceKey);
   });
@@ -78,7 +78,7 @@ function prepareImageJobRequest(body = {}) {
   const masks = extractImageEditMasks(body);
   validateImageRoleMap(payload, imageFiles);
   if (masks.length > 1) {
-    throw createImageJobValidationError('图片编辑任务最多支持一个 mask 附件');
+    throw createImageJobValidationError('编辑图片时只能选择一张蒙版图，请只保留一张蒙版后重新发送');
   }
   validateImageFilePayloads([...imageFiles, ...masks]);
   const mode = resolveImageJobMode(body, imageFiles);
@@ -87,7 +87,7 @@ function prepareImageJobRequest(body = {}) {
     throw createImageJobValidationError('图片编辑任务缺少图片附件');
   }
   if (mode === 'edit_image' && !String(payload.prompt || '').trim()) {
-    throw createImageJobValidationError('图片编辑任务缺少 prompt，请输入要如何修改图片');
+    throw createImageJobValidationError('图片编辑任务缺少修改说明，请输入要如何修改图片');
   }
   return { mode, payload, files: imageFiles, masks };
 }

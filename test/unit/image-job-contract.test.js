@@ -332,7 +332,7 @@ async function testImageJobStartEditValidationContracts() {
     masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
   });
   assert.strictEqual(result.res.status, 400);
-  assert.deepStrictEqual(result.json, { error: { message: '图片编辑任务最多支持一个 mask 附件' } });
+  assert.deepStrictEqual(result.json, { error: { message: '编辑图片时只能选择一张蒙版图，请只保留一张蒙版后重新发送' } });
   assert.strictEqual(result.imageJobs.has('imgjob-multimask'), false);
 
   result = await invokeStart({
@@ -341,7 +341,7 @@ async function testImageJobStartEditValidationContracts() {
     payload: { model: 'gpt-image-1', images: [imageFile()] },
   });
   assert.strictEqual(result.res.status, 400);
-  assert.deepStrictEqual(result.json, { error: { message: '图片编辑任务缺少 prompt，请输入要如何修改图片' } });
+  assert.deepStrictEqual(result.json, { error: { message: '图片编辑任务缺少修改说明，请输入要如何修改图片' } });
   assert.strictEqual(result.imageJobs.has('imgjob-noprompt'), false);
 }
 
@@ -538,7 +538,7 @@ function testImageJobPrepareRequestHelperContracts() {
         imageFile({ routeRole: 'reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' }),
       ],
     }),
-    err => err.statusCode === 400 && err.message === '图片角色映射与稳定资源绑定不一致',
+    err => err.statusCode === 400 && err.message === '图片用途信息不一致，请重新上传图片后再试',
   );
   assert.throws(
     () => prepareImageJobRequest({
@@ -548,7 +548,7 @@ function testImageJobPrepareRequestHelperContracts() {
         imageFile({ routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2' }),
       ],
     }),
-    err => err.statusCode === 400 && err.message === '多图任务缺少图片角色映射',
+    err => err.statusCode === 400 && err.message === '无法确定多张图片各自的用途，请重新上传后再试',
   );
   assert.throws(
     () => prepareImageJobRequest({
@@ -558,7 +558,7 @@ function testImageJobPrepareRequestHelperContracts() {
         imageFile({ routeRole: 'style_reference', routeResourceKey: 'r2', routeId: 'style-2', routeReferenceId: 'refset-2' }),
       ],
     }),
-    err => err.statusCode === 400 && err.message === '图片角色映射与稳定资源绑定不一致',
+    err => err.statusCode === 400 && err.message === '图片用途信息不一致，请重新上传图片后再试',
   );
 
   assert.throws(
@@ -568,7 +568,7 @@ function testImageJobPrepareRequestHelperContracts() {
       files: [imageFile({ name: 'target.png' })],
       masks: [imageFile({ name: 'mask-a.png' }), imageFile({ name: 'mask-b.png' })],
     }),
-    err => err.statusCode === 400 && err.message === '图片编辑任务最多支持一个 mask 附件'
+    err => err.statusCode === 400 && err.message === '编辑图片时只能选择一张蒙版图，请只保留一张蒙版后重新发送'
   );
 
   assert.throws(
@@ -577,7 +577,7 @@ function testImageJobPrepareRequestHelperContracts() {
   );
   assert.throws(
     () => prepareImageJobRequest({ payload: { images: [imageFile()] } }),
-    err => err.statusCode === 400 && err.message === '图片编辑任务缺少 prompt，请输入要如何修改图片'
+    err => err.statusCode === 400 && err.message === '图片编辑任务缺少修改说明，请输入要如何修改图片'
   );
 }
 
@@ -650,7 +650,7 @@ function testImageJobPublicSnapshotContract() {
 // A two-image reference/edit question is the simplest multi-image case. The
 // client role map and the serialized file payload must agree on the identity
 // fields; otherwise the server rejects the job with
-// '图片角色映射与稳定资源绑定不一致' (regression for the two-image upload flow).
+// '图片用途信息不一致，请重新上传图片后再试' (regression for the two-image upload flow).
 async function testTwoImageRoleMapMatchesSerializedFileIdentity() {
   const attA = { id: 'att_a1', imageId: 'img_imgref-latest_1', attachmentId: 'img_imgref-latest_1', name: 'a.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA', referenceId: 'imgref-latest', sourceIndex: 1 };
   const attB = { id: 'att_a2', imageId: 'img_imgref-latest_2', attachmentId: 'img_imgref-latest_2', name: 'b.png', type: 'image/png', dataUrl: 'data:image/png;base64,BBBB', referenceId: 'imgref-latest', sourceIndex: 2 };

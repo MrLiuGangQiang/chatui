@@ -44,7 +44,7 @@ function testStrictSchemaCompatibilityModulesUseFreshStaticCacheKeys() {
   const html = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.match(html, /client\/services\/chat-service\.js\?v=1\.3\.2-strict-schema-subset/,
     'the schema sanitizer must not be hidden behind the previous cached script URL');
-  assert.match(html, /client\/services\/request-compatibility\.js\?v=1\.0\.1-invalid-schema-fallback/,
+  assert.match(html, /client\/services\/request-compatibility\.js\?v=1\.0\.2-deepseek-intent-json-object/,
     'the invalid-schema retry must use a fresh script URL');
 }
 

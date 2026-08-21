@@ -814,7 +814,7 @@
         }
         if (typeof requestJsonWithStructuredOutputFallback === 'function') {
           const inner = attempt;
-          attempt = body => requestJsonWithStructuredOutputFallback(inner, body, compatibilityProfile);
+          attempt = body => requestJsonWithStructuredOutputFallback(inner, body, compatibilityProfile, { modelId: body?.model });
         }
         return attempt(nextPayload);
       };

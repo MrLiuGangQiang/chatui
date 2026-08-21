@@ -356,6 +356,9 @@ docker run -d \
 
 打开页面后点击“模型配置”。
 
+### DeepSeek 意图识别兼容
+
+当意图模型使用 `deepseek-*` 时，ChatUI 会在路由请求层优先使用 `json_object`，并把 `route_intent.v3` 的 JSON Schema 约束附加到提示中；收到结果后仍由本地严格校验和编译，不改变普通模型的结构化输出路径。若使用 DeepSeek 之外的模型，仍按原有 `json_schema` 优先、失败后兼容降级策略执行。
 ### 基础配置
 
 | 配置项 | 说明 |

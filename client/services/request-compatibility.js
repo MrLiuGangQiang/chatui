@@ -230,9 +230,15 @@
     return [payload, ...fallbackPayloads(payload)].find(candidate => formatType(candidate) === mode) || payload;
   }
 
-  async function requestJsonWithStructuredOutputFallback(request, payload, state = null) {
+  async function requestJsonWithStructuredOutputFallback(request, payload, state = null, options = {}) {
     if (typeof request !== 'function') throw new TypeError('requestJsonWithStructuredOutputFallback requires a request function');
-    const candidate = knownStructuredOutputPayload(payload, state);
+    const modelId = String(options?.modelId || payload?.model || '').trim();
+    const capabilities = root?.[Symbol.for('chatui.module-registry.v1')]?.get('modelCapabilities')
+      || (typeof require === 'function' ? require('../../shared/model-capabilities') : null);
+    const initialMode = capabilities?.initialStructuredOutputMode?.(modelId) || '';
+    const candidate = initialMode === 'json_object' && payload?.text?.format?.type === 'json_schema'
+      ? withStructuredOutputFormat(appendFallbackFormatInstruction(payload, payload.text.format), { transport: 'responses' }, { type: 'json_object' })
+      : knownStructuredOutputPayload(payload, state);
     try {
       const response = await request(candidate);
       if (state) state.structuredOutput = formatType(candidate);

@@ -220,6 +220,7 @@
             imageContextText: S,
             usesPriorInput: h,
             isReferenceGeneration: isRefGen,
+            selectedIndexes = [],
           } = prepared;
           const requiresImageEdit = productMode === 'edit_image';
 

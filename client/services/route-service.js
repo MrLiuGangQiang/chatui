@@ -200,6 +200,7 @@
     '【判断顺序】必须依次完成：1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode。operation决定执行能力，task_shape决定一次或多次执行，resource_refs决定具体资源，relation决定对话/执行依赖，goal写本轮可执行要求，goal_mode决定图片任务文字状态是替换还是修订。',
     '【operation】plain_chat=普通文字任务；web_search=需要实时检索；file_qa=读取或分析文件；image_qa=看图、描述、翻译图片内容或根据图片写提示词；ocr=识别图片文字；image_compare=比较两张图；multimodal_qa=必须同时读取图+文件；text_to_image=仅根据文字生成新图；image_reference_gen=使用图片参考生成新图；edit_image=修改既有图片。',
     '边界：改现有图→edit_image(target=被改图)；参考图生新图→image_reference_gen；看图写提示词/翻译/分析→image_qa；仅图文共存不等于multimodal_qa。image_compare 必须是比较任务，不要因有多张图就选它；ocr 只在用户明确要识别图中文字时选择。',
+    '【交付模态连续性】由当前输入和最近用户确认的任务共同理解交付物，不要只看是否出现“生成/画”等关键词。尚无 previous_execution.result_kind=image 的视觉设计任务中，后续的简短画面约束、布局/门窗/材质/构图修改或对交付物的追问，通常仍在推进图片交付：根据完整语境选择 text_to_image 或 edit_image，并让 goal 保留已确认的视觉要求。只有用户明确在询问解释、尺寸、原因、建议或事实时才选 plain_chat。assistant 的文字声称不是图片已交付的证据；只有 previous_execution.result_kind=image 才表示实际图片已完成。',
     '【task_shape】task_shape描述本轮需要几次独立执行，而不是资源数量。task_shape：single=一次dispatch/一个可合并结果；只要同operation+同资源集可一次回答→single。多图看/比/OCR/汇总→single，即使涉及多张图也只返回一个聚合答案。',
     'task_shape：multi=多个独立执行。对于可直接执行的图片生成/编辑任务，multi=多个独立图片结果：多图分别改→edit_image+multi(target各绑)，分别参考生多张→image_reference_gen+multi；共同参考生一张→image_reference_gen+single。',
     '非图片或跨operation的多个必做步骤同样属于multi，但不可直接执行：operation 填第一个必做步骤，task_shape=multi 仅标记“需要拆分”，goal 保留全部任务；它不会进入图片规划或授权图片批次，执行层会澄清。',

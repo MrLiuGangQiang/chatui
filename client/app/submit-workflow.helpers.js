@@ -641,13 +641,36 @@
   }
 
   function routeMediaResources(route = {}, type = "", source = "") {
-    const list =
-      type === "image"
-        ? route?.executionResources?.images
-        : route?.executionResources?.files;
-    return (Array.isArray(list) ? list : []).filter(
-      (resource) => !source || resource?.source === source,
-    );
+    const resourceField = type === "image" ? "images" : "files";
+    // A multi-image parent is only a planning envelope: it intentionally has no
+    // executable resource projection. Restore the union of the independently
+    // authorized child resources before projecting each child, otherwise a
+    // valid iN reference resolves against an empty runtime pool at handoff.
+    const childRoutes = route?.imagePlanCompiled?.kind === "batch"
+      ? route.imagePlanCompiled.items.map(item => item?.route).filter(Boolean)
+      : [];
+    const routes = childRoutes.length ? childRoutes : [route];
+    const resources = routes.flatMap(candidateRoute => {
+      const list = candidateRoute?.executionResources?.[resourceField];
+      return Array.isArray(list) ? list : [];
+    }).filter(resource => !source || resource?.source === source);
+    // Multiple batch children may deliberately bind the same source image.
+    // Restore it once so execution projection never treats duplicated restored
+    // objects as an ambiguous runtime resource.
+    const seen = new Set();
+    return resources.filter(resource => {
+      const identity = [
+        resource?.type,
+        resource?.source,
+        resource?.resource_id || resource?.resourceId || "",
+        resource?.id || "",
+        resource?.reference_id || resource?.referenceId || "",
+        Number(resource?.index) || 0,
+      ].map(value => String(value || "").trim()).join("\u0000");
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
   }
 
   async function restoreBoundImagePool(

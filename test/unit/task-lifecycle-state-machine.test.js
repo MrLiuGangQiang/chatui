@@ -7,6 +7,7 @@ const jobWorkflow = require('../../client/app/job-workflow');
 const sessionPersistence = require('../../client/app/session-persistence');
 const submitWorkflow = require('../../client/app/submit-workflow');
 const taskState = require('../../client/core/task-state');
+const taskLifecycle = require('../../client/app/task-lifecycle');
 const { makeExecutionFixture, makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
 function makeFinalExecutionJob({ id = 'chatjob-a', submissionId = 'submit-a' } = {}) {
@@ -256,15 +257,39 @@ function testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay() {
     messages: [{ role: 'user', content: 'draw two portraits' }],
     display: [{ id: 'pending-submit-submit-a', role: 'assistant', rawText: '正在识别任务…', pending: true, responseIndex: '1' }],
   };
-  const state = { sessions: [session], activeSessionId: session.id };
+  const state = {
+    sessions: [session], activeSessionId: session.id, taskStates: new Map(),
+    activeRuns: new Map(), resumingJobs: new Set(), busySessions: new Set(),
+  };
   const updates = [];
   const toasts = [];
+  const busyStates = [];
   try {
+    const lifecycle = taskLifecycle.createTaskLifecycle({
+      state,
+      taskState,
+      setSessionBusy: (sessionId, busy) => {
+        assert.strictEqual(sessionId, session.id);
+        busyStates.push(!!busy);
+        session.busy = !!busy;
+      },
+      updateSendAvailability: () => {},
+    });
     jobWorkflow.savePendingSubmit(session.id, {
       submissionId: 'submit-a', stage: 'routing', rawPromptText: 'draw two portraits', responseIndex: 1,
     }, { storage });
+    lifecycle.dispatchTaskEvent(session.id, {
+      type: taskState.TASK_EVENTS.TASK_ACCEPTED, submissionId: 'submit-a',
+    });
+    lifecycle.dispatchTaskEvent(session.id, {
+      type: taskState.TASK_EVENTS.ROUTING_STARTED, submissionId: 'submit-a',
+    });
+    assert.strictEqual(lifecycle.getTaskControls(session.id).sendAction, 'stop');
+
     const workflow = submitWorkflow.createSubmitWorkflow({
       state,
+      taskEvents: taskState.TASK_EVENTS,
+      dispatchTaskEvent: lifecycle.dispatchTaskEvent,
       updateSessionDisplayItem: (_sessionId, item, role, content, options) => {
         updates.push({ item, role, content, options });
         item.role = role;
@@ -279,6 +304,7 @@ function testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay() {
     });
 
     const discarded = workflow.discardUndeliveredPendingSubmit(session.id);
+    lifecycle.finishSessionTask(session.id);
     assert.strictEqual(discarded.submissionId, 'submit-a');
     assert.strictEqual(jobWorkflow.loadPendingSubmit(session.id, { storage }), null,
       'a request without a server-owned job must be removed before the UI is made available again');
@@ -287,6 +313,13 @@ function testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay() {
     assert.match(updates[0].content, /停止自动重放/);
     assert.strictEqual(session.display[0].pending, false,
       'the page must replace the stale “recovering” indicator with an explicit manual-retry message');
+    assert.strictEqual(lifecycle.getTaskState(session.id).phase, taskState.TASK_PHASES.FAILED,
+      'discarding an undelivered recovery must terminally settle the canonical task state');
+    assert.deepStrictEqual(lifecycle.getTaskControls(session.id), {
+      isBusy: false, canSubmit: true, canStop: false, sendAction: 'submit',
+    }, 'the composer must return from stop mode to submit mode after recovery is abandoned');
+    assert.strictEqual(busyStates.at(-1), false,
+      'the canonical busy projection must be released without requiring a manual stop');
     assert.deepStrictEqual(toasts, [updates[0].content]);
   } finally {
     if (previousStorage === undefined) delete global.localStorage;

@@ -16,6 +16,51 @@ function editRoute(images) {
   };
 }
 
+async function testRestoreBoundImagePoolUsesAndDeduplicatesCompiledBatchChildResources() {
+  const childRoute = imageId => editRoute([{
+    key: 'r1', type: 'image', source: 'history', role: 'target', index: 1,
+    id: imageId, resource_id: `res:image:${imageId}`, reference_id: 'imgref-floorplan',
+    identity_aliases: [], index_aliases: [], missing: false,
+  }]);
+  const route = {
+    // image_plan.v1 parent routes intentionally have no executionResources.
+    imagePlanCompiled: {
+      kind: 'batch',
+      items: [
+        { route: childRoute('img_imgref_floorplan_1') },
+        { route: childRoute('img_imgref_floorplan_1') },
+      ],
+    },
+  };
+  const calls = [];
+  const restored = await submitHelpers.restoreBoundImagePool(route, {
+    source: 'history',
+    sessionId: 'session-floorplan',
+    getPreviousImageAttachments: async (...args) => {
+      calls.push(args);
+      return [{
+        imageId: 'img_imgref_floorplan_1', referenceId: 'imgref-floorplan',
+        type: 'image/png', dataUrl: 'data:image/png;base64,AA==',
+      }];
+    },
+  });
+
+  assert.deepStrictEqual(calls, [[
+    'session-floorplan', null, '', ['img_imgref_floorplan_1'],
+  ]], 'a planning-only batch parent must restore the shared child image once by its exact ID');
+  assert.strictEqual(restored.length, 1,
+    'the shared image must not be duplicated in the runtime pool merely because two children use it');
+
+  for (const item of route.imagePlanCompiled.items) {
+    const media = submitHelpers.projectRouteExecutionMedia(
+      item.route,
+      submitHelpers.buildExecutionResourcePools({ history: restored }, { isImageFile }),
+    );
+    assert.strictEqual(media.targets[0].imageId, 'img_imgref_floorplan_1',
+      'every independently compiled child must resolve the restored shared target');
+  }
+}
+
 async function testRestoreBoundImagePoolCanonicalizesEachRecoveredContractResource() {
   const route = editRoute([{
     key: 'r1', type: 'image', source: 'history', role: 'target', index: 8,
@@ -205,6 +250,7 @@ async function testRestoreBoundImagePoolFailsBeforeAmbiguousProjection() {
 }
 
 module.exports = [
+  testRestoreBoundImagePoolUsesAndDeduplicatesCompiledBatchChildResources,
   testRestoreBoundImagePoolCanonicalizesEachRecoveredContractResource,
   testRestoreBoundImagePoolBridgesValidatedAliasesForIdLessHistoricalResources,
   testRestoreBoundImagePoolRestoresEachResourceByItsExactContractId,

@@ -75,6 +75,14 @@
       const pending = loadPendingSubmit(sessionId);
       if (!pending) return null;
       const message = '上次任务尚未交给服务端，已停止自动重放以避免重复请求；如需继续请重新发送。';
+      // Recovery has deliberately abandoned this pre-handoff submission. Publish
+      // its terminal state before releasing the persisted owner so the canonical
+      // task controls stop rendering the composer as an active/stop-able task.
+      const submissionId = String(pending?.submissionId || pending?.taskId || '').trim();
+      if (submissionId) emitTaskEvent(sessionId, taskEvents.TASK_FAILED, {
+        submissionId,
+        taskId: String(pending?.taskId || submissionId).trim(),
+      });
       clearPendingSubmit(sessionId);
 
       const session = (Array.isArray(deps.state?.sessions) ? deps.state.sessions : [])

@@ -144,7 +144,10 @@
     const next = {};
     // Preserve only fields that are shared by the non-streaming Chat
     // Completions request used for routing. In particular, do not leak
-    // Responses-only input/text/reasoning parameters into the fallback.
+    // Responses-only input/text parameters into the fallback. The reasoning
+    // effort directive (including the intent pipeline's explicit "none") is
+    // translated to the native Chat Completions reasoning_effort parameter;
+    // strict gateways that reject it strip it via the reasoning fallback.
     for (const field of [
       'model', 'stream', 'temperature', 'top_p', 'max_tokens',
       'max_completion_tokens', 'n', 'stop', 'presence_penalty',
@@ -152,6 +155,8 @@
     ]) {
       if (Object.prototype.hasOwnProperty.call(payload, field)) next[field] = payload[field];
     }
+    const reasoningEffort = String(payload?.reasoning?.effort || '').trim();
+    if (reasoningEffort) next.reasoning_effort = reasoningEffort;
     next.messages = messages;
     const responseFormat = chatCompletionsResponseFormatFromResponsesTextFormat(payload.text?.format);
     if (responseFormat) next.response_format = responseFormat;

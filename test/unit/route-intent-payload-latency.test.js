@@ -42,21 +42,21 @@ function representativeContext() {
 
 function assertMinimalNonStreamingResponsesPayload(payload, label) {
   assert.strictEqual(payload.stream, false, `${label} must explicitly disable streaming for compatible gateways`);
-  assert.strictEqual(payload.reasoning, undefined, `${label} must not request visible reasoning summaries`);
+  assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, `${label} must explicitly disable model thinking to stay within the intent deadline`);
   assert.strictEqual(payload.temperature, undefined, `${label} must not carry Chat Completions sampling controls`);
-  assert.deepStrictEqual(Object.keys(payload).sort(), ['input', 'model', 'stream', 'text'], `${label} must use the minimal Responses request shape`);
+  assert.deepStrictEqual(Object.keys(payload).sort(), ['input', 'model', 'reasoning', 'stream', 'text'], `${label} must use the minimal Responses request shape`);
   assert.ok(payload.text?.format?.schema, `${label} must retain strict structured output`);
 }
 
 function assertMinimalIntentResponsesPayload(payload) {
   assert.strictEqual(payload.stream, false, 'intent recognition must explicitly disable streaming');
-  assert.strictEqual(payload.reasoning, undefined, 'intent recognition must keep normal model reasoning available');
+  assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, 'intent recognition must explicitly disable model thinking to stay within the intent deadline');
   assert.strictEqual(payload.temperature, undefined, 'intent recognition must not add a sampling override');
-  assert.strictEqual(payload.max_output_tokens, undefined, 'intent recognition must not cap reasoning with a transport limit');
+  assert.strictEqual(payload.max_output_tokens, undefined, 'intent recognition must not cap model output with a transport limit');
   assert.strictEqual(payload.tool_choice, 'none', 'intent recognition must explicitly disable tools');
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false, 'the classifier request must not include tools');
   assert.deepStrictEqual(Object.keys(payload).sort(), [
-    'input', 'model', 'stream', 'text', 'tool_choice',
+    'input', 'model', 'reasoning', 'stream', 'text', 'tool_choice',
   ]);
   assert.ok(payload.text?.format?.schema, 'intent recognition must retain strict structured output');
 }

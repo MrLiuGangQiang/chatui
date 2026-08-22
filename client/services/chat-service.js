@@ -1,4 +1,4 @@
-﻿(function initChatUIChatService(root) {
+(function initChatUIChatService(root) {
   'use strict';
 
 const fileInputs = root?.ChatUICore?.fileInputs
@@ -198,7 +198,15 @@ function buildResponsesPayload(model, messages, options = {}) {
   if (Number.isFinite(options.temperature)) payload.temperature = Number(options.temperature);
   const textFormat = responsesTextFormat(options.textFormat || options.responseFormat);
   if (textFormat) payload.text = { format: textFormat };
-  if (options.reasoningEnabled) {
+  // noReasoning is an explicit "do not think" directive for latency-bounded
+  // one-shot calls (intent recognition and friends). It is deliberately
+  // separate from the reasoningEnabled/reasoningEffort gate that drives
+  // user-facing chat streaming, so an omitted reasoning field there keeps
+  // its existing meaning. Gateways that reject the parameter are handled by
+  // the reasoning compatibility fallback, which strips it and retries.
+  if (options.noReasoning === true) {
+    payload.reasoning = { effort: 'none' };
+  } else if (options.reasoningEnabled) {
     payload.reasoning = {
       effort: options.reasoningEffort || 'medium',
       summary: options.summary || 'auto',

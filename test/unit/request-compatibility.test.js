@@ -204,6 +204,7 @@ function testNonStreamingResponsesPayloadConvertsToStrictChatCompletionsPayload(
     model: 'route-model',
     stream: false,
     temperature: 0,
+    reasoning_effort: 'low',
     messages: [
       { role: 'system', content: 'Return route_intent.v2 as json.' },
       { role: 'user', content: '{"output_format":"json"}' },
@@ -219,7 +220,8 @@ function testNonStreamingResponsesPayloadConvertsToStrictChatCompletionsPayload(
   });
   assert.strictEqual(Object.hasOwn(converted, 'input'), false);
   assert.strictEqual(Object.hasOwn(converted, 'text'), false);
-  assert.strictEqual(Object.hasOwn(converted, 'reasoning'), false);
+  assert.strictEqual(Object.hasOwn(converted, 'reasoning'), false, 'the Responses reasoning object must not leak into Chat Completions');
+  assert.strictEqual(converted.reasoning_effort, 'low', 'the reasoning effort directive must translate to the native Chat Completions parameter');
   assert.deepStrictEqual(payload, original, 'conversion must not mutate the Responses payload');
 
   const jsonObject = compatibility.chatCompletionsPayloadFromResponsesPayload({

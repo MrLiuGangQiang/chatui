@@ -9,7 +9,7 @@ function hasDescription(value) {
   return Object.values(value).some(hasDescription);
 }
 
-function testIntentRecognitionUsesABoundedNoToolRequestWithoutReasoningClamp() {
+function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
   const payload = routeService.buildRoutePayload({
     model: 'route-model',
     input: '把目标图的客厅改大。',
@@ -20,12 +20,15 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithoutReasoningClamp() {
   const schema = payload.text?.format;
 
   assert.deepStrictEqual(Object.keys(payload).sort(), [
-    'input', 'model', 'stream', 'text', 'tool_choice',
+    'input', 'model', 'reasoning', 'stream', 'text', 'tool_choice',
   ]);
   assert.strictEqual(payload.stream, false);
   assert.strictEqual(payload.temperature, undefined, 'do not clamp semantic routing to a sampling override');
-  assert.strictEqual(payload.max_output_tokens, undefined, 'schema bounds the visible JSON; do not cap model reasoning');
-  assert.strictEqual(payload.reasoning, undefined, 'keep normal model reasoning available for complex route decisions');
+  assert.strictEqual(payload.max_output_tokens, undefined, 'schema bounds the visible JSON; do not cap model output');
+  // The intent pipeline runs under one hard client-side deadline; a reasoning
+  // model's thinking phase is what pushed intent recognition past that budget
+  // ("本次未执行：意图识别超时"). Routing must explicitly request no thinking.
+  assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, 'intent recognition must explicitly disable model thinking');
   assert.strictEqual(payload.tool_choice, 'none');
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false);
   assert.strictEqual(payload.input.length, 2, 'the classifier requires exactly one system instruction and one facts payload');
@@ -90,7 +93,7 @@ function testIntentRecognitionPromptStatesReadableDecisionPriority() {
   assert.match(prompt, /4 new=仅无历史依赖且refs空\/全current/);
 }
 module.exports = [
-  testIntentRecognitionUsesABoundedNoToolRequestWithoutReasoningClamp,
+  testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled,
   testIntentRecognitionRetainsQualityCriticalRoutingGuidance,
   testIntentRecognitionPromptStatesReadableDecisionPriority,
 ];

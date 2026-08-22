@@ -1,4 +1,4 @@
-﻿(function initChatUIRouteService(root) {
+(function initChatUIRouteService(root) {
   'use strict';
 
   // ── New shared modules ──────────────────────────────────────────
@@ -1235,13 +1235,17 @@
       : ROUTE_INTENT_RESPONSE_FORMAT;
     if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
     // This is a non-streaming semantic routing request. Deny tool execution,
-    // but keep the model's normal reasoning budget so complex dependencies
-    // are not degraded by transport-level compactness.
+    // and explicitly disable model thinking: the whole intent pipeline runs
+    // under one hard client-side deadline, and a reasoning model's thinking
+    // phase is what pushes TTFT past that budget. Gateways that reject the
+    // reasoning parameter strip it via the compatibility fallback instead of
+    // failing the route.
     return buildResponsesPayload(model, [
       { role: 'system', content: systemPrompt || ROUTE_SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
+      noReasoning: true,
       toolChoice: 'none',
       responseFormat: responseFormat || requestResponseFormat,
     });
@@ -1273,6 +1277,7 @@
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
+      noReasoning: true,
       responseFormat: responseFormat || IMAGE_PLAN_RESPONSE_FORMAT,
     });
   }
@@ -1389,6 +1394,7 @@
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
+      noReasoning: true,
       toolChoice: 'none',
       responseFormat: responseFormat || IMAGE_INSTRUCTION_RESPONSE_FORMAT,
     });

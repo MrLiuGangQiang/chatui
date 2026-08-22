@@ -99,7 +99,7 @@ function testSubmitWorkflowDelegatesBatchToServerEndpoint() {
     'submit must delegate the whole compiled batch to the new server endpoint');
   assert.ok(!submitWorkflow.includes('Promise.allSettled(batchChildren)'),
     'submit must not fan out individual image jobs from the browser anymore');
-  assert.ok(submitWorkflow.includes('batchParent,responseIndex,clarificationReplay'),
+  assert.ok(submitWorkflow.includes('batchParent,responseIndex,userMessageId:userMessageIdentity?.id||"",turnId:userMessageIdentity?.turnId||"",clarificationReplay'),
     'the shared parent card and clarification replay must pass into the server batch workflow');
   assert.ok(regenerateWorkflow.includes('await sendImageBatch(l,{items:compiledBatch.items.map'),
     'regenerate must use the same single server batch endpoint');

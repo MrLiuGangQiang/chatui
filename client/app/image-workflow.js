@@ -487,6 +487,31 @@
           const completionMessages = cloneMessageList(
             n === state.activeSessionId ? state.messages : (i.messages || []),
           );
+          const imageUserIndex = Number.isFinite(t.replaceAssistantIndex)
+            ? Math.max(0, t.replaceAssistantIndex - 1)
+            : completionMessages.length - (t.userAlreadyAdded ? 1 : 0);
+          const imageUser = completionMessages[imageUserIndex]?.role === 'user'
+            ? completionMessages[imageUserIndex]
+            : completionMessages.find(message => message?.role === 'user' && String(message?.id || '') === String(t.userMessageId || '')) || null;
+          const imageIdentityApi = root?.ChatUIAppSessionPersistence || {};
+          const imageAssistantIdentityBase = imageIdentityApi.createMessageTurnIdentity?.({
+            sessionId: n,
+            submissionId: t.submissionId || p || `image-${imageUserIndex}`,
+            role: 'assistant',
+            sequence: Number.isFinite(t.replaceAssistantIndex) ? t.replaceAssistantIndex : completionMessages.length,
+          }) || {
+            id: `message:${n}:${t.submissionId || p || imageUserIndex}:assistant`,
+            turnId: imageUser?.turnId || `turn:${n}:${t.submissionId || p || imageUserIndex}`,
+          };
+          const imageAssistantIdentity = {
+            ...imageAssistantIdentityBase,
+            ...(imageUser?.id ? { replyToMessageId: imageUser.id } : {}),
+          };
+          if (c) {
+            c.messageId ||= imageAssistantIdentity.id;
+            c.turnId ||= imageAssistantIdentity.turnId;
+            c.replyToMessageId ||= imageAssistantIdentity.replyToMessageId || '';
+          }
           if (n === state.activeSessionId) {
             const s = Number.isFinite(t.replaceAssistantIndex)
               ? t.replaceAssistantIndex
@@ -530,10 +555,14 @@
                 ? (completionMessages[t.replaceAssistantIndex] = {
                     ...completionMessages[t.replaceAssistantIndex],
                     role: "assistant",
+                    ...imageAssistantIdentity,
                     content: w,
                     html: b.html,
                     rawText: `${b.raw}\n耗时：${v}`,
                     responseIndex: t.replaceAssistantIndex,
+                    messageId: imageAssistantIdentity.id,
+                    turnId: imageAssistantIdentity.turnId,
+                    replyToMessageId: imageAssistantIdentity.replyToMessageId || '',
                     imageContext: resultImageContextText,
                     kind: I.mode,
                     imageJobId: p || "",
@@ -544,6 +573,7 @@
                 : Number.isFinite(t.replaceAssistantIndex)
                   ? completionMessages.splice(t.replaceAssistantIndex, 0, {
                       role: "assistant",
+                      ...imageAssistantIdentity,
                       content: w,
                       html: b.html,
                       rawText: `${b.raw}\n耗时：${v}`,
@@ -602,9 +632,11 @@
                 content: t.originalPrompt || e,
                 rawText: t.originalPrompt || e,
                 messageIndex: completionMessages.length,
+                ...(imageIdentityApi.createMessageTurnIdentity?.({ sessionId: n, submissionId: t.submissionId || p || `image-${completionMessages.length}`, role: 'user', sequence: completionMessages.length }) || {}),
               }),
               completionMessages.push({
                 role: "assistant",
+                ...imageAssistantIdentity,
                 content: w,
                 html: b.html,
                 rawText: `${b.raw}\n耗时：${v}`,

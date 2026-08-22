@@ -13,6 +13,24 @@
     return capabilityRejection || schemaRejection || inputJsonRequirement;
   }
 
+  const CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY = '__chatuiCanonicalStructuredOutputSchema';
+
+  function canonicalSchemaFromFormat(format = null) {
+    const schema = format?.[CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY];
+    return schema && typeof schema === 'object' && !Array.isArray(schema) ? schema : null;
+  }
+
+  function attachCanonicalSchema(format = {}, schema = null) {
+    if (!format || typeof format !== 'object' || !schema || typeof schema !== 'object') return format;
+    Object.defineProperty(format, CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY, {
+      value: schema,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+    return format;
+  }
+
   function structuredOutputFormat(payload = {}) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
     if (payload.text?.format && typeof payload.text.format === 'object') {
@@ -26,40 +44,43 @@
 
   function schemaFromFormat(format = null) {
     if (!format || typeof format !== 'object') return null;
-    if (format.type !== 'json_schema') return null;
-    return format.json_schema?.schema || format.schema || null;
+    return canonicalSchemaFromFormat(format)
+      || (format.type === 'json_schema' ? format.json_schema?.schema || format.schema || null : null);
   }
 
   function withStructuredOutputFormat(payload = {}, descriptor = null, format = null) {
     if (!descriptor?.transport || !format) return { ...payload };
+    const canonicalSchema = schemaFromFormat(descriptor.format);
+    const compatibleFormat = canonicalSchema ? attachCanonicalSchema({ ...format }, canonicalSchema) : { ...format };
     if (descriptor.transport === 'responses') {
-      return { ...payload, text: { ...(payload.text || {}), format } };
+      return { ...payload, text: { ...(payload.text || {}), format: compatibleFormat } };
     }
-    return { ...payload, response_format: format };
+    return { ...payload, response_format: compatibleFormat };
   }
 
   function withoutStructuredOutputFormat(payload = {}, descriptor = null) {
+    const canonicalSchema = schemaFromFormat(descriptor?.format);
     if (descriptor?.transport === 'responses') {
       const next = { ...payload };
       const text = { ...(next.text || {}) };
       delete text.format;
       if (Object.keys(text).length) next.text = text;
       else delete next.text;
-      return next;
+      return canonicalSchema ? attachCanonicalSchema(next, canonicalSchema) : next;
     }
     const next = { ...payload };
     delete next.response_format;
-    return next;
+    return canonicalSchema ? attachCanonicalSchema(next, canonicalSchema) : next;
   }
 
-  function fallbackFormatInstruction(responseFormat = null) {
-    const schema = schemaFromFormat(responseFormat);
+  function fallbackFormatInstruction(responseFormat = null, payload = null) {
+    const schema = schemaFromFormat(responseFormat) || canonicalSchemaFromFormat(payload);
     if (!schema || typeof schema !== 'object') return '只返回一个严格 json 对象，不要输出 Markdown、代码围栏或解释。';
     return `当前接口不支持结构化输出参数。仍须只返回符合以下 JSON Schema 的 json 对象，不要输出 Markdown、代码围栏或解释：${JSON.stringify(schema)}`;
   }
 
   function appendFallbackFormatInstruction(payload = {}, responseFormat = null) {
-    const instruction = fallbackFormatInstruction(responseFormat);
+    const instruction = fallbackFormatInstruction(responseFormat, payload);
     if (Array.isArray(payload.messages)) {
       const messages = payload.messages.map(message => ({ ...message }));
       messages.push({ role: 'system', content: instruction });
@@ -267,6 +288,9 @@
 
   const api = Object.freeze({
     structuredOutputUnsupported,
+    CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY,
+    canonicalSchemaFromFormat,
+    attachCanonicalSchema,
     structuredOutputFormat,
     schemaFromFormat,
     withStructuredOutputFormat,

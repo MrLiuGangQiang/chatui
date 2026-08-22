@@ -68,8 +68,22 @@
       || !!String(context?.resultId || context?.result_id || '').trim();
   }
 
+  function stableMessageId(message = {}) {
+    return String(message.id || message.messageId || '').trim();
+  }
+
+  function stableTurnId(message = {}) {
+    return String(message.turnId || message.turn_id || '').trim();
+  }
+
   function messageIdentity(message) {
     if (!message || !['user', 'assistant'].includes(message.role)) return '';
+    // `id` and `turnId` are immutable persistence identities. Positional
+    // indexes are rendering metadata only and remain a legacy fallback.
+    const id = String(message.id || message.messageId || '').trim();
+    if (id) return `${message.role}:id:${id}`;
+    const turnId = String(message.turnId || message.turn_id || '').trim();
+    if (turnId) return `${message.role}:turn:${turnId}`;
     const value = message.role === 'user' ? message.messageIndex : message.responseIndex;
     return value !== undefined && value !== null && value !== '' ? `${message.role}:${value}` : '';
   }
@@ -82,7 +96,7 @@
       .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
-  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, messageIdentity, stripReasoningQuoteText });
+  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('messagePrimitives', api);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -294,10 +294,10 @@ function testImageWorkflowCreatesInitialWaitingNodeWithCanonicalResponseIndex() 
 function testCanonicalWaitingPositionBundleIsCacheBusted() {
   const index = require('fs').readFileSync(require('path').join(__dirname, '../../index.html'), 'utf8');
   for (const asset of [
-    'client/app/session-display.js?v=2.1.13-canonical-pending-order',
-    'client/app/chat-workflow.js?v=1.6.2-canonical-waiting-position',
-    'client/app/image-workflow.js?v=1.6.6-canonical-waiting-position',
-    'client/app/message-workflow.js?v=1.3.43-canonical-waiting-position',
+    'client/app/session-display.js?v=2.1.14-canonical-sequence-repair',
+    'client/app/chat-workflow.js?v=1.6.3-stable-turn-identity',
+    'client/app/image-workflow.js?v=1.6.7-stable-turn-identity',
+    'client/app/message-workflow.js?v=1.3.44-stable-turn-identity',
     'app.js?v=2.3.12-edit-pending-slot',
   ]) {
     assert.ok(index.includes(asset), `the browser must load the cache-busted ${asset} implementation`);

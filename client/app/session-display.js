@@ -12,6 +12,12 @@
     const readJsonStorage = deps.readJsonStorage;
     const compactDisplayItems = deps.compactDisplayItems || (items => items);
     const compactAdjacentDuplicateMessages = deps.compactAdjacentDuplicateMessages || (items => items);
+    const persistenceApi = deps.persistenceApi
+      || root.ChatUIAppSessionPersistence
+      || (typeof require === 'function' ? require('./session-persistence') : {});
+    const repairCanonicalMessageSequence = deps.repairCanonicalMessageSequence
+      || persistenceApi.repairCanonicalMessageSequence
+      || (items => Array.isArray(items) ? items.map(item => item && typeof item === 'object' ? { ...item } : item) : []);
     const sanitizeStoredDisplayItem = deps.sanitizeStoredDisplayItem || (item => item);
     const sanitizeStoredMessage = deps.sanitizeStoredMessage || (message => message);
     const renderSessionList = deps.renderSessionList || (() => {});
@@ -73,7 +79,7 @@
       readLatestSnapshot,
     } = snapshotRecovery;
 
-    function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
+    function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, messageId = '', turnId = '', replyToMessageId = '', jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
       return {
         id: id || makeDisplayItemId(),
         role,
@@ -83,6 +89,9 @@
         keepReasoning: false,
         messageIndex: messageIndex != null ? String(messageIndex) : '',
         responseIndex: responseIndex != null ? String(responseIndex) : '',
+        messageId: messageId || '',
+        turnId: turnId || '',
+        replyToMessageId: replyToMessageId || '',
         jobId: jobId || '',
         imageContext: imageContext || '',
         attachmentContext: attachmentContext || '',
@@ -268,7 +277,8 @@
     }
 
     function normalizeMessageList(messages, sessionId) {
-      const compacted = compactAdjacentDuplicateMessages(Array.isArray(messages) ? messages : []);
+      const repaired = repairCanonicalMessageSequence(messages, { sessionId });
+      const compacted = compactAdjacentDuplicateMessages(repaired);
       return compacted.map((message, index) => normalizeMessageForStorage(message, index, sessionId)).filter(Boolean);
     }
 
@@ -283,16 +293,16 @@
       // Async jobs can finish after the user switches sessions. Always copy both
       // sides before normalizing so the canonical session record never aliases
       // the mutable working array owned by another session or an in-flight task.
-      const existingMessages = Array.isArray(session.messages)
-        ? session.messages.map(message => ({ ...message }))
-        : [];
-      const incomingMessages = Array.isArray(messages)
-        ? messages.map(message => ({ ...message }))
-        : [];
-      const normalized = normalizeMessageList([
+      const existingMessages = repairCanonicalMessageSequence(session.messages, { sessionId });
+      const incomingMessages = repairCanonicalMessageSequence(messages, { sessionId });
+      // Repair each source before merging. Repairing only the concatenated list
+      // would mistake an older full snapshot plus an incoming full snapshot for
+      // one 2x-long conversation and assign every duplicate a new identity.
+      const merged = compactAdjacentDuplicateMessages([
         ...existingMessages,
         ...incomingMessages,
-      ], sessionId);
+      ]);
+      const normalized = normalizeMessageList(merged, sessionId);
       session.messages = normalized.map(message => ({ ...message }));
       // Keep state.messages separate as well; switching sessions must never make
       // two session records share the same mutable array reference.
@@ -367,6 +377,9 @@
       if (options.id) item.id = options.id;
       if (options.messageIndex !== undefined && options.messageIndex !== null) item.messageIndex = String(options.messageIndex);
       if (options.responseIndex !== undefined && options.responseIndex !== null) item.responseIndex = String(options.responseIndex);
+      if (options.messageId !== undefined) item.messageId = options.messageId || '';
+      if (options.turnId !== undefined) item.turnId = options.turnId || '';
+      if (options.replyToMessageId !== undefined) item.replyToMessageId = options.replyToMessageId || '';
       if (options.jobId !== undefined) item.jobId = options.jobId || '';
       if (options.imageContext !== undefined) item.imageContext = options.imageContext || '';
       if (options.attachmentContext !== undefined) item.attachmentContext = options.attachmentContext || '';

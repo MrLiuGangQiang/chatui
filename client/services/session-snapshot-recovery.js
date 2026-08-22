@@ -210,11 +210,24 @@
           return error;
         }
 
+        function messageMergeIdentities(message = {}) {
+          const identities = new Set([messageIdentity(message)].filter(Boolean));
+          // Stable IDs are authoritative for new records, but a fallback can be
+          // newer than an old IndexedDB snapshot that predates them. Keep the
+          // canonical placement as a migration-only merge key so that same-turn
+          // records replace one another rather than duplicating during recovery.
+          const role = message?.role === 'user' ? 'user' : message?.role === 'assistant' ? 'assistant' : '';
+          const rawIndex = role === 'user' ? message?.messageIndex : role === 'assistant' ? message?.responseIndex : null;
+          const index = Number(rawIndex);
+          if (role && Number.isFinite(index) && index >= 0) identities.add(`${role}:index:${index}`);
+          return identities;
+        }
+
         function mergePartialFallbackMessages(durableMessages = [], fallbackMessages = []) {
-          const replacementIds = new Set(fallbackMessages.map(messageIdentity).filter(Boolean));
+          const replacementIds = new Set(fallbackMessages.flatMap(message => [...messageMergeIdentities(message)]));
           const retainedDurable = durableMessages.filter(message => {
-            const identity = messageIdentity(message);
-            return !identity || !replacementIds.has(identity);
+            const identities = messageMergeIdentities(message);
+            return ![...identities].some(identity => replacementIds.has(identity));
           });
           return compactAdjacentDuplicateMessages([...retainedDurable, ...fallbackMessages]);
         }
@@ -287,6 +300,7 @@
       clearSnapshotFallback,
       retainRecoverableSnapshot,
       createSessionPersistenceError,
+      messageMergeIdentities,
       mergePartialFallbackMessages,
       mergeSnapshotFallback,
       readLatestSnapshot,

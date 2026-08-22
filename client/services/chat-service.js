@@ -168,6 +168,19 @@ function strictStructuredOutputProviderSchema(schema = {}) {
   return compacted;
 }
 
+const CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY = '__chatuiCanonicalStructuredOutputSchema';
+
+function attachCanonicalStructuredOutputSchema(format = {}, schema = null) {
+  if (!format || typeof format !== 'object' || !schema || typeof schema !== 'object') return format;
+  Object.defineProperty(format, CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY, {
+    value: schema,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return format;
+}
+
 function responsesTextFormat(format = null) {
   if (!format || typeof format !== 'object' || Array.isArray(format)) return null;
   const type = String(format.type || '').trim();
@@ -180,12 +193,12 @@ function responsesTextFormat(format = null) {
   const schema = schemaFormat.schema;
   if (!name || !schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
   const strict = schemaFormat.strict === true;
-  return {
+  return attachCanonicalStructuredOutputSchema({
     type: 'json_schema',
     name,
     strict,
     schema: strict ? strictStructuredOutputProviderSchema(schema) : schema,
-  };
+  }, schema);
 }
 
 function buildResponsesPayload(model, messages, options = {}) {
@@ -375,6 +388,9 @@ const api = Object.freeze({
   responsesInputFromChatMessages,
   messagesHaveInputFiles,
   strictStructuredOutputProviderSchema,
+  CANONICAL_STRUCTURED_OUTPUT_SCHEMA_KEY,
+  attachCanonicalStructuredOutputSchema,
+  responsesTextFormat,
   buildResponsesPayload,
   requestJson,
   reportExecutionRejection,

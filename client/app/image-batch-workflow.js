@@ -257,6 +257,8 @@
         submissionId = '',
         batchParent,
         responseIndex = '',
+        userMessageId = '',
+        turnId = '',
         clarificationReplay = null,
         onDurableHandoff,
         onInterfaceCompleted,
@@ -492,8 +494,20 @@
         : `\u56fe\u7247\u751f\u6210\u7ed3\u675f\uff0c\u5df2\u5b8c\u6210 ${aggregate.completed}/${aggregate.total} \u5f20`;
       const resultHtml = refreshBatchDisplay(sessionId, batchParent, aggregate, complete, rawText, metaText);
       if (complete) {
+        const userMessage = (sessionId === state.activeSessionId ? state.messages : session.messages || [])
+          .find(entry => entry?.role === 'user' && String(entry?.id || '') === String(userMessageId || ''))
+          || null;
+        const identityApi = root?.ChatUIAppSessionPersistence || {};
+        const batchIdentity = identityApi.createMessageTurnIdentity?.({
+          sessionId,
+          submissionId: submissionId || batchJobId,
+          role: 'assistant',
+          sequence: batchParent.responseIndex || responseIndex,
+        }) || { id: `message:${sessionId}:${submissionId || batchJobId}:assistant`, turnId: turnId || userMessage?.turnId || `turn:${sessionId}:${submissionId || batchJobId}` };
         const message = {
           role: 'assistant',
+          ...batchIdentity,
+          ...(userMessageId || userMessage?.id ? { replyToMessageId: userMessageId || userMessage.id } : {}),
           content: `[\u56fe\u7247\u751f\u6210\u5b8c\u6210] ${prepared.map(child => child.prompt).filter(Boolean).join('\u3001')}`,
           html: resultHtml,
           rawText,

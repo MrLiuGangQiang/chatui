@@ -327,7 +327,7 @@ function testBatchWorkflowProvidesPersistenceFallbackToTaskPreparation() {
   const source = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/image-batch-workflow.js'), 'utf8');
   assert.match(source, /persistImageAttachmentRefsDep/);
   assert.match(source, /root\?\.persistImageAttachmentRefs/);
-  assert.match(source, /persistImageAttachmentRefs,\n    \}\);/);
+  assert.match(source, /persistImageAttachmentRefs,\r?\n    \}\);/);
   const appSource = require('fs').readFileSync(require('path').join(__dirname, '../../app.js'), 'utf8');
   assert.match(appSource, /imageFilesToJobPayload,persistImageAttachmentRefs,getEffectiveImageStylePrompt,buildImagePromptWithStylePrompt,updateLiveDisplay/);
 

@@ -721,6 +721,9 @@
         if (options.skipSave) node.dataset.persist = "0";
         if (options.messageIndex !== undefined && options.messageIndex !== null) node.dataset.messageIndex = String(options.messageIndex);
         if (options.responseIndex !== undefined && options.responseIndex !== null) node.dataset.responseIndex = String(options.responseIndex);
+        if (options.messageId) node.dataset.messageId = String(options.messageId);
+        if (options.turnId) node.dataset.turnId = String(options.turnId);
+        if (options.replyToMessageId) node.dataset.replyToMessageId = String(options.replyToMessageId);
         if (options.attachmentContext) node.dataset.attachmentContext = options.attachmentContext;
         if (options.imageContext) node.dataset.imageContext = options.imageContext;
 

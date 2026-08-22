@@ -33,12 +33,18 @@
   }
   function roleSortWeight(role) { return role === 'system' ? 0 : role === 'user' ? 1 : role === 'assistant' ? 2 : 3; }
 
-  function resolveUserMessageTurn(messages = [], requestedIndex, { rawText = '' } = {}) {
+  function resolveUserMessageTurn(messages = [], requestedIndex, { rawText = '', messageId = '', turnId = '' } = {}) {
     const list = Array.isArray(messages) ? messages : [];
+    const requestedMessageId = stableIdentityValue(messageId);
+    const requestedTurnId = stableIdentityValue(turnId);
     const requested = parseMessageOrderIndex(requestedIndex);
-    let userIndex = Number.isFinite(requested)
-      ? list.findIndex(message => message?.role === 'user' && parseMessageOrderIndex(message.messageIndex) === requested)
-      : -1;
+    let userIndex = requestedMessageId
+      ? list.findIndex(message => message?.role === 'user' && stableIdentityValue(message.id || message.messageId) === requestedMessageId)
+      : requestedTurnId
+        ? list.findIndex(message => message?.role === 'user' && stableIdentityValue(message.turnId || message.turn_id) === requestedTurnId)
+        : Number.isFinite(requested)
+          ? list.findIndex(message => message?.role === 'user' && parseMessageOrderIndex(message.messageIndex) === requested)
+          : -1;
     if (userIndex < 0 && Number.isInteger(requested) && list[requested]?.role === 'user') userIndex = requested;
     const expectedText = String(rawText || '').trim();
     if (userIndex < 0 && expectedText) {
@@ -71,6 +77,94 @@
     return messages;
   }
 
+  const STABLE_ID_RE = /^[A-Za-z0-9:_-]+$/;
+
+  function stableIdentityValue(value = '') {
+    const id = String(value || '').trim();
+    return id && STABLE_ID_RE.test(id) ? id : '';
+  }
+
+  function stableIdentityPart(value = '', fallback = 'message') {
+    const normalized = String(value || '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+    return normalized.slice(0, 96) || fallback;
+  }
+
+  function createMessageTurnIdentity({ sessionId = 'session', submissionId = '', role = 'user', sequence = 0 } = {}) {
+    const session = stableIdentityPart(sessionId, 'session');
+    const turnPart = stableIdentityPart(submissionId, `legacy-${Number(sequence) || 0}`);
+    const turnId = `turn:${session}:${turnPart}`;
+    const canonicalRole = role === 'assistant' ? 'assistant' : 'user';
+    return Object.freeze({
+      id: `message:${session}:${turnPart}:${canonicalRole}`,
+      turnId,
+    });
+  }
+
+  function ensureCanonicalMessageIdentity(messages = [], { sessionId = 'session' } = {}) {
+    const session = stableIdentityPart(sessionId, 'session');
+    const list = (Array.isArray(messages) ? messages : []).map(message => message && typeof message === 'object'
+      ? { ...message }
+      : message);
+    let latestUser = null;
+    list.forEach((message, sequence) => {
+      if (!message || !['user', 'assistant'].includes(message.role)) return;
+      const legacyMessageId = stableIdentityValue(message.id || message.messageId);
+      if (message.role === 'user') {
+        const turnId = stableIdentityValue(message.turnId || message.turn_id)
+          || `turn:${session}:${stableIdentityPart(legacyMessageId || `legacy-${sequence}`, `legacy-${sequence}`)}`;
+        const id = legacyMessageId || `message:${session}:${stableIdentityPart(turnId, `turn-${sequence}`)}:user`;
+        Object.assign(message, { id, turnId });
+        delete message.turn_id;
+        latestUser = message;
+        return;
+      }
+      const replyToMessageId = stableIdentityValue(message.replyToMessageId || message.reply_to_message_id)
+        || stableIdentityValue(latestUser?.id);
+      const turnId = stableIdentityValue(message.turnId || message.turn_id || message.replyToTurnId || message.reply_to_turn_id)
+        || stableIdentityValue(latestUser?.turnId)
+        || `turn:${session}:orphan-${sequence}`;
+      const id = legacyMessageId || `message:${session}:${stableIdentityPart(turnId, `orphan-${sequence}`)}:assistant`;
+      Object.assign(message, { id, turnId, replyToMessageId });
+      delete message.turn_id;
+      delete message.reply_to_message_id;
+      delete message.replyToTurnId;
+      delete message.reply_to_turn_id;
+    });
+    return list;
+  }
+
+  function hasCanonicalMessagePositions(messages = []) {
+    return (Array.isArray(messages) ? messages : []).every((message, index) => {
+      if (!message || !['user', 'assistant'].includes(message.role)) return true;
+      return messageSortIndex(message, index) === index;
+    });
+  }
+
+  function repairCanonicalMessageSequence(messages = [], options = {}) {
+    let list = (Array.isArray(messages) ? messages : []).map(message => message && typeof message === 'object'
+      ? { ...message }
+      : message);
+    // A previous persistence race produced a highly recognizable corrupted
+    // shape: every user message was followed by every assistant message. A
+    // normal busy-session flow cannot create that layout, and equal role blocks
+    // retain enough information to deterministically restore q1/a1/q2/a2.
+    const firstAssistant = list.findIndex(message => message?.role === 'assistant');
+    if (firstAssistant > 1) {
+      const users = list.slice(0, firstAssistant);
+      const assistants = list.slice(firstAssistant);
+      if (users.every(message => message?.role === 'user')
+        && assistants.length === users.length
+        && assistants.every(message => message?.role === 'assistant')) {
+        list = users.flatMap((user, index) => [user, assistants[index]]);
+      }
+    }
+    // Array order is the durable conversation sequence. Role-specific index
+    // fields are derived placement metadata, so stale legacy values must never
+    // reshuffle alternating turns into a block of questions followed by replies.
+    if (!hasCanonicalMessagePositions(list)) reindexCanonicalMessagePositions(list);
+    return ensureCanonicalMessageIdentity(list, options);
+  }
+
   function truncateConversationForRegeneration(messages = [], turn = null, { preserveAssistant = false } = {}) {
     const list = Array.isArray(messages) ? messages : [];
     if (!turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0 || turn.userIndex >= list.length) return null;
@@ -96,6 +190,11 @@
 
   function ensureAssistantReplacementSlot(messages = [], turn = null, placeholder = {}) {
     if (!Array.isArray(messages) || !turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0) return null;
+    const user = messages[turn.userIndex];
+    const replyIdentity = {
+      ...(user?.turnId ? { turnId: user.turnId } : {}),
+      ...(user?.id ? { replyToMessageId: user.id } : {}),
+    };
     if (turn.hasAssistant && messages[turn.assistantIndex]?.role === 'assistant') {
       if (placeholder?.replacing) {
         const existing = messages[turn.assistantIndex];
@@ -106,6 +205,9 @@
           html: '',
           responseIndex: String(turn.assistantIndex),
           replacing: true,
+          ...(existing?.id ? { id: existing.id } : {}),
+          ...(existing?.turnId ? { turnId: existing.turnId } : replyIdentity),
+          ...(existing?.replyToMessageId ? { replyToMessageId: existing.replyToMessageId } : replyIdentity),
           ...(existing?.displayItemId ? { displayItemId: existing.displayItemId } : {}),
           ...placeholder,
         };
@@ -114,7 +216,7 @@
       return { ...turn, assistantIndex: turn.assistantIndex, hasAssistant: true };
     }
     const assistantIndex = Math.min(messages.length, Math.max(turn.userIndex + 1, Number(turn.assistantIndex) || 0));
-    messages.splice(assistantIndex, 0, { role: 'assistant', content: '', rawText: '', replacing: true, ...placeholder });
+    messages.splice(assistantIndex, 0, { role: 'assistant', content: '', rawText: '', replacing: true, ...replyIdentity, ...placeholder });
     reindexCanonicalMessagePositions(messages);
     return { ...turn, assistantIndex, hasAssistant: true, inserted: true };
   }
@@ -423,7 +525,7 @@
     return null;
   }
 
-  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, resolveUserMessageTurn, reindexCanonicalMessagePositions, truncateConversationForRegeneration, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
+  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, stableIdentityValue, createMessageTurnIdentity, ensureCanonicalMessageIdentity, resolveUserMessageTurn, reindexCanonicalMessagePositions, hasCanonicalMessagePositions, repairCanonicalMessageSequence, truncateConversationForRegeneration, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionPersistence = api;
   if (root?.window) root.window.ChatUIAppSessionPersistence = api;

@@ -70,6 +70,9 @@
         keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || node.__displayItem?.messageIndex || '',
         responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
+        messageId: node.dataset.messageId || node.__displayItem?.messageId || '',
+        turnId: node.dataset.turnId || node.__displayItem?.turnId || '',
+        replyToMessageId: node.dataset.replyToMessageId || node.__displayItem?.replyToMessageId || '',
         jobId: node.dataset.jobId || node.__displayItem?.jobId || '',
         imageContext: node.dataset.imageContext || node.__displayItem?.imageContext || '',
         attachmentContext: node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '',
@@ -414,6 +417,9 @@
               quoteContext,
               messageIndex: normalized.role === 'user' ? canonicalIndex : null,
               responseIndex: normalized.role === 'assistant' ? canonicalIndex : null,
+              messageId: normalized.id || '',
+              turnId: normalized.turnId || '',
+              replyToMessageId: normalized.replyToMessageId || '',
               deferSave: true,
               noScroll: true,
               deferEnhance: false,
@@ -424,6 +430,9 @@
               quoteContext,
               messageIndex: normalized.role === 'user' ? canonicalIndex : null,
               responseIndex: normalized.role === 'assistant' ? canonicalIndex : null,
+              messageId: normalized.id || '',
+              turnId: normalized.turnId || '',
+              replyToMessageId: normalized.replyToMessageId || '',
               deferSave: true,
               noScroll: true,
               lazy: false,
@@ -431,6 +440,8 @@
             });
         node.dataset.rawText = String(displayText || '');
         if (normalized.id) node.dataset.messageId = normalized.id;
+        if (normalized.turnId) node.dataset.turnId = normalized.turnId;
+        if (normalized.replyToMessageId) node.dataset.replyToMessageId = normalized.replyToMessageId;
         if (normalized.clarificationId || normalized.clarification_id) {
           node.dataset.clarificationId = String(normalized.clarificationId || normalized.clarification_id);
         }

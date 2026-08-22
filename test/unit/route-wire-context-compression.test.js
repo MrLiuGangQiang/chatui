@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
+const imageRouteContext = require('../../client/core/image-route-context');
 
 function testRoutePayloadUsesOnlyShortCandidateKeysForResourceSelection() {
   const longMessageId = 'display_message_7f4ca3e8-9a2c-4dce-a6f2-0123456789ab';
@@ -226,10 +227,31 @@ function testEstablishedClarificationResourceRemainsInTheModelCatalog() {
     'established resources must remain addressable without leaking durable identities');
 }
 
+
+function testDeliveryEvidenceDistinguishesActualImageFromAssistantClaim() {
+  const payload = JSON.parse(routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '图片呢',
+    context: imageRouteContext.buildRouteContext({
+      messages: [
+        { index: 1, role: 'user', content: '设计住宅户型图，中央设置堂屋。' },
+        { index: 2, role: 'assistant', content: '图片已经生成。' },
+      ],
+    }),
+  }).input[1].content);
+  assert.deepStrictEqual(payload.context.delivery_evidence, {
+    schema_version: 'delivery_evidence.v1',
+    actual_image_result: { available: false },
+    assistant_image_claim: { present: true, verified: false },
+    image_delivery_confirmed: false,
+  });
+}
+
 module.exports = [
   testRoutePayloadUsesOnlyShortCandidateKeysForResourceSelection,
   testImageMemoryAddsRetrievedOlderCardsAlongsideBoundedCandidates,
   testStandaloneRequestReceivesCompactExecutionAndFocusEvidence,
   testClarificationWireContextKeepsOnlySemanticRoutingFacts,
   testEstablishedClarificationResourceRemainsInTheModelCatalog,
+  testDeliveryEvidenceDistinguishesActualImageFromAssistantClaim,
 ];

@@ -28,7 +28,7 @@ function caseById(suite, id) {
 function testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture() {
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
   assert.strictEqual(suite.schema_version, "intent-routing-eval.v3");
-  assert.strictEqual(suite.cases.length, 53);
+  assert.strictEqual(suite.cases.length, 56);
   const operations = new Set(suite.cases.map(item => item.expected.operation));
   for (const operation of evaluation.VALID_OPERATIONS) assert.ok(operations.has(operation), `fixture must cover ${operation}`);
   assert.ok(suite.cases.every(item => item.expected.goal && item.expected.clarification && item.expected.resources));

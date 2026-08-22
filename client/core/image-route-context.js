@@ -609,6 +609,47 @@ function isImageResultMessage(message = {}) {
   return /^\[图片(生成|编辑|修改)完成\]/.test(messageText(message));
 }
 
+function assistantImageClaimFor(messages = []) {
+  const allMessages = Array.isArray(messages) ? messages : [];
+  for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+    const message = allMessages[index];
+    if (message?.role !== 'assistant') continue;
+    const text = messageText(message);
+    const hasStructuredClaim = isImageResultMessage(message)
+      || message?.kind === 'image'
+      || !!parsedImageContext(message);
+    const hasNaturalLanguageClaim = /(?:图片|图像|图)\s*(?:已经|已)?\s*(?:生成|做好|完成)|(?:生成|制作)\s*(?:完成|好了)/i.test(text);
+    if (hasStructuredClaim || hasNaturalLanguageClaim) return { index: index + 1 };
+  }
+  return null;
+}
+
+function deliveryEvidenceFor(messages = [], previousExecution = null) {
+  const claimed = assistantImageClaimFor(messages);
+  const actual = previousExecution && previousExecution.result_kind === 'image'
+    ? {
+        available: true,
+        operation: String(previousExecution.operation || '').trim(),
+        family: String(previousExecution.family || '').trim(),
+        source_message_index: Number(previousExecution.source_message_index) || 0,
+      }
+    : { available: false };
+  return {
+    schema_version: 'delivery_evidence.v1',
+    actual_image_result: actual,
+    assistant_image_claim: claimed
+      ? {
+          present: true,
+          message_index: Number(claimed.index) || 0,
+          verified: actual.available === true,
+        }
+      : { present: false, verified: false },
+    // This is deliberately evidence, not a route decision. The model still
+    // decides whether the current turn asks for an image, an edit, or text.
+    image_delivery_confirmed: actual.available === true,
+  };
+}
+
 function executionFromImageMessage(message = {}, index = 0) {
   const imageContext = parsedImageContext(message);
   const fallbackMode = String(imageContext?.mode || '');
@@ -937,6 +978,7 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
     recent_image_references: [],
     recent_uploaded_image_references: [],
     previous_execution: execution,
+    delivery_evidence: deliveryEvidenceFor(allMessages, execution),
     previous_resource_execution: resourceExecution,
     previous_visual_execution: visualExecution,
     conversation_focus: focus,
@@ -1438,6 +1480,8 @@ const api = Object.freeze({
   collectRecentUploadedImageReferences,
   collectRecentImageReferences,
   latestAssistantImageResult,
+  assistantImageClaimFor,
+  deliveryEvidenceFor,
   previousResourceExecutionFor,
   previousVisualExecutionFor,
   findImageReferenceById,

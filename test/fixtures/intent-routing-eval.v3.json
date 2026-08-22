@@ -4688,6 +4688,222 @@
         },
         "task_shape": "multi"
       }
+    },
+    {
+      "id": "visual-delivery-claim-unverified-requests-image",
+      "category": "visual-delivery-continuity",
+      "safety_critical": true,
+      "input": "图片呢",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "设计一张住宅户型平面图，中央设置堂屋，入户门连接堂屋。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "图片已经生成。"
+          }
+        ],
+        "delivery_evidence": {
+          "schema_version": "delivery_evidence.v1",
+          "actual_image_result": {
+            "available": false
+          },
+          "assistant_image_claim": {
+            "present": true,
+            "verified": false
+          },
+          "image_delivery_confirmed": false
+        },
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "住宅户型",
+              "户型"
+            ],
+            [
+              "平面图"
+            ],
+            [
+              "中央",
+              "堂屋"
+            ],
+            [
+              "入户门",
+              "门"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "visual-delivery-question-stays-plain-chat",
+      "category": "visual-delivery-continuity",
+      "safety_critical": true,
+      "input": "堂屋正中的入户双开门多宽？",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "设计一张住宅户型平面图，中央设置堂屋，入户门连接堂屋。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "建议采用堂屋正中的入户双开门。"
+          }
+        ],
+        "delivery_evidence": {
+          "schema_version": "delivery_evidence.v1",
+          "actual_image_result": {
+            "available": false
+          },
+          "assistant_image_claim": {
+            "present": false,
+            "verified": false
+          },
+          "image_delivery_confirmed": false
+        },
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "堂屋"
+            ],
+            [
+              "入户双开门",
+              "双开门",
+              "入户门"
+            ],
+            [
+              "多宽",
+              "宽"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "visual-constraint-after-text-design-keeps-image-delivery",
+      "category": "visual-delivery-continuity",
+      "safety_critical": true,
+      "input": "堂屋正中的入户双开门",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "生成一张住宅户型平面图，中央设置堂屋。"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "可以将堂屋布置在住宅中央。"
+          }
+        ],
+        "delivery_evidence": {
+          "schema_version": "delivery_evidence.v1",
+          "actual_image_result": {
+            "available": false
+          },
+          "assistant_image_claim": {
+            "present": false,
+            "verified": false
+          },
+          "image_delivery_confirmed": false
+        },
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "text_to_image",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "住宅户型",
+              "户型"
+            ],
+            [
+              "平面图"
+            ],
+            [
+              "中央",
+              "堂屋"
+            ],
+            [
+              "入户双开门",
+              "双开门"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
     }
   ]
 }

@@ -5,11 +5,11 @@ const routeService = require('../../client/services/route-service');
 
 function testRoutePromptDelegatesVisualDeliveryUnderstandingToTheModel() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /交付模态连续性/);
-  assert.match(prompt, /最近用户确认的任务共同理解交付物/);
-  assert.match(prompt, /previous_execution\.result_kind=image/);
-  assert.match(prompt, /assistant 的文字声称不是图片已交付的证据/);
-  assert.match(prompt, /解释、尺寸、原因、建议或事实时才选 plain_chat/);
+  assert.match(prompt, /图片交付事实/);
+  assert.match(prompt, /delivery_evidence/);
+  assert.match(prompt, /actual_image_result\.available=true/);
+  assert.match(prompt, /assistant_image_claim 未验证时不代表交付/);
+  assert.match(prompt, /明确问解释、尺寸、原因、建议或事实才选 plain_chat/);
 }
 
 function testModelOwnedVisualDeliveryDecisionIsNotLocallyOverridden() {

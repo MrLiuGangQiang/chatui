@@ -3,6 +3,9 @@
 
   const snapshotRecoveryModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('sessionSnapshotRecovery')
     || (typeof require === 'function' ? require('../services/session-snapshot-recovery') : {});
+  const clarificationService = root?.[Symbol.for('chatui.module-registry.v1')]?.get('clarificationAnswer')
+    || root?.ChatUIClarificationService
+    || (typeof require === 'function' ? require('../../shared/clarification-answer') : {});
 
   function createSessionDisplayWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
@@ -474,7 +477,12 @@
         promptDraft: String(item.promptDraft || '').slice(0, 20000),
         reasoningMode: item.reasoningMode === null || item.reasoningMode === undefined ? undefined : !!item.reasoningMode,
         reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(item.reasoningType) ? item.reasoningType : '',
-        pendingClarification: item.pendingClarification && typeof item.pendingClarification === 'object' ? item.pendingClarification : null,
+        // Persisted clarification records outlive the browser bundle. Always
+        // pass them through the current protocol migrator before a resumed task
+        // can read routeInfo or answer state; malformed legacy records are
+        // quarantined instead of crashing session startup.
+        pendingClarification: clarificationService?.normalizePendingClarification?.(item.pendingClarification)
+          || null,
         createdAt: item.createdAt || Date.now(),
         updatedAt: Math.max(Number(item.updatedAt) || 0, Number(payload?.updatedAt) || 0) || Date.now(),
         snapshotUpdatedAt: Number(payload?.snapshotUpdatedAt || 0),

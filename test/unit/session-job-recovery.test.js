@@ -14,7 +14,7 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
     'startup recovery must treat a durable multi-image batch as first-class work and resume the active session too');
   assert.ok(app.includes('resumeBackgroundSessionJobs();if(!e)return;'), 'returning to the page should also retry background-session recovery');
   assert.ok(app.includes('resumeBackgroundSessionJobs:resumeBackgroundSessionJobs'), 'bootstrap must receive the background-session recovery dependency');
-  assert.ok(bootstrap.includes('await loadSessions(),resumeBackgroundSessionJobs(),loadReasoningPreference()'), 'startup should restore all background jobs immediately after sessions load');
+  assert.ok(bootstrap.includes('await loadSessions(),await reconcileRuntimeUpgrade?.(),resumeBackgroundSessionJobs(),loadReasoningPreference()'), 'startup should reconcile the runtime before restoring background jobs');
   const jobResume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   const submit = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   const batchWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-batch-workflow.js'), 'utf8');

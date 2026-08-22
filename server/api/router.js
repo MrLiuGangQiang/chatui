@@ -185,7 +185,12 @@ function createRouter(deps) {
         return req.method !== 'POST' ? sendMethodNotAllowed(res) : await proxy(req, res);
       }
       if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, 'Method Not Allowed');
-      return await serveStatic(req, res, { root, rootWithSep });
+      // A build-addressed entry path lets a stale CDN/browser HTML response
+      // recover without relying on deprecated force-reload behavior. It maps to
+      // the same canonical index handler, whose body carries the current build
+      // identity and content-addressed bundle URLs.
+      if (/^\/__chatui\/[a-z0-9:_-]{8,160}\/?$/i.test(pathname)) req.url = '/';
+      return await serveStatic(req, res, { root, rootWithSep, buildIdentity });
     } catch (error) {
       routeError = error;
       throw error;

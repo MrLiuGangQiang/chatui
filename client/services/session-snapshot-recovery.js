@@ -50,8 +50,30 @@
           return `${SNAPSHOT_FALLBACK_PREFIX}${sessionId || ''}`;
         }
 
+        function migrateSnapshot(snapshot) {
+          if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)
+              || !Array.isArray(snapshot.messages)) return null;
+          const version = Number(snapshot.snapshotVersion || snapshot.snapshot_version || 0);
+          if (version >= 2) return { ...snapshot, snapshotVersion: 2 };
+          if (version !== 1) return null;
+          // v1 snapshots stored the transient display field under `display`.
+          // Keep only pending items: completed assistant messages are already
+          // canonical in `messages` and must not be duplicated on restore.
+          const pendingDisplay = Array.isArray(snapshot.pendingDisplay)
+            ? snapshot.pendingDisplay
+            : Array.isArray(snapshot.display)
+              ? snapshot.display.filter(item => String(item?.pending || '') === '1' || item?.pending === true)
+              : [];
+          return {
+            ...snapshot,
+            snapshotVersion: 2,
+            pendingDisplay,
+            lastGeneratedImage: snapshot.lastGeneratedImage || null,
+          };
+        }
+
         function isCurrentSnapshot(snapshot) {
-          return snapshot?.snapshotVersion >= 2 && Array.isArray(snapshot.messages);
+          return !!migrateSnapshot(snapshot);
         }
 
         function isQuotaError(error) {
@@ -233,7 +255,8 @@
         }
 
         function withSnapshotSource(snapshot, durableUpdatedAt = 0) {
-          return snapshot ? { ...snapshot, durableUpdatedAt: Number(durableUpdatedAt || 0) } : null;
+          const migrated = migrateSnapshot(snapshot);
+          return migrated ? { ...migrated, durableUpdatedAt: Number(durableUpdatedAt || 0) } : null;
         }
 
         function mergeSnapshotFallback(durable, fallback) {
@@ -253,7 +276,17 @@
         }
 
         async function readLatestSnapshot(sessionId) {
-          const durableRead = Promise.resolve().then(() => snapshotStore?.getSnapshot?.(sessionId) || null).catch(error => {
+          const durableRead = Promise.resolve().then(async () => {
+            const raw = await (snapshotStore?.getSnapshot?.(sessionId) || null);
+            const migrated = migrateSnapshot(raw);
+            if (raw && migrated && Number(raw.snapshotVersion || raw.snapshot_version || 0) === 1
+                && typeof snapshotStore?.putSnapshot === 'function') {
+              Promise.resolve(snapshotStore.putSnapshot(migrated)).catch(error => {
+                logger?.warn?.('migrate legacy session snapshot failed', error);
+              });
+            }
+            return migrated;
+          }).catch(error => {
             logger?.warn?.('load session snapshot failed', error);
             return null;
           });
@@ -292,6 +325,7 @@
 
     return Object.freeze({
       buildSnapshot,
+      migrateSnapshot,
       nextPersistenceRevision,
       isCurrentSnapshot,
       isQuotaError,

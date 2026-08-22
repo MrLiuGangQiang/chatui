@@ -53,7 +53,10 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readCha
     {
       path: '/api/version',
       method: 'GET',
-      handler: (req, res) => sendJson(res, 200, buildIdentity || { version: appVersion }, { 'Access-Control-Allow-Origin': '*' }),
+      handler: (req, res) => sendJson(res, 200, buildIdentity || { version: appVersion }, {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate, proxy-revalidate',
+      }),
     },
     {
       path: '/api/config/public',

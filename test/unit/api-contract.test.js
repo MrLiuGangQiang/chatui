@@ -89,6 +89,7 @@ async function testApiContractCoreEndpointsKeepShape() {
     const version = await request(baseUrl, '/api/version');
     assert.strictEqual(version.res.status, 200);
     assertCorsJson(version);
+    assert.match(version.res.headers.get('cache-control') || '', /no-store/);
     assert.deepStrictEqual(Object.keys(version.json).sort(), ['dirty', 'gitSha', 'mode', 'sourceRevision', 'version']);
     assert.strictEqual(typeof version.json.version, 'string');
     assert.strictEqual(typeof version.json.gitSha, 'string');

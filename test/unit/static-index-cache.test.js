@@ -44,7 +44,7 @@ function mockRes() {
 
 function testRepeatServeIndexSkipsAssetRescan() {
   const { root, rootWithSep } = makeFixture();
-  const context = { root, rootWithSep };
+  const context = { root, rootWithSep, buildIdentity: { version: '1.10.67', gitSha: 'abc123', sourceRevision: 'sha256:current-build' } };
   const originalStatSync = fs.statSync;
   let stats = 0;
   fs.statSync = function countedStatSync(...args) {
@@ -55,6 +55,8 @@ function testRepeatServeIndexSkipsAssetRescan() {
     const firstRes = mockRes();
     staticHttp.serveIndex({ headers: {}, method: 'GET', url: '/' }, firstRes, context);
     assert.strictEqual(firstRes.status, 200);
+    assert.match(firstRes.body, /__CHATUI_ENTRY_IDENTITY/);
+    assert.match(firstRes.body, /sha256:current-build/);
     const coldStats = stats;
     assert.ok(coldStats >= 4, `cold render must inspect the manifest assets, got ${coldStats}`);
 
@@ -101,7 +103,24 @@ function testBundleMetadataCacheHonoursTtl() {
   }
 }
 
+
+function testBuildAddressedEntryUsesCanonicalIndexRenderer() {
+  const { root, rootWithSep } = makeFixture();
+  try {
+    const response = mockRes();
+    staticHttp.serveStatic({ headers: {}, method: 'GET', url: '/__chatui/sha256%3Acurrent-build' }, response, {
+      root, rootWithSep, buildIdentity: { version: '1.10.68', gitSha: 'abc123', sourceRevision: 'sha256:current-build' },
+    });
+    assert.strictEqual(response.status, 200);
+    assert.match(response.body, /__CHATUI_ENTRY_IDENTITY/);
+    assert.strictEqual(response.headers['Cache-Control'], staticHttp.NO_STORE);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 module.exports = [
   testRepeatServeIndexSkipsAssetRescan,
   testBundleMetadataCacheHonoursTtl,
+  testBuildAddressedEntryUsesCanonicalIndexRenderer,
 ];

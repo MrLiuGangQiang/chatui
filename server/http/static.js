@@ -31,6 +31,7 @@ const MIME = {
 
 const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
+const NO_STORE = 'no-store, no-cache, max-age=0, must-revalidate, proxy-revalidate';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
 const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
@@ -117,10 +118,10 @@ function cacheControlFor(filePath, url, options = {}) {
   // Executable assets and the generated entrypoint must always revalidate. The
   // entrypoint receives content-addressed bundle URLs at request time, while
   // direct module URLs retain their manually documented revisions for tooling.
-  if (options.bundle) return NO_CACHE;
-  if (filePath.endsWith('.html')) return NO_CACHE;
+  if (options.bundle) return NO_STORE;
+  if (filePath.endsWith('.html')) return NO_STORE;
   const ext = path.extname(filePath);
-  if (['.html', '.js', '.css', '.json'].includes(ext)) return NO_CACHE;
+  if (['.html', '.js', '.css', '.json'].includes(ext)) return NO_STORE;
   return SHORT_CACHE;
 }
 
@@ -167,13 +168,28 @@ function renderIndexPage(context) {
     css: revisionFromMetadata(bundleMetadataCached(context.root, context.rootWithSep, 'css')),
     js: revisionFromMetadata(bundleMetadataCached(context.root, context.rootWithSep, 'js')),
   };
-  const cacheKey = `${observed.contentHash}:${revisions.css}:${revisions.js}`;
+  const identity = context.buildIdentity && typeof context.buildIdentity === 'object'
+    ? {
+        version: String(context.buildIdentity.version || ''),
+        gitSha: String(context.buildIdentity.gitSha || ''),
+        sourceRevision: String(context.buildIdentity.sourceRevision || ''),
+      }
+    : null;
+  const identityKey = identity ? JSON.stringify(identity) : '';
+  const cacheKey = `${observed.contentHash}:${revisions.css}:${revisions.js}:${identityKey}`;
   const cached = renderedIndexCache.get(cacheKey);
   if (cached) return cached;
   const source = String(observed.content || '');
-  const body = source
+  let body = source
     .replace(/(\.\/assets\/chatui\.bundle\.css)(?:\?[^"']*)?/g, `$1?v=${revisions.css}`)
     .replace(/(\.\/assets\/chatui\.bundle\.js)(?:\?[^"']*)?/g, `$1?v=${revisions.js}`);
+  // The page itself is the only piece that can tell an already-cached old
+  // bundle which server build it belongs to. The browser runtime compares this
+  // marker with /api/version before restoring sessions or resuming jobs.
+  if (identity?.sourceRevision) {
+    const marker = `<script>window.__CHATUI_ENTRY_IDENTITY=${JSON.stringify(identity)};</script>`;
+    body = body.includes('</head>') ? body.replace('</head>', `${marker}</head>`) : `${marker}${body}`;
+  }
   const rendered = { body, etag: `"${sha1(body).slice(0, 32)}"` };
   renderedIndexCache.set(cacheKey, rendered);
   trimCache(renderedIndexCache, MAX_RENDERED_INDEX_ENTRIES);
@@ -190,7 +206,8 @@ function serveIndex(req, res, context) {
   }
   const headers = {
     'Content-Type': MIME['.html'],
-    'Cache-Control': NO_CACHE,
+    'Cache-Control': NO_STORE,
+    'Surrogate-Control': 'no-store',
     ETag: rendered.etag,
   };
   if (isFresh(req, rendered.etag)) return send(res, 304, '', headers);
@@ -224,12 +241,18 @@ function staticEtag(filePath, stat, encoding = '') {
   return `W/"${sha1(`${filePath}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${encoding}`).slice(0, 24)}"`;
 }
 
-function serveStatic(req, res, { root, rootWithSep }) {
+function serveStatic(req, res, { root, rootWithSep, buildIdentity = null }) {
   const url = parseRequestUrl(req);
   if (!url) return send(res, 400, 'Bad Request');
   const bundleKind = BUNDLE_PATHS[url.pathname];
   if (bundleKind) return serveBundle(req, res, { root, rootWithSep }, bundleKind);
-  if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep });
+  // A unique, build-addressed entry URL bypasses stale intermediary cache
+  // keys. It is intentionally routed to the same canonical index renderer;
+  // only the browser navigation URL changes, never static file resolution.
+  if (/^\/__chatui\/[a-z0-9:%_-]{8,160}\/?$/i.test(url.pathname)) {
+    return serveIndex(req, res, { root, rootWithSep, buildIdentity });
+  }
+  if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep, buildIdentity });
   if (!isPublicStaticPath(url.pathname)) return send(res, 404, 'Not Found');
 
   const filePath = safeJoin(root, rootWithSep, url.pathname);
@@ -267,4 +290,4 @@ function serveStatic(req, res, { root, rootWithSep }) {
   });
 }
 
-module.exports = { MIME, SHORT_CACHE, NO_CACHE, cacheControlFor, safeJoin, isPublicStaticPath, pickCompressedStaticFile, rewriteBundleUrls, serveIndex, serveStatic };
+module.exports = { MIME, SHORT_CACHE, NO_CACHE, NO_STORE, cacheControlFor, safeJoin, isPublicStaticPath, pickCompressedStaticFile, rewriteBundleUrls, serveIndex, serveStatic };

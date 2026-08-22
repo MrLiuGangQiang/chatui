@@ -117,7 +117,7 @@ async function testLegacyLocalStoragePayloadIsIgnored() {
   assert.strictEqual(writes, 0, 'legacy localStorage history must not be migrated');
 }
 
-async function testVersionOneSnapshotIsIgnored() {
+async function testVersionOneSnapshotIsMigrated() {
   const sessionId = 'snapshot-v1';
   const storage = createStorage({
     sessions: [{ id: sessionId, title: 'Old snapshot', updatedAt: 20 }],
@@ -144,10 +144,10 @@ async function testVersionOneSnapshotIsIgnored() {
   await workflow.loadSessions();
   const reloaded = await workflow.reloadSessionSnapshot(sessionId);
 
-  assert.deepStrictEqual(state.messages, [], 'snapshotVersion 1 history is no longer loaded');
-  assert.strictEqual(state.sessions[0].snapshotUpdatedAt, 0);
-  assert.strictEqual(reloaded, false, 'snapshotVersion 1 history must also be ignored by live reload');
-  assert.strictEqual(writes, 0, 'snapshotVersion 1 history must not be migrated');
+  assert.deepStrictEqual(state.messages.map(message => message.content), ['old snapshot message'], 'snapshotVersion 1 history must migrate into the current snapshot shape');
+  assert.strictEqual(state.sessions[0].snapshotUpdatedAt, 15);
+  assert.strictEqual(reloaded, false, 'a second reload must not duplicate migrated history');
+  assert.strictEqual(writes, 0, 'the fixture has no durable writer and should not fabricate one');
 }
 
 
@@ -551,7 +551,7 @@ async function testUnsupportedIndexedDbUsesImmediateRecoverableFallback() {
 module.exports = [
   testCurrentSnapshotFormatLoadsNormally,
   testLegacyLocalStoragePayloadIsIgnored,
-  testVersionOneSnapshotIsIgnored,
+  testVersionOneSnapshotIsMigrated,
   testStalledSnapshotWriteReleasesCompletionAndKeepsRecoverableFallback,
   testQuotaFallbackCompactsToIncrementalTailAndMergesDurableHistory,
   testImmediateRefreshBeforeDurableCommitLoadsAssistantFallback,

@@ -6,18 +6,18 @@ function testRuntimeAssetsAlwaysRevalidateEvenWithVersionQueries() {
   const versionedUrl = new URL('http://chatui.local/client/app/scroll-focus-workflow.js?v=1.3.33');
   assert.strictEqual(
     staticHttp.cacheControlFor('/workspace/client/app/scroll-focus-workflow.js', versionedUrl),
-    staticHttp.NO_CACHE,
-    'manually versioned workflow scripts must revalidate so deployments cannot mix module revisions'
+    staticHttp.NO_STORE,
+    'manually versioned workflow scripts must not be reused across deployments'
   );
   assert.strictEqual(
     staticHttp.cacheControlFor('/workspace/styles/flat-theme.css', new URL('http://chatui.local/styles/flat-theme.css?v=2.2.3')),
-    staticHttp.NO_CACHE,
-    'manually versioned styles must also revalidate with the matching HTML revision'
+    staticHttp.NO_STORE,
+    'manually versioned styles must not be reused across deployments'
   );
   assert.strictEqual(
     staticHttp.cacheControlFor('', null, { bundle: true }),
-    staticHttp.NO_CACHE,
-    'runtime bundles must not be immutable until their URL includes a content hash'
+    staticHttp.NO_STORE,
+    'runtime bundles must not be reusable across deployments until their URL includes a content hash'
   );
   assert.strictEqual(
     staticHttp.cacheControlFor('/workspace/favicon.svg', new URL('http://chatui.local/favicon.svg?v=1')),

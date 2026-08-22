@@ -9,7 +9,7 @@ ChatUI 没有独立的前端构建步骤。Node.js 服务同时承担两类职�
 1. 提供根 HTML、动态静态 bundle、模块、样式和 vendor 资源；
 2. 提供配置、版本、任务、使用统计和 OpenAI 兼容代理 API。
 
-浏览器通过 `index.html` 启动应用。`server/services/static-bundle.service.js` 读取 `index.html` 中的 `chatuiAssetManifest`，按清单顺序组合 JavaScript 与 CSS，并由 `server/http/static.js` 以 `/assets/chatui.bundle.js` 和 `/assets/chatui.bundle.css` 提供。入口响应会把 bundle URL 重写为基于内容 ETag 的版本。
+浏览器通过 `index.html` 启动应用。`server/services/static-bundle.service.js` 读取 `index.html` 中的 `chatuiAssetManifest`，按清单顺序组合 JavaScript 与 CSS，并由 `server/http/static.js` 以 `/assets/chatui.bundle.js` 和 `/assets/chatui.bundle.css` 提供。入口响应会把 bundle URL 重写为基于内容 ETag 的版本，并注入 `__CHATUI_ENTRY_IDENTITY`（版本、Git SHA、runtime source fingerprint）。入口 HTML、JS、CSS、JSON 和 bundle 使用 `no-store`；浏览器启动时用 `/api/version` 的 `sourceRevision` 做一致性检查，旧页面不会在恢复历史会话或任务前继续执行。
 
 Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` 启动，也不会在镜像构建时生成另一套应用源码。
 
@@ -270,7 +270,7 @@ GET /
 
 该链路必须始终满足：原始输入不因参数分析归一化而改变；上下文故障、非法模型输出和低确定性参数失败关闭；路由本身不授权高风险业务操作；停止、超时、失败与完成保持可区分且单终态；最终执行仍需服务端鉴权、参数和 `dispatch_contract.v1` 校验。Chat/Image Job 在进入创建、复用、查询、SSE、中止或删除边界时必须存在经服务端验证的 principal；owner 在 Job 放入 store 前一次性绑定且不可变，未授权与不存在的公开响应不得泄露差异，owner 信息不得进入 `publicJob`、日志或 trace。
 
-浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。多实例部署仍需要粘性会话或一致 Job 存储，并共享显式 principal secret；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
+浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。`client/app/runtime-upgrade-workflow.js` 在 runtime source fingerprint 变化时只清理旧版本的瞬时任务交接状态和 pending UI，不删除已完成历史；`client/services/session-snapshot-recovery.js` 对旧 snapshot shape 做显式迁移后再读取，迁移失败只隔离损坏快照，不阻塞整个会话列表。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。多实例部署仍需要粘性会话或一致 Job 存储，并共享显式 principal secret；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
 
 ### 7.3 图片
 
@@ -318,7 +318,7 @@ GET /
 - 根 `app.js` 仍是较大的兼容入口，部分工作流实现和浏览器 namespace 仍在迁移；
 - 一些 `client/app` 文件仍使用受 architecture baseline 约束的 legacy `with (...)` 注入；
 - 浏览器仍保留多个 `window.ChatUI*` 兼容 namespace；
-- `index.html` 清单仍含逐文件手工 query version，尽管最终 bundle URL 使用内容 ETag；
+- `index.html` 清单仍含逐文件手工 query version，但执行时由动态 bundle 的内容 fingerprint 和入口 build identity 作为最终一致性依据；
 - Node-only 测试辅助代码已移出 Docker 会复制的 `client/` 静态目录；
 - `shared/usage/ranges.js` 尚含 server-only SQL 字符串；
 - vendor 的来源、版本和 License 更新尚未由统一 manifest 完全自动化；

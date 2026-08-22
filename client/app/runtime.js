@@ -23,18 +23,60 @@
     return label;
   }
 
+  function normalizeRuntimeIdentity(value = {}) {
+    const sourceRevision = String(value?.sourceRevision || value?.source_revision || '').trim();
+    return sourceRevision ? {
+      version: String(value?.version || '').trim(),
+      gitSha: String(value?.gitSha || value?.git_sha || '').trim(),
+      sourceRevision,
+    } : null;
+  }
+
   async function loadAppVersion({ fetchImpl = fetch, setVersion = setDisplayedVersion, fallback = '', runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService } = {}) {
     try {
-      const version = runtimeService?.requestAppVersion
-        ? await runtimeService.requestAppVersion({ fetchImpl })
+      const freshness = await ensureCurrentRuntimeBuild({ fetchImpl, runtimeService });
+      if (freshness.reloading) return false;
+      const version = freshness.identity?.version
+        || (runtimeService?.requestAppVersion
+          ? await runtimeService.requestAppVersion({ fetchImpl })
+          : await (async () => {
+            const res = await fetchImpl('/api/version', { cache: 'no-store' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return (await res.json()).version;
+          })());
+      setVersion(version);
+      return true;
+    } catch {
+      setVersion(fallback);
+      return true;
+    }
+  }
+
+  async function ensureCurrentRuntimeBuild({
+    fetchImpl = fetch,
+    locationRef = window.location,
+    entryIdentity = window.__CHATUI_ENTRY_IDENTITY,
+    runtimeService = window.ChatUIServices?.runtime || window.ChatUIRuntimeService,
+  } = {}) {
+    const entry = normalizeRuntimeIdentity(entryIdentity);
+    try {
+      const server = normalizeRuntimeIdentity(runtimeService?.requestRuntimeIdentity
+        ? await runtimeService.requestRuntimeIdentity({ fetchImpl })
         : await (async () => {
           const res = await fetchImpl('/api/version', { cache: 'no-store' });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return (await res.json()).version;
-        })();
-      return setVersion(version);
+          return res.json();
+        })());
+      if (!server) return Object.freeze({ reloading: false, identity: null, reason: 'server-identity-unavailable' });
+      if (!entry || entry.sourceRevision !== server.sourceRevision) {
+        const target = `/__chatui/${encodeURIComponent(server.sourceRevision)}`;
+        if (typeof locationRef?.replace === 'function') locationRef.replace(target);
+        return Object.freeze({ reloading: true, identity: server, target });
+      }
+      window.__CHATUI_RUNTIME_IDENTITY = server;
+      return Object.freeze({ reloading: false, identity: server, reason: 'current' });
     } catch {
-      return setVersion(fallback);
+      return Object.freeze({ reloading: false, identity: entry, reason: 'version-check-failed' });
     }
   }
 
@@ -90,6 +132,6 @@
 
   window.ChatUIApp = Object.freeze({
     ...(window.ChatUIApp || {}),
-    runtime: Object.freeze({ setDisplayedVersion, loadAppVersion, createDoneSound }),
+    runtime: Object.freeze({ setDisplayedVersion, loadAppVersion, ensureCurrentRuntimeBuild, createDoneSound }),
   });
 })();

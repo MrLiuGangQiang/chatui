@@ -104,6 +104,106 @@ function testInvalidMessageTargetStillRequiresConfirmationWithOneRecoverableImag
   assert.strictEqual(result.route.clarificationSlots[0].choices[0].resource_id, 'res:image:only-result');
 }
 
+function testRejectedImageTargetAsksForAnImageChoiceInsteadOfFreeText() {
+  const route = {
+    operationType: 'edit_image',
+    api: 'image_edit',
+    mode: 'edit_image',
+    readiness: 'ready',
+    dispatchAuthorized: true,
+    needClarification: false,
+    resources: [{
+      key: 'r1',
+      type: 'image',
+      role: 'target',
+      resource_id: 'res:image:wrong-target',
+      source: 'history',
+    }],
+    dispatchContract: {},
+  };
+  const context = contextWithMemory([
+    imageMemory('realistic-3d', 1, '真实立体效果图'),
+    imageMemory('floor-plan', 2, '平面户型图'),
+    imageMemory('render-replica', 3, '写实风格复刻图'),
+  ]);
+  const result = routeService.clarifyImageInstructionRoute(route, '请确认要修改的目标图片', {
+    input: '不是这个图',
+    attachments: [],
+    context,
+  });
+
+  assert.strictEqual(result.api, 'clarify');
+  assert.strictEqual(result.dispatchAuthorized, false);
+  assert.strictEqual(result.clarificationQuestion,
+    '没有明确要编辑哪张图片，请从下列图片中选择目标图片。');
+  assertCanonicalImageSlot(result.clarificationSlots[0], 3);
+  assert.deepStrictEqual(result.clarificationSlots[0].choices.map(choice => choice.label), [
+    '真实立体效果图',
+    '平面户型图',
+    '写实风格复刻图',
+  ]);
+  assert.strictEqual(
+    result.clarificationSlots[0].choices.some(choice => choice.resource_id === 'res:image:wrong-target'),
+    false,
+    'the rejected target must not be offered as the replacement choice',
+  );
+}
+
+async function testMaterializerTargetAmbiguityRendersReplacementImageChoices() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  const context = {
+    recent_messages: [],
+    image_candidates: [
+      imageMemory('wrong-target', 1, '3D立体风格图'),
+      imageMemory('realistic-3d', 2, '真实立体效果图'),
+      imageMemory('floor-plan', 3, '平面户型图'),
+    ],
+  };
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({
+      baseUrl: 'https://gateway.example/v1', apiKey: 'test-key',
+      routeModel: 'route-model', chatModel: 'route-model',
+    }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'route-model',
+    requestJson: async (_url, payload) => {
+      calls.push(payload.text?.format?.name);
+      if (payload.text?.format?.name === 'chatui_route_intent_v3') {
+        return { choices: [{ message: { content: JSON.stringify(editIntent([{ candidate_key: 'i1', role: 'target' }])) } }] };
+      }
+      if (payload.text?.format?.name === 'chatui_image_instruction_v1') {
+        return { choices: [{ message: { content: JSON.stringify({
+          schema_version: 'image_instruction.v1',
+          status: 'needs_clarification',
+          instruction: '',
+          clarification: '请确认要修改的目标图片。',
+        }) } }] };
+      }
+      throw new Error(`unexpected structured request: ${payload.text?.format?.name || '<missing>'}`);
+    },
+  });
+
+  try {
+    const result = await workflow.getEffectiveRoute('不是这个图', [], 'materializer-target-ambiguity', null, context, {});
+    assert.deepStrictEqual(calls, ['chatui_route_intent_v3', 'chatui_image_instruction_v1']);
+    assert.strictEqual(result.api, 'clarify');
+    assert.strictEqual(result.dispatchAuthorized, false);
+    assert.strictEqual(result.clarificationQuestion,
+      '没有明确要编辑哪张图片，请从下列图片中选择目标图片。');
+    assertCanonicalImageSlot(result.clarificationSlots[0], 2);
+    assert.deepStrictEqual(result.clarificationSlots[0].choices.map(choice => choice.resource_id), [
+      'res:image:realistic-3d',
+      'res:image:floor-plan',
+    ]);
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
 function testInvalidMessageTargetWithoutImagesRequestsUploadInsteadOfExecuting() {
   const result = inspect(editIntent(), { context: contextWithMemory([]) });
   assert.ok(result.route, result.reason);
@@ -278,6 +378,8 @@ module.exports = [
   testInvalidMessageTargetListsEveryRecoverableImageForClarification,
   testInvalidMessageTargetStillRequiresConfirmationWithOneRecoverableImage,
   testInvalidMessageTargetWithoutImagesRequestsUploadInsteadOfExecuting,
+  testRejectedImageTargetAsksForAnImageChoiceInsteadOfFreeText,
+  testMaterializerTargetAmbiguityRendersReplacementImageChoices,
   testValidImageTargetRemainsImmediatelyDispatchable,
   testExplicitSecondImageDoesNotOverrideAnInvalidModelTarget,
   testMalformedOrUnknownIntentStillUsesTheInvalidIntentFailurePath,

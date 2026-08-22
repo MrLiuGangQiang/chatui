@@ -549,7 +549,9 @@
               );
             }
             if (inspected.materialization.status === 'needs_clarification') {
-              return routeSvc.clarifyImageInstructionRoute(route, inspected.materialization.clarification);
+              return routeSvc.clarifyImageInstructionRoute(route, inspected.materialization.clarification, {
+                input, attachments: attachmentMeta, context,
+              });
             }
             return routeSvc.applyMaterializedImageInstruction(route, inspected.materialization.instruction, { context });
           } catch (error) {

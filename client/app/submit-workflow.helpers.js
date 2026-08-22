@@ -626,6 +626,20 @@
     return restricted;
   }
 
+  // Batch routes are planning envelopes: their children own the canonical
+  // resource declarations. Keep the full runtime source pools for a batch so
+  // each child can resolve its own rN binding; restrict pools only for a
+  // single executable route.
+  function buildDispatchExecutionResourcePools(route = {}, sourcePools = {}, options = {}) {
+    const batchPlan = typeof executableImageBatch === "function"
+      ? executableImageBatch(route)
+      : null;
+    const dispatchSourcePools = batchPlan
+      ? sourcePools
+      : restrictExecutionResourcePools(route, sourcePools);
+    return buildExecutionResourcePools(dispatchSourcePools, options);
+  }
+
   function buildExecutionResourcePools(sourcePools = {}, options = {}) {
     const isImageFile = options.isImageFile || defaultIsImageFile;
     const imagePools = {};
@@ -1044,6 +1058,7 @@
     partitionExecutionAttachmentsBySource,
     decorateExecutionPool,
     buildExecutionResourcePools,
+    buildDispatchExecutionResourcePools,
     restrictExecutionResourcePools,
     routeMediaResources,
     restoreBoundImagePool,

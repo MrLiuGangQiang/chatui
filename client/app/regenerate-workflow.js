@@ -344,8 +344,7 @@
         const historyFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"history"});
         const contextFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"context"});
         const sourcePools={current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]};
-        const restrictedSourcePools=submitHelpers.restrictExecutionResourcePools?.(p,sourcePools)||sourcePools;
-        const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
+        const executionPools=submitHelpers.buildDispatchExecutionResourcePools(p,sourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
         const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
         const executionMedia=submitHelpers.projectRouteExecutionMediaForDispatch(p,executionPools);
          const quotedCleanText=quotedRoute?.cleanText||"";

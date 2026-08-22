@@ -524,11 +524,8 @@
             // its restricted pools projects only the first child (or an empty
             // set) and silently reuses the wrong image. Build the full runtime
             // pools for a batch, then project each child against its own route.
+            const executionPools=submitHelpers.buildDispatchExecutionResourcePools(routeInfo,sourcePools,{isImageFile:isImageAttachment,messages:routeMessageProjection?.messages||targetSession.messages||state.messages||[]});
             const imageBatchPlan=submitHelpers.executableImageBatch?.(routeInfo);
-            const restrictedSourcePools=imageBatchPlan
-              ? sourcePools
-              : submitHelpers.restrictExecutionResourcePools?.(routeInfo,sourcePools)||sourcePools;
-            const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile:isImageAttachment,messages:routeMessageProjection?.messages||targetSession.messages||state.messages||[]});
             const executionMedia=submitHelpers.projectRouteExecutionMediaForDispatch(routeInfo,executionPools);
             const routeExecutionAnchor=submitHelpers.routeExecutionAnchor?.(routeInfo)||null;
             if(routeExecutionAnchor){

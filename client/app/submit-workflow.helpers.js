@@ -507,6 +507,14 @@
     );
   }
 
+  // Dispatch projection is defined for executable routes only. A compiled image
+  // batch is a planning envelope; its child routes own the canonical resource
+  // projections and the parent must never be projected as a single execution.
+  function projectRouteExecutionMediaForDispatch(route = {}, pools = {}) {
+    if (typeof executableImageBatch === "function" && executableImageBatch(route)) return null;
+    return projectRouteExecutionMedia(route, pools);
+  }
+
   function mediaIdentity(item = {}, type = "") {
     return String(
       type === "image"
@@ -1016,6 +1024,7 @@
     mergeQuotedRouteContext,
     projectRouteMessageContext,
     projectRouteExecutionMedia,
+    projectRouteExecutionMediaForDispatch,
     executableImageBatch,
     createSerialCommitQueue,
     IMAGE_BATCH_VERSION,

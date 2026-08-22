@@ -77,7 +77,7 @@ function testPendingStatusAssetsShipWithoutFixedExecutionMap() {
   assert.ok(index.includes('flat-theme.css?v=2.2.5-batch-stable-slots=1'));
   assert.ok(index.includes('execution-status.js?v=1.0.0'));
   assert.ok(index.includes('formatting.js?v=1.2.70-live-status'));
-  assert.ok(index.includes('regenerate-workflow.js?v=1.2.7-immediate-replacement-clear'));
+  assert.ok(index.includes('regenerate-workflow.js?v=1.2.8-batch-dispatch-projection'));
 }
 
 module.exports = [

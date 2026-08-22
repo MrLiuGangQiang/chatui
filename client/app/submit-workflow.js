@@ -529,9 +529,7 @@
               ? sourcePools
               : submitHelpers.restrictExecutionResourcePools?.(routeInfo,sourcePools)||sourcePools;
             const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile:isImageAttachment,messages:routeMessageProjection?.messages||targetSession.messages||state.messages||[]});
-            const executionMedia=imageBatchPlan
-              ? null
-              : submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools);
+            const executionMedia=submitHelpers.projectRouteExecutionMediaForDispatch(routeInfo,executionPools);
             const routeExecutionAnchor=submitHelpers.routeExecutionAnchor?.(routeInfo)||null;
             if(routeExecutionAnchor){
               const messages=isTargetActive()?state.messages:targetSession.messages||[],message=messages.find(e=>"user"===e?.role&&String(e.messageIndex)===String(messageIndex))||[...messages].reverse().find(e=>"user"===e?.role);

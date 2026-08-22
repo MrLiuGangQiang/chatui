@@ -346,7 +346,8 @@
         const sourcePools={current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]};
         const restrictedSourcePools=submitHelpers.restrictExecutionResourcePools?.(p,sourcePools)||sourcePools;
         const executionPools=submitHelpers.buildExecutionResourcePools(restrictedSourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
-        const executionMedia=submitHelpers.projectRouteExecutionMedia(p,executionPools);
+        const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
+        const executionMedia=submitHelpers.projectRouteExecutionMediaForDispatch(p,executionPools);
          const quotedCleanText=quotedRoute?.cleanText||"";
          // 最终执行 prompt 必须包含用户原始完整输入（replayPrompt），
          // LLM 概括（contextualImagePrompt/editInstruction）只能作为补充、不能替代。
@@ -356,15 +357,14 @@
          if(summarizedPrompt&&!(summarizedPrompt.includes(originalReplayText)&&summarizedPrompt.length>originalReplayText.length))qParts.push(summarizedPrompt);
          const q=String(qParts.filter(Boolean).join("\n\n")).trim();
          if("chat"!==g&&q&&p?.dispatchContract&&typeof dispatchContractModule?.withArguments==="function"&&q!==String(p.dispatchContract.arguments?.prompt||"").trim()){p.dispatchContract=dispatchContractModule.withArguments(p.dispatchContract,{prompt:q})}
-         const chatH=[...executionMedia.chatFiles,...executionMedia.chatImages],editH=executionMedia.imageInputs;
+         const chatH=executionMedia?[...executionMedia.chatFiles,...executionMedia.chatImages]:[],editH=executionMedia?.imageInputs||[];
          const originalImageIndex=submitHelpers.originalImageIndex;
-         const mediaMapContext=submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"";
+         const mediaMapContext=executionMedia?submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"":"";
          const chatPrompt=replayPrompt;
         if("chat"===g){
           const jobId=task.prepareHandoff("chat",makeClientChatJobId?.());
           await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()});
         }else{
-          const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
           if(imageBatchPlan){
             const compiledBatch=imageBatchPlan;
             const batchJobId=task.prepareHandoff("image_batch",makeClientBatchJobId?.());

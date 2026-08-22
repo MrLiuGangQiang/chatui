@@ -22,6 +22,29 @@ function generateItem(prompt) {
   };
 }
 
+function testCompiledBatchParentSkipsSingleExecutionProjection() {
+  const parent = {
+    imagePlanCompiled: {
+      kind: 'batch',
+      items: [
+        { route: { executionResources: { version: 'execution_resources.v2', operation: 'text_to_image', api: 'image_generation', relation: 'new', images: [], files: [], messages: [] } } },
+        { route: { executionResources: { version: 'execution_resources.v2', operation: 'text_to_image', api: 'image_generation', relation: 'new', images: [], files: [], messages: [] } } },
+      ],
+    },
+  };
+
+  assert.throws(
+    () => submitHelpers.projectRouteExecutionMedia(parent, {}),
+    error => error?.code === 'EXECUTION_RESOURCE_PROJECTION_MISSING',
+    'a batch envelope must remain invalid as a single execution projection',
+  );
+  assert.strictEqual(
+    submitHelpers.projectRouteExecutionMediaForDispatch(parent, {}),
+    null,
+    'dispatch preflight must skip the non-executable batch parent and leave projection to its child routes',
+  );
+}
+
 function testExecutableImageBatchAcceptsGenerationAndMediaChildren() {
   const route = batchRoute([generateItem('猫'), generateItem('狗'), generateItem('鸟')]);
   const executable = submitHelpers.executableImageBatch(route);
@@ -111,6 +134,7 @@ function testSubmitWorkflowDelegatesBatchToServerEndpoint() {
 }
 
 module.exports = [
+  testCompiledBatchParentSkipsSingleExecutionProjection,
   testExecutableImageBatchAcceptsGenerationAndMediaChildren,
   testSerialCommitQueueSerializesConcurrentResultCommits,
   testImageWorkflowCarriesBatchCoordinationFlags,

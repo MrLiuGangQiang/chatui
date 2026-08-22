@@ -47,10 +47,33 @@ function createIdempotencyTable(options = {}) {
   const ttlMs = Number(options.ttlMs || IDEMPOTENCY_TTL_MS);
   const maxEntries = Number(options.maxEntries || MAX_IDEMPOTENCY_ENTRIES);
   const table = new Map(); // key -> { fingerprint, result, consumedAt }
+  // Secondary index keeps content-fingerprint dedup O(1). Without it every
+  // execution check linearly scans up to maxEntries rows. The index maps a
+  // fingerprint to the oldest live key holding it, preserving the previous
+  // first-match semantics of the linear scan.
+  const fingerprintIndex = new Map(); // fingerprint -> key
+
+  function dropKey(key) {
+    const entry = table.get(key);
+    if (!entry) return;
+    table.delete(key);
+    const fingerprint = entry.fingerprint;
+    if (fingerprint && fingerprintIndex.get(fingerprint) === key) {
+      fingerprintIndex.delete(fingerprint);
+      // Re-home the mapping to another live key with the same fingerprint
+      // (rare: duplicate plan consumed under two different keys).
+      for (const [otherKey, other] of table) {
+        if (other.fingerprint === fingerprint) {
+          fingerprintIndex.set(fingerprint, otherKey);
+          break;
+        }
+      }
+    }
+  }
 
   function sweep(now = Date.now()) {
     for (const [key, entry] of table) {
-      if (now - entry.consumedAt > ttlMs) table.delete(key);
+      if (now - entry.consumedAt > ttlMs) dropKey(key);
     }
     while (table.size > maxEntries) {
       let oldestKey = null;
@@ -59,21 +82,40 @@ function createIdempotencyTable(options = {}) {
         if (entry.consumedAt < oldestAt) { oldestAt = entry.consumedAt; oldestKey = key; }
       }
       if (!oldestKey) break;
-      table.delete(oldestKey);
+      dropKey(oldestKey);
     }
+  }
+
+  function isExpired(entry, now) {
+    return !entry || now - entry.consumedAt > ttlMs;
   }
 
   // Returns { status: 'consumed', result } when the key OR the canonical
   // content fingerprint is already consumed, otherwise { status: 'new' }.
+  // Reads are O(1): TTL expiry is evaluated lazily for just the matched
+  // entry, and the full-table sweep only runs on writes (consume) and size(),
+  // which is also where the max-entries bound is enforced.
   function check({ key = '', fingerprint = '', now = Date.now() } = {}) {
-    sweep(now);
     const byKey = table.get(String(key || ''));
-    if (byKey) return Object.freeze({ status: 'consumed', result: byKey.result, matchedBy: 'key' });
+    if (byKey) {
+      if (isExpired(byKey, now)) dropKey(String(key || ''));
+      else return Object.freeze({ status: 'consumed', result: byKey.result, matchedBy: 'key' });
+    }
     if (fingerprint) {
-      for (const entry of table.values()) {
-        if (entry.fingerprint === fingerprint) {
-          return Object.freeze({ status: 'consumed', result: entry.result, matchedBy: 'content' });
+      const normalizedFingerprint = String(fingerprint);
+      // Expired indexed entries are dropped lazily; dropKey re-homes the
+      // mapping to another live key with the same fingerprint, so keep
+      // resolving until a live entry or no mapping remains.
+      for (;;) {
+        const indexedKey = fingerprintIndex.get(normalizedFingerprint);
+        if (!indexedKey) break;
+        const entry = table.get(indexedKey);
+        if (!entry || entry.fingerprint !== normalizedFingerprint) break;
+        if (isExpired(entry, now)) {
+          dropKey(indexedKey);
+          continue;
         }
+        return Object.freeze({ status: 'consumed', result: entry.result, matchedBy: 'content' });
       }
     }
     return Object.freeze({ status: 'new' });
@@ -83,11 +125,16 @@ function createIdempotencyTable(options = {}) {
     sweep(now);
     const normalizedKey = String(key || '');
     if (!normalizedKey) return false;
+    if (table.has(normalizedKey)) dropKey(normalizedKey);
+    const normalizedFingerprint = String(fingerprint || '');
     table.set(normalizedKey, {
-      fingerprint: String(fingerprint || ''),
+      fingerprint: normalizedFingerprint,
       result: result === undefined ? null : result,
       consumedAt: now,
     });
+    if (normalizedFingerprint && !fingerprintIndex.has(normalizedFingerprint)) {
+      fingerprintIndex.set(normalizedFingerprint, normalizedKey);
+    }
     return true;
   }
 

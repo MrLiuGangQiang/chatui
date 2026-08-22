@@ -153,6 +153,28 @@ function bundleRevision(root, rootWithSep, kind) {
   return String(etag).replace(/^W?"|"$/g, '');
 }
 
+// Request-path metadata cache. bundleMetadata stats every manifest asset to
+// detect changes; the index page and both bundle URLs would each pay that
+// full scan per request (~160 statSync calls per page load). A short TTL
+// keeps deploys fresh within a second while collapsing a page load (and any
+// burst of index/bundle requests) into a single scan. ttlMs 0 disables
+// caching; tests can inject `now` for deterministic expiry.
+const BUNDLE_METADATA_TTL_MS = Math.max(0, Number(process.env.STATIC_BUNDLE_METADATA_TTL_MS || 1000));
+const metadataRequestCache = new Map(); // `${root}|${kind}` -> { at, value }
+const MAX_METADATA_REQUEST_CACHE_ENTRIES = 8;
+
+function bundleMetadataCached(root, rootWithSep, kind, { ttlMs = BUNDLE_METADATA_TTL_MS, now = Date.now() } = {}) {
+  if (!(ttlMs > 0)) return bundleMetadata(root, rootWithSep, kind);
+  const key = `${root}|${kind}`;
+  const cached = metadataRequestCache.get(key);
+  if (cached && now - cached.at < ttlMs) return cached.value;
+  const value = bundleMetadata(root, rootWithSep, kind);
+  metadataRequestCache.delete(key);
+  metadataRequestCache.set(key, { at: now, value });
+  trimCache(metadataRequestCache, MAX_METADATA_REQUEST_CACHE_ENTRIES);
+  return value;
+}
+
 function rewriteCssUrls(css, assetUrlPath) {
   const assetDir = path.posix.dirname(assetUrlPath);
   return String(css || '').replace(/url\(\s*(['"]?)([^'"()]+)\1\s*\)/gi, (full, quote, rawUrl) => {
@@ -186,8 +208,11 @@ module.exports = {
   parseAssetManifest,
   resolveBundleEntry,
   bundleMetadata,
+  bundleMetadataCached,
+  BUNDLE_METADATA_TTL_MS,
   bundleCacheKey,
   buildBundleBody,
   bundleRevision,
   contentTypeForBundle,
+  readFileFingerprint,
 };

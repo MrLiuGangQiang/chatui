@@ -28,8 +28,20 @@ function createApp() {
   const feedbackSender = createDingTalkFeedbackSender();
   const feedbackReviewer = createFeedbackReviewer();
   const usageAccessValidator = createUsageAccessValidator();
-  const { imageJobs, chatJobs, imageBatchJobs } = createJobStores();
   const jobSubscribers = new Map();
+  // Late-bound so the job stores can be created before the job handlers that
+  // own notifyJob. A store evicting a still-running job (TTL timeout or the
+  // max-jobs bound) must surface a terminal state to its SSE subscribers;
+  // without this the subscription hangs until client-side polling
+  // rediscovers the job is gone.
+  const jobEviction = { notify: null };
+  const handleJobEvicted = (job, reason, store) => {
+    const evictionError = new Error(`job evicted from ${store?.name || 'unknown'} store: ${reason}`);
+    evictionError.code = 'JOB_EVICTED';
+    errorLog.log(evictionError, { source: 'job-store', jobId: String(job?.id || ''), reason: String(reason || '') });
+    try { jobEviction.notify?.(job); } catch {}
+  };
+  const { imageJobs, chatJobs, imageBatchJobs } = createJobStores({ onEvict: handleJobEvicted });
   const sweeper = startJobSweeper([imageJobs, chatJobs, imageBatchJobs]);
   const idempotencyTable = createIdempotencyTable();
   const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable, providerCapabilities: PROVIDER_CAPABILITIES });
@@ -47,6 +59,7 @@ function createApp() {
     getChatJob,
     updateChatJobFromStreamChunk,
   } = jobHandlers;
+  jobEviction.notify = notifyJob;
   const imageBatchHandlers = createImageBatchJobHandlers({
     imageJobs,
     imageBatchJobs,

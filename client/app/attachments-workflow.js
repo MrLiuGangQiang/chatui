@@ -227,7 +227,6 @@
     }
     function setUploadPhase(id, phase, percent = 0, sessionId = getState().activeSessionId) { setUploadTask(id, { phase, percent: Math.max(0, Math.min(100, Math.round(percent))), status: phase }, sessionId); }
     function setUploadPhaseProgress(id, phase, loaded, total, sessionId = getState().activeSessionId) { const done = Number(loaded) || 0; const all = Number(total) || 0; setUploadPhase(id, phase, all > 0 ? 100 * done / all : 0, sessionId); }
-    function startTimedUploadPhase(id, phase, start = 8, end = 96, intervalMs = 220, sessionId = getState().activeSessionId) { const started = root.performance?.now ? root.performance.now() : Date.now(); setUploadPhase(id, phase, start, sessionId); return setInterval(() => { const elapsed = (root.performance?.now ? root.performance.now() : Date.now()) - started; const value = start + (end - start) * (1 - Math.exp(-elapsed / 4200)); setUploadPhase(id, phase, Math.min(end, value), sessionId); }, intervalMs); }
 
     function readFileAsDataURL(file, taskId = null, phase = '读取文件') { return new Promise((resolve, reject) => { const reader = new FileReaderCtor(); reader.onload = () => { if (taskId) setUploadPhase(taskId, phase, 100); resolve(reader.result); }; reader.onerror = reject; reader.onprogress = event => { if (taskId && event.lengthComputable) setUploadPhaseProgress(taskId, phase, event.loaded, event.total); }; reader.readAsDataURL(file); }); }
     async function dataUrlToFile(url, name = 'previous-image.png') { const response = await fetch(url); const blob = await response.blob(); return new FileCtor([blob], name, { type: blob.type || 'image/png' }); }
@@ -605,7 +604,7 @@
     }
 
     return Object.freeze({
-      renderAttachments, hasPendingUploads, renderUploadProgress, setUploadTask, finishUploadProgressSoon, setUploadPhase, setUploadPhaseProgress, startTimedUploadPhase,
+      renderAttachments, hasPendingUploads, renderUploadProgress, setUploadTask, finishUploadProgressSoon, setUploadPhase, setUploadPhaseProgress,
       readFileAsDataURL, dataUrlToFile, urlToImageFile, imageRefToFile, imageRefToDataUrl, prepareChatImageAttachments, ensureChatAttachmentImageDataUrls,
       ensureAttachmentId, persistInputFile, attachmentFile, prepareChatAttachments,
       compressImageIfNeeded, convertBmpToPng, addFiles, clearAttachments,

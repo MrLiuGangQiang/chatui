@@ -6,10 +6,12 @@ const { safeJoin, sha1 } = require('./static-path-utils');
 const {
   BUNDLE_PATHS,
   bundleMetadata,
+  bundleMetadataCached,
   bundleCacheKey,
   buildBundleBody,
   bundleRevision,
   contentTypeForBundle,
+  readFileFingerprint,
 } = require('../services/static-bundle.service');
 
 const MIME = {
@@ -123,7 +125,7 @@ function cacheControlFor(filePath, url, options = {}) {
 }
 
 function buildBundle(root, rootWithSep, kind) {
-  const meta = bundleMetadata(root, rootWithSep, kind);
+  const meta = bundleMetadataCached(root, rootWithSep, kind);
   const cacheKey = bundleCacheKey(kind, meta.signature);
   const cached = bundleCache.get(cacheKey);
   if (cached) return cached;
@@ -145,24 +147,55 @@ function rewriteBundleUrls(html, root, rootWithSep) {
     .replace(/(\.\/assets\/chatui\.bundle\.js)(?:\?[^"']*)?/g, `$1?v=${revisions.js}`);
 }
 
-function serveIndex(req, res, context) {
+function revisionFromMetadata(meta) {
+  return String(meta?.etag || '').replace(/^W?"|"$/g, '');
+}
+
+// Rendered index pages are cached by (index content hash, css revision, js
+// revision). Previously every index request re-read index.html and re-statted
+// every manifest asset twice (once per bundle kind) to rebuild identical
+// output. The bundle metadata TTL cache bounds revision freshness to ~1s,
+// which is safe because index.html and bundles are served with no-cache and
+// revalidated on every load anyway.
+const renderedIndexCache = new Map();
+const MAX_RENDERED_INDEX_ENTRIES = 8;
+
+function renderIndexPage(context) {
   const filePath = path.join(context.root, 'index.html');
-  let body;
+  const observed = readFileFingerprint(filePath, { encoding: 'utf8', retainContent: true });
+  const revisions = {
+    css: revisionFromMetadata(bundleMetadataCached(context.root, context.rootWithSep, 'css')),
+    js: revisionFromMetadata(bundleMetadataCached(context.root, context.rootWithSep, 'js')),
+  };
+  const cacheKey = `${observed.contentHash}:${revisions.css}:${revisions.js}`;
+  const cached = renderedIndexCache.get(cacheKey);
+  if (cached) return cached;
+  const source = String(observed.content || '');
+  const body = source
+    .replace(/(\.\/assets\/chatui\.bundle\.css)(?:\?[^"']*)?/g, `$1?v=${revisions.css}`)
+    .replace(/(\.\/assets\/chatui\.bundle\.js)(?:\?[^"']*)?/g, `$1?v=${revisions.js}`);
+  const rendered = { body, etag: `"${sha1(body).slice(0, 32)}"` };
+  renderedIndexCache.set(cacheKey, rendered);
+  trimCache(renderedIndexCache, MAX_RENDERED_INDEX_ENTRIES);
+  return rendered;
+}
+
+function serveIndex(req, res, context) {
+  let rendered;
   try {
-    body = rewriteBundleUrls(fs.readFileSync(filePath, 'utf8'), context.root, context.rootWithSep);
+    rendered = renderIndexPage(context);
   } catch (err) {
     console.error('[static] failed to render index bundle URLs:', err);
     return send(res, 500, 'Failed to render index');
   }
-  const etag = `"${sha1(body).slice(0, 32)}"`;
   const headers = {
     'Content-Type': MIME['.html'],
     'Cache-Control': NO_CACHE,
-    ETag: etag,
+    ETag: rendered.etag,
   };
-  if (isFresh(req, etag)) return send(res, 304, '', headers);
+  if (isFresh(req, rendered.etag)) return send(res, 304, '', headers);
   if (req.method === 'HEAD') return send(res, 200, '', headers);
-  return send(res, 200, body, headers);
+  return send(res, 200, rendered.body, headers);
 }
 
 function serveBundle(req, res, context, kind) {

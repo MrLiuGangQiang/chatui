@@ -116,6 +116,84 @@ function testClarificationIdempotencyKeyTracksStateVersion() {
   assert.match(base, /^clr-clarify-1:1:abc$/);
 }
 
+// Fingerprint-index lifecycle (regression: content dedup must stay correct
+// now that check() resolves fingerprints through a secondary index instead
+// of a full table scan).
+function testFingerprintIndexExpiresWithTtl() {
+  const table = idempotency.createIdempotencyTable({ ttlMs: 1000, maxEntries: 10 });
+  table.consume({ key: 'ep1-a', fingerprint: 'fp-1', result: { jobId: 'job-1' }, now: 1000 });
+  assert.strictEqual(table.check({ key: 'ep1-b', fingerprint: 'fp-1', now: 1500 }).status, 'consumed');
+  // After TTL expiry the indexed mapping must not keep reporting consumed.
+  assert.deepStrictEqual(table.check({ key: 'ep1-b', fingerprint: 'fp-1', now: 2001 }), { status: 'new' });
+  // Re-consuming the same content under a new key re-indexes the fingerprint.
+  table.consume({ key: 'ep1-b', fingerprint: 'fp-1', result: { jobId: 'job-2' }, now: 2001 });
+  const consumed = table.check({ key: 'ep1-c', fingerprint: 'fp-1', now: 2500 });
+  assert.strictEqual(consumed.status, 'consumed');
+  assert.deepStrictEqual(consumed.result, { jobId: 'job-2' });
+}
+
+function testFingerprintIndexRehomesAfterDuplicateKeyExpiry() {
+  const table = idempotency.createIdempotencyTable({ ttlMs: 1000, maxEntries: 10 });
+  // Same canonical content consumed under two different keys: the index keeps
+  // first-match (oldest) semantics while both entries are live.
+  table.consume({ key: 'ep1-first', fingerprint: 'fp-dup', result: { jobId: 'job-1' }, now: 1000 });
+  table.consume({ key: 'ep1-second', fingerprint: 'fp-dup', result: { jobId: 'job-2' }, now: 1100 });
+  const first = table.check({ key: 'ep1-third', fingerprint: 'fp-dup', now: 1200 });
+  assert.strictEqual(first.status, 'consumed');
+  assert.deepStrictEqual(first.result, { jobId: 'job-1' });
+  // When the oldest entry expires, content matching must fall through to the
+  // still-live duplicate instead of losing the fingerprint mapping.
+  const afterExpiry = table.check({ key: 'ep1-third', fingerprint: 'fp-dup', now: 2001 });
+  assert.strictEqual(afterExpiry.status, 'consumed');
+  assert.deepStrictEqual(afterExpiry.result, { jobId: 'job-2' });
+}
+
+function testFingerprintIndexFollowsKeyReconsume() {
+  const table = idempotency.createIdempotencyTable({ ttlMs: 60_000, maxEntries: 10 });
+  table.consume({ key: 'ep1-key', fingerprint: 'fp-old', result: { jobId: 'job-1' } });
+  // Re-consuming the same key with a new fingerprint must release the old
+  // fingerprint mapping and index the new one.
+  table.consume({ key: 'ep1-key', fingerprint: 'fp-new', result: { jobId: 'job-2' } });
+  assert.deepStrictEqual(table.check({ key: 'ep1-other', fingerprint: 'fp-old' }), { status: 'new' });
+  const consumed = table.check({ key: 'ep1-other', fingerprint: 'fp-new' });
+  assert.strictEqual(consumed.status, 'consumed');
+  assert.deepStrictEqual(consumed.result, { jobId: 'job-2' });
+}
+
+// Perf gate for the O(n) regression: a content-miss check used to linearly
+// scan every consumed entry (and sweep the whole table) on each execution.
+// The check path must resolve both key and fingerprint through Map lookups
+// only. Iteration is counted deterministically by instrumenting the Map
+// prototype during the checks.
+function testContentMissCheckDoesNotIterateConsumedTable() {
+  const table = idempotency.createIdempotencyTable({ ttlMs: 60_000, maxEntries: 1000 });
+  for (let index = 0; index < 50; index += 1) {
+    table.consume({ key: `ep1-k${index}`, fingerprint: `fp-${index}`, result: { jobId: `job-${index}` } });
+  }
+  const originalValues = Map.prototype.values;
+  const originalIterator = Map.prototype[Symbol.iterator];
+  let valuesCalls = 0;
+  let iteratorCalls = 0;
+  Map.prototype.values = function countedValues(...args) {
+    valuesCalls += 1;
+    return originalValues.apply(this, args);
+  };
+  Map.prototype[Symbol.iterator] = function countedIterator(...args) {
+    iteratorCalls += 1;
+    return originalIterator.apply(this, args);
+  };
+  try {
+    for (let index = 0; index < 5; index += 1) {
+      assert.deepStrictEqual(table.check({ key: 'ep1-miss', fingerprint: 'fp-miss' }), { status: 'new' });
+    }
+    assert.strictEqual(valuesCalls, 0, 'content-miss check must not scan the consumed table');
+    assert.strictEqual(iteratorCalls, 0, 'content-miss check must not iterate the consumed table');
+  } finally {
+    Map.prototype.values = originalValues;
+    Map.prototype[Symbol.iterator] = originalIterator;
+  }
+}
+
 module.exports = [
   testDerivedKeyMatchesDispatchContractCanonicalKey,
   testContentFingerprintIgnoresIdempotencyKey,
@@ -127,4 +205,8 @@ module.exports = [
   testExecutionConsumedErrorShape,
   testClarificationConsumedErrorShape,
   testClarificationIdempotencyKeyTracksStateVersion,
+  testFingerprintIndexExpiresWithTtl,
+  testFingerprintIndexRehomesAfterDuplicateKeyExpiry,
+  testFingerprintIndexFollowsKeyReconsume,
+  testContentMissCheckDoesNotIterateConsumedTable,
 ];

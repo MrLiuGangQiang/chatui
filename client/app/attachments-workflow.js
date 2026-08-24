@@ -135,7 +135,16 @@
       }).join('');
       bar.classList.toggle('show', attachments.length > 0);
       bar.querySelectorAll('[data-preview-attachment]').forEach(node => {
-        const open = () => { const item = attachments[Number(node.dataset.previewAttachment)]; if (item?.dataUrl) openImagePreview(item.dataUrl); };
+        const open = () => {
+          const selectedIndex = Number(node.dataset.previewAttachment);
+          const item = attachments[selectedIndex];
+          if (!item?.dataUrl) return;
+          const items = attachments
+            .filter(candidate => String(candidate.type || '').startsWith('image/') && candidate.dataUrl)
+            .map(candidate => ({ source: candidate.dataUrl, filename: candidate.name || 'image.png' }));
+          const index = Math.max(0, items.findIndex(candidate => candidate.source === item.dataUrl));
+          openImagePreview(item.dataUrl, item.name || 'image.png', { items, index });
+        };
         node.addEventListener('click', event => { if (!event.target.closest('[data-remove-attachment]')) open(); });
         node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
       });

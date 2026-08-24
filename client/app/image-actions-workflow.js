@@ -48,10 +48,32 @@
 
     function bindImageShare(e){e.dataset.shareBound||(e.dataset.shareBound="1",e.addEventListener("click",async()=>{const t=downloadFilename(e.dataset.filename,"generated-image","png");try{const s=await getImageActionBlob(e),n=new File([s],t,{type:s.type||"image/png"});if(!navigator.share||!navigator.canShare?.({files:[n]}))throw new Error("当前浏览器不支持文件分享");await navigator.share({files:[n],title:t})}catch(e){if("AbortError"===e?.name)return;toast(e.message||String(e))}}))}
 
+    function previewItemFromImage(image) {
+      return {
+        source: image?.dataset?.persistedSrc || image?.dataset?.originalSrc || image?.dataset?.persistedUrl || image?.currentSrc || image?.src || '',
+        filename: image?.dataset?.filename || image?.alt || 'image.png',
+      };
+    }
+
+    function previewItemsFromConversation(message) {
+      const messages = document?.getElementById?.('messages') || message?.closest?.('#messages') || message;
+      return [...messages.querySelectorAll('.message .content img, .content img')]
+        .filter(image => !image.classList?.contains?.('clarification-choice-image'))
+        .map(previewItemFromImage)
+        .filter(item => item.source);
+    }
+
+    function openMessageImagePreview(message, image) {
+      const items = previewItemsFromConversation(message);
+      const selected = previewItemFromImage(image);
+      const index = Math.max(0, items.findIndex(item => item.source === selected.source));
+      return openImagePreview(selected.source, selected.filename, { items, index });
+    }
+
     function bindImagePreview(e){
       e.querySelectorAll("[data-download-image]").forEach(bindImageDownload),e.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),e.querySelectorAll("[data-share-image]").forEach(bindImageShare);
-      e.querySelectorAll(".content img").forEach(img=>{if(img.classList?.contains?.("clarification-choice-image"))return;if("1"!==img.dataset.previewBound){img.dataset.previewBound="1";img.addEventListener("click",()=>openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png"))}});
-      e.querySelectorAll(".generated-image-item").forEach(item=>{if("1"!==item.dataset.previewBound){item.dataset.previewBound="1";item.addEventListener("click",event=>{if(event.target?.closest?.("button,a"))return;const img=item.querySelector("img.generated-thumb");img&&openImagePreview(img.dataset.persistedSrc||img.dataset.originalSrc||img.dataset.persistedUrl||img.currentSrc||img.src,img.dataset.filename||img.alt||"image.png")})}})
+      e.querySelectorAll(".content img").forEach(img=>{if(img.classList?.contains?.("clarification-choice-image")||"1"===img.dataset.previewBound)return;img.dataset.previewBound="1";img.addEventListener("click",event=>{event.stopPropagation();openMessageImagePreview(e,img)})});
+      e.querySelectorAll(".generated-image-item").forEach(item=>{if("1"!==item.dataset.previewBound){item.dataset.previewBound="1";item.addEventListener("click",event=>{if(event.target?.closest?.("button,a"))return;const img=item.querySelector("img.generated-thumb");img&&openMessageImagePreview(e,img)})}})
     }
 
     return Object.freeze({ removeGeneratedImageInlineActions, moveImageActionsToMessageActions, downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml, ensureImageDownloadRow, getImageActionBlob, downloadImageActionElement, canWriteImageClipboard, imageClipboardUnsupportedMessage, copyImageActionElement, downloadAllImagesFromMessage, bindImageDownload, bindImageCopy, bindImageShare, bindImagePreview });

@@ -3,7 +3,7 @@
   const RAIL_MAX_HEIGHT_PX = 520;
   const RAIL_VIEWPORT_RATIO = 0.66;
   const RAIL_PADDING_Y = 7;
-  const RAIL_ROW_HEIGHT = 28;
+  const RAIL_ROW_HEIGHT = 30;
 
   function normalizeQuestionTitle(value = '', limit = 56) {
     let text = String(value || '')
@@ -365,12 +365,18 @@
       panel.className = 'history-anchor-panel';
       const head = doc.createElement('div');
       head.className = 'history-anchor-head';
+      const titleWrap = doc.createElement('div');
+      titleWrap.className = 'history-anchor-title-wrap';
+      const eyebrow = doc.createElement('span');
+      eyebrow.className = 'history-anchor-eyebrow';
+      eyebrow.textContent = 'QUICK JUMP';
       const title = doc.createElement('div');
       title.className = 'history-anchor-title';
       title.textContent = '消息目录';
+      titleWrap.append(eyebrow, title);
       countEl = doc.createElement('div');
       countEl.className = 'history-anchor-count';
-      head.append(title, countEl);
+      head.append(titleWrap, countEl);
       listEl = doc.createElement('div');
       listEl.id = 'historyAnchorList';
       listEl.className = 'history-anchor-list';
@@ -385,7 +391,7 @@
       updateRailMetrics(items.length);
       railEl.replaceChildren?.();
       if (!railEl.replaceChildren) railEl.innerHTML = '';
-      items.forEach(item => {
+      items.forEach((item, index) => {
         const bar = doc.createElement('span');
         bar.className = 'history-anchor-rail-bar';
         bar.dataset.anchorTarget = item.id;
@@ -428,7 +434,7 @@
         intersectionObserver?.disconnect?.();
         return;
       }
-      items.forEach(item => {
+      items.forEach((item, index) => {
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'history-anchor-item';
@@ -436,10 +442,14 @@
         button.title = item.title;
         button.setAttribute('role', 'listitem');
         button.setAttribute('aria-label', `定位到问题：${item.title}`);
+        const ordinal = doc.createElement('span');
+        ordinal.className = 'history-anchor-item-index';
+        ordinal.textContent = String(index + 1).padStart(2, '0');
+        ordinal.setAttribute('aria-hidden', 'true');
         const text = doc.createElement('span');
         text.className = 'history-anchor-text';
         text.textContent = item.title;
-        button.append(text);
+        button.append(ordinal, text);
         button.addEventListener('click', event => {
           event.preventDefault();
           event.stopPropagation();

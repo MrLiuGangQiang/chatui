@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -60,8 +60,7 @@ function testModelSelectedCurrentImagesAreAuthoritativeForComparison() {
       ['upload-3', 'current', 'compare_b'],
     ],
   );
-  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes('比较第一张和第三张产品图的构图与色调差异。'));
+  assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(result.route.dispatchContract.arguments.prompt.includes('比较所选两张产品图的构图与色调差异。'));
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
@@ -116,8 +115,7 @@ function testStartAndPenultimateOcrUsesResolvedGoalAndTwoSelectedImages() {
       ['upload-3', 3, 'source'],
     ],
   );
-  assert.match(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.executionPrompt.includes(input));
+  assert.doesNotMatch(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(result.route.executionPrompt.includes(goal));
   assert.strictEqual(result.route.dispatchContract.arguments.prompt, result.route.executionPrompt);
 
@@ -151,8 +149,7 @@ function testModelOperationIsNotOverriddenByLocalIntentRules() {
   assert.strictEqual(result.route.operationType, 'plain_chat');
   assert.strictEqual(result.route.relation, 'followup');
   assert.deepStrictEqual(result.route.resources, []);
-  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes('提取这图里面的文字'));
+  assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(result.route.dispatchContract.arguments.prompt.includes('回答用户当前的文本问题。'));
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }

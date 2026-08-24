@@ -161,6 +161,7 @@ async function testClientExecutionTraceEndpointRecordsPreDispatchContextProjecti
 
   await routeCoreApi(req, {});
   assert.deepStrictEqual(response, { status: 202, body: { recorded: true } });
+  await logger.flush();
   const events = fs.readFileSync(file, 'utf8').trim().split(/\r?\n/).map(JSON.parse);
   assert.strictEqual(events.length, 1);
   const event = events[0];

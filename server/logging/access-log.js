@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const path = require('node:path');
 const {
@@ -38,9 +38,10 @@ function createAccessLogger({
   enabled = accessLogEnabled(),
   maxBytes = positiveInteger(process.env.CHATUI_ACCESS_LOG_MAX_BYTES, DEFAULT_ACCESS_MAX_BYTES),
   rotations = positiveInteger(process.env.CHATUI_ACCESS_LOG_ROTATIONS, DEFAULT_ACCESS_ROTATIONS),
+  onError = null,
 } = {}) {
   const resolvedFile = resolveAccessFile(root);
-  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
+  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled, onError });
 
   if (enabled) {
     console.log('[access-log] file=' + resolvedFile + ' enabled=true maxBytes=' + maxBytes + ' rotations=' + rotations);
@@ -85,6 +86,9 @@ function createAccessLogger({
     enabled: !!enabled,
     filePath: resolvedFile,
     log,
+    flush: writer.flush,
+    close: writer.close,
+    stats: writer.stats,
   });
 }
 

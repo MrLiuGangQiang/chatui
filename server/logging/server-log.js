@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const path = require('node:path');
 const {
@@ -47,9 +47,10 @@ function createServerLogger({
   enabled = serverLogEnabled(),
   maxBytes = positiveInteger(process.env.CHATUI_SERVER_LOG_MAX_BYTES, DEFAULT_SERVER_MAX_BYTES),
   rotations = positiveInteger(process.env.CHATUI_SERVER_LOG_ROTATIONS, DEFAULT_SERVER_ROTATIONS),
+  onError = null,
 } = {}) {
   const resolvedFile = resolveServerFile(root);
-  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
+  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled, onError });
 
   if (enabled) {
     console.log('[server-log] file=' + resolvedFile + ' enabled=true');
@@ -79,6 +80,9 @@ function createServerLogger({
     stopped: (opts = {}) => event('server.stopped', opts),
     config: (opts = {}) => event('server.config', opts),
     event,
+    flush: writer.flush,
+    close: writer.close,
+    stats: writer.stats,
   });
 }
 
@@ -87,9 +91,10 @@ function createErrorLogger({
   enabled = errorLogEnabled(),
   maxBytes = positiveInteger(process.env.CHATUI_ERROR_LOG_MAX_BYTES, DEFAULT_ERROR_MAX_BYTES),
   rotations = positiveInteger(process.env.CHATUI_ERROR_LOG_ROTATIONS, DEFAULT_ERROR_ROTATIONS),
+  onError = null,
 } = {}) {
   const resolvedFile = resolveErrorFile(root);
-  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
+  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled, onError });
 
   if (enabled) {
     console.log('[error-log] file=' + resolvedFile + ' enabled=true');
@@ -120,6 +125,9 @@ function createErrorLogger({
     enabled: !!enabled,
     filePath: resolvedFile,
     log,
+    flush: writer.flush,
+    close: writer.close,
+    stats: writer.stats,
   });
 }
 

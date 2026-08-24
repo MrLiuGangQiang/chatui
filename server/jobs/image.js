@@ -3,10 +3,23 @@ const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstre
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
-const { executionConsumedError, deriveIdempotencyKey, contentFingerprint } = require('../validators/idempotency.validator');
+const {
+  executionConsumedError,
+  executionIdempotencyConflictError,
+  executionIdempotencyScope,
+  deriveIdempotencyKey,
+  contentFingerprint,
+} = require('../validators/idempotency.validator');
 const { assertProviderCapability } = require('../validators/provider-capability.validator');
-const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
+const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner, jobOwnerScope } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
+const {
+  failJobIfRunning,
+  jobCancellationSignal,
+  jobCanRun,
+  preserveJobCancellation,
+  releaseJobIdempotency,
+} = require('./cancellation');
 
 const {
   buildImageEditMultipartBody,
@@ -154,19 +167,24 @@ function formatImageJobError(err) {
 }
 
 function markImageJobDone(job = {}, data, now = Date.now()) {
+  if (!jobCanRun(job)) return job;
   job.status = 'done';
   job.data = data;
+  job.error = '';
   job.durationMs = now - Number(job.serverStartAt || job.createdAt || now);
   return job;
 }
 
 function markImageJobFailed(job = {}, err) {
+  if (preserveJobCancellation(job)) return job;
+  if (job.status !== 'running') return job;
   job.status = 'error';
   job.error = formatImageJobError(err);
   return job;
 }
 
 async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog } = {}) {
+  if (!jobCanRun(job)) return job;
   const traceSpan = requestTrace?.begin?.({
     parentTraceId: job.parentTraceId || '',
     rootTraceId: job.rootTraceId || '',
@@ -183,6 +201,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
     secrets: [job.apiKey],
   });
   let timer = null;
+  let cleanup = null;
   let upstreamStatus = 0;
   let failure = null;
   try {
@@ -193,20 +212,27 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
       body,
       job,
       upstreamTimeoutMs,
+      signal: jobCancellationSignal(job),
     });
     timer = upstreamRequest.timer;
+    cleanup = upstreamRequest.cleanup;
     job.serverStartAt = Date.now();
     const upstream = await upstreamRequest.response;
+    if (!jobCanRun(job)) return job;
     upstreamStatus = Number(upstream.status) || 0;
     const text = await upstream.text();
+    if (!jobCanRun(job)) return job;
     const data = parseImageUpstreamResponse(upstream, text);
     markImageJobDone(job, data);
   } catch (err) {
     failure = err;
-    errorLog?.log(err, { source: 'image_job', traceId: traceSpan?.traceId || '' });
-    markImageJobFailed(job, err);
+    if (!preserveJobCancellation(job)) {
+      errorLog?.log(err, { source: 'image_job', traceId: traceSpan?.traceId || '' });
+      markImageJobFailed(job, err);
+    }
   } finally {
-    if (timer) clearTimeout(timer);
+    if (cleanup) cleanup();
+    else if (timer) clearTimeout(timer);
     delete job.controller;
     job.updatedAt = Date.now();
     if (job.status === 'done') {
@@ -216,6 +242,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
     }
     if (typeof notifyJob === 'function') notifyJob(job);
   }
+  return job;
 }
 
 function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
@@ -277,11 +304,10 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         const plan = executionContract.dispatchContract;
         const key = deriveIdempotencyKey(plan);
         const fingerprint = contentFingerprint(plan);
-        const idem = idempotencyTable.check({ key, fingerprint });
-        if (idem.status === 'consumed') {
-          throw executionConsumedError(idem.result);
-        }
-        idempotencyEntry = { key, fingerprint };
+        const scope = executionIdempotencyScope(jobOwnerScope(principal), body.submissionId, jobId);
+        const idem = idempotencyTable.check({ key, fingerprint, scope });
+        if (idem.status === 'consumed') throw executionConsumedError(idem.result);
+        idempotencyEntry = { key, fingerprint, scope };
       }
       // Design doc v2.7 7.1: provider capability gate before Job creation.
       if (providerCapabilities && executionContract.dispatchContract) {
@@ -302,6 +328,11 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         dispatchContract: executionContract.dispatchContract,
         bindingEvidence: executionContract.bindingEvidence,
       }, { baseUrl, apiKey, extraHeaders, prepared });
+      if (idempotencyEntry) {
+        job.idempotencyKey = idempotencyEntry.key;
+        job.idempotencyFingerprint = idempotencyEntry.fingerprint;
+        job.idempotencyScope = idempotencyEntry.scope;
+      }
       bindJobOwner(job, principal);
       imageJobs.set(job.id, job);
       if (idempotencyEntry && idempotencyTable) {
@@ -309,10 +340,14 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
       }
       job.parentTraceId = req._traceId || '';
       job.rootTraceId = req._rootTraceId || '';
-      withLimiter(limiter, () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog })).catch(err => {
-        job.status = 'error';
-        job.error = err.message || String(err);
-        job.updatedAt = Date.now();
+      withLimiter(
+        limiter,
+        () => runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, errorLog }),
+        { signal: jobCancellationSignal(job) },
+      ).catch(err => {
+        if (failJobIfRunning(job, err)) notifyJob?.(job);
+      }).finally(() => {
+        if (job.status === 'error') releaseJobIdempotency(job, idempotencyTable);
       });
       sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
     } catch (err) {

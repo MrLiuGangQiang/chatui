@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -16,10 +16,10 @@ const { createOpenAiProxy } = require('../../server/proxy/openai');
 const { runImageJob } = require('../../server/jobs/image');
 const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
-function withTempTrace(run) {
+async function withTempTrace(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-request-trace-'));
   try {
-    return run(root);
+    return await run(root);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -29,8 +29,8 @@ function readTrace(file) {
   return fs.readFileSync(file, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
 }
 
-function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary() {
-  withTempTrace(root => {
+async function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'request-trace.ndjson');
     const apiKey = 'sk-live-secret-value-123456789';
     const logger = createRequestTraceLogger({ enabled: true, root, filePath: file, onError: error => { throw error; } });
@@ -57,6 +57,7 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
       },
     });
 
+    await logger.flush();
     const events = readTrace(file);
     assert.strictEqual(events.length, 2);
     assert.strictEqual(events[0].event, 'request.started');
@@ -87,8 +88,8 @@ function testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBina
   });
 }
 
-function testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCredentials() {
-  withTempTrace(root => {
+async function testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCredentials() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'full.ndjson');
     const apiKey = 'sk-full-trace-secret-123456';
     const system = `full system ${'x'.repeat(2200)}`;
@@ -109,6 +110,7 @@ function testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCre
     });
     logger.complete(span, { status: 200, response: { output_text: output } });
 
+    await logger.flush();
     const events = readTrace(file);
     const systemTrace = events[0].request.messages.items[0].content;
     assert.strictEqual(systemTrace.truncated, false);
@@ -148,8 +150,8 @@ function testRequestTraceSummarizesResponsesOutputContentWithoutReasoning() {
   assert.ok(!summary.output_text.text.includes('private chain of thought'));
 }
 
-function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided() {
-  withTempTrace(root => {
+async function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'duration.ndjson');
     const logger = createRequestTraceLogger({ enabled: true, root, filePath: file });
     const span = logger.begin({
@@ -160,13 +162,14 @@ function testRequestTraceDerivesElapsedDurationWhenNoExplicitDurationIsProvided(
     });
     span.startedAt = Date.now() - 25;
     logger.complete(span, { status: 200, response: {} });
+    await logger.flush();
     const events = readTrace(file);
     assert.ok(events[1].duration_ms >= 20, `derived duration must reflect elapsed time, got ${events[1].duration_ms}`);
   });
 }
 
-function testDisabledRequestTraceDoesNotCreateAFile() {
-  withTempTrace(root => {
+async function testDisabledRequestTraceDoesNotCreateAFile() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'disabled.ndjson');
     const logger = createRequestTraceLogger({ enabled: false, root, filePath: file });
     const span = logger.begin({ target: 'https://example.com/v1/chat/completions', payload: { model: 'test' } });
@@ -209,8 +212,8 @@ function testRequestKindRecognizesStructuredRouteIntentFallbacks() {
   assert.strictEqual(requestKind('/images/generations', { model: 'gpt-image-2' }), 'image_generation');
 }
 
-function testRequestTraceRotatesBoundedLocalFiles() {
-  withTempTrace(root => {
+async function testRequestTraceRotatesBoundedLocalFiles() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'bounded.ndjson');
     const logger = createRequestTraceLogger({
       enabled: true,
@@ -223,6 +226,7 @@ function testRequestTraceRotatesBoundedLocalFiles() {
     for (let index = 0; index < 6; index += 1) {
       logger.record({ event: 'test.event', index, text: 'x'.repeat(180) });
     }
+    await logger.flush();
     assert.ok(fs.existsSync(file));
     assert.ok(fs.existsSync(`${file}.1`));
     assert.ok(fs.statSync(file).size <= 800, 'the active trace file must remain bounded to roughly one event');
@@ -289,6 +293,7 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
     request.headers = { 'content-type': 'application/json' };
     const response = createProxyResponse();
     await proxy(request, response);
+    await logger.flush();
 
     assert.strictEqual(response.status, 200);
     const events = readTrace(file);
@@ -308,8 +313,8 @@ async function testDirectProxyWritesRequestAndResponseTrace() {
   }
 }
 
-function testExecutionBoundaryTraceShowsPromptAndBindingAgreementWithoutSecretsOrBinary() {
-  withTempTrace(root => {
+async function testExecutionBoundaryTraceShowsPromptAndBindingAgreementWithoutSecretsOrBinary() {
+  await withTempTrace(async root => {
     const file = path.join(root, 'request-trace.ndjson');
     const logger = createRequestTraceLogger({ enabled: true, root, filePath: file, onError: error => { throw error; } });
     const apiKey = 'sk-execution-boundary-secret-12345';
@@ -362,6 +367,7 @@ function testExecutionBoundaryTraceShowsPromptAndBindingAgreementWithoutSecretsO
       error: mismatch,
     });
 
+    await logger.flush();
     const events = readTrace(file);
     assert.strictEqual(events.length, 2);
     const accepted = events[0];
@@ -426,6 +432,7 @@ async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
       error: '',
     };
     await runImageJob(job, { upstreamTimeoutMs: 1000, requestTrace: logger });
+    await logger.flush();
 
     assert.strictEqual(job.status, 'done');
     const events = readTrace(file);

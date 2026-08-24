@@ -55,8 +55,7 @@ function testConversationDependentTextTaskPreservesRawUserInputAlongsideResolved
   }, input, {
     context: { recent_messages: [{ index: 1, role: 'assistant', content: '上一轮回答' }] },
   });
-  assert.match(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(route.executionPrompt.includes(input));
+  assert.doesNotMatch(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(route.executionPrompt.includes(goal));
   assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
 }
@@ -97,8 +96,7 @@ function testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal() {
       file_candidates: [{ index: 1, source: 'current', file_id: 'contract', name: 'contract.pdf', has_extracted_text: true }],
     },
   });
-  assert.match(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(route.executionPrompt.includes(input));
+  assert.doesNotMatch(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(route.executionPrompt.includes(goal));
   assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
 }

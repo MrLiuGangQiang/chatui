@@ -276,6 +276,18 @@ function executionGoalForEvaluation(value = "") {
 }
 
 
+function escapeRegExp(value = '') {
+  return scalar(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function forbiddenConceptIsNegated(text = '', concept = '') {
+  const normalizedText = normalizedGoalText(text);
+  const normalizedConcept = normalizedGoalText(concept);
+  if (!normalizedConcept || !normalizedText.includes(normalizedConcept)) return false;
+  const negation = '(?:不要|不使用|不采用|不保留|不参照|不沿用|取消|移除|去掉|删除|排除|避免|撤销|不再)';
+  return new RegExp(negation + '.{0,36}' + escapeRegExp(normalizedConcept), 'i').test(normalizedText);
+}
+
 function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
   const text = normalizedGoalText(actual);
   if (!text) return false;
@@ -285,7 +297,10 @@ function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
     ...(options.intentOnly === true && Array.isArray(expected.intent_forbidden) ? expected.intent_forbidden : []),
   ];
   return concepts.every(alternatives => alternatives.some(value => text.includes(normalizedGoalText(value))))
-    && forbidden.every(value => !text.includes(normalizedGoalText(value)));
+    && forbidden.every(value => {
+      const normalized = normalizedGoalText(value);
+      return !text.includes(normalized) || forbiddenConceptIsNegated(text, value);
+    });
 }
 
 function modelResourcesMatchExpectation(caseDefinition = {}, intent = null) {

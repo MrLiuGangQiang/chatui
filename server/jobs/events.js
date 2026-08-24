@@ -3,6 +3,7 @@ const { safeLog, redactUrl } = require('../logging/safe-log');
 const { getJobIdFromUrl } = require('./job-url');
 const { findOwnedJob, jobOwnedBy } = require('../security/job-ownership');
 const { JOB_NOT_FOUND_MESSAGE, JOB_SSE_HEADERS } = require('./http-contract');
+const { requestJobCancellation } = require('./cancellation');
 function publicJob(job, options = {}) {
   const metrics = {
     firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
@@ -123,10 +124,10 @@ function createJobEvents({ jobSubscribers }) {
     const job = findOwnedJob(store, id, principal);
     if (!job) return null;
     if (job.status === 'done' || job.status === 'error') return job;
+    requestJobCancellation(job, { message, reason: 'user_stop', code: 'JOB_STOPPED' });
     job.status = 'error';
     job.error = message;
     job.updatedAt = Date.now();
-    try { job.controller?.abort(); } catch {}
     notifyJob(job);
     return job;
   }

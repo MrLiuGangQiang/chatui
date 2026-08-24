@@ -104,13 +104,12 @@ function testTextOnlyRedesignInheritsTheOriginalGoalAcrossImageEdits() {
   assert.strictEqual(route.userGoal, currentGoal, 'the model-owned goal remains the current change request');
   assert.ok(route.executionPrompt.endsWith(expected),
     'the execution envelope must retain the complete inherited specification and the current correction');
-  assert.ok(route.executionPrompt === expected || route.executionPrompt.startsWith('[execution_semantic_context.v1]'),
-    'the route may carry a semantic envelope internally, but it must retain the complete inherited design goal');
+  assert.strictEqual(route.executionPrompt, expected,
+    'the provider prompt must be the natural resolved task instruction, without an internal envelope');
   assert.ok(route.dispatchContract.arguments.prompt.endsWith(expected),
     'the actual image request must retain the complete inherited design goal after semantic context is compiled');
-  assert.ok(route.dispatchContract.arguments.prompt === expected
-    || route.dispatchContract.arguments.prompt.startsWith('[execution_semantic_context.v1]'),
-  'the dispatched prompt must either be the goal itself or the lossless semantic envelope that contains it');
+  assert.strictEqual(route.dispatchContract.arguments.prompt, expected,
+    'the dispatched prompt must be the natural resolved task instruction');
 }
 
 function testExplicitNewImageTaskDoesNotInheritThePreviousGoal() {

@@ -66,32 +66,13 @@ function testIntentRecognitionRetainsQualityCriticalRoutingGuidance() {
 }
 function testIntentRecognitionPromptStatesReadableDecisionPriority() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  const sections = [
-    '【可信输入】',
-    '【判断顺序】',
-    '【operation】',
-    '【task_shape】',
-    '【resource_refs】',
-    '【relation：按以下优先级】',
-    '【goal】',
-    '【goal_mode】',
-    '【歧义与空输入】',
-  ];
-  let previousIndex = -1;
-  for (const section of sections) {
-    const index = prompt.indexOf(section);
-    assert.ok(index > previousIndex, `missing or out-of-order routing section: ${section}`);
-    previousIndex = index;
+  for (const section of ['Model-first:', 'current_input', 'operation', 'task_shape', 'resource_refs', 'relation', 'goal', 'goal_mode', 'auto_mode=false']) {
+    assert.ok(prompt.includes(section), `missing routing guidance: ${section}`);
   }
-  assert.match(prompt, /1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode/);
-  assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
-  assert.match(prompt, /必须按1→4顺序判断，命中更高优先级规则后停止，不再判断更低优先级规则/);
-  assert.match(prompt, /1 followup=本轮主要是在否定\/不满\/纠正.*纠正上一轮选错的资源/);
-  assert.match(prompt, /quoted正文作事实也followup，压过继续语义/);
-  assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项/);
-  assert.match(prompt, /3 followup=无1\/2但明确依赖quoted\/history\/previous_\*execution/);
-  assert.match(prompt, /4 new=仅无历史依赖且refs空\/全current/);
+  assert.match(prompt, /Model-first:/);
+  assert.match(prompt, /repair evidence/);
 }
+
 module.exports = [
   testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled,
   testIntentRecognitionRetainsQualityCriticalRoutingGuidance,

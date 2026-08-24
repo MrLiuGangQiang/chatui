@@ -34,7 +34,13 @@ CHATUI_REQUEST_TRACE=1
 CHATUI_REQUEST_TRACE_FILE=temp/request-trace.ndjson
 CHATUI_REQUEST_TRACE_MAX_BYTES=20971520
 CHATUI_REQUEST_TRACE_ROTATIONS=3
+CHATUI_LOG_QUEUE_MAX=2048
+CHATUI_LOG_QUEUE_MAX_BYTES=8388608
+CHATUI_LOG_BATCH_MAX_ITEMS=64
+CHATUI_LOG_BATCH_MAX_BYTES=262144
 ```
+
+四个 `CHATUI_LOG_*` 选项由 access/error/server/request-trace 的每个独立 writer 共享：调用方只同步完成脱敏、JSON 序列化和有界入队，目录创建、stat、轮转和批量 append 全部异步串行执行。队列达到条目或字节上限时，新记录会返回失败并累计 drop 计数，不会无限增长；不同日志使用独立队列，access 洪峰不会占用 error log 的队列。测试在读取文件前必须 `await logger.flush()`，服务的 graceful `server.close()` 会等待全部 logger `close()` 后才回调。
 
 重启 `npm start` 后，服务启动信息会显示实际日志路径。日志使用 `request_trace.v1` NDJSON，每次上游调用至少包含同一 `trace_id` 的 `request.started` 和 `request.completed`/`request.failed`。managed chat/image 请求在服务端执行边界还会写入 `execution.accepted` 或 `execution.rejected`：事件通过 `submission_id`、`job_id` 和 trace ID 关联同一次路由与最终执行，并在同一条记录中对照 execution plan prompt、provider payload prompt、binding evidence、实际资源绑定以及 `prompt_match` / `binding_evidence_match` 等校验结果。若客户端在 provider payload 创建前就因消息上下文绑定不一致而停止发送，会通过受限诊断端点写入 `source=client_pre_dispatch`、`validation_stage=client_context_projection` 的 `execution.rejected`；此时 `payload.available=false`，`context_projection` 会列出 expected、available、selected 和 missing message resource IDs，避免只能从“最终执行事件缺失”反推问题。它会保留限长且脱敏的用户输入、路由输出和普通模型回复，便于复盘；系统提示词只记录长度与哈希，reasoning 只记录长度。API Key、Authorization、自定义 Header 值、文件 Base64、图片 Base64和签名 URL 查询参数不会落盘。日志可能包含用户对话正文，仅允许保存在受信任的本机环境，不得提交到 Git 或附加到 Release。
 
@@ -53,6 +59,8 @@ Get-Content temp/request-trace.ndjson -Tail 20
 ```bash
 npm test
 ```
+
+统计/反馈访问校验使用 TTL+LRU 有界缓存和 in-flight Promise 合并；统计刷新限流桶有全局上限、过期 sweep 和最旧桶淘汰。默认参数可通过 `USAGE_ACCESS_*`、`MAX_USAGE_REFRESH_BUCKETS`、`USAGE_REFRESH_SWEEP_INTERVAL_MS` 调整。
 
 runner 会按 `legacy/`、`unit/`、`smoke/` 递归发现 `*.test.js`，在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
 
@@ -197,9 +205,9 @@ npm run eval:intent -- \
 
 评估器直连供应商时仍复用 `shared/responses-output.js` 解释非流式 envelope，与服务端 `/api/responses` 意图压缩边界使用同一最终文本提取规则；Responses 顶层 `text.format` 只能视为请求/响应格式元数据，不能当成模型输出。若 fixture 的 `context.recent_messages` 含正在评估的当前用户消息，必须显式声明 `current_turn.messageIndex`；评估器和生产提交链路使用同一 current-turn 过滤规则，禁止把当前输入再次作为历史证据发送。
 
-`task_shape` 描述本轮是否需要多个独立执行，而非资源数量：`single` 是一次 dispatch 可返回一个可合并结果，多图问答、比较、OCR 和汇总仍为 `single`；`multi` 表示多个独立执行。所有图片类 `multi` 都进入二级图片规划，父路由必须是无执行合同、无执行授权的 planning envelope，只有 `image_plan.v1` 子路由可独立 dispatch；非图片或跨 API 的 `multi` 由执行门禁阻止发送并要求拆分。评估器直接把原始模型六字段作为独立语义证据，检查 operation、relation、goal mode、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定，校验 `task_continuity.v1` 的 transition/render 结果、批量 `image_task_lineage.v1`、澄清、父规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得替错误语义兜底，也不得给 `resource_refs=[]` 补入最近图片。
+`task_shape` 描述本轮是否需要多个独立执行，而非资源数量：`single` 是一次 dispatch 可返回一个可合并结果，多图问答、比较、OCR 和汇总仍为 `single`；`multi` 表示多个独立执行。所有图片类 `multi` 都进入二级图片规划，父路由必须是无执行合同、无执行授权的 planning envelope，只有 `image_plan.v1` 子路由可独立 dispatch；非图片或跨 API 的 `multi` 由执行门禁阻止发送并要求拆分。评估器直接把原始模型六字段作为独立语义证据，检查 operation、relation、goal mode、task shape、`goal` 原子事实及资源角色/顺序，再通过生产 `route-service` 重建绑定，校验 `task_continuity.v1` 的 transition/render 结果、批量 `image_task_lineage.v1`、澄清、父规划门禁和最终 `dispatch_contract.v1`。模型路径的本地编译器不得凭相似度或最近资源替错误语义兜底，也不得给 `resource_refs=[]` 补入最近图片。运行时只允许处理能够由请求与应用状态唯一证明的强事实（例如未交付图片追问、明确沿用参考图、未发布候选键和 amend 重复 base），且必须有独立回归；评估器仍对原始模型六字段单独评分。
 
-默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation/goal mode 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域。每个连续性故障都必须有独立回归：完整重做 `replace`、局部修订 `amend`、刷新恢复、显式损坏状态拒绝、图片类 multi 父路由无 dispatch、批量 child 独立 lineage。不得通过修改评估器、后置归一化或 legacy 文本回退掩盖失败。
+默认质量门槛为平均得分 100、合法合同率 100%，且所有 safety-critical 用例必须完美通过。请求级 schema 门禁还必须覆盖动态候选 enum、空候选零引用、确定性 relation/goal mode 域和 current-input goal authority，并同时验证近邻反例仍保留完整模型选择域。每个连续性故障都必须有独立回归：完整重做 `replace`、局部修订 `amend`、刷新恢复、显式损坏状态拒绝、图片类 multi 父路由无 dispatch、批量 child 独立 lineage。不得通过放宽语义目标、跳过原始模型评分或 legacy 文本回退掩盖失败；评估器对明确否定/撤销旧约束的 amendment 应按语义而非简单子串判定。
 
 报告逐条保留 fixture 输入、脱敏后的模型输出、编译结果、最终执行计划、payload 边界审计、评测依据、失败原因和原始输出 SHA-256；不会保留 API Key、Authorization、Base64、Data URL 或完整二进制。真实凭据不得写入命令历史、fixture、报告或仓库。默认输出目录属于生成报告，不应提交。
 

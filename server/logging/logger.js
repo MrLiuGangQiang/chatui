@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -91,46 +91,206 @@ function resolveFilePath(relativePath, root = process.cwd()) {
   return resolved;
 }
 
-function createFileWriter(filePath, { maxBytes = 20 * 1024 * 1024, rotations = 3, enabled = true } = {}) {
+function createFileWriter(filePath, {
+  maxBytes = 20 * 1024 * 1024,
+  rotations = 3,
+  enabled = true,
+  maxQueue = positiveInteger(process.env.CHATUI_LOG_QUEUE_MAX, 2048),
+  maxQueueBytes = positiveInteger(process.env.CHATUI_LOG_QUEUE_MAX_BYTES, 8 * 1024 * 1024),
+  batchItems = positiveInteger(process.env.CHATUI_LOG_BATCH_MAX_ITEMS, 64),
+  batchBytes = positiveInteger(process.env.CHATUI_LOG_BATCH_MAX_BYTES, 256 * 1024),
+  onError = null,
+  onDrop = null,
+} = {}) {
   const resolvedFile = path.resolve(filePath);
+  const queue = [];
+  const waiters = [];
+  const boundedMaxBytes = Math.max(1, Number(maxBytes) || 1);
+  const boundedRotations = Math.max(0, Number(rotations) || 0);
+  const boundedMaxQueue = Math.max(1, Number(maxQueue) || 1);
+  const boundedMaxQueueBytes = Math.max(1, Number(maxQueueBytes) || 1);
+  const boundedBatchItems = Math.max(1, Number(batchItems) || 1);
+  const boundedBatchBytes = Math.max(1, Number(batchBytes) || 1);
+  let queuedBytes = 0;
+  let currentBytes = 0;
+  let initialized = false;
+  let initializePromise = null;
+  let draining = false;
+  let scheduled = false;
+  let accepting = !!enabled;
+  let dropped = 0;
+  let failed = 0;
+  let lastError = null;
 
-  function rotate(incomingBytes) {
-    let currentBytes;
-    try { currentBytes = fs.statSync(resolvedFile).size; }
-    catch (error) { if (error?.code !== 'ENOENT') throw error; currentBytes = 0; }
-    if (currentBytes + incomingBytes <= maxBytes) return;
-    if (rotations === 0) {
-      fs.writeFileSync(resolvedFile, '', 'utf8');
+  function stats() {
+    return Object.freeze({
+      pending: queue.length,
+      queued_bytes: queuedBytes,
+      dropped,
+      failed,
+      current_bytes: currentBytes,
+      last_error: lastError ? String(lastError.message || lastError) : '',
+    });
+  }
+
+  function notifyWaiters() {
+    if (draining || scheduled || queue.length) return;
+    const result = stats();
+    while (waiters.length) waiters.shift()(result);
+  }
+
+  function reportError(error, phase, count = 1) {
+    lastError = error;
+    failed += Math.max(1, Number(count) || 1);
+    try { onError?.(error, { phase, filePath: resolvedFile }); } catch {}
+  }
+
+  function reportDrop(entry) {
+    dropped += 1;
+    try { onDrop?.({ filePath: resolvedFile, bytes: Number(entry?.bytes) || 0, dropped }); } catch {}
+  }
+
+  async function ensureInitialized() {
+    if (initialized) return;
+    if (!initializePromise) {
+      initializePromise = (async () => {
+        await fs.promises.mkdir(path.dirname(resolvedFile), { recursive: true });
+        try {
+          currentBytes = Number((await fs.promises.stat(resolvedFile)).size) || 0;
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+          currentBytes = 0;
+        }
+        initialized = true;
+      })().catch(error => {
+        initializePromise = null;
+        throw error;
+      });
+    }
+    await initializePromise;
+  }
+
+  async function rotateIfNeeded(incomingBytes) {
+    if (currentBytes + incomingBytes <= boundedMaxBytes) return;
+    if (boundedRotations === 0) {
+      await fs.promises.writeFile(resolvedFile, '', 'utf8');
+      currentBytes = 0;
       return;
     }
-    for (let index = rotations; index >= 1; index -= 1) {
+    for (let index = boundedRotations; index >= 1; index -= 1) {
       const source = index === 1 ? resolvedFile : `${resolvedFile}.${index - 1}`;
       const target = `${resolvedFile}.${index}`;
-      if (!fs.existsSync(source)) continue;
-      if (index === rotations && fs.existsSync(target)) fs.rmSync(target, { force: true });
-      fs.renameSync(source, target);
+      await fs.promises.rm(target, { force: true });
+      try {
+        await fs.promises.rename(source, target);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+    currentBytes = 0;
+  }
+
+  function takeBatch() {
+    let bytes = 0;
+    const batch = [];
+    for (const entry of queue) {
+      if (batch.length >= boundedBatchItems) break;
+      const exceedsBatch = batch.length > 0 && bytes + entry.bytes > boundedBatchBytes;
+      const exceedsFile = batch.length > 0 && currentBytes + bytes + entry.bytes > boundedMaxBytes;
+      if (exceedsBatch || exceedsFile) break;
+      batch.push(entry);
+      bytes += entry.bytes;
+      if (entry.bytes > boundedMaxBytes) break;
+    }
+    if (!batch.length) {
+      batch.push(queue[0]);
+      bytes = queue[0].bytes;
+    }
+    queue.splice(0, batch.length);
+    queuedBytes = Math.max(0, queuedBytes - bytes);
+    return { batch, bytes };
+  }
+
+  function scheduleDrain() {
+    if (!enabled || scheduled || draining || !queue.length) return;
+    scheduled = true;
+    setImmediate(() => {
+      scheduled = false;
+      void drain();
+    });
+  }
+
+  async function drain() {
+    if (!enabled || draining) return;
+    draining = true;
+    try {
+      try {
+        await ensureInitialized();
+      } catch (error) {
+        const droppedEntries = queue.splice(0, queue.length);
+        queuedBytes = 0;
+        for (const entry of droppedEntries) reportDrop(entry);
+        reportError(error, 'initialize', droppedEntries.length || 1);
+        return;
+      }
+      while (queue.length) {
+        const { batch, bytes } = takeBatch();
+        try {
+          await rotateIfNeeded(bytes);
+          await fs.promises.appendFile(resolvedFile, batch.map(entry => entry.line).join(''), 'utf8');
+          currentBytes += bytes;
+        } catch (error) {
+          reportError(error, 'append', batch.length);
+        }
+      }
+    } finally {
+      draining = false;
+      notifyWaiters();
+      if (queue.length) scheduleDrain();
     }
   }
 
   function writeLine(json) {
-    if (!enabled) return false;
+    if (!enabled || !accepting) return false;
+    let line;
     try {
-      const dir = path.dirname(resolvedFile);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const line = `${JSON.stringify(json)}\n`;
-      rotate(Buffer.byteLength(line, 'utf8'));
-      fs.appendFileSync(resolvedFile, line, 'utf8');
-      return true;
-    } catch {
+      line = `${JSON.stringify(json)}\n`;
+    } catch (error) {
+      lastError = error;
+      failed += 1;
       return false;
     }
+    const bytes = Buffer.byteLength(line, 'utf8');
+    if (queue.length >= boundedMaxQueue || queuedBytes + bytes > boundedMaxQueueBytes) {
+      reportDrop({ bytes });
+      return false;
+    }
+    queue.push({ line, bytes });
+    queuedBytes += bytes;
+    scheduleDrain();
+    return true;
   }
 
-  return { writeLine, filePath: resolvedFile, enabled };
-}
+  function flush() {
+    if (!enabled || (!queue.length && !draining && !scheduled)) return Promise.resolve(stats());
+    scheduleDrain();
+    return new Promise(resolve => waiters.push(resolve));
+  }
 
-// ---------------------------------------------------------------------------
-// Trace context (for call-chain correlation)
+  async function close() {
+    accepting = false;
+    return flush();
+  }
+
+  return {
+    writeLine,
+    flush,
+    close,
+    stats,
+    filePath: resolvedFile,
+    enabled: !!enabled,
+  };
+}
 // ---------------------------------------------------------------------------
 
 function createTraceContext(parentSpan = null) {

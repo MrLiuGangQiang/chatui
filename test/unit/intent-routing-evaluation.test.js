@@ -184,8 +184,30 @@ function testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText() 
     '入口保持无遮挡；旧方案采用L形交通走廊。',
     { intentOnly: true },
   ), false, 'raw amend goal must not duplicate the previous base');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    amendmentExpectation,
+    '取消旧方案中的L形交通走廊；入口保持无遮挡。',
+    { intentOnly: true },
+  ), true, 'an explicit negation of a previous constraint is a valid amendment delta');
+  assert.strictEqual(evaluation.goalMatchesExpectation({
+    concepts: [['入口']],
+    forbidden: ['C++'],
+  }, '取消C++要求；入口保持无遮挡。'), true,
+  'negated forbidden concepts containing regex metacharacters must be evaluated literally');
 
   const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+  const multiEditFour = caseById(suite, 'multi-edit-four-history-images');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    multiEditFour.expected.goal,
+    '分别改成卡通风格，保留各自主体和构图。',
+  ), true, 'per-image wording can carry the multi-target cardinality semantically');
+
+  const shortContinuation = caseById(suite, 'short-continuation-inherits-analysis-dimension');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    shortContinuation.expected.goal,
+    '识别第5张产品图的颜色',
+  ), true, 'Arabic and Chinese ordinal forms must be treated as semantically equivalent');
+
   const targetOnlyEdit = caseById(suite, 'explicit-second-current-image-edit');
   assert.strictEqual(evaluation.goalMatchesExpectation(
     targetOnlyEdit.expected.goal,
@@ -206,6 +228,10 @@ function testIntentRoutingEvaluationChecksGoalConceptsAndForbiddenControlText() 
     attachmentOnlyFile.expected.goal,
     '概述该文件的内容。',
   ), true, 'the attachment-only default goal must accept the prompt-defined 概述 wording');
+  assert.strictEqual(evaluation.goalMatchesExpectation(
+    attachmentOnlyFile.expected.goal,
+    '处理并回答所附文件中的内容',
+  ), true, 'common file-QA wording must not be rejected as a lexical false negative');
 
 
   const multiRoleReference = caseById(suite, 'content-and-style-references-keep-separate-roles');

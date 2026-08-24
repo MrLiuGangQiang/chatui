@@ -291,8 +291,13 @@ function summarizeUpstreamRequest(url, { method, body, job } = {}) {
   };
 }
 
-function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs }) {
+function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs, signal: parentSignal = null }) {
   const controller = new AbortController();
+  const abortFromParent = () => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
   if (job) job.controller = controller;
   const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
   const request = summarizeUpstreamRequest(url, { method, body, job });
@@ -301,7 +306,11 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
       safeLog('[upstream-request] failed', { ...request, ...readUpstreamErrorDetails(err) }, { always: true });
       throw err;
     });
-  return { response, controller, timer };
+  const cleanup = () => {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener?.('abort', abortFromParent);
+  };
+  return { response, controller, timer, cleanup };
 }
 
 function safeParseJson(text) {

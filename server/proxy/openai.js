@@ -16,6 +16,7 @@ const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = req
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const { JOB_ID_CONFLICT_MESSAGE, assertRequestPrincipal, bindJobOwner, jobOwnedBy } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('../jobs/http-contract');
+const { jobCancellationSignal, jobCanRun, preserveJobCancellation } = require('../jobs/cancellation');
 
 function hasExecutionProtocolFields(body = {}) {
   return Object.prototype.hasOwnProperty.call(body, 'requestPurpose')
@@ -186,6 +187,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       },
       body: method === 'GET' ? undefined : upstreamBody,
       upstreamTimeoutMs,
+      ...(proxyChatJob ? { job: proxyChatJob, signal: jobCancellationSignal(proxyChatJob) } : {}),
     });
     upstreamTimer = timer;
     const upstream = await upstreamResponse;
@@ -225,6 +227,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       res.on('close', () => { clientOpen = false; controller.abort(); });
       const decoder = new StringDecoder('utf8');
       for await (const chunk of upstream.body) {
+        if (chatJob && !jobCanRun(chatJob)) return;
         const buf = Buffer.from(chunk);
         const text = decoder.write(buf);
         if (chatJob) updateChatJobFromStreamChunk(chatJob, text);
@@ -249,8 +252,9 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
           try { res.write(tail); } catch { clientOpen = false; }
         }
       }
-      if (chatJob) {
+      if (chatJob && jobCanRun(chatJob)) {
         chatJob.status = 'done';
+        chatJob.error = '';
         chatJob.updatedAt = Date.now();
         delete chatJob.buffer;
         notifyJob(chatJob);
@@ -295,8 +299,10 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const message = aborted ? '上游请求超时' : `连接上游接口失败：${err.message || String(err)}`;
     requestTrace?.fail?.(traceSpan, { status: upstreamStatus, error: err, contentType: traceContentType });
     if (proxyChatJob) {
-      proxyChatJob.status = 'error';
-      proxyChatJob.error = message;
+      if (!preserveJobCancellation(proxyChatJob) && proxyChatJob.status === 'running') {
+        proxyChatJob.status = 'error';
+        proxyChatJob.error = message;
+      }
       proxyChatJob.updatedAt = Date.now();
       notifyJob(proxyChatJob);
     }

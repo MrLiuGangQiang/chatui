@@ -124,6 +124,11 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const routeIntentIndex = paths.indexOf('/shared/route-intent.js');
   const resourceIdentityIndex = paths.indexOf('/client/core/resource-identity.js');
   const routeCandidatesIndex = paths.indexOf('/client/services/route-candidates.js');
+  const routeMemoryRetrievalIndex = paths.indexOf('/client/services/route-memory-retrieval.js');
+  const routePromptsIndex = paths.indexOf('/client/services/route-prompts.js');
+  const routeSemanticNormalizerIndex = paths.indexOf('/client/services/route-semantic-normalizer.js');
+  const routeResourceBindingIndex = paths.indexOf('/client/services/route-resource-binding.js');
+  const routeImagePlanCompilerIndex = paths.indexOf('/client/services/route-image-plan-compiler.js');
   const sessionRecoveryIndex = paths.indexOf('/client/services/session-snapshot-recovery.js');
   const sessionDisplayIndex = paths.indexOf('/client/app/session-display.js');
   const submitPolicyIndex = paths.indexOf('/client/app/submit-workflow-policy.js');
@@ -156,6 +161,12 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   assert.ok(routeIntentIndex < routeServiceIndex, 'the route-intent protocol must load before route service composition');
   assert.ok(resourceIdentityIndex >= 0 && resourceIdentityIndex < routeServiceIndex, 'resource identity must load before route service composition');
   assert.ok(routeCandidatesIndex >= 0 && routeCandidatesIndex < routeServiceIndex, 'route candidates must load before route service composition');
+  assert.ok(routeMemoryRetrievalIndex >= 0 && routeMemoryRetrievalIndex < routeServiceIndex, 'route memory retrieval must load before route service composition');
+  assert.ok(routePromptsIndex >= 0 && routePromptsIndex < routeServiceIndex, 'route prompts must load before route service composition');
+  assert.ok(routeSemanticNormalizerIndex >= 0 && routeSemanticNormalizerIndex < routeServiceIndex, 'route semantic normalizer must load before route service composition');
+  assert.ok(routeResourceBindingIndex >= 0 && routeResourceBindingIndex < routeServiceIndex, 'route resource binding must load before route service composition');
+  assert.ok(routeImagePlanCompilerIndex >= 0 && routeResourceBindingIndex < routeImagePlanCompilerIndex && routeImagePlanCompilerIndex < routeServiceIndex,
+    'route image-plan compiler must load after resource binding and before route service composition');
   assert.ok(sessionRecoveryIndex >= 0 && sessionRecoveryIndex < sessionDisplayIndex, 'session snapshot recovery must load before session display composition');
   assert.ok(submitPolicyIndex >= 0 && submitPolicyIndex < submitWorkflowIndex, 'submit policy must load before submit workflow composition');
   assert.ok(executionStatusIndex >= 0 && executionStatusIndex < formattingIndex, 'execution status policy must load before pending status formatting');

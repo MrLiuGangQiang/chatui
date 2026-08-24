@@ -56,7 +56,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 以下模块是跨工作流复用的浏览器侧稳定原语。它们应保持输入/输出明确、可在 Node 测试中独立加载，并通过兼容注册表提供给浏览器工作流：
 
-- `shared/route-intent.js`：作为实时模型边界协议 `route_intent.v3` 的严格 schema 与校验事实来源；`operation` 包含普通聊天、`web_search`、文件/多模态问答和图片操作；模型输出固定为 `operation`、`relation`、`goal`、`goal_mode`、`resource_refs`、`task_shape` 六个字段，协议版本由 schema 名称承载。`relation`、`goal_mode` 与资源引用是三个正交维度：`relation` 按本轮主要言语行为区分对既有内容/结果/共同要求的 follow-up 与沿用共同要求追加执行/结果的 continuation；`goal_mode=replace|amend` 描述图片文字任务状态演进，`resource_refs` 描述本轮实际使用的资源。资源使用或排除约束本身不改变 `relation`，批量形态本身也不决定 `relation`。实时解析器不接受缺少任一字段的结果；历史 v2/v1 数据只能经过显式 adapter 迁移，不能由实时解析器补默认值。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份。默认 schema 是不可变协议模板；每次请求再基于同一请求实际发布的候选目录和可审计应用状态实例化约束：`candidate_key` 只能从本轮候选 enum 中选择，空目录令 `resource_refs.maxItems=0`，没有可用前序任务状态时 `goal_mode` 只能为 `replace`。发送 Responses 严格结构化输出前，`client/services/chat-service.js` 会复制并剥离部分供应商不支持的字符串/数组词法与容量关键字；本地校验和资源编译仍完整执行全部协议约束，未知或不可解析资源一律不得授权 dispatch。应用状态已经能确定的字段域在请求前收窄，不在模型返回后改写；
+- `shared/route-intent.js`：作为实时模型边界协议 `route_intent.v3` 的严格 schema 与校验事实来源；`operation` 包含普通聊天、`web_search`、文件/多模态问答和图片操作；模型输出固定为 `operation`、`relation`、`goal`、`goal_mode`、`resource_refs`、`task_shape` 六个字段，协议版本由 schema 名称承载。`relation`、`goal_mode` 与资源引用是三个正交维度：`relation` 按本轮主要言语行为区分对既有内容/结果/共同要求的 follow-up 与沿用共同要求追加执行/结果的 continuation；`goal_mode=replace|amend` 描述图片文字任务状态演进，`resource_refs` 描述本轮实际使用的资源。资源使用或排除约束本身不改变 `relation`，批量形态本身也不决定 `relation`。实时解析器不接受缺少任一字段的结果；历史 v2/v1 数据只能经过显式 adapter 迁移，不能由实时解析器补默认值。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键，该协议不包含 API、最终执行参数、上下文策略、幂等键或规范资源身份。默认 schema 是不可变协议模板；每次请求再基于同一请求实际发布的候选目录和可审计应用状态实例化约束：`candidate_key` 只能从本轮候选 enum 中选择，空目录令 `resource_refs.maxItems=0`，没有可用前序任务状态时 `goal_mode` 只能为 `replace`。发送 Responses 严格结构化输出前，`client/services/chat-service.js` 会复制并剥离部分供应商不支持的字符串/数组词法与容量关键字；本地校验和资源编译仍完整执行全部协议约束，未知或不可解析资源一律不得授权 dispatch。应用状态已经能确定的字段域优先在请求前收窄。对于未交付图片追问、明确沿用参考图、模型编造未发布候选键、`amend` 重复前序 base 等可由当前输入与应用状态唯一证明的强事实，运行时可以执行有专门回归测试的确定性归一化；真实评估器仍必须独立评分原始模型六字段，不能用归一化掩盖模型失败；
 - `shared/responses-output.js`：作为非流式 Responses / Chat Completions 最终文本提取的唯一事实来源。它只解释 `output_text`、`output[].content[]` 与 `choices[0]` 等响应输出位置，跳过 reasoning/analysis；Responses 顶层 `text` 是结构化输出配置而不是模型正文。服务端意图代理、浏览器路由解析与真实意图评估器必须复用该模块，禁止各自递归猜测供应商 envelope；
 - `client/services/request-compatibility.js`：作为非流式路由、图片指令物化和多图规划的 OpenAI 兼容能力协商层。`reasoning`、`tool_choice`、JSON Schema / JSON Object / 纯 JSON 及 Responses→Chat Completions 的兼容降级都必须在此处执行；同一 workflow 对同一 `baseUrl + model` 缓存已协商的能力组合，已被网关拒绝的参数不得在后续输出格式降级或规划阶段重新加入请求，禁止对每个逻辑阶段重复遍历兼容重试矩阵；
 - `shared/task-continuity.js`：作为图片文字任务连续性的协议事实来源。`task_continuity.v1` 由一个 `base` 和按时间顺序排列的 `amendment` 组成；`replace` 建立新基础任务，`amend` 必须存在并验证前序状态，再追加本轮修订，稳定渲染时明确“后者优先”。只有缺少结构化状态的历史记录可通过显式 legacy adapter 从 `resolved_goal/input` 迁移；一旦记录声明了结构化状态，损坏、额外字段或版本不符都必须失败，不能静默回退旧文本。`image_task_lineage.v1` 为批量结果中的每个 `reference_id` 与图片 ID 保存独立 `task_state`，同一引用的冲突状态直接拒绝；异构批次没有隐式的单一前序任务；
@@ -90,7 +90,13 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 `client/services/route-service.js` 保留路由服务的公共兼容 API，但内部职责已经按以下边界拆分：
 
-- `route-service.js`：从当前附件和有界上下文建立有序候选资源目录，构造路由请求，解析模型返回的 `route_intent.v3`，并把模型选择的短候选键映射回规范资源；历史图片可按生成轮次、倒序轮次、全局图片序号、最早切片或语义检索从本地 memory cards 发布，截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，无前序任务状态时可固定 `goal_mode=replace`，当前输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、goal mode、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性、任务状态与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、goal mode、resource refs 或 task shape，也不得根据会话焦点、最近图片或 legacy invariant 增加资源；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细；
+- `route-prompts.js`：唯一维护意图路由、图片规划和图片指令物化的系统提示词；通过参数化工厂注入 image-plan 任务上限，浏览器入口必须在 route-service.js 之前加载；
+- `route-candidates.js`：统一提供候选标签/消息正文、canonical resource ID、identity/alias 去重、availability、candidate key 分配和 catalog metadata 组装；memory-card 选择结果由 retrieval 模块注入；
+- `route-semantic-normalizer.js`：只处理能够由当前输入、交付证据、候选目录和结构化前序任务唯一证明的强事实，包括未交付图片追问、短视觉约束 relation、明确参考图复用、无效被动候选键和 amend 重复 base；依赖通过工厂注入，不拥有候选检索或 dispatch 编译；
+- `route-memory-retrieval.js`：负责中文/数字 ordinal 解析、生成轮次/倒序/早期历史定位、语义候选预算、clarification 保护卡片和 `resource_catalog.v1` 检索 metadata；token 匹配函数通过工厂注入；
+- `route-resource-binding.js`：负责 binding role canonicalization、candidate choice、clarification slot key/choice 分配、plan binding 到 canonical resource 投影，以及 missing/ambiguous/unavailable 基础问题；
+- `route-image-plan-compiler.js`：负责 `image_plan.v1` 子任务到单图 route 的第二阶段编译，包括 generate/edit operation 映射、`iN`/`fN` typed ordinal 绑定恢复、结构化图片参数覆盖、单任务折叠、批量结果组装、产品任务上限与未解析子提示词 fail-closed；最终 dispatch 编译器通过工厂注入，本模块不拥有候选目录、会话状态或 provider 调用；
+- `route-service.js`：组合 candidate/retrieval/normalizer/resource-binding/image-plan-compiler 模块，从当前附件和有界上下文构造路由请求，解析模型返回的 `route_intent.v3`，并把模型选择的短候选键映射回规范资源；历史图片通过 `route-memory-retrieval.js` 按生成轮次、倒序轮次、全局图片序号、最早切片或语义匹配选择，再由主服务编入 canonical catalog；截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，无前序任务状态时可固定 `goal_mode=replace`，当前输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、goal mode、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性、任务状态与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、goal mode、resource refs 或 task shape，也不得根据会话焦点、最近图片或 legacy invariant 增加资源；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细；
 - `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除结构化格式字段的顺序做协议能力降级；Responses 请求操作 `text.format`，保留的历史 Chat Completions 兼容请求操作 `response_format`。普通网络错误不得触发重复请求，原始 payload 不得被修改；
 - `server/validators/dispatch-contract.validator.js`：在服务端最终执行边界再次校验计划、资源证据、参数和上下文策略。
 
@@ -164,7 +170,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.1 `server/api/`
 
-`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。路由器必须在一个统一的 `try/finally` access-log 边界中覆盖 core、OPTIONS、Job、proxy、static、400/405 与异常路径；每个请求恰好记录一次，并同时捕获显式 `writeHead` 与隐式 `res.statusCode`。具体 route 模块拥有其 canonical access-log 分类，router 不得把已匹配的 core endpoint 重新误标为通用 proxy。access log 写入失败必须转交 error log，不能改变原请求结果。
+`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。路由器必须在一个统一的 `try/finally` access-log 边界中覆盖 core、OPTIONS、Job、proxy、static、400/405 与异常路径；每个请求恰好记录一次，并同时捕获显式 `writeHead` 与隐式 `res.statusCode`。具体 route 模块拥有其 canonical access-log 分类，router 不得把已匹配的 core endpoint 重新误标为通用 proxy。access log 的热路径只能执行脱敏、序列化和有界入队，不得直接调用同步文件系统；入队失败或后台写入失败必须转交 error log，不能改变原请求结果。
 
 ### 4.2 `server/services/`
 
@@ -172,7 +178,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.3 `server/jobs/`
 
-聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。Responses 搜索流由 Job parser 收集 URL citation / sources，在完成事件后统一去重并追加来源 Markdown；Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
+聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。`server/jobs/cancellation.js` 是排队取消、运行中取消和终态保护的唯一事实源：Job 在 `ConcurrencyLimiter` 队列中被停止时必须立即移除 waiter，进入上游前必须再次检查可运行状态，用户停止后的迟到成功或 AbortError 不得把终态改回完成或超时。失败/停止的执行必须释放对应幂等占位；幂等索引按 principal 与 submission/job scope 隔离，并使用完整内容 fingerprint 区分短 key 碰撞。Responses 搜索流由 Job parser 收集 URL citation / sources，在完成事件后统一去重并追加来源 Markdown；Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
 
 ### 4.4 `server/http/`
 
@@ -183,7 +189,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 `server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化；`responses-stream.js` 是直接 Responses 流的 compact delta、reasoning 与搜索来源归一化边界。意图识别始终是显式禁用工具、保留正常模型 reasoning 的一次性非流式 JSON Responses 分类请求；其浏览器响应只保留 `output_text`，不得透传上游 ID、usage、工具元数据或 encrypted reasoning。图片任务规划同样始终先使用一次性非流式 JSON Responses 请求：proxy 不得把这类请求升级为 SSE、缓存 SSE 能力，或在上游错误后以 SSE 重试；若上游错误地返回 event stream，proxy 必须返回明确的非流式协议错误。客户端仅可在上游精确返回 HTTP 500 `empty stream chunks` 时发起第二个、仍为 `stream: false` 的 `/chat/completions` 请求；这不是 SSE 重试，其余错误仍按普通错误处理并选择模型 fallback。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
 
 只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
-本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。业务模块不得自行绕过该追踪器写入原始上游 payload。
+本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。access/error/server/request-trace 共用 `server/logging/logger.js` 的有界异步 writer 原语，但每类日志拥有独立队列；目录创建、文件 stat、轮转和 append 在单 writer 内串行，批量写入保持事件顺序，队列满时显式 drop 而非阻塞请求或无限占用内存。业务模块不得自行绕过该追踪器写入原始上游 payload。
 
 ### 4.6 `server/usage/`、`server/db/` 与相关层
 
@@ -203,7 +209,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 - `server/logging/`：安全日志；
 - `server/validators/`：请求校验。
 
-`server/app.js` 是服务端 composition root：创建数据库连接、JobStore、代理、路由和 HTTP server，并在 server 关闭时释放 sweeper 和数据库池。
+`server/app.js` 是服务端 composition root：创建数据库连接、JobStore、代理、路由和 HTTP server，并在 server 关闭时先结束 SSE、写入停止事件、等待所有日志队列 flush/close，再回调关闭完成；同时释放 sweeper 和数据库池。
 
 ### 4.8 生产依赖与浏览器 vendor 边界
 
@@ -280,7 +286,7 @@ GET /
 
 图片结果落库前，`client/app/image-result-workflow.js` 会在持久化返回图片时直接采用 `image_plan.v1` 任务自带的 `label`（见 3.4.1 的 `image-caption-workflow.js`），不单独调用模型；标签写入图片记录供路由使用，不渲染到界面，也不阻塞展示。单图结果同时持久化 `task_continuity.v1` 与对应的单条 `image_task_lineage.v1`。批量聚合只合并各 child 的 lineage；当且仅当聚合后仍只有一个独立任务时才暴露单一 `taskState`，存在多个独立任务时删除聚合级 `taskState/resolvedGoal`，避免最后完成的 child 覆盖其他任务。刷新后，单一任务可恢复为 `previous_execution.task_state`；异构批次只保留可明确定位的图片资源与逐项 lineage，不制造虚假的单一前序任务。
 
-浏览器脚本加载顺序也是协议边界：`shared/responses-output.js` 必须在 `route-service.js` 之前注册；`shared/task-continuity.js` 必须在 `attachments.js`、`image-route-context.js` 和所有图片工作流之前注册。Node 的 `require()` 兼容路径不能作为浏览器加载正确性的证据；静态 bundle 测试必须冻结这些顺序。
+浏览器脚本加载顺序也是协议边界：`route-candidates.js`、`route-memory-retrieval.js`、`route-prompts.js`、`route-semantic-normalizer.js`、`route-resource-binding.js`、`route-image-plan-compiler.js` 必须在 `route-service.js` 之前注册，其中 image-plan compiler 必须在 resource binding 之后；`shared/responses-output.js` 也必须先注册；`shared/task-continuity.js` 必须在 `attachments.js`、`image-route-context.js` 和所有图片工作流之前注册。Node 的 `require()` 兼容路径不能作为浏览器加载正确性的证据；静态 bundle 测试必须冻结这些顺序。
 
 ### 7.4 使用统计
 

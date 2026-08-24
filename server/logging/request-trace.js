@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const crypto = require('node:crypto');
 const path = require('node:path');
@@ -611,7 +611,7 @@ function createRequestTraceLogger({
   onError = null,
 } = {}) {
   const resolvedFile = filePath ? resolveFilePath(filePath, root) : resolveTraceFile(root);
-  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled });
+  const writer = createFileWriter(resolvedFile, { maxBytes, rotations, enabled, onError: reportError });
   const textLimit = fullText ? Number.MAX_SAFE_INTEGER : DEFAULT_TEXT_LIMIT;
 
   function reportError(err) {
@@ -814,6 +814,9 @@ function createRequestTraceLogger({
     fail,
     executionAccepted,
     executionRejected,
+    flush: writer.flush,
+    close: writer.close,
+    stats: writer.stats,
   });
 }
 

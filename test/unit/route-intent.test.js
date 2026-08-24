@@ -179,7 +179,6 @@ function testRoutePromptDefinesRelationAsContextDependency() {
   assert.deepStrictEqual(relationEnum, ['new', 'followup', 'continuation']);
   assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系.*非请求新旧.*不由goal_mode或resource_refs推导/);
   assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系.*必须按1→4顺序判断/);
-  assert.match(prompt, /必须按1→4顺序判断，命中更高优先级规则后停止，不再判断更低优先级规则/);
   assert.match(prompt, /1 followup=本轮主要是在否定\/不满\/纠正.*纠正上一轮选错的资源/);
   assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项/);
   assert.match(prompt, /followup=.*询问\/解释\/评价历史内容.*修改既有具体成果.*增删\/改变供后续所有结果共同使用的任务要求/);

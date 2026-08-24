@@ -9,10 +9,23 @@ const { safeLog, redactUrl } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const { extractResponsesStreamDelta, extractResponsesSources, webSourcesMarkdown } = require('../proxy/responses-stream');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
-const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner } = require('../security/job-ownership');
+const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner, jobOwnerScope } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
-const { executionConsumedError, deriveIdempotencyKey, contentFingerprint } = require('../validators/idempotency.validator');
+const {
+  executionConsumedError,
+  executionIdempotencyConflictError,
+  executionIdempotencyScope,
+  deriveIdempotencyKey,
+  contentFingerprint,
+} = require('../validators/idempotency.validator');
 const { assertProviderCapability } = require('../validators/provider-capability.validator');
+const {
+  failJobIfRunning,
+  jobCancellationSignal,
+  jobCanRun,
+  preserveJobCancellation,
+  releaseJobIdempotency,
+} = require('./cancellation');
 
 function elapsedSince(startedAt) {
   const elapsed = performance.now() - Number(startedAt || performance.now());
@@ -110,6 +123,7 @@ function executionContractFromValidation(validation) {
 
 function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
 async function runChatJob(job) {
+if (!jobCanRun(job)) return job;
 job.serverStartAtMs = performance.now();
 const traceSpan = requestTrace?.begin?.({
   parentTraceId: job.parentTraceId || '',
@@ -126,6 +140,7 @@ const traceSpan = requestTrace?.begin?.({
   secrets: [job.apiKey],
 });
 let timer = null;
+let cleanup = null;
 let upstreamStatus = 0;
 let failure = null;
 try {
@@ -139,31 +154,40 @@ try {
     body: JSON.stringify(job.payload),
     job,
     upstreamTimeoutMs,
+    signal: jobCancellationSignal(job),
   });
   timer = upstreamRequest.timer;
+  cleanup = upstreamRequest.cleanup;
   releaseChatJobFileData(job);
   const upstream = await upstreamRequest.response;
+  if (!jobCanRun(job)) return job;
   upstreamStatus = Number(upstream.status) || 0;
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
   const text = await upstream.text();
+  if (!jobCanRun(job)) return job;
   let data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   if (job.api === 'responses') {
     const sourceMarkdown = webSourcesMarkdown(extractResponsesSources(data));
     if (sourceMarkdown) data = { ...data, output_text: `${normalizeContentText(data?.output_text || data?.output || '')}${sourceMarkdown}` };
   }
+  if (!jobCanRun(job)) return job;
   job.status = 'done';
+  job.error = '';
   job.data = data;
   job.durationMs = elapsedSince(job.serverStartAtMs);
 } catch (err) {
   failure = err;
-  const aborted = err?.name === 'AbortError';
-  errorLog?.log(err, { source: 'chat_job', traceId: traceSpan?.traceId || '' });
-  job.status = 'error';
-  job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
+  if (!preserveJobCancellation(job) && job.status === 'running') {
+    const aborted = err?.name === 'AbortError';
+    errorLog?.log(err, { source: 'chat_job', traceId: traceSpan?.traceId || '' });
+    job.status = 'error';
+    job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
+  }
 } finally {
-  if (timer) clearTimeout(timer);
+  if (cleanup) cleanup();
+  else if (timer) clearTimeout(timer);
   delete job.controller;
   job.updatedAt = Date.now();
   if (job.status === 'done') {
@@ -173,10 +197,11 @@ try {
   }
   notifyJob(job);
 }
+return job;
 }
 
 async function runChatStreamJob(job) {
-if (job.streamStarted) return;
+if (job.streamStarted || !jobCanRun(job)) return job;
 job.streamStarted = true;
 job.serverStartAt = Date.now();
 job.serverStartAtMs = performance.now();
@@ -196,6 +221,7 @@ const traceSpan = requestTrace?.begin?.({
   secrets: [job.apiKey],
 });
 let timer = null;
+let cleanup = null;
 let upstreamStatus = 0;
 let contentType = '';
 let failure = null;
@@ -211,22 +237,27 @@ try {
     body: JSON.stringify({ ...job.payload, stream: true }),
     job,
     upstreamTimeoutMs,
+    signal: jobCancellationSignal(job),
   });
   timer = upstreamRequest.timer;
+  cleanup = upstreamRequest.cleanup;
   releaseChatJobFileData(job);
   const upstream = await upstreamRequest.response;
+  if (!jobCanRun(job)) return job;
   upstreamStatus = Number(upstream.status) || 0;
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
   contentType = upstream.headers.get('content-type') || '';
   if (!upstream.ok) {
     const text = await upstream.text();
+    if (!jobCanRun(job)) return job;
     const data = safeParseJson(text);
     throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   }
   if (!upstream.body) throw new Error('上游没有返回流式响应体');
   if (!contentType.toLowerCase().includes('text/event-stream')) {
     const text = await upstream.text();
+    if (!jobCanRun(job)) return job;
     const data = safeParseJson(text);
     const baseContent = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
     const content = `${baseContent}${job.api === 'responses' ? webSourcesMarkdown(extractResponsesSources(data)) : ''}`;
@@ -237,23 +268,29 @@ try {
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
+      if (!jobCanRun(job)) return job;
       if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
     if (job.buffer) {
       if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
   }
+  if (!jobCanRun(job)) return job;
   job.status = 'done';
+  job.error = '';
   job.durationMs = elapsedSince(job.serverStartAtMs);
   delete job.buffer;
 } catch (err) {
   failure = err;
-  const aborted = err?.name === 'AbortError';
-  errorLog?.log(err, { source: 'chat_stream_job', traceId: traceSpan?.traceId || '' });
-  job.status = 'error';
-  job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
+  if (!preserveJobCancellation(job) && job.status === 'running') {
+    const aborted = err?.name === 'AbortError';
+    errorLog?.log(err, { source: 'chat_stream_job', traceId: traceSpan?.traceId || '' });
+    job.status = 'error';
+    job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
+  }
 } finally {
-  if (timer) clearTimeout(timer);
+  if (cleanup) cleanup();
+  else if (timer) clearTimeout(timer);
   delete job.controller;
   job.updatedAt = Date.now();
   if (job.status === 'done') {
@@ -263,6 +300,7 @@ try {
   }
   notifyChatStreamJob(job);
 }
+return job;
 }
 
 async function registerChatStreamJob(req, res) {
@@ -316,10 +354,12 @@ try {
     job.parentTraceId = req._traceId || '';
     job.rootTraceId = req._rootTraceId || '';
   }
-  if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(limiter, () => runChatStreamJob(job)).catch(err => {
-    job.status = 'error';
-    job.error = err.message || String(err);
-    job.updatedAt = Date.now();
+  if (body.start === true && !job.streamStarted && job.status === 'running') withLimiter(
+    limiter,
+    () => runChatStreamJob(job),
+    { signal: jobCancellationSignal(job) },
+  ).catch(err => {
+    if (failJobIfRunning(job, err)) notifyJob(job);
   });
   sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
 } catch (err) {
@@ -377,11 +417,11 @@ try {
     const plan = executionContract.dispatchContract;
     const key = deriveIdempotencyKey(plan);
     const fingerprint = contentFingerprint(plan);
-    const idem = idempotencyTable.check({ key, fingerprint });
-    if (idem.status === 'consumed') {
-      throw executionConsumedError(idem.result);
-    }
-    idempotencyEntry = { key, fingerprint };
+    const scope = executionIdempotencyScope(jobOwnerScope(principal), body.submissionId, jobId);
+    const idem = idempotencyTable.check({ key, fingerprint, scope });
+    if (idem.status === 'conflict') throw executionIdempotencyConflictError(idem.result);
+    if (idem.status === 'consumed') throw executionConsumedError(idem.result);
+    idempotencyEntry = { key, fingerprint, scope };
   }
   // Design doc v2.7 7.1: provider capability gate before Job creation.
   // Unconfigured provider (null) keeps baseline behavior (allow).
@@ -414,6 +454,11 @@ try {
     payload: { ...payload, stream: false },
     data: null,
     error: '',
+    ...(idempotencyEntry ? {
+      idempotencyKey: idempotencyEntry.key,
+      idempotencyFingerprint: idempotencyEntry.fingerprint,
+      idempotencyScope: idempotencyEntry.scope,
+    } : {}),
   };
   bindJobOwner(job, principal);
   chatJobs.set(job.id, job);
@@ -422,10 +467,14 @@ try {
   }
   job.parentTraceId = req._traceId || '';
   job.rootTraceId = req._rootTraceId || '';
-  withLimiter(limiter, () => runChatJob(job)).catch(err => {
-    job.status = 'error';
-    job.error = err.message || String(err);
-    job.updatedAt = Date.now();
+  withLimiter(
+    limiter,
+    () => runChatJob(job),
+    { signal: jobCancellationSignal(job) },
+  ).catch(err => {
+    if (failJobIfRunning(job, err)) notifyJob(job);
+  }).finally(() => {
+    if (job.status === 'error') releaseJobIdempotency(job, idempotencyTable);
   });
   sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
 } catch (err) {

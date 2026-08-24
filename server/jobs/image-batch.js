@@ -10,8 +10,10 @@ const {
 const { limiter, withLimiter } = require('../concurrency');
 const {
   executionConsumedError,
+  executionIdempotencyConflictError,
   deriveIdempotencyKey,
   contentFingerprint,
+  executionIdempotencyScope,
 } = require('../validators/idempotency.validator');
 const { assertProviderCapability } = require('../validators/provider-capability.validator');
 const {
@@ -20,6 +22,7 @@ const {
   bindJobOwner,
   findOwnedJob,
   jobOwnedBy,
+  jobOwnerScope,
 } = require('../security/job-ownership');
 const {
   JOB_NOT_FOUND_MESSAGE,
@@ -33,6 +36,12 @@ const {
 } = require('./image');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
 const imageBatchExecution = require('../../shared/image-batch-execution');
+const {
+  failJobIfRunning,
+  jobCancellationSignal,
+  releaseJobIdempotency,
+  requestJobCancellation,
+} = require('./cancellation');
 
 function makeBatchJobId(value = '') {
   const supplied = String(value || '').trim();
@@ -98,6 +107,7 @@ function createImageBatchJobHandlers({
         ? '多图任务全部失败'
         : `多图任务完成，但 ${failed.length}/${tasks.length} 个子任务失败`;
       if (firstError) parent.error += `：${firstError}`;
+      releaseJobIdempotency(parent, idempotencyTable);
     } else {
       parent.status = 'done';
       parent.error = '';
@@ -135,6 +145,7 @@ function createImageBatchJobHandlers({
 
   function expireImageBatchJob(parent) {
     if (!parent || parent.status === 'done' || parent.status === 'error') return;
+    requestJobCancellation(parent, { message: '任务运行超时，已自动清理', reason: 'timeout', code: 'JOB_TIMEOUT' });
     for (const task of parent.tasks || []) {
       if (task.status === 'running') {
         task.status = 'error';
@@ -144,7 +155,7 @@ function createImageBatchJobHandlers({
     for (const childId of parent.childIds || []) {
       const child = imageJobs.get(childId);
       if (!child || child.status !== 'running') continue;
-      try { child.controller?.abort?.(); } catch {}
+      requestJobCancellation(child, { message: '任务运行超时，已自动清理', reason: 'timeout', code: 'JOB_TIMEOUT' });
       child.status = 'error';
       child.error = '任务运行超时，已自动清理';
       child.updatedAt = Date.now();
@@ -152,6 +163,7 @@ function createImageBatchJobHandlers({
     }
     parent.status = 'error';
     parent.error = '任务运行超时，已自动清理';
+    releaseJobIdempotency(parent, idempotencyTable);
     parent.updatedAt = Date.now();
     notifyImageBatchJob(parent);
   }
@@ -197,6 +209,7 @@ function createImageBatchJobHandlers({
     const parent = findOwnedJob(store, id, principal);
     if (!parent) return null;
     if (parent.status === 'done' || parent.status === 'error') return parent;
+    requestJobCancellation(parent, { message: '任务已停止', reason: 'user_stop', code: 'JOB_STOPPED' });
     parent.status = 'error';
     parent.error = '任务已停止';
     parent.updatedAt = Date.now();
@@ -209,13 +222,14 @@ function createImageBatchJobHandlers({
     for (const childId of parent.childIds || []) {
       const child = imageJobs.get(childId);
       if (!child || child.status !== 'running') continue;
-      try { child.controller?.abort?.(); } catch {}
+      requestJobCancellation(child, { message: '任务已停止', reason: 'user_stop', code: 'JOB_STOPPED' });
       child.status = 'error';
       child.error = '任务已停止';
       child.updatedAt = Date.now();
       notifyJob(child);
     }
     notifyImageBatchJob(parent);
+    releaseJobIdempotency(parent, idempotencyTable);
     return parent;
   }
 
@@ -296,11 +310,14 @@ function createImageBatchJobHandlers({
       const preparedTasks = contract.tasks.map(task => validateChildTask(task, principal, batchId));
       const plan = imageBatchExecution.imageBatchIdempotencyPlan(contract);
       const fingerprint = contentFingerprint(plan);
+      const idempotencyScope = executionIdempotencyScope(jobOwnerScope(principal), contract.submissionId, batchId);
       if (idempotencyTable) {
         const idempotency = idempotencyTable.check({
           key: deriveIdempotencyKey(plan),
           fingerprint,
+          scope: idempotencyScope,
         });
+        if (idempotency.status === 'conflict') throw executionIdempotencyConflictError(idempotency.result);
         if (idempotency.status === 'consumed') throw executionConsumedError(idempotency.result);
       }
 
@@ -317,6 +334,9 @@ function createImageBatchJobHandlers({
         updatedAt: Date.now(),
         parentTraceId: req._traceId || '',
         rootTraceId: req._rootTraceId || '',
+        idempotencyKey: deriveIdempotencyKey(plan),
+        idempotencyFingerprint: fingerprint,
+        idempotencyScope,
       };
       parent.onExpire = () => expireImageBatchJob(parent);
 
@@ -351,11 +371,13 @@ function createImageBatchJobHandlers({
         imageJobs.set(child.id, child);
       });
       if (idempotencyTable) {
-        idempotencyTable.consume({ key: deriveIdempotencyKey(plan), fingerprint, result: parent.id });
+        idempotencyTable.consume({ key: deriveIdempotencyKey(plan), fingerprint, scope: idempotencyScope, result: parent.id });
       }
 
       for (const child of children) {
+        let childReported = false;
         const childNotify = job => {
+          childReported = true;
           updateParentFromChild(parent, job);
           notifyJob(job);
         };
@@ -364,11 +386,11 @@ function createImageBatchJobHandlers({
           upstreamTimeoutMs,
           requestTrace,
           errorLog,
-        })).catch(error => {
-          child.status = 'error';
-          child.error = error.message || String(error);
-          child.updatedAt = Date.now();
-          childNotify(child);
+        }), { signal: jobCancellationSignal(child) }).catch(error => {
+          if (failJobIfRunning(child, error)) childNotify(child);
+        }).finally(() => {
+          if (!childReported && child.status === 'error') childNotify(child);
+          if (parent.status === 'error') releaseJobIdempotency(parent, idempotencyTable);
         });
       }
 

@@ -57,6 +57,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
   - `image`：文本生成图片。
   - `edit_image`：编辑一个明确目标图，可同时使用内容参考图、风格参考图和 mask。
 - 可配置独立路由模型；未配置时使用聊天模型。实时模型只输出最小、非执行性的六字段 `route_intent.v3`：`operation`、`relation`、`goal`、`goal_mode`、`resource_refs`、`task_shape`。`relation` 按本轮主要言语行为描述与前序执行的关系：询问、评价、纠正既有结果或改变后续结果共用要求属于 `followup`，沿用共同要求追加执行或结果属于 `continuation`；`goal_mode=replace|amend` 只描述图片文字任务是完整替换还是增量修订，`resource_refs` 只描述本轮实际绑定的图片、文件和消息。三者相互独立，执行请求中的资源使用/排除约束不会反推 `relation`，因此“继续讨论但完整重做且不使用旧图”可以稳定表示为 `followup + replace + []`。`goal` 只消解指代并保留用户已经提出的约束，不得增加未要求的主体、场景、风格、构图或颜色。
+- 意图/图片提示词集中在 `route-prompts.js`；强事实归一化在 `route-semantic-normalizer.js`；历史图片检索在 `route-memory-retrieval.js`；canonical 候选目录在 `route-candidates.js`；binding role、clarification slot 和 canonical resource 投影在 `route-resource-binding.js`；`route-service.js` 继续负责编排、上下文、模型解析和执行合同编译。
 - 图片文字任务以严格的 `task_continuity.v1` 持久化：`replace` 建立新的完整基础任务，`amend` 必须基于有效前序状态按顺序追加修订，后者优先；是否使用旧图只由 `resource_refs` 决定。批量结果使用 `image_task_lineage.v1` 为每个子任务分别保存 `reference_id`、图片 ID 和任务状态，不把异构批次的最后一个子任务伪装成整个批次的前序任务。显式损坏的任务状态会失败关闭，不会回退到旧文本猜测。
 - `task_shape=multi` 表示需要多个独立执行。所有图片类 `multi` 路由只生成二级 `image_plan.v1` 规划 envelope，父路由没有 `dispatch_contract` 或执行授权；只有规划后的每个子路由可获得独立执行合同。非图片或跨 API 的 `multi` 只标记需要拆分并阻止发送。旧五字段 v2 与四字段 v1 只允许通过显式历史数据适配器迁移，实时解析器不会静默补默认值。图片、文件和历史消息统一使用 `iN`、`fN`、`mN` 候选键；模型不能填写版本字段、API、最终参数、上下文策略、幂等键或规范资源 ID，应用仅校验协议与资源并生成不可变的 `dispatch_contract.v1`，它仍是唯一执行授权。
 - 路由只读取文字上下文、附件元数据和图片引用元数据，不把图片二进制、base64 或附件正文发给路由模型。
@@ -502,7 +503,8 @@ GET /models
 ### 停止输出
 
 - 输出中点击发送按钮会执行停止。
-- 停止会 abort 当前 run 关联的聊天/图片 Job。
+- 停止会 abort 当前 run 关联的聊天/图片 Job；仍在并发队列中等待的 Job 会立即退出队列，不会在稍后取得槽位后继续调用上游。
+- Job 一旦进入用户停止终态，迟到的成功响应或 AbortError 不会把它改回完成或“上游超时”。
 - 如果已有有效内容，会保留已有输出。
 - 如果只有占位内容，会显示“用户停止”。
 
@@ -927,9 +929,11 @@ GET, POST
 | `CHATUI_ACCESS_LOG` | `true` | 每个 HTTP 请求写入一条脱敏 access 记录；core、OPTIONS、Job、proxy、static 与异常路径共享同一记录边界。 |
 | `CHATUI_ACCESS_LOG_FILE` | `temp/logs/access.ndjson` | access log 路径；相对路径以仓库根目录解析。 |
 | `CHATUI_ACCESS_LOG_MAX_BYTES` / `CHATUI_ACCESS_LOG_ROTATIONS` | `20971520` / `3` | access log 单文件上限与轮转数量。 |
-| `CHATUI_ERROR_LOG` | `true` | 启用结构化错误日志；access log 写入失败会转交该日志，不改变原 HTTP 响应。 |
+| `CHATUI_LOG_QUEUE_MAX` / `CHATUI_LOG_QUEUE_MAX_BYTES` | `2048` / `8388608` | 每个文件日志 writer 的有界异步队列条目数/字节数；队列满时拒绝新记录而不是无限占用内存，各 access/error/server/trace 队列彼此隔离。 |
+| `CHATUI_LOG_BATCH_MAX_ITEMS` / `CHATUI_LOG_BATCH_MAX_BYTES` | `64` / `262144` | 单次异步 append 的最大记录数/字节数；轮转和写入都在请求热路径之外串行执行。 |
+| `CHATUI_ERROR_LOG` | `true` | 启用结构化错误日志；access log 入队失败或异步写入失败会转交该日志，不改变原 HTTP 响应。 |
 | `CHATUI_ERROR_LOG_FILE` | `temp/logs/error.ndjson` | error log 路径；禁止写入凭据或完整敏感请求内容。 |
-| `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；managed execution 会记录 `execution.accepted` / `execution.rejected`，客户端在最终请求发出前被上下文绑定校验拦截时也会写入 `source=client_pre_dispatch` 的 `execution.rejected`，同条对照 execution plan、binding evidence、缺失/可用消息资源及校验结果；默认关闭。 |
+| `CHATUI_REQUEST_TRACE` | 未设置 | 设为 `1` 后把上游请求与结果异步写入本地脱敏 NDJSON，覆盖路由、续问、聊天、Responses、生图、图片编辑和图片下载链路；managed execution 会记录 `execution.accepted` / `execution.rejected`，客户端在最终请求发出前被上下文绑定校验拦截时也会写入 `source=client_pre_dispatch` 的 `execution.rejected`，同条对照 execution plan、binding evidence、缺失/可用消息资源及校验结果；默认关闭。 |
 | `CHATUI_REQUEST_TRACE_FILE` | `temp/request-trace.ndjson` | 请求追踪文件路径；相对路径以仓库根目录解析。默认目录已被 Git 忽略。 |
 | `CHATUI_REQUEST_TRACE_MAX_BYTES` | `20971520` | 单个请求追踪文件的轮转上限，默认 20 MiB。 |
 | `CHATUI_REQUEST_TRACE_ROTATIONS` | `3` | 保留的历史轮转文件数量。 |
@@ -960,6 +964,9 @@ GET, POST
 | `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
 | `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
+| `USAGE_ACCESS_CACHE_TTL_MS` / `USAGE_ACCESS_CACHE_MAX_ENTRIES` | `300000` / `512` | 统计/反馈 API Key+模型访问校验的 TTL 与 LRU 上限；只缓存脱敏结果，不保存原始 Key。 |
+| `USAGE_ACCESS_MAX_IN_FLIGHT` / `USAGE_ACCESS_TIMEOUT_MS` | `64` / `10000` | 相同校验请求共享一个上游 `/models` 请求；全局并发上限和单次校验超时。 |
+| `MAX_USAGE_REFRESH_BUCKETS` / `USAGE_REFRESH_SWEEP_INTERVAL_MS` | `4096` / `60000` | 统计刷新 IP 限流桶的硬上限与过期 sweep 周期；超过上限淘汰最旧桶。 |
 | `USAGE_DEPARTMENT_PASSWORD` | `not set` | Password for department statistics; disabled when unset. |
 | `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | Compatible alias for the department statistics password. |
 

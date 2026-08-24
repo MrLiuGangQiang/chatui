@@ -31,7 +31,7 @@ function testProxyAccessAuditCorrelatesStructuredStagesWithoutPromptOrCredential
   assert.doesNotMatch(serialized, /中国美女|俄罗斯美女|sk-should-never-appear|secret-token/);
 }
 
-function testAccessLogWritesTheSafeProxyAuditFields() {
+async function testAccessLogWritesTheSafeProxyAuditFields() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-access-audit-'));
   try {
     const logger = createAccessLogger({ root, enabled: true, maxBytes: 1024 * 1024, rotations: 1 });
@@ -47,6 +47,7 @@ function testAccessLogWritesTheSafeProxyAuditFields() {
       },
     }, {}, { statusCode: 200, route: 'proxy', traceId: 'trace-audit-1' });
     assert.strictEqual(written, true);
+    await logger.flush();
 
     const [line] = fs.readFileSync(path.join(root, 'temp', 'logs', 'access.ndjson'), 'utf8')
       .trim().split(/\r?\n/).map(entry => JSON.parse(entry));

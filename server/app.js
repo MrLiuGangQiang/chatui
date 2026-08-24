@@ -20,7 +20,8 @@ const { createLoggers } = require('./logging');
 const { createRequestPrincipalService } = require('./security/request-principal');
 
 function createApp() {
-  const { accessLog, errorLog, serverLog, requestTrace, newTrace } = createLoggers({ root: ROOT });
+  const loggers = createLoggers({ root: ROOT });
+  const { accessLog, errorLog, serverLog, requestTrace, newTrace } = loggers;
   const requestPrincipal = createRequestPrincipalService();
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
@@ -141,9 +142,22 @@ function createApp() {
   // until the upstream job finishes. End them before delegating to Node's
   // close so local restarts and container graceful shutdown are prompt.
   const originalClose = server.close.bind(server);
+  let closeLogsPromise = null;
+  function closeLogsOnce() {
+    if (!closeLogsPromise) closeLogsPromise = Promise.resolve().then(() => loggers.close());
+    return closeLogsPromise;
+  }
   server.close = function closeServer(callback) {
     closeJobSubscribers(jobSubscribers);
-    return originalClose(callback);
+    return originalClose(error => {
+      closeLogsOnce().then(
+        () => callback?.(error),
+        loggingError => {
+          console.error('[logging] graceful close failed:', loggingError?.message || loggingError);
+          callback?.(error || loggingError);
+        },
+      );
+    });
   };
 
   serverLog.started({ host: '0.0.0.0', port: 8765 });
@@ -156,7 +170,7 @@ function createApp() {
       errorLog.log(err, { source: 'postgres' });
     });
   });
-  return { server, stores: { imageJobs, chatJobs, imageBatchJobs }, sweeper, requestTrace, accessLog, errorLog, serverLog };
+  return { server, stores: { imageJobs, chatJobs, imageBatchJobs }, sweeper, requestTrace, accessLog, errorLog, serverLog, flushLogs: loggers.flush, closeLogs: closeLogsOnce };
 }
 
 module.exports = { createApp };

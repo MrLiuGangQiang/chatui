@@ -136,8 +136,7 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
     context: baseContext,
   });
   assert.ok(result.route, result.error || result.reason);
-  assert.match(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes('简洁一点'));
+  assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
   assert.ok(result.route.dispatchContract.arguments.prompt.includes(goal));
   assert.deepStrictEqual(result.route.executionResources.messages.map(resource => resource.id), ['message-1']);
 }

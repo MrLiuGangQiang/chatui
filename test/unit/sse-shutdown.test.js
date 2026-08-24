@@ -31,6 +31,8 @@ function testServerCloseEndsSseBeforeDelegatingToNode() {
   assert.ok(app.includes('closeJobSubscribers(jobSubscribers)'), 'server.close must end active SSE subscribers first');
   assert.ok(app.includes('const originalClose = server.close.bind(server)'), 'the close override must preserve the original Node close');
   assert.ok(app.includes('server.close = function closeServer(callback)'), 'the close hook must be installed on the created server instance');
+  assert.ok(app.includes('closeLogsOnce().then('), 'server.close must wait for queued logs before invoking its callback');
+  assert.ok(app.includes('loggers.close()'), 'graceful shutdown must close the logging facade exactly once');
 }
 
 module.exports = [

@@ -1,3 +1,5 @@
+const { requestJobCancellation } = require('./cancellation');
+
 const DEFAULT_TTL_MS = Number(process.env.JOB_TTL_MS || 60 * 60 * 1000);
 const DEFAULT_RUNNING_TTL_MS = Number(process.env.RUNNING_JOB_TTL_MS || process.env.UPSTREAM_TIMEOUT_MS || 10 * 60 * 1000) + 60 * 1000;
 const DEFAULT_MAX_JOBS = Number(process.env.MAX_JOBS_PER_STORE || 200);
@@ -43,13 +45,20 @@ class JobStore {
   // running-timeout without an onExpire hook) silently abandons subscribers
   // until the client falls back to polling and rediscovers the job is gone.
   retireRunningJob(job, reason, now) {
+    const message = reason === 'max_jobs'
+      ? '任务数超出上限，已自动清理最早的任务'
+      : '任务运行超时，已自动清理';
+    requestJobCancellation(job, {
+      message,
+      reason: reason === 'max_jobs' ? 'evicted' : 'timeout',
+      code: reason === 'max_jobs' ? 'JOB_EVICTED' : 'JOB_TIMEOUT',
+    });
     if (typeof job.onExpire === 'function') {
       try { job.onExpire(job); } catch {}
     }
-    try { job.controller?.abort(); } catch {}
     if (job.status === 'running') {
       job.status = 'error';
-      job.error = job.error || (reason === 'max_jobs' ? '任务数超出上限，已自动清理最早的任务' : '任务运行超时，已自动清理');
+      job.error = job.error || message;
     }
     job.updatedAt = now;
     if (this.onEvict) {

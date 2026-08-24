@@ -51,6 +51,11 @@ function jobOwnedBy(job, principal) {
   return sameKey(job?.[JOB_OWNER_KEY], principalOwnerKey(principal));
 }
 
+function jobOwnerScope(principal) {
+  const key = principalOwnerKey(principal);
+  return key ? key.toString('base64url') : '';
+}
+
 function findOwnedJob(store, id, principal) {
   const job = store?.get?.(id);
   return jobOwnedBy(job, principal) ? job : null;
@@ -73,4 +78,5 @@ module.exports = {
   findOwnedJob,
   jobIdConflictError,
   jobOwnedBy,
+  jobOwnerScope,
 };

@@ -95,11 +95,10 @@
   align-self:flex-end!important;
 }
 .message[data-streaming="1"] .msg-actions{
-  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
 }
-.message:has(.msg-actions):not([data-streaming="1"]){
-  margin-bottom:18px!important;
-}
+
 .sent-quote-preview{
   display:grid!important;
   grid-template-columns:auto minmax(0,1fr)!important;
@@ -182,9 +181,7 @@
   .message.user.has-meta .msg-actions{
     margin-top:1px!important;
   }
-  .message:has(.msg-actions):not([data-streaming="1"]){
-    margin-bottom:18px!important;
-  }
+
 }
 
 .route-execution-preview{

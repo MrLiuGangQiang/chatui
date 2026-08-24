@@ -4038,12 +4038,12 @@ body{
 .message[data-streaming="1"]:hover .msg-actions,
 .message[data-streaming="1"]:focus-within .msg-actions,
 .message[data-streaming="1"] .msg-actions:hover{
-  display:none!important;
-  width:0!important;
-  height:0!important;
+  display:flex!important;
+  width:auto!important;
+  height:26px!important;
   min-width:0!important;
-  min-height:0!important;
-  margin:0!important;
+  min-height:26px!important;
+  margin:4px 0 0!important;
   padding:0!important;
   opacity:0!important;
   visibility:hidden!important;
@@ -4255,9 +4255,7 @@ body{
 .message[data-streaming="1"] .msg-actions,
 .message[data-streaming="1"]:hover .msg-actions,
 .message[data-streaming="1"]:focus-within .msg-actions,
-.message[data-streaming="1"] .msg-actions:hover,
-.message[data-streaming="1"] .download-answer-btn,
-.message[data-streaming="1"] [data-download-all-images]{
+.message[data-streaming="1"] .msg-actions:hover{
   display:none!important;
   width:0!important;
   height:0!important;
@@ -5288,17 +5286,20 @@ body{
   }
 }
 
-/* Streaming messages must not expose hover action controls until final layout settles. */
+/* Streaming messages must not expose hover action controls until final layout settles.
+   Keep the action row in layout: removing it during streaming and restoring it
+   on completion changes message height and makes the previous-message gap jump.
+   The hidden row keeps one vertical rhythm across all message states. */
 .message[data-streaming="1"] .msg-actions,
 .message[data-streaming="1"]:hover .msg-actions,
 .message[data-streaming="1"]:focus-within .msg-actions,
 .message[data-streaming="1"] .msg-actions:hover{
-  display:none!important;
-  width:0!important;
-  height:0!important;
+  display:flex!important;
+  width:auto!important;
+  height:26px!important;
   min-width:0!important;
-  min-height:0!important;
-  margin:0!important;
+  min-height:26px!important;
+  margin:4px 0 0!important;
   padding:0!important;
   opacity:0!important;
   visibility:hidden!important;
@@ -5917,4 +5918,19 @@ body.session-sidebar-collapsed{
     display:grid!important;
     grid-template-columns:1fr 1fr!important;
   }
+}
+
+
+/* Reserve the action-row height on the transient assistant placeholder before streaming starts. */
+.message.assistant[data-persist="0"] .msg-actions,
+.message.error[data-persist="0"] .msg-actions{
+  display:flex!important;
+  width:auto!important;
+  height:26px!important;
+  min-height:26px!important;
+  margin:4px 0 0!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  transition:none!important;
 }

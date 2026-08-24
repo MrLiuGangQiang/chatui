@@ -341,7 +341,7 @@ Job 在 limiter 队列中等待时，abort 只修改 Job 状态，没有从队�
 - limiter 队列支持 AbortSignal；
 - acquire 完成后检查 `job.status`/`cancelRequested`；
 - runner 进入上游前再次验证终态；
-- 增加排队停止回归测试���
+- 增加排队停止回归测试。
 
 ---
 

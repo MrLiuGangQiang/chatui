@@ -25,6 +25,7 @@ async function runPipeline({
   attachments = [],
   resourceRefs = [],
   taskShape = 'single',
+  routeGoal = input,
   materialization,
   imagePlan = null,
 }) {
@@ -32,6 +33,7 @@ async function runPipeline({
   globalThis.ChatUIRouteService = routeService;
   const requests = [];
   const requestPayloads = [];
+  const materializations = Array.isArray(materialization) ? [...materialization] : [materialization];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
     state: { mode: 'image', autoMode: true, sessions: [], messages: [] },
     getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'test-key', routeModel: 'route-model', chatModel: 'route-model' }),
@@ -52,9 +54,9 @@ async function runPipeline({
       requestPayloads.push({ purpose: options.requestPurpose, payload });
       const formatName = payload.text?.format?.name;
       if (formatName === 'chatui_route_intent_v3') {
-        return { output_text: JSON.stringify(routeIntent(operation, input, resourceRefs, taskShape)) };
+        return { output_text: JSON.stringify(routeIntent(operation, routeGoal, resourceRefs, taskShape)) };
       }
-      if (formatName === 'chatui_image_instruction_v1') return { output_text: JSON.stringify(materialization) };
+      if (formatName === 'chatui_image_instruction_v1') return { output_text: JSON.stringify(materializations.shift()) };
       if (formatName === 'chatui_image_plan_v1' && imagePlan) {
         return { output_text: JSON.stringify(imagePlan) };
       }
@@ -159,6 +161,31 @@ function testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRaw
   });
 }
 
+function testPipelineRepromptsTheMaterializerWhenItEchoesSourceEvidence() {
+  const rawInput = '重新生成一个这个品种的猫，不要参考这个图了';
+  const finalInstruction = '独立生成一只英国短毛猫（蓝猫），不要复用之前图片的视觉元素。';
+  return runPipeline({
+    input: rawInput,
+    routeGoal: finalInstruction,
+    materialization: [
+      readyInstruction(`${rawInput}\n\n${finalInstruction}`),
+      readyInstruction(finalInstruction),
+    ],
+  }).then(({ result, requests, requestPayloads }) => {
+    assert.deepStrictEqual(requests, [
+      'intent_recognition',
+      'image_instruction_materialization',
+      'image_instruction_materialization',
+    ]);
+    assert.strictEqual(result.dispatchAuthorized, true);
+    assert.strictEqual(result.dispatchContract.arguments.prompt, finalInstruction);
+    const repairPayload = requestPayloads[2].payload;
+    const repairEnvelope = JSON.parse(repairPayload.input.find(item => item.role === 'user').content);
+    assert.strictEqual(repairEnvelope.repair.rejection_reason, 'image_instruction_echoed_source_request');
+    assert.match(repairEnvelope.repair.rejected_instruction, /这个品种/);
+  });
+}
+
 function testPipelineStopsWhenReadyMaterializationStillContainsAConversationReference() {
   return runPipeline({
     input: '按照方案A重新生成',
@@ -192,6 +219,7 @@ module.exports = [
   testPipelineMaterializesSelectedOptionBeforeTextToImageDispatch,
   testPipelineMaterializesEditInstructionBeforeDispatch,
   testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRawReference,
+  testPipelineRepromptsTheMaterializerWhenItEchoesSourceEvidence,
   testPipelineStopsWhenReadyMaterializationStillContainsAConversationReference,
   testPipelineStopsWhenInstructionMaterializerNeedsClarification,
 ];

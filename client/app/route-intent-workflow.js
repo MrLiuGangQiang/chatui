@@ -540,7 +540,38 @@
             });
             intentDeadline.assertActive();
             const raw = routeSvc.extractRouteText(response);
-            const inspected = routeSvc.inspectImageInstructionResult(raw);
+            const inspectionOptions = {
+              userRequestEvidence: input,
+              resolvedTask: route.userGoal || route.executionPrompt || route.dispatchContract?.arguments?.prompt || '',
+            };
+            let inspected = routeSvc.inspectImageInstructionResult(raw, inspectionOptions);
+            // A structurally invalid echo is recoverable: make one model-driven
+            // repair round with the rejected output as data, rather than editing
+            // the provider instruction locally or asking the user to retry.
+            if (!inspected?.materialization && inspected?.reason === 'image_instruction_echoed_source_request') {
+              const repairPayload = routeSvc.buildImageInstructionPayload({
+                model: primaryModel,
+                input,
+                route,
+                attachments: attachmentMeta,
+                context,
+                currentTurn: routeOptions?.currentTurn || null,
+                repair: {
+                  reason: inspected.reason,
+                  instruction: inspected.rejectedInstruction || '',
+                },
+              });
+              const repairResponse = await requestWithinDeadline(repairPayload, {
+                phase: 'instruction_materialization_repair',
+                modelRole: 'primary',
+                requestPurpose: 'image_instruction_materialization',
+              });
+              intentDeadline.assertActive();
+              inspected = routeSvc.inspectImageInstructionResult(
+                routeSvc.extractRouteText(repairResponse),
+                inspectionOptions,
+              );
+            }
             if (!inspected?.materialization) {
               return routeFailureRoute(
                 route,

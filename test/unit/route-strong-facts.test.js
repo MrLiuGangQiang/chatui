@@ -104,7 +104,7 @@ function testAmendGoalRepairsRepeatedBaseForProvider() {
   assert.match(result.route.userGoal, /分别生成两张材质方案/);
   assert.match(result.route.userGoal, /日间自然光/);
   assert.match(result.route.userGoal, /夜间暖光/);
-  assert.doesNotMatch(result.route.userGoal, /L褰氦閫氳蛋寤妡椁愬巺涓庡崼鐢熼棿鐩搁偦/);
+  assert.doesNotMatch(result.route.userGoal, /L形交通走廊|餐厅与卫生间相邻/);
 }
 
 function testAmendmentContextLeadDoesNotEraseFirstDeltaClause() {

@@ -899,7 +899,7 @@
     return finalImageExecution || isImagePlanningEnvelope(route);
   }
 
-  function buildImageInstructionPayload({ model, input, route = {}, attachments = [], context = {}, currentTurn = null, systemPrompt, responseFormat } = {}) {
+  function buildImageInstructionPayload({ model, input, route = {}, attachments = [], context = {}, currentTurn = null, repair = null, systemPrompt, responseFormat } = {}) {
     if (!requiresImageInstructionMaterialization(route)) {
       const error = new TypeError('Image instruction materialization requires a ready image route');
       error.code = 'IMAGE_INSTRUCTION_ROUTE_INVALID';
@@ -914,24 +914,33 @@
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
-    const provisionalInstruction = stringValue(
+    const resolvedTask = stringValue(
       route.userGoal
       || route.executionPrompt
       || route.dispatchContract?.arguments?.prompt
       || input,
     );
     const userPayload = {
-      current_input: stringValue(input),
+      // The raw request is evidence for resolving references, never text to
+      // copy into the provider instruction. resolved_task is the semantic
+      // authority produced by the route stage.
+      user_request_evidence: stringValue(input),
+      resolved_task: resolvedTask,
       operation: imageOperationForRoute(route),
       relation: stringValue(route.relation),
       goal_mode: stringValue(route.goalMode) || 'replace',
       task_shape: stringValue(route.taskShape) || 'single',
-      provisional_instruction: provisionalInstruction,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
       output_format: 'json',
     };
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
+    if (repair && typeof repair === 'object') {
+      userPayload.repair = {
+        rejection_reason: stringValue(repair.reason),
+        rejected_instruction: stringValue(repair.instruction),
+      };
+    }
     if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
     return buildResponsesPayload(model, [
       { role: 'system', content: systemPrompt || IMAGE_INSTRUCTION_SYSTEM_PROMPT },
@@ -944,15 +953,28 @@
     });
   }
 
-  function inspectImageInstructionResult(text = '') {
+  function inspectImageInstructionResult(text = '', { userRequestEvidence = '', resolvedTask = '' } = {}) {
     const parsedResult = parseRouteJson(text);
     if (!parsedResult.parsed) return { materialization: null, reason: parsedResult.reason, parseError: parsedResult.parseError || '' };
     const materialization = parsedResult.parsed;
     if (typeof hasExactImageInstruction !== 'function' || !hasExactImageInstruction(materialization)) {
       return { materialization: null, reason: 'image_instruction_invalid' };
     }
-    if (materialization.status === 'ready' && hasUnresolvedImageInstructionReference(materialization.instruction)) {
-      return { materialization: null, reason: 'image_instruction_not_standalone' };
+    const instruction = stringValue(materialization.instruction);
+    const source = stringValue(userRequestEvidence);
+    const task = stringValue(resolvedTask);
+    // The materializer may read source evidence to resolve references, but it
+    // must never emit that evidence as a preamble followed by a second prompt.
+    // This is a structural contract check against echoing, not a keyword list.
+    const echoedSource = materialization.status === 'ready'
+      && source
+      && source !== task
+      && (instruction === source || (instruction.startsWith(source) && /^\s*(?:\r?\n){1,}/.test(instruction.slice(source.length))));
+    if (echoedSource) {
+      return { materialization: null, reason: 'image_instruction_echoed_source_request', rejectedInstruction: instruction };
+    }
+    if (materialization.status === 'ready' && hasUnresolvedImageInstructionReference(instruction)) {
+      return { materialization: null, reason: 'image_instruction_not_standalone', rejectedInstruction: instruction };
     }
     return { materialization, reason: '' };
   }

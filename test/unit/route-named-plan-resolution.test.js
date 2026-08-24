@@ -56,9 +56,12 @@ function testRouteKeepsSelectionSemanticsSeparateFromPromptMaterialization() {
     context,
   });
   const envelope = JSON.parse(payload.input.find(item => item.role === 'user').content);
-  assert.strictEqual(envelope.provisional_instruction, '按照方案A重新设计');
+  assert.strictEqual(envelope.resolved_task, '按照方案A重新设计');
+  assert.strictEqual(envelope.user_request_evidence, '按照方案A重新设计');
+  assert.strictEqual(envelope.current_input, undefined);
+  assert.strictEqual(envelope.provisional_instruction, undefined);
   assert.strictEqual(envelope.context.recent_messages[0].content, OPTIONS_MESSAGE);
-  assert.match(payload.input.find(item => item.role === 'system').content, /完整 instruction/);
+  assert.match(payload.input.find(item => item.role === 'system').content, /complete provider-facing image description/);
 
   const materialized = routeService.applyMaterializedImageInstruction(route, SELECTED_PLAN, { context });
   assert.strictEqual(materialized.goalMode, 'replace');
@@ -79,6 +82,26 @@ function testMaterializerClarificationStopsDispatchRatherThanForwardingReference
   assert.match(blocked.clarificationQuestion, /方案C/);
 }
 
+function testInstructionPayloadSeparatesEvidenceFromTheProviderInstruction() {
+  const { route, context } = initialRoute({
+    input: '重新生成一个这个品种的猫，不要参考这个图了',
+  });
+  const payload = routeService.buildImageInstructionPayload({
+    model: 'route-model',
+    input: '重新生成一个这个品种的猫，不要参考这个图了',
+    route,
+    context,
+  });
+  const envelope = JSON.parse(payload.input.find(item => item.role === 'user').content);
+  assert.strictEqual(envelope.user_request_evidence, '重新生成一个这个品种的猫，不要参考这个图了');
+  assert.strictEqual(envelope.resolved_task, route.userGoal);
+  assert.strictEqual(envelope.current_input, undefined);
+  assert.strictEqual(envelope.provisional_instruction, undefined);
+  const system = payload.input.find(item => item.role === 'system').content;
+  assert.match(system, /Never copy, quote, prefix, or append user_request_evidence/);
+  assert.match(system, /this breed/);
+}
+
 function testImageInstructionProtocolRejectsProviderPromptThatIsNotReady() {
   const unresolved = routeService.inspectImageInstructionResult(JSON.stringify({
     schema_version: 'image_instruction.v1',
@@ -97,6 +120,19 @@ function testImageInstructionProtocolRejectsProviderPromptThatIsNotReady() {
   }));
   assert.strictEqual(invalid.materialization, null);
   assert.strictEqual(invalid.reason, 'image_instruction_invalid');
+
+  const echoed = routeService.inspectImageInstructionResult(JSON.stringify({
+    schema_version: 'image_instruction.v1',
+    status: 'ready',
+    instruction: '重新生成一个这个品种的猫，不要参考这个图了\n\n独立生成一只英国短毛猫。',
+    clarification: '',
+  }), {
+    userRequestEvidence: '重新生成一个这个品种的猫，不要参考这个图了',
+    resolvedTask: '独立生成一只英国短毛猫。',
+  });
+  assert.strictEqual(echoed.materialization, null);
+  assert.strictEqual(echoed.reason, 'image_instruction_echoed_source_request');
+  assert.match(echoed.rejectedInstruction, /英国短毛猫/);
 
   const conversationalReady = routeService.inspectImageInstructionResult(JSON.stringify({
     schema_version: 'image_instruction.v1',
@@ -133,6 +169,7 @@ function testMaterializedEditInstructionKeepsOnlyTargetBinding() {
 module.exports = [
   testRouteKeepsSelectionSemanticsSeparateFromPromptMaterialization,
   testMaterializerClarificationStopsDispatchRatherThanForwardingReferenceText,
+  testInstructionPayloadSeparatesEvidenceFromTheProviderInstruction,
   testImageInstructionProtocolRejectsProviderPromptThatIsNotReady,
   testMaterializedEditInstructionKeepsOnlyTargetBinding,
 ];

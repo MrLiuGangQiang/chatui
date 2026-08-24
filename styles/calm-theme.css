@@ -1,0 +1,378 @@
+/* ChatUI calm light visual layer.
+ * Visual-only rules: keep layout, Markdown and interaction contracts in the
+ * existing feature stylesheets. This file is loaded last on purpose.
+ */
+
+:root {
+  --chatui-canvas: #f7f8fb;
+  --chatui-surface: #ffffff;
+  --chatui-surface-soft: #fbfcfe;
+  --chatui-surface-subtle: #f2f4f7;
+  --chatui-text: #1f2329;
+  --chatui-muted: #8a919d;
+  --chatui-muted-strong: #68717f;
+  --chatui-border: #e5e8ee;
+  --chatui-border-strong: #d9dde5;
+  --chatui-accent: #4d6bfe;
+  --chatui-accent-hover: #3f5bea;
+  --chatui-accent-soft: #eef1ff;
+  --chatui-accent-border: #d9dffe;
+  --chatui-danger-soft: #fff2f2;
+  --chatui-shadow: 0 8px 24px rgba(31, 35, 41, .06);
+  --chatui-shadow-lg: 0 18px 50px rgba(31, 35, 41, .12);
+}
+
+body,
+.shell-app.app,
+.main,
+.messages {
+  background: var(--chatui-canvas) !important;
+  color: var(--chatui-text) !important;
+}
+
+/* Keep fixed utility controls in a quiet header band instead of letting
+ * them sit on top of the first visible message while the list scrolls. */
+.main::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: var(--session-sidebar-width, 256px);
+  z-index: 44;
+  height: 64px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--chatui-canvas) 0%, var(--chatui-canvas) 72%, rgba(247,248,251,0) 100%);
+}
+
+/* Sidebar and rail: quiet navigation surface, no glass or gradients. */
+.session-sidebar,
+.session-rail {
+  color: var(--chatui-text) !important;
+  background: var(--chatui-surface) !important;
+  border-color: var(--chatui-border) !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.session-brand strong,
+.session-brand span,
+.sidebar-version-badge,
+.rail-version-badge { background-image: none !important; }
+.session-brand strong { color: var(--chatui-text) !important; }
+.session-brand span,
+.sidebar-version-badge,
+.rail-version-badge { color: var(--chatui-muted) !important; }
+.session-new-btn,
+.session-config-btn,
+.rail-icon-btn,
+.session-collapse-btn,
+.session-github-btn,
+.session-clear-all-btn {
+  border-color: var(--chatui-border) !important;
+  background: var(--chatui-surface) !important;
+  color: var(--chatui-muted-strong) !important;
+  box-shadow: none !important;
+}
+.session-new-btn,
+.session-config-btn { color: var(--chatui-accent) !important; background: var(--chatui-accent-soft) !important; border-color: var(--chatui-accent-border) !important; }
+.session-new-btn:hover,
+.session-config-btn:hover,
+.rail-icon-btn:hover,
+.session-collapse-btn:hover,
+.session-github-btn:hover,
+.session-clear-all-btn:hover {
+  color: var(--chatui-accent) !important;
+  border-color: var(--chatui-accent-border) !important;
+  background: var(--chatui-accent-soft) !important;
+}
+.session-tab { color: var(--chatui-muted-strong) !important; background: transparent !important; border-color: transparent !important; box-shadow: none !important; }
+.session-tab:hover { color: var(--chatui-text) !important; background: var(--chatui-surface-subtle) !important; }
+.session-tab.active { color: var(--chatui-text) !important; background: var(--chatui-surface-subtle) !important; border-color: transparent !important; box-shadow: none !important; }
+.session-tab small { color: var(--chatui-muted) !important; }
+.session-delete-btn:hover { color: #d65a5a !important; background: var(--chatui-danger-soft) !important; }
+
+/* Top utilities share one compact, low-contrast control language. */
+.topbar-utility-actions { gap: 8px !important; }
+.topbar-utility-button,
+.usage-stats-button,
+.announcement-toolbar-button {
+  border: 1px solid var(--chatui-border) !important;
+  border-radius: 10px !important;
+  background: var(--chatui-surface) !important;
+  color: var(--chatui-muted-strong) !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+.topbar-utility-actions,
+.mobile-session-float { z-index: 46 !important; }
+.topbar-utility-button:hover,
+.usage-stats-button:hover,
+.announcement-toolbar-button:hover {
+  border-color: var(--chatui-accent-border) !important;
+  background: var(--chatui-accent-soft) !important;
+  color: var(--chatui-accent) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.topbar-utility-button svg,
+.usage-stats-button svg,
+.announcement-toolbar-button svg { filter: none !important; }
+
+/* Reading surface: assistant text is the page, user text gets one calm tint. */
+.avatar { box-shadow: none !important; }
+.message.assistant .avatar { background: var(--chatui-accent) !important; }
+.message.user .avatar { background: #a8b0bd !important; }
+.message.assistant .bubble,
+.message.error .bubble {
+  color: var(--chatui-text) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.message.user .bubble {
+  color: #303a63 !important;
+  background: #f0f3ff !important;
+  border: 1px solid #e1e6ff !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.message.assistant .bubble::before,
+.message.error .bubble::before,
+.message.user .bubble::after { display: none !important; }
+.message-meta { color: var(--chatui-muted) !important; }
+
+/* Markdown surfaces: preserve geometry; only harmonize colors. */
+.markdown-body,
+.markdown-body p,
+.markdown-body li { color: inherit !important; }
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { color: var(--chatui-text) !important; background: none !important; }
+.markdown-body blockquote { border-left-color: #cbd3f9 !important; background: transparent !important; color: var(--chatui-muted-strong) !important; }
+.markdown-body code:not(pre code) { color: #5a3aa8 !important; background: #f1f3f6 !important; border-color: #e3e6ec !important; }
+.markdown-body a { color: var(--chatui-accent) !important; }
+.markdown-body hr { border-top-color: var(--chatui-border) !important; }
+.markdown-body th { color: var(--chatui-text) !important; background: var(--chatui-surface-subtle) !important; }
+.markdown-body td,
+.markdown-body th { border-color: var(--chatui-border) !important; }
+.markdown-body .code-block,
+.markdown-body pre {
+  background: #eef0f3 !important;
+  color: #28303d !important;
+  border-color: #dfe3e9 !important;
+  box-shadow: none !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.markdown-body .code-block::after { content: none !important; display: none !important; }
+.markdown-body .code-lang { color: #737b88 !important; background: transparent !important; backdrop-filter: none !important; }
+.markdown-body .hljs-keyword { color: #7c3aed !important; }
+.markdown-body .hljs-string { color: #0f766e !important; }
+.markdown-body .hljs-number { color: #b45309 !important; }
+.markdown-body .hljs-comment { color: #7b8494 !important; }
+
+/* Message and composer actions use the same 28–36px quiet control family. */
+.copy-btn,
+.download-btn,
+.edit-btn,
+.refresh-btn,
+.icon-action-btn,
+.reasoning-copy-btn,
+.markdown-body .code-block .code-copy-icon,
+.markdown-body .code-block .code-expand-header-toggle,
+.markdown-body .code-block .mermaid-toggle-btn,
+.markdown-body .code-block .mermaid-render-toggle {
+  border-color: var(--chatui-border) !important;
+  background: var(--chatui-surface) !important;
+  color: var(--chatui-muted-strong) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.copy-btn:hover,
+.download-btn:hover,
+.edit-btn:hover,
+.refresh-btn:hover,
+.icon-action-btn:hover,
+.reasoning-copy-btn:hover,
+.markdown-body .code-block .code-copy-icon:hover,
+.markdown-body .code-block .code-expand-header-toggle:hover,
+.markdown-body .code-block .mermaid-toggle-btn:hover,
+.markdown-body .code-block .mermaid-render-toggle:hover {
+  border-color: var(--chatui-accent-border) !important;
+  background: var(--chatui-accent-soft) !important;
+  color: var(--chatui-accent) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Bottom composer: one white surface, no nested dark/bright shell. */
+.composer,
+.composer.compact-composer {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.input-stack {
+  background: var(--chatui-surface) !important;
+  border: 1px solid var(--chatui-border-strong) !important;
+  box-shadow: var(--chatui-shadow) !important;
+  background-image: none !important;
+}
+.input-stack:focus-within {
+  border-color: #b8c2f9 !important;
+  box-shadow: 0 10px 28px rgba(31,35,41,.08), 0 0 0 3px rgba(77,107,254,.10) !important;
+}
+.composer textarea,
+.composer textarea:focus {
+  color: var(--chatui-text) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.composer textarea::placeholder { color: #a1a8b4 !important; }
+.composer-actions .attach-btn,
+.composer-actions .session-prompt-btn,
+.composer-actions .session-model-btn,
+.composer-actions .reasoning-toggle,
+.composer-actions .reasoning-menu-btn {
+  border-color: var(--chatui-border) !important;
+  background: var(--chatui-surface) !important;
+  color: var(--chatui-muted-strong) !important;
+  box-shadow: none !important;
+}
+.composer-actions .attach-btn:hover,
+.composer-actions .session-prompt-btn:hover,
+.composer-actions .session-model-btn:hover,
+.composer-actions .reasoning-toggle:hover,
+.composer-actions .reasoning-menu-btn:hover {
+  border-color: var(--chatui-accent-border) !important;
+  background: var(--chatui-accent-soft) !important;
+  color: var(--chatui-accent) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.composer-actions .reasoning-toggle.active,
+.composer-actions .reasoning-toggle[aria-pressed="true"],
+.composer-actions button[type="submit"] {
+  border-color: var(--chatui-accent) !important;
+  background: var(--chatui-accent) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+.composer-actions button[type="submit"]:hover { background: var(--chatui-accent-hover) !important; transform: none !important; filter: none !important; }
+.composer-actions .reasoning-menu {
+  border-color: var(--chatui-border-strong) !important;
+  background: var(--chatui-surface) !important;
+  box-shadow: var(--chatui-shadow-lg) !important;
+  backdrop-filter: none !important;
+}
+.composer-actions .reasoning-menu-item:hover,
+.composer-actions .reasoning-menu-item[aria-checked="true"] { background: var(--chatui-accent-soft) !important; color: var(--chatui-accent) !important; }
+.attachment-chip { border-color: var(--chatui-border) !important; background: var(--chatui-surface-subtle) !important; color: var(--chatui-muted-strong) !important; }
+.quote-preview { border-color: var(--chatui-accent-border) !important; background: var(--chatui-accent-soft) !important; color: var(--chatui-muted-strong) !important; }
+
+/* Reasoning and image result cards follow the same surface hierarchy. */
+.reasoning-panel {
+  border-color: var(--chatui-border) !important;
+  background: var(--chatui-surface-soft) !important;
+  color: var(--chatui-muted-strong) !important;
+  box-shadow: none !important;
+}
+.reasoning-title { color: var(--chatui-accent) !important; }
+.content img,
+.markdown-body img { border-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; }
+.image-icon-btn { border-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; color: var(--chatui-muted-strong) !important; }
+.image-icon-btn:hover { border-color: var(--chatui-accent-border) !important; background: var(--chatui-accent-soft) !important; color: var(--chatui-accent) !important; }
+
+/* Dialogs: same paper surface as the app, restrained overlay only. */
+.config-dialog,
+.confirm-dialog-card,
+.web-preview-dialog,
+.route-diagram-dialog,
+.changelog-dialog {
+  border-color: var(--chatui-border-strong) !important;
+  background: var(--chatui-surface) !important;
+  color: var(--chatui-text) !important;
+  box-shadow: var(--chatui-shadow-lg) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.config-hero,
+.changelog-dialog-head { background: var(--chatui-surface) !important; border-bottom-color: var(--chatui-border) !important; }
+.config-dialog h2,
+.dialog-head h2,
+.changelog-dialog-head h2 { color: var(--chatui-text) !important; background: none !important; -webkit-text-fill-color: currentColor !important; }
+.config-dialog p,
+.dialog-head p,
+.changelog-dialog-head p { color: var(--chatui-muted-strong) !important; }
+.config-card,
+.changelog-entry { border-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; box-shadow: none !important; }
+.config-card::before { display: none !important; }
+.config-dialog input,
+.config-dialog select,
+.config-dialog textarea,
+.session-prompt-input { border-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; color: var(--chatui-text) !important; box-shadow: none !important; }
+.config-dialog input:focus,
+.config-dialog select:focus,
+.config-dialog textarea:focus,
+.session-prompt-input:focus { border-color: #b8c2f9 !important; box-shadow: 0 0 0 3px rgba(77,107,254,.10) !important; }
+.config-dialog .dialog-actions { border-top-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; }
+.dialog-actions #saveConfigBtn,
+.announcement-acknowledge-btn { background: var(--chatui-accent) !important; box-shadow: none !important; }
+.dialog-actions #saveConfigBtn:hover,
+.announcement-acknowledge-btn:hover { background: var(--chatui-accent-hover) !important; transform: none !important; }
+
+/* Announcement and changelog: remove the only remaining saturated hero. */
+.announcement-dialog {
+  border-color: var(--chatui-border-strong) !important;
+  background: var(--chatui-surface) !important;
+  box-shadow: var(--chatui-shadow-lg) !important;
+}
+.announcement-hero { background: var(--chatui-accent-soft) !important; color: var(--chatui-text) !important; }
+.announcement-brand,
+.announcement-hero-kicker,
+.announcement-badge { color: var(--chatui-accent) !important; }
+.announcement-hero-kicker,
+.announcement-badge { background: #e7ebff !important; border-color: var(--chatui-accent-border) !important; }
+.announcement-hero-copy h2,
+.announcement-title { color: var(--chatui-text) !important; background: none !important; }
+.announcement-hero-copy p,
+.announcement-hero-note,
+.announcement-summary { color: var(--chatui-muted-strong) !important; }
+.announcement-surface,
+.announcement-head,
+.announcement-footer { background: var(--chatui-surface) !important; border-color: var(--chatui-border) !important; }
+.announcement-toolbar-button:hover .announcement-entry-body { opacity: .9; }
+
+/* Image preview keeps the content dominant and controls consistent. */
+.image-preview-mask { background: rgba(20, 24, 32, .84) !important; backdrop-filter: none !important; }
+.image-preview-action,
+.image-preview-close,
+.image-preview-nav { background: rgba(31,35,41,.62) !important; border-color: rgba(255,255,255,.18) !important; box-shadow: none !important; }
+.image-preview-action:hover,
+.image-preview-close:hover,
+.image-preview-nav:hover:not(:disabled) { background: rgba(31,35,41,.84) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+@media (max-width: 840px) {
+  .main::after {
+    left: 0;
+    height: 58px;
+    background: linear-gradient(to bottom, var(--chatui-canvas) 0%, var(--chatui-canvas) 78%, rgba(247,248,251,0) 100%);
+  }
+}

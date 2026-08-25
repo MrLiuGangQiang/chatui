@@ -13,6 +13,8 @@ const REMOVED_OBSOLETE_ARTIFACTS = Object.freeze([
   'docs/route-logic-explained.md',
   'server/errors/app-error.js',
   'shared/changes-log.js',
+  'CHATUI_CODE_REVIEW_PROMPT.md',
+  'docs/code-review-2026-08-23.md',
 ]);
 
 function testRemovedObsoleteArtifactsDoNotReturn() {
@@ -31,7 +33,6 @@ function testCanonicalEntrypointsDoNotReexportRetiredCode() {
 
   const jobHandlers = require('../../server/jobs/chat-image');
   assert.deepStrictEqual(Object.keys(jobHandlers).sort(), ['createJobHandlers'], 'the job composition module must expose only its supported entrypoint');
-
   const httpErrors = require('../../server/errors/http-error');
   assert.deepStrictEqual(
     Object.keys(httpErrors).sort(),

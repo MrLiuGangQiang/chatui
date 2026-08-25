@@ -22,22 +22,28 @@ function testImageResultParsesItemAliases() {
     data: [
       { src: 'https://img.example/src.png', revised_prompt: 'a semantic cat portrait' },
       { image_url: 'https://img.example/image-url.png' },
+      { image_url: { url: 'https://img.example/nested-image-url.png' } },
+      { image: { src: 'https://img.example/nested-image-src.png' } },
       { image: 'https://img.example/image.png' },
       { image_base64: 'BASE64A' },
       { base64: 'BASE64B' },
       { b64_json: 'BASE64C' },
+      { b64_json: 'data:image/webp;base64,DATAURLB64' },
     ],
   }, [
     'https://img.example/src.png',
     'https://img.example/image-url.png',
+    'https://img.example/nested-image-url.png',
+    'https://img.example/nested-image-src.png',
     'https://img.example/image.png',
     'data:image/png;base64,BASE64A',
     'data:image/png;base64,BASE64B',
     'data:image/png;base64,BASE64C',
+    'data:image/webp;base64,DATAURLB64',
   ]);
 
   assert.strictEqual(extracted.images[0].revisedPrompt, 'a semantic cat portrait');
-  assert.strictEqual(extracted.images[3].raw, '[base64 image]');
+  assert.strictEqual(extracted.images[5].raw, '[base64 image]');
   assert.ok(extracted.raw.includes('https://img.example/src.png'));
   assert.ok(extracted.raw.includes('[base64 image]'));
 }

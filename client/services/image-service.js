@@ -27,11 +27,48 @@
     return contract.routeBindingTransportFields(attachment);
   }
 
+function stringValue(value = '') {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function nestedImageValue(value, fields = []) {
+  if (typeof value === 'string') return stringValue(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  for (const field of fields) {
+    const candidate = value[field];
+    const normalized = typeof candidate === 'string'
+      ? stringValue(candidate)
+      : nestedImageValue(candidate, fields);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function imageUrlFromItem(rawItem = {}) {
+  return nestedImageValue(rawItem, ['url', 'src', 'image_url', 'image', 'href']);
+}
+
+function imageBase64FromItem(rawItem = {}) {
+  return nestedImageValue(rawItem, ['b64_json', 'image_base64', 'base64', 'data']);
+}
+
+function imageMimeType(rawItem = {}) {
+  const explicit = nestedImageValue(rawItem, ['mime_type', 'mimeType', 'media_type', 'content_type', 'contentType', 'type']);
+  return /^image\/[a-z0-9.+-]+$/i.test(explicit) ? explicit.toLowerCase() : 'image/png';
+}
+
+function imageDataUrlFromBase64(value, mimeType = 'image/png') {
+  const encoded = stringValue(value);
+  if (!encoded) return '';
+  if (/^data:image\//i.test(encoded)) return encoded;
+  return `data:${mimeType};base64,${encoded}`;
+}
+
 function imageItemToResult(item) {
   const rawItem = typeof item === 'string' ? { url: item } : item || {};
-  const url = rawItem.url || rawItem.src || rawItem.image_url || rawItem.image || '';
-  const b64 = rawItem.b64_json || rawItem.image_base64 || rawItem.base64 || '';
-  const src = url || (b64 ? `data:image/png;base64,${b64}` : '');
+  const url = imageUrlFromItem(rawItem);
+  const b64 = imageBase64FromItem(rawItem);
+  const src = url || imageDataUrlFromBase64(b64, imageMimeType(rawItem));
   const revisedPrompt = String(rawItem.revised_prompt || rawItem.revisedPrompt || rawItem.prompt || '').trim();
   return src ? { src, url, b64, raw: url || '[base64 image]', revisedPrompt } : null;
 }

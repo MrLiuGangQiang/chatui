@@ -15,6 +15,25 @@
   const imageTaskPreparation = moduleRegistry?.get('imageTaskPreparation')
     || (typeof require === 'function' ? require('./image-task-preparation') : {});
 
+  function createImageStatusPhase() {
+    let phase = 'preparing';
+    return Object.freeze({
+      beginUpload() {
+        if (phase === 'generating') return false;
+        phase = 'uploading';
+        return true;
+      },
+      beginGeneration() {
+        if (phase === 'generating') return false;
+        phase = 'generating';
+        return true;
+      },
+      current() {
+        return phase;
+      },
+    });
+  }
+
   function createImageWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
     const dispatchContract = root?.[Symbol.for("chatui.module-registry.v1")]?.get("dispatchContract")
@@ -83,6 +102,7 @@
         let r = 0,
           l = null,
           T = 0;
+        const imageStatusPhase = createImageStatusPhase();
         const parseCanonicalResponseIndex = value => {
           if (value === null || value === undefined || String(value).trim() === '') return null;
           const index = Number(value);
@@ -162,6 +182,46 @@
           });
           persistSessionDisplay(n);
         }
+        const startImageGenerationStatus = (label = executionWaitStatus) => {
+          if (!imageStatusPhase.beginGeneration()) return;
+          r = performance.now();
+          shouldSuppressRunUi(n, a.token) || (
+            n === state.activeSessionId && d?.isConnected && (
+              clearPendingFeedback(d),
+              updateMessage(d, pendingImageCard(statusText(`${label} 已等待 0 秒`)), {
+                html: !0,
+                rawText: statusText(`${label}… 已等待 0 秒`),
+                skipSave: !0,
+              })
+            ),
+            updateLiveDisplay(n, c, "assistant", pendingImageCard(statusText(`${label} 已等待 0 秒`)), {
+              html: !0,
+              rawText: statusText(`${label}… 已等待 0 秒`),
+              pending: !0,
+              runToken: a.token,
+            })
+          );
+          l = setInterval(() => {
+            if (shouldSuppressRunUi(n, a.token)) return;
+            const seconds = Math.floor((performance.now() - r) / 1e3);
+            const status = statusText(`${label}… 已等待 ${seconds} 秒`);
+            const html = pendingImageCard(statusText(`${label} 已等待 ${seconds} 秒`));
+            n === state.activeSessionId && d?.isConnected && updateMessage(d, html, {
+              html: !0,
+              rawText: status,
+              skipSave: !0,
+              ...responseIndexOptions,
+            });
+            updateLiveDisplay(n, c, "assistant", html, {
+              html: !0,
+              rawText: status,
+              pending: !0,
+              ...responseIndexOptions,
+              runToken: a.token,
+              noScroll: !shouldFollowScroll(),
+            });
+          }, 1e3);
+        };
         const prepared = await taskPreparation.prepareImageExecutionRequest({
           contract: executionContract,
           executionMedia: t.executionMedia,
@@ -239,46 +299,7 @@
               clearReasoning?.(d),
               (d.dataset.jobId = clientImageJobId),
               setImageContext(d, I)),
-            ((e = "正在生成图片") => {
-              r = performance.now();
-              shouldSuppressRunUi(n, a.token) || (
-                n === state.activeSessionId && d?.isConnected && (
-                  clearPendingFeedback(d),
-                  updateMessage(d, pendingImageCard(statusText(`${e} 已等待 0 秒`)), {
-                    html: !0,
-                    rawText: statusText(`${e}… 已等待 0 秒`),
-                    skipSave: !0,
-                  })
-                ),
-                updateLiveDisplay(n, c, "assistant", pendingImageCard(statusText(`${e} 已等待 0 秒`)), {
-                  html: !0,
-                  rawText: statusText(`${e}… 已等待 0 秒`),
-                  pending: !0,
-                  runToken: a.token,
-                })
-              );
-              l = setInterval(() => {
-                if (shouldSuppressRunUi(n, a.token)) return;
-                const seconds = Math.floor((performance.now() - r) / 1e3);
-                const status = statusText(`${e}… 已等待 ${seconds} 秒`);
-                const html = pendingImageCard(statusText(`${e} 已等待 ${seconds} 秒`));
-                n === state.activeSessionId && d?.isConnected && updateMessage(d, html, {
-                  html: !0,
-                  rawText: status,
-                  skipSave: !0,
-                  ...responseIndexOptions,
-                });
-                updateLiveDisplay(n, c, "assistant", html, {
-                  html: !0,
-                  rawText: status,
-                  pending: !0,
-                  ...responseIndexOptions,
-                  runToken: a.token,
-                  noScroll: !shouldFollowScroll(),
-                });
-              }, 1e3);
-            })(),
-
+            (!requiresImageEdit && startImageGenerationStatus()),
             requiresImageEdit)
           ) {
             const e = clientImageJobId;
@@ -324,7 +345,7 @@
               headers: q,
               sessionId: n,
               onUploadProgress: (e) => {
-                if (shouldSuppressRunUi(n, a.token)) return;
+                if (!imageStatusPhase.beginUpload() || shouldSuppressRunUi(n, a.token)) return;
                 const t = statusText(`正在上传图片… ${e}%`);
                 n === state.activeSessionId && d?.isConnected &&
                   updateMessage(d, pendingImageCard(t), {
@@ -341,6 +362,7 @@
                 });
               },
             });
+            startImageGenerationStatus();
             (t.skipDurableSnapshot || saveDurableImageJob({
               id: i.id,
               prompt: g,
@@ -405,6 +427,7 @@
             }
             completeDurableHandoff();
             T = performance.now();
+            startImageGenerationStatus();
             const imageJob = await startImageGenerationJob(u, s, e, {
               requestPurpose: "final_execution",
               dispatchContract: materializedDispatchContract,
@@ -687,7 +710,7 @@
     return Object.freeze({ sendImage });
   }
 
-  const api = Object.freeze({ createImageWorkflow, buildImageRoleGuide, buildImageRoleMap });
+  const api = Object.freeze({ createImageWorkflow, createImageStatusPhase, buildImageRoleGuide, buildImageRoleMap });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.ChatUIAppImageWorkflow = api;
   if (root?.window) root.window.ChatUIAppImageWorkflow = api;

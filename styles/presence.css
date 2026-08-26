@@ -1,14 +1,17 @@
-/* Online-user presence badge (topbar utility cluster, always visible). */
+/* Online-user presence badge (topbar utility cluster, always visible).
+   Rounded-rectangle card tuned to the flat topbar control language:
+   soft surface tint, one minimal shadow, breathing status dot. */
 .presence-indicator {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(34,197,94,.3);
-  border-radius: 999px;
-  background: rgba(34,197,94,.1);
+  padding: 0 13px;
+  border: 1px solid rgba(34,197,94,.32);
+  border-radius: 12px; /* rounded rectangle, matching topbar-utility-button */
+  background: linear-gradient(180deg, rgba(34,197,94,.14), rgba(34,197,94,.07));
+  box-shadow: 0 1px 3px rgba(22,163,74,.14), inset 0 1px 0 rgba(255,255,255,.55);
   color: #16a34a;
   font-size: 12px;
   line-height: 1;
@@ -17,6 +20,11 @@
   user-select: none;
   white-space: nowrap;
   flex: 0 0 auto;
+  transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+}
+.presence-indicator:hover {
+  border-color: rgba(34,197,94,.5);
+  box-shadow: 0 3px 10px rgba(22,163,74,.16), inset 0 1px 0 rgba(255,255,255,.55);
 }
 .presence-indicator[hidden] { display: none !important; }
 .presence-dot {
@@ -25,12 +33,21 @@
   border-radius: 50%;
   background: #22c55e;
   box-shadow: 0 0 0 2px rgba(34,197,94,.18);
+  animation: presence-dot-breathe 2.4s ease-in-out infinite;
 }
-.presence-count { font-weight: 800; }
-.presence-indicator:not([hidden]) { animation: presence-appear .5s ease-out; }
+.presence-count { font-weight: 800; letter-spacing: .01em; }
+.presence-indicator:not([hidden]) { animation: presence-appear .35s ease-out; }
 @keyframes presence-appear {
-  0% { transform: scale(.6); opacity: 0; }
-  60% { transform: scale(1.12); }
-  100% { transform: scale(1); opacity: 1; }
+  0% { transform: translateY(-3px) scale(.92); opacity: 0; }
+  100% { transform: none; opacity: 1; }
 }
-.presence-label { font-weight: 600; opacity: .85; }
+@keyframes presence-dot-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(34,197,94,.18); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px rgba(34,197,94,.05); opacity: .72; }
+}
+.presence-label { font-weight: 600; opacity: .8; }
+@media (prefers-reduced-motion: reduce) {
+  .presence-indicator:not([hidden]) { animation: none; }
+  .presence-dot { animation: none; }
+  .presence-indicator { transition: none; }
+}

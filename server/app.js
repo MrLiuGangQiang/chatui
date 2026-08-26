@@ -11,6 +11,7 @@ const { createOpenAiProxy } = require('./proxy/openai');
 const { createRouter } = require('./api/router');
 const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
 const { createUsageStatsRepository } = require('./usage/stats-repository');
+const { createPresenceService, startPresenceSweeper } = require('./services/presence.service');
 const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.service');
 const { createFeedbackReviewer } = require('./services/feedback-review.service');
 const { createUsageAccessValidator } = require('./services/usage-access.service');
@@ -29,6 +30,8 @@ function createApp() {
   const feedbackSender = createDingTalkFeedbackSender();
   const feedbackReviewer = createFeedbackReviewer();
   const usageAccessValidator = createUsageAccessValidator();
+  const presence = createPresenceService();
+  const presenceSweeper = startPresenceSweeper(presence);
   const jobSubscribers = new Map();
   // Late-bound so the job stores can be created before the job handlers that
   // own notifyJob. A store evicting a still-running job (TTL timeout or the
@@ -135,6 +138,7 @@ function createApp() {
     usageAccessValidator,
     feedbackReviewer,
     feedbackSender,
+    presence,
   });
   const server = http.createServer(route);
 
@@ -149,6 +153,7 @@ function createApp() {
   }
   server.close = function closeServer(callback) {
     closeJobSubscribers(jobSubscribers);
+    presence.closeAll();
     return originalClose(error => {
       closeLogsOnce().then(
         () => callback?.(error),
@@ -165,6 +170,7 @@ function createApp() {
   server.on('close', () => {
     serverLog.stopped({ reason: 'server.close' });
     clearInterval(sweeper);
+    clearInterval(presenceSweeper);
     postgresPool?.end?.().catch(err => {
       console.error('[postgres] failed to close pool:', err);
       errorLog.log(err, { source: 'postgres' });

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const { Readable } = require('stream');
@@ -53,6 +53,13 @@ function createTestRouter({
     startChatJob: async (_req, res) => sendJson(res, 202, { id: 'chat-job' }),
     getChatJob: async (_req, res) => sendJson(res, 404, { error: {} }),
     usageStats: {},
+    presence: {
+      snapshot() { return { count: 0, timestamp: 0 }; },
+      normalizeClientId(value) { return String(value || '').trim() || null; },
+      join() { return { joined: true, count: 1 }; },
+      leave() { return true; },
+      touch() { return true; },
+    },
     usageAccessValidator: { async validate() { return { ok: true }; } },
     feedbackReviewer: { async review() { return { accepted: true }; } },
     feedbackSender: { async send() { return true; } },
@@ -129,10 +136,19 @@ async function testRouterLogsImplicitResponseStatus() {
   assert.strictEqual(records[0].statusCode, 404);
 }
 
+async function testRouterLogsPresenceSnapshotAsItsOwnRoute() {
+  const { route, records } = createTestRouter();
+  await route({ method: 'GET', url: '/api/presence', headers: {} }, response());
+  assert.strictEqual(records.length, 1);
+  assert.strictEqual(records[0].statusCode, 200);
+  assert.strictEqual(records[0].route, 'presence');
+}
+
 module.exports = [
   testRouterLogsCoreOptionsAndStaticRoutesExactlyOnce,
   testRouterLogsThrownApiFailuresExactlyOnce,
   testRouterRejectsInvalidUtf8AndLogsTheHttp400,
   testRouterReportsAccessLogWriteFailureWithoutChangingResponse,
   testRouterLogsImplicitResponseStatus,
+  testRouterLogsPresenceSnapshotAsItsOwnRoute,
 ];

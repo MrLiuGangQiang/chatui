@@ -3,6 +3,7 @@
 const { createCoreRoutes } = require('./routes/core');
 const { createJobRoutes } = require('./routes/jobs');
 const { createUsageRoutes } = require('./routes/usage');
+const { createPresenceRoutes } = require('./routes/presence');
 const { performance } = require('perf_hooks');
 const { traceId } = require('../logging/logger');
 
@@ -43,6 +44,7 @@ function createRouter(deps) {
     usageAccessValidator,
     feedbackReviewer,
     feedbackSender,
+    presence,
     // Logging
     accessLog,
     errorLog,
@@ -101,6 +103,12 @@ function createRouter(deps) {
     feedbackSender,
   });
 
+  const { routePresence } = createPresenceRoutes({
+    presence,
+    sendJson,
+    sendMethodNotAllowed,
+  });
+
   // Wrap res to capture the response status code for access logging
   function instrumentResponse(res) {
     if (typeof res.getCapturedStatus === 'function') return res;
@@ -123,6 +131,7 @@ function createRouter(deps) {
     if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) return 'image-job';
     if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) return 'image-batch';
     if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) return 'usage';
+    if (pathname === '/api/presence' || pathname.startsWith('/api/presence/')) return 'presence';
     if (pathname.startsWith('/api/')) return 'proxy';
     if (pathname.startsWith('/_core/') || pathname === '/api/core') return 'core';
     return 'static';
@@ -180,6 +189,9 @@ function createRouter(deps) {
       }
       if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
         return await routeUsage(req, res);
+      }
+      if (pathname === '/api/presence' || pathname.startsWith('/api/presence/')) {
+        return await routePresence(req, res);
       }
       if (pathname.startsWith('/api/')) {
         return req.method !== 'POST' ? sendMethodNotAllowed(res) : await proxy(req, res);

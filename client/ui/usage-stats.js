@@ -820,16 +820,6 @@ ${incoming}`
 
   let feedbackUiReady = false;
 
-  function handleProblemFeedback(event) {
-    if (!feedbackUiReady) return;
-    const incident = event?.detail;
-    if (incident) openFeedbackPanel({ incident });
-  }
-
-  if (typeof window !== 'undefined' && problemFeedback?.EVENT_NAME) {
-    window.addEventListener(problemFeedback.EVENT_NAME, handleProblemFeedback);
-  }
-
   function bind() {
     ensureDom();
     updateModeUi();
@@ -838,7 +828,7 @@ ${incoming}`
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
     $('usageStatsModeToggle')?.addEventListener('click', switchMode);
     $('usageStatsExport')?.addEventListener('click', exportDepartmentUsage);
-    $('usageFeedbackOpen')?.addEventListener('click', openFeedbackPanel);
+    $('usageFeedbackOpen')?.addEventListener('click', () => openFeedbackPanel({ incident: problemFeedback?.consumeLatestIncident?.() || null }));
     $('usageFeedbackClose')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackCancel')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackSubmit')?.addEventListener('click', submitFeedback);
@@ -853,9 +843,6 @@ ${incoming}`
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
     feedbackUiReady = true;
-    const pendingIncidents = problemFeedback?.consumeReadyPending?.() || [];
-    const latestIncident = pendingIncidents[pendingIncidents.length - 1];
-    if (latestIncident) openFeedbackPanel({ incident: latestIncident });
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = {

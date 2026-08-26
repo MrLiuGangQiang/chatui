@@ -119,15 +119,14 @@ async function testProblemFeedbackWorkflowReportsNonOkResponsesAndBuildsDraft() 
   const response = await browser.fetch('/api/chat/completions?token=secret', { method: 'POST' });
   assert.strictEqual(response.status, 503);
   await flushAsyncWork();
-  assert.strictEqual(events.length, 0, 'the feedback panel must not open immediately');
-  const timers = browser.runTimers();
-  assert.strictEqual(timers.length, 1);
-  assert.strictEqual(timers[0].delay, FEEDBACK_DELAY_MS);
-  assert.strictEqual(events.length, 1, 'the feedback panel should be notified after the five-second delay');
-  assert.strictEqual(events[0].status, 503);
-  assert.strictEqual(events[0].url, '/api/chat/completions');
+  assert.strictEqual(events.length, 0, 'incidents must never auto-dispatch; feedback opens on click');
+  assert.strictEqual(browser.runTimers().length, 0, 'no delayed auto-open timer may be scheduled');
+  const incident = workflow.latestIncident();
+  assert.ok(incident, 'the latest incident must be recorded for the manual feedback entry');
+  assert.strictEqual(incident.status, 503);
+  assert.strictEqual(incident.url, '/api/chat/completions');
 
-  const draft = workflow.createDraft(events[0]);
+  const draft = workflow.createDraft(incident);
   assert.ok(draft.reproduction.includes('用户：第二轮问题'));
   assert.ok(draft.reproduction.includes('模型服务暂时不可用'));
   assert.strictEqual(workflow.consumePending().length, 1);
@@ -154,12 +153,11 @@ async function testProblemFeedbackWorkflowIgnoresFeedbackRecursionAndAbort() {
 
   await browser.fetch('/api/usage/feedback', { method: 'POST' });
   await flushAsyncWork();
-  browser.runTimers();
-  assert.strictEqual(events.length, 0, 'feedback submission failures must not recursively reopen the feedback form');
+  assert.strictEqual(workflow.latestIncident(), null, 'feedback submission failures must not be recorded for re-reporting');
 
   mode = 'abort';
   await assert.rejects(browser.fetch('/api/chat/completions'), error => error?.name === 'AbortError');
-  assert.strictEqual(events.length, 0, 'normal request cancellation must not be reported as an incident');
+  assert.strictEqual(workflow.latestIncident(), null, 'normal request cancellation must not be reported as an incident');
 }
 
 function testProblemFeedbackManualDraftUsesRecentConversationWithoutFakeError() {
@@ -188,7 +186,7 @@ async function testProblemFeedbackWorkflowIgnoresResourceNoiseAndMonitorsApiFail
 
   await browser.fetch('/optional-image.png', { method: 'GET' });
   await flushAsyncWork();
-  assert.strictEqual(browser.runTimers().length, 0, 'ordinary resource GET failures must not schedule feedback');
+  assert.strictEqual(browser.runTimers().length, 0, 'ordinary resource GET failures must not record feedback');
   browser.emit('error', {
     target: {
       tagName: 'IMG',
@@ -197,15 +195,15 @@ async function testProblemFeedbackWorkflowIgnoresResourceNoiseAndMonitorsApiFail
       getAttribute: name => name === 'src' ? '' : null,
     },
   });
-  assert.strictEqual(events.length, 0, 'element resource errors must not open functional feedback');
+  assert.strictEqual(workflow.latestIncident(), null, 'element resource errors must not record functional feedback');
   assert.strictEqual(workflow.report({ kind: 'resource', message: '资源未能加载：/' }), null);
 
   await browser.fetch('/api/models', { method: 'GET' });
   await flushAsyncWork();
-  const timers = browser.runTimers();
-  assert.strictEqual(timers.length, 1, 'API failures remain functional incidents');
-  assert.strictEqual(events.length, 1);
-  assert.strictEqual(events[0].url, '/api/models');
+  assert.strictEqual(browser.runTimers().length, 0, 'API failures must be recorded without an auto-open timer');
+  const incident = workflow.latestIncident();
+  assert.ok(incident, 'API failures must be recorded for the manual feedback entry');
+  assert.strictEqual(incident.url, '/api/models');
 }
 
 function testProblemFeedbackDraftSurvivesCloseAndReopenStorageCycle() {
@@ -276,10 +274,10 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
   assert.ok(app.includes('reportProblem(t,{source:"run",sessionId:e})'), 'final run errors must reach the incident reporter');
   assert.ok(app.includes('configure?.({getActiveSession})'), 'the incident workflow must receive the active session provider');
   assert.ok(ui.includes('最近几轮会话自动填入复现描述'));
-  assert.ok(ui.includes("openFeedbackPanel({ incident })"));
+  assert.ok(ui.includes('openFeedbackPanel({ incident:'));
   assert.ok(ui.includes('saveFeedbackFormDraft') && ui.includes('restoreFeedbackFormDraft') && ui.includes('sessionStorage'));
   assert.ok(ui.includes('applyManualConversationDraft') && ui.includes('createManualDraft'));
-  assert.ok(ui.includes('consumeReadyPending'));
+  assert.ok(ui.includes('consumeLatestIncident'));
   const feedbackWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/problem-feedback-workflow.js'), 'utf8');
   const imagePreviewWorkflow = fs.readFileSync(path.join(__dirname, '../../client/app/image-preview-workflow.js'), 'utf8');
   assert.ok(feedbackWorkflow.includes('FEEDBACK_DELAY_MS = 5000'));
@@ -295,33 +293,28 @@ async function testProblemFeedbackSuppressForStopClearsPendingAndBlocksReports()
     statusText: 'Internal Server Error',
     clone() { return { text: async () => 'boom' }; },
   }));
-  const events = [];
-  browser.addEventListener(EVENT_NAME, event => events.push(event.detail));
   const workflow = createProblemFeedbackWorkflow({ root: browser, now: () => clock }).install();
 
-  // 人为停止前：一次失败的 API 调用已排队等待延迟派发
+  // 人为停止前：失败的 API 调用已记录，供点击反馈时读取。
   await browser.fetch('/api/chat/completions', { method: 'POST' });
   await flushAsyncWork();
-  assert.strictEqual(events.length, 0, 'feedback must wait for the delay before opening');
+  assert.ok(workflow.latestIncident(), 'a failed API call must be recorded before the manual stop');
 
-  // 人为停止：清空 pending 并进入抑制窗口
+  // 人为停止：清空已记录事件并进入抑制窗口。
   workflow.suppressForStop(3000);
-  browser.runTimers();
-  assert.strictEqual(events.length, 0, 'queued incidents must not dispatch after a manual stop');
+  assert.strictEqual(workflow.latestIncident(), null, 'a manual stop must clear the recorded incident');
+  assert.strictEqual(workflow.consumePending().length, 0);
 
-  // 抑制窗口内的新错误也不得触发自动反馈
+  // 抑制窗口内的新错误不得再次记录。
   await browser.fetch('/api/chat/completions', { method: 'POST' });
   await flushAsyncWork();
-  browser.runTimers();
-  assert.strictEqual(events.length, 0, 'reports inside the suppression window must be ignored');
+  assert.strictEqual(workflow.latestIncident(), null, 'reports inside the suppression window must be ignored');
 
-  // 抑制窗口过期后恢复自动反馈
+  // 抑制窗口过期后恢复记录。
   clock += 4000;
   await browser.fetch('/api/chat/completions', { method: 'POST' });
   await flushAsyncWork();
-  assert.strictEqual(events.length, 0);
-  browser.runTimers();
-  assert.strictEqual(events.length, 1, 'reports after the suppression window must be dispatched again');
+  assert.ok(workflow.latestIncident(), 'reports after the suppression window must be recorded again');
 }
 
 function testProblemFeedbackSuppressForStopExportedAndWiredInAppStop() {

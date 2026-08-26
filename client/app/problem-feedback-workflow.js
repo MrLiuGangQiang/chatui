@@ -22,6 +22,7 @@
     let installed = false;
     let sequence = 0;
     let suppressUntil = 0;
+    let recordedIncident = null;
 
     function configure(config = {}) {
       if (typeof config.getActiveSession === 'function') getActiveSession = config.getActiveSession;
@@ -91,9 +92,10 @@
       });
       pending.push(incident);
       if (pending.length > MAX_PENDING) pending.splice(0, pending.length - MAX_PENDING);
-      schedule(() => {
-        if (pending.some(item => item.id === incident.id)) dispatch(incident);
-      }, feedbackDelayMs);
+      // The feedback form is opened by a user click, never automatically:
+      // remember the latest incident so the manual feedback entry can
+      // pre-fill the captured error and recent conversation.
+      recordedIncident = incident;
       return incident;
     }
 
@@ -133,6 +135,16 @@
       return pending.splice(0, pending.length);
     }
 
+    function latestIncident() {
+      return recordedIncident || null;
+    }
+
+    function consumeLatestIncident() {
+      const incident = recordedIncident;
+      recordedIncident = null;
+      return incident || null;
+    }
+
     function consumeReadyPending() {
       const timestamp = now();
       const ready = [];
@@ -145,6 +157,7 @@
 
     function suppressForStop(durationMs = 3000) {
       pending.splice(0, pending.length);
+      recordedIncident = null;
       suppressUntil = now() + Math.max(0, Number(durationMs) || 0);
       return api;
     }
@@ -231,6 +244,8 @@
       acknowledge,
       consumePending,
       consumeReadyPending,
+      latestIncident,
+      consumeLatestIncident,
       suppressForStop,
       isFunctionalRequest,
       shouldIgnore,

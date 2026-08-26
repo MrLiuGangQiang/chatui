@@ -227,7 +227,9 @@ function buildResponsesPayload(model, messages, options = {}) {
   }
   if (options.webSearch === true) payload.tools = [{ type: 'web_search' }];
   const toolChoice = String(options.toolChoice || '').trim();
-  if (toolChoice) payload.tool_choice = toolChoice;
+  if (toolChoice && Array.isArray(payload.tools) && payload.tools.length > 0) {
+    payload.tool_choice = toolChoice;
+  }
   // Preserve an explicit non-streaming choice on the wire. Some OpenAI-compatible
   // gateways incorrectly treat an omitted Responses `stream` field as SSE, so
   // intent and other one-shot requests must send `stream: false` explicitly.

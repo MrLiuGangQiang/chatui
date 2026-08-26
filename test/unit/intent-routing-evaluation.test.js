@@ -476,6 +476,9 @@ async function testIntentRoutingEvaluationUsesProductionToolChoiceFallback() {
     input: '保持原意',
     context: {},
   });
+  // Production route payloads no longer carry tool_choice (no tools present),
+  // but explicit tool_choice callers must still hit the retry-without fallback.
+  payload.tool_choice = 'none';
   const original = JSON.parse(JSON.stringify(payload));
 
   const text = await evaluationCli.requestRouteModel({

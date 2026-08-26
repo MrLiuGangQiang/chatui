@@ -53,10 +53,10 @@ function assertMinimalIntentResponsesPayload(payload) {
   assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, 'intent recognition must explicitly disable model thinking to stay within the intent deadline');
   assert.strictEqual(payload.temperature, undefined, 'intent recognition must not add a sampling override');
   assert.strictEqual(payload.max_output_tokens, undefined, 'intent recognition must not cap model output with a transport limit');
-  assert.strictEqual(payload.tool_choice, 'none', 'intent recognition must explicitly disable tools');
+  assert.strictEqual(Object.hasOwn(payload, 'tool_choice'), false, 'with no tools, tool_choice must be omitted (strict gateways reject tool_choice without tools)');
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false, 'the classifier request must not include tools');
   assert.deepStrictEqual(Object.keys(payload).sort(), [
-    'input', 'model', 'reasoning', 'stream', 'text', 'tool_choice',
+    'input', 'model', 'reasoning', 'stream', 'text',
   ]);
   assert.ok(payload.text?.format?.schema, 'intent recognition must retain strict structured output');
 }

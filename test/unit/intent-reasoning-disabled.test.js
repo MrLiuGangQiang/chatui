@@ -42,7 +42,7 @@ function testRouteIntentPayloadDisablesReasoning() {
   const payload = routeService.buildRoutePayload({ model: 'route-model', input: '把户型图外墙拉直' });
   assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, 'route intent must explicitly disable thinking');
   assert.strictEqual(payload.stream, false);
-  assert.strictEqual(payload.tool_choice, 'none');
+  assert.strictEqual(Object.hasOwn(payload, 'tool_choice'), false, 'with no tools, tool_choice must be omitted (strict gateways reject tool_choice without tools)');
 }
 
 function testImageInstructionPayloadDisablesReasoning() {

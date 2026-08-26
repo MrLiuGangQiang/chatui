@@ -20,7 +20,7 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
   const schema = payload.text?.format;
 
   assert.deepStrictEqual(Object.keys(payload).sort(), [
-    'input', 'model', 'reasoning', 'stream', 'text', 'tool_choice',
+    'input', 'model', 'reasoning', 'stream', 'text',
   ]);
   assert.strictEqual(payload.stream, false);
   assert.strictEqual(payload.temperature, undefined, 'do not clamp semantic routing to a sampling override');
@@ -29,7 +29,7 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
   // model's thinking phase is what pushed intent recognition past that budget
   // ("本次未执行：意图识别超时"). Routing must explicitly request no thinking.
   assert.deepStrictEqual(payload.reasoning, { effort: 'none' }, 'intent recognition must explicitly disable model thinking');
-  assert.strictEqual(payload.tool_choice, 'none');
+  assert.strictEqual(Object.hasOwn(payload, 'tool_choice'), false, 'no tools means tool_choice must be omitted (strict gateways reject tool_choice without tools)');
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false);
   assert.strictEqual(payload.input.length, 2, 'the classifier requires exactly one system instruction and one facts payload');
   assert.ok(system);

@@ -126,10 +126,10 @@ function testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics() {
     input: '使用透明背景，但不要透明背景',
   });
   assert.strictEqual(contradictoryBackground.arguments, null);
-  assert.deepStrictEqual(contradictoryBackground.conflicts[0].values, ['opaque']);
+  assert.deepStrictEqual(contradictoryBackground.conflicts[0].values, ['opaque', 'white', 'black']);
   assert.deepStrictEqual(
     capabilities.choicesForArgument('background', contradictoryBackground.conflicts[0].values).map(choice => choice.value),
-    ['opaque'],
+    ['opaque', 'white', 'black'],
     'contradictory clarification must not re-offer the explicitly excluded value',
   );
 
@@ -138,13 +138,13 @@ function testCapabilityRegistryAppliesNegationAndLongestOverlapSemantics() {
     input: '不要透明背景，也不要不透明背景',
   });
   assert.strictEqual(fullyExcludedBackground.arguments, null);
-  assert.deepStrictEqual(fullyExcludedBackground.conflicts[0].values, []);
+  assert.deepStrictEqual(fullyExcludedBackground.conflicts[0].values, ['white', 'black']);
   assert.deepStrictEqual(
-    capabilities.choicesForArgument('background', fullyExcludedBackground.conflicts[0].values),
-    [],
+    capabilities.choicesForArgument('background', fullyExcludedBackground.conflicts[0].values).map(choice => choice.value),
+    ['white', 'black'],
     'clarification must not re-offer values that the user explicitly excluded',
   );
-  assert.ok(/均被排除|没有可用/.test(capabilities.clarificationQuestion(fullyExcludedBackground)));
+  assert.ok(/请选择未被排除|没有可用/.test(capabilities.clarificationQuestion(fullyExcludedBackground)));
 }
 
 function testCapabilityRegistryNormalizesFullWidthSyntaxWithoutTurningDimensionsIntoArguments() {

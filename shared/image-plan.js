@@ -41,7 +41,7 @@
     : ['auto', 'low', 'medium', 'high', 'standard', 'hd']);
   const IMAGE_BACKGROUNDS = Object.freeze(Array.isArray(capabilityRegistry?.IMAGE_BACKGROUNDS) && capabilityRegistry.IMAGE_BACKGROUNDS.length
     ? capabilityRegistry.IMAGE_BACKGROUNDS
-    : ['auto', 'transparent', 'opaque']);
+    : ['auto', 'transparent', 'opaque', 'white', 'black']);
   const IMAGE_OUTPUT_FORMATS = Object.freeze(Array.isArray(capabilityRegistry?.IMAGE_OUTPUT_FORMATS) && capabilityRegistry.IMAGE_OUTPUT_FORMATS.length
     ? capabilityRegistry.IMAGE_OUTPUT_FORMATS
     : ['auto', 'png', 'jpeg', 'webp']);

@@ -18,7 +18,7 @@
   const IMAGE_SIZE_DEFAULT = 'auto';
   const IMAGE_SIZES = Object.freeze(['auto', '1024x1024', '1024x1536', '1536x1024']);
   const IMAGE_QUALITIES = Object.freeze(['auto', 'low', 'medium', 'high', 'standard', 'hd']);
-  const IMAGE_BACKGROUNDS = Object.freeze(['auto', 'transparent', 'opaque']);
+  const IMAGE_BACKGROUNDS = Object.freeze(['auto', 'transparent', 'opaque', 'white', 'black']);
   const IMAGE_OUTPUT_FORMATS = Object.freeze(['auto', 'png', 'jpeg', 'webp']);
 
   const IMAGE_ARGUMENTS = Object.freeze({
@@ -526,6 +526,18 @@
     return [];
   }
 
+  // transparent <-> opaque are the semantic opposites of the background
+  // argument; excluding one must resolve to the other even when white/black
+  // remain in the value domain. Other values have no implicit opposite, so a
+  // multi-value remainder stays ambiguous and needs clarification.
+  function negationOpposite(name, value) {
+    if (name !== 'background') return null;
+    const text = JSON.stringify(value);
+    if (text === JSON.stringify('transparent')) return 'opaque';
+    if (text === JSON.stringify('opaque')) return 'transparent';
+    return null;
+  }
+
   function distinctCandidateValues(items = []) {
     return [...new Set(items.map(item => JSON.stringify(item.value)))].map(value => JSON.parse(value));
   }
@@ -595,16 +607,23 @@
           evidence[name] = Object.freeze(evidenceItems);
         } else if (negativeValues.length) {
           if (allowedAfterNegation.length !== 1) {
-            conflicts.push(Object.freeze({
-              name,
-              values: Object.freeze(allowedAfterNegation),
-              excludedValues: Object.freeze(negativeValues),
-              evidence: Object.freeze(evidenceItems),
-            }));
-            continue;
+            const opposite = negationOpposite(name, negativeValues[0]);
+            if (opposite !== null && allowedAfterNegation.some(value => JSON.stringify(value) === JSON.stringify(opposite))) {
+              resolved[name] = opposite;
+              evidence[name] = Object.freeze(evidenceItems);
+            } else {
+              conflicts.push(Object.freeze({
+                name,
+                values: Object.freeze(allowedAfterNegation),
+                excludedValues: Object.freeze(negativeValues),
+                evidence: Object.freeze(evidenceItems),
+              }));
+              continue;
+            }
+          } else {
+            resolved[name] = allowedAfterNegation[0];
+            evidence[name] = Object.freeze(evidenceItems);
           }
-          resolved[name] = allowedAfterNegation[0];
-          evidence[name] = Object.freeze(evidenceItems);
         } else {
           resolved[name] = normalizedDefaults[name] ?? spec.default;
           evidence[name] = Object.freeze([]);
@@ -628,7 +647,7 @@
     const labels = {
       size: { '1024x1024': '方图 1024 × 1024', '1024x1536': '竖图 1024 × 1536', '1536x1024': '横图 1536 × 1024' },
       quality: { low: '低质量', medium: '中等质量', high: '高质量', standard: '标准质量', hd: 'HD 质量' },
-      background: { transparent: '透明背景', opaque: '不透明背景' },
+      background: { transparent: '透明背景', opaque: '不透明背景', white: '白色背景', black: '黑色背景' },
       output_format: { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' },
     };
     const registeredValues = name === 'size' ? IMAGE_SIZES

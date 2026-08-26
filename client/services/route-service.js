@@ -1126,6 +1126,21 @@
     taskContinuityFromExecution,
     renderTaskContinuity,
   });
+  // Strict gateways narrow the goal_mode enum to ['replace'] when no
+  // previous task state exists, but some OpenAI-compatible providers (e.g.
+  // Qwen) ignore the strict enum and return "amend" anyway. Amending without
+  // a base task state is meaningless: degrade to replace and keep the goal
+  // intact so the request still executes instead of failing the route.
+  function normalizeAmendWithoutBase(intent = {}, options = {}) {
+    if (stringValue(intent.goal_mode) !== 'amend') return intent;
+    const previous = options.context?.previous_execution;
+    const hasPrevious = !!previous && (
+      typeof taskContinuityFromExecution !== 'function' || !!taskContinuityFromExecution(previous)
+    );
+    if (hasPrevious) return intent;
+    return Object.freeze({ ...intent, goal_mode: 'replace' });
+  }
+
   function goalModeForIntent(intent = {}) {
     const goalMode = typeof routeIntentGoalMode === 'function'
       ? routeIntentGoalMode(intent)
@@ -1478,7 +1493,7 @@
       // protocol-defined default: inspect everything submitted in this turn. A
       // model-selected subset would silently discard uploaded images or files.
       const defaulted = emptyCurrentAttachmentSetDefault(intent, scopedOptions);
-      const effectiveIntent = reconcileModelIntent(defaulted.intent, options, candidateCatalog);
+      const effectiveIntent = normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options);
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);

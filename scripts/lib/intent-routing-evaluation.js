@@ -16,6 +16,10 @@ const VALID_RELATIONS = new Set(["new", "followup", "continuation"]);
 const VALID_TASK_SHAPES = new Set(["single", "multi"]);
 const VALID_GOAL_MODES = new Set(["replace", "amend"]);
 const IMAGE_TASK_OPERATIONS = new Set(["text_to_image", "image_reference_gen", "edit_image"]);
+const CHAT_EXECUTION_OPERATIONS = new Set([
+  "plain_chat", "file_qa", "multimodal_qa", "image_qa", "image_compare",
+  "ocr", "web_search",
+]);
 const IMAGE_TASK_AMEND_OPERATIONS = new Set(["text_to_image", "edit_image"]);
 const VALID_RESOURCE_TYPES = new Set(["image", "file", "text", "message"]);
 const VALID_RESOURCE_SOURCES = new Set(["current", "quoted", "history", "context"]);
@@ -288,6 +292,16 @@ function forbiddenConceptIsNegated(text = '', concept = '') {
   return new RegExp(negation + '.{0,36}' + escapeRegExp(normalizedConcept), 'i').test(normalizedText);
 }
 
+function executionGoalMatchesExpectation(caseDefinition = {}, actual = "") {
+  const expected = caseDefinition.expected || {};
+  const rawInput = scalar(caseDefinition.input).trim();
+  const execution = executionGoalForEvaluation(scalar(actual));
+  if (!expected.clarification?.required
+      && CHAT_EXECUTION_OPERATIONS.has(expected.operation)
+      && rawInput) return execution === rawInput;
+  return goalMatchesExpectation(expected.goal, execution);
+}
+
 function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
   const text = normalizedGoalText(actual);
   if (!text) return false;
@@ -485,9 +499,9 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
       && modelSemantics.task_shape,
     goal: validRoute
       && goalMatchesExpectation(expected.goal, compiled.goal)
-      && (expectsClarification || goalMatchesExpectation(
-        expected.goal,
-        executionGoalForEvaluation(compiled.execution_goal),
+      && (expectsClarification || executionGoalMatchesExpectation(
+        caseDefinition,
+        compiled.execution_goal,
       ))
       && modelSemantics.goal,
     goal_mode: validRoute

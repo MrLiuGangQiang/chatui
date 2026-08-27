@@ -107,7 +107,7 @@
       const policy = plan.context_policy || {};
       const messageBindings = (Array.isArray(plan.bindings) ? plan.bindings : [])
         .filter(binding => String(binding?.type) === 'message');
-      if (!messageBindings.length && policy.history === 'conversation') return list;
+      if (policy.history === 'conversation') return list;
       const expectedIds = [...new Set(messageBindings
         .map(binding => contextStringValue(binding.resource_id))
         .filter(Boolean))];

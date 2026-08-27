@@ -69,7 +69,7 @@ function testQuotedIntentContextExcludesUnrelatedSessionHistory() {
     'an unrelated session message must not influence quote intent recognition');
 }
 
-function testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage() {
+function testQuotedPlainChatKeepsRawUserInputAsProviderPrompt() {
   const { context } = quotedScenario();
   const result = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'plain_chat',
@@ -85,9 +85,9 @@ function testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage() {
 
   assert.ok(result.route, result.error || result.reason);
   assert.strictEqual(result.route.userGoal, '统计当前引用消息的字数');
-  assert.doesNotMatch(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.executionPrompt.includes('统计当前引用消息的字数'));
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, result.route.executionPrompt);
+  assert.strictEqual(result.route.executionPrompt, '这个呢');
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '这个呢');
+  // The explicit quote is still the selected context for a quoted reply.
   assert.strictEqual(result.route.dispatchContract.context_policy.history, 'bound_only');
   assert.strictEqual(result.route.dispatchContract.context_policy.quoted, true);
 }
@@ -130,7 +130,7 @@ function testQuoteAndOtherExactMessagesAreBothPreserved() {
   assert.ok(base[1].content.includes('引用内容'));
 }
 
-function testResolvedGoalIsCanonicalEvenWithoutResourceBinding() {
+function testResolvedGoalIsMetadataWithoutResourceBinding() {
   const result = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'plain_chat',
     relation: 'followup',
@@ -148,15 +148,15 @@ function testResolvedGoalIsCanonicalEvenWithoutResourceBinding() {
   });
 
   assert.ok(result.route, result.error || result.reason);
-  assert.doesNotMatch(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.executionPrompt.includes('继续说明 Java 和 Python 在性能方面的差异。'));
+  assert.strictEqual(result.route.executionPrompt, '性能方面呢');
+  assert.strictEqual(result.route.userGoal, '继续说明 Java 和 Python 在性能方面的差异。');
 }
 
 module.exports = [
   testQuotedMessageAndLatestTaskReachIntentRecognitionTogether,
   testQuotedIntentContextExcludesUnrelatedSessionHistory,
-  testResolvedGoalRewritesTheExecutionPromptForTheQuotedMessage,
-  testResolvedGoalIsCanonicalEvenWithoutResourceBinding,
+  testQuotedPlainChatKeepsRawUserInputAsProviderPrompt,
+  testResolvedGoalIsMetadataWithoutResourceBinding,
   testQuotedBindingAtAnyConversationIndexUsesExplicitQuoteProjection,
   testQuoteAndOtherExactMessagesAreBothPreserved,
 ];

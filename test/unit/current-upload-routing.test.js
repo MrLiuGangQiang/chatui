@@ -61,7 +61,7 @@ function testModelSelectedCurrentImagesAreAuthoritativeForComparison() {
     ],
   );
   assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes('比较所选两张产品图的构图与色调差异。'));
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '比较第一张和第三张产品图的构图与色调差异。');
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 
@@ -115,9 +115,11 @@ function testStartAndPenultimateOcrUsesResolvedGoalAndTwoSelectedImages() {
       ['upload-3', 3, 'source'],
     ],
   );
-  assert.doesNotMatch(result.route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.executionPrompt.includes(goal));
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, result.route.executionPrompt);
+  // OCR is a chat-family task: the provider must receive the user's literal
+  // instruction; route goal remains routing metadata.
+  assert.strictEqual(result.route.executionPrompt, input);
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, input);
+  assert.strictEqual(result.route.userGoal, goal);
 
   const pools = submitHelpers.buildExecutionResourcePools({ current: attachments }, {
     isImageFile: item => String(item?.type || '').startsWith('image/'),
@@ -150,7 +152,7 @@ function testModelOperationIsNotOverriddenByLocalIntentRules() {
   assert.strictEqual(result.route.relation, 'followup');
   assert.deepStrictEqual(result.route.resources, []);
   assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes('回答用户当前的文本问题。'));
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '提取这图里面的文字');
   assert.strictEqual(routeService.isRouteDispatchable(result.route), true);
 }
 

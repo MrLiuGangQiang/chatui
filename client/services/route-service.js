@@ -1200,6 +1200,10 @@
     const operation = stringValue(intent.operation);
     const goal = stringValue(intent.goal);
     if (!goal) return input;
+    // Chat-family providers receive the user's literal instruction. The route
+    // goal is routing metadata only; it must never rewrite a text question or
+    // drop exact wording before the final model sees the conversation.
+    if (capabilityFor(operation)?.api === 'chat') return input || goal;
     if (operation === 'text_to_image') {
       const state = taskState || imageTaskContinuityForIntent(intent, options);
       return renderTaskContinuity(state);

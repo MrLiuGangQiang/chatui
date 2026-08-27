@@ -44,7 +44,7 @@ function testTextToImageParametersComeOnlyFromTheRawUserTurn() {
   assert.strictEqual(route.dispatchContract.arguments.prompt, '画一位中国美女和一位俄罗斯美女。');
 }
 
-function testConversationDependentTextTaskPreservesRawUserInputAlongsideResolvedGoal() {
+function testConversationDependentTextTaskKeepsRawUserInputAsProviderPrompt() {
   const input = '这个方面呢';
   const goal = '继续说明上一轮主题在性能方面的差异。';
   const route = inspect({
@@ -55,12 +55,14 @@ function testConversationDependentTextTaskPreservesRawUserInputAlongsideResolved
   }, input, {
     context: { recent_messages: [{ index: 1, role: 'assistant', content: '上一轮回答' }] },
   });
-  assert.doesNotMatch(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(route.executionPrompt.includes(goal));
-  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
+  // The final chat model must receive the user's literal follow-up. The route
+  // goal remains routing metadata and must never replace or paraphrase it.
+  assert.strictEqual(route.executionPrompt, input);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, input);
+  assert.strictEqual(route.userGoal, goal);
 }
 
-function testResourceBoundRouteDoesNotDiscardLongCurrentRequirementsForRouteGoal() {
+function testResourceBoundChatKeepsRawUserInputAsProviderPrompt() {
   const requiredTail = `不得改动品牌名称、联系人、预算上限和上线日期：${'约束'.repeat(1400)}`;
   const input = `请分析这个合同，并重点核对违约责任。${requiredTail}`;
   const goal = '分析所选合同中的违约责任。';
@@ -76,12 +78,11 @@ function testResourceBoundRouteDoesNotDiscardLongCurrentRequirementsForRouteGoal
       file_candidates: [{ index: 1, source: 'current', file_id: 'contract', name: 'contract.pdf', has_extracted_text: true }],
     },
   });
-  assert.ok(route.executionPrompt.includes(requiredTail), 'the final provider prompt must retain requirements beyond route goal capacity');
-  assert.ok(route.executionPrompt.includes(goal));
-  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
+  assert.strictEqual(route.executionPrompt, input);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, input);
+  assert.strictEqual(route.userGoal, goal);
 }
-
-function testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal() {
+function testResourceResolvedChatKeepsRawUserInputAsProviderPrompt() {
   const input = '这是什么';
   const goal = '概述所选合同文件的主要条款。';
   const route = inspect({
@@ -96,11 +97,10 @@ function testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal() {
       file_candidates: [{ index: 1, source: 'current', file_id: 'contract', name: 'contract.pdf', has_extracted_text: true }],
     },
   });
-  assert.doesNotMatch(route.executionPrompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(route.executionPrompt.includes(goal));
-  assert.strictEqual(route.dispatchContract.arguments.prompt, route.executionPrompt);
+  assert.strictEqual(route.executionPrompt, input);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, input);
+  assert.strictEqual(route.userGoal, goal);
 }
-
 function testRoutePromptForbidsInventingUnrequestedCreativeDetails() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /只消解指代[^。\n]*合并明确约束/);
@@ -167,9 +167,9 @@ function testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation() {
 module.exports = [
   testStandaloneNewTextTaskExecutesTheRawUserInput,
   testTextToImageParametersComeOnlyFromTheRawUserTurn,
-  testConversationDependentTextTaskPreservesRawUserInputAlongsideResolvedGoal,
-  testResourceBoundRouteDoesNotDiscardLongCurrentRequirementsForRouteGoal,
-  testResourceResolvedTaskPreservesRawInputAlongsideResolvedGoal,
+  testConversationDependentTextTaskKeepsRawUserInputAsProviderPrompt,
+  testResourceBoundChatKeepsRawUserInputAsProviderPrompt,
+  testResourceResolvedChatKeepsRawUserInputAsProviderPrompt,
   testReadOnlyMultiImageShapeRequiresClarificationWithoutRewritingTheModelOutput,
   testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation,
   testRoutePromptForbidsInventingUnrequestedCreativeDetails,

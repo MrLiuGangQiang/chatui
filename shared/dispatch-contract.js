@@ -161,7 +161,10 @@
       .filter(binding => binding.type === 'message' && binding.resource_id)
       .map(binding => binding.resource_id);
     let history = 'none';
-    if (messageResourceIds.length || sources.has('history') || sources.has('context')) history = 'bound_only';
+    // Conversation history is a deterministic execution policy, not a routing
+    // decision: only an explicit user quote selects a narrow context, a new
+    // task drops history, and every other follow-up keeps the full window.
+    if (sources.has('quoted')) history = 'bound_only';
     else if (relation !== 'new') history = 'conversation';
     return {
       history,

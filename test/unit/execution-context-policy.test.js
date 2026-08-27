@@ -49,7 +49,7 @@ function testConversationPolicyAllowsOrdinaryHistoryButNotImplicitQuote() {
   );
 }
 
-function testBoundOnlyRequiresExactlyThePlannedMessageCount() {
+function testPlainChatMessageHintKeepsConversationHistory() {
   const contract = makeExecutionFixture({
     prompt: 'summarize this message',
     operation: 'plain_chat',
@@ -58,20 +58,19 @@ function testBoundOnlyRequiresExactlyThePlannedMessageCount() {
   });
   const plan = contract.dispatchContract;
   const evidence = dispatchContract.bindingEvidenceFromMedia(contract.executionResources);
-  assert.strictEqual(plan.context_policy.history, 'bound_only');
+  // A plain-chat message hint is only an optional routing hint. The final
+  // request must keep the full conversation window unless the user quoted
+  // a message or the intent is explicitly new.
+  assert.strictEqual(plan.context_policy.history, 'conversation');
   assert.deepStrictEqual(plan.context_policy.message_resource_ids, ['res:message:msg-1']);
-  assert.strictEqual(assertContext(plan, payload(plan, [{ role: 'user', content: 'selected message' }]), evidence), true);
-  assert.throws(
-    () => assertContext(plan, payload(plan), evidence),
-    error => error?.code === 'EXECUTION_CONTEXT_BOUND_HISTORY_MISMATCH',
-  );
-  assert.throws(
-    () => assertContext(plan, payload(plan, [
-      { role: 'user', content: 'selected message' },
-      { role: 'assistant', content: 'unbound extra' },
-    ]), evidence),
-    error => error?.code === 'EXECUTION_CONTEXT_BOUND_HISTORY_MISMATCH',
-  );
+  assert.strictEqual(assertContext(plan, payload(plan, [
+    { role: 'user', content: 'earlier question' },
+    { role: 'assistant', content: 'earlier answer' },
+    { role: 'user', content: 'selected message' },
+  ]), evidence), true);
+  assert.strictEqual(assertContext(plan, payload(plan, [
+    { role: 'user', content: 'selected message' },
+  ]), evidence), true);
 }
 
 function testQuotedContextMustBeExplicitlyAuthorizedAndCarryOnlyCurrentQuote() {
@@ -106,7 +105,7 @@ function testQuotedContextMustBeExplicitlyAuthorizedAndCarryOnlyCurrentQuote() {
   );
 }
 
-function testClientContextProjectionFailsClosedAndDoesNotSerializeDispatchContract() {
+function testPlainChatContextProjectionKeepsFullWindowAndDoesNotSerializeDispatchContract() {
   const contract = makeExecutionFixture({
     prompt: 'summarize this message',
     operation: 'plain_chat',
@@ -116,10 +115,9 @@ function testClientContextProjectionFailsClosedAndDoesNotSerializeDispatchContra
   const workflow = chatWorkflow.createChatWorkflow({ state: {} });
   const selected = { id: 'msg-1', role: 'user', content: 'selected' };
   const extra = { id: 'msg-2', role: 'assistant', content: 'extra' };
-  assert.deepStrictEqual(workflow.applyExecutionContextPolicy([selected, extra], { dispatchContract: contract.dispatchContract }), [selected]);
-  assert.throws(
-    () => workflow.applyExecutionContextPolicy([extra], { dispatchContract: contract.dispatchContract }),
-    error => error?.code === 'EXECUTION_CONTEXT_BINDING_MISSING',
+  assert.deepStrictEqual(
+    workflow.applyExecutionContextPolicy([selected, extra], { dispatchContract: contract.dispatchContract }),
+    [selected, extra],
   );
 
   const composed = workflow.composeSystemPrompt(
@@ -170,9 +168,9 @@ function testQuotedMessageProjectionPreservesPendingSubmitBindingIdentity() {
 module.exports = [
   testHistoryNoneRejectsUnplannedConversationAndControlFields,
   testConversationPolicyAllowsOrdinaryHistoryButNotImplicitQuote,
-  testBoundOnlyRequiresExactlyThePlannedMessageCount,
+  testPlainChatMessageHintKeepsConversationHistory,
   testQuotedContextMustBeExplicitlyAuthorizedAndCarryOnlyCurrentQuote,
-  testClientContextProjectionFailsClosedAndDoesNotSerializeDispatchContract,
+  testPlainChatContextProjectionKeepsFullWindowAndDoesNotSerializeDispatchContract,
   testQuotedMessageProjectionPreservesPendingSubmitBindingIdentity,
 ];
 

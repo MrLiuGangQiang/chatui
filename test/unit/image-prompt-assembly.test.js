@@ -122,7 +122,7 @@ function testUnknownMessageCandidateFailsClosed() {
   assert.strictEqual(route.dispatchContract, null);
 }
 
-function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
+function testChatOperationWithMessageRefKeepsRawUserInput() {
   const goal = '将所选历史描述改写得更简洁。';
   const result = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'plain_chat',
@@ -136,8 +136,8 @@ function testChatOperationWithMessageRefAlsoUsesResolvedGoal() {
     context: baseContext,
   });
   assert.ok(result.route, result.error || result.reason);
-  assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.ok(result.route.dispatchContract.arguments.prompt.includes(goal));
+  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '简洁一点');
+  assert.strictEqual(result.route.userGoal, goal);
   assert.deepStrictEqual(result.route.executionResources.messages.map(resource => resource.id), ['message-1']);
 }
 
@@ -166,7 +166,7 @@ module.exports = [
   testOmittedHistoricalReferenceIsNotRecoveredLocally,
   testMultipleModelSelectedMessagesAreProjectedWithoutLocalChoiceLogic,
   testUnknownMessageCandidateFailsClosed,
-  testChatOperationWithMessageRefAlsoUsesResolvedGoal,
+  testChatOperationWithMessageRefKeepsRawUserInput,
   testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs,
   testStructuredReferenceSchemaIsStrictProviderCompatible,
 ];

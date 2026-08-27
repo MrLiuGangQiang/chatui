@@ -733,7 +733,7 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 ### RTE-018 `new/followup/continuation` 与上下文策略｜P0
 - **前置条件**：M1、M6 可用；会话已有至少三轮带唯一标记的历史。
 - **输入 / 操作**：依次新建独立任务 `计算 17+26，不参考前文`；对已有比较回答追问 `性能方面呢？`；发送纠正 `不是 Python，我指 Java`；在长回答中发送 `继续`；最后引用最早一条消息问 `这个消息多少字？`。
-- **应该输出**：关系分别合理归入 `new`、`followup`、`followup`、`continuation`；纠正是 follow-up 语义，不创造协议外 relation。独立新任务使用 `history:none`，连续追问使用受控会话历史，精确引用使用 `bound_only` 或等价的精确消息选择；正常和引用 override 使用同一个 `route_context_policy.v1`，超限时按完整旧轮次淘汰且不出现 `[历史摘要]`；当前输入和精确引用不得被截断，受保护内容本身超窗时在 provider 请求前明确失败。
+- **应该输出**：关系分别合理归入 `new`、`followup`、`followup`、`continuation`；纠正是 follow-up 语义，不创造协议外 relation。独立新任务使用 `history:none`，连续追问使用窗口内完整会话历史，只有用户显式引用才使用 `bound_only`；路由模型的消息引用不缩小最终聊天历史；正常和引用 override 使用同一个 `route_context_policy.v1`，超限时按完整旧轮次淘汰且不出现 `[历史摘要]`；当前输入和精确引用不得被截断，受保护内容本身超窗时在 provider 请求前明确失败。
 - **评判依据**：实际结果须与“应该输出”逐项一致；以 route relation、dispatch `context_policy`、最终 messages/input 顺序和模型回答中的固定标记为判定证据。
 
 ### RTE-019 当前上传优先与独立新图不继承旧图｜P0

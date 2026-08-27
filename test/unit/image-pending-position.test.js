@@ -295,7 +295,7 @@ function testCanonicalWaitingPositionBundleIsCacheBusted() {
   const index = require('fs').readFileSync(require('path').join(__dirname, '../../index.html'), 'utf8');
   for (const asset of [
     'client/app/session-display.js?v=2.1.14-canonical-sequence-repair',
-    'client/app/chat-workflow.js?v=1.6.3-stable-turn-identity',
+    'client/app/chat-workflow.js?v=1.6.4-full-context-history',
     'client/app/image-workflow.js?v=1.6.7-stable-turn-identity',
     'client/app/message-workflow.js?v=1.3.44-stable-turn-identity',
     'app.js?v=2.3.15-welcome-note',

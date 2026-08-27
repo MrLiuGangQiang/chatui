@@ -2,6 +2,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const routeService = require('../../client/services/route-service');
 const submitHelpers = require('../../client/app/submit-workflow.helpers');
 const chatWorkflow = require('../../client/app/chat-workflow');
@@ -39,26 +41,48 @@ function compileIntent({ relation = 'followup', refs = [], goal = '处理当前�
   return result.route;
 }
 
-function testExactSingleMessageUsesBoundOnlyHistory() {
+function testPlainChatMessageHintKeepsFullConversationHistory() {
   const route = compileIntent({ refs: ['m2'] });
-  assert.strictEqual(route.dispatchContract.context_policy.history, 'bound_only');
+  // A route-selected message is only a routing hint. Plain chat must keep the
+  // full conversation window unless the user explicitly quoted one message.
+  assert.strictEqual(route.dispatchContract.context_policy.history, 'conversation');
   assert.deepStrictEqual(route.dispatchContract.context_policy.message_resource_ids, ['res:message:message-2']);
+
+  const workflow = chatWorkflow.createChatWorkflow({ state: {} });
+  const projected = workflow.applyExecutionContextPolicy(sessionMessages, {
+    dispatchContract: route.dispatchContract,
+  });
+  assert.deepStrictEqual(projected.map(item => item.content), [
+    '第一条上下文',
+    '第二条上下文',
+    '第三条上下文',
+  ]);
 
   const projection = submitHelpers.projectRouteMessageContext(route, sessionMessages);
   assert.ok(projection);
   assert.deepStrictEqual(projection.messages.map(item => item.content), ['第二条上下文']);
 }
 
-function testExactMultipleMessagesKeepConversationOrder() {
+function testPlainChatMultipleMessageHintsKeepConversationHistory() {
   const route = compileIntent({ refs: ['m3', 'm1'] });
-  assert.strictEqual(route.dispatchContract.context_policy.history, 'bound_only');
+  assert.strictEqual(route.dispatchContract.context_policy.history, 'conversation');
+
+  const workflow = chatWorkflow.createChatWorkflow({ state: {} });
+  const projected = workflow.applyExecutionContextPolicy(sessionMessages, {
+    dispatchContract: route.dispatchContract,
+  });
+  assert.deepStrictEqual(projected.map(item => item.content), [
+    '第一条上下文',
+    '第二条上下文',
+    '第三条上下文',
+  ]);
 
   const projection = submitHelpers.projectRouteMessageContext(route, sessionMessages);
   assert.ok(projection);
   assert.deepStrictEqual(
     projection.messages.map(item => item.content),
     ['第一条上下文', '第三条上下文'],
-    'selected messages must be sent in original conversation order rather than model selection order',
+    'the projection remains available as resource evidence without narrowing outbound history',
   );
 }
 
@@ -163,12 +187,27 @@ function testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary() {
   assert.ok(text.includes('较新用户') && text.includes('较新回答') && text.includes('当前问题'));
 }
 
+function testSubmitWorkflowKeepsFullHistoryWhenRouteHintsMessagesWithoutQuote() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  assert.match(
+    source,
+    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*routeMessageProjection\?\.usesExplicitQuote/,
+    'submit workflow must use message projection only for an explicit quote'
+  );
+  assert.doesNotMatch(
+    source,
+    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*routeMessageProjection\?\.messages/,
+    'route-selected messages must not narrow ordinary chat history'
+  );
+}
+
 module.exports = [
-  testExactSingleMessageUsesBoundOnlyHistory,
-  testExactMultipleMessagesKeepConversationOrder,
+  testPlainChatMessageHintKeepsFullConversationHistory,
+  testPlainChatMultipleMessageHintsKeepConversationHistory,
   testRouteProjectionAcceptsDurableMessageIdWhenDisplayIdDiffers,
   testRouteProjectionStillRejectsAnAbsentBoundMessage,
   testExplicitNewTaskDropsConversationHistory,
   testUncertainFollowupKeepsConversationHistory,
   testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary,
+  testSubmitWorkflowKeepsFullHistoryWhenRouteHintsMessagesWithoutQuote,
 ];

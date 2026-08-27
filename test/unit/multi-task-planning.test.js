@@ -146,6 +146,28 @@ function testCompileMultiTaskPlanBuildsIndependentExecutableRoutes() {
 
 
 
+function testTaskSelectionUsesModelSelectedGoalAsProviderPrompt() {
+  const input = '3';
+  const context = {
+    recent_messages: [],
+    image_candidates: [],
+    file_candidates: [],
+    multi_task_plan: {
+      schema_version: 'multi_task_plan.v1',
+      tasks: [
+        { key: 't3', operation: 'plain_chat', description: '讲一个笑话', goal: '讲一个笑话', resource_refs: [] },
+      ],
+    },
+  };
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat', relation: 'new', goal: '讲一个笑话', goal_mode: 'replace',
+    task_shape: 'single', resource_refs: [],
+  }), { input, attachments: [], context, currentMode: 'chat', autoMode: true });
+  assert.strictEqual(inspected.route.dispatchContract.arguments.prompt, '讲一个笑话',
+    'a multi-task selection must execute the model-selected task goal, not the raw selector');
+  assert.notStrictEqual(inspected.route.dispatchContract.arguments.prompt, input);
+}
+
 function testClarificationContextCarriesMultiTaskPlanForModelSelection() {
   const clarificationAnswer = require('../../shared/clarification-answer');
   const pending = clarificationAnswer.createPendingClarification({
@@ -239,4 +261,5 @@ module.exports = [
   testRoutePromptDeclaresModelPoweredTaskSelection,
   testClarificationWireContextRetainsMultiTaskPlan,
   testTaskSelectionStripsOriginalEvidenceAndExposesPlan,
+  testTaskSelectionUsesModelSelectedGoalAsProviderPrompt,
 ];

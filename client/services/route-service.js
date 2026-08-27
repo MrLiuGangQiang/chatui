@@ -1330,7 +1330,14 @@
     // Chat-family providers receive the user's literal instruction. The route
     // goal is routing metadata only; it must never rewrite a text question or
     // drop exact wording before the final model sees the conversation.
-    if (capabilityFor(operation)?.api === 'chat') return input || goal;
+    if (capabilityFor(operation)?.api === 'chat') {
+      // A multi-task clarification answer uses the raw input only as a task
+      // selector ("3"); the model-selected task goal is the real instruction
+      // and must be the provider prompt. Otherwise keep the raw input verbatim.
+      const plan = options.context?.multi_task_plan || options.context?.clarification_context?.multi_task_plan;
+      if (plan && Array.isArray(plan.tasks) && plan.tasks.length) return goal || input;
+      return input || goal;
+    }
     if (operation === 'text_to_image') {
       const state = taskState || imageTaskContinuityForIntent(intent, options);
       return renderTaskContinuity(state);

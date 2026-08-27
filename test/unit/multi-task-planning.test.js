@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
+const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
 const routePrompts = require('../../client/services/route-prompts');
 
 function multiRoute() {
@@ -62,6 +63,55 @@ function testCompiledMultiRouteExposesMultiTaskFlag() {
   assert.strictEqual(routeService.shouldRequestMultiTaskPlan(inspected.route), true);
 }
 
+async function testWorkflowInvokesMultiTaskPlannerAndListsTasks() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  const input = '读完这个文件之后再画一只狗 画完之后再讲一个笑话';
+  const attachments = [{
+    index: 1, source_index: 1, media_index: 1, id: 'file-current', file_id: 'file-current',
+    name: 'plan.md', type: 'text/markdown', is_image: false, has_extracted_text: true,
+  }];
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'route-secret', routeModel: 'route-model', chatModel: 'route-model' }),
+    getSessionRouteModel: () => 'route-model',
+    getSessionChatModel: () => 'route-model',
+    requestJson: async () => {
+      calls.push(true);
+      if (calls.length >= 2) {
+        return { output_text: JSON.stringify({
+          schema_version: 'multi_task_plan.v1',
+          tasks: [
+            { key: 't1', operation: 'file_qa', description: '分析引言.docx', goal: '分析引言.docx的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
+            { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
+            { key: 't3', operation: 'plain_chat', description: '讲一个笑话', goal: '讲一个笑话', resource_refs: [] },
+          ],
+        }) };
+      }
+      return { output_text: JSON.stringify({
+        operation: 'file_qa', relation: 'new', goal: input, goal_mode: 'replace',
+        task_shape: 'multi', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
+      }) };
+    },
+  });
+  try {
+    const route = await workflow.getEffectiveRoute(input, attachments, 'session-1');
+    assert.strictEqual(calls.length, 2, 'the workflow must run intent recognition and then the multi-task planner');
+    assert.strictEqual(route.needClarification, true);
+    assert.ok(Array.isArray(route.multiTaskPlanCompiled));
+    assert.strictEqual(route.multiTaskPlanCompiled.length, 3);
+    assert.match(route.clarificationQuestion, /识别到 3 个独立任务/);
+    assert.match(route.clarificationQuestion, /1\. 分析引言\.docx/);
+    assert.match(route.clarificationQuestion, /2\. 画一只狗/);
+    assert.match(route.clarificationQuestion, /3\. 讲一个笑话/);
+    assert.strictEqual(route.multiTaskPlanCompiled[1].route.operationType, 'text_to_image');
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
 function testMultiTaskPlanPromptAndInspect() {
   assert.ok(routePrompts.createRoutePromptSet().MULTI_TASK_PLAN_SYSTEM_PROMPT.includes('multi_task_plan.v1'),
     'the planner prompt must be available');
@@ -112,6 +162,7 @@ module.exports = [
   testShouldRequestMultiTaskPlanOnlyForNonImageMulti,
   testCompiledMultiRouteExposesMultiTaskFlag,
   testMultiTaskPlanPromptAndInspect,
+  testWorkflowInvokesMultiTaskPlannerAndListsTasks,
   testCompileMultiTaskPlanBuildsIndependentExecutableRoutes,
   testSelectMultiTaskPlanChoiceByNumberOrDescription,
 ];

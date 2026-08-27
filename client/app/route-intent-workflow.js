@@ -607,9 +607,6 @@
         // “按方案A/照你说的/上述内容”.
         async function finalizeRoute(route, source = '') {
           const materializedRoute = await materializeImageInstruction(route, source);
-          if (!materializedRoute || materializedRoute.needClarification) {
-            return completeRoute(materializedRoute, source);
-          }
           if (typeof routeSvc.shouldRequestMultiTaskPlan === 'function' && routeSvc.shouldRequestMultiTaskPlan(materializedRoute)) {
             emitStage('planning_multi_tasks', { modelRole: 'primary' });
             const goal = String(materializedRoute.userGoal || input || '').trim();
@@ -662,6 +659,9 @@
             }
           }
 
+          if (!materializedRoute || materializedRoute.needClarification) {
+            return completeRoute(materializedRoute, source);
+          }
           if (typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
             return completeRoute(materializedRoute, source);
           }

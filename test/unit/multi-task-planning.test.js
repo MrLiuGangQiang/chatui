@@ -169,6 +169,28 @@ function testClarificationContextCarriesMultiTaskPlanForModelSelection() {
   });
 }
 
+function testClarificationWireContextRetainsMultiTaskPlan() {
+  const clarificationAnswer = require('../../shared/clarification-answer');
+  const pending = clarificationAnswer.createPendingClarification({
+    messages: [],
+    clarificationText: '请回复要执行的编号',
+    routeInfo: {
+      multiTaskPlan: {
+        schema_version: 'multi_task_plan.v1',
+        tasks: [
+          { key: 't1', operation: 'file_qa', description: '总结文件', goal: '总结文件', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
+          { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
+        ],
+      },
+    },
+  });
+  const context = clarificationAnswer.buildClarificationRouteContext({ baseContext: {}, pending });
+  const wire = routeService.compactWireRouteContext(context, '做任务2', []);
+  assert.ok(wire.clarification_context.multi_task_plan, 'the task list must reach intent recognition');
+  assert.strictEqual(wire.clarification_context.multi_task_plan.tasks.length, 2);
+  assert.strictEqual(wire.clarification_context.multi_task_plan.tasks[1].description, '画一只狗');
+}
+
 function testRoutePromptDeclaresModelPoweredTaskSelection() {
   const routePrompts = require('../../client/services/route-prompts');
   const prompt = routePrompts.createRoutePromptSet().ROUTE_SYSTEM_PROMPT;
@@ -185,4 +207,5 @@ module.exports = [
   testCompileMultiTaskPlanBuildsIndependentExecutableRoutes,
   testClarificationContextCarriesMultiTaskPlanForModelSelection,
   testRoutePromptDeclaresModelPoweredTaskSelection,
+  testClarificationWireContextRetainsMultiTaskPlan,
 ];

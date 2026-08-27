@@ -509,8 +509,12 @@
     const unresolved = Array.isArray(value.unresolved_resources)
       ? value.unresolved_resources.slice(0, 4).map(compactWireClarificationSlot)
       : [];
+    const plan = value.multi_task_plan && typeof value.multi_task_plan === 'object'
+      ? Array.isArray(value.multi_task_plan.tasks) ? value.multi_task_plan.tasks : []
+      : [];
     return compactWireOptional({
       base_task: compactWireLabel(value.base_task || value?.pending_task?.base_input, 480),
+
       operation: compactWireLabel(value.operation, 48),
       relation: compactWireLabel(value.relation, 32),
       unresolved_resources: unresolved,
@@ -521,8 +525,24 @@
       established_resources: compactWireClarificationResources(value.established_resources),
       selected_resources: compactWireClarificationResources(value.selected_resources),
       answer_complete: value.answer_complete === true,
+      multi_task_plan: plan.length
+        ? {
+            schema_version: String(value.multi_task_plan.schema_version || 'multi_task_plan.v1'),
+            tasks: plan.slice(0, 8).map((task, index) => ({
+              index: index + 1,
+              key: compactWireLabel(task.key, 16),
+              operation: compactWireLabel(task.operation, 32),
+              description: compactWireLabel(task.description, 120),
+              goal: compactWireLabel(task.goal, 400),
+              resource_refs: Array.isArray(task.resource_refs)
+                ? task.resource_refs.slice(0, 8).map(ref => ({ candidate_key: compactWireLabel(ref.candidate_key, 16), role: compactWireLabel(ref.role, 32) }))
+                : [],
+            })),
+          }
+        : undefined,
     });
   }
+
 
   function clarificationResourceFacts(value = {}) {
     const clarification = value?.clarification_context && typeof value.clarification_context === 'object'

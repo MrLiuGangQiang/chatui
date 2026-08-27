@@ -144,6 +144,19 @@ function testCompileMultiTaskPlanBuildsIndependentExecutableRoutes() {
   assert.strictEqual(compiled.items[1].route.readiness, 'ready');
 }
 
+function testSelectMultiTaskPlanChoiceByNaturalLanguage() {
+  const items = [
+    { task: { key: 't1', description: '总结文件内容' }, route: { operationType: 'file_qa' } },
+    { task: { key: 't2', description: '画一只狗' }, route: { operationType: 'text_to_image' } },
+    { task: { key: 't3', description: '讲一个笑话' }, route: { operationType: 'plain_chat' } },
+  ];
+  for (const text of ['2', '做任务2', '任务2', '第2个任务', '选2号', '执行第2项']) {
+    assert.strictEqual(routeService.selectMultiTaskPlanChoice(items, text).operationType, 'text_to_image',
+      `task selector must map ${text} to task 2`);
+  }
+  assert.strictEqual(routeService.selectMultiTaskPlanChoice(items, '做任务3').operationType, 'plain_chat');
+}
+
 function testSelectMultiTaskPlanChoiceByNumberOrDescription() {
   const compiled = routeService.compileMultiTaskPlan(plan(), {
     attachments: [{
@@ -165,4 +178,5 @@ module.exports = [
   testWorkflowInvokesMultiTaskPlannerAndListsTasks,
   testCompileMultiTaskPlanBuildsIndependentExecutableRoutes,
   testSelectMultiTaskPlanChoiceByNumberOrDescription,
+  testSelectMultiTaskPlanChoiceByNaturalLanguage,
 ];

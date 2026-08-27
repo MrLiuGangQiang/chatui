@@ -424,6 +424,41 @@
       };
     }
 
+    // Historical image candidates are direct route evidence only when the
+    // current turn is actually about images. A text-only conversation must
+    // not keep stale generated images at the top of the catalog: an
+    // ambiguous anaphoric follow-up ("哪个效果最好") must resolve to the
+    // recent text topic, not to an old image batch. Explicit image
+    // vocabulary, a recent image result, an image focus, or current/quoted
+    // images keep the candidates published.
+    const EXPLICIT_IMAGE_REFERENCE_PATTERN = /图|图片|照片|画|生成|编辑|修改|改|换|调|修|加|去|删|变|第\s*[0-9一二两三四五六七八九十百千万]+\s*(?:张|幅|个|次)|哪张|这张|那张|这些图|那些图|image|photo/i;
+    // After a long text-only topic, old generated images are no longer the
+    // subject of an ambiguous follow-up. Only a recent image result (within a
+    // few turns) remains a legitimate visual target without explicit wording.
+    const STALE_IMAGE_TURN_GAP = 4;
+
+    function historicalImageCandidatesRelevant(context = {}, input = '') {
+      const focusKind = String(context?.conversation_focus?.kind || '').trim();
+      if (focusKind === 'image') return true;
+      if (focusKind !== 'text') return true;
+      const text = String(input || '').trim();
+      if (!text) return true;
+      if (EXPLICIT_IMAGE_REFERENCE_PATTERN.test(text)) return true;
+      const candidates = Array.isArray(context?.image_candidates) ? context.image_candidates : [];
+      if (candidates.some(candidate => ['current', 'quoted'].includes(candidate?.source))) return true;
+      let latestHistoryIndex = 0;
+      for (const message of Array.isArray(context?.recent_messages) ? context.recent_messages : []) {
+        const index = Number(message?.index);
+        if (Number.isInteger(index) && index > latestHistoryIndex) latestHistoryIndex = index;
+      }
+      let latestImageIndex = 0;
+      for (const candidate of candidates) {
+        const index = Number(candidate?.message_index);
+        if (Number.isInteger(index) && index > latestImageIndex) latestImageIndex = index;
+      }
+      return latestHistoryIndex - latestImageIndex <= STALE_IMAGE_TURN_GAP;
+    }
+
     function buildResourceCandidates(attachments = [], context = {}, input = '', options = {}) {
       const candidates = [];
       const byIdentityAndSource = new Map();
@@ -462,7 +497,10 @@
         });
       });
 
-      (Array.isArray(context?.image_candidates) ? context.image_candidates : []).forEach((item, index) => {
+      const directImageCandidates = historicalImageCandidatesRelevant(context, input)
+        ? (Array.isArray(context?.image_candidates) ? context.image_candidates : [])
+        : [];
+      directImageCandidates.forEach((item, index) => {
         add('image', item, { source: normalizedSource(item?.source, 'history'), index: index + 1 });
       });
       const includeAllImageMemoryCards = options?.includeAllImageMemoryCards === true;

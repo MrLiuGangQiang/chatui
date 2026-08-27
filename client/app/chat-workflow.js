@@ -363,7 +363,7 @@
         // Conversation execution follows strict oldest-first eviction. The
         // intent layer decides whether history is none, exact, or conversational;
         // the budget layer must not synthesize a replacement summary.
-        summarizeOmitted: false,
+        summarizeOmitted: config?.context?.summarizeOmitted === true,
       });
       if (result?.requiredOverflow) {
         const error = new RangeError('当前请求及已绑定上下文超出模型上下文窗口，未发送请求。请缩短当前内容或减少所选上下文后重试');

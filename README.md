@@ -939,6 +939,7 @@ GET, POST
 | `CHATUI_REQUEST_TRACE_ROTATIONS` | `3` | 保留的历史轮转文件数量。 |
 | `CHATUI_REQUEST_TRACE_TEXT` | `1` | 追踪启用后是否保留脱敏且限长的用户输入与模型输出。设为 `0` 时只记录长度和结构摘要。系统提示词和 reasoning 正文始终不落盘。 |
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时优先裁剪最早历史且不自动插入摘要，只影响发给模型的 payload，不删除本地会话记录；当前消息和精确绑定消息若仍超限则拒绝发送 |
+| `CHATUI_CONTEXT_SUMMARIZE_OMITTED` | `0` | 设为 `1` 时，超出上下文预算的最早历史会折叠成有界的 `[自动上下文摘要]` 系统提示（而不是直接丢弃），仅影响发给模型的 payload，不修改本地会话记录 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
 | `CHATUI_PRINCIPAL_SECRET` | 每个服务进程随机生成 | 匿名 principal Cookie 的 HMAC 密钥；显式配置时至少 32 bytes。不要提交、记录或暴露该值。当前 JobStore 为进程内存，单实例无需持久化；多实例只有在共享同一密钥并配合粘性会话/一致 Job 存储时才有意义。 |
 | `CHATUI_TENANT_ID` | `default` | 部署级 tenant 边界，会参与 Cookie 签名和 Job owner 派生；不是客户端可声明的用户/租户字段。不同安全域应使用不同值。 |

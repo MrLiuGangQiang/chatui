@@ -187,6 +187,35 @@ function testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary() {
   assert.ok(text.includes('较新用户') && text.includes('较新回答') && text.includes('当前问题'));
 }
 
+function testOutboundBudgetSummarizesOmittedHistoryWhenEnabled() {
+  let receivedOptions = null;
+  const workflow = chatWorkflow.createChatWorkflow({
+    state: {},
+    applyContextBudget(messages, options) {
+      receivedOptions = options;
+      return contextBudget.applyContextBudget(messages, { ...options, inputBudgetTokens: 70 });
+    },
+  });
+  const outbound = [
+    { role: 'system', content: '系统' },
+    { role: 'user', content: '最早用户' + '早'.repeat(30) },
+    { role: 'assistant', content: '最早回答' + '早'.repeat(30) },
+    { role: 'user', content: '较新用户 ' + '新'.repeat(12) },
+    { role: 'assistant', content: '较新回答 ' + '近'.repeat(12) },
+    { role: 'user', content: '当前问题' },
+  ];
+
+  const result = workflow.applyOutboundContextBudget(outbound, {
+    context: { windowTokens: 4096, summarizeOmitted: true },
+  });
+  const text = result.map(item => String(item.content || '')).join('\n');
+  assert.strictEqual(receivedOptions.summarizeOmitted, true);
+  assert.ok(text.includes('[自动上下文摘要]'), 'enabled compaction must insert a bounded summary instead of silently dropping the oldest turns');
+  assert.ok(!result.some(item => item.role === 'user' && String(item.content || '').startsWith('最早用户')), 'the omitted original oldest user turn must be compacted');
+  assert.deepStrictEqual(result.filter(item => item.role === 'user').map(item => item.content), ['当前问题'],
+    'only the current user question may remain as a user turn under an extreme budget');
+}
+
 function testSubmitWorkflowKeepsFullHistoryWhenRouteHintsMessagesWithoutQuote() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.match(
@@ -209,5 +238,6 @@ module.exports = [
   testExplicitNewTaskDropsConversationHistory,
   testUncertainFollowupKeepsConversationHistory,
   testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary,
+  testOutboundBudgetSummarizesOmittedHistoryWhenEnabled,
   testSubmitWorkflowKeepsFullHistoryWhenRouteHintsMessagesWithoutQuote,
 ];

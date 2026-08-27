@@ -12,11 +12,12 @@ const ALLOWED_PROXY_METHODS = new Set(['GET', 'POST']);
 const ALLOWED_PROXY_PATHS = [/^\/models\/?$/, /^\/chat\/completions\/?$/, /^\/responses\/?$/, /^\/images\/generations\/?$/, /^\/images\/edits\/?$/, /^\/openai\/image_edit\/?$/];
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, normalizeContextWindowTokens } = require('../../shared/config/context-budget');
 const CONTEXT_WINDOW_TOKENS = normalizeContextWindowTokens(process.env.CHATUI_CONTEXT_WINDOW_TOKENS, DEFAULT_CONTEXT_WINDOW_TOKENS);
+const CONTEXT_SUMMARIZE_OMITTED = String(process.env.CHATUI_CONTEXT_SUMMARIZE_OMITTED || '').trim() === '1';
 const { readVersion } = require('../version-source');
 const APP_VERSION = readVersion({ root: ROOT });
 const { createBuildIdentity } = require('../build-identity');
 const BUILD_IDENTITY = createBuildIdentity({ root: ROOT, version: APP_VERSION });
-const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS });
+const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS, contextSummarizeOmitted: CONTEXT_SUMMARIZE_OMITTED });
 
 // Optional provider capability descriptor (design doc v2.7 7.1). Absent or
 // invalid JSON means "unconfigured" -> server gates treat the provider as

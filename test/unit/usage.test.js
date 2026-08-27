@@ -307,6 +307,16 @@ async function testUsageServiceOverviewCombinesPersonalAndRanking() {
   assert.deepStrictEqual(overview, { ranking: [{ username: 'A', total_tokens: 1 }], personal: { username: 'Me', total_tokens: 2 } });
 }
 
+function testConfigPublicConfigReaderExposesSummarizeToggle() {
+  const fs2 = require('fs');
+  const os2 = require('os');
+  const path2 = require('path');
+  const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'chatui-public-config-toggle-'));
+  fs2.mkdirSync(path2.join(root, 'config'));
+  const readPublicConfig = createPublicConfigReader({ root, contextWindowTokens: 1000, contextSummarizeOmitted: true });
+  assert.strictEqual(readPublicConfig().context.summarizeOmitted, true);
+}
+
 function testConfigPublicConfigReader() {
   const fs = require('fs');
   const os = require('os');
@@ -314,11 +324,11 @@ function testConfigPublicConfigReader() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-public-config-'));
   fs.mkdirSync(path.join(root, 'config'));
   const readPublicConfig = createPublicConfigReader({ root, contextWindowTokens: 123456 });
-  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456 } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false } });
   fs.writeFileSync(path.join(root, 'config', 'public.json'), JSON.stringify({ ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep' }, ignored: true }));
-  assert.deepStrictEqual(readPublicConfig(), { ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep', windowTokens: 123456 } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep', windowTokens: 123456, summarizeOmitted: false } });
   fs.writeFileSync(path.join(root, 'config', 'public.json'), '[]');
-  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456 } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false } });
 }
 
 module.exports = [
@@ -337,4 +347,5 @@ module.exports = [
   testUsageServiceOptimizesDepartmentExportWithBulkUsers,
   testUsageServiceOverviewCombinesPersonalAndRanking,
   testConfigPublicConfigReader,
+  testConfigPublicConfigReaderExposesSummarizeToggle,
 ];

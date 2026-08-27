@@ -592,6 +592,20 @@
     // the preceding answer. Project those durable identities onto the current
     // bounded catalog so the model can reuse application state without seeing IDs.
     if (previousResourceExecution) put('previous_resource_execution', previousResourceExecution);
+    // A grouped priority view helps the intent model follow the
+    // from-near-to-far anchors without parsing the whole catalog. It only
+    // republishes facts already present; it never removes or reorders
+    // resource_candidates and never makes a semantic decision.
+    const currentAttachments = (Array.isArray(resourceCatalog) ? resourceCatalog : [])
+      .filter(candidate => candidate?.source === 'current' && ['image', 'file'].includes(candidate?.type));
+    if (currentAttachments.length) {
+      put('current_attachments', currentAttachments.map(candidate => ({
+        type: candidate.type,
+        index: Number(candidate.index) || 1,
+        label: compactWireLabel(candidate.label, 160),
+      })));
+    }
+
     if (raw.conversation_focus?.kind) {
       put('conversation_focus', {
         kind: raw.conversation_focus.kind,

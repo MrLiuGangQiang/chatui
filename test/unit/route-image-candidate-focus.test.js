@@ -51,6 +51,27 @@ function staleTextContext() {
   };
 }
 
+function recentTextContext() {
+  return {
+    recent_messages: [
+      { index: 1, role: 'user', content: '生成一辆红色跑车' },
+      { index: 2, role: 'assistant', content: '[图片生成完成] 一辆红色跑车' },
+      { index: 3, role: 'user', content: '输出一个md' },
+      { index: 4, role: 'assistant', content: '# Markdown 示例' },
+    ],
+    image_candidates: [imageCandidate(1, '一辆红色跑车', 2)],
+    file_candidates: [],
+    conversation_focus: {
+      schema_version: 'conversation_focus.v1',
+      kind: 'text',
+      source_message_index: 4,
+      text_message_index: 4,
+      image_message_index: 2,
+      context_role: 'conversation_focus',
+    },
+  };
+}
+
 function publishedImageKeys(context, input) {
   const catalog = routeService.buildRouteResourceCandidates({
     attachments: [],
@@ -61,13 +82,39 @@ function publishedImageKeys(context, input) {
   return catalog.filter(candidate => candidate.type === 'image').map(candidate => candidate.candidate_key).sort();
 }
 
-function testHistoricalImageCandidatesStayPublishedAsEvidenceForTheModel() {
-  // Architecture boundary: local routing must not hide stale candidates by
-  // focus/keyword and decide semantics for the intent model. The fix for an
-  // ambiguous text follow-up ("哪个效果最好") lives in the route prompt, which
-  // tells the model to resolve the anaphora against the recent text topic.
-  assert.deepStrictEqual(publishedImageKeys(staleTextContext(), '哪个效果最好'), ['i1', 'i2', 'i3'],
-    'historical image candidates remain model evidence and must not be hidden locally');
+function testStaleTextFocusFoldsOldImageCandidates() {
+  for (const input of ['哪个效果最好', '哪个协议效果最好', '那这个呢']) {
+    assert.deepStrictEqual(publishedImageKeys(staleTextContext(), input), [],
+      `stale generated images must be folded away for a non-image text follow-up: ${input}`);
+  }
+}
+
+function testRecentTextFocusKeepsTheLatestGeneratedImage() {
+  for (const input of ['要复杂一点', '换个颜色', '这个效果怎么样']) {
+    assert.deepStrictEqual(publishedImageKeys(recentTextContext(), input), ['i1'],
+      `a recent image result must remain addressable even under a text focus: ${input}`);
+  }
+}
+
+function testImageFocusKeepsImageCandidatesForAmbiguousComparison() {
+  const context = staleTextContext();
+  context.conversation_focus.kind = 'image';
+  assert.deepStrictEqual(publishedImageKeys(context, '哪个效果最好'), ['i1', 'i2', 'i3'],
+    'right after an image result, an ambiguous comparison may still refer to those images');
+}
+
+function testTextFocusExplicitImageReferenceKeepsStaleImageCandidates() {
+  for (const input of ['继续画第二张', '第二张', '把第二张改成黑白']) {
+    assert.deepStrictEqual(publishedImageKeys(staleTextContext(), input), ['i1', 'i2', 'i3'],
+      `explicit image vocabulary (${input}) must keep historical candidates published`);
+  }
+}
+
+function testUnknownFocusKeepsHistoricalImageCandidates() {
+  const context = staleTextContext();
+  delete context.conversation_focus;
+  assert.deepStrictEqual(publishedImageKeys(context, '哪个效果最好'), ['i1', 'i2', 'i3'],
+    'without an explicit text focus, historical candidates must keep the legacy behavior');
 }
 
 function testRoutePromptDeclaresTextFocusTopicPriority() {
@@ -76,6 +123,17 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
     'the router prompt must state that a text-focused ambiguous anaphora stays on the text topic');
   assert.ok(source.includes('不因历史图片候选存在就判成图片任务'),
     'the prompt must forbid judging an image task merely because historical image candidates exist');
+}
+
+function testRoutePromptStaysWithinBoundedLength() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
+  const start = source.indexOf('const ROUTE_SYSTEM_PROMPT = [');
+  const end = source.indexOf('].join(', start);
+  assert.ok(start >= 0 && end > start, 'route system prompt block must be present');
+  const block = source.slice(start, end);
+  const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];
+  const promptLength = matches.map(match => match[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('\n').length;
+  assert.ok(promptLength <= 5400, `route system prompt must remain bounded, got ${promptLength}`);
 }
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
@@ -106,21 +164,15 @@ function testRecentRouteMessagesCarryMoreContextThanOlderHistory() {
   assert.ok(recent.every(message => message.content.length > 240),
     'the most recent turns must keep more of their content so the intent model understands the current topic');
 }
-function testRoutePromptStaysWithinBoundedLength() {
-  const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  const start = source.indexOf('const ROUTE_SYSTEM_PROMPT = [');
-  const end = source.indexOf('].join(', start);
-  assert.ok(start >= 0 && end > start, 'route system prompt block must be present');
-  const block = source.slice(start, end);
-  const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];
-  const promptLength = matches.map(match => match[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('\n').length;
-  assert.ok(promptLength <= 5400, `route system prompt must remain bounded, got ${promptLength}`);
-}
 
 module.exports = [
-  testHistoricalImageCandidatesStayPublishedAsEvidenceForTheModel,
+  testStaleTextFocusFoldsOldImageCandidates,
+  testRecentTextFocusKeepsTheLatestGeneratedImage,
+  testImageFocusKeepsImageCandidatesForAmbiguousComparison,
+  testTextFocusExplicitImageReferenceKeepsStaleImageCandidates,
+  testUnknownFocusKeepsHistoricalImageCandidates,
   testRoutePromptDeclaresTextFocusTopicPriority,
   testRoutePromptStaysWithinBoundedLength,
-  testRecentRouteMessagesCarryMoreContextThanOlderHistory,
   testRoutePromptDeclaresPriorityAnchorsAndInteractionModes,
+  testRecentRouteMessagesCarryMoreContextThanOlderHistory,
 ];

@@ -334,28 +334,6 @@ body,
 .dialog-actions #saveConfigBtn:hover,
 .announcement-acknowledge-btn:hover { background: var(--chatui-accent-hover) !important; transform: none !important; }
 
-/* Announcement and changelog: remove the only remaining saturated hero. */
-.announcement-dialog {
-  border-color: var(--chatui-border-strong) !important;
-  background: var(--chatui-surface) !important;
-  box-shadow: var(--chatui-shadow-lg) !important;
-}
-.announcement-hero { background: var(--chatui-accent-soft) !important; color: var(--chatui-text) !important; }
-.announcement-brand,
-.announcement-hero-kicker,
-.announcement-badge { color: var(--chatui-accent) !important; }
-.announcement-hero-kicker,
-.announcement-badge { background: #e7ebff !important; border-color: var(--chatui-accent-border) !important; }
-.announcement-hero-copy h2,
-.announcement-title { color: var(--chatui-text) !important; background: none !important; }
-.announcement-hero-copy p,
-.announcement-hero-note,
-.announcement-summary { color: var(--chatui-muted-strong) !important; }
-.announcement-surface,
-.announcement-head,
-.announcement-footer { background: var(--chatui-surface) !important; border-color: var(--chatui-border) !important; }
-.announcement-toolbar-button:hover .announcement-entry-body { opacity: .9; }
-
 /* Image preview keeps the content dominant and controls consistent. */
 .image-preview-mask { background: rgba(20, 24, 32, .84) !important; backdrop-filter: none !important; }
 .image-preview-action,

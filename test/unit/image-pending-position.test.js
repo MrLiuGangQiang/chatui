@@ -298,7 +298,7 @@ function testCanonicalWaitingPositionBundleIsCacheBusted() {
     'client/app/chat-workflow.js?v=1.6.3-stable-turn-identity',
     'client/app/image-workflow.js?v=1.6.7-stable-turn-identity',
     'client/app/message-workflow.js?v=1.3.44-stable-turn-identity',
-    'app.js?v=2.3.12-edit-pending-slot',
+    'app.js?v=2.3.15-welcome-note',
   ]) {
     assert.ok(index.includes(asset), `the browser must load the cache-busted ${asset} implementation`);
   }

@@ -1147,7 +1147,7 @@ Docker Hub: liugangqiang/chatui
 
 ### Release 流程
 
-1. 从当前 `origin/main` 准备一个干净候选，运行 `npm run release:prepare`。该命令按 `a.b.c` 规则自动递增根目录 `version.json`（`c=99` 的下一版才进位到 `b+1.0`），同步 `package.json`、`package-lock.json` 镜像字段并创建同版本 `docs/releases/vMAJOR.MINOR.PATCH.md`。
+1. 从当前 `origin/main` 准备一个干净候选，运行 `npm run release:prepare`（默认自动递增；经确认的主版本升级可运行 `npm run release:prepare -- 2.0.0`）。该命令按 `a.b.c` 规则更新根目录 `version.json`（默认从 `c=99` 的下一版进位到 `b+1.0`），同步 `package.json`、`package-lock.json` 镜像字段并创建同版本 `docs/releases/vMAJOR.MINOR.PATCH.md`。
 2. 运行 `npm run check`；本机有 Docker 时再运行 `npm run preview:release`。
 3. 将候选提交推送到 `main`，等待 Node 检查和 `Exact Docker runtime` 全部通过。
 4. 在该已验证提交上创建并推送 annotated `vMAJOR.MINOR.PATCH` tag。

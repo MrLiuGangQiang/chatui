@@ -282,7 +282,7 @@ npm run check
 
 1. 获取最新远端状态，确认基于当前 `origin/main` 工作；
 2. 确认没有未提交或未跟踪的候选改动；
-3. 运行 `npm run release:prepare`，自动递增 `version.json`；版本遵循 `a.b.c`，`c` 从 0 到 99，`1.10.99` 的下一版为 `1.11.0`；
+3. 运行 `npm run release:prepare`（默认自动递增；经确认的主版本升级可运行 `npm run release:prepare -- 2.0.0`），同步 `version.json` 与 npm 镜像；版本遵循 `a.b.c`，`c` 从 0 到 99，`1.10.99` 的下一版为 `1.11.0`；
 4. 确认命令已同步 `package.json`、`package-lock.json` 顶层版本和 lockfile 根 package 镜像字段；
 5. 完成命令新建的 `docs/releases/vMAJOR.MINOR.PATCH.md`，标题以 `# ChatUI vMAJOR.MINOR.PATCH` 开头，并写清用户可见影响。
 

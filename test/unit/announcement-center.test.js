@@ -77,8 +77,8 @@ function testAnnouncementFilesAreCumulativeAndSortedByVersion() {
 
   const shipped = readAnnouncements({ root: path.join(__dirname, '../..') });
   assert.ok(shipped.length >= 1);
-  assert.strictEqual(shipped[0].version, 'v1.10.74');
-  assert.strictEqual(shipped[0].title, 'ChatUI 核心功能与近期更新');
+  assert.strictEqual(shipped[0].version, 'v1.10.85');
+  assert.strictEqual(shipped[0].title, 'ChatUI 正式版发布');
   assert.ok(shipped.some(item => item.version === 'v1.0.1' && item.title === 'ChatUI 意图识别协议与问题反馈功能升级'));
   assert.ok(shipped.some(item => item.version === 'v1.0.0' && item.title === '全新公告中心上线'));
   assert.ok(shipped.every(item => item.body && item.version));

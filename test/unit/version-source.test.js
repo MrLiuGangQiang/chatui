@@ -64,9 +64,41 @@ function testPrepareReleaseFailsBeforeWritingWhenTargetNotesExist() {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
+
+function testPrepareReleaseSupportsExplicitMajorVersion() {
+  const root = fixtureRoot('1.10.7');
+  try {
+    const result = prepareRelease({ root, version: '2.0.0' });
+    assert.strictEqual(result.version, '2.0.0');
+    assert.strictEqual(readVersion({ root }), '2.0.0');
+    const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    const packageLock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+    assert.strictEqual(packageJson.version, '2.0.0');
+    assert.strictEqual(packageLock.version, '2.0.0');
+    assert.strictEqual(packageLock.packages[''].version, '2.0.0');
+    const notesPath = path.join(root, 'docs', 'releases', 'v2.0.0.md');
+    assert.ok(fs.existsSync(notesPath));
+    assert.match(fs.readFileSync(notesPath, 'utf8'), /^# ChatUI v2\.0\.0/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testPrepareReleaseRejectsUsingCurrentVersionExplicitly() {
+  const root = fixtureRoot('1.10.7');
+  try {
+    assert.throws(() => prepareRelease({ root, version: '1.10.7' }), /must differ from the current version/);
+    assert.strictEqual(readVersion({ root }), '1.10.7');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 module.exports = [
   testVersionIncrementUsesPatchBeforeMinorCarry,
   testVersionSourceRejectsInvalidStoredValues,
   testPrepareReleaseUpdatesCanonicalSourceMirrorsAndNotes,
   testPrepareReleaseFailsBeforeWritingWhenTargetNotesExist,
+  testPrepareReleaseSupportsExplicitMajorVersion,
+  testPrepareReleaseRejectsUsingCurrentVersionExplicitly,
 ];

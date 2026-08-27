@@ -308,15 +308,29 @@
       return normalized;
     }
 
+    // History sent toward the provider must carry message metadata only.
+    // Media-bearing fields (html/imageContext/attachmentContext/data URLs)
+    // stay local; image/file content must never ride along as JSON bytes.
+    function providerHistoryProjection(message = {}) {
+      const projected = {
+        role: message.role,
+        content: Array.isArray(message.content) ? message.content : String(message.content ?? message.rawText ?? ''),
+      };
+      for (const key of ['id', 'messageId', 'message_id', 'displayItemId', 'display_item_id', 'resource_id', 'resourceId', 'route_resource_id', 'routeResourceId']) {
+        if (message[key] !== undefined && message[key] !== null && message[key] !== '') projected[key] = message[key];
+      }
+      return projected;
+    }
+
     function messagesWithAttachmentText(messages = [], totalLimit = 24000) {
       let remaining = Math.max(0, Number(totalLimit) || 0);
       return (Array.isArray(messages) ? messages : []).map(message => {
         const text = remaining > 0 ? attachmentTextFromContext(message?.attachmentContext || message?.attachment_context || '', { label: '历史附件', limit: remaining }) : '';
-        if (!text) return message;
+        if (!text) return providerHistoryProjection(message);
         remaining -= text.length;
         const content = Array.isArray(message.content) ? message.content : String(message.content ?? message.rawText ?? '');
         const nextContent = Array.isArray(content) ? content : [String(content || '').trim(), text].filter(Boolean).join('\n\n');
-        return { ...message, content: nextContent };
+        return providerHistoryProjection({ ...message, content: nextContent });
       });
     }
 
@@ -435,7 +449,7 @@
       }
     }
 
-    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, messagesWithAttachmentText, requestBaseMessagesForSend, protectedHistoryIndexes, protectedContextMessageCount, applyOutboundContextBudget, systemPromptForSend, composeSystemPrompt, applyExecutionContextPolicy, appendWithOverlap, canShowChatWaiting });
+    return Object.freeze({ sendChat, normalizeQuotedBaseMessages, quotedAttachmentTextFromContext, quotedFileCandidatesFromContext, messagesWithAttachmentText, providerHistoryProjection, requestBaseMessagesForSend, protectedHistoryIndexes, protectedContextMessageCount, applyOutboundContextBudget, systemPromptForSend, composeSystemPrompt, applyExecutionContextPolicy, appendWithOverlap, canShowChatWaiting });
   }
 
   const api = Object.freeze({ createChatWorkflow, shouldRetryStreamFailure, captureReasoningRequestSettings });

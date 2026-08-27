@@ -186,7 +186,8 @@
         task.accept({capture:!0});
         if(i.stopped||i.abortController?.signal?.aborted)return;
         task.captured();task.routing();
-        const routeInfo=routeUtils.createExplicitTextToImageRoute?.(replayPrompt);
+        const routeUi=createRouteRecognitionUi({sessionId:a,assistantNode:()=>o,liveItem:()=>l.liveItem,responseIndex:()=>n,getPromptText:()=>replayPrompt,signal:i.abortController?.signal});
+        const routeInfo=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,[],{},null,{currentTurn:{messageIndex:s+1},submissionId:task.submissionId});
         if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0){const err=new Error("强制生图任务未能建立有效执行合同，已停止发送");err.code="ROUTE_NOT_READY";throw err}
         if(warnMissingModel(routeInfo.mode,!0)){task.fail(new Error("missing image model"));return void l.node?.remove()}
         const executionPools=submitHelpers.buildExecutionResourcePools({current:[],quoted:[],history:[],context:[]},{isImageFile,messages:state.messages||[]});

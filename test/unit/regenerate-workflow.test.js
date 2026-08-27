@@ -6,6 +6,7 @@ const taskState = require('../../client/core/task-state');
 const clarification = require('../../shared/clarification-answer');
 require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
+const routeService = require('../../client/services/route-service');
 const sessionPersistence = require('../../client/app/session-persistence');
 
 function makeMessageNode() {
@@ -64,6 +65,12 @@ function createForceImageFixture({ sendImageImpl } = {}) {
     resetActionButtonState: () => {},
     finishSessionTask: (sessionId, options) => calls.push(['finish', sessionId, options.run]),
     updateResumeStreamButton: () => {},
+    createRouteRecognitionUi: () => ({
+      getEffectiveRouteWithSlowNotice: async () => {
+        calls.push(['route', 'draw a fox']);
+        return routeService.createExplicitTextToImageRoute('draw a fox');
+      },
+    }),
     getSubmitWorkflow: () => submitWorkflow,
     makeClientImageJobId: () => 'imgjob-regenerate-a',
     resumeSessionJobs: sessionId => calls.push(['resume', sessionId]),
@@ -101,6 +108,15 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   assert.deepStrictEqual(options.dispatchContract.bindings, []);
   assert.deepStrictEqual(options.attachments, []);
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
+}
+
+async function testForceImageRegenerateRunsIntentRecognitionFirst() {
+  const fixture = createForceImageFixture();
+  await fixture.workflow.forceImageFromUserMessage(makeMessageNode());
+  const routeCall = fixture.calls.findIndex(call => call[0] === 'route');
+  const sendCall = fixture.calls.findIndex(call => call[0] === 'send');
+  assert.ok(routeCall >= 0, 'explicit text-to-image regeneration must run intent recognition first');
+  assert.ok(sendCall > routeCall, 'execution must wait for the routed intent result');
 }
 
 async function testRegeneratePostHandoffFailureEntersRecovery() {
@@ -536,5 +552,6 @@ module.exports = [
   testRegenerateClearsSelectedImageBeforePersistenceCompletes,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
   testRegenerateUsesCanonicalRouteRecognitionContext,
+  testForceImageRegenerateRunsIntentRecognitionFirst,
 ];
 

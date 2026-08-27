@@ -9,6 +9,8 @@
     delete node.dataset.streamTailLock;
     delete node.dataset.pendingFeedback;
     delete node.dataset.jobId;
+    delete node.dataset.persist;
+    delete node.dataset.sessionId;
     if (node.__displayItem) {
       node.__displayItem.pending = '';
       node.__displayItem.jobId = '';

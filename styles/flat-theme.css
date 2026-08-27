@@ -5934,3 +5934,23 @@ body.session-sidebar-collapsed{
   pointer-events:none!important;
   transition:none!important;
 }
+
+/* Message action buttons must follow a deterministic, state-based visibility rule.
+   - While streaming or while the transient placeholder is still pending, the row
+     stays hidden (see the [data-streaming] / [data-persist] rules above).
+   - Once a message is terminal (completed, manually stopped, or failed) or once a
+     user message has been sent, every action control is fully visible so the action
+     row never flickers between dim/hover states or disappears after a stop. */
+.message.assistant:not([data-streaming="1"]):not([data-persist="0"]) .msg-actions,
+.message.error:not([data-streaming="1"]):not([data-persist="0"]) .msg-actions{
+  opacity:1!important;
+  pointer-events:auto!important;
+}
+.message.user .msg-actions{
+  position:static!important;
+  right:auto!important;
+  top:auto!important;
+  align-self:flex-end!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+}

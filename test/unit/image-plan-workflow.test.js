@@ -58,6 +58,16 @@ function createWorkflow({
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
       const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_intent_understanding_v1') return { choices: [{ message: { content: JSON.stringify({
+        schema_version: 'intent_understanding.v1',
+        ordering: 'independent',
+        dependency: 'new',
+        actions: [
+          { index: 1, kind: 'image_generate', verb: '生成', target: '一只猫', resolved_refs: [] },
+          { index: 2, kind: 'image_generate', verb: '生成', target: '一只狗', resolved_refs: [] },
+          { index: 3, kind: 'image_generate', verb: '生成', target: '一只鸟', resolved_refs: [] },
+        ],
+      }) } }] };
       if (formatName === 'chatui_route_intent_v3') return { choices: [{ message: { content: stageOne } }] };
       if (formatName === 'chatui_image_instruction_v1') return materialization;
       if (formatName === 'chatui_image_plan_v1') {
@@ -93,13 +103,14 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
   try {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(3) });
     const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
-    assert.strictEqual(calls.length, 2,
-      'a self-contained new multi-image request must route once and plan once without a redundant instruction-materialization call');
-    assert.strictEqual(calls[0].payload.text.format.name, 'chatui_route_intent_v3');
-    assert.strictEqual(calls[1].payload.text.format.name, 'chatui_image_plan_v1');
+    assert.strictEqual(calls.length, 3,
+      'a self-contained new multi-image request must run understanding, route once, then plan once without a redundant instruction-materialization call');
+    assert.strictEqual(calls[0].payload.text.format.name, 'chatui_intent_understanding_v1');
+    assert.strictEqual(calls[1].payload.text.format.name, 'chatui_route_intent_v3');
+    assert.strictEqual(calls[2].payload.text.format.name, 'chatui_image_plan_v1');
     assert.strictEqual(calls.some(call => call.payload.text?.format?.name === 'chatui_image_instruction_v1'), false,
-      'the canonical route goal is already standalone, so materialization must not make a third request');
-    const planningInput = JSON.parse(calls[1].payload.input[1].content);
+      'the canonical route goal is already standalone, so materialization must not make an extra request');
+    const planningInput = JSON.parse(calls[2].payload.input[1].content);
     assert.strictEqual(planningInput.current_input, undefined,
       'the multi-image planner must consume the canonical route goal instead of a raw conversational request');
     assert.strictEqual(planningInput.route_goal, route.userGoal,
@@ -116,7 +127,7 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
       provider_attempts: route.modelAttemptLedger.provider_attempts,
       primary_attempts: route.modelAttemptLedger.primary_attempts,
       planning_attempts: route.modelAttemptLedger.planning_attempts,
-    }, { logical_rounds: 2, provider_attempts: 2, primary_attempts: 1, planning_attempts: 1 });
+    }, { logical_rounds: 3, provider_attempts: 3, primary_attempts: 2, planning_attempts: 1 });
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -220,8 +231,8 @@ async function testFiveTaskPlanRemainsWithinTheProductLimit() {
   try {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(5) });
     const route = await workflow.getEffectiveRoute('分别生成五张不同主题的图片', [], 'session-plan', null, {});
-    assert.strictEqual(calls.length, 2,
-      'standalone new multi-image requests must retain the two-call route-plus-plan budget at every supported task count');
+    assert.strictEqual(calls.length, 3,
+      'standalone new multi-image requests must retain the understanding-plus-route-plus-plan budget at every supported task count');
     assert.strictEqual(route.needClarification, false);
     assert.strictEqual(route.taskShape, 'multi');
     assert.strictEqual(route.imagePlanCompiled.kind, 'batch');

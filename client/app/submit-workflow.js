@@ -343,7 +343,7 @@
             const isImageAttachment=item=>typeof isImageFile==="function"?isImageFile(item):String(item?.type||item?.file?.type||"").startsWith("image/");
             const clarification=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{},intentDeadlineAt=Date.now()+INTENT_PIPELINE_DEADLINE_MS;
             const rawStoredPending=targetSession.pendingClarification;
-            let storedPending=clarification.normalizePendingClarification?.(rawStoredPending)||null;
+            let storedPending=clarification.normalizePendingClarification?.(rawStoredPending)||null;if(storedPending?.routeInfo?.multiTaskPlan&&targetSession&&!targetSession.multiTaskPlan){targetSession.multiTaskPlan=storedPending.routeInfo.multiTaskPlan}
             if(storedPending&&String(rawStoredPending?.id||"")!==String(storedPending.id||"")){targetSession.pendingClarification=storedPending;sessionForReply&&(sessionForReply.pendingClarification=storedPending);saveSessionsMeta?.()}
             const inheritedModelAttemptLedger=options?.modelAttemptLedger||storedPending?.routeInfo?.modelAttemptLedger||null;
             const inheritedModelCalls=Number(options?.modelCalls)||Number(storedPending?.routeInfo?.modelCalls)||0;
@@ -472,7 +472,7 @@
               assistantNode?.isConnected&&clarificationId&&(assistantNode.dataset.clarificationId=clarificationId);
               liveItem&&(delete liveItem.jobId,clarificationId&&(liveItem.clarificationId=clarificationId),typeof updateSessionDisplayItem==="function"?updateSessionDisplayItem(sessionId,liveItem,"assistant",displayContent,{html:!!clarificationHtml,rawText:e,pending:!1,responseIndex,clarificationId}):(liveItem.content=e,liveItem.rawText=e,liveItem.html=clarificationHtml,liveItem.pending=!1,persistSessionDisplay(sessionId)));
               if(isTargetActive()){state.messages.push(t);sessionForReply.messages=cloneMessageList(state.messages)}else targetSession.messages=cloneMessageList([...(targetSession.messages||[]),t]);
-              if(createdPending){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}
+              if(createdPending){targetSession.pendingClarification=createdPending;sessionForReply&&(sessionForReply.pendingClarification=createdPending)}if(routeInfo?.multiTaskPlan&&targetSession){targetSession.multiTaskPlan=routeInfo.multiTaskPlan;saveSessionsMeta?.()}
               await persistPendingTerminalMessages();commitTerminalEvent(taskEvents.TASK_COMPLETED_COMMITTED,{submissionId});clearPendingSubmit(sessionId);preparedChatJobId&&typeof clearChatJob==="function"&&clearChatJob(sessionId);preparedChatJobId="";saveSessionsMeta?.();return
             }
             if(submissionCancelled()){clearPendingSubmit(sessionId);return}

@@ -5,6 +5,7 @@ const capabilityRegistry = require('../../shared/capability-registry');
 const imageInstructionContract = require('../../shared/image-instruction');
 
 const REQUEST_PURPOSES = Object.freeze({
+  INTENT_UNDERSTANDING: 'intent_understanding',
   INTENT_RECOGNITION: 'intent_recognition',
   IMAGE_INSTRUCTION_MATERIALIZATION: 'image_instruction_materialization',
   FINAL_EXECUTION: 'final_execution',
@@ -76,7 +77,7 @@ function assertRequestPurpose(body = {}, expected = '') {
   if (!actual) {
     throw executionProtocolError('requestPurpose is required', 'REQUEST_PURPOSE_REQUIRED');
   }
-  if (![REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
+  if (![REQUEST_PURPOSES.INTENT_UNDERSTANDING, REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
     throw executionProtocolError('requestPurpose is invalid', 'REQUEST_PURPOSE_INVALID');
   }
   if (expected && actual !== expected) {
@@ -284,6 +285,9 @@ function validateProxyExecutionRequest(body = {}, options = {}) {
     return Object.freeze({ requestPurpose: '', targetPath, metadataRequest: true });
   }
   const purpose = assertRequestPurpose(body);
+  if (purpose === REQUEST_PURPOSES.INTENT_UNDERSTANDING) {
+    return assertIntentRecognitionRequest({ ...body, requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION }, { targetPath, method });
+  }
   if (purpose === REQUEST_PURPOSES.INTENT_RECOGNITION) {
     return assertIntentRecognitionRequest(body, { targetPath, method });
   }

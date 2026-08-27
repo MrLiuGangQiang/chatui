@@ -5,6 +5,14 @@
     return String(session?.hasImageStylePromptOverride ? session.imageStylePrompt || '' : config.imageStylePrompt || '').trim();
   }
 
+  function hasSessionPromptContent(session = null) {
+    return !!(session?.hasSystemPromptOverride && String(session?.systemPrompt || '').trim());
+  }
+
+  function hasSessionImageStyleContent(session = null) {
+    return !!(session?.hasImageStylePromptOverride && String(session?.imageStylePrompt || '').trim());
+  }
+
   function getSessionChatModel({ session = null, config = {}, models = [] } = {}) {
     const selected = String(session?.chatModel || '').trim();
     return selected && models.includes(selected) ? selected : config.chatModel;
@@ -32,6 +40,8 @@
 
   const api = Object.freeze({
     getEffectiveImageStylePrompt,
+    hasSessionPromptContent,
+    hasSessionImageStyleContent,
     getSessionChatModel,
     getSessionRouteModel,
     sessionChatModelValue,

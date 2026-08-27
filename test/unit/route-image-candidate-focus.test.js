@@ -119,7 +119,7 @@ function testUnknownFocusKeepsHistoricalImageCandidates() {
 
 function testRoutePromptDeclaresTextFocusTopicPriority() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  assert.ok(source.includes('conversation_focus=text且输入无图片词汇'),
+  assert.ok(source.includes('conversation_focus=text且无图片词汇'),
     'the router prompt must state that a text-focused ambiguous anaphora stays on the text topic');
   assert.ok(source.includes('不因历史图片候选存在就判成图片任务'),
     'the prompt must forbid judging an image task merely because historical image candidates exist');
@@ -127,8 +127,8 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
 
 function testRoutePromptStaysWithinBoundedLength() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  const start = source.indexOf('const ROUTE_SYSTEM_PROMPT = [');
-  const end = source.indexOf('].join(', start);
+  const start = source.indexOf('const ROUTE_PROMPT_LINES = [');
+  const end = source.indexOf('\n    ];', start);
   assert.ok(start >= 0 && end > start, 'route system prompt block must be present');
   const block = source.slice(start, end);
   const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];

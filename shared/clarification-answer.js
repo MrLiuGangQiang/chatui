@@ -771,12 +771,14 @@
       } : {}),
     };
     if (normalized.routeInfo?.multiTaskPlan && Array.isArray(normalized.routeInfo.multiTaskPlan.tasks)) {
-      // Task selection is a plan-choice intent turn. The original request,
-      // its attachments and conversation history must not dominate the model;
-      // only the generated task list and the current_user choice stay visible.
+      // Task selection is a plan-choice intent turn. The original request and
+      // its conversation history must not dominate the model; only the generated
+      // task list and the current_user choice stay visible. The plan's
+      // resource_refs are execution bindings, so the media candidates must stay
+      // in the catalog: the compiled route resolves them into bindable execution
+      // resources, otherwise a selected file/image task degrades to a redundant
+      // "which file" clarification.
       context.recent_messages = [];
-      context.image_candidates = [];
-      context.file_candidates = [];
       context.multi_task_plan = {
         schema_version: String(normalized.routeInfo.multiTaskPlan.schema_version || 'multi_task_plan.v1'),
         tasks: (Array.isArray(normalized.routeInfo.multiTaskPlan.tasks) ? normalized.routeInfo.multiTaskPlan.tasks : []).map((task, index) => ({

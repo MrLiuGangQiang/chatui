@@ -3,10 +3,14 @@
 
   const ROUTE_STAGE_TEXT = Object.freeze({
     reading_context: '正在读取当前对话上下文',
+    understanding: '正在理解你的请求',
+    compiling_shape: '正在确定任务数量和类型',
     collecting_resources: '正在整理本轮图片和文件',
     recognizing_intent: '正在判断任务意图和所需资源',
     validating_route: '正在校验意图和资源选择',
+    repairing_route: '正在修正任务识别结果',
     retrying_route_model: '正在重新确认任务意图',
+    planning_multi_tasks: '正在拆分多个任务',
     planning_image_tasks: '正在拆分多个图片任务',
     materializing_image_instruction: '正在整理完整的图片执行指令',
     preparing_clarification: '正在准备需要补充的信息',

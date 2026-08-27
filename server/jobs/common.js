@@ -81,6 +81,7 @@ function isResponsesFileDataRequest(body, requestUrl = '') {
 }
 
 const ACCESS_AUDIT_PURPOSES = new Set([
+  'intent_understanding',
   'intent_recognition',
   'image_instruction_materialization',
   'final_execution',

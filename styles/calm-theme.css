@@ -251,6 +251,13 @@ body,
   color: var(--chatui-muted-strong) !important;
   box-shadow: none !important;
 }
+.composer-actions .session-prompt-btn.has-session-prompt,
+.composer-actions .session-model-btn.has-session-model {
+  border-color: var(--chatui-accent-border) !important;
+  background: var(--chatui-accent-soft) !important;
+  color: var(--chatui-accent) !important;
+  box-shadow: none !important;
+}
 .composer-actions .attach-btn:hover,
 .composer-actions .session-prompt-btn:hover,
 .composer-actions .session-model-btn:hover,

@@ -53,6 +53,14 @@ async function runPipeline({
       requests.push(options.requestPurpose);
       requestPayloads.push({ purpose: options.requestPurpose, payload });
       const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_intent_understanding_v1') {
+        return { output_text: JSON.stringify({
+          schema_version: 'intent_understanding.v1',
+          ordering: 'sequential',
+          dependency: 'followup',
+          actions: [{ index: 1, kind: 'image_generate', verb: '生成', target: '图片', resolved_refs: [] }],
+        }) };
+      }
       if (formatName === 'chatui_route_intent_v3') {
         return { output_text: JSON.stringify(routeIntent(operation, routeGoal, resourceRefs, taskShape)) };
       }
@@ -104,7 +112,7 @@ function testPipelineMaterializesEditInstructionBeforeDispatch() {
     resourceRefs: [{ candidate_key: 'i1', role: 'target' }],
     materialization: readyInstruction('保留人物姿态和服装，将背景改为黄昏海边，加入电影感侧逆光与浅景深。'),
   }).then(({ result, requests }) => {
-    assert.deepStrictEqual(requests, ['intent_recognition', 'image_instruction_materialization']);
+    assert.deepStrictEqual(requests, ['intent_understanding', 'intent_recognition', 'image_instruction_materialization']);
     assert.strictEqual(result.dispatchAuthorized, true);
     assert.doesNotMatch(result.dispatchContract.arguments.prompt, /方案A|这张图/);
     assert.deepStrictEqual(result.dispatchContract.bindings.map(binding => ({ type: binding.type, role: binding.role })), [
@@ -173,13 +181,14 @@ function testPipelineRepromptsTheMaterializerWhenItEchoesSourceEvidence() {
     ],
   }).then(({ result, requests, requestPayloads }) => {
     assert.deepStrictEqual(requests, [
+      'intent_understanding',
       'intent_recognition',
       'image_instruction_materialization',
       'image_instruction_materialization',
     ]);
     assert.strictEqual(result.dispatchAuthorized, true);
     assert.strictEqual(result.dispatchContract.arguments.prompt, finalInstruction);
-    const repairPayload = requestPayloads[2].payload;
+    const repairPayload = requestPayloads[3].payload;
     const repairEnvelope = JSON.parse(repairPayload.input.find(item => item.role === 'user').content);
     assert.strictEqual(repairEnvelope.repair.rejection_reason, 'image_instruction_echoed_source_request');
     assert.match(repairEnvelope.repair.rejected_instruction, /这个品种/);

@@ -163,7 +163,9 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       source: 'proxy',
       kind: body.requestPurpose === 'intent_recognition'
         ? 'route_intent'
-        : ['/chat/completions', '/responses'].includes(upstreamPath) ? 'chat' : '',
+        : body.requestPurpose === 'intent_understanding'
+          ? 'route_understanding'
+          : ['/chat/completions', '/responses'].includes(upstreamPath) ? 'chat' : '',
       jobId: proxyJobId,
       submissionId: String(body.submissionId || ''),
       method,
@@ -197,7 +199,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     traceContentType = contentType;
     const isEventStream = contentType.toLowerCase().includes('text/event-stream');
 
-    if (String(body?.requestPurpose || '') === 'intent_recognition' && !wantsStream && isEventStream) {
+    if (['intent_recognition', 'intent_understanding'].includes(String(body?.requestPurpose || '')) && !wantsStream && isEventStream) {
       const responseText = await upstream.text();
       const error = new Error('Intent recognition upstream returned an unexpected streaming response');
       const traceDetails = { status: upstream.status, responseText, contentType };
@@ -268,7 +270,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
 
     const rawText = await upstream.text();
     const isNonStreamingIntent = upstream.ok
-      && String(body?.requestPurpose || '') === 'intent_recognition'
+      && ['intent_recognition', 'intent_understanding'].includes(String(body?.requestPurpose || ''))
       && !wantsStream;
     const normalized = isNonStreamingIntent
       ? compactNonStreamingIntentBody(rawText)

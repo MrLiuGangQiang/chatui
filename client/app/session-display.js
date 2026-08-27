@@ -204,6 +204,7 @@
           reasoningMode: session.reasoningMode === undefined ? null : !!session.reasoningMode,
           reasoningType: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(session.reasoningType) ? session.reasoningType : '',
           pendingClarification: session.pendingClarification && typeof session.pendingClarification === 'object' ? session.pendingClarification : null,
+          multiTaskPlan: session.multiTaskPlan && typeof session.multiTaskPlan === 'object' && Array.isArray(session.multiTaskPlan.tasks) ? session.multiTaskPlan : null,
           createdAt: session.createdAt || Date.now(),
           updatedAt: session.updatedAt || Date.now(),
           snapshotUpdatedAt: Number(session.snapshotUpdatedAt || 0),
@@ -483,6 +484,9 @@
         // quarantined instead of crashing session startup.
         pendingClarification: clarificationService?.normalizePendingClarification?.(item.pendingClarification)
           || null,
+        multiTaskPlan: item.multiTaskPlan && typeof item.multiTaskPlan === 'object' && Array.isArray(item.multiTaskPlan.tasks)
+          ? item.multiTaskPlan
+          : null,
         createdAt: item.createdAt || Date.now(),
         updatedAt: Math.max(Number(item.updatedAt) || 0, Number(payload?.updatedAt) || 0) || Date.now(),
         snapshotUpdatedAt: Number(payload?.snapshotUpdatedAt || 0),

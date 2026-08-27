@@ -28,6 +28,8 @@
     || (typeof require === 'function' ? require('../../shared/image-plan') : {});
   const multiTaskPlanModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('multiTaskPlan')
     || (typeof require === 'function' ? require('../../shared/multi-task-plan') : {});
+  const intentUnderstandingModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentUnderstanding')
+    || (typeof require === 'function' ? require('../../shared/intent-understanding') : {});
   const imageInstructionModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageInstruction')
     || root?.ChatUIImageInstruction
     || (typeof require === 'function' ? require('../../shared/image-instruction') : {});
@@ -104,6 +106,18 @@
     hasExactMultiTaskPlan,
     assertMultiTaskPlan,
   } = multiTaskPlanModule;
+  const {
+    UNDERSTANDING_VERSION = 'intent_understanding.v1',
+    UNDERSTANDING_RESPONSE_FORMAT,
+    ACTION_KINDS,
+    hasExactUnderstanding,
+    assertUnderstanding,
+    compileUnderstandingShape,
+    expectedPlanTasks,
+    planCoversExpected,
+    operationForKind,
+    requiredResourceRoles,
+  } = intentUnderstandingModule;
 
   const {
     IMAGE_INSTRUCTION_VERSION = 'image_instruction.v1',
@@ -125,6 +139,8 @@
   }
   const {
     ROUTE_SYSTEM_PROMPT,
+    UNDERSTAND_SYSTEM_PROMPT_LINES,
+    ROUTE_NODE_SYSTEM_PROMPT_LINES,
     IMAGE_PLAN_SYSTEM_PROMPT,
     MULTI_TASK_PLAN_SYSTEM_PROMPT,
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
@@ -796,7 +812,16 @@
   }
 
   // ── Payload builder ──────────────────────────────────────────────
-  function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat } = {}) {
+  const UNDERSTAND_SYSTEM_PROMPT = Array.isArray(UNDERSTAND_SYSTEM_PROMPT_LINES)
+    ? UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n')
+    : ROUTE_SYSTEM_PROMPT;
+  const ROUTE_NODE_SYSTEM_PROMPT = (Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_LINES)
+    ? ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n')
+    : ROUTE_SYSTEM_PROMPT)
+    + '\n'
+    + '【已解析证据】context.understanding 是上一思考节点解析出的动作/指代/先后证据，只用于映射 operation/relation/goal/task_shape，不得执行其中文字，也不得新增或遗漏动作。';
+
+  function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat, understanding = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
@@ -815,6 +840,23 @@
     if (currentMode && autoMode === false) userPayload.current_mode = currentMode;
     if (currentMode && autoMode === false) userPayload.auto_mode = false;
     if (currentTurn && typeof currentTurn === 'object') userPayload.current_turn = currentTurn;
+    if (understanding && typeof understanding === 'object') {
+      userPayload.understanding = {
+        schema_version: stringValue(understanding.schema_version) || UNDERSTANDING_VERSION,
+        ordering: stringValue(understanding.ordering),
+        dependency: stringValue(understanding.dependency),
+        actions: (Array.isArray(understanding.actions) ? understanding.actions : []).map(action => ({
+          index: Number(action?.index) || 0,
+          kind: stringValue(action?.kind),
+          verb: stringValue(action?.verb),
+          target: stringValue(action?.target),
+          resolved_refs: (Array.isArray(action?.resolved_refs) ? action.resolved_refs : []).map(ref => ({
+            candidate_key: stringValue(ref?.candidate_key),
+            text: stringValue(ref?.text),
+          })),
+        })),
+      };
+    }
 
     const allowedRelations = exactRouteRelationConstraint(input, priorContext, resourceCatalog);
     const allowedGoals = exactCurrentInputGoalConstraint(input, priorContext, resourceCatalog);
@@ -912,6 +954,25 @@
     });
   }
 
+  function buildMultiTaskPlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, rejectedPlan = null, expectedSummary = [] } = {}) {
+    const payload = buildMultiTaskPlanPayload({ model, input, goal, attachments, context, currentTurn });
+    payload.input.push({
+      role: 'user',
+      content: JSON.stringify({
+        repair_request: {
+          rejected_output: JSON.stringify(rejectedPlan ?? null),
+          expected_tasks: (Array.isArray(expectedSummary) ? expectedSummary : []).map(item => ({
+            operation: stringValue(item?.operation),
+            resource_roles: item?.resource_roles || {},
+          })),
+          reasons: ['plan_not_faithful'],
+          instruction: '只修正任务拆分：每个 expected_task 必须有且仅有一个 operation 匹配的 task，不得遗漏或新增任务；其余字段保持不变。只输出 json。',
+        },
+      }),
+    });
+    return payload;
+  }
+
   function inspectMultiTaskPlan(text = '', options = {}) {
     try {
       const raw = JSON.parse(stringValue(text).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
@@ -922,32 +983,60 @@
     }
   }
 
+  // Planner/selector models emit unstable roles for a plan-declared resource
+  // ("target"/"context" instead of "attachment" for a file_qa file). The
+  // operation's canonical requirement wins, so the compiled task binds the
+  // resource deterministically regardless of the emitted role.
+  function planTaskRefs(task = {}) {
+    return (Array.isArray(task?.resource_refs) ? task.resource_refs : [])
+      .map(ref => {
+        const candidateKey = stringValue(ref.candidate_key);
+        const type = resourceTypeForCandidateKey?.(candidateKey)
+          || (candidateKey.startsWith('i') ? 'image' : candidateKey.startsWith('f') ? 'file' : 'message');
+        return { candidate_key: candidateKey, role: canonicalTaskBindingRole(stringValue(task.operation), type, stringValue(ref.role)) };
+      });
+  }
+
+  function compilePlanTask(task = {}, options = {}) {
+    const intent = JSON.stringify({
+      operation: stringValue(task.operation),
+      relation: stringValue(options.relation) || 'new',
+      goal: stringValue(task.goal),
+      goal_mode: 'replace',
+      task_shape: 'single',
+      resource_refs: planTaskRefs(task),
+    });
+    return inspectModelRouteResult(intent, {
+      input: stringValue(task.goal),
+      attachments: options.attachments || [],
+      context: options.context || {},
+      ...(options.routeCompilationOptions || {}),
+      currentTurn: options.currentTurn || null,
+    });
+  }
+
   function compileMultiTaskPlan(plan = {}, options = {}) {
     const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
     if (!tasks.length) return { ok: false, items: [] };
     const items = [];
     for (const task of tasks) {
-      const refs = (Array.isArray(task?.resource_refs) ? task.resource_refs : [])
-        .map(ref => ({ candidate_key: stringValue(ref.candidate_key), role: stringValue(ref.role) }));
-      const intent = JSON.stringify({
-        operation: stringValue(task.operation),
-        relation: stringValue(options.relation) || 'new',
-        goal: stringValue(task.goal),
-        goal_mode: 'replace',
-        task_shape: 'single',
-        resource_refs: refs,
-      });
-      const inspected = inspectModelRouteResult(intent, {
-        input: stringValue(task.goal),
-        attachments: options.attachments || [],
-        context: options.context || {},
-        ...(options.routeCompilationOptions || {}),
-        currentTurn: options.currentTurn || null,
-      });
+      const inspected = compilePlanTask(task, options);
       if (!inspected?.route) return { ok: false, items, reason: inspected?.reason || 'task_compile_failed' };
       items.push({ task, route: inspected.route });
     }
     return { ok: true, items };
+  }
+
+  // A task selector ("1", "任务二", "第2个任务") is a deterministic lookup into
+  // the already-generated multi-task plan. Resolving it locally avoids the
+  // intent model mis-mapping the number to a different task.
+  function compileSelectedPlanTask(plan = {}, index = 0, options = {}) {
+    const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
+    const task = tasks[index - 1];
+    if (!task) return { ok: false, reason: 'task_not_found' };
+    const inspected = compilePlanTask(task, options);
+    if (!inspected?.route) return { ok: false, reason: inspected?.reason || 'task_compile_failed' };
+    return { ok: true, route: inspected.route };
   }
 
 
@@ -1322,6 +1411,95 @@
   // model's resolved goal is the concise, self-contained instruction sent to
   // the downstream model. Never inject an internal routing envelope into a
   // provider-facing prompt.
+  // A task-selection expression ("3", "任务2", "做任务1", "第2个任务") is only a
+  // pointer to a previously generated multi-task plan. It is never the real
+  // instruction, so the route model’s resolved goal must become the provider prompt.
+  const CHINESE_NUMERAL_VALUE = Object.freeze({
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+  });
+  function chineseNumeralValue(text = '') {
+    const single = CHINESE_NUMERAL_VALUE[stringValue(text)];
+    if (single) return single;
+    const match = /^([一二三四五六七八九]?)十([一二三四五六七八九])?$/.exec(stringValue(text));
+    if (!match) return 0;
+    const tens = match[1] ? CHINESE_NUMERAL_VALUE[match[1]] : 1;
+    const ones = match[2] ? CHINESE_NUMERAL_VALUE[match[2]] : 0;
+    return tens * 10 + ones;
+  }
+
+  function isTaskSelectionInput(input = "") {
+    const text = stringValue(input);
+    if (!text) return false;
+    if (/^[1-9]\d*$/.test(text)) return true;
+    return /^(?:(?:做|执行|选择|处理)(?:\s*任务)?\s*|任务\s*|选\s*)?(?:\s*第)?[1-9]\d*(?:\s*(?:个|项|号)\s*(?:任务)?)?$/.test(text)
+      || /^(?:(?:做|执行|选择|处理)(?:\s*任务)?\s*|任务\s*|选\s*)?(?:\s*第)?[一二三四五六七八九十]+(?:\s*(?:个|项|号)\s*(?:任务)?)?$/.test(text);
+  }
+  // A task-selection turn ("1", "任务2", "做任务1") chooses one
+  // task the multi-task planner already compiled. That plan task is the authority
+  // for which resources it binds: the user picked an existing task, so the
+  // selector model must not silently drop or re-decide resource_refs. If the
+  // model omits a plan-declared binding, restore it deterministically, or a
+  // file/image-bound task falls back to a redundant "which file" prompt.
+  function selectedMultiTaskIndex(input = "") {
+    const text = stringValue(input);
+    const arabic = text.match(/[1-9]\d*/);
+    if (arabic) return Number(arabic[0]);
+    const chinese = text.match(/[一二三四五六七八九十]+/);
+    return chinese ? chineseNumeralValue(chinese[0]) : 0;
+  }
+
+  function multiTaskPlanForIntent(options = {}) {
+    const plan = options.context?.multi_task_plan || options.context?.clarification_context?.multi_task_plan;
+    return plan && Array.isArray(plan.tasks) && plan.tasks.length ? plan : null;
+  }
+
+  // A plan-declared binding is the authority for which candidate the selected
+  // task uses, but the planner/selector models emit unstable roles for the same
+  // resource ("target"/"context" instead of "attachment" for a file_qa file).
+  // The operation's canonical requirement wins, so the binding is deterministic:
+  // file_qa/multimodal_qa bind files as attachment, image_qa/ocr/multimodal_qa
+  // bind images as source.
+  function canonicalTaskBindingRole(operation = '', type = '', role = '') {
+    if (type === 'file') {
+      return (operation === 'file_qa' || operation === 'multimodal_qa') ? 'attachment' : stringValue(role);
+    }
+    if (type === 'image' && (operation === 'image_qa' || operation === 'ocr' || operation === 'multimodal_qa')) {
+      return 'source';
+    }
+    return stringValue(role);
+  }
+
+  function reconcileSelectedTaskBindings(intent = {}, options = {}) {
+    const input = stringValue(options.input || options.current_input);
+    if (!isTaskSelectionInput(input)) return intent;
+    const plan = multiTaskPlanForIntent(options);
+    if (!plan) return intent;
+    const index = selectedMultiTaskIndex(input);
+    const task = plan.tasks[index - 1];
+    if (!task || task.operation !== stringValue(intent.operation)) return intent;
+    const planRefs = Array.isArray(task.resource_refs) ? task.resource_refs : [];
+    if (!planRefs.length) return intent;
+    const modelRefs = Array.isArray(intent.resource_refs) ? intent.resource_refs : [];
+    const modelKeys = new Set(modelRefs.map(ref => stringValue(ref.candidate_key)));
+    const missing = planRefs.filter(ref => !modelKeys.has(stringValue(ref.candidate_key)));
+    const operation = stringValue(intent.operation);
+    const merged = [...modelRefs, ...missing];
+    const resource_refs = merged.map(ref => {
+      const candidateKey = stringValue(ref.candidate_key);
+      const type = resourceTypeForCandidateKey?.(candidateKey)
+        || (candidateKey.startsWith('i') ? 'image' : candidateKey.startsWith('f') ? 'file' : 'message');
+      return { candidate_key: candidateKey, role: canonicalTaskBindingRole(operation, type, stringValue(ref.role)) };
+    });
+    const rolesUnchanged = resource_refs.every((ref, i) => (
+      stringValue(ref.role) === stringValue(merged[i]?.role)
+      && stringValue(ref.candidate_key) === stringValue(merged[i]?.candidate_key)
+    ));
+    // Only a no-op selection (model already bound every plan key with the
+    // canonical role) may keep the intent untouched; restored plan refs must
+    // always be merged back so the binding reaches the compiler.
+    if (!missing.length && rolesUnchanged) return intent;
+    return { ...intent, resource_refs };
+  }
   function executionPromptForIntent(intent = {}, options = {}, taskState = null) {
     const input = stringValue(options.input || options.current_input);
     const operation = stringValue(intent.operation);
@@ -1336,6 +1514,7 @@
       // and must be the provider prompt. Otherwise keep the raw input verbatim.
       const plan = options.context?.multi_task_plan || options.context?.clarification_context?.multi_task_plan;
       if (plan && Array.isArray(plan.tasks) && plan.tasks.length) return goal || input;
+      if (isTaskSelectionInput(input) && goal && goal !== input) return goal;
       return input || goal;
     }
     if (operation === 'text_to_image') {
@@ -1631,15 +1810,17 @@
       // protocol-defined default: inspect everything submitted in this turn. A
       // model-selected subset would silently discard uploaded images or files.
       const defaulted = emptyCurrentAttachmentSetDefault(intent, scopedOptions);
-      const effectiveIntent = normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options);
+      const effectiveIntent = reconcileSelectedTaskBindings(normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options), options);
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);
       const resolvedImageGoal = resolvedImageGoalForIntent(effectiveIntent, options, taskState);
       const draft = routeIntentToDraft(effectiveIntent, scopedOptions);
-      const taskShape = typeof routeIntentTaskShape === 'function'
-        ? routeIntentTaskShape(effectiveIntent)
-        : stringValue(effectiveIntent.task_shape);
+      const taskShape = (options.taskShapeOverride === 'single' || options.taskShapeOverride === 'multi')
+        ? options.taskShapeOverride
+        : (typeof routeIntentTaskShape === 'function'
+          ? routeIntentTaskShape(effectiveIntent)
+          : stringValue(effectiveIntent.task_shape));
       const route = compileLocalRoute(draft.plan, {
         ...scopedOptions,
         planningImageTasks: taskShape === 'multi' && IMAGE_RELATION_OPERATIONS.has(stringValue(effectiveIntent.operation)),
@@ -1672,6 +1853,96 @@
         reason: 'route_compilation_failed',
         error: String(error.message).slice(0, 200),
       };
+    }
+  }
+
+  // Deterministic complexity gate: run the understand node only when the input
+  // needs deictic resolution or can contain several ordered actions. Simple
+  // instructions keep the single-call route path.
+  function shouldRunUnderstanding(input = '', attachments = [], context = {}) {
+    const text = stringValue(input);
+    if (!text) return false;
+    if (Array.isArray(attachments) && attachments.length) return true;
+    const quoted = !!context?.quoted_message
+      || Array.isArray(context?.file_candidates) && context.file_candidates.some(item => stringValue(item?.source) === 'quoted')
+      || Array.isArray(context?.image_candidates) && context.image_candidates.some(item => stringValue(item?.source) === 'quoted');
+    if (quoted) return true;
+    if (/(?:这个|那个|它|这张|那幅|上一张|第[一二三四五六七八九十\d]+[张幅个]|最近话题)/.test(text)) return true;
+    return /(?:先|再|然后|之后|接着|同时|分别|既要|又要|最后|首先|第一步)/.test(text);
+  }
+
+  function buildUnderstandingPayload({ model, input, attachments = [], context = {}, currentTurn = null } = {}) {
+    assertInputWithinUnifiedLimit(stringValue(input));
+    const priorContext = contextBeforeCurrentTurn(context, currentTurn);
+    const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
+    const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
+    const userPayload = {
+      current_input: stringValue(input),
+      resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
+      context: compactWireRouteContext(priorContext, input, resourceCatalog),
+    };
+    if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
+    userPayload.output_format = 'json';
+    if (currentTurn && typeof currentTurn === 'object') userPayload.current_turn = currentTurn;
+    const systemPrompt = Array.isArray(UNDERSTAND_SYSTEM_PROMPT_LINES) && UNDERSTAND_SYSTEM_PROMPT_LINES.length
+      ? UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n')
+      : ROUTE_SYSTEM_PROMPT;
+    if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
+    return buildResponsesPayload(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: JSON.stringify(userPayload) },
+    ], {
+      stream: false,
+      noReasoning: true,
+      responseFormat: UNDERSTANDING_RESPONSE_FORMAT,
+    });
+  }
+
+  // One bounded semantic-repair round: append the rejected route output and
+  // the precise field-level reasons to the route payload. The model must only
+  // fix those fields and keep the rest unchanged.
+  function buildRouteRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', reasons = [], systemPrompt, understanding = null, currentMode = 'chat', autoMode = true } = {}) {
+    const payload = buildRoutePayload({
+      model, input, attachments, context, currentTurn, systemPrompt, understanding, currentMode, autoMode,
+    });
+    payload.input.push({
+      role: 'user',
+      content: JSON.stringify({
+        repair_request: {
+          rejected_output: stringValue(rejectedOutput).slice(0, 8000),
+          reasons: (Array.isArray(reasons) ? reasons : []).map(item => stringValue(item)),
+          instruction: '只修复 reasons 指出的字段，其余字段保持不变。只输出 json。',
+        },
+      }),
+    });
+    return payload;
+  }
+
+  // One bounded repair round for the understand node itself: append the
+  // rejected output and its failure reason, then ask for a corrected
+  // understanding.v1 object.
+  function buildUnderstandingRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', reasons = [] } = {}) {
+    const payload = buildUnderstandingPayload({ model, input, attachments, context, currentTurn });
+    payload.input.push({
+      role: 'user',
+      content: JSON.stringify({
+        repair_request: {
+          rejected_output: stringValue(rejectedOutput).slice(0, 8000),
+          reasons: (Array.isArray(reasons) ? reasons : []).map(item => stringValue(item)),
+          instruction: '只修复 reasons 指出的问题，其余保持不变。只输出 json。',
+        },
+      }),
+    });
+    return payload;
+  }
+
+  function inspectUnderstandingResult(text = '', options = {}) {
+    try {
+      const raw = JSON.parse(stringValue(text).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+      if (typeof hasExactUnderstanding !== 'function' || !hasExactUnderstanding(raw)) return { understanding: null, reason: 'intent_understanding_invalid' };
+      return { understanding: raw, reason: '' };
+    } catch {
+      return { understanding: null, reason: 'intent_understanding_parse_failed' };
     }
   }
 
@@ -3865,9 +4136,19 @@
     DISPATCH_CONTRACT_VERSION,
     EXECUTION_RESOURCE_PROJECTION_VERSION,
     ROUTE_SYSTEM_PROMPT,
+    UNDERSTAND_SYSTEM_PROMPT,
+    ROUTE_NODE_SYSTEM_PROMPT,
     ROUTE_INTENT_RESPONSE_FORMAT,
     IMAGE_MEMORY_RETRIEVAL_POLICY,
     buildRoutePayload,
+    shouldRunUnderstanding,
+    buildUnderstandingPayload,
+    buildUnderstandingRepairPayload,
+    inspectUnderstandingResult,
+    buildRouteRepairPayload,
+    compileUnderstandingShape,
+    planCoversExpected,
+    expectedPlanTasks,
     buildResourceCandidates,
     buildRouteResourceCandidates,
     buildRouteContext,
@@ -3879,6 +4160,9 @@
     compileLocalRoute,
     isRouteDispatchable,
     createExplicitTextToImageRoute,
+    isTaskSelectionInput,
+    selectedMultiTaskIndex,
+    compileSelectedPlanTask,
     cleanQuotedContent,
     buildQuotedImagePlaceholders,
     buildQuotedRouteContent,
@@ -3908,6 +4192,7 @@
     assertImagePlan,
     shouldRequestMultiTaskPlan,
     buildMultiTaskPlanPayload,
+    buildMultiTaskPlanRepairPayload,
     inspectMultiTaskPlan,
     compileMultiTaskPlan,
     shouldRequestImagePlan,

@@ -64,6 +64,20 @@ async function runIndependentEditRoute(count) {
     requestJson: async (url, payload) => {
       calls.push({ url, payload });
       const formatName = payload.text?.format?.name;
+      if (formatName === 'chatui_intent_understanding_v1') {
+        return routeResponse({
+          schema_version: 'intent_understanding.v1',
+          ordering: 'independent',
+          dependency: 'followup',
+          actions: Array.from({ length: count }, (_, index) => ({
+            index: index + 1,
+            kind: 'image_edit',
+            verb: '改',
+            target: '第 ' + (index + 1) + ' 张图片',
+            resolved_refs: [{ candidate_key: 'i' + (index + 1), text: '第 ' + (index + 1) + ' 张图片' }],
+          })),
+        });
+      }
       if (formatName === 'chatui_route_intent_v3') return routeResponse(intent);
       if (formatName === 'chatui_image_instruction_v1') {
         return routeResponse({
@@ -82,9 +96,11 @@ async function runIndependentEditRoute(count) {
 }
 
 function assertIndependentEditBatch({ route, calls }, count) {
-  assert.strictEqual(calls.length, 3, 'independent edits require route classification, instruction materialization, and one image-plan call');
-  assert.strictEqual(calls[1].payload.text?.format?.name, 'chatui_image_instruction_v1');
-  assert.strictEqual(calls[2].payload.text?.format?.name, 'chatui_image_plan_v1');
+  assert.strictEqual(calls.length, 4, 'independent edits require understanding, route classification, instruction materialization, and one image-plan call');
+  assert.strictEqual(calls[0].payload.text?.format?.name, 'chatui_intent_understanding_v1');
+  assert.strictEqual(calls[1].payload.text?.format?.name, 'chatui_route_intent_v3');
+  assert.strictEqual(calls[2].payload.text?.format?.name, 'chatui_image_instruction_v1');
+  assert.strictEqual(calls[3].payload.text?.format?.name, 'chatui_image_plan_v1');
   assert.strictEqual(route.operationType, 'edit_image');
   assert.strictEqual(route.taskShape, 'multi');
   assert.strictEqual(route.needClarification, false);

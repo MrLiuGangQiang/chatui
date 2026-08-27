@@ -277,6 +277,14 @@ function testQuotedMessageBindingUsesCanonicalRuntimeRouteFields() {
   }), true);
 }
 
+function testPlainChatRejectsFileBindingsWhileFileQaAcceptsAttachment() {
+  const file = { key: 'r1', type: 'file', role: 'attachment', resource_id: 'res:file:file-1', source: 'current' };
+  assert.strictEqual(capabilities.validateExecutionBindings('plain_chat', [binding(file)]), false,
+    'plain_chat must not bind files directly; file tasks belong to file_qa');
+  assert.strictEqual(capabilities.validateExecutionBindings('file_qa', [binding(file)]), true);
+  assert.strictEqual(capabilities.validateExecutionBindings('plain_chat', []), true);
+}
+
 module.exports = [
   testCapabilityRegistryKeepsDimensionsInPromptAndUsesAutoSize,
   testCapabilityRegistryDoesNotParseImageCountDirectives,
@@ -290,4 +298,5 @@ module.exports = [
   testImagePayloadMustMatchArgumentsAndStableBindings,
   testBindingEvidenceNormalizesMediaMimeTypesToResourceTypes,
   testQuotedMessageBindingUsesCanonicalRuntimeRouteFields,
+  testPlainChatRejectsFileBindingsWhileFileQaAcceptsAttachment,
 ];

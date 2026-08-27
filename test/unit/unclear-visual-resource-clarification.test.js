@@ -171,6 +171,14 @@ async function testMaterializerTargetAmbiguityRendersReplacementImageChoices() {
     getSessionChatModel: () => 'route-model',
     requestJson: async (_url, payload) => {
       calls.push(payload.text?.format?.name);
+      if (payload.text?.format?.name === 'chatui_intent_understanding_v1') {
+        return { choices: [{ message: { content: JSON.stringify({
+          schema_version: 'intent_understanding.v1',
+          ordering: 'sequential',
+          dependency: 'followup',
+          actions: [{ index: 1, kind: 'image_edit', verb: '改', target: '目标图片', resolved_refs: [{ candidate_key: 'i1', text: '目标图片' }] }],
+        }) } }] };
+      }
       if (payload.text?.format?.name === 'chatui_route_intent_v3') {
         return { choices: [{ message: { content: JSON.stringify(editIntent([{ candidate_key: 'i1', role: 'target' }])) } }] };
       }
@@ -188,7 +196,7 @@ async function testMaterializerTargetAmbiguityRendersReplacementImageChoices() {
 
   try {
     const result = await workflow.getEffectiveRoute('不是这个图', [], 'materializer-target-ambiguity', null, context, {});
-    assert.deepStrictEqual(calls, ['chatui_route_intent_v3', 'chatui_image_instruction_v1']);
+    assert.deepStrictEqual(calls, ['chatui_intent_understanding_v1', 'chatui_route_intent_v3', 'chatui_image_instruction_v1']);
     assert.strictEqual(result.api, 'clarify');
     assert.strictEqual(result.dispatchAuthorized, false);
     assert.strictEqual(result.clarificationQuestion,

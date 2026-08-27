@@ -8,6 +8,7 @@ require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
 const routeService = require('../../client/services/route-service');
 const sessionPersistence = require('../../client/app/session-persistence');
+const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 function makeMessageNode() {
   const button = {
@@ -539,6 +540,106 @@ async function testRegenerateUsesCanonicalRouteRecognitionContext() {
   assert.ok(!source.includes('regenerateContextOverride'));
 }
 
+function createChatRegenerateFixture() {
+  const events = [];
+  const order = [];
+  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const userNode = { dataset: { rawText: 'draw a fox', messageIndex: '0', displayItemId: 'user-chat-regenerate' } };
+  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
+  const assistantNode = {
+    dataset: { responseIndex: '1', displayItemId: 'answer-chat-regenerate' },
+    isConnected: false,
+    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
+  };
+  const liveItem = { id: 'display-chat-regenerate', role: 'assistant', content: 'routing', pending: '1', responseIndex: '1' };
+  const session = { id: 'session-chat-regenerate', messages: [], display: [liveItem] };
+  const state = {
+    activeSessionId: session.id,
+    autoMode: true,
+    messages: [
+      { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0' },
+      { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
+    ],
+    sessions: [session],
+  };
+  session.messages = state.messages.slice();
+  const submitWorkflow = { savePendingSubmit: () => true, clearPendingSubmit: () => {} };
+  const finalExecution = makeExecutionFixture({ operation: 'plain_chat', relation: 'new', prompt: 'draw a fox' });
+  const chatRoute = {
+    mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
+    operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'new',
+    resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
+    selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
+    selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false,
+    contextualImagePrompt: 'draw a fox', editInstruction: '', evidence: 'dispatch_contract.v1',
+    localClarification: false,
+    executionResources: finalExecution.executionResources,
+    dispatchContract: finalExecution.dispatchContract,
+  };
+  const workflow = regenerateWorkflow.createRegenerateWorkflow({
+    state,
+    taskEvents: taskState.TASK_EVENTS,
+    jobLifecycle: {
+      makeSubmissionId: () => 'submit-chat-regenerate',
+      shouldPreservePendingSubmitOnError: () => false,
+    },
+    messageReplacement: {
+      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
+      ensureAssistantReplacementSlot: (_messages, turn) => turn,
+    },
+    dispatchTaskEvent: (_sessionId, event) => events.push(event),
+    isSessionBusy: () => false,
+    findPreviousUserMessageNode: () => userNode,
+    toast: () => {},
+    ensureActiveRun: () => run,
+    resetMessageActionStates: () => {},
+    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
+    getUserAttachmentContextFromNode: () => '',
+    restoreUserAttachmentsFromContext: async () => [],
+    updateModeUi: () => {},
+    warnMissingModel: () => false,
+    isImageFile: () => false,
+    sendImage: async () => { throw new Error('a chat regeneration must not dispatch an image'); },
+    sendChat: async (chatPrompt, files, _node, options) => {
+      order.push(`send:${chatPrompt}`);
+      return options.onDurableHandoff();
+    },
+    showRunError: (_sessionId, error) => { throw error; },
+    resetActionButtonState: () => {},
+    finishSessionTask: () => {},
+    updateResumeStreamButton: () => {},
+    getSubmitWorkflow: () => submitWorkflow,
+    createRouteRecognitionUi: () => ({
+      stopSlowNotice() {},
+      async getEffectiveRouteWithSlowNotice(input) {
+        order.push(`route:${input}`);
+        return chatRoute;
+      },
+    }),
+    quotedFileCandidatesFromContext: () => [],
+    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
+    parseImageContext: () => null,
+    restoreImageAttachmentsFromContext: async () => [],
+    makeClientChatJobId: () => 'chatjob-chat-regenerate',
+    makeClientImageJobId: () => 'imgjob-chat-regenerate',
+    resumeSessionJobs: () => {},
+  });
+  return { workflow, state, run, events, order, assistantNode };
+}
+
+async function testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch() {
+  const fixture = createChatRegenerateFixture();
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  const routeIndex = fixture.order.findIndex(entry => entry.startsWith('route:'));
+  const sendIndex = fixture.order.findIndex(entry => entry.startsWith('send:'));
+  assert.ok(routeIndex >= 0, 'regeneration must run intent recognition first');
+  assert.strictEqual(fixture.order[routeIndex], 'route:draw a fox', 'the routed intent input must be the original user prompt');
+  assert.ok(sendIndex > routeIndex, 'regenerated execution must wait for the routed intent result');
+  assert.strictEqual(fixture.order[sendIndex], 'send:draw a fox', 'execution must dispatch the routed prompt');
+  assert.strictEqual(fixture.order.filter(entry => entry.startsWith('route:')).length, 1, 'regeneration must route exactly once');
+  assert.strictEqual(fixture.order.filter(entry => entry.startsWith('send:')).length, 1, 'regeneration must dispatch exactly once');
+}
+
 module.exports = [
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
@@ -553,5 +654,8 @@ module.exports = [
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
   testRegenerateUsesCanonicalRouteRecognitionContext,
   testForceImageRegenerateRunsIntentRecognitionFirst,
+  testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch,
 ];
+
+
 

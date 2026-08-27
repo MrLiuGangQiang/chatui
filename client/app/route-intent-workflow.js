@@ -400,6 +400,12 @@
           }
         }
         const operation = completed?.operationType || completed?.dispatchContract?.operation || '';
+        // A multi-task plan must outlive the pending-clarification lifecycle so
+        // a later selector turn ("做任务1") can still resolve to its task goal.
+        if (completed?.multiTaskPlan) {
+          const session = deps.state?.sessions?.find(item => item.id === sessionId);
+          if (session) session.multiTaskPlan = completed.multiTaskPlan;
+        }
         if (outcome === ROUTE_OUTCOMES.BUSINESS_CLARIFICATION) emitStage('preparing_clarification', { source, operation });
         else if (outcome === ROUTE_OUTCOMES.READY) emitStage('route_ready', { source, operation });
         else emitStage('route_failed', { source, operation, outcome });
@@ -458,6 +464,8 @@
         );
       });
       let config = {};
+      let understandingShape = null;
+      let understandingEvidence = null;
 
       try {
         intentDeadline.assertActive();
@@ -478,6 +486,22 @@
           throw error;
         }
         intentDeadline.assertActive();
+        // A retained multi-task plan makes a later selector turn ("做任务1")
+        // resolvable to the concrete task goal. The plan is delivered through
+        // clarification_context so it survives wire compaction and stays the
+        // primary evidence while the selector dominates the turn.
+        if (typeof routeSvc.isTaskSelectionInput === 'function' && routeSvc.isTaskSelectionInput(input)) {
+          const session = deps.state?.sessions?.find(item => item.id === sessionId);
+          if (session?.multiTaskPlan && Array.isArray(session.multiTaskPlan.tasks) && session.multiTaskPlan.tasks.length) {
+            context = {
+              ...context,
+              clarification_context: {
+                ...(context?.clarification_context || {}),
+                multi_task_plan: session.multiTaskPlan,
+              },
+            };
+          }
+        }
 
         if (Array.isArray(attachments) && attachments.length) {
           emitStage('collecting_resources', { attachmentCount: attachments.length });
@@ -623,9 +647,41 @@
               const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary' });
               intentDeadline.assertActive();
               const raw = routeSvc.extractRouteText(response);
-              const inspected = routeSvc.inspectMultiTaskPlan(raw);
+              let inspected = routeSvc.inspectMultiTaskPlan(raw);
               if (!inspected?.plan) {
                 return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_plan_invalid', '多任务规划失败，请重试。'), source);
+              }
+              // 1:1 faithfulness: the plan must cover every extracted action with
+              // the matching operation and never invent extra tasks.
+              if (understandingShape && Array.isArray(understandingShape.actions) && understandingShape.actions.length
+                  && typeof routeSvc.planCoversExpected === 'function'
+                  && typeof routeSvc.expectedPlanTasks === 'function') {
+                const expectedTasks = routeSvc.expectedPlanTasks(understandingShape.actions);
+                if (!routeSvc.planCoversExpected(inspected.plan, expectedTasks)) {
+                  if (typeof routeSvc.buildMultiTaskPlanRepairPayload === 'function') {
+                    emitStage('repairing_route', { modelRole: 'primary' });
+                    const repairPayload = routeSvc.buildMultiTaskPlanRepairPayload({
+                      model: primaryModel,
+                      input,
+                      goal,
+                      attachments: attachmentMeta,
+                      context,
+                      currentTurn: routeOptions?.currentTurn || null,
+                      rejectedPlan: inspected.plan,
+                      expectedSummary: expectedTasks,
+                    });
+                    const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary' });
+                    intentDeadline.assertActive();
+                    const repairRaw = routeSvc.extractRouteText(repairResponse);
+                    const repaired = routeSvc.inspectMultiTaskPlan(repairRaw);
+                    if (repaired?.plan && routeSvc.planCoversExpected(repaired.plan, expectedTasks)) {
+                      inspected = repaired;
+                    }
+                  }
+                  if (!routeSvc.planCoversExpected(inspected.plan, expectedTasks)) {
+                    return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_plan_not_faithful', '多任务拆解与请求不一致，请重试。'), source);
+                  }
+                }
               }
               const compiled = routeSvc.compileMultiTaskPlan(inspected.plan, {
                 input,
@@ -741,6 +797,7 @@
               input, attachments: attachmentMeta, context,
               ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
               currentTurn: routeOptions?.currentTurn || null,
+              taskShapeOverride: understandingShape?.taskShape,
             });
             return parsed?.route || null;
           } catch (error) {
@@ -765,11 +822,118 @@
           return finalizeRoute(deterministicEmptyAttachmentSet.route, 'empty_current_attachment_set');
         }
 
+        // A task selector ("2", "任务二", "第2个任务") is a deterministic lookup
+        // into the already-generated multi-task plan. The intent model is
+        // unreliable at mapping a number to its task (it can answer task 1 for
+        // "2"), so resolve the selected task locally and skip the model call.
+        const selectorSession = deps.state?.sessions?.find(item => item.id === sessionId);
+        const selectorPlan = (typeof routeSvc.isTaskSelectionInput === 'function' && routeSvc.isTaskSelectionInput(input))
+          ? (selectorSession?.multiTaskPlan
+              || context?.multi_task_plan
+              || context?.clarification_context?.multi_task_plan)
+          : null;
+        if (selectorPlan && Array.isArray(selectorPlan.tasks) && selectorPlan.tasks.length) {
+          const selectorIndex = typeof routeSvc.selectedMultiTaskIndex === 'function'
+            ? routeSvc.selectedMultiTaskIndex(input)
+            : 0;
+          if (selectorIndex >= 1 && selectorIndex <= selectorPlan.tasks.length) {
+            emitStage('recognizing_intent', { modelRole: 'deterministic' });
+            const compiled = typeof routeSvc.compileSelectedPlanTask === 'function'
+              ? routeSvc.compileSelectedPlanTask(selectorPlan, selectorIndex, {
+                  input,
+                  attachments: attachmentMeta,
+                  context,
+                  ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
+                  relation: routeContextOverride?.relation || 'new',
+                  currentTurn: routeOptions?.currentTurn || null,
+                })
+              : null;
+            if (compiled?.ok && compiled.route) {
+              return finalizeRoute(compiled.route, 'multi_task_selector');
+            }
+            return completeRoute(routeFailureRoute(
+              { operationType: String(selectorPlan.tasks[selectorIndex - 1]?.operation || ''), taskShape: 'single' },
+              'multi_task_selector_compile_failed',
+              '所选任务无法安全执行，请重试。',
+            ), 'multi_task_selector');
+          }
+          return completeRoute({
+            operationType: String(selectorPlan.tasks[0]?.operation || ''),
+            taskShape: 'single',
+            needClarification: true,
+            readiness: 'needs_clarification',
+            dispatchAuthorized: false,
+            clarificationQuestion: '编号无效。请输入 1 到 ' + selectorPlan.tasks.length + ' 之间的编号（一次只执行一个任务）。',
+          }, 'multi_task_selector');
+        }
+
+        // Phase 1: run the understand thinking node for inputs that need
+        // deictic resolution or may contain several ordered actions. Its
+        // deterministic Shape Compiler result overrides the route model's
+        // task_shape so multi-intent requests split reliably.
+        if (typeof routeSvc.shouldRunUnderstanding === 'function' && routeSvc.shouldRunUnderstanding(input, attachments, context)) {
+          emitStage('understanding');
+          try {
+            intentDeadline.assertActive();
+            const understandingPayload = routeSvc.buildUnderstandingPayload({
+              model: primaryModel,
+              input,
+              attachments: attachmentMeta,
+              context,
+              currentTurn: routeOptions?.currentTurn || null,
+            });
+            const understandingResponse = await requestWithinDeadline(understandingPayload, {
+              phase: 'understanding', modelRole: 'primary', requestPurpose: 'intent_understanding',
+            });
+            intentDeadline.assertActive();
+            const understandingRaw = routeSvc.extractRouteText(understandingResponse);
+            let inspected = typeof routeSvc.inspectUnderstandingResult === 'function'
+              ? routeSvc.inspectUnderstandingResult(understandingRaw)
+              : null;
+            if (!inspected?.understanding && typeof routeSvc.buildUnderstandingRepairPayload === 'function') {
+              emitStage('repairing_route', { modelRole: 'primary' });
+              const repairPayload = routeSvc.buildUnderstandingRepairPayload({
+                model: primaryModel,
+                input,
+                attachments: attachmentMeta,
+                context,
+                currentTurn: routeOptions?.currentTurn || null,
+                rejectedOutput: understandingRaw,
+                reasons: [inspected?.reason || 'intent_understanding_invalid'],
+              });
+              const repairResponse = await requestWithinDeadline(repairPayload, {
+                phase: 'understanding_repair', modelRole: 'primary', requestPurpose: 'intent_understanding',
+              });
+              intentDeadline.assertActive();
+              const repairRaw = routeSvc.extractRouteText(repairResponse);
+              const repaired = routeSvc.inspectUnderstandingResult(repairRaw);
+              if (repaired?.understanding) inspected = repaired;
+            }
+            if (inspected?.understanding && typeof routeSvc.compileUnderstandingShape === 'function') {
+              emitStage('compiling_shape');
+              understandingShape = routeSvc.compileUnderstandingShape(inspected.understanding.actions);
+              understandingEvidence = inspected.understanding;
+            }
+          } catch (error) {
+            if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
+            if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+            // Understanding is best-effort evidence; the route node still runs.
+            console.warn('[route] understanding node failed', {
+              name: String(error?.name || 'Error'),
+              code: String(error?.code || 'INTENT_UNDERSTANDING_FAILED'),
+            });
+          }
+        }
+
         const payload = routeSvc.buildRoutePayload({
           model: primaryModel, input, attachments: attachmentMeta, context,
           currentMode: deps.state?.mode || 'chat',
           autoMode: deps.state?.autoMode !== false,
           currentTurn: routeOptions?.currentTurn || null,
+          ...(understandingShape ? {
+            systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
+            understanding: understandingEvidence,
+          } : {}),
         });
 
         emitStage('recognizing_intent', { modelRole: 'primary' });
@@ -777,9 +941,30 @@
         let invalidModelOutput = false;
         try {
           const response = await requestWithinDeadline(payload, { phase: 'routing', modelRole: 'primary' });
-          const route = response ? inspectResponse(response, 'primary') : null;
+          const raw = response ? routeSvc.extractRouteText(response) : '';
+          let route = raw ? inspectResponse(response, 'primary') : null;
           intentDeadline.assertActive();
           if (route) return finalizeRoute(route, 'primary_model');
+          // One bounded semantic-repair round before falling back or failing.
+          if (raw && typeof routeSvc.buildRouteRepairPayload === 'function') {
+            emitStage('repairing_route', { modelRole: 'primary' });
+            const repairPayload = routeSvc.buildRouteRepairPayload({
+              model: primaryModel, input, attachments: attachmentMeta, context,
+              currentMode: deps.state?.mode || 'chat',
+              autoMode: deps.state?.autoMode !== false,
+              currentTurn: routeOptions?.currentTurn || null,
+              rejectedOutput: raw,
+              reasons: ['route_intent_invalid'],
+              ...(understandingShape ? {
+                systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
+                understanding: understandingEvidence,
+              } : {}),
+            });
+            const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'routing_repair', modelRole: 'primary' });
+            intentDeadline.assertActive();
+            route = repairResponse ? inspectResponse(repairResponse, 'primary') : null;
+            if (route) return finalizeRoute(route, 'primary_repair');
+          }
           invalidModelOutput = true;
         } catch (error) {
           if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
@@ -801,6 +986,10 @@
             currentMode: deps.state?.mode || 'chat',
             autoMode: deps.state?.autoMode !== false,
             currentTurn: routeOptions?.currentTurn || null,
+            ...(understandingShape ? {
+              systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
+              understanding: understandingEvidence,
+            } : {}),
           });
           try {
             const fallbackResponse = await requestWithinDeadline(fallbackPayload, { phase: 'routing', modelRole: 'fallback' });

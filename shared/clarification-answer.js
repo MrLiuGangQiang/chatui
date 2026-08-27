@@ -755,6 +755,20 @@
       established_resources: establishedResources,
       selected_resources: application?.selectedResources || [],
       answer_complete: application?.complete === true,
+      ...(normalized.routeInfo?.multiTaskPlan ? {
+        multi_task_plan: {
+          schema_version: String(normalized.routeInfo.multiTaskPlan.schema_version || 'multi_task_plan.v1'),
+          tasks: (Array.isArray(normalized.routeInfo.multiTaskPlan.tasks) ? normalized.routeInfo.multiTaskPlan.tasks : [])
+            .map((task, index) => ({
+              index: index + 1,
+              key: stringValue(task.key),
+              operation: stringValue(task.operation),
+              description: stringValue(task.description),
+              goal: stringValue(task.goal),
+              resource_refs: Array.isArray(task.resource_refs) ? task.resource_refs.map(ref => ({ candidate_key: stringValue(ref.candidate_key), role: stringValue(ref.role) })) : [],
+            })),
+        },
+      } : {}),
     };
     if (quotedContext && typeof quotedContext === 'object' && !Array.isArray(quotedContext)) {
       if (quotedContext.quoted_message !== undefined) context.quoted_message = quotedContext.quoted_message;

@@ -929,27 +929,6 @@
     }
     return { ok: true, items };
   }
-  function selectMultiTaskPlanChoice(planCompiled = [], input = '') {
-    const items = Array.isArray(planCompiled) ? planCompiled : [];
-    const text = stringValue(input);
-    if (!items.length || !text) return null;
-    // Recognize both bare numbers and natural-language task selectors:
-    // "2", "第2个", "2号", "任务2", "做任务2", "执行第2项".
-    const selector = text.match(/(?:(?:做|执行|选|选择|处理)?\s*任务\s*)?(?:第\s*)?([1-9]\d*)(?:\s*个|\s*项|\s*条|\s*号)?(?:\s*任务)?\s*$/);
-    if (selector) {
-      const index = Number(selector[1]) - 1;
-      if (items[index]) return items[index].route;
-    }
-    const normalized = text.toLowerCase();
-    for (const item of items) {
-      const task = item.task || {};
-      const description = stringValue(task.description).toLowerCase();
-      const key = stringValue(task.key).toLowerCase();
-      if (description && normalized.includes(description)) return item.route;
-      if (key && normalized.includes(key)) return item.route;
-    }
-    return null;
-  }
 
 
 
@@ -3904,7 +3883,6 @@
     buildMultiTaskPlanPayload,
     inspectMultiTaskPlan,
     compileMultiTaskPlan,
-    selectMultiTaskPlanChoice,
     shouldRequestImagePlan,
     compileImagePlan,
   });

@@ -33,7 +33,7 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false);
   assert.strictEqual(payload.input.length, 2, 'the classifier requires exactly one system instruction and one facts payload');
   assert.ok(system);
-  assert.ok(system.content.length <= 5400, `route system prompt must remain bounded, got ${system.content.length} characters`);
+  assert.ok(system.content.length <= 5600, `route system prompt must remain bounded, got ${system.content.length} characters`);
   assert.doesNotMatch(system.content, /示例（完整 JSON 输出）/);
   assert.ok(JSON.stringify(schema).length <= 1000, 'the request schema must carry validation only, not duplicated routing prose');
   assert.strictEqual(hasDescription(schema), false, 'routing rules belong in the clear system prompt, never in JSON Schema descriptions');

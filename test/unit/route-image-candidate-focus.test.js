@@ -133,7 +133,7 @@ function testRoutePromptStaysWithinBoundedLength() {
   const block = source.slice(start, end);
   const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];
   const promptLength = matches.map(match => match[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('\n').length;
-  assert.ok(promptLength <= 5400, `route system prompt must remain bounded, got ${promptLength}`);
+  assert.ok(promptLength <= 5600, `route system prompt must remain bounded, got ${promptLength}`);
 }
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {

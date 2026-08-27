@@ -144,31 +144,37 @@ function testCompileMultiTaskPlanBuildsIndependentExecutableRoutes() {
   assert.strictEqual(compiled.items[1].route.readiness, 'ready');
 }
 
-function testSelectMultiTaskPlanChoiceByNaturalLanguage() {
-  const items = [
-    { task: { key: 't1', description: '总结文件内容' }, route: { operationType: 'file_qa' } },
-    { task: { key: 't2', description: '画一只狗' }, route: { operationType: 'text_to_image' } },
-    { task: { key: 't3', description: '讲一个笑话' }, route: { operationType: 'plain_chat' } },
-  ];
-  for (const text of ['2', '做任务2', '任务2', '第2个任务', '选2号', '执行第2项']) {
-    assert.strictEqual(routeService.selectMultiTaskPlanChoice(items, text).operationType, 'text_to_image',
-      `task selector must map ${text} to task 2`);
-  }
-  assert.strictEqual(routeService.selectMultiTaskPlanChoice(items, '做任务3').operationType, 'plain_chat');
+
+
+function testClarificationContextCarriesMultiTaskPlanForModelSelection() {
+  const clarificationAnswer = require('../../shared/clarification-answer');
+  const pending = clarificationAnswer.createPendingClarification({
+    messages: [],
+    clarificationText: '识别到 2 个独立任务',
+    routeInfo: {
+      multiTaskPlan: {
+        schema_version: 'multi_task_plan.v1',
+        tasks: [
+          { key: 't1', operation: 'file_qa', description: '总结文件', goal: '总结文件', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
+          { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
+        ],
+      },
+    },
+  });
+  const context = clarificationAnswer.buildClarificationRouteContext({ baseContext: {}, pending });
+  assert.ok(context.clarification_context.multi_task_plan, 'the task list must be available to intent recognition');
+  assert.strictEqual(context.clarification_context.multi_task_plan.tasks.length, 2);
+  assert.deepStrictEqual(context.clarification_context.multi_task_plan.tasks[1], {
+    index: 2, key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [],
+  });
 }
 
-function testSelectMultiTaskPlanChoiceByNumberOrDescription() {
-  const compiled = routeService.compileMultiTaskPlan(plan(), {
-    attachments: [{
-      index: 1, source_index: 1, media_index: 1, id: 'file-current', file_id: 'file-current',
-      name: 'plan.md', type: 'text/markdown', is_image: false, has_extracted_text: true,
-    }],
-    context: contextWithFile(),
-  });
-  assert.strictEqual(routeService.selectMultiTaskPlanChoice(compiled.items, '2').operationType, 'text_to_image');
-  assert.strictEqual(routeService.selectMultiTaskPlanChoice(compiled.items, '分析引言.docx').operationType, 'file_qa');
-  assert.strictEqual(routeService.selectMultiTaskPlanChoice(compiled.items, '画一只狗').operationType, 'text_to_image');
-  assert.strictEqual(routeService.selectMultiTaskPlanChoice(compiled.items, '随便'), null);
+function testRoutePromptDeclaresModelPoweredTaskSelection() {
+  const routePrompts = require('../../client/services/route-prompts');
+  const prompt = routePrompts.createRoutePromptSet().ROUTE_SYSTEM_PROMPT;
+  assert.match(prompt, /【多任务选择】/);
+  assert.match(prompt, /只输出所选任务对应的operation\/goal\/resource_refs/);
+  assert.match(prompt, /task_shape=single/);
 }
 
 module.exports = [
@@ -177,6 +183,6 @@ module.exports = [
   testMultiTaskPlanPromptAndInspect,
   testWorkflowInvokesMultiTaskPlannerAndListsTasks,
   testCompileMultiTaskPlanBuildsIndependentExecutableRoutes,
-  testSelectMultiTaskPlanChoiceByNumberOrDescription,
-  testSelectMultiTaskPlanChoiceByNaturalLanguage,
+  testClarificationContextCarriesMultiTaskPlanForModelSelection,
+  testRoutePromptDeclaresModelPoweredTaskSelection,
 ];

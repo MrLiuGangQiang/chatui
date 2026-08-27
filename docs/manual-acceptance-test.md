@@ -820,6 +820,12 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **应该输出**：第一轮为 `image_reference_gen + goal_mode=replace`，参考图只作为 `reference/style_reference`，不会继承旧文字任务；新结果持久化的是当前完整 goal 对应的 replacement state。后续是否 `amend` 只取决于当前输入是否为增量，不由第一轮 relation 或历史旧图决定。
 - **评判依据**：以 route intent、资源角色、task state base、最终 edits 请求和后续路由 payload 为证据。
 
+### RTE-033 文字焦点下无图片词汇的模糊追问跟随最近文字话题｜P0
+- **前置条件**：会话先完成一轮图片生成，随后切换成至少一轮纯文字问答（`conversation_focus=text`），且输入不含“图/画/改/换/第n张”等图片词汇。
+- **输入 / 操作**：发送 `哪个效果最好` 或 `那这个呢`。
+- **应该输出**：意图路由为 `plain_chat`（必要时 `web_search`）且 `relation=followup`，指代最近文字话题；不得仅因历史图片候选存在就判成 `image_qa`/`image_compare`。明确含图片词汇的请求（如 `继续画第二张`、`把第二张改成黑白`）仍按图片任务路由。
+- **评判依据**：以 route `operation/relation/resource_refs` 和最终请求 payload 为证据。
+
 ---
 
 ## 11. 图片生成、编辑与图片操作

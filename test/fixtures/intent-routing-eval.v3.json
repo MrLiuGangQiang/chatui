@@ -71,6 +71,96 @@
       }
     },
     {
+      "id": "text-focus-ambiguous-followup-stays-plain-chat",
+      "category": "context-boundary",
+      "safety_critical": true,
+      "input": "哪个效果最好",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 5,
+            "role": "user",
+            "content": "分别画五个科幻场景的图"
+          },
+          {
+            "index": 6,
+            "role": "assistant",
+            "content": "[图片生成完成] 未来科幻城市、宇宙飞船、机器人、实验室、遗迹"
+          },
+          {
+            "index": 7,
+            "role": "user",
+            "content": "哪个协议效果最好呢"
+          },
+          {
+            "index": 8,
+            "role": "assistant",
+            "content": "没有绝对最好：HTTP/3 移动网络效果最好，HTTP/2 最稳妥。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-history-sci-1",
+            "reference_id": "imgref-history-sci",
+            "target": "previous",
+            "description": "未来科幻城市"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-history-sci-2",
+            "reference_id": "imgref-history-sci",
+            "target": "previous",
+            "description": "宇宙飞船航行"
+          }
+        ],
+        "file_candidates": [],
+        "conversation_focus": {
+          "kind": "text"
+        }
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "协议",
+              "h2",
+              "h3"
+            ],
+            [
+              "效果",
+              "最好",
+              "更好"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "i2",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "media_exact",
+          "items": []
+        },
+        "task_shape": "single"
+      }
+    },
+    {
       "id": "quoted-text-to-image-binds-message-on-first-route",
       "category": "quoted-resource-contract",
       "safety_critical": true,

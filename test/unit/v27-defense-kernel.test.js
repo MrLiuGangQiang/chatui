@@ -174,7 +174,7 @@ function testMultiIntentPromptsSplitOrMergeClarification() {
     { operation: 'plain_chat', relation: 'new', arguments: { prompt: '先总结这份周报，然后根据它生成一张海报' }, bindings: [], constraints: [] },
   );
   assert.strictEqual(route.needClarification, true);
-  assert.match(route.clarificationQuestion, /分开做|合并做/);
+  assert.match(route.clarificationQuestion, /多个不同执行任务|一次只能执行一个/);
 }
 
 function testMultiIntentStableSingleTaskIsNotBlocked() {

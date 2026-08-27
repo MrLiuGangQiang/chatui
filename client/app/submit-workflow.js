@@ -423,7 +423,8 @@
               if(replacement?.node){imageContext&&(replacement.node.dataset.imageContext=imageContext);attachmentContext&&(replacement.node.dataset.attachmentContext=attachmentContext);quoteContext&&(replacement.node.dataset.quoteContext=quoteContext);if(replacement.node.__displayItem){imageContext&&(replacement.node.__displayItem.imageContext=imageContext);attachmentContext&&(replacement.node.__displayItem.attachmentContext=attachmentContext);quoteContext&&(replacement.node.__displayItem.quoteContext=quoteContext)}}
               await persistTargetMessages()
             }
-            if(pendingMerge?.merged){
+            const selectedMultiTaskRoute=storedPending?.routeInfo?.multiTaskPlanCompiled?routeUtils.selectMultiTaskPlanChoice?.(storedPending.routeInfo.multiTaskPlanCompiled,rawPromptText||promptText):null;
+            if(selectedMultiTaskRoute){routeInfo=selectedMultiTaskRoute;routeMode=routeInfo.mode}else if(pendingMerge?.merged){
                try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId,modelAttemptLedger:inheritedModelAttemptLedger,modelCalls:inheritedModelCalls}),routeMode=routeInfo.mode}catch(e){throw e}
             }else if(hasQuotedMessage){
                try{

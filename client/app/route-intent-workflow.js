@@ -610,6 +610,58 @@
           if (!materializedRoute || materializedRoute.needClarification) {
             return completeRoute(materializedRoute, source);
           }
+          if (typeof routeSvc.shouldRequestMultiTaskPlan === 'function' && routeSvc.shouldRequestMultiTaskPlan(materializedRoute)) {
+            emitStage('planning_multi_tasks', { modelRole: 'primary' });
+            const goal = String(materializedRoute.userGoal || input || '').trim();
+            const planPayload = routeSvc.buildMultiTaskPlanPayload({
+              model: primaryModel,
+              input,
+              goal,
+              attachments: attachmentMeta,
+              context,
+              currentTurn: routeOptions?.currentTurn || null,
+            });
+            try {
+              intentDeadline.assertActive();
+              const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary' });
+              intentDeadline.assertActive();
+              const raw = routeSvc.extractRouteText(response);
+              const inspected = routeSvc.inspectMultiTaskPlan(raw);
+              if (!inspected?.plan) {
+                return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_plan_invalid', '多任务规划失败，请重试。'), source);
+              }
+              const compiled = routeSvc.compileMultiTaskPlan(inspected.plan, {
+                input,
+                attachments: attachmentMeta,
+                context,
+                ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
+                relation: materializedRoute.relation,
+                currentTurn: routeOptions?.currentTurn || null,
+              });
+              if (!compiled.ok) {
+                return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_compile_failed', '多任务无法安全执行，请重试。'), source);
+              }
+              const tasksSummary = inspected.plan.tasks.map((task, index) => `${index + 1}. ${String(task.description || '').trim()}`).join('\n');
+              return completeRoute({
+                ...materializedRoute,
+                multiTaskPlan: inspected.plan,
+                multiTaskPlanCompiled: compiled.items,
+                clarificationQuestion: `识别到 ${inspected.plan.tasks.length} 个独立任务：\n${tasksSummary}\n请回复要执行的编号（一次只执行一个任务）。`,
+                needClarification: true,
+              }, source);
+            } catch (error) {
+              if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
+              if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
+              if (error?.code === 'MODEL_CALL_BUDGET_EXCEEDED') return failRoute('model_calls_exceeded', 'model_call_budget');
+              console.warn('[route] multi-task plan model failed', {
+                name: String(error?.name || 'Error'),
+                code: String(error?.code || ''),
+              });
+              const reason = routeErrorReason(error);
+              return completeRoute(routeFailureRoute(materializedRoute, reason, '多任务规划失败，请重试。'), source);
+            }
+          }
+
           if (typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
             return completeRoute(materializedRoute, source);
           }

@@ -134,10 +134,8 @@ function testReadOnlyMultiImageShapeRequiresClarificationWithoutRewritingTheMode
   assert.strictEqual(route.needClarification, true);
   assert.strictEqual(route.dispatchAuthorized, false);
   assert.strictEqual(route.readiness, 'needs_clarification');
-  assert.strictEqual(
-    route.clarificationQuestion,
-    '本轮请求包含多个不同执行任务，为避免静默吞并，请选择分开做（本轮只提交其中一个任务）或合并做（将多个意图合并为一条指令后重发）。',
-  );
+      assert.match(route.clarificationQuestion, /多个不同执行任务|一次只能执行一个/);
+  assert.doesNotMatch(route.clarificationQuestion, /合并做/);
 }
 
 function testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation() {

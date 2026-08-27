@@ -26,6 +26,8 @@
   const imagePlanModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imagePlan')
     || root?.ChatUIImagePlan
     || (typeof require === 'function' ? require('../../shared/image-plan') : {});
+  const multiTaskPlanModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('multiTaskPlan')
+    || (typeof require === 'function' ? require('../../shared/multi-task-plan') : {});
   const imageInstructionModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageInstruction')
     || root?.ChatUIImageInstruction
     || (typeof require === 'function' ? require('../../shared/image-instruction') : {});
@@ -96,6 +98,14 @@
     assertImagePlan,
   } = imagePlanModule;
   const {
+    MULTI_TASK_PLAN_VERSION = 'multi_task_plan.v1',
+    MULTI_TASK_PLAN_MAX_TASKS = 8,
+    MULTI_TASK_PLAN_RESPONSE_FORMAT,
+    hasExactMultiTaskPlan,
+    assertMultiTaskPlan,
+  } = multiTaskPlanModule;
+
+  const {
     IMAGE_INSTRUCTION_VERSION = 'image_instruction.v1',
     IMAGE_INSTRUCTION_RESPONSE_FORMAT,
     hasExactImageInstruction,
@@ -116,6 +126,7 @@
   const {
     ROUTE_SYSTEM_PROMPT,
     IMAGE_PLAN_SYSTEM_PROMPT,
+    MULTI_TASK_PLAN_SYSTEM_PROMPT,
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
   } = routePromptsModule.createRoutePromptSet({
     imagePlanAbsoluteMaxTasks: IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
@@ -839,6 +850,107 @@
       responseFormat: responseFormat || IMAGE_PLAN_RESPONSE_FORMAT,
     });
   }
+  // A non-image multi-intent route cannot be represented by one dispatch
+  // contract. Plan it into independently executable tasks; the user then
+  // chooses one task per turn instead of being asked to invent a merge.
+  function shouldRequestMultiTaskPlan(route = {}) {
+    const operation = stringValue(route?.operationType || route?.dispatchContract?.operation || '');
+    if (IMAGE_RELATION_OPERATIONS.has(operation)) return false;
+    return stringValue(route?.taskShape) === 'multi'
+      && route?.multiTask === true
+      && route?.needClarification === true
+      && route?.readiness === 'needs_clarification'
+      && !Array.isArray(route?.multiTaskPlanCompiled);
+  }
+
+  function buildMultiTaskPlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, systemPrompt, responseFormat } = {}) {
+    assertInputWithinUnifiedLimit(stringValue(input));
+    const executionGoal = stringValue(goal);
+    if (!executionGoal) {
+      const error = new TypeError('Multi-task planning requires a resolved user goal');
+      error.code = 'MULTI_TASK_PLAN_GOAL_REQUIRED';
+      throw error;
+    }
+    const priorContext = contextBeforeCurrentTurn(context, currentTurn);
+    const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
+    const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
+    const userPayload = {
+      route_goal: executionGoal,
+      resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
+      context: compactWireRouteContext(priorContext, input, resourceCatalog),
+    };
+    if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
+    userPayload.output_format = 'json';
+    if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
+    return buildResponsesPayload(model, [
+      { role: 'system', content: systemPrompt || MULTI_TASK_PLAN_SYSTEM_PROMPT },
+      { role: 'user', content: JSON.stringify(userPayload) },
+    ], {
+      stream: false,
+      noReasoning: true,
+      responseFormat: responseFormat || MULTI_TASK_PLAN_RESPONSE_FORMAT,
+    });
+  }
+
+  function inspectMultiTaskPlan(text = '', options = {}) {
+    try {
+      const raw = JSON.parse(stringValue(text).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+      if (typeof hasExactMultiTaskPlan !== 'function' || !hasExactMultiTaskPlan(raw)) return { plan: null };
+      return { plan: raw };
+    } catch {
+      return { plan: null };
+    }
+  }
+
+  function compileMultiTaskPlan(plan = {}, options = {}) {
+    const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
+    if (!tasks.length) return { ok: false, items: [] };
+    const items = [];
+    for (const task of tasks) {
+      const refs = (Array.isArray(task?.resource_refs) ? task.resource_refs : [])
+        .map(ref => ({ candidate_key: stringValue(ref.candidate_key), role: stringValue(ref.role) }));
+      const intent = JSON.stringify({
+        operation: stringValue(task.operation),
+        relation: stringValue(options.relation) || 'new',
+        goal: stringValue(task.goal),
+        goal_mode: 'replace',
+        task_shape: 'single',
+        resource_refs: refs,
+      });
+      const inspected = inspectModelRouteResult(intent, {
+        input: stringValue(task.goal),
+        attachments: options.attachments || [],
+        context: options.context || {},
+        ...(options.routeCompilationOptions || {}),
+        currentTurn: options.currentTurn || null,
+      });
+      if (!inspected?.route) return { ok: false, items, reason: inspected?.reason || 'task_compile_failed' };
+      items.push({ task, route: inspected.route });
+    }
+    return { ok: true, items };
+  }
+  function selectMultiTaskPlanChoice(planCompiled = [], input = '') {
+    const items = Array.isArray(planCompiled) ? planCompiled : [];
+    const text = stringValue(input);
+    if (!items.length || !text) return null;
+    // A bare number chooses by position: 1 -> first task, 2 -> second task.
+    const numbered = text.match(/^(?:\s*第\s*)?([1-9]\d*)(?:\s*个|\s*项|\s*条)?(?:\D|$)/);
+    if (numbered) {
+      const index = Number(numbered[1]) - 1;
+      if (items[index]) return items[index].route;
+    }
+    const normalized = text.toLowerCase();
+    for (const item of items) {
+      const task = item.task || {};
+      const description = stringValue(task.description).toLowerCase();
+      const key = stringValue(task.key).toLowerCase();
+      if (description && normalized.includes(description)) return item.route;
+      if (key && normalized.includes(key)) return item.route;
+    }
+    return null;
+  }
+
+
 
   function imageOperationForRoute(route = {}) {
     return stringValue(route?.operationType || route?.dispatchContract?.operation || route?.intent);
@@ -3143,7 +3255,7 @@
   }
 
   function clarificationQuestionForIssues(issues = [], { operation = '', multiTask = false, manual = false } = {}) {
-    if (multiTask) return '本轮请求包含多个不同执行任务，为避免静默吞并，请选择分开做（本轮只提交其中一个任务）或合并做（将多个意图合并为一条指令后重发）。';
+    if (multiTask) return '本轮请求包含多个不同执行任务，一次只能执行一个。请重新描述你本次要执行的那个任务。';
     if (manual) return '当前处于固定模式，本轮请求与当前模式不一致。请确认是否切换到合适的模式后再继续。';
     const first = issues[0];
     if (!first) return '';
@@ -3498,7 +3610,7 @@
     } else {
       finalClarificationQuestion = clarificationQuestionForIssues(canonicalResourceIssues, {
         operation: op,
-        multiTask,
+        multiTask: multiTask === true,
         manual: !!manualIssue,
       }) || (argumentProblems.length ? clarificationQuestion(argResult) : '');
     }
@@ -3785,6 +3897,11 @@
     IMAGE_PLAN_RESPONSE_FORMAT,
     hasExactImagePlan,
     assertImagePlan,
+    shouldRequestMultiTaskPlan,
+    buildMultiTaskPlanPayload,
+    inspectMultiTaskPlan,
+    compileMultiTaskPlan,
+    selectMultiTaskPlanChoice,
     shouldRequestImagePlan,
     compileImagePlan,
   });

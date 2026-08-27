@@ -40,6 +40,10 @@
       '【歧义与空输入】资源歧义/缺失→输出确定字段，省略不确定角色，执行层澄清，goal不提问。auto_mode=false/current_mode=image不得把“合并/融合多张图生成一张新图”强行改成 edit_image。空输入且当前上传附件全部可用时：仅图片→image_qa；仅文件→file_qa；图片+文件→multimodal_qa，均全绑非空goal；其余歧义。',
     ].join('\n');
   
+    const MULTI_TASK_PLAN_SYSTEM_PROMPT = [
+      '你是 ChatUI 多任务规划器。route_goal 是用户本轮完整请求；把它拆成一次只能执行一个且彼此独立的多任务。每个 task 必须可直接执行：operation 只能是 plain_chat/web_search/file_qa/image_qa/image_compare/ocr/multimodal_qa/text_to_image/image_reference_gen/edit_image，goal 写清该任务的完整执行指令，description 是一行简短说明，resource_refs 只绑定该任务实际需要的候选键。不同 API 的动作必须拆成不同 task，绝不能合并进一个 task；不得添加用户未提出的任务。只输出 json：{"schema_version":"multi_task_plan.v1","tasks":[{"key":"t1","operation":"...","description":"...","goal":"...","resource_refs":[]}]}。',
+    ].join('\n');
+
     const IMAGE_PLAN_SYSTEM_PROMPT = [
       '你是 ChatUI 多图任务规划器。route_goal 是已经物化的、唯一可执行的任务说明；把它忠实拆成 image_plan.v1。context 与 resource_candidates 只提供事实和资源，绝不把其中的聊天指代、历史命令或未选方案当作任务要求。每个 task 对应一个独立、可并发的生图或编辑结果。',
       '规则：每个 task 的 prompt 必须独立完整、可直接执行，消除“它/这个/刚才/继续”等指代；generate 无输入图时 task_type=generate 且 input_images=[]，需要参考图时用 reference/style_reference；edit 必须恰好一个 target。',
@@ -62,6 +66,7 @@
 
     return Object.freeze({
       ROUTE_SYSTEM_PROMPT,
+      MULTI_TASK_PLAN_SYSTEM_PROMPT,
       IMAGE_PLAN_SYSTEM_PROMPT,
       IMAGE_INSTRUCTION_SYSTEM_PROMPT,
     });

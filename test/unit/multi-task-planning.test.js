@@ -169,6 +169,36 @@ function testClarificationContextCarriesMultiTaskPlanForModelSelection() {
   });
 }
 
+function testTaskSelectionStripsOriginalEvidenceAndExposesPlan() {
+  const clarificationAnswer = require('../../shared/clarification-answer');
+  const pending = clarificationAnswer.createPendingClarification({
+    messages: [],
+    clarificationText: '请回复要执行的编号',
+    routeInfo: {
+      multiTaskPlan: {
+        schema_version: 'multi_task_plan.v1',
+        tasks: [
+          { key: 't1', operation: 'file_qa', description: '总结文件', goal: '总结文件', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
+          { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
+          { key: 't3', operation: 'plain_chat', description: '讲一个笑话', goal: '讲一个笑话', resource_refs: [] },
+        ],
+      },
+    },
+  });
+  const context = clarificationAnswer.buildClarificationRouteContext({
+    baseContext: {
+      recent_messages: [{ index: 1, role: 'user', content: '原始多任务请求' }],
+      image_candidates: [],
+      file_candidates: [{ index: 1, source: 'current', file_id: 'file-current', name: 'plan.md' }],
+    },
+    pending,
+  });
+  assert.deepStrictEqual(context.recent_messages, [], 'the original multi request must not distract task selection');
+  assert.deepStrictEqual(context.file_candidates, [], 'the original attachment must not dominate task selection');
+  assert.ok(context.multi_task_plan, 'the generated task list must be the primary evidence');
+  assert.strictEqual(context.multi_task_plan.tasks[2].description, '讲一个笑话');
+}
+
 function testClarificationWireContextRetainsMultiTaskPlan() {
   const clarificationAnswer = require('../../shared/clarification-answer');
   const pending = clarificationAnswer.createPendingClarification({
@@ -208,4 +238,5 @@ module.exports = [
   testClarificationContextCarriesMultiTaskPlanForModelSelection,
   testRoutePromptDeclaresModelPoweredTaskSelection,
   testClarificationWireContextRetainsMultiTaskPlan,
+  testTaskSelectionStripsOriginalEvidenceAndExposesPlan,
 ];

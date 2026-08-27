@@ -770,6 +770,26 @@
         },
       } : {}),
     };
+    if (normalized.routeInfo?.multiTaskPlan && Array.isArray(normalized.routeInfo.multiTaskPlan.tasks)) {
+      // Task selection is a plan-choice intent turn. The original request,
+      // its attachments and conversation history must not dominate the model;
+      // only the generated task list and the current_user choice stay visible.
+      context.recent_messages = [];
+      context.image_candidates = [];
+      context.file_candidates = [];
+      context.multi_task_plan = {
+        schema_version: String(normalized.routeInfo.multiTaskPlan.schema_version || 'multi_task_plan.v1'),
+        tasks: (Array.isArray(normalized.routeInfo.multiTaskPlan.tasks) ? normalized.routeInfo.multiTaskPlan.tasks : []).map((task, index) => ({
+          index: index + 1,
+          key: stringValue(task.key),
+          operation: stringValue(task.operation),
+          description: stringValue(task.description),
+          goal: stringValue(task.goal),
+          resource_refs: Array.isArray(task.resource_refs) ? task.resource_refs.map(ref => ({ candidate_key: stringValue(ref.candidate_key), role: stringValue(ref.role) })) : [],
+        })),
+      };
+    }
+
     if (quotedContext && typeof quotedContext === 'object' && !Array.isArray(quotedContext)) {
       if (quotedContext.quoted_message !== undefined) context.quoted_message = quotedContext.quoted_message;
       for (const key of ['image_candidates', 'file_candidates']) {

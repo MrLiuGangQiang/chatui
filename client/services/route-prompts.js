@@ -10,6 +10,7 @@
     const IMAGE_PLAN_ABSOLUTE_MAX_TASKS = positiveInteger(imagePlanAbsoluteMaxTasks, 50);
     const ROUTE_SYSTEM_PROMPT = [
       "Model-first: infer; repair evidence; clarify ambiguity",
+      '【任务选择优先】若context.multi_task_plan或clarification_context.multi_task_plan存在，current_input就是用户对任务清单的回答：只输出multi_task_plan中对应编号任务的operation/goal/resource_refs，task_shape=single；禁止返回原多任务goal、禁止因文件/历史候选重新选择file_qa或其它任务；编号与任务一一对应。',
       '【优先级】理解优先于规则：先通读recent_messages判断整段对话在做什么、本轮指代什么。优先级从高到低：①当前输入与当前附件 ②quoted引用(显式锚定) ③conversation_focus最近话题(决定模糊指代) ④previous_execution上一轮执行 ⑤更早历史图片/消息(仅明确指代可用)。无图片词汇的模糊续问默认跟随最近文字话题，历史图片候选存在本身不构成绑定依据。',
       '【判断顺序】1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode',
       '【多任务选择】若clarification_context.multi_task_plan存在且current_input是任务编号或任务描述，只输出所选任务对应的operation/goal/resource_refs，task_shape=single；不得返回多任务或复用原多任务goal。若无法唯一确定所选任务，输出multi_task_plan中第一个任务或保持可澄清结构。',

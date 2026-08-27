@@ -161,6 +161,272 @@
       }
     },
     {
+      "id": "recent-image-comparison-after-generation",
+      "category": "image-qa",
+      "safety_critical": true,
+      "input": "哪个效果最好",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "生成两张科幻场景图"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "content": "[图片生成完成] 图一、图二"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-new-1",
+            "reference_id": "imgref-new",
+            "target": "previous",
+            "message_index": 2,
+            "description": "赛博朋克城市"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-new-2",
+            "reference_id": "imgref-new",
+            "target": "previous",
+            "message_index": 2,
+            "description": "星云飞船"
+          }
+        ],
+        "file_candidates": [],
+        "conversation_focus": {
+          "kind": "image"
+        }
+      },
+      "expected": {
+        "operation": "image_qa",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "效果"
+            ],
+            [
+              "最好",
+              "更好"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "source",
+              "index": 1,
+              "id": "img-new-1",
+              "reference_id": "imgref-new",
+              "missing": false
+            },
+            {
+              "type": "image",
+              "source": "history",
+              "role": "source",
+              "index": 2,
+              "id": "img-new-2",
+              "reference_id": "imgref-new",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "explicit-old-image-edit-after-text-topic",
+      "category": "context-boundary",
+      "safety_critical": true,
+      "input": "把第二张改成黑白",
+      "attachments": [],
+      "context": {
+        "recent_messages": [
+          {
+            "index": 5,
+            "role": "user",
+            "content": "分别画五个科幻场景的图"
+          },
+          {
+            "index": 6,
+            "role": "assistant",
+            "content": "[图片生成完成] 图一、图二、图三"
+          },
+          {
+            "index": 7,
+            "role": "user",
+            "content": "h2 跟端口有关系么"
+          },
+          {
+            "index": 8,
+            "role": "assistant",
+            "content": "HTTP/2 不固定绑定端口。"
+          }
+        ],
+        "image_candidates": [
+          {
+            "index": 1,
+            "source_index": 1,
+            "source": "history",
+            "image_id": "img-old-1",
+            "reference_id": "imgref-old",
+            "target": "previous",
+            "message_index": 6,
+            "description": "未来科幻城市"
+          },
+          {
+            "index": 2,
+            "source_index": 2,
+            "source": "history",
+            "image_id": "img-old-2",
+            "reference_id": "imgref-old",
+            "target": "previous",
+            "message_index": 6,
+            "description": "宇宙飞船航行"
+          }
+        ],
+        "file_candidates": [],
+        "conversation_focus": {
+          "kind": "text"
+        }
+      },
+      "expected": {
+        "operation": "edit_image",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "黑白"
+            ],
+            [
+              "第二张",
+              "图二"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "image",
+              "source": "history",
+              "role": "target",
+              "index": 2,
+              "id": "img-old-2",
+              "reference_id": "imgref-old",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
+      "id": "quoted-followup-anchors-the-quoted-message",
+      "category": "quoted-resource-contract",
+      "safety_critical": true,
+      "input": "这句话是什么意思",
+      "attachments": [],
+      "context": {
+        "quoted_message": {
+          "index": 2,
+          "role": "assistant",
+          "id": "msg-quoted-contract",
+          "content": "合同第 5 条是违约责任。"
+        },
+        "recent_messages": [
+          {
+            "index": 1,
+            "role": "user",
+            "content": "帮我审一下合同"
+          },
+          {
+            "index": 2,
+            "role": "assistant",
+            "id": "msg-quoted-contract",
+            "resource_id": "res:message:msg-quoted-contract",
+            "content": "合同第 5 条是违约责任。"
+          }
+        ],
+        "image_candidates": [],
+        "file_candidates": []
+      },
+      "expected": {
+        "operation": "plain_chat",
+        "relation": "followup",
+        "goal_mode": "replace",
+        "goal": {
+          "concepts": [
+            [
+              "意思",
+              "含义"
+            ],
+            [
+              "违约责任"
+            ]
+          ],
+          "forbidden": [
+            "candidate_key",
+            "i1",
+            "f1",
+            "m1"
+          ]
+        },
+        "clarification": {
+          "required": false,
+          "unresolved": []
+        },
+        "resources": {
+          "mode": "exact",
+          "items": [
+            {
+              "type": "message",
+              "source": "quoted",
+              "role": "context",
+              "index": 2,
+              "id": "msg-quoted-contract",
+              "missing": false
+            }
+          ]
+        },
+        "task_shape": "single"
+      }
+    },
+    {
       "id": "quoted-text-to-image-binds-message-on-first-route",
       "category": "quoted-resource-contract",
       "safety_critical": true,

@@ -77,6 +77,20 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
     'the prompt must forbid judging an image task merely because historical image candidates exist');
 }
 
+function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
+  assert.ok(source.includes('【优先级】理解优先于规则'),
+    'the router prompt must put understanding of the whole conversation first');
+  assert.ok(source.includes('无图片词汇的模糊续问默认跟随最近文字话题'),
+    'ambiguous text-only follow-ups must resolve to the recent text topic');
+  assert.ok(source.includes('【引用与附件】'),
+    'the router prompt must distinguish quoted context from current attachments');
+  assert.ok(source.includes('执行只带引用上下文') && source.includes('执行必须携带附件'),
+    'quoted context must run bound-only while current attachments must be carried');
+  assert.ok(source.includes('带附件的组合请求') && source.includes('不得丢动作'),
+    'combination requests must preserve every requested action in goal');
+}
+
 function testRoutePromptStaysWithinBoundedLength() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
   const start = source.indexOf('const ROUTE_SYSTEM_PROMPT = [');
@@ -85,11 +99,12 @@ function testRoutePromptStaysWithinBoundedLength() {
   const block = source.slice(start, end);
   const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];
   const promptLength = matches.map(match => match[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('\n').length;
-  assert.ok(promptLength <= 5000, `route system prompt must remain bounded, got ${promptLength}`);
+  assert.ok(promptLength <= 5400, `route system prompt must remain bounded, got ${promptLength}`);
 }
 
 module.exports = [
   testHistoricalImageCandidatesStayPublishedAsEvidenceForTheModel,
   testRoutePromptDeclaresTextFocusTopicPriority,
   testRoutePromptStaysWithinBoundedLength,
+  testRoutePromptDeclaresPriorityAnchorsAndInteractionModes,
 ];

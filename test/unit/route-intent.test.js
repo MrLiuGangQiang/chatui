@@ -224,7 +224,7 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.doesNotMatch(prompt, /respond|change_value missing/);
   assert.doesNotMatch(prompt, /选错了|换个颜色|上一张产品图/,
     'production prompt must define general rules instead of scenario patches');
-  assert.ok(prompt.length <= 5000, `route prompt must remain bounded, got ${prompt.length} chars`);
+  assert.ok(prompt.length <= 5400, `route prompt must remain bounded, got ${prompt.length} chars`);
 }
 module.exports = [
   testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit,

@@ -47,6 +47,21 @@ function testShouldRequestMultiTaskPlanOnlyForNonImageMulti() {
   assert.strictEqual(routeService.shouldRequestMultiTaskPlan({ ...multiRoute(), multiTask: false }), false);
 }
 
+function testCompiledMultiRouteExposesMultiTaskFlag() {
+  const input = '读完这个文件之后再画一只狗';
+  const attachments = [{
+    index: 1, source_index: 1, media_index: 1, id: 'file-current', file_id: 'file-current',
+    name: 'plan.md', type: 'text/markdown', is_image: false, has_extracted_text: true,
+  }];
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'file_qa', relation: 'new', goal: input, goal_mode: 'replace',
+    task_shape: 'multi', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
+  }), { input, attachments, context: contextWithFile() });
+  assert.ok(inspected.route);
+  assert.strictEqual(inspected.route.multiTask, true, 'the multi-intent flag must be exposed on the compiled route');
+  assert.strictEqual(routeService.shouldRequestMultiTaskPlan(inspected.route), true);
+}
+
 function testMultiTaskPlanPromptAndInspect() {
   assert.ok(routePrompts.createRoutePromptSet().MULTI_TASK_PLAN_SYSTEM_PROMPT.includes('multi_task_plan.v1'),
     'the planner prompt must be available');
@@ -95,6 +110,7 @@ function testSelectMultiTaskPlanChoiceByNumberOrDescription() {
 
 module.exports = [
   testShouldRequestMultiTaskPlanOnlyForNonImageMulti,
+  testCompiledMultiRouteExposesMultiTaskFlag,
   testMultiTaskPlanPromptAndInspect,
   testCompileMultiTaskPlanBuildsIndependentExecutableRoutes,
   testSelectMultiTaskPlanChoiceByNumberOrDescription,

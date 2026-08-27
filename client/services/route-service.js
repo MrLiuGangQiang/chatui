@@ -3698,6 +3698,7 @@
 
     const compiledRoute = {
       taskShape: stringValue(options.taskShape) || (planningOnly ? 'multi' : 'single'),
+      multiTask: multiTask === true,
       mode: hasBlockingIssue || (!finalDispatchContract && !planningOnly) ? 'chat' : registered.mode,
       api: hasBlockingIssue || (!finalDispatchContract && !planningOnly) ? 'clarify' : registered.api,
       target: hasBlockingIssue || (!finalDispatchContract && !planningOnly) ? 'none' : routeTarget,

@@ -78,8 +78,11 @@ function testBuildRouteContextKeepsAllMessagesThatFitTheConfiguredWindow() {
   assert.strictEqual(context.recent_messages.length, 40, 'all messages that fit the configured window must be retained');
   assert.strictEqual(context.recent_messages[context.recent_messages.length - 1].index, 40, 'the latest message keeps its original index');
   assert.strictEqual(context.recent_messages[0].index, 1, 'the earliest message remains when the window has room');
-  assert.ok(context.recent_messages.every(message => message.content.length <= 240),
-    'route message contents must stay short for intent recognition');
+  const recentStart = Math.max(0, context.recent_messages.length - 6);
+  assert.ok(context.recent_messages.slice(0, recentStart).every(message => message.content.length <= 240),
+    'older route message contents must stay short for intent recognition');
+  assert.ok(context.recent_messages.slice(recentStart).every(message => message.content.length <= 800),
+    'the most recent route messages may carry more context for understanding the current topic');
 }
 
 function testBuildRouteContextBoundsHistoricalFileCatalog() {

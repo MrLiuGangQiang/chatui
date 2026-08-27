@@ -38,6 +38,8 @@ const ROUTE_CONTEXT_POLICY = Object.freeze({
   schema_version: 'route_context_policy.v1',
   max_serialized_chars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
   message_excerpt_chars: 240,
+  recent_message_excerpt_chars: 800,
+  recent_message_count: 6,
   preferred_image_candidates: 12,
   preferred_reference_groups: 1,
   summarize_omitted: false,
@@ -265,13 +267,17 @@ function applyRouteContextPolicy(context = {}, options = {}) {
   return next;
 }
 
-function compactRouteMessage(message = {}, index = 0) {
+function compactRouteMessage(message = {}, index = 0, total = 0) {
+  const isRecent = Number.isInteger(total) && total >= 1 && total - index < ROUTE_CONTEXT_POLICY.recent_message_count;
+  const excerptChars = isRecent
+    ? ROUTE_CONTEXT_POLICY.recent_message_excerpt_chars
+    : ROUTE_CONTEXT_POLICY.message_excerpt_chars;
   const next = {
     index,
     id: routeMessageIdentity(message),
     role: message.role || '',
     content: String(Array.isArray(message.content) ? message.rawText || '[非文本消息]' : message.content || message.rawText || '')
-      .slice(0, ROUTE_CONTEXT_POLICY.message_excerpt_chars),
+      .slice(0, excerptChars),
   };
   const resourceId = String(message.resourceId || message.resource_id || '').trim();
   const identityAliases = message.identity_aliases || message.identityAliases;
@@ -968,7 +974,7 @@ function buildRouteContext({ messages = [], lastGeneratedImage = null, latestUpl
   const execution = previousExecutionFor(allMessages);
   const visualExecution = previousVisualExecutionFor(allMessages, resourceExecution);
   const context = {
-    recent_messages: allMessages.map((message, index) => compactRouteMessage(message, index + 1)),
+    recent_messages: allMessages.map((message, index) => compactRouteMessage(message, index + 1, allMessages.length)),
     latest_assistant_image_result: latestAssistantImageResult(allMessages),
     image_candidates: buildImageCandidates(mergedReferences),
     file_candidates: buildFileCandidates(allMessages),

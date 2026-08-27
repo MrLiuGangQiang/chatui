@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const routeService = require('../../client/services/route-service');
+const imageRouteContext = require('../../client/core/image-route-context');
 
 function imageCandidate(index, description, messageIndex) {
   return {
@@ -91,6 +92,20 @@ function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
     'combination requests must preserve every requested action in goal');
 }
 
+function testRecentRouteMessagesCarryMoreContextThanOlderHistory() {
+  const messages = Array.from({ length: 10 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    id: 'message-' + (index + 1),
+    content: 'message ' + (index + 1) + ' ' + 'x'.repeat(600),
+  }));
+  const context = imageRouteContext.buildRouteContext({ messages, maxChars: 256 * 1024 });
+  const older = context.recent_messages.slice(0, -6);
+  const recent = context.recent_messages.slice(-6);
+  assert.ok(older.every(message => message.content.length <= 240),
+    'older history must stay compact for the intent model');
+  assert.ok(recent.every(message => message.content.length > 240),
+    'the most recent turns must keep more of their content so the intent model understands the current topic');
+}
 function testRoutePromptStaysWithinBoundedLength() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
   const start = source.indexOf('const ROUTE_SYSTEM_PROMPT = [');
@@ -106,5 +121,6 @@ module.exports = [
   testHistoricalImageCandidatesStayPublishedAsEvidenceForTheModel,
   testRoutePromptDeclaresTextFocusTopicPriority,
   testRoutePromptStaysWithinBoundedLength,
+  testRecentRouteMessagesCarryMoreContextThanOlderHistory,
   testRoutePromptDeclaresPriorityAnchorsAndInteractionModes,
 ];

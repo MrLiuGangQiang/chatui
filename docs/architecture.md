@@ -67,7 +67,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；确定性图片参数解析只使用与原文等长的 analysis view 做全半角语法归一化，provider prompt 保留原文。图片尺寸是面向用户的生成设置（默认 `auto`）：设置页选择的尺寸会在执行时作为 `size` 参数发送，未选择时请求体不含 `size`，由 provider 自动决定；原文中的分辨率、横竖构图等文字描述仍仅保留在创作提示词中，绝不形成尺寸候选、冲突或澄清。其余参数候选必须保留 span、原文 evidence 与否定极性，同一参数的重叠命中按最长 span 优先；常见中英文否定后只有一个合法补集时才可确定性选择，否则进入澄清，不能回落到可能违背否定的 `auto`，澄清选项也不得重新提供已排除值；
 - `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
 - `client/core/message-primitives.js`：统一上下文解析、消息稳定身份、reasoning 引用文本清理，以及“图片结果已可刷新恢复”的唯一判定；只有带 `image_result` 输出身份且引用 `indexeddb://` 媒体（或等价 canonical presentation/HTML 描述）的 assistant 记录才是 durable image completion，纯 `[图片生成完成]` 文本和输入图片上下文都不能触发任务清理或覆盖完整结果；
-- `client/core/image-route-context.js`：作为 `route_context_policy.v1` 的唯一事实源，统一正常会话和 route-context override 的字符/Token 预算、完整旧轮次淘汰、图片/文件候选裁剪与受保护内容识别；该策略不生成历史摘要，不截断显式引用内容，受保护内容无法容纳时抛出 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE`，workflow 不得复制第二套阈值或压缩算法；
+- `client/core/image-route-context.js`：作为 `route_context_policy.v1` 的唯一事实源；历史消息摘录保留最近 6 条更完整（800 字）、更早压缩为 240 字，让意图模型看清最近话题又不撑爆预算，统一正常会话和 route-context override 的字符/Token 预算、完整旧轮次淘汰、图片/文件候选裁剪与受保护内容识别；该策略不生成历史摘要，不截断显式引用内容，受保护内容无法容纳时抛出 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE`，workflow 不得复制第二套阈值或压缩算法；
 - `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
 - `client/core/text-hash.js`：统一渲染缓存、性能统计和使用量视图的文本哈希实现，调用方只能通过公开格式使用哈希，不能再复制 FNV-1a 变体。
 

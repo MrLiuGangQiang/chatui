@@ -9,7 +9,7 @@ ChatUI 没有独立的前端构建步骤。Node.js 服务同时承担两类职�
 1. 提供根 HTML、动态静态 bundle、模块、样式和 vendor 资源；
 2. 提供配置、版本、任务、使用统计和 OpenAI 兼容代理 API。
 
-浏览器通过 `index.html` 启动应用。`server/services/static-bundle.service.js` 读取 `index.html` 中的 `chatuiAssetManifest`，按清单顺序组合 JavaScript 与 CSS，并由 `server/http/static.js` 以 `/assets/chatui.bundle.js` 和 `/assets/chatui.bundle.css` 提供。入口响应会把 bundle URL 重写为基于内容 ETag 的版本，并注入 `__CHATUI_ENTRY_IDENTITY`（版本、Git SHA、runtime source fingerprint）。入口 HTML、JS、CSS、JSON 和 bundle 使用 `no-store`；浏览器启动时用 `/api/version` 的 `sourceRevision` 做一致性检查，旧页面不会在恢复历史会话或任务前继续执行。
+浏览器通过 `index.html` 启动应用。`server/services/static-bundle.service.js` 读取 `index.html` 中的 `chatuiAssetManifest`，按清单顺序组合 JavaScript 与 CSS，并由 `server/http/static.js` 以 `/assets/chatui.bundle.js` 和 `/assets/chatui.bundle.css` 提供。入口响应会把 bundle URL 重写为基于内容 ETag 的版本，并注入 `__CHATUI_ENTRY_IDENTITY`（版本、Git SHA、runtime source fingerprint）。入口 HTML、直连模块/样式/JSON 等可执行资源保持 `no-store`；bundle 是唯一例外——当请求携带的 `?v=` 与服务端当前内容指纹一致时返回 `public, max-age=31536000, immutable`，裸 URL 或版本不匹配时仍返回 `no-store`，因此共享缓存不会把跨部署的旧内容钉死。浏览器启动时用 `/api/version` 的 `sourceRevision` 做一致性检查，旧页面不会在恢复历史会话或任务前继续执行。
 
 Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` 启动，也不会在镜像构建时生成另一套应用源码。
 

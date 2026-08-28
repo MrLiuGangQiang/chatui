@@ -32,6 +32,7 @@ const MIME = {
 const SHORT_CACHE = 'public, max-age=3600';
 const NO_CACHE = 'no-cache';
 const NO_STORE = 'no-store, no-cache, max-age=0, must-revalidate, proxy-revalidate';
+const BUNDLE_IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
 const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
@@ -118,7 +119,12 @@ function cacheControlFor(filePath, url, options = {}) {
   // Executable assets and the generated entrypoint must always revalidate. The
   // entrypoint receives content-addressed bundle URLs at request time, while
   // direct module URLs retain their manually documented revisions for tooling.
-  if (options.bundle) return NO_STORE;
+  // Bundles are the exception once the request names the exact content hash:
+  // index.html rewrites bundle URLs to ?v=<content etag> on every request, so
+  // a matching revision pins immutable content and may be cached for a year.
+  // Bare bundle URLs and mismatched revisions keep no-store so shared caches
+  // can never pin stale content across deployments.
+  if (options.bundle) return options.bundleRevisionMatched ? BUNDLE_IMMUTABLE_CACHE : NO_STORE;
   if (filePath.endsWith('.html')) return NO_STORE;
   const ext = path.extname(filePath);
   if (['.html', '.js', '.css', '.json'].includes(ext)) return NO_STORE;
@@ -215,6 +221,14 @@ function serveIndex(req, res, context) {
   return send(res, 200, rendered.body, headers);
 }
 
+function requestedBundleRevision(url) {
+  try {
+    return String(new URL(url, 'http://chatui.local').searchParams.get('v') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 function serveBundle(req, res, context, kind) {
   const mime = contentTypeForBundle(kind);
   let bundle;
@@ -224,9 +238,13 @@ function serveBundle(req, res, context, kind) {
     console.error('[static] failed to build asset bundle:', err);
     return send(res, 500, 'Failed to build asset bundle');
   }
+  // The ETag is the exact content revision that index.html hands out as ?v=.
+  // Only a request naming that same revision may be cached immutably; bare
+  // or mismatched revisions keep no-store.
+  const bundleRevisionMatched = requestedBundleRevision(req.url) === bundle.etag.replace(/^W?"|"$/g, '');
   const headers = {
     'Content-Type': mime,
-    'Cache-Control': cacheControlFor('', null, { bundle: true }),
+    'Cache-Control': cacheControlFor('', null, { bundle: true, bundleRevisionMatched }),
     ETag: bundle.etag,
     Vary: 'Accept-Encoding',
   };

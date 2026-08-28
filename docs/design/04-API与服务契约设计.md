@@ -44,7 +44,7 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/presence` | `{count, timestamp}` 快照 |
-| GET | `/api/presence/stream?clientId=...` | SSE 在线人数流；每 30s 心跳，20s TTL 清理 |
+| GET | `/api/presence/stream?clientId=...` | SSE 在线人数流；每 30s 心跳，默认 120s TTL 清理 |
 | POST | `/api/presence/heartbeat` | 刷新心跳，body `{clientId}` |
 
 ## 5. 使用统计与反馈端点

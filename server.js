@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { loadLocalEnv } = require('./server/config/local-env');
+const { resolvePidDir, resolvePidFiles, writePidFiles, removeOwnPidFiles } = require('./server/pid-files');
 
 loadLocalEnv({ root: __dirname });
 
@@ -16,43 +15,8 @@ server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 server.requestTimeout = 120000;
 server.maxConnections = process.env.MAX_CONNECTIONS ? Number(process.env.MAX_CONNECTIONS) : Infinity;
-function resolvePidDir() {
-  if (process.env.CHATUI_DISABLE_PID_FILE === '1') return '';
-  const candidates = [
-    process.env.CHATUI_PID_DIR,
-    path.join(__dirname, 'temp'),
-    path.join(os.tmpdir(), 'chatui'),
-  ].filter(Boolean);
-  for (const dir of candidates) {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.accessSync(dir, fs.constants.W_OK);
-      return dir;
-    } catch {}
-  }
-  return '';
-}
-
 const pidDir = resolvePidDir();
-const pidFiles = pidDir ? [path.join(pidDir, `chatui-${PORT}.pid`)] : [];
-if (pidDir && Number(PORT) === 8765) pidFiles.push(path.join(pidDir, 'chatui-server.pid'));
-
-function writePidFiles() {
-  if (!pidFiles.length) return;
-  try {
-    for (const file of pidFiles) fs.writeFileSync(file, `${process.pid}\n`);
-  } catch (err) {
-    console.warn('[server] failed to write pid file:', err.message || err);
-  }
-}
-
-function removeOwnPidFiles() {
-  for (const file of pidFiles) {
-    try {
-      if (fs.readFileSync(file, 'utf8').trim() === String(process.pid)) fs.rmSync(file, { force: true });
-    } catch {}
-  }
-}
+const pidFiles = resolvePidFiles({ port: PORT, pidDir });
 
 function shutdown(signal) {
   server.close(() => {

@@ -88,6 +88,25 @@ function testSemanticReconcilerRemovesMediaRefsFromPlainChat() {
   assert.deepStrictEqual(result.resource_refs, []);
 }
 
+function testSemanticReconcilerMovesQuotedTextOnlyGenerationToTextToImage() {
+  const normalizer = createNormalizer();
+  const repaired = normalizer.reconcileModelIntent({
+    operation: 'image_reference_gen',
+    relation: 'followup',
+    goal: '基于这个描述生成一张图片',
+    goal_mode: 'replace',
+    resource_refs: [{ candidate_key: 'm1', role: 'context' }],
+    task_shape: 'single',
+  }, {
+    input: '基于这个描述再生成一张图片。',
+    context: {},
+  }, [{ candidate_key: 'm1', type: 'message', source: 'quoted' }]);
+
+  assert.strictEqual(repaired.operation, 'text_to_image',
+    'a quoted text-only description must not require a missing reference image');
+  assert.deepStrictEqual(repaired.resource_refs, [{ candidate_key: 'm1', role: 'context' }]);
+}
+
 function testSemanticReconcilerRepairsStyleOnlyReferenceRole() {
   const normalizer = createNormalizer();
   const result = normalizer.reconcileModelIntent({
@@ -120,6 +139,7 @@ function testRouteServiceUsesSemanticNormalizerWithoutReembeddingRulesOrGlobals(
 module.exports = [
   testSemanticNormalizerPreservesFirstAmendmentClause,
   testSemanticReconcilerRepairsOnlyStrongEvidence,
+  testSemanticReconcilerMovesQuotedTextOnlyGenerationToTextToImage,
   testSemanticReconcilerRepairsStyleOnlyReferenceRole,
   testSemanticReconcilerRemovesMediaRefsFromPlainChat,
   testRouteServiceUsesSemanticNormalizerWithoutReembeddingRulesOrGlobals,

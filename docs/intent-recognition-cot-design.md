@@ -1,22 +1,30 @@
 # 意图识别「思维链 + 自我修复」改造设计（v2）
 
-> 本文是意图识别后续改造的唯一参考设计文档。所有相关改造必须先对照本文的场景覆盖矩阵与保留边界清单，避免回归现有能力。当前运行时仍是“单次大提示词裁决”；本文描述的是目标形态。
+> 本文是意图识别后续改造的唯一参考设计文档。所有相关改造必须先对照本文的场景覆盖矩阵与保留边界清单，避免回归现有能力。当前运行时已按“理解 → 路由”节点提示词执行；本文描述目标形态并记录剩余压缩与修复工作。
 
 ## 0. 当前进度（2026-08-28 施工状态）
 
 已完成并验证：
 
-- Phase 0：`shared/intent-understanding.js`（`understanding.v1` 契约、kind 闭集、角色表、Shape Compiler、`planCoversExpected`）；提示词分段保持 `ROUTE_SYSTEM_PROMPT` 逐字等价；等待提示阶段文案补全。
-- Phase 1：理解节点 + Shape Compiler 已接入 `route-intent-workflow`，`task_shape` 由 Shape Compiler 本地覆盖（模型说 single 也会稳定拆分）；服务端 `requestPurpose=intent_understanding` 白名单与审计已支持。
-- Phase 4 部分：`multiTaskPlan` 加入 session meta 持久化并在加载时恢复；规划 1:1 忠实性校验（operation 覆盖，不忠实失败关闭）。
+- Phase 0：`shared/intent-understanding.js`（`understanding.v1` 契约、kind 闭集、角色表、Shape Compiler、`planCoversExpected`）；服务端 `requestPurpose=intent_understanding` 白名单与审计已支持。
+- Phase 1：理解节点 + Shape Compiler 已接入 `route-intent-workflow`，`task_shape` 由 Shape Compiler 本地覆盖；理解 schema 已去除网关不支持的数值 `minimum` 约束，避免结构化输出被 400 拒绝。
+- Phase 2：复杂路径路由使用独立的 `ROUTE_NODE_SYSTEM_PROMPT`，并把 `understanding` 作为已解析证据注入路由 payload；relation 规则保持节点内聚。
+- Phase 3：理解节点输出无效、路由输出无效、plan 不忠实均各做一次 `reasons[]` 定向修复重试，仍失败则失败关闭；路由节点新增确定性语义校验，覆盖 `relation=new` 与非 current 资源矛盾、quoted 证据必须 followup（new/continuation 都要修）、`amend` 无前序 base、单 action 的 operation 与 kind 映射不一致，并对主模型与 fallback 模型统一执行同一套校验+修复路径。
+- Phase 4：`multiTaskPlan` 持久化；规划 1:1 忠实性校验。
+- Phase 5 提示词部分：`UNDERSTAND_SYSTEM_PROMPT` 现在完整声明 `intent_understanding.v1` 输出、kind 闭集、按独立结果拆分 action 的规则与完整示例（≤2500 字符）；`ROUTE_NODE_SYSTEM_PROMPT` 完整声明 `route_intent.v3` 输出与示例（≤5800 字符）；简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词。
+- Phase 5b：路由节点提示词拆成三份。理解证据存在时走 CoT 精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（约 2290 字符）；简单路径（复杂度门判定无附件/引用/指代/多动作）走独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（约 3090 字符，去掉 quoted/指代/附件专属规则）；只有理解节点运行后失败或输出空动作时才回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（约 5390 字符，保留全部场景规则单跑）。理解证据存在时走 CoT 精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（约 2000 字符，只含输出契约、任务选择优先、understanding→六字段映射、goal/goal_mode、歧义澄清与完整示例），把 relation/task_shape/资源选择的推导交给理解节点与本地 Shape Compiler/语义校验；理解节点未运行或失败时回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（约 5300 字符，保留全部场景规则单跑）。
+- 多图兜底：即使理解模型把多图请求合并为一条 action，Shape Compiler 仍按原文显式**输出结果数量**提升到 image_plan，并有端到端回归测试。`explicitImageResultCount` 只识别输出结果单位（生成/改成 N 张、视图枚举、分别枚举），不会把“参考两张图生成一张新图”的输入图或“两只猫”的画面主体误判成多个结果；数量期望与修复门禁对简单路径和 CoT 路径一致生效。
+- Phase 5c 执行可观测性：修复轮不再与主识别共用 `intent_recognition`。`route_repair`、`route_fallback`、`multi_task_planning`、`image_planning` 成为独立 requestPurpose，服务端校验白名单与 access audit 同步；修复轮把 `reasons[].code` 以 `repair_reasons` 写入 `access.ndjson`（仅稳定 code，无正文）。
+- 依赖一致性：`reconcileUnderstandingDependency` 在 route payload 物化前把 quoted/非 current 资源等本地事实优先于 `understanding.dependency` 落定，避免 CoT 路径出现“照抄 dependency”与“quoted→followup 校验”互相矛盾导致的修复轮空转/fallback。
+- 自由文本澄清答案闭环（根因 + 护栏）：图片指令物化（image_instruction）只产出无选项文本槽（type=text、choices=[]）的澄清（如“继续画一只猫？什么品种/毛色/姿态”）。此前用户用自由文本回答（“你随机/随便/橘猫”）永远不被当作答案，pending 澄清永不关闭、`clarification_context.answer_complete` 恒为 false，物化器会无限次重复追问，且澄清轮次计数器不推进。现在：`parseClarificationAnswer` 对仅含文本槽的澄清把用户自由文本记为 `clarification_answer.v1.free_text` 并视为完成；`applyClarificationAnswer` 用非空 free_text 满足文本槽；`clarification_context` 输出 `answer_complete=true`、`free_text`、剩余 `unresolved_resources`（不含已答槽）；submit 边界把自由文本答案作为本轮 current_input 重新路由（结构化选择答案仍路由 base_task）。物化器提示词同步新增：用户显式委托（你随机/随便/你决定/看着办/都行/you choose/up to you）或澄清已回答（answer_complete=true）时，必须按 resolved_task 输出 ready 的具体指令，不得再追问已委托的细节；“不得虚构事实”仅约束指代性事实，不约束用户已委托的未指定细节。回归测试：澄清答案协议（text-only 槽解析/应用/上下文）、submit 重路由（自由文本作为 current_input 并消费 pending）、物化器提示词契约。
+- 消息≠文件（根因 + 护栏）：提示词新增“消息（mN）只能绑 context；对引用消息文字的任务→plain_chat+mN=context；file_qa/multimodal_qa 必须绑 f=attachment 文件，禁止把 mN 当文件绑定”（理解节点与三份路由提示词同步，均有长度断言）。兜底：`reconcileUnderstandingKinds` 仅在 action 绑定 mN 消息、且候选目录完全缺失所需文件/图片类型这一确定性矛盾下降级 `file_read/image_read/ocr → plain_text`（无引用的资源任务不降级，走正常缺资源澄清）；`routeIntentSemanticIssuesForIntent` 对“消息绑成文件角色 / file_qa 无文件引用”给出字段级 reasons 进入统一修复轮（按本轮 `rejectedOutput` 判定，修复成功后不再被首次输出否决）。 同向，`reconcileUnderstandingKinds` 也会把“`plain_text` 却绑定 fN/iN 资源”提升为 `file_read`/`image_read`（使“总结文件→画猫”这类多任务期望为 `file_qa`+`text_to_image`，1:1 校验可对齐）；`MULTI_TASK_PLAN_SYSTEM_PROMPT` 明确禁止把“画/生成/编辑图片”因“或者/如果不能”等表述降级为 `plain_chat`。
 
 待办（后续轮次）：
 
-- Phase 2（已做）：复杂路径路由改用 `ROUTE_NODE_SYSTEM_PROMPT` 并把 `understanding` 作为已解析证据注入路由 payload；简单路径保留旧完整提示词；relation 规则已作为 `RELATION_SYSTEM_PROMPT_LINES` 独立成段并保持路由节点内聚。
-- Phase 3（已做）：理解节点输出无效、路由输出无效、plan 不忠实均各做一次 `reasons[]` 定向修复重试，仍失败则失败关闭。完整错误分类与多类语义修复（goal 自洽/遗漏动作/relation 不一致）仍待后续。
-- Phase 5（已做部分）：节点级提示词与长度上限测试已加；旧完整提示词作为简单路径 fallback 保留，未删除。
-
-已知残余抖动：理解节点本身偶尔失败或动作抽取不全时回退旧路径；真实模型冒烟 3 连跑选择器确定性命中，首轮组合请求识别在理解成功时稳定。
+- 细粒度修复已覆盖确定性矛盾；goal 自洽、遗漏动作等更高层语义修复仍待后续。
+- 路由节点**完整版**（仅理解失败/空动作时的罕见 fallback）保留全部场景规则（约 5390 字符），不强压缩；CoT 路径用精简版（≤2500），简单路径用独立精简版（约 3560，质量优先、不删可达规则）。后续仍可在真实模型 eval 证明语义无损后继续收窄。
+- 理解节点偶发失败或输出合法但 `actions=[]` 时，均视为不可用证据并回退完整版路由节点；继续用真实模型 eval 收敛。
+- fallback 模型当前仍与主模型共用相同的 ≤2 轮语义修复预算（选项 D 的差异化预算待评估）。
 
 ## 1. 设计原则
 
@@ -78,7 +86,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | 0 快路径 | 纯本地 | 空输入全附件、任务编号选择 | 直接路由（无模型调用） |
 | 复杂度门 | 纯本地 | 决定是否运行理解节点 | bool |
-| 1 理解 Understand | 模型 | 抽取动作、消解指代、先后/依赖证据 | `understanding.v1`（新增） |
+| 1 理解 Understand | 模型 | 抽取动作、消解指代、`dependency` 依赖证据 | `understanding.v1`（新增） |
 | Shape Compiler | 纯本地 | 由 `actions` 推导 `operation / task_shape / 必需资源角色` | shape 证据 |
 | 2 路由 Route | 模型 | `relation / goal / goal_mode / resource_refs` 终稿 | `route_intent.v3`（复用） |
 | 3 校验·修复 | 本地 + 极短模型 | 结构/一致性/语义校验 + 定向修复 | 通过 / 修复 / 失败 |
@@ -110,8 +118,6 @@ flowchart TD
 actions 为空（且无可用全附件）          → clarification
 actions 为空（当前附件全部可用）        → 节点0 确定性路由：仅图 image_qa / 仅文件 file_qa / 图文 multimodal_qa
 actions = 1                            → single
-actions > 1 且全部同只读 operation
-                                       且同资源集可一次回答   → single 聚合（image_qa/ocr/file_qa 汇总）
 actions > 1 且全部属于图片生成/编辑/参考
                                        → 图片multi → 节点4b image_plan.v1
 actions > 1 且包含非图片 operation       → 非图片multi → 节点4 multi_task_plan.v1
@@ -119,15 +125,18 @@ actions > 1 且包含非图片 operation       → 非图片multi → 节点4 mu
 
 `image_compare` 是 1 个 action、2 个角色，属于 single（一次对比 dispatch），不是 multi。
 
+同一问题跨多张图/多个文件的合并由节点1 完成（“第二张和最后一张是什么颜色”→ 一条 action）；Shape Compiler **不再**把多条读图/看文件动作本地折叠为 single，多条同 kind 读动作按多条独立问题进入 multi_task_plan，避免静默丢失问题。
+
 ## 5. 路由节点规则
 
 节点2 只产出 `route_intent.v3` 的语义终稿，输入为 `understanding` + shape 证据 + 候选目录。
 
 ### 5.1 relation 聚焦切分
 
-- 节点1 只给“依赖证据”：是否引用了 quoted/history/previous_execution、是否明显否定/纠正/继续；
-- 节点2 按 relation 1→4 规则最终判定 `new / followup / continuation`；
-- relation 使用独立聚焦提示词 + 独立校验，不与 operation/goal 规则混排。
+- 节点1 只给“依赖证据”：是否引用了 quoted/history/previous_execution、是否明显否定/纠正/继续，落在闭集 `dependency ∈ { new, followup, continuation }`；
+- 节点2 以 `dependency` 为候选并按 relation 1→4 规则最终判定 `new / followup / continuation`，不得盲信候选；
+- relation 使用独立聚焦提示词 + 独立校验，不与 operation/goal 规则混排；
+- 确定性校验补两条强矛盾：quoted 证据存在时 relation 必须为 followup（不得 new/continuation）；单 action 时 operation 必须等于 `operationForKind(actions[0].kind)`。
 
 ### 5.2 goal_mode 与图片任务连续性
 
@@ -212,7 +221,7 @@ goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解�
 | 场景 | v2 处理 |
 | --- | --- |
 | 单动作 | single |
-| 同只读 operation 多资源可一次回答 | single 聚合 |
+| 同一问题跨多资源（节点1 合并为一条 action） | single 聚合 |
 | 多图分别生成/编辑/参考 | 图片multi → image_plan |
 | 跨 operation / 非图片多独立结果 | 非图片multi → multi_task_plan |
 | 图片对比（1 action 2 角色） | single |

@@ -43,11 +43,25 @@ function materializationResponse(instruction = '分别生成一只猫、一只�
   };
 }
 
+function defaultUnderstandingResponse() {
+  return { choices: [{ message: { content: JSON.stringify({
+    schema_version: 'intent_understanding.v1',
+    ordering: 'independent',
+    dependency: 'new',
+    actions: [
+      { index: 1, kind: 'image_generate', verb: '生成', target: '一只猫', resolved_refs: [] },
+      { index: 2, kind: 'image_generate', verb: '生成', target: '一只狗', resolved_refs: [] },
+      { index: 3, kind: 'image_generate', verb: '生成', target: '一只鸟', resolved_refs: [] },
+    ],
+  }) } }] };
+}
+
 function createWorkflow({
   stageOne = stageOneIntent(),
   materialization = materializationResponse(),
   stageTwo = null,
   stageTwoError = null,
+  understanding = defaultUnderstandingResponse(),
 } = {}) {
   const calls = [];
   const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
@@ -58,16 +72,7 @@ function createWorkflow({
     requestJson: async (url, payload, apiKey, options) => {
       calls.push({ url, payload, apiKey, options });
       const formatName = payload.text?.format?.name;
-      if (formatName === 'chatui_intent_understanding_v1') return { choices: [{ message: { content: JSON.stringify({
-        schema_version: 'intent_understanding.v1',
-        ordering: 'independent',
-        dependency: 'new',
-        actions: [
-          { index: 1, kind: 'image_generate', verb: '生成', target: '一只猫', resolved_refs: [] },
-          { index: 2, kind: 'image_generate', verb: '生成', target: '一只狗', resolved_refs: [] },
-          { index: 3, kind: 'image_generate', verb: '生成', target: '一只鸟', resolved_refs: [] },
-        ],
-      }) } }] };
+      if (formatName === 'chatui_intent_understanding_v1') return understanding;
       if (formatName === 'chatui_route_intent_v3') return { choices: [{ message: { content: stageOne } }] };
       if (formatName === 'chatui_image_instruction_v1') return materialization;
       if (formatName === 'chatui_image_plan_v1') {
@@ -108,6 +113,8 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
     assert.strictEqual(calls[0].payload.text.format.name, 'chatui_intent_understanding_v1');
     assert.strictEqual(calls[1].payload.text.format.name, 'chatui_route_intent_v3');
     assert.strictEqual(calls[2].payload.text.format.name, 'chatui_image_plan_v1');
+    assert.strictEqual(calls[2].options.requestPurpose, 'image_planning',
+      'image planning must be audited separately from intent recognition');
     assert.strictEqual(calls.some(call => call.payload.text?.format?.name === 'chatui_image_instruction_v1'), false,
       'the canonical route goal is already standalone, so materialization must not make an extra request');
     const planningInput = JSON.parse(calls[2].payload.input[1].content);
@@ -284,11 +291,56 @@ async function testSingleTaskPlanCollapsesBackToLegacySingleRoute() {
   globalThis.ChatUIRouteService = routeService;
   try {
     const { workflow } = createWorkflow({ stageTwo: stageTwoResponse(1) });
-    const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
+    const route = await workflow.getEffectiveRoute('画一只猫', [], 'session-plan', null, {});
     assert.strictEqual(route.taskShape, 'single');
     assert.strictEqual(route.imagePlanCompiled, null);
     assert.strictEqual(dispatchContract.hasExactDispatchContract(route.dispatchContract), true);
     assert.strictEqual(route.dispatchContract.arguments.prompt, '一张猫');
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
+async function testSingleTaskPlanForExplicitMultiImageRequestFailsClosed() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    const { workflow } = createWorkflow({ stageTwo: stageTwoResponse(1) });
+    const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
+    assert.strictEqual(route.readiness, 'failed');
+    assert.strictEqual(route.imagePlanCompiled, undefined);
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.match(route.outcomeMessage, /规划数量与请求不一致/);
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
+async function testSimplePathMultiImageRequestAlsoEnforcesExpectedTaskCount() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    const stageOne = JSON.stringify({
+      operation: 'text_to_image',
+      relation: 'new',
+      goal: '生成三张海报：春、夏、冬',
+      goal_mode: 'replace',
+      resource_refs: [],
+      task_shape: 'multi',
+    });
+    const { workflow, calls } = createWorkflow({ stageOne, stageTwo: stageTwoResponse(2) });
+    const route = await workflow.getEffectiveRoute('生成三张海报：春、夏、冬', [], 'session-plan', null, {});
+    assert.strictEqual(calls.filter(call => call.payload.text?.format?.name === 'chatui_intent_understanding_v1').length, 0,
+      'a plain multi-image instruction must stay on the simple one-call path');
+    const planCalls = calls.filter(call => call.payload.text?.format?.name === 'chatui_image_plan_v1');
+    assert.ok(planCalls.length >= 2, 'the simple-path planner must receive one round plus a targeted repair round');
+    const planUser = JSON.parse(planCalls[0].payload.input[1].content);
+    assert.strictEqual(planUser.expected_task_count, 3,
+      'the deterministic expected image-result count must apply to the simple path too');
+    assert.strictEqual(route.readiness, 'failed');
+    assert.match(route.outcomeMessage, /规划数量与请求不一致/);
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -312,6 +364,35 @@ async function testInvalidPlanFailsClosedIntoClarification() {
   }
 }
 
+async function testMergedUnderstandingActionStillSplitsIntoImagePlan() {
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  try {
+    // Real models sometimes collapse an explicit multi-image request into one
+    // understanding action. The deterministic compiler must promote it back to
+    // the image_plan branch from the raw input so multi-image support never
+    // depends on the understanding model splitting actions perfectly.
+    const understanding = { choices: [{ message: { content: JSON.stringify({
+      schema_version: 'intent_understanding.v1',
+      ordering: 'independent',
+      dependency: 'new',
+      actions: [
+        { index: 1, kind: 'image_generate', verb: '生成', target: '分别生成一只猫、一只狗、一只鸟', resolved_refs: [] },
+      ],
+    }) } }] };
+    const { workflow, calls } = createWorkflow({ understanding, stageTwo: stageTwoResponse(3) });
+    const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
+    assert.strictEqual(route.taskShape, 'multi');
+    assert.strictEqual(route.imagePlanCompiled.kind, 'batch');
+    assert.strictEqual(route.imagePlanCompiled.items.length, 3);
+    assert.ok(calls.some(call => call.payload.text?.format?.name === 'chatui_image_plan_v1'),
+      'an explicit multi-image request must still reach the image planner after a merged understanding action');
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
+
 function testImagePlanPromptExplainsPerTaskEditRoles() {
   const prompt = routeService.IMAGE_PLAN_SYSTEM_PROMPT;
   assert.match(prompt, /多图编辑时按子任务指定 target\/reference\/mask/);
@@ -327,6 +408,9 @@ module.exports = [
   testPlanningRequestFailureDoesNotMisdiagnoseFiveTaskLimit,
   testOverLimitPlanReturnsAnExplicitClarification,
   testSingleTaskPlanCollapsesBackToLegacySingleRoute,
+  testSingleTaskPlanForExplicitMultiImageRequestFailsClosed,
+  testSimplePathMultiImageRequestAlsoEnforcesExpectedTaskCount,
   testInvalidPlanFailsClosedIntoClarification,
+  testMergedUnderstandingActionStillSplitsIntoImagePlan,
   testImagePlanPromptExplainsPerTaskEditRoles,
 ];

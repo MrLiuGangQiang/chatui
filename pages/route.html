@@ -569,7 +569,7 @@
       <div class="title-block">
         <div class="eyebrow"><span class="eyebrow-dot"></span>从本轮输入 · 到结果提交</div>
         <h1 class="main-title">一条消息怎样被处理 <span class="accent">01 → 10</span></h1>
-        <p class="subtitle"><strong>节点来自当前代码链路：</strong>接收并持久化、模型语义裁决、计划与任务执行；澄清和失败关闭是条件出口。</p>
+        <p class="subtitle"><strong>节点来自当前代码链路：</strong>接收并持久化、思维链语义裁决（理解→编译→路由）+ 确定性校验与修复；澄清和失败关闭是条件出口。</p>
       </div>
       <section class="runtime-card" data-runtime-state data-phase="idle" data-route-stage="idle" data-pending-clarification="false" aria-live="polite">
         <div class="runtime-top"><span class="runtime-lamp"></span>当前状态<span class="session-flag" data-runtime-session>当前会话</span><span class="pending-flag">需要补充</span></div>
@@ -684,11 +684,11 @@
             <span class="node-hud-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
 
             <span class="node-energy-scan" aria-hidden="true"></span>
-            <div class="node-head"><span class="node-number">05</span><span class="node-kind">意图模型</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></div>
-            <h2 class="node-title">意图模型裁决六项语义</h2>
-            <p class="node-summary">一次确定操作、前后关系、完整目标、任务继承方式、资源角色和单/多任务形态。</p>
-            <div class="node-code">操作 · 关系 · 目标 · 继承 · 资源 · 形态</div>
-            <div class="node-branches"><span class="branch-chip pass">模型拥有语义裁决权</span></div>
+            <div class="node-head"><span class="node-number">05</span><span class="node-kind">思维链 · 理解与路由</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></div>
+            <h2 class="node-title">理解 → 编译 → 路由（思维链）</h2>
+            <p class="node-summary">先由理解节点抽取动作、指代消解与依赖；本地任务编译器据此确定形态与分支；路由节点再落定六项语义。</p>
+            <div class="node-code">动作/指代消解 · 任务形态编译 · 六项语义落定</div>
+            <div class="node-branches"><span class="branch-chip pass">规则优先，护栏兜底</span></div>
           </article>
 
           <article class="node green" data-step="06" data-row="2" data-live-stages="clarification">
@@ -697,10 +697,10 @@
 
             <span class="node-energy-scan" aria-hidden="true"></span>
             <div class="node-head"><span class="node-number">06</span><span class="node-kind">验证与编译</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5"/><path d="M12 12v9"/></svg></div>
-            <h2 class="node-title">本地映射、验证并编译</h2>
-            <p class="node-summary">只接受本轮候选，映射真实资源并校验角色、数量、可用性与参数冲突。</p>
-            <div class="node-code">有效候选 → 唯一执行计划</div>
-            <div class="node-branches"><span class="branch-chip warn">不再用关键词或本地猜测覆盖模型语义</span></div>
+            <h2 class="node-title">确定性校验与有界修复</h2>
+            <p class="node-summary">只接受本轮候选，映射真实资源并校验角色、数量、可用性；对 relation/资源/参照等确定性矛盾做字段级定向修复（≤2 轮），仍失败则失败关闭或转澄清。</p>
+            <div class="node-code">有效候选 → 角色/形态规范 → 定向修复 → 唯一执行计划</div>
+            <div class="node-branches"><span class="branch-chip warn">消息≠文件、角色规范化、歧义兜底</span></div>
           </article>
         </div>
 
@@ -709,9 +709,9 @@
             <span class="node-hud-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             <span class="node-energy-scan" aria-hidden="true"></span>
             <div class="node-head"><span class="node-number">07</span><span class="node-kind">执行形态</span><svg class="node-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v6H4zM13 13h7v6h-7z"/><path d="M11 8h3a3 3 0 0 1 3 3v2"/><path d="m15 11 2 2 2-2"/></svg></div>
-            <h2 class="node-title">选择单任务或多图规划</h2>
-            <p class="node-summary">单任务直接交接；图片多任务再调用规划模型，拆成独立子任务。</p>
-            <div class="node-code">多图规划最多生成 5 个独立图片任务</div>
+            <h2 class="node-title">单任务 / 多计划 / 多图规划</h2>
+            <p class="node-summary">单任务直接交接；非图片多任务拆成可选项，你一次选一个执行；图片多任务拆成独立子任务（数量可配置，默认到上限），必要时先整理图片执行指令。</p>
+            <div class="node-code">单任务 → 直接 · 多任务 → 按编号选 · 多图 → 独立子任务（默认最多 50）</div>
             <div class="node-branches"><span class="branch-chip pass">一个子任务 → 单图</span><span class="branch-chip pending">多个 → 批量</span></div>
           </article>
 

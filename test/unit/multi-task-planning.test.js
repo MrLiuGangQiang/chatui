@@ -84,8 +84,7 @@ async function testWorkflowInvokesMultiTaskPlannerAndListsTasks() {
       if (options.requestPurpose === 'intent_understanding') {
         return { output_text: JSON.stringify({ schema_version: 'intent_understanding.v1', ordering: 'sequential', dependency: 'new', actions: [{"index":1,"kind":"file_read","verb":"读","target":"这个文件","resolved_refs":[{"candidate_key":"f1","text":"这个文件"}]},{"index":2,"kind":"image_generate","verb":"画","target":"一只狗","resolved_refs":[]},{"index":3,"kind":"plain_text","verb":"讲","target":"一个笑话","resolved_refs":[]}] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '分析引言.docx', goal: '分析引言.docx的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -322,8 +321,7 @@ async function testWorkflowRetainsPlanAndResolvesLaterSelector() {
       if (options.requestPurpose === 'intent_understanding') {
         return { output_text: JSON.stringify({ schema_version: 'intent_understanding.v1', ordering: 'sequential', dependency: 'new', actions: [{"index":1,"kind":"file_read","verb":"读","target":"这个文件","resolved_refs":[{"candidate_key":"f1","text":"这个文件"}]},{"index":2,"kind":"image_generate","verb":"画","target":"一只狗","resolved_refs":[]},{"index":3,"kind":"plain_text","verb":"讲","target":"一个笑话","resolved_refs":[]}] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -540,8 +538,7 @@ async function testWorkflowSelectorResolvesTaskTwoWithoutModelCall() {
       if (options.requestPurpose === 'intent_understanding') {
         return { output_text: JSON.stringify({ schema_version: 'intent_understanding.v1', ordering: 'independent', dependency: 'new', actions: [{"index":1,"kind":"file_read","verb":"总结","target":"这个文件","resolved_refs":[{"candidate_key":"f1","text":"这个文件"}]},{"index":2,"kind":"image_generate","verb":"画","target":"一只狗","resolved_refs":[]}] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -584,8 +581,7 @@ async function testWorkflowInvalidSelectorClarifiesWithoutModelCall() {
       if (options.requestPurpose === 'intent_understanding') {
         return { output_text: JSON.stringify({ schema_version: 'intent_understanding.v1', ordering: 'independent', dependency: 'new', actions: [{"index":1,"kind":"file_read","verb":"总结","target":"这个文件","resolved_refs":[{"candidate_key":"f1","text":"这个文件"}]},{"index":2,"kind":"image_generate","verb":"画","target":"一只狗","resolved_refs":[]}] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -634,15 +630,15 @@ async function testWorkflowRepairsUnfaithfulMultiTaskPlan() {
           ],
         }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 3) {
+      const planningCalls = calls.filter(call => call === 'multi_task_planning').length;
+      if (planningCalls >= 2) {
         // The repair round returns a faithful plan.
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
         ] }) };
       }
-      if (intentCalls >= 2) {
+      if (planningCalls >= 1) {
         // The first planner output is unfaithful (wrong second operation).
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
@@ -687,8 +683,7 @@ async function testWorkflowInjectsUnderstandingAndUsesSlimRoutePrompt() {
           ],
         }) };
       }
-      const intentCalls = payloads.filter(entry => entry.purpose === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -735,9 +730,8 @@ async function testWorkflowRepairsInvalidRouteOutputOnce() {
     getSessionChatModel: () => 'route-model',
     requestJson: async (_url, payload, _apiKey, options = {}) => {
       calls.push(String(options.requestPurpose || 'intent_recognition'));
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls === 1) return { output_text: 'not json' };
-      if (intentCalls === 2) {
+      if (options.requestPurpose === 'intent_recognition') return { output_text: 'not json' };
+      if (options.requestPurpose === 'route_repair') {
         return { output_text: JSON.stringify({ operation: 'text_to_image', relation: 'new', goal: input, goal_mode: 'replace', task_shape: 'single', resource_refs: [] }) };
       }
       throw new Error('unexpected call');
@@ -756,7 +750,7 @@ async function testWorkflowRepairsInvalidRouteOutputOnce() {
 }
 
 
-async function testWorkflowFailsClosedWhenPlanRepairStillUnfaithful() {
+async function testWorkflowPresentsOptionsWhenPlanRepairStillUnfaithful() {
   const previousRouteService = globalThis.ChatUIRouteService;
   globalThis.ChatUIRouteService = routeService;
   const input = '总结这个文件 同时 画一只狗';
@@ -775,8 +769,7 @@ async function testWorkflowFailsClosedWhenPlanRepairStillUnfaithful() {
           { index: 2, kind: 'image_generate', verb: '画', target: '一只狗', resolved_refs: [] },
         ] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'plain_chat', description: '讲一个笑话', goal: '讲一个笑话', resource_refs: [] },
@@ -787,9 +780,12 @@ async function testWorkflowFailsClosedWhenPlanRepairStillUnfaithful() {
   });
   try {
     const route = await workflow.getEffectiveRoute(input, [{ index: 1, source_index: 1, media_index: 1, id: 'file-current', file_id: 'file-current', name: 'plan.md', type: 'text/markdown', is_image: false, has_extracted_text: true }], 'session-1');
-    assert.strictEqual(calls.length, 4, 'the repair round must run before failing closed');
-    assert.strictEqual(route.readiness, 'failed');
-    assert.match(route.outcomeMessage, /多任务拆解与请求不一致/);
+    assert.strictEqual(calls.length, 4, 'the repair round must still run before the option fallback');
+    assert.strictEqual(route.readiness, 'needs_clarification', 'an unfaithful plan must present choices instead of failing closed');
+    assert.strictEqual(route.needClarification, true);
+    assert.ok(Array.isArray(route.multiTaskPlanCompiled), 'the best-effort plan must still be presented for selection');
+    assert.match(route.clarificationQuestion, /识别到 2 个独立任务/);
+    assert.match(route.clarificationQuestion, /未完全对齐|确认/);
   } finally {
     if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previousRouteService;
@@ -819,8 +815,7 @@ async function testWorkflowRepairsInvalidUnderstandingOutputOnce() {
           { index: 2, kind: 'image_generate', verb: '画', target: '一只狗', resolved_refs: [] },
         ] }) };
       }
-      const intentCalls = calls.filter(call => call === 'intent_recognition').length;
-      if (intentCalls >= 2) {
+      if (options.requestPurpose === 'multi_task_planning') {
         return { output_text: JSON.stringify({ schema_version: 'multi_task_plan.v1', tasks: [
           { key: 't1', operation: 'file_qa', description: '总结这个文件', goal: '总结这个文件的内容', resource_refs: [{ candidate_key: 'f1', role: 'attachment' }] },
           { key: 't2', operation: 'text_to_image', description: '画一只狗', goal: '画一只狗', resource_refs: [] },
@@ -860,7 +855,7 @@ module.exports = [
   testWorkflowRepairsInvalidUnderstandingOutputOnce,
   testWorkflowRepairsInvalidRouteOutputOnce,
   testWorkflowInjectsUnderstandingAndUsesSlimRoutePrompt,
-  testWorkflowFailsClosedWhenPlanRepairStillUnfaithful,
+  testWorkflowPresentsOptionsWhenPlanRepairStillUnfaithful,
   testWorkflowRepairsUnfaithfulMultiTaskPlan,
   testSelectorTurnKeepsPlanFileBindingThroughRealClarificationContext,
   testTaskSelectionUsesModelSelectedGoalAsProviderPrompt,

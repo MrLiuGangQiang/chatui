@@ -92,6 +92,28 @@ function testQuotedPlainChatKeepsRawUserInputAsProviderPrompt() {
   assert.strictEqual(result.route.dispatchContract.context_policy.quoted, true);
 }
 
+function testQuotedPlainChatMissingModelBindingIsReconciled() {
+  const { context } = quotedScenario();
+  const result = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'followup',
+    goal: '统计当前引用消息的字数',
+    task_shape: 'single',
+    resource_refs: [],
+  }), {
+    input: '这个呢',
+    context,
+    currentTurn: { messageIndex: 4 },
+  });
+
+  assert.ok(result.route, result.error || result.reason);
+  assert.strictEqual(result.route.dispatchContract.context_policy.quoted, true,
+    'an explicit quote must be bound even when the route model forgot the message ref');
+  assert.ok(result.route.dispatchContract.bindings.some(binding => (
+    binding.type === 'message' && binding.source === 'quoted' && binding.role === 'context'
+  )), 'the quoted message candidate must be restored as a context binding');
+}
+
 function testQuotedBindingAtAnyConversationIndexUsesExplicitQuoteProjection() {
   const quotedMessage = { id: 'quote-7', role: 'assistant', content: '被引用的第七条消息' };
   const messages = Array.from({ length: 8 }, (_, index) => sessionMessage(
@@ -156,6 +178,7 @@ module.exports = [
   testQuotedMessageAndLatestTaskReachIntentRecognitionTogether,
   testQuotedIntentContextExcludesUnrelatedSessionHistory,
   testQuotedPlainChatKeepsRawUserInputAsProviderPrompt,
+  testQuotedPlainChatMissingModelBindingIsReconciled,
   testResolvedGoalIsMetadataWithoutResourceBinding,
   testQuotedBindingAtAnyConversationIndexUsesExplicitQuoteProjection,
   testQuoteAndOtherExactMessagesAreBothPreserved,

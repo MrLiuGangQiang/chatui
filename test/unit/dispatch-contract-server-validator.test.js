@@ -408,6 +408,28 @@ async function testBackgroundImageTagValidationAllowsChatOnlyAndRejectsContracts
   ), 'REQUEST_PURPOSE_INVALID');
 }
 
+function testSemanticControlPurposesShareIntentRecognitionGuardrails() {
+  for (const purpose of ['route_repair', 'route_fallback', 'multi_task_planning', 'image_planning']) {
+    assert.doesNotThrow(() => validator.validateProxyExecutionRequest(
+      { requestPurpose: purpose, payload: {} },
+      { targetPath: '/responses', method: 'POST' },
+    ), purpose + ' must be allowed on the Responses endpoint');
+  }
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'route_repair', payload: {} },
+    { targetPath: '/images/generations', method: 'POST' },
+  ), 'INTENT_RECOGNITION_TARGET_INVALID');
+  const plan = makeDispatchContract({ prompt: 'hello' });
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'multi_task_planning', dispatchContract: plan, payload: {} },
+    { targetPath: '/responses', method: 'POST' },
+  ), 'INTENT_RECOGNITION_PLAN_FORBIDDEN');
+  expectCode(() => validator.validateProxyExecutionRequest(
+    { requestPurpose: 'image_planning', bindingEvidence: [{ key: 'r1' }], payload: {} },
+    { targetPath: '/responses', method: 'POST' },
+  ), 'INTENT_RECOGNITION_BINDINGS_FORBIDDEN');
+}
+
 module.exports = [
   testMissingPurposeAndInvalidPurposeAreRejected,
   testIntentRecognitionCannotCarryFinalContract,
@@ -421,4 +443,5 @@ module.exports = [
   testServerRejectsSemanticallyInvalidImageBindingCombinations,
   testEmbeddedExecutionProtocolFieldsAreRejectedBeforeDispatch,
   testProxyNeverForwardsOuterExecutionProtocolFields,
+  testSemanticControlPurposesShareIntentRecognitionGuardrails,
 ];

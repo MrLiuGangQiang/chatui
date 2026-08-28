@@ -62,7 +62,7 @@
     const launchers = Object.freeze({
       route: Object.freeze({
         triggerId: 'routeDiagramFab',
-        url: deps.routeUrl || './pages/route.html?v=3.8.2-arrowless-energy-runway',
+        url: deps.routeUrl || './pages/route.html?v=4.0.0-chain-of-thought',
         title: '一条消息是怎样被处理的',
         aspectRatio: '1672 / 941',
         maxWidth: '1672px',

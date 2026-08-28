@@ -74,6 +74,7 @@ function createAccessLogger({
         ...(audit.submission_id ? { submission_id: redactString(String(audit.submission_id).slice(0, 96)) } : {}),
         ...(audit.model ? { model: redactString(String(audit.model).slice(0, 120)) } : {}),
         ...(audit.response_format ? { response_format: String(audit.response_format).slice(0, 96) } : {}),
+        ...(audit.repair_reasons ? { repair_reasons: String(audit.repair_reasons).slice(0, 160) } : {}),
         timestamp_ms: timestampMs,
       };
       return writer.writeLine(line);

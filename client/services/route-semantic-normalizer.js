@@ -259,6 +259,22 @@
         };
       }
 
+      // "基于这个描述再生成一张图片" has no image resource, only a quoted
+      // text description. The model sometimes labels that image_reference_gen,
+      // which then asks for a missing reference image. Strong quoted-text
+      // evidence makes this text_to_image with the message as context.
+      const quotedTextOnlyGeneration = stringValue(next.operation) === 'image_reference_gen'
+        && /(?:基于|按照|根据)[^。！？!?\n]{0,24}(?:这个描述|上述描述|这段描述|描述)[^。！？!?\n]{0,24}(?:生成|画|创建|制作)/i.test(input)
+        && Array.isArray(next.resource_refs) && next.resource_refs.length > 0
+        && next.resource_refs.every(ref => {
+          const candidate = (Array.isArray(candidateCatalog) ? candidateCatalog : [])
+            .find(item => stringValue(item?.candidate_key) === stringValue(ref?.candidate_key));
+          return stringValue(candidate?.type) === 'message';
+        });
+      if (quotedTextOnlyGeneration) {
+        next = { ...next, operation: 'text_to_image', goal_mode: 'replace' };
+      }
+
       // An explicit rejection of the prior task establishes conversational
       // dependency but does not invent new visual content. This repairs only
       // relation; goal and goal_mode remain model-owned.

@@ -22,14 +22,15 @@ function goalModeEnum(input, operation = 'text_to_image') {
 }
 
 function testPromptSeparatesAssistantAdviceFromConfirmedUserConstraints() {
-  const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /assistant\s*的分析、推测、评价和建议默认只是候选信息，不是已确认的用户约束/);
-  assert.match(prompt, /按你的建议\/照你说的\/按照上一轮建议只允许继承上一轮明确写出的建议动作/);
-  assert.match(prompt, /不自动采纳其中的分析结论、原因、评价、推测或未确定数值/);
-  assert.match(prompt, /不得把可能\/建议\/可以考虑\/存在风险改成确定事实/);
-  assert.match(prompt, /不得从历史文本推导新的尺寸、布局、功能或风格要求/);
-  assert.match(prompt, /goal只写明确建议的本轮delta/);
-  assert.match(prompt, /不得写根据上一轮指出的某个分析结论/);
+  const understandPrompt = routeService.UNDERSTAND_SYSTEM_PROMPT;
+  assert.match(understandPrompt, /assistant\s*的分析、推测、评价和建议默认只是候选信息，不是已确认的用户约束/);
+  assert.match(understandPrompt, /按你的建议\/照你说的\/按照上一轮建议只允许继承上一轮明确写出的建议动作/);
+  assert.match(understandPrompt, /不自动采纳其中的分析结论、原因、评价、推测或未确定数值/);
+  assert.match(understandPrompt, /不得把可能\/建议\/可以考虑\/存在风险改成确定事实/);
+  assert.match(understandPrompt, /不得从历史文本推导新的尺寸、布局、功能或风格要求/);
+  const routePrompt = routeService.ROUTE_NODE_SYSTEM_PROMPT;
+  assert.match(routePrompt, /goal只写明确建议的本轮delta/);
+  assert.match(routePrompt, /不得写根据上一轮指出的某个分析结论/);
 }
 
 function testExplicitAdviceAcceptanceConstrainsAnImageRevisionToAmend() {

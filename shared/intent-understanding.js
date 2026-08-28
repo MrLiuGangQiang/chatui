@@ -42,11 +42,9 @@
     image_edit: Object.freeze({ image: Object.freeze(['target']) }),
   });
 
-  // Multiple actions that can be answered in one dispatch.
-  const AGGREGATABLE_SINGLE_KINDS = new Set(['image_read', 'ocr', 'file_read']);
   // Multiple actions that always stay on the image_plan path.
   const IMAGE_MULTI_KINDS = new Set(['image_generate', 'image_reference', 'image_edit']);
-  const ACTION_FIELDS = Object.freeze(['index', 'kind', 'verb', 'target', 'resolved_refs']);
+  const ACTION_FIELDS = Object.freeze(['index', 'kind', 'target', 'resolved_refs']);
 
   function stringValue(value = '') {
     return String(value ?? '').trim();
@@ -70,6 +68,7 @@
   function hasExactUnderstanding(value = {}) {
     return !!value && typeof value === 'object' && !Array.isArray(value)
       && value.schema_version === UNDERSTANDING_VERSION
+      && ['new', 'followup', 'continuation'].includes(stringValue(value.dependency))
       && Array.isArray(value.actions)
       && value.actions.length <= 20
       && value.actions.every(validAction);
@@ -89,7 +88,6 @@
     return {
       index: Number(action.index) || 0,
       kind,
-      verb: stringValue(action.verb),
       target: stringValue(action.target),
       resolved_refs: Array.isArray(action.resolved_refs)
         ? action.resolved_refs.map(ref => ({ candidate_key: stringValue(ref?.candidate_key), text: stringValue(ref?.text) }))
@@ -105,31 +103,158 @@
     return KIND_RESOURCE_ROLES[stringValue(kind)] || Object.freeze({});
   }
 
+
+  // A single image action can still describe several independent results (e.g.
+  // "五个视角" or "正面、侧面、背面"). The route model must not collapse those
+  // into one image; promote them to the image_plan branch deterministically so
+  // the planner still expands every requested view/image into its own task.
+  function parseChineseNumber(text = '') {
+    const value = String(text).trim();
+    if (/^\d+$/.test(value)) return Number(value);
+    const digits = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+    let total = 0;
+    let section = 0;
+    for (const char of value) {
+      if (digits[char]) {
+        section += digits[char];
+      } else if (char === '十') {
+        section = section || 1;
+        section *= 10;
+        total += section;
+        section = 0;
+      } else if (char === '百') {
+        section = section || 1;
+        section *= 100;
+        total += section;
+        section = 0;
+      }
+    }
+    return total + section;
+  }
+
+  function explicitImageResultCount(text = '') {
+    const value = stringValue(text);
+    if (!value) return 0;
+    const NUMBER = '([一二三四五六七八九十百两0-9]+)';
+    // Units that denote an image file/version produced by the task. In-picture
+    // subject units (只/匹/条/头/座...) are intentionally excluded.
+    const RESULT_UNIT = '(?:张|幅|组|版|款|套|海报|图)';
+    const RESULT_GE = '个\\s*(?:视角|版本|方案|样式|设计|海报|构图)';
+    const OUTPUT_VERB = /(?:生成|画|绘制|制作|创建|设计|做出|产出|改成|改为|转成|变成|换成|得到)/;
+    const OUTPUT_VERB_GLOBAL = /(?:生成|画|绘制|制作|创建|设计|做出|产出|改成|改为|转成|变成|换成|得到)/g;
+    const clauses = value.split(/[，。；;！？!?\n]+/).map(item => item.trim()).filter(Boolean);
+    const counts = [];
+
+    // Bare "N个视角/版本/方案/样式/设计" is an output enumeration even when
+    // the model wrote it into an action target without a verb.
+    const bareGe = new RegExp(NUMBER + '\\s*' + RESULT_GE, 'g');
+    for (const match of value.matchAll(bareGe)) counts.push(parseChineseNumber(match[1]));
+
+    // Counts anchored AFTER the last output verb in each clause. This keeps
+    // "参考两张图生成一张新图" at one result while still seeing the outputs.
+    const anchored = [];
+    for (const clause of clauses) {
+      const verbs = [...clause.matchAll(OUTPUT_VERB_GLOBAL)];
+      if (!verbs.length) continue;
+      const tail = clause.slice(verbs[verbs.length - 1].index + verbs[verbs.length - 1][0].length);
+      const unitRe = new RegExp(NUMBER + '\\s*' + RESULT_UNIT, 'g');
+      for (const match of tail.matchAll(unitRe)) anchored.push(parseChineseNumber(match[1]));
+      const geRe = new RegExp(NUMBER + '\\s*' + RESULT_GE, 'g');
+      for (const match of tail.matchAll(geRe)) anchored.push(parseChineseNumber(match[1]));
+    }
+    for (const count of anchored) if (count >= 2) return count;
+    counts.push(...anchored);
+
+    // "把N张图改成/改为/变成" edits every listed target into its own output.
+    const editTargets = new RegExp('把\\s*' + NUMBER + '\\s*' + RESULT_UNIT + '(?:图|图片|目标图)?\\s*(?:都|全部|分别)?(?:改成|改为|变成|换成)', 'g');
+    for (const match of value.matchAll(editTargets)) {
+      const count = parseChineseNumber(match[1]);
+      if (count >= 2) return count;
+    }
+
+    // Deictic resource counts with “这/那” before the number: “把这两张图改成黑白” and
+    // “分别参考这两张图各生成一张” both mean N independent results even though the
+    // number is not adjacent to “把” or is only a deictic count.
+    const deicticEdit = new RegExp('(?:\u628a|\u5c06)?\\s*(?:\u8fd9|\u90a3)\\s*' + NUMBER + '\\s*' + RESULT_UNIT + '(?:\u56fe|\u56fe\u7247|\u76ee\u6807\u56fe)?\\s*(?:\u90fd|\u5168\u90e8|\u5206\u522b)?\\s*(?:\u6539\u6210|\u6539\u4e3a|\u53d8\u6210|\u6362\u6210)', 'g');
+    for (const match of value.matchAll(deicticEdit)) {
+      const count = parseChineseNumber(match[1]);
+      if (count >= 2) return count;
+    }
+    const deicticEach = new RegExp('(?:\u8fd9|\u90a3)\\s*' + NUMBER + '\\s*' + RESULT_UNIT + '(?:\u56fe|\u56fe\u7247|\u76ee\u6807\u56fe)?[^\u3002\uff01\uff1f!?\n]{0,24}?(?:\u5404|\u5206\u522b)\\s*(?:\u751f\u6210|\u53d8\u6210|\u6539\u6210)', 'g');
+    for (const match of value.matchAll(deicticEach)) {
+      const count = parseChineseNumber(match[1]);
+      if (count >= 2) return count;
+    }
+
+    // 分别/各自/每个 enumeration: each listed item is an independent result.
+    if (/分别|各自|每个|各个/.test(value)) {
+      const unitTokens = [];
+      for (const clause of clauses) {
+        const verb = clause.match(OUTPUT_VERB);
+        if (!verb) continue;
+        const tail = clause.slice(verb.index + verb[0].length);
+        const unitRe = new RegExp(NUMBER + '\\s*' + RESULT_UNIT, 'g');
+        for (const match of tail.matchAll(unitRe)) unitTokens.push(parseChineseNumber(match[1]));
+      }
+      if (unitTokens.length >= 2) return unitTokens.length;
+      const subjectItems = (value.match(/(?:只|匹|条|头|座)/g) || []).length;
+      if (subjectItems >= 2) return subjectItems;
+    }
+
+    // Ordinal enumeration tied to an output verb: 把第1张和第5张改成...
+    if (OUTPUT_VERB.test(value)) {
+      const ordinals = value.match(/第[一二三四五六七八九十百0-9]+[张幅个组版款套海报图]/g) || [];
+      const distinct = new Set(ordinals.map(item => item.replace(/^第/, '')));
+      if (distinct.size >= 2) return distinct.size;
+    }
+
+    // Explicit view enumeration with a pluralizer.
+    const views = ['正面', '侧面', '背面', '俯视', '仰视', '左视', '右视', '前视', '后视'];
+    const viewCount = views.filter(view => value.includes(view)).length;
+    if (viewCount >= 2 && /(?:分别|各个|每个|多个|多张|多幅|多组|多图)/.test(value)) return viewCount;
+
+    for (const count of counts) if (count >= 2) return count;
+    return 0;
+  }
+
+
   // Deterministic Shape Compiler: derive operation / task_shape / branch from
   // the extracted actions. The route model never decides task_shape again.
-  function compileUnderstandingShape(actions = []) {
+  // Highest explicit result count across raw input, resolved goal, and a
+  // single-image action target. The Shape Compiler can promote a request to
+  // image_plan from the target even when the raw input is an anaphoric
+  // continuation such as "继续生成"; the image-plan count gate must use the
+  // same evidence sources instead of looking at the raw input alone.
+  function maxExplicitImageResultCount(input = '', goal = '', target = '') {
+    return Math.max(
+      explicitImageResultCount(stringValue(input)),
+      explicitImageResultCount(stringValue(goal)),
+      explicitImageResultCount(stringValue(target)),
+    );
+  }
+
+  function compileUnderstandingShape(actions = [], input = '') {
     const normalized = (Array.isArray(actions) ? actions : []).map(normalizeAction).filter(Boolean);
     if (!normalized.length) {
       return Object.freeze({ taskShape: 'none', operation: '', branch: 'clarification' });
     }
     if (normalized.length === 1) {
       const kind = normalized[0].kind;
+      if (IMAGE_MULTI_KINDS.has(kind)
+          && (explicitImageResultCount(stringValue(input)) >= 2 || explicitImageResultCount(stringValue(normalized[0].target)) >= 2)) {
+        return Object.freeze({
+          taskShape: 'multi',
+          operation: operationForKind(kind),
+          requiredRoles: requiredResourceRoles(kind),
+          branch: 'image_plan',
+          actions: normalized,
+        });
+      }
       return Object.freeze({
         taskShape: 'single',
         operation: operationForKind(kind),
         requiredRoles: requiredResourceRoles(kind),
         branch: 'route',
-        actions: normalized,
-      });
-    }
-    const kinds = new Set(normalized.map(action => action.kind));
-    if (kinds.size === 1 && AGGREGATABLE_SINGLE_KINDS.has(normalized[0].kind)) {
-      return Object.freeze({
-        taskShape: 'single',
-        operation: operationForKind(normalized[0].kind),
-        requiredRoles: requiredResourceRoles(normalized[0].kind),
-        branch: 'route',
-        aggregate: true,
         actions: normalized,
       });
     }
@@ -152,16 +277,46 @@
     });
   }
 
+  // For kinds whose deterministic role is unambiguous, the understanding
+  // resolved_refs are authoritative enough to compare against the planner's
+  // concrete resource bindings. Ambiguous role families (compare_a/compare_b,
+  // reference/style_reference) are intentionally skipped here and canonicalized
+  // later by the deterministic compiler.
+  function deterministicResourceRefsForAction(action = {}) {
+    const kind = stringValue(action?.kind);
+    const refs = Array.isArray(action?.resolved_refs) ? action.resolved_refs : [];
+    if (!refs.length) return null;
+    const rolesByType = requiredResourceRoles(kind);
+    const result = [];
+    for (const ref of refs) {
+      const candidateKey = stringValue(ref?.candidate_key);
+      const type = candidateKey.startsWith('i')
+        ? 'image'
+        : candidateKey.startsWith('f')
+          ? 'file'
+          : candidateKey.startsWith('m')
+            ? 'message'
+            : '';
+      const roles = type ? rolesByType[type] || [] : [];
+      if (!type || !Array.isArray(roles) || roles.length !== 1) return null;
+      result.push({ candidate_key: candidateKey, role: roles[0] });
+    }
+    return result;
+  }
+
   // Expected task projections used by the planner's 1:1 faithfulness check.
   function expectedPlanTasks(actions = []) {
     return (Array.isArray(actions) ? actions : []).map((action, index) => {
       const kind = stringValue(action?.kind);
-      return {
+      const expected = {
         index: index + 1,
         kind,
         operation: operationForKind(kind),
         resource_roles: requiredResourceRoles(kind),
       };
+      const resourceRefs = deterministicResourceRefsForAction(action);
+      if (Array.isArray(resourceRefs) && resourceRefs.length) expected.resource_refs = resourceRefs;
+      return expected;
     });
   }
 
@@ -173,10 +328,9 @@
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['schema_version', 'actions'],
+        required: ['schema_version', 'dependency', 'actions'],
         properties: {
           schema_version: { type: 'string', const: UNDERSTANDING_VERSION },
-          ordering: { type: 'string', enum: ['sequential', 'independent'] },
           dependency: { type: 'string', enum: ['new', 'followup', 'continuation'] },
           actions: {
             type: 'array',
@@ -186,9 +340,9 @@
               additionalProperties: false,
               required: ['index', 'kind', 'target', 'resolved_refs'],
               properties: {
-                index: { type: 'integer', minimum: 1 },
+                // Numeric min/max bounds are rejected by OpenAI structured outputs; the local validator still enforces index >= 1.
+                index: { type: 'integer' },
                 kind: { type: 'string', enum: Object.keys(ACTION_KINDS) },
-                verb: { type: 'string' },
                 target: { type: 'string' },
                 resolved_refs: {
                   type: 'array',
@@ -212,14 +366,37 @@
 
   // 1:1 planner faithfulness: every extracted action must be covered by exactly
   // one plan task with the matching operation, and the planner must not invent
-  // extra tasks. Roles are intentionally not compared here: role canonicalization
-  // happens later in the deterministic compiler.
+  // extra tasks. When the understanding node resolved unambiguous resource keys,
+  // the concrete planner bindings must match them too; ambiguous roles are still
+  // canonicalized later by the deterministic compiler.
+  function planResourceFingerprint(task = {}) {
+    const refs = Array.isArray(task?.resource_refs) ? task.resource_refs : [];
+    return JSON.stringify(refs.map(ref => `${stringValue(ref?.candidate_key)}|${stringValue(ref?.role)}`).sort());
+  }
+
   function planCoversExpected(plan = {}, expectedTasks = []) {
     const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
     const expected = Array.isArray(expectedTasks) ? expectedTasks : [];
     if (!tasks.length || tasks.length !== expected.length) return false;
     const operations = list => list.map(item => stringValue(item?.operation)).sort();
-    return JSON.stringify(operations(tasks)) === JSON.stringify(operations(expected));
+    if (JSON.stringify(operations(tasks)) !== JSON.stringify(operations(expected))) return false;
+
+    const operationValues = [...new Set(operations(expected))];
+    for (const operation of operationValues) {
+      const expectedGroup = expected.filter(item => stringValue(item?.operation) === operation);
+      const taskGroup = tasks.filter(item => stringValue(item?.operation) === operation);
+      if (expectedGroup.length !== taskGroup.length) return false;
+      const hasResolvedResources = expectedGroup.some(item => Array.isArray(item?.resource_refs) && item.resource_refs.length);
+      if (!hasResolvedResources) continue;
+      const expectedFingerprints = expectedGroup.map(item => (
+        Array.isArray(item?.resource_refs) && item.resource_refs.length
+          ? planResourceFingerprint({ resource_refs: item.resource_refs })
+          : '[]'
+      )).sort();
+      const taskFingerprints = taskGroup.map(item => planResourceFingerprint(item)).sort();
+      if (JSON.stringify(expectedFingerprints) !== JSON.stringify(taskFingerprints)) return false;
+    }
+    return true;
   }
 
   return Object.freeze({
@@ -228,7 +405,6 @@
     UNDERSTANDING_RESPONSE_FORMAT,
     ACTION_KINDS,
     KIND_RESOURCE_ROLES,
-    AGGREGATABLE_SINGLE_KINDS,
     IMAGE_MULTI_KINDS,
     hasExactUnderstanding,
     assertUnderstanding,
@@ -236,6 +412,8 @@
     operationForKind,
     requiredResourceRoles,
     compileUnderstandingShape,
+    maxExplicitImageResultCount,
+    explicitImageResultCount,
     expectedPlanTasks,
   });
 });

@@ -347,10 +347,21 @@ GET /
 - 当前 architecture check 主要冻结 `app.js` 大小、legacy `with` 和浏览器全局增长，并不是完整的依赖图验证器。
 
 处理这些边界需要独立、可回归的重构，不应在无关功能改动中顺手改写。
-## 10. 意图识别思维链改造目标（规划中）
+## 10. 意图识别思维链改造状态
 
-意图识别的“思维链 + 自我修复”目标形态与全场景覆盖矩阵以独立设计文档为准：
+意图识别已按“理解 → 路由 → 校验/修复”节点流水线运行，以 `docs/intent-recognition-cot-design.md` 为唯一参考设计。节点级提示词已拆分：
 
-- `docs/intent-recognition-cot-design.md`：唯一参考设计（目标流水线、Shape Compiler 规则、统一修复协议、全场景覆盖矩阵、保留边界清单、落地阶段）。
+- `UNDERSTAND_SYSTEM_PROMPT` 输出 `intent_understanding.v1`（`schema_version`/`dependency`/`actions` 单一契约，含完整示例，≤2500 字符）；
+- `ROUTE_NODE_SYSTEM_PROMPT` 输出 `route_intent.v3`（含完整示例，≤5800 字符）；
+- CoT 路径（理解证据存在）使用精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（≤2500 字符，只映射 understanding→六字段）；简单路径使用独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（约 3560 字符，只去掉简单路径不可达的 quoted/指代/附件段落）；仅理解节点失败或输出空动作时回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（≤5800，单跑保留全部场景规则）；
+- 简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词；
+- 理解节点结构化输出 schema 与提示词同源：不使用 OpenAI 不支持的数值边界关键字，声明且必填的字段与提示词一致（无消费者的 `ordering`/`verb` 已从契约移除）；
+- 路由节点新增确定性语义校验：对 `relation=new` 与非 current 资源矛盾、quoted 证据必须 followup（new/continuation 均修复）、`amend` 无前序 base、单 action 的 operation 与 kind 映射不一致给出字段级 reasons 并做有界定向修复；主模型与 fallback 模型共用同一校验+修复路径；业务澄清与图片指令物化不参与该修复。
+- `reconcileUnderstandingDependency` 在路由 payload 物化前用本地事实校正 `understanding.dependency`：quoted 正文作事实或 `actions[].resolved_refs` 指向非 current 资源时强制 followup，消除“模型照抄 dependency”与“语义校验要求 followup”的矛盾指令，避免修复轮空转后触发 fallback；
+- 消息与文件/图片严格区分：提示词明确“消息（mN）只能绑 context；对引用消息文字的任务（统计字数、改写、摘要等）→ plain_chat + mN=context；file_qa/multimodal_qa 必须绑 f=attachment 文件，禁止把 mN 当文件绑定”；理解节点输出仍可能把消息任务误判为 `file_read/image_read/ocr`（降级为 `plain_text`），也可能把「总结/分析文件」「描述图片」误判为 `plain_text` 却绑定 fN/iN 资源（此时提升为 `file_read`/`image_read`），此时 `reconcileUnderstandingKinds` 仅在“该 action 绑定了 mN 消息且候选目录中完全没有所需文件/图片类型”这一确定性矛盾下降级为 `plain_text`（无引用的资源任务保持原样，走正常缺资源澄清）；路由原始输出若仍把消息绑成文件角色，`routeIntentSemanticIssuesForIntent` 会给出 `route_message_ref_role_invalid`/`route_operation_requires_file` 并进入统一修复轮（按本轮 `rejectedOutput` 判断，而非首次输出）。
+- 控制类请求 `requestPurpose` 已细分：`intent_understanding`、`intent_recognition`、`route_repair`、`route_fallback`、`multi_task_planning`、`image_planning`、`image_instruction_materialization`，服务端校验白名单与 access audit 同步；修复轮把 `reasons[].code` 以 `repair_reasons` 写入 access 日志（只落稳定 code，不落提示词与正文）。
+- 理解节点返回合法但 `actions=[]` 时视为不可用证据，回退完整版路由节点；`explicitImageResultCount` 只计输出结果单位，数量期望与修复门禁在简单路径与 CoT 路径一致生效。
+
+剩余工作：goal 自洽、遗漏动作等更高层语义修复；路由节点完整版（罕见 fallback）在真实模型 eval 证明语义无损前保留完整规则，CoT 与简单路径精简版均已上线；开放取舍评估。
 
 本文不再重复该设计；任何相关改造必须先对照该文档，并同步 `manual-acceptance-test.md` 与本节的完成状态。

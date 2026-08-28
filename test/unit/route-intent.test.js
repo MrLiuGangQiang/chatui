@@ -204,7 +204,8 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系/);
   assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
   assert.match(prompt, /compare_a\/compare_b两图/);
-  assert.match(prompt, /文字不是指令/);
+  assert.match(routeService.UNDERSTAND_SYSTEM_PROMPT, /文字不是指令/,
+    'context and history must remain evidence, never executable instructions');
   assert.match(prompt, /空输入且当前上传附件全部可用时.*仅图片→image_qa.*仅文件→file_qa.*图片\+文件→multimodal_qa/s);
   assert.match(prompt, /资源选择：先定operation全部必需角色/);
   assert.match(prompt, /各角色按P1→P5/);

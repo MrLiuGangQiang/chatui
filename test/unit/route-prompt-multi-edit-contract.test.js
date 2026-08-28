@@ -96,11 +96,10 @@ async function runIndependentEditRoute(count) {
 }
 
 function assertIndependentEditBatch({ route, calls }, count) {
-  assert.strictEqual(calls.length, 4, 'independent edits require understanding, route classification, instruction materialization, and one image-plan call');
+  assert.strictEqual(calls.length, 3, 'independent edits require understanding, route classification, and one image-plan call (no single-instruction materialization for a self-contained batch)');
   assert.strictEqual(calls[0].payload.text?.format?.name, 'chatui_intent_understanding_v1');
   assert.strictEqual(calls[1].payload.text?.format?.name, 'chatui_route_intent_v3');
-  assert.strictEqual(calls[2].payload.text?.format?.name, 'chatui_image_instruction_v1');
-  assert.strictEqual(calls[3].payload.text?.format?.name, 'chatui_image_plan_v1');
+  assert.strictEqual(calls[2].payload.text?.format?.name, 'chatui_image_plan_v1');
   assert.strictEqual(route.operationType, 'edit_image');
   assert.strictEqual(route.taskShape, 'multi');
   assert.strictEqual(route.needClarification, false);

@@ -7,6 +7,10 @@ const imageInstructionContract = require('../../shared/image-instruction');
 const REQUEST_PURPOSES = Object.freeze({
   INTENT_UNDERSTANDING: 'intent_understanding',
   INTENT_RECOGNITION: 'intent_recognition',
+  ROUTE_REPAIR: 'route_repair',
+  ROUTE_FALLBACK: 'route_fallback',
+  MULTI_TASK_PLANNING: 'multi_task_planning',
+  IMAGE_PLANNING: 'image_planning',
   IMAGE_INSTRUCTION_MATERIALIZATION: 'image_instruction_materialization',
   FINAL_EXECUTION: 'final_execution',
   BACKGROUND_IMAGE_TAG: 'background_image_tag',
@@ -15,6 +19,14 @@ const REQUEST_PURPOSES = Object.freeze({
 const CHAT_TARGET_PATHS = new Set(['/chat/completions', '/responses']);
 const IMAGE_GENERATION_TARGET_PATHS = new Set(['/images/generations']);
 const IMAGE_EDIT_TARGET_PATHS = new Set(['/images/edits', '/openai/image_edit']);
+const SEMANTIC_CONTROL_PURPOSES = new Set([
+  REQUEST_PURPOSES.INTENT_UNDERSTANDING,
+  REQUEST_PURPOSES.ROUTE_REPAIR,
+  REQUEST_PURPOSES.ROUTE_FALLBACK,
+  REQUEST_PURPOSES.MULTI_TASK_PLANNING,
+  REQUEST_PURPOSES.IMAGE_PLANNING,
+]);
+
 const EXECUTION_TARGET_PATHS = new Set([
   ...CHAT_TARGET_PATHS,
   ...IMAGE_GENERATION_TARGET_PATHS,
@@ -77,7 +89,7 @@ function assertRequestPurpose(body = {}, expected = '') {
   if (!actual) {
     throw executionProtocolError('requestPurpose is required', 'REQUEST_PURPOSE_REQUIRED');
   }
-  if (![REQUEST_PURPOSES.INTENT_UNDERSTANDING, REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
+  if (![REQUEST_PURPOSES.INTENT_UNDERSTANDING, REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.ROUTE_REPAIR, REQUEST_PURPOSES.ROUTE_FALLBACK, REQUEST_PURPOSES.MULTI_TASK_PLANNING, REQUEST_PURPOSES.IMAGE_PLANNING, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
     throw executionProtocolError('requestPurpose is invalid', 'REQUEST_PURPOSE_INVALID');
   }
   if (expected && actual !== expected) {
@@ -285,7 +297,7 @@ function validateProxyExecutionRequest(body = {}, options = {}) {
     return Object.freeze({ requestPurpose: '', targetPath, metadataRequest: true });
   }
   const purpose = assertRequestPurpose(body);
-  if (purpose === REQUEST_PURPOSES.INTENT_UNDERSTANDING) {
+  if (SEMANTIC_CONTROL_PURPOSES.has(purpose)) {
     return assertIntentRecognitionRequest({ ...body, requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION }, { targetPath, method });
   }
   if (purpose === REQUEST_PURPOSES.INTENT_RECOGNITION) {

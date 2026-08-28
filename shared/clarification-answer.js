@@ -107,6 +107,16 @@
     return (Array.isArray(slots) ? slots : []).filter(slot => slot && typeof slot === 'object' && Array.isArray(slot.choices));
   }
 
+  // A free-text clarification slot asks for open-ended user input
+  // (e.g. the image-instruction materializer asking "what kind of cat?") and
+  // carries no choices. It is satisfied by the answer's free_text, not by a
+  // structured selection. Slots that carry text-shaped choices stay choice
+  // slots and must never be auto-filled from arbitrary free text.
+  function isFreeTextClarificationSlot(slot = {}) {
+    return stringValue(slot?.type) === 'text'
+      && (!Array.isArray(slot?.choices) || slot.choices.length === 0);
+  }
+
   function choiceForOrdinal(slot = {}, ordinal = 0) {
     const index = Number(ordinal) - 1;
     return Number.isInteger(index) && index >= 0 ? slot.choices?.[index] || null : null;
@@ -285,8 +295,22 @@
         : deepFreeze(jsonAnswer);
     }
 
-    const available = slotChoices(slots).filter(slot => slot.choices.length > 0);
-    if (!available.length) return null;
+    const allSlots = Array.isArray(slots) ? slots : [];
+    const available = slotChoices(allSlots).filter(slot => slot.choices.length > 0);
+    if (!available.length) {
+      // A clarification that only asks for open-ended text (no choices) is
+      // answered by the user's free text. Record it as the answer so the
+      // pending clarification resolves and the reroute carries answer_complete
+      // instead of an unresolved slot that would make the downstream
+      // image-instruction materializer ask the same question forever.
+      if (allSlots.some(isFreeTextClarificationSlot) && text) {
+        const parsed = createClarificationAnswer({ clarificationId: expectedId, answers: [], freeText: text });
+        return existingAnswer
+          ? mergeClarificationAnswers(existingAnswer, parsed, { clarificationId: expectedId })
+          : parsed;
+      }
+      return null;
+    }
     let selections = parseExplicitPairs(text, available);
     if (!selections?.length) selections = parseGroupedOrdinals(text, available);
     if (!selections?.length) selections = parseInlineMultiSlot(text, slots);
@@ -317,7 +341,15 @@
       selections.push({ resource_key: selected.resource_key, choice_key: selected.choice_key, slot, choice });
     }
     const selectedKeys = new Set(selections.map(item => item.resource_key));
-    const remainingSlots = normalizedSlots.filter(slot => !selectedKeys.has(stringValue(slot.key)));
+    const freeText = stringValue(answer.free_text);
+    const remainingSlots = (Array.isArray(slots) ? slots : []).filter(slot => {
+      const key = stringValue(slot?.key);
+      if (selectedKeys.has(key)) return false;
+      if (isFreeTextClarificationSlot(slot)) return !freeText;
+      // Only choice-bearing slots participate in the structured completion
+      // protocol; slots without a choices array were never counted before.
+      return Array.isArray(slot?.choices);
+    });
     const selectedParameters = {};
     const selectedResources = [];
     for (const selection of selections) {
@@ -744,13 +776,14 @@
       clarification_question: normalized.clarificationText,
       operation: stringValue(normalized.routeInfo?.operationType),
       relation: stringValue(normalized.routeInfo?.relation),
-      unresolved_resources: slots,
+      unresolved_resources: application?.remainingSlots || slots,
       pending_task: {
         base_input: normalized.originalText,
         id: normalized.id,
         supplements: [...normalized.supplements],
       },
       selected_choices: clarificationAnswerLabels(normalized),
+      free_text: stringValue(normalized.clarificationAnswer?.free_text),
       selected_parameters: application?.selectedParameters || {},
       established_resources: establishedResources,
       selected_resources: application?.selectedResources || [],

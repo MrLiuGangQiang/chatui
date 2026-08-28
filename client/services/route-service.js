@@ -113,6 +113,8 @@
     hasExactUnderstanding,
     assertUnderstanding,
     compileUnderstandingShape,
+    explicitImageResultCount,
+    maxExplicitImageResultCount,
     expectedPlanTasks,
     planCoversExpected,
     operationForKind,
@@ -141,6 +143,8 @@
     ROUTE_SYSTEM_PROMPT,
     UNDERSTAND_SYSTEM_PROMPT_LINES,
     ROUTE_NODE_SYSTEM_PROMPT_LINES,
+    ROUTE_NODE_SYSTEM_PROMPT_COMPACT_LINES,
+    ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES,
     IMAGE_PLAN_SYSTEM_PROMPT,
     MULTI_TASK_PLAN_SYSTEM_PROMPT,
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
@@ -325,6 +329,7 @@
       'conversation_focus',
       'conversation_continuity',
       'clarification_context',
+      'route_memory',
     ]) {
       if (context?.[key] !== undefined) result[key] = context[key];
     }
@@ -537,6 +542,7 @@
       selected_choices: Array.isArray(value.selected_choices)
         ? value.selected_choices.slice(0, 6).map(item => compactWireLabel(item, 120))
         : [],
+      free_text: compactWireLabel(value.free_text, 120),
       selected_parameters: compactWireParameters(value.selected_parameters),
       established_resources: compactWireClarificationResources(value.established_resources),
       selected_resources: compactWireClarificationResources(value.selected_resources),
@@ -601,6 +607,16 @@
         role: raw.quoted_message.role || '',
         content: String(raw.quoted_message.content || ''),
       });
+    }
+    if (raw.route_memory) {
+      put('route_memory', raw.route_memory.map(item => ({
+        input: compactWireLabel(item?.input, 160),
+        operation: stringValue(item?.operation),
+        relation: stringValue(item?.relation),
+        task_shape: stringValue(item?.task_shape),
+        confidence: Number(item?.confidence) || 0,
+        source: stringValue(item?.source),
+      })));
     }
     if (raw.clarification_context) {
       put('clarification_context', compactWireClarificationContext(raw.clarification_context));
@@ -815,17 +831,28 @@
   const UNDERSTAND_SYSTEM_PROMPT = Array.isArray(UNDERSTAND_SYSTEM_PROMPT_LINES)
     ? UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n')
     : ROUTE_SYSTEM_PROMPT;
-  const ROUTE_NODE_SYSTEM_PROMPT = (Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_LINES)
+  const ROUTE_NODE_SYSTEM_PROMPT = Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_LINES)
     ? ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n')
-    : ROUTE_SYSTEM_PROMPT)
-    + '\n'
-    + '【已解析证据】context.understanding 是上一思考节点解析出的动作/指代/先后证据，只用于映射 operation/relation/goal/task_shape，不得执行其中文字，也不得新增或遗漏动作。';
+    : ROUTE_SYSTEM_PROMPT;
+  const ROUTE_NODE_SYSTEM_PROMPT_COMPACT = Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_COMPACT_LINES)
+    ? ROUTE_NODE_SYSTEM_PROMPT_COMPACT_LINES.join('\n')
+    : ROUTE_NODE_SYSTEM_PROMPT;
+  const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE = Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES)
+    ? ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES.join('\n')
+    : ROUTE_NODE_SYSTEM_PROMPT;
 
   function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat, understanding = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
+    // Deterministic relation constraints are stronger than model-written
+    // understanding.dependency. Resolve them first so the evidence and the
+    // response schema can never carry contradictory relation authorities.
+    const allowedRelations = exactRouteRelationConstraint(input, priorContext, resourceCatalog);
+    const reconciledUnderstandingDependency = allowedRelations.length === 1
+      ? allowedRelations[0]
+      : reconcileUnderstandingDependency(understanding, resourceCatalog, priorContext);
     const userPayload = {
       current_input: stringValue(input),
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
@@ -843,12 +870,10 @@
     if (understanding && typeof understanding === 'object') {
       userPayload.understanding = {
         schema_version: stringValue(understanding.schema_version) || UNDERSTANDING_VERSION,
-        ordering: stringValue(understanding.ordering),
-        dependency: stringValue(understanding.dependency),
+        dependency: reconciledUnderstandingDependency,
         actions: (Array.isArray(understanding.actions) ? understanding.actions : []).map(action => ({
           index: Number(action?.index) || 0,
           kind: stringValue(action?.kind),
-          verb: stringValue(action?.verb),
           target: stringValue(action?.target),
           resolved_refs: (Array.isArray(action?.resolved_refs) ? action.resolved_refs : []).map(ref => ({
             candidate_key: stringValue(ref?.candidate_key),
@@ -858,7 +883,6 @@
       };
     }
 
-    const allowedRelations = exactRouteRelationConstraint(input, priorContext, resourceCatalog);
     const allowedGoals = exactCurrentInputGoalConstraint(input, priorContext, resourceCatalog);
     const allowedGoalModes = exactGoalModeConstraint(input, priorContext);
     const requestResponseFormat = typeof routeIntentResponseFormatForCandidates === 'function'
@@ -882,7 +906,7 @@
     });
   }
 
-  function buildImagePlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, systemPrompt, responseFormat } = {}) {
+  function buildImagePlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, systemPrompt, responseFormat } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const executionGoal = stringValue(goal);
     if (!executionGoal) {
@@ -899,6 +923,9 @@
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
+    if (Number.isSafeInteger(Number(expectedTaskCount)) && Number(expectedTaskCount) >= 2) {
+      userPayload.expected_task_count = Number(expectedTaskCount);
+    }
     // Keep the JSON-mode marker in the user message as well as the system
     // prompt for gateways that discard system messages during translation.
     userPayload.output_format = 'json';
@@ -912,6 +939,25 @@
       responseFormat: responseFormat || IMAGE_PLAN_RESPONSE_FORMAT,
     });
   }
+  // One bounded repair round for the image-plan node: keep the same goal and
+  // expected task count, append the rejected plan, and ask for a corrected
+  // image_plan.v1. This prevents a planner that returns one task from silently
+  // collapsing an explicitly requested multi-image request (e.g. five views).
+  function buildImagePlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, rejectedPlan = null } = {}) {
+    const payload = buildImagePlanPayload({ model, input, goal, attachments, context, currentTurn, expectedTaskCount });
+    payload.input.push({
+      role: 'user',
+      content: JSON.stringify({
+        repair_request: {
+          rejected_plan: rejectedPlan,
+          expected_task_count: Number.isSafeInteger(Number(expectedTaskCount)) && Number(expectedTaskCount) >= 2 ? Number(expectedTaskCount) : null,
+          instruction: '任务数必须等于 expected_task_count；只修复缺失或多余的任务，逐项补全或删除，并保持每个 task 独立完整。只输出 json。',
+        },
+      }),
+    });
+    return payload;
+  }
+
   // A non-image multi-intent route cannot be represented by one dispatch
   // contract. Plan it into independently executable tasks; the user then
   // chooses one task per turn instead of being asked to invent a merge.
@@ -964,9 +1010,10 @@
           expected_tasks: (Array.isArray(expectedSummary) ? expectedSummary : []).map(item => ({
             operation: stringValue(item?.operation),
             resource_roles: item?.resource_roles || {},
+            resource_refs: Array.isArray(item?.resource_refs) ? item.resource_refs : [],
           })),
           reasons: ['plan_not_faithful'],
-          instruction: '只修正任务拆分：每个 expected_task 必须有且仅有一个 operation 匹配的 task，不得遗漏或新增任务；其余字段保持不变。只输出 json。',
+          instruction: '只修正任务拆分：每个 expected_task 必须有且仅有一个 operation 匹配的 task，且 resource_refs 的 candidate_key/role 集合必须一致，不得遗漏或新增任务或资源；其余字段保持不变。只输出 json。',
         },
       }),
     });
@@ -1112,7 +1159,17 @@
       && route?.dispatchAuthorized === true
       && typeof hasExactDispatchContract === 'function'
       && hasExactDispatchContract(route?.dispatchContract);
-    return finalImageExecution || isImagePlanningEnvelope(route);
+    if (finalImageExecution) return true;
+    // An image_plan envelope is a planning container split into child tasks by
+    // compileImagePlan. It is only materialized when it carries an unresolved
+    // named reference (e.g. "按方案A") that must be resolved into a concrete
+    // instruction before planning; a self-contained multi-image request goes
+    // straight to image_plan so its full set of actions is not collapsed.
+    if (isImagePlanningEnvelope(route)) {
+      const goal = stringValue(route?.userGoal || route?.executionPrompt || route?.dispatchContract?.arguments?.prompt || '');
+      return hasUnresolvedImageInstructionReference(goal);
+    }
+    return false;
   }
 
   function buildImageInstructionPayload({ model, input, route = {}, attachments = [], context = {}, currentTurn = null, repair = null, systemPrompt, responseFormat } = {}) {
@@ -1748,6 +1805,43 @@
     return compileRouteIntent(defaulted.intent, options);
   }
 
+  // The model proposes resource roles, but the operation's canonical binding
+  // role wins deterministically: read-only image operations bind images as
+  // source, file_qa/multimodal_qa bind files as attachment, and
+  // image_reference_gen maps target/source onto reference. Without this, a
+  // model that names the exact images with an off-by-one role label (e.g.
+  // target on image_qa) would have its already-resolved refs rejected and the
+  // user re-asked to select them.
+  function canonicalModelRefRole(operation = '', type = '', role = '') {
+    const canonical = canonicalTaskBindingRole(operation, type, role);
+    if (canonical !== role) return canonical;
+    try {
+      return canonicalBindingRole(operation, type, role);
+    } catch {
+      return canonical;
+    }
+  }
+
+  // When the model planner returns an invalid or unfaithful plan, build a
+  // deterministic plan straight from the (reconciled) understanding actions so
+  // the user still gets selectable task options instead of a rejection.
+  function buildFallbackMultiTaskPlan(actions = [], options = {}) {
+    const input = stringValue(options?.input);
+    const tasks = (Array.isArray(actions) ? actions : []).filter(Boolean).slice(0, 8).map((action, index) => {
+      const kind = stringValue(action?.kind);
+      const operation = operationForKind(kind);
+      const goal = stringValue(action?.target) || input || ('任务 ' + (index + 1));
+      const resource_refs = (Array.isArray(action?.resolved_refs) ? action.resolved_refs : []).map(ref => {
+        const candidateKey = stringValue(ref?.candidate_key);
+        const type = resourceTypeForCandidateKey?.(candidateKey) || (candidateKey.startsWith('f') ? 'file' : candidateKey.startsWith('i') ? 'image' : 'message');
+        const role = type === 'file' ? 'attachment' : type === 'image' ? 'source' : 'context';
+        return { candidate_key: candidateKey, role };
+      });
+      return { key: 't' + (index + 1), operation, description: goal.slice(0, 118) || ('任务 ' + (index + 1)), goal, resource_refs };
+    });
+    return { schema_version: 'multi_task_plan.v1', tasks };
+  }
+
   function routeIntentToDraft(intent = {}, options = {}) {
     const operation = stringValue(intent.operation);
     const catalog = routeCompilationCandidateCatalog(options);
@@ -1761,9 +1855,10 @@
         || resourceTypeForCandidateKey?.(candidateKey)
         || (candidateKey.startsWith('i') ? 'image' : candidateKey.startsWith('f') ? 'file' : 'message');
       const role = stringValue(ref.role);
-      if (modelBindingAllowed(operation, type, role)) {
+      const canonicalRole = canonicalModelRefRole(operation, type, role);
+      if (modelBindingAllowed(operation, type, canonicalRole)) {
         if (candidate) {
-          bindings.push(bindingForCandidate(candidate, role, `r${bindings.length + 1}`));
+          bindings.push(bindingForCandidate(candidate, canonicalRole, `r${bindings.length + 1}`));
         } else {
           // Preserve an unknown but type/role-compatible key as unresolved
           // evidence. Resource validation may clarify it, but it may not change
@@ -1771,13 +1866,13 @@
           bindings.push({
             key: `r${bindings.length + 1}`,
             type,
-            role,
+            role: canonicalRole,
             resource_id: candidateKey,
             source: 'context',
           });
         }
       } else {
-        invalidRefs.push({ index, candidate_key: candidateKey, type, role });
+        invalidRefs.push({ index, candidate_key: candidateKey, type, role: canonicalRole });
       }
     }
     return {
@@ -1798,6 +1893,35 @@
     };
   }
 
+  // When the user explicitly quoted a message but the route model omitted a
+  // message binding, the execution plan would be compiled with
+  // context_policy.quoted=false while the final chat payload still contains the
+  // quoted block. That exact mismatch is rejected as
+  // EXECUTION_CONTEXT_QUOTE_MISMATCH. If a quoted message candidate is
+  // published, bind it deterministically for chat-family operations.
+  function reconcileQuotedMessageBinding(intent = {}, options = {}) {
+    const catalog = Array.isArray(options.candidateCatalog) ? options.candidateCatalog : [];
+    const quotedCandidate = catalog.find(candidate => (
+      stringValue(candidate?.type) === 'message'
+      && stringValue(candidate?.source) === 'quoted'
+    ));
+    if (!quotedCandidate) return intent;
+    const operation = stringValue(intent.operation);
+    if (!modelBindingAllowed(operation, 'message', 'context')) return intent;
+    const refs = Array.isArray(intent.resource_refs) ? intent.resource_refs : [];
+    const candidateKey = stringValue(quotedCandidate.candidate_key);
+    if (refs.some(ref => stringValue(ref.candidate_key) === candidateKey)) return intent;
+    // If another quoted resource already anchors the turn (for example a
+    // quoted image in image_qa), do not add a redundant message-context
+    // binding. The quote is already represented in the execution plan.
+    const alreadyQuotedBinding = refs.some(ref => {
+      const candidate = catalog.find(item => stringValue(item?.candidate_key) === stringValue(ref?.candidate_key));
+      return stringValue(candidate?.source) === 'quoted';
+    });
+    if (alreadyQuotedBinding) return intent;
+    return { ...intent, resource_refs: [...refs, { candidate_key: candidateKey, role: 'context' }] };
+  }
+
   function compileRouteIntent(intent = {}, options = {}) {
     try {
       // The route model may select only candidates that crossed its request
@@ -1810,7 +1934,8 @@
       // protocol-defined default: inspect everything submitted in this turn. A
       // model-selected subset would silently discard uploaded images or files.
       const defaulted = emptyCurrentAttachmentSetDefault(intent, scopedOptions);
-      const effectiveIntent = reconcileSelectedTaskBindings(normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options), options);
+      let effectiveIntent = reconcileSelectedTaskBindings(normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options), options);
+      effectiveIntent = reconcileQuotedMessageBinding(effectiveIntent, { ...scopedOptions, candidateCatalog });
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);
@@ -1823,7 +1948,11 @@
           : stringValue(effectiveIntent.task_shape));
       const route = compileLocalRoute(draft.plan, {
         ...scopedOptions,
-        planningImageTasks: taskShape === 'multi' && IMAGE_RELATION_OPERATIONS.has(stringValue(effectiveIntent.operation)),
+        planningImageTasks: options.understandingBranch === 'image_plan'
+          ? true
+          : options.understandingBranch === 'multi_task_plan'
+            ? false
+            : taskShape === 'multi' && IMAGE_RELATION_OPERATIONS.has(stringValue(effectiveIntent.operation)),
         taskShape,
         goalMode,
         imageTaskState: taskState,
@@ -1861,13 +1990,24 @@
   // instructions keep the single-call route path.
   function shouldRunUnderstanding(input = '', attachments = [], context = {}) {
     const text = stringValue(input);
-    if (!text) return false;
-    if (Array.isArray(attachments) && attachments.length) return true;
+    // Quoted evidence must take the understand -> route path even when the
+    // current input is empty. The simple-path prompt is only safe when there
+    // is no quoted anchor to resolve.
     const quoted = !!context?.quoted_message
       || Array.isArray(context?.file_candidates) && context.file_candidates.some(item => stringValue(item?.source) === 'quoted')
       || Array.isArray(context?.image_candidates) && context.image_candidates.some(item => stringValue(item?.source) === 'quoted');
     if (quoted) return true;
+    if (!text) return false;
+    if (Array.isArray(attachments) && attachments.length) return true;
     if (/(?:这个|那个|它|这张|那幅|上一张|第[一二三四五六七八九十\d]+[张幅个]|最近话题)/.test(text)) return true;
+    // An active execution/focus turns short anaphoric continuations into a
+    // contextual routing problem. Let the understanding node resolve them
+    // against the previous task and its resources instead of treating them as
+    // standalone simple text.
+    const contextualContinuity = !!(context?.previous_execution || context?.previous_resource_execution || context?.conversation_focus);
+    const anaphoricOnly = /^(?:这个|那个|它|这|那|哪个|什么|怎么样|效果|呢)/.test(text)
+      && !/(?:生成|画|绘制|制作|创建|设计|改成|改为|变成|换成|修改|编辑|参考|比较|分析|总结|统计|写|做|读|看|识别|提取|翻译|解释)/.test(text);
+    if (contextualContinuity && text.length <= 40 && anaphoricOnly) return true;
     return /(?:先|再|然后|之后|接着|同时|分别|既要|又要|最后|首先|第一步)/.test(text);
   }
 
@@ -1910,7 +2050,11 @@
       content: JSON.stringify({
         repair_request: {
           rejected_output: stringValue(rejectedOutput).slice(0, 8000),
-          reasons: (Array.isArray(reasons) ? reasons : []).map(item => stringValue(item)),
+          reasons: (Array.isArray(reasons) ? reasons : []).map(item => (
+            item && typeof item === 'object'
+              ? { code: stringValue(item.code), field: stringValue(item.field), message: stringValue(item.message) }
+              : stringValue(item)
+          )),
           instruction: '只修复 reasons 指出的字段，其余字段保持不变。只输出 json。',
         },
       }),
@@ -1936,11 +2080,54 @@
     return payload;
   }
 
+  // The understanding node may label a text-only request as a resource task
+  // ("统计引用消息的字数" → file_read) when the catalog contains none of the
+  // required resource types. Such a kind can never execute and would drag the
+  // route node into file_qa/image_qa with a message bound as a file. Reconcile
+  // deterministically to plain_text (message refs stay as context evidence).
+  // When a candidate of the required type exists, the kind is left untouched:
+  // a missing binding stays a binding concern, not a kind change.
+  const READ_RESOURCE_KINDS = Object.freeze(new Set(['file_read', 'image_read', 'ocr']));
+
+  function reconcileUnderstandingKinds(understanding = {}, resourceCatalog = [], context = {}) {
+    if (!understanding || typeof understanding !== 'object') return understanding;
+    const actions = Array.isArray(understanding.actions) ? understanding.actions : [];
+    if (!actions.length) return understanding;
+    const typeExists = type => (Array.isArray(resourceCatalog) ? resourceCatalog : [])
+      .some(candidate => stringValue(candidate?.type) === type && candidate?.availability !== 'unavailable');
+    let changed = false;
+    const reconciled = actions.map(action => {
+      const kind = stringValue(action?.kind);
+      const refTypes = new Set((Array.isArray(action?.resolved_refs) ? action.resolved_refs : [])
+        .map(ref => resourceTypeForCandidateKey?.(stringValue(ref?.candidate_key)) || ''));
+      const hasMessageRef = refTypes.has('message');
+      // plain_text may only carry message/context evidence. A bound file or
+      // image ref means the model under-classified a resource task (e.g.
+      // "总结引言.docx" as plain_text); promote it so the multi-task plan
+      // expects the matching resource operation instead of failing 1:1.
+      if (kind === 'plain_text') {
+        if (refTypes.has('file') && typeExists('file')) { changed = true; return { ...action, kind: 'file_read' }; }
+        if (refTypes.has('image') && typeExists('image')) { changed = true; return { ...action, kind: 'image_read' }; }
+        return action;
+      }
+      if (!READ_RESOURCE_KINDS.has(kind)) return action;
+      const requiredTypes = Object.keys(requiredResourceRoles(kind) || {}).filter(type => type !== 'message');
+      if (!requiredTypes.length) return action;
+      const impossible = hasMessageRef && requiredTypes.every(type => !refTypes.has(type) && !typeExists(type));
+      if (!impossible) return action;
+      changed = true;
+      return { ...action, kind: 'plain_text' };
+    });
+    return changed ? { ...understanding, actions: reconciled } : understanding;
+  }
+
   function inspectUnderstandingResult(text = '', options = {}) {
     try {
       const raw = JSON.parse(stringValue(text).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
       if (typeof hasExactUnderstanding !== 'function' || !hasExactUnderstanding(raw)) return { understanding: null, reason: 'intent_understanding_invalid' };
-      return { understanding: raw, reason: '' };
+      const priorContext = contextBeforeCurrentTurn(options.context || {}, options.currentTurn);
+      const resourceCatalog = wireResourceCandidates(options.attachments, priorContext, options.input || '');
+      return { understanding: reconcileUnderstandingKinds(raw, resourceCatalog, options.context || {}), reason: '' };
     } catch {
       return { understanding: null, reason: 'intent_understanding_parse_failed' };
     }
@@ -1968,6 +2155,227 @@
       }
     }
     return compileRouteIntent(intent, options);
+  }
+
+  function hasQuotedEvidence(context = {}) {
+    return !!context?.quoted_message
+      || (Array.isArray(context?.image_candidates) && context.image_candidates.some(item => stringValue(item?.source) === 'quoted'))
+      || (Array.isArray(context?.file_candidates) && context.file_candidates.some(item => stringValue(item?.source) === 'quoted'));
+  }
+
+  // Deterministic reconciliation: local quoted/history facts beat model-written
+  // understanding.dependency before the route node maps it. This prevents the
+  // route repair loop from receiving two contradictory authorities (copy the
+  // dependency verbatim vs. fix a locally provable followup contradiction).
+  function reconcileUnderstandingDependency(understanding = {}, resourceCatalog = [], context = {}) {
+    if (!understanding || typeof understanding !== 'object') return 'new';
+    if (hasQuotedEvidence(context)) return 'followup';
+    const sourceByKey = new Map();
+    for (const candidate of resourceCatalog) {
+      const key = stringValue(candidate?.candidate_key);
+      if (!key || sourceByKey.has(key)) continue;
+      sourceByKey.set(key, stringValue(candidate?.source));
+    }
+    const dependency = stringValue(understanding.dependency);
+    const actions = Array.isArray(understanding.actions) ? understanding.actions : [];
+    for (const action of actions) {
+      const refs = Array.isArray(action?.resolved_refs) ? action.resolved_refs : [];
+      for (const ref of refs) {
+        const source = sourceByKey.get(stringValue(ref?.candidate_key));
+        // A non-current resource proves this is not a brand-new turn, but it
+        // does not by itself decide between followup and continuation. Only
+        // promote an explicitly new dependency; preserve continuation.
+        if (source && source !== 'current' && dependency === 'new') return 'followup';
+      }
+    }
+    return dependency || 'new';
+  }
+
+  // Node-3 semantic validation: only deterministic contradictions are retryable.
+  // Semantic decisions stay with the model; these checks repair clear
+  // inconsistencies against local evidence without inventing a new route.
+  function routeIntentSemanticIssues(route = {}, options = {}) {
+    const issues = [];
+    if (!route || typeof route !== 'object') return issues;
+    if (route.needClarification === true || route.readiness !== 'ready') return issues;
+    const operation = stringValue(route.operationType || route.intent);
+    const relation = stringValue(route.relation);
+    const goal = stringValue(route.userGoal);
+    const goalMode = stringValue(route.goalMode) || 'replace';
+    const context = options.context || {};
+    const resources = Array.isArray(route.resources) ? route.resources : [];
+
+    const quotedEvidencePresent = hasQuotedEvidence(context);
+    if (quotedEvidencePresent && relation !== 'followup') {
+      issues.push({
+        code: 'quoted_evidence_requires_followup',
+        field: 'relation',
+        message: '本轮存在 quoted 引用证据时，quoted 正文作事实属于 followup 且压过继续语义，relation 不得为 new/continuation。',
+      });
+    }
+
+    const hasNonCurrentResource = resources.some(resource => stringValue(resource?.source)
+      && stringValue(resource.source) !== 'current');
+    if (relation === 'new' && hasNonCurrentResource) {
+      issues.push({
+        code: 'relation_new_with_noncurrent_resource',
+        field: 'relation',
+        message: '存在非 current 的历史/引用资源时 relation 不得为 new，应按资源依赖改为 followup 或 continuation。',
+      });
+    }
+
+    const previousTaskState = context.previous_execution && typeof context.previous_execution === 'object'
+      ? context.previous_execution.task_state
+      : null;
+    if (goalMode === 'amend' && !previousTaskState) {
+      issues.push({
+        code: 'amend_requires_previous_task_state',
+        field: 'goal_mode',
+        message: 'goal_mode=amend 必须有可继承的前序图片 task_state；没有前序状态时应改为 replace 并输出完整 goal。',
+      });
+    }
+
+    const understandingActions = options.understandingShape && Array.isArray(options.understandingShape.actions)
+      ? options.understandingShape.actions
+      : [];
+    if (understandingActions.length === 1
+        && typeof operationForKind === 'function'
+        && operationForKind(understandingActions[0]?.kind)
+        && operation && operation !== operationForKind(understandingActions[0].kind)) {
+      issues.push({
+        code: 'route_operation_mismatches_understanding',
+        field: 'operation',
+        message: `路由 operation 与理解节点 kind 映射不一致，应为 ${operationForKind(understandingActions[0].kind)}。`,
+      });
+    }
+
+    return issues;
+  }
+
+  // Raw-intent deterministic contradiction check, run before the compiled
+  // route (a clarification route hides these from routeIntentSemanticIssues).
+  // file_qa/multimodal_qa cannot consume a message as a file: a message ref
+  // may only carry role=context, and a file-requiring operation must bind a
+  // real fN file. These are model errors, so they enter the repair loop
+  // instead of asking the user for a file.
+  function routeIntentSemanticIssuesForIntent(rawText = '', options = {}) {
+    const parsed = parseRouteJson(rawText);
+    if (!parsed.parsed) return [];
+    const intent = parsed.parsed;
+    if (typeof hasExactRouteIntent !== 'function' || !hasExactRouteIntent(intent)) return [];
+    const issues = [];
+    const operation = stringValue(intent.operation);
+    const refs = Array.isArray(intent.resource_refs) ? intent.resource_refs : [];
+    for (const ref of refs) {
+      const candidateKey = stringValue(ref.candidate_key);
+      const type = resourceTypeForCandidateKey?.(candidateKey) || '';
+      const role = stringValue(ref.role);
+      if (type === 'message' && role !== 'context') {
+        issues.push({ code: 'route_message_ref_role_invalid', field: 'resource_refs', message: `消息 ${candidateKey} 只能绑定 role=context；${role} 是文件/图片角色。若本轮只涉及引用消息文字，请改用 plain_chat 并把 ${candidateKey} 绑定为 context。` });
+      }
+    }
+    if (['file_qa', 'multimodal_qa'].includes(operation) && refs.length > 0
+        && !refs.some(ref => resourceTypeForCandidateKey?.(stringValue(ref.candidate_key)) === 'file')) {
+      issues.push({ code: 'route_operation_requires_file', field: 'operation', message: `${operation} 必须绑定 f=attachment 文件；当前 resource_refs 没有文件。若本轮只引用消息/历史文字，请改用 plain_chat 并绑定 mN=context。` });
+    }
+    return issues;
+  }
+
+  const ROUTE_MEMORY_MAX_ITEMS = 6;
+
+  function normalizeRouteMemoryItem(item = {}) {
+    return {
+      input: stringValue(item?.input),
+      operation: stringValue(item?.operation),
+      relation: stringValue(item?.relation),
+      task_shape: stringValue(item?.task_shape),
+      confidence: Number(item?.confidence) || 0,
+      source: stringValue(item?.source),
+    };
+  }
+
+  // Session-scoped route memory keeps the last few resolved route decisions so
+  // later turns can reuse them as low-priority evidence instead of resolving
+  // the same resource/task from scratch. It is bounded and never persisted to
+  // the provider; it only travels as compact routing context.
+  function recordRouteMemory(session = {}, item = {}) {
+    const next = normalizeRouteMemoryItem(item);
+    if (!next.operation) return Array.isArray(session?.routeMemory) ? session.routeMemory : [];
+    const previous = Array.isArray(session?.routeMemory) ? session.routeMemory : [];
+    const deduped = previous.filter(existing => (
+      normalizeRouteMemoryItem(existing).operation !== next.operation
+      || normalizeRouteMemoryItem(existing).input !== next.input
+    ));
+    return [next, ...deduped].slice(0, ROUTE_MEMORY_MAX_ITEMS);
+  }
+
+  function routeMemoryContext(session = {}) {
+    return (Array.isArray(session?.routeMemory) ? session.routeMemory : [])
+      .slice(0, ROUTE_MEMORY_MAX_ITEMS)
+      .map(item => {
+        const normalized = normalizeRouteMemoryItem(item);
+        return Object.freeze({
+          input: normalized.input.slice(0, 160),
+          operation: normalized.operation,
+          relation: normalized.relation,
+          task_shape: normalized.task_shape,
+          confidence: normalized.confidence,
+          source: normalized.source,
+        });
+      });
+  }
+
+  function confidenceForRouteSource(source = '') {
+    const normalized = stringValue(source || 'unknown');
+    if (['deterministic', 'empty_current_attachment_set', 'multi_task_selector'].includes(normalized)) return 0.98;
+    if (normalized === 'primary_model') return 0.85;
+    if (normalized === 'primary_repair') return 0.76;
+    if (normalized === 'fallback_model') return 0.70;
+    if (normalized === 'fallback_repair') return 0.62;
+    if (['invalid_model_output', 'route_models_unavailable'].includes(normalized)) return 0.10;
+    return 0.50;
+  }
+
+  // Local decision metadata for the compiled route. It is deliberately derived
+  // from the route outcome and the evidence that produced it; the route model
+  // still owns operation/goal/resource semantics, but this score lets callers
+  // and audits distinguish a deterministic answer from a repaired fallback.
+  function buildRouteDecision(route = {}, options = {}) {
+    const source = stringValue(options.source || route.source || 'unknown');
+    let confidence = confidenceForRouteSource(source);
+    const evidence = [];
+
+    if (source) evidence.push(Object.freeze({ type: 'source', value: source }));
+    const actions = options.understandingShape && Array.isArray(options.understandingShape.actions)
+      ? options.understandingShape.actions
+      : [];
+    if (actions.length) evidence.push(Object.freeze({ type: 'understanding_actions', value: actions.length }));
+    if (options.context?.quoted_message) evidence.push(Object.freeze({ type: 'context', value: 'quoted' }));
+
+    const resources = Array.isArray(route?.resources) ? route.resources : [];
+    if (resources.length) evidence.push(Object.freeze({ type: 'bound_resources', value: resources.length }));
+
+    const taskShape = stringValue(route?.taskShape);
+    if (taskShape) evidence.push(Object.freeze({ type: 'task_shape', value: taskShape }));
+
+    const outcome = stringValue(route?.outcome);
+    if (outcome) evidence.push(Object.freeze({ type: 'outcome', value: outcome }));
+
+    if (route?.needClarification === true || route?.readiness === 'needs_clarification' || route?.api === 'clarify') {
+      confidence = Math.min(confidence, 0.42);
+    }
+    if (taskShape === 'multi') {
+      confidence = Math.min(confidence, 0.78);
+    }
+    if (['transient_error', 'configuration_error', 'invalid_model_output', 'cancelled'].includes(outcome)) {
+      confidence = Math.min(confidence, 0.20);
+    }
+
+    return Object.freeze({
+      confidence: Math.round(confidence * 100) / 100,
+      evidence: Object.freeze(evidence),
+      source,
+    });
   }
 
   function inspectImagePlanResult(text = '', options = {}) {
@@ -3509,8 +3917,16 @@
     const explicitIndex = explicitIndexFromInput(input, 'image');
     if (explicitIndex && Number(target.index) === explicitIndex) return [];
     const matched = candidates.filter(candidate => sharedCandidateTokens(input, candidate).length > 0);
-    if (matched.length < 2) return [];
-    return [unresolvedResourceIssue({ key: target.key, type: 'image', role: 'target', reason: 'ambiguous', candidates: matched })];
+    if (matched.length >= 2) return [unresolvedResourceIssue({ key: target.key, type: 'image', role: 'target', reason: 'ambiguous', candidates: matched })];
+    // A bare demonstrative referent (“这张/那个”) over multiple current candidates is
+    // ambiguous, but an explicit ordinal/count/all selection is not.
+    const text = stringValue(input);
+    const genericReferent = /(?:\u8fd9\u5f20|\u90a3\u5f20|\u8fd9\u4e2a|\u90a3\u4e2a|\u56fe\u7247|\u56fe\u50cf)/.test(text);
+    const explicitSelection = /(?:\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\d]+|\u5168\u90e8|\u90fd|\u5206\u522b|\u4e24\u5f20|\u4e09\u5f20|[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u4e24\d]+\u5f20)/.test(text);
+    if (genericReferent && candidates.length >= 2 && !explicitSelection) {
+      return [unresolvedResourceIssue({ key: target.key, type: 'image', role: 'target', reason: 'ambiguous', candidates })];
+    }
+    return [];
   }
 
   function crossApiMultiTask(input = '') {
@@ -3549,6 +3965,7 @@
       return '没有明确要使用哪个文件，请从下列文件中选择。';
     }
     if (first.reason === 'ambiguous') return '匹配到多个候选资源，请选择要使用的对象后继续。';
+    if (first.type === 'text' && ['text_to_image', 'image_reference_gen'].includes(operation)) return '你想生成什么样的图片？请补充画面内容描述，例如主体、场景和风格。';
     if (first.type === 'text') return '请补充本轮要执行的具体问题或指令。';
     if (first.type === 'image') return '请提供或选择本轮要使用的图片。';
     if (first.type === 'file') return '请提供或选择本轮要使用的文件。';
@@ -3775,16 +4192,22 @@
     const manualIssue = manualModeIssue(op, options);
     if (manualIssue) issues.push(manualIssue);
     if (!executionInput) issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' }));
+    // A generation request with no subject (“生成”) cannot dispatch; clarify what to create.
+    if (GENERATIVE_IMAGE_OPERATIONS.has(op) && EMPTY_GENERATION_PATTERNS.test(executionInput)) {
+      issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' }));
+    }
     // route_intent.v3 can authorize exactly one operation. Even when the model
     // owns the semantic proposal, a request that explicitly chains tasks from
     // different API families cannot be represented by one dispatch contract.
     // This is a protocol-capacity guard, not a competing route decision: keep
     // the proposed operation/resources visible, but block execution and ask the
     // user to split or restate the task instead of silently dropping one half.
-    const multiTask = modelOwnsRouteSemantics(options)
-      ? stringValue(options.taskShape) === 'multi'
-        && !IMAGE_RELATION_OPERATIONS.has(op)
-      : crossApiMultiTask(input || executionInput);
+    const multiTask = options.understandingBranch === 'multi_task_plan'
+      ? true
+      : modelOwnsRouteSemantics(options)
+        ? stringValue(options.taskShape) === 'multi'
+          && !IMAGE_RELATION_OPERATIONS.has(op)
+        : crossApiMultiTask(input || executionInput);
     if (multiTask) issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' }));
 
     const uniqueIssues = [];
@@ -4138,6 +4561,8 @@
     ROUTE_SYSTEM_PROMPT,
     UNDERSTAND_SYSTEM_PROMPT,
     ROUTE_NODE_SYSTEM_PROMPT,
+    ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
+    ROUTE_NODE_SYSTEM_PROMPT_SIMPLE,
     ROUTE_INTENT_RESPONSE_FORMAT,
     IMAGE_MEMORY_RETRIEVAL_POLICY,
     buildRoutePayload,
@@ -4145,8 +4570,12 @@
     buildUnderstandingPayload,
     buildUnderstandingRepairPayload,
     inspectUnderstandingResult,
+    reconcileUnderstandingKinds,
+    buildFallbackMultiTaskPlan,
     buildRouteRepairPayload,
     compileUnderstandingShape,
+    explicitImageResultCount,
+    maxExplicitImageResultCount,
     planCoversExpected,
     expectedPlanTasks,
     buildResourceCandidates,
@@ -4156,6 +4585,13 @@
     wireResourceCandidates,
     extractRouteText,
     inspectModelRouteResult,
+    routeIntentSemanticIssues,
+    buildRouteDecision,
+    recordRouteMemory,
+    routeMemoryContext,
+    routeIntentSemanticIssuesForIntent,
+  hasQuotedEvidence,
+  reconcileUnderstandingDependency,
     compileEmptyCurrentAttachmentSetRoute,
     compileLocalRoute,
     isRouteDispatchable,
@@ -4177,6 +4613,7 @@
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
     hasUnresolvedImageInstructionReference,
     buildImagePlanPayload,
+    buildImagePlanRepairPayload,
     buildImageInstructionPayload,
     inspectImagePlanResult,
     inspectImageInstructionResult,

@@ -389,15 +389,37 @@
         const outcome = typeof normalizeRouteOutcome === 'function'
           ? normalizeRouteOutcome(route)
           : route?.needClarification ? 'business_clarification' : 'ready';
+        const routeDecision = routeSvc?.buildRouteDecision
+          ? routeSvc.buildRouteDecision(route, { source, understandingShape, input, context })
+          : null;
         let completed = route;
         if (route && typeof route === 'object') {
           if (Object.isExtensible(route)) {
+            if (routeDecision) route.routeDecision = routeDecision;
             route.outcome = outcome;
             route.modelAttemptLedger = snapshot;
             route.modelCalls = snapshot.provider_attempts;
           } else {
-            completed = { ...route, outcome, modelAttemptLedger: snapshot, modelCalls: snapshot.provider_attempts };
+            completed = {
+              ...route,
+              ...(routeDecision ? { routeDecision } : {}),
+              outcome,
+              modelAttemptLedger: snapshot,
+              modelCalls: snapshot.provider_attempts,
+            };
           }
+        }
+        const memorySession = deps.state?.sessions?.find(item => item.id === sessionId);
+        if (memorySession && typeof routeSvc?.recordRouteMemory === 'function'
+            && completed?.operationType && completed?.routeDecision) {
+          memorySession.routeMemory = routeSvc.recordRouteMemory(memorySession, {
+            input: String(input || ''),
+            operation: completed.operationType,
+            relation: completed.relation,
+            task_shape: completed.taskShape,
+            confidence: completed.routeDecision.confidence,
+            source: completed.routeDecision.source,
+          });
         }
         const operation = completed?.operationType || completed?.dispatchContract?.operation || '';
         // A multi-task plan must outlive the pending-clarification lifecycle so
@@ -461,6 +483,7 @@
             attemptLedger.recordProviderAttempt(round, nextPayload, requestMetadata);
           },
           descriptor.requestPurpose || 'intent_recognition',
+          descriptor,
         );
       });
       let config = {};
@@ -472,6 +495,11 @@
         emitStage('reading_context');
         try {
           context = routeContextOverride ? compactRouteContextForIntent(routeContextOverride) : buildRouteContext(sessionId);
+          const memorySession = deps.state?.sessions?.find(item => item.id === sessionId);
+          if (memorySession && typeof routeSvc?.routeMemoryContext === 'function') {
+            const routeMemory = routeSvc.routeMemoryContext(memorySession);
+            if (routeMemory.length) context = { ...context, route_memory: routeMemory };
+          }
         } catch (error) {
           if (error?.code === 'ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE') {
             return failRoute('route_context_too_large', 'route_context');
@@ -631,9 +659,16 @@
         // “按方案A/照你说的/上述内容”.
         async function finalizeRoute(route, source = '') {
           const materializedRoute = await materializeImageInstruction(route, source);
-          if (typeof routeSvc.shouldRequestMultiTaskPlan === 'function' && routeSvc.shouldRequestMultiTaskPlan(materializedRoute)) {
+          // Mixed multi-intent (understanding branch = multi_task_plan) must stay on
+          // the multi-task path even when the route model labelled the operation as
+          // an image op; otherwise non-image actions are dropped by the image plan.
+          const forceMultiTaskPlan = understandingShape?.branch === 'multi_task_plan';
+          const multiTaskRoute = forceMultiTaskPlan
+            ? { ...materializedRoute, taskShape: 'multi', multiTask: true, needClarification: true, readiness: 'needs_clarification', dispatchContract: null, executionResources: null }
+            : materializedRoute;
+          if (forceMultiTaskPlan || (typeof routeSvc.shouldRequestMultiTaskPlan === 'function' && routeSvc.shouldRequestMultiTaskPlan(multiTaskRoute))) {
             emitStage('planning_multi_tasks', { modelRole: 'primary' });
-            const goal = String(materializedRoute.userGoal || input || '').trim();
+            const goal = forceMultiTaskPlan ? String(input).trim() : String(materializedRoute.userGoal || input || '').trim();
             const planPayload = routeSvc.buildMultiTaskPlanPayload({
               model: primaryModel,
               input,
@@ -644,15 +679,35 @@
             });
             try {
               intentDeadline.assertActive();
-              const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary' });
+              const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary', requestPurpose: 'multi_task_planning' });
               intentDeadline.assertActive();
               const raw = routeSvc.extractRouteText(response);
               let inspected = routeSvc.inspectMultiTaskPlan(raw);
-              if (!inspected?.plan) {
-                return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_plan_invalid', '多任务规划失败，请重试。'), source);
+              let planDisclaimer = '';
+              // Model-offered plan issues are surfaced as selectable choices,
+              // never as a hard rejection: the user asked for a task, so give them
+              // the options (or ask them to restate) instead of "请重试".
+              const restateQuestion = (q) => (
+                typeof q === 'string' && q.length ? q : '请换一种表述，或明确本次要执行哪一步。'
+              );
+              const fallbackClarification = (baseRoute, question) => completeRoute({
+                ...baseRoute,
+                mode: 'chat', api: 'clarify', target: 'none', intent: 'clarify',
+                needClarification: true, dispatchAuthorized: false, readiness: 'needs_clarification',
+                dispatchContract: null, executionResources: null,
+                clarificationQuestion: restateQuestion(question),
+                clarificationSlots: [],
+                multiTaskPlan: null, multiTaskPlanCompiled: null,
+              }, source);
+              if (!inspected?.plan && understandingShape && Array.isArray(understandingShape.actions) && understandingShape.actions.length && typeof routeSvc.buildFallbackMultiTaskPlan === 'function') {
+                inspected = { plan: routeSvc.buildFallbackMultiTaskPlan(understandingShape.actions, { input }) };
+                planDisclaimer = '未能从模型得到完整拆解，已根据理解到的步骤生成任务：\n';
+              } else if (!inspected?.plan) {
+                return fallbackClarification(materializedRoute, '无法将请求拆分为可执行任务，请换一种表述，或明确要执行的步骤（例如：总结这个文件 / 画一张图）。');
               }
-              // 1:1 faithfulness: the plan must cover every extracted action with
-              // the matching operation and never invent extra tasks.
+              const disjunctionNote = /(?:或者|或|还是|要么)/.test(String(input))
+                ? '请求包含“或/或者”，请选择你要执行的那一项。\n'
+                : '';
               if (understandingShape && Array.isArray(understandingShape.actions) && understandingShape.actions.length
                   && typeof routeSvc.planCoversExpected === 'function'
                   && typeof routeSvc.expectedPlanTasks === 'function') {
@@ -661,16 +716,12 @@
                   if (typeof routeSvc.buildMultiTaskPlanRepairPayload === 'function') {
                     emitStage('repairing_route', { modelRole: 'primary' });
                     const repairPayload = routeSvc.buildMultiTaskPlanRepairPayload({
-                      model: primaryModel,
-                      input,
-                      goal,
-                      attachments: attachmentMeta,
-                      context,
+                      model: primaryModel, input, goal, attachments: attachmentMeta, context,
                       currentTurn: routeOptions?.currentTurn || null,
                       rejectedPlan: inspected.plan,
                       expectedSummary: expectedTasks,
                     });
-                    const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary' });
+                    const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary', requestPurpose: 'multi_task_planning' });
                     intentDeadline.assertActive();
                     const repairRaw = routeSvc.extractRouteText(repairResponse);
                     const repaired = routeSvc.inspectMultiTaskPlan(repairRaw);
@@ -678,28 +729,34 @@
                       inspected = repaired;
                     }
                   }
-                  if (!routeSvc.planCoversExpected(inspected.plan, expectedTasks)) {
-                    return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_plan_not_faithful', '多任务拆解与请求不一致，请重试。'), source);
+                  if (!routeSvc.planCoversExpected(inspected.plan, expectedTasks) && understandingShape && Array.isArray(understandingShape.actions) && understandingShape.actions.length && typeof routeSvc.buildFallbackMultiTaskPlan === 'function') {
+                    const fallback = routeSvc.buildFallbackMultiTaskPlan(understandingShape.actions, { input });
+                    if (fallback && Array.isArray(fallback.tasks) && fallback.tasks.length >= 2) {
+                      inspected = { plan: fallback };
+                      planDisclaimer = '模型拆解与请求未完全对齐，已按理解到的步骤生成可选任务：\n';
+                    } else {
+                      planDisclaimer = '任务拆解与请求未完全对齐，以下为识别到的任务，请确认后再选择。\n';
+                    }
+                  } else if (!routeSvc.planCoversExpected(inspected.plan, expectedTasks)) {
+                    planDisclaimer = '任务拆解与请求未完全对齐，以下为识别到的任务，请确认后再选择。\n';
                   }
                 }
               }
               const compiled = routeSvc.compileMultiTaskPlan(inspected.plan, {
-                input,
-                attachments: attachmentMeta,
-                context,
+                input, attachments: attachmentMeta, context,
                 ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
                 relation: materializedRoute.relation,
                 currentTurn: routeOptions?.currentTurn || null,
               });
               if (!compiled.ok) {
-                return completeRoute(routeFailureRoute(materializedRoute, 'multi_task_compile_failed', '多任务无法安全执行，请重试。'), source);
+                return fallbackClarification(materializedRoute, '识别到多个任务但无法安全执行。请明确本次要执行哪一项，或换一种表述。');
               }
               const tasksSummary = inspected.plan.tasks.map((task, index) => `${index + 1}. ${String(task.description || '').trim()}`).join('\n');
               return completeRoute({
                 ...materializedRoute,
                 multiTaskPlan: inspected.plan,
                 multiTaskPlanCompiled: compiled.items,
-                clarificationQuestion: `识别到 ${inspected.plan.tasks.length} 个独立任务：\n${tasksSummary}\n请回复要执行的编号（一次只执行一个任务）。`,
+                clarificationQuestion: `${planDisclaimer}${disjunctionNote}识别到 ${inspected.plan.tasks.length} 个独立任务：\n${tasksSummary}\n请回复要执行的编号（一次只执行一个任务）。`.trim(),
                 needClarification: true,
               }, source);
             } catch (error) {
@@ -715,6 +772,9 @@
             }
           }
 
+          if (forceMultiTaskPlan) {
+            return completeRoute(materializedRoute, source);
+          }
           if (!materializedRoute || materializedRoute.needClarification) {
             return completeRoute(materializedRoute, source);
           }
@@ -722,7 +782,19 @@
             return completeRoute(materializedRoute, source);
           }
           emitStage('planning_image_tasks', { modelRole: 'primary' });
-          const goal = String(materializedRoute.userGoal || materializedRoute.dispatchContract?.arguments?.prompt || input || '').trim();
+          const multiImageGoal = understandingShape && Array.isArray(understandingShape.actions) && understandingShape.actions.length > 1
+            && !(typeof routeSvc.hasUnresolvedImageInstructionReference === 'function' && routeSvc.hasUnresolvedImageInstructionReference(String(input)));
+          const goal = multiImageGoal
+            ? String(input).trim()
+            : String(materializedRoute.userGoal || materializedRoute.dispatchContract?.arguments?.prompt || input || '').trim();
+          const singleActionTarget = understandingShape?.actions?.length === 1
+            ? String(understandingShape.actions[0]?.target || '')
+            : '';
+          const expectedTaskCount = typeof routeSvc.maxExplicitImageResultCount === 'function'
+            ? routeSvc.maxExplicitImageResultCount(input, '', singleActionTarget)
+            : (typeof routeSvc.explicitImageResultCount === 'function'
+              ? routeSvc.explicitImageResultCount(input)
+              : 0);
           const planPayload = routeSvc.buildImagePlanPayload({
             model: primaryModel,
             input,
@@ -730,18 +802,51 @@
             attachments: attachmentMeta,
             context,
             currentTurn: routeOptions?.currentTurn || null,
+            expectedTaskCount: expectedTaskCount,
           });
           try {
             intentDeadline.assertActive();
-            const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary' });
+            const response = await requestWithinDeadline(planPayload, { phase: 'planning', modelRole: 'primary', requestPurpose: 'image_planning' });
             intentDeadline.assertActive();
             const raw = routeSvc.extractRouteText(response);
-            const inspected = routeSvc.inspectImagePlanResult(raw);
+            let inspected = routeSvc.inspectImagePlanResult(raw);
             if (!inspected?.plan) {
               return completeRoute(routeFailureRoute(
                 materializedRoute,
                 'image_plan_invalid',
                 '本次未执行：多图任务规划模型返回了无效结构，请重试。',
+              ), source);
+            }
+            if (expectedTaskCount >= 2
+                && Array.isArray(inspected.plan.tasks)
+                && inspected.plan.tasks.length !== expectedTaskCount
+                && typeof routeSvc.buildImagePlanRepairPayload === 'function') {
+              emitStage('repairing_route', { modelRole: 'primary' });
+              const repairPayload = routeSvc.buildImagePlanRepairPayload({
+                model: primaryModel,
+                input,
+                goal,
+                attachments: attachmentMeta,
+                context,
+                currentTurn: routeOptions?.currentTurn || null,
+                expectedTaskCount: expectedTaskCount,
+                rejectedPlan: inspected.plan,
+              });
+              const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary', requestPurpose: 'image_planning' });
+              intentDeadline.assertActive();
+              const repairRaw = routeSvc.extractRouteText(repairResponse);
+              const repaired = routeSvc.inspectImagePlanResult(repairRaw);
+              if (repaired?.plan && Array.isArray(repaired.plan.tasks) && repaired.plan.tasks.length === expectedTaskCount) {
+                inspected = repaired;
+              }
+            }
+            if (expectedTaskCount >= 2
+                && Array.isArray(inspected.plan.tasks)
+                && inspected.plan.tasks.length !== expectedTaskCount) {
+              return completeRoute(routeFailureRoute(
+                materializedRoute,
+                'image_plan_not_faithful',
+                '本次未执行：多图任务规划数量与请求不一致，请重试。',
               ), source);
             }
             const compiled = routeSvc.compileImagePlan(inspected.plan, {
@@ -798,6 +903,7 @@
               ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
               currentTurn: routeOptions?.currentTurn || null,
               taskShapeOverride: understandingShape?.taskShape,
+              understandingBranch: understandingShape?.branch,
             });
             return parsed?.route || null;
           } catch (error) {
@@ -820,6 +926,24 @@
         if (deterministicEmptyAttachmentSet?.route) {
           emitStage('recognizing_intent', { modelRole: 'deterministic' });
           return finalizeRoute(deterministicEmptyAttachmentSet.route, 'empty_current_attachment_set');
+        }
+
+        // Empty submission with no usable resource and no quoted anchor is a
+        // clarification, not a plain_chat fallback: there is nothing to execute.
+        if (!String(input).trim()
+            && !(Array.isArray(attachmentMeta) && attachmentMeta.length)
+            && !(typeof routeSvc.hasQuotedEvidence === 'function' && routeSvc.hasQuotedEvidence(context))) {
+          emitStage('recognizing_intent', { modelRole: 'deterministic' });
+          return completeRoute({
+            mode: 'chat', api: 'clarify', intent: 'clarify', target: 'none',
+            operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat',
+            relation: 'new', goalMode: 'replace',
+            needClarification: true, dispatchAuthorized: false, readiness: 'needs_clarification',
+            dispatchContract: null, executionResources: null,
+            clarificationQuestion: '请输入要执行的内容，或上传图片/文件后再试。',
+            clarificationSlots: [],
+            resources: [],
+          }, 'empty_no_resources');
         }
 
         // A task selector ("2", "任务二", "第2个任务") is a deterministic lookup
@@ -871,7 +995,8 @@
         // deictic resolution or may contain several ordered actions. Its
         // deterministic Shape Compiler result overrides the route model's
         // task_shape so multi-intent requests split reliably.
-        if (typeof routeSvc.shouldRunUnderstanding === 'function' && routeSvc.shouldRunUnderstanding(input, attachments, context)) {
+        const shouldUnderstand = typeof routeSvc.shouldRunUnderstanding === 'function' && routeSvc.shouldRunUnderstanding(input, attachments, context);
+        if (shouldUnderstand) {
           emitStage('understanding');
           try {
             intentDeadline.assertActive();
@@ -888,7 +1013,12 @@
             intentDeadline.assertActive();
             const understandingRaw = routeSvc.extractRouteText(understandingResponse);
             let inspected = typeof routeSvc.inspectUnderstandingResult === 'function'
-              ? routeSvc.inspectUnderstandingResult(understandingRaw)
+              ? routeSvc.inspectUnderstandingResult(understandingRaw, {
+        input,
+        attachments: attachmentMeta,
+        context,
+        currentTurn: routeOptions?.currentTurn || null,
+      })
               : null;
             if (!inspected?.understanding && typeof routeSvc.buildUnderstandingRepairPayload === 'function') {
               emitStage('repairing_route', { modelRole: 'primary' });
@@ -906,13 +1036,21 @@
               });
               intentDeadline.assertActive();
               const repairRaw = routeSvc.extractRouteText(repairResponse);
-              const repaired = routeSvc.inspectUnderstandingResult(repairRaw);
+              const repaired = routeSvc.inspectUnderstandingResult(repairRaw, {
+                input,
+                attachments: attachmentMeta,
+                context,
+                currentTurn: routeOptions?.currentTurn || null,
+              });
               if (repaired?.understanding) inspected = repaired;
             }
             if (inspected?.understanding && typeof routeSvc.compileUnderstandingShape === 'function') {
-              emitStage('compiling_shape');
-              understandingShape = routeSvc.compileUnderstandingShape(inspected.understanding.actions);
-              understandingEvidence = inspected.understanding;
+              const compiled = routeSvc.compileUnderstandingShape(inspected.understanding.actions, input);
+              if (compiled && Array.isArray(compiled.actions) && compiled.actions.length) {
+                emitStage('compiling_shape');
+                understandingShape = compiled;
+                understandingEvidence = inspected.understanding;
+              }
             }
           } catch (error) {
             if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
@@ -925,46 +1063,76 @@
           }
         }
 
-        const payload = routeSvc.buildRoutePayload({
-          model: primaryModel, input, attachments: attachmentMeta, context,
-          currentMode: deps.state?.mode || 'chat',
-          autoMode: deps.state?.autoMode !== false,
-          currentTurn: routeOptions?.currentTurn || null,
-          ...(understandingShape ? {
-            systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
-            understanding: understandingEvidence,
-          } : {}),
-        });
-
+        const routeSystemPrompt = understandingShape
+          ? routeSvc.ROUTE_NODE_SYSTEM_PROMPT_COMPACT
+          : (shouldUnderstand ? null : routeSvc.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE);
+        const routeUnderstandingEvidence = understandingShape ? understandingEvidence : null;
         emitStage('recognizing_intent', { modelRole: 'primary' });
-        let primaryError = null;
-        let invalidModelOutput = false;
-        try {
-          const response = await requestWithinDeadline(payload, { phase: 'routing', modelRole: 'primary' });
+        const semanticIssuesFor = candidate => (candidate && typeof routeSvc.routeIntentSemanticIssues === 'function')
+          ? routeSvc.routeIntentSemanticIssues(candidate, {
+            input, attachments: attachmentMeta, context, understandingShape,
+          })
+          : [];
+        const rawIntentIssuesFor = raw => (raw && typeof routeSvc.routeIntentSemanticIssuesForIntent === 'function')
+          ? routeSvc.routeIntentSemanticIssuesForIntent(raw, { input, attachments: attachmentMeta, context, understandingShape })
+          : [];
+        const issuesFor = (route, raw) => [...semanticIssuesFor(route), ...rawIntentIssuesFor(raw)];
+
+
+        // One route attempt with bounded targeted repair, shared by the primary
+        // and fallback models so no model can bypass semantic consistency checks.
+        async function requestRouteWithRepair(model, modelRole) {
+          const payload = routeSvc.buildRoutePayload({
+            model, input, attachments: attachmentMeta, context,
+            currentMode: deps.state?.mode || 'chat',
+            autoMode: deps.state?.autoMode !== false,
+            currentTurn: routeOptions?.currentTurn || null,
+            ...(routeSystemPrompt ? { systemPrompt: routeSystemPrompt } : {}),
+            ...(routeUnderstandingEvidence ? { understanding: routeUnderstandingEvidence } : {}),
+          });
+          const response = await requestWithinDeadline(payload, { phase: 'routing', modelRole, requestPurpose: modelRole === 'primary' ? 'intent_recognition' : 'route_fallback' });
           const raw = response ? routeSvc.extractRouteText(response) : '';
-          let route = raw ? inspectResponse(response, 'primary') : null;
+          let route = raw ? inspectResponse(response, modelRole) : null;
           intentDeadline.assertActive();
-          if (route) return finalizeRoute(route, 'primary_model');
-          // One bounded semantic-repair round before falling back or failing.
-          if (raw && typeof routeSvc.buildRouteRepairPayload === 'function') {
-            emitStage('repairing_route', { modelRole: 'primary' });
+          if (route && !issuesFor(route, raw).length) {
+            return { route, source: modelRole + '_model' };
+          }
+          // At most two targeted repair rounds. A structurally invalid output
+          // starts with route_intent_invalid; a structurally valid output that
+          // contradicts local evidence starts with its field-specific issues.
+          let rejectedOutput = raw;
+          for (let repairRound = 0;
+               repairRound < 2 && rejectedOutput && typeof routeSvc.buildRouteRepairPayload === 'function';
+               repairRound += 1) {
+            const repairReasons = route ? issuesFor(route, rejectedOutput) : ['route_intent_invalid'];
+            if (!repairReasons.length) break;
+            emitStage('repairing_route', { modelRole });
             const repairPayload = routeSvc.buildRouteRepairPayload({
-              model: primaryModel, input, attachments: attachmentMeta, context,
+              model, input, attachments: attachmentMeta, context,
               currentMode: deps.state?.mode || 'chat',
               autoMode: deps.state?.autoMode !== false,
               currentTurn: routeOptions?.currentTurn || null,
-              rejectedOutput: raw,
-              reasons: ['route_intent_invalid'],
-              ...(understandingShape ? {
-                systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
-                understanding: understandingEvidence,
-              } : {}),
+              rejectedOutput,
+              reasons: repairReasons,
+              ...(routeSystemPrompt ? { systemPrompt: routeSystemPrompt } : {}),
+              ...(routeUnderstandingEvidence ? { understanding: routeUnderstandingEvidence } : {}),
             });
-            const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'routing_repair', modelRole: 'primary' });
+            const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'routing_repair', modelRole, requestPurpose: 'route_repair', repairReasons });
             intentDeadline.assertActive();
-            route = repairResponse ? inspectResponse(repairResponse, 'primary') : null;
-            if (route) return finalizeRoute(route, 'primary_repair');
+            rejectedOutput = repairResponse ? routeSvc.extractRouteText(repairResponse) : '';
+            route = rejectedOutput ? inspectResponse(repairResponse, modelRole) : null;
+            if (route && !issuesFor(route, rejectedOutput).length) {
+              return { route, source: modelRole + '_repair' };
+            }
           }
+          return { route: null, source: null };
+        }
+
+        let primaryError = null;
+        let invalidModelOutput = false;
+        try {
+          const result = await requestRouteWithRepair(primaryModel, 'primary');
+          if (result.route) return finalizeRoute(result.route, result.source);
           invalidModelOutput = true;
         } catch (error) {
           if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
@@ -981,21 +1149,9 @@
         if (canTryFallback) {
           intentDeadline.assertActive();
           emitStage('retrying_route_model', { modelRole: 'fallback' });
-          const fallbackPayload = routeSvc.buildRoutePayload({
-            model: fallbackModel, input, attachments: attachmentMeta, context,
-            currentMode: deps.state?.mode || 'chat',
-            autoMode: deps.state?.autoMode !== false,
-            currentTurn: routeOptions?.currentTurn || null,
-            ...(understandingShape ? {
-              systemPrompt: routeSvc.ROUTE_NODE_SYSTEM_PROMPT,
-              understanding: understandingEvidence,
-            } : {}),
-          });
           try {
-            const fallbackResponse = await requestWithinDeadline(fallbackPayload, { phase: 'routing', modelRole: 'fallback' });
-            const route = fallbackResponse ? inspectResponse(fallbackResponse, 'fallback') : null;
-            intentDeadline.assertActive();
-            if (route) return finalizeRoute(route, 'fallback_model');
+            const result = await requestRouteWithRepair(fallbackModel, 'fallback');
+            if (result.route) return finalizeRoute(result.route, result.source);
             invalidModelOutput = true;
           } catch (error) {
             if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
@@ -1027,7 +1183,7 @@
     // Intent recognition, instruction materialization, and image-plan calls are
     // one-shot JSON requests. Their transport is Responses-only; compatibility
     // negotiation may adjust rejected request parameters, but never changes API.
-    async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null, requestPurpose = 'intent_recognition') {
+    async function requestRouteIntent(payload, config, headers, signal, routeOptions = null, beforeAttempt = null, requestPurpose = 'intent_recognition', controlMetadata = {}) {
       const baseUrl = String(config?.baseUrl || '').replace(/\/+$/, '');
       const compatibilityProfile = compatibilityProfileFor(baseUrl, payload?.model || config?.routeModel || config?.chatModel);
       const assertAttemptActive = (nextPayload, requestMetadata = {}) => {
@@ -1042,6 +1198,8 @@
             signal,
             requestPurpose,
             submissionId: routeOptions?.submissionId || '',
+            ...(Array.isArray(controlMetadata.repairReasons) && controlMetadata.repairReasons.length
+              ? { repairReasons: controlMetadata.repairReasons } : {}),
           });
         }
         : async nextPayload => {

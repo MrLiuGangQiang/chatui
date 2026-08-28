@@ -273,6 +273,35 @@
     ].filter(Boolean).join('\n\n');
   }
 
+  // A quoted assistant answer may be a plain-text summary of an earlier
+  // user image upload. In that case the assistant message itself has no
+  // imageContext, but the original user message it replies to does. Inherit
+  // that durable image context so quote-scoped routing can still publish the
+  // quoted image candidates instead of degrading to plain_chat.
+  function inheritQuotedImageContext({
+    quotedMessage = null,
+    sessionMessages = [],
+    parseContextValue = (value) => value,
+  } = {}) {
+    if (!quotedMessage || typeof parseContextValue !== 'function') return null;
+    const own = parseContextValue(quotedMessage?.imageContext);
+    if (Array.isArray(own?.attachments) && own.attachments.length) return own;
+    const sourceUser = (Array.isArray(sessionMessages) ? sessionMessages : [])
+      .find(message => (
+        message
+        && message.role === 'user'
+        && (
+          (quotedMessage.replyToMessageId && message.id === quotedMessage.replyToMessageId)
+          || (quotedMessage.turnId && message.turnId === quotedMessage.turnId)
+        )
+      ));
+    if (!sourceUser?.imageContext) return own || null;
+    const inherited = parseContextValue(sourceUser.imageContext);
+    return Array.isArray(inherited?.attachments) && inherited.attachments.length
+      ? inherited
+      : own || null;
+  }
+
   function buildQuotedRouteContext({
     quotedMessage = null,
     quotedImageContext = null,
@@ -1034,6 +1063,7 @@
     deriveConversationContinuity,
     routeExecutionAnchor,
     composeContinuityPrompt,
+    inheritQuotedImageContext,
     buildQuotedRouteContext,
     mergeQuotedRouteContext,
     projectRouteMessageContext,

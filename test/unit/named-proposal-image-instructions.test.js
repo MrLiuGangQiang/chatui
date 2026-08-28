@@ -28,6 +28,7 @@ async function runPipeline({
   routeGoal = input,
   materialization,
   imagePlan = null,
+  understandingKind = 'image_generate',
 }) {
   const originalRouteService = globalThis.ChatUIRouteService;
   globalThis.ChatUIRouteService = routeService;
@@ -58,7 +59,7 @@ async function runPipeline({
           schema_version: 'intent_understanding.v1',
           ordering: 'sequential',
           dependency: 'followup',
-          actions: [{ index: 1, kind: 'image_generate', verb: '生成', target: '图片', resolved_refs: [] }],
+          actions: [{ index: 1, kind: understandingKind, verb: '生成', target: '图片', resolved_refs: [] }],
         }) };
       }
       if (formatName === 'chatui_route_intent_v3') {
@@ -107,6 +108,7 @@ function testPipelineMaterializesSelectedOptionBeforeTextToImageDispatch() {
 function testPipelineMaterializesEditInstructionBeforeDispatch() {
   return runPipeline({
     operation: 'edit_image',
+    understandingKind: 'image_edit',
     input: '按照方案A编辑这张图',
     attachments: [{ type: 'image/png', image_id: 'target-image', resource_id: 'res:image:target-image', name: 'target.png' }],
     resourceRefs: [{ candidate_key: 'i1', role: 'target' }],
@@ -152,7 +154,7 @@ function testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRaw
     assert.deepStrictEqual(requests, [
       'intent_recognition',
       'image_instruction_materialization',
-      'intent_recognition',
+      'image_planning',
     ]);
     const plannerPayload = requestPayloads.find(request => request.payload.text?.format?.name === 'chatui_image_plan_v1')?.payload;
     assert.ok(plannerPayload, 'the multi-image planner must run after instruction materialization');

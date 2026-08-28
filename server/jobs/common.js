@@ -83,6 +83,10 @@ function isResponsesFileDataRequest(body, requestUrl = '') {
 const ACCESS_AUDIT_PURPOSES = new Set([
   'intent_understanding',
   'intent_recognition',
+  'route_repair',
+  'route_fallback',
+  'multi_task_planning',
+  'image_planning',
   'image_instruction_materialization',
   'final_execution',
   'background_image_tag',
@@ -105,11 +109,18 @@ function proxyAccessAudit(body = {}) {
     payload?.text?.format?.name || payload?.text?.format?.type || payload?.response_format?.type,
     96,
   );
+  const repairReasons = Array.isArray(body?.repairReasons)
+    ? body.repairReasons.slice(0, 8).map(item => accessAuditText(
+        item && typeof item === 'object' ? (item.code || item.reason || '') : item,
+        64,
+      )).filter(Boolean).join(',').slice(0, 160)
+    : '';
   const audit = {
     ...(requestPurpose ? { request_purpose: requestPurpose } : {}),
     ...(accessAuditText(body?.submissionId, 96) ? { submission_id: accessAuditText(body?.submissionId, 96) } : {}),
     ...(accessAuditText(payload?.model, 120) ? { model: accessAuditText(payload?.model, 120) } : {}),
     ...(responseFormat ? { response_format: responseFormat } : {}),
+    ...(repairReasons ? { repair_reasons: repairReasons } : {}),
   };
   return Object.freeze(audit);
 }

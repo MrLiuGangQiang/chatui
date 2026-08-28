@@ -277,6 +277,7 @@ async function requestJson({
   dispatchContract,
   bindingEvidence,
   submissionId = '',
+  repairReasons = [],
   toProxyUrl,
   parseResponseJson,
   normalizeError,
@@ -292,6 +293,7 @@ async function requestJson({
     ...(dispatchContract !== undefined ? { dispatchContract } : {}),
     ...(bindingEvidence !== undefined ? { bindingEvidence } : {}),
     ...(submissionId ? { submissionId: String(submissionId) } : {}),
+    ...(Array.isArray(repairReasons) && repairReasons.length ? { repairReasons } : {}),
   };
   let response;
   try {

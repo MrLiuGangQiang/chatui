@@ -51,9 +51,23 @@ function makePending() {
   });
 }
 
-function makeFixture({ promptValue = '2', sendChatImpl = null } = {}) {
-  const pending = makePending();
-  const session = { id: 'session-answer', messages: [], display: [], pendingClarification: pending };
+function makeTextPending() {
+  return clarification.createPendingClarification({
+    messages: [{ role: 'user', content: BASE_TASK_TEXT }],
+    clarificationText: '请问您希望我继续画一只什么样的猫？例如：品种、毛色、姿态、场景或风格等，请提供具体要求。',
+    routeInfo: {
+      mode: 'chat', api: 'clarify', readiness: 'needs_clarification', needClarification: true,
+      dispatchAuthorized: false, operationType: 'text_to_image', operationApi: 'image_generation',
+      operationMode: 'image', relation: 'continuation', resources: [], executionResources: null, dispatchContract: null,
+      clarificationQuestion: '请问您希望我继续画一只什么样的猫？',
+      clarificationSlots: [{ key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] }],
+    },
+  });
+}
+
+function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null } = {}) {
+  const effectivePending = pending || makePending();
+  const session = { id: 'session-answer', messages: [], display: [], pendingClarification: effectivePending };
   const state = {
     activeSessionId: session.id, sessions: [session], messages: [], attachments: [],
     disposedSessionIds: new Set(), promptDrafts: new Map(), autoMode: true, mode: 'chat',
@@ -121,7 +135,7 @@ function makeFixture({ promptValue = '2', sendChatImpl = null } = {}) {
     saveSessionsMeta: () => {}, buildRouteContext: () => ({}),
     requestJson: async () => { throw new Error('a text clarification answer must never invoke an independent classifier'); },
   });
-  return { workflow, state, session, routed, sent, events, pending, prompt, finalRoute };
+  return { workflow, state, session, routed, sent, events, pending: effectivePending, prompt, finalRoute };
 }
 
 async function testTextAnswerAppliesPendingAndReroutesTheBaseTask() {
@@ -317,6 +331,34 @@ async function testClarificationRerouteForwardsTheTaskAttemptLedger() {
   }
 }
 
+async function testFreeTextAnswerReroutesWithTheFreeTextAndConsumesPending() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const fixture = makeFixture({ promptValue: '你随机', pending: makeTextPending() });
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+
+    assert.strictEqual(fixture.session.pendingClarification, undefined,
+      'a free-text answer must consume the pending clarification so the materializer stops re-asking');
+    assert.strictEqual(fixture.routed.length, 1);
+    assert.strictEqual(fixture.routed[0].input, '你随机',
+      'a free-text answer must be rerouted as the current input so the route model sees the user reply');
+    assert.strictEqual(fixture.routed[0].routeContext?.clarification_context?.answer_complete, true,
+      'the reroute must carry the answered clarification');
+    assert.strictEqual(fixture.routed[0].routeContext?.clarification_context?.free_text, '你随机');
+    assert.deepStrictEqual(fixture.routed[0].routeContext?.clarification_context?.unresolved_resources, [],
+      'a resolved free-text slot must not stay unresolved');
+    assert.strictEqual(fixture.sent.length, 1, 'the resolved task must reach dispatch');
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
 module.exports = [
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
@@ -324,4 +366,5 @@ module.exports = [
   testRelationNewTaskClearsPendingAndSubmitsCurrentPrompt,
   testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff,
   testClarificationRerouteForwardsTheTaskAttemptLedger,
+  testFreeTextAnswerReroutesWithTheFreeTextAndConsumesPending,
 ];

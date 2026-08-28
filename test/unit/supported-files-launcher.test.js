@@ -46,7 +46,7 @@ function testSupportedFilesLauncherReusesDocumentModalLifecycle() {
   assert.strictEqual(document.activeElement, filesTrigger);
 
   routeTrigger.click();
-  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=3.8.2-arrowless-energy-runway');
+  assert.strictEqual(frame.getAttribute('src'), './pages/route.html?v=4.0.0-chain-of-thought');
   assert.strictEqual(frame.getAttribute('title'), '一条消息是怎样被处理的');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-aspect'), '1672 / 941');
   assert.strictEqual(document.querySelector('.route-diagram-dialog').style.getPropertyValue('--page-viewer-max-width'), '1672px');
@@ -181,7 +181,7 @@ function testSupportedFilesLauncherShipsItsStaticPage() {
   assert.ok(index.indexOf('id="supportedFilesFab"') < index.indexOf('id="routeDiagramFab"'), 'the supported-files button must sit before the route-map button');
   assert.ok(index.includes('aria-controls="routeDiagramModal"'), 'both launchers must share the existing document modal');
   assert.ok(index.includes('aria-label="查看消息处理流程"'));
-  assert.ok(index.includes('route-diagram-workflow.js?v=3.8.2-arrowless-energy-runway'));
+  assert.ok(index.includes('route-diagram-workflow.js?v=4.0.0-chain-of-thought'));
   assert.ok(index.includes('id="filesFabGradient"') && index.includes('class="fab-files-spark"'), 'the files launcher must use the layered neon file icon');
   assert.ok(index.includes('id="routeFabGradient"') && index.includes('class="fab-route-comet"'), 'the route launcher must use the animated neon route icon');
   assert.ok(!index.includes('id="routeDiagramTitle"') && !index.includes('id="routeDiagramHint"'), 'the shared viewer must not render a title or description bar');

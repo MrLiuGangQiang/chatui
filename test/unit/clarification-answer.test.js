@@ -177,6 +177,74 @@ function testAnswerBuildsAResolvedClarificationContext() {
   }]);
 }
 
+function testFreeTextAnswerResolvesTextOnlyClarificationSlots() {
+  // An image-instruction materialization clarification asks an open-ended
+  // question ("what kind of cat?") with a free-text slot that has no choices.
+  // The user's free-text reply (including delegation such as "你随机") must
+  // resolve that slot; otherwise the system re-asks forever because no answer
+  // is ever recorded and the clarification round counter never advances.
+  const textSlot = { key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] };
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-free-text',
+    messages: [{ role: 'user', content: '继续画一只猫' }],
+    clarificationText: '请问您希望我继续画一只什么样的猫？例如：品种、毛色、姿态、场景或风格等，请提供具体要求。',
+    routeInfo: {
+      operationType: 'text_to_image',
+      relation: 'continuation',
+      clarificationSlots: [textSlot],
+    },
+  });
+  const answer = clarificationAnswer.parseClarificationAnswer('你随机', {
+    clarificationId: pending.id,
+    slots: [textSlot],
+  });
+  assert.ok(answer, 'a free-text answer must be parsed when the clarification has only text slots');
+  assert.strictEqual(answer.free_text, '你随机');
+  assert.deepStrictEqual(answer.answers, [], 'a free-text answer must not fabricate structured choices');
+
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  assert.strictEqual(applied.complete, true, 'a free-text answer must complete a text-only clarification');
+
+  const context = clarificationAnswer.buildClarificationRouteContext({ pending: applied.pending });
+  assert.strictEqual(context.clarification_context.answer_complete, true);
+  assert.strictEqual(context.clarification_context.free_text, '你随机');
+  assert.deepStrictEqual(context.clarification_context.unresolved_resources, [],
+    'a resolved text slot must not remain in unresolved_resources');
+}
+
+function testConcreteFreeTextAnswerAlsoResolvesTextOnlyClarificationSlots() {
+  const textSlot = { key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] };
+  const pending = clarificationAnswer.createPendingClarification({
+    id: 'clarify-free-text-2',
+    messages: [{ role: 'user', content: '继续画一只猫' }],
+    clarificationText: '请问您希望我继续画一只什么样的猫？',
+    routeInfo: {
+      operationType: 'text_to_image',
+      relation: 'continuation',
+      clarificationSlots: [textSlot],
+    },
+  });
+  const answer = clarificationAnswer.parseClarificationAnswer('橘猫', {
+    clarificationId: pending.id,
+    slots: [textSlot],
+  });
+  assert.ok(answer, 'a concrete free-text answer must also resolve a text-only clarification');
+  const applied = clarificationAnswer.applyPendingClarificationAnswer(pending, answer);
+  assert.strictEqual(applied.complete, true);
+}
+
+function testFreeFormCommentaryStillNeverGuessesIntoChoiceSlots() {
+  // Regression guard: free-form commentary against choice-bearing slots must
+  // stay null; only pure free-text slots may accept a free-text answer.
+  const choiceSlot = { key: 'r1', type: 'image', role: 'target', reason: 'ambiguous', choices: [{ key: 'c1', label: 'A' }, { key: 'c2', label: 'B' }] };
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer('第二张看起来更好', {
+    clarificationId: 'clarify-1', slots: [choiceSlot],
+  }), null, 'free-form commentary must not be guessed into a structured choice');
+  assert.strictEqual(clarificationAnswer.parseClarificationAnswer('你随机', {
+    clarificationId: 'clarify-1', slots: [choiceSlot],
+  }), null, 'a delegation phrase must not silently pick a structured choice');
+}
+
 module.exports = [
   testClarificationAnswerUsesAnExactVersionedShape,
   testClarificationAnswerRejectsAStaleClarificationId,
@@ -186,4 +254,7 @@ module.exports = [
   testApplyingAnswerSeparatesResourceAndParameterSelections,
   testClarificationContextSeparatesEstablishedAndSelectedResources,
   testAnswerBuildsAResolvedClarificationContext,
+  testFreeTextAnswerResolvesTextOnlyClarificationSlots,
+  testConcreteFreeTextAnswerAlsoResolvesTextOnlyClarificationSlots,
+  testFreeFormCommentaryStillNeverGuessesIntoChoiceSlots,
 ];

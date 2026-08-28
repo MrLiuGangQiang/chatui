@@ -804,7 +804,7 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 
 ### RTE-030 图片类 multi 父规划无执行授权与 child 独立 lineage｜P0｜环境依赖 M7
 - **前置条件**：M3、M4、M6、M7 可用；准备两张可区分目标图。
-- **输入 / 操作**：分别执行 `生成三张彼此独立的海报：春、夏、冬`、`分别把两张目标图改成黑白`、`分别参考两张图生成两张新图`；检查父路由、图片规划、子路由和批量完成上下文。
+- **输入 / 操作**：分别执行 `生成三张彼此独立的海报：春、夏、冬`、`分别把两张目标图改成黑白`、`分别参考两张图生成两张新图`；检查父路由、图片规划、子路由和批量完成上下文。另在 Network 中检查理解请求与路由请求的 system prompt：理解请求应声明 `intent_understanding.v1` 与按独立结果拆分 action 的完整示例，理解成功时路由请求应使用精简版路由节点提示词（`ROUTE_NODE_SYSTEM_PROMPT_COMPACT`，≤2500 字符，声明 `route_intent.v3` 与 understanding→六字段映射），理解失败回退时使用完整版路由节点提示词（≤5800 字符）；两者都不应是旧单次巨无霸提示词。
 - **应该输出**：三个父路由均为图片类 `task_shape=multi` 的 planning envelope，`readiness=ready` 但 `dispatchAuthorized=false`、`dispatchContract=null`；只有 `image_plan.v1` child 各自拥有执行合同。批量结果的 `image_task_lineage.v1` 每个 child 都有独立 `reference_id`、图片 ID 和 `task_state`；异构批次不得暴露最后 child 的聚合级 `taskState/resolvedGoal`。
 - **评判依据**：以父/子编译对象、批量提交 body、完成事件、合并后的 lineage 和刷新后资源目录为证据。
 
@@ -843,6 +843,12 @@ ChatUI 的定位不是通用企业协作平台，而是一个**轻量、可直�
 - **输入 / 操作**：系统识别出多个任务并列出编号；用户回复编号（如 `2`）。
 - **应该输出**：只执行被选中的那一个任务（一次一个），不提供“合并做”的伪选项；未选择或选择无效时继续澄清。
 - **评判依据**：以 route `task_shape`、`multi_task_plan.v1`、用户选择后的 dispatch contract 与最终请求 payload 为证据。
+
+### RTE-037 自由文本回答图片澄清与“你随机”委托｜P0
+- **前置条件**：会话中有已完成的图片任务（如已生成一只猫）；M4、M6 可用。
+- **输入 / 操作**：发送 `继续画一只猫` 触发无选项文本澄清（“什么品种/毛色/姿态…”）；第一次用具体文本回答 `橘猫`，另一次回答 `你随机`（委托系统决定）。
+- **应该输出**：两次回答都被当作该澄清的答案并立即关闭 pending 澄清（`answer_complete=true`、`free_text` 记录回答、`unresolved_resources` 不再含该文本槽）；随后只重新路由/执行一次，直接生成图片，不再重复追问已委托的细节；澄清轮次计数器随回答推进并受上限约束。
+- **评判依据**：以 `clarification_answer.v1`、`clarification_context.v4`、重路由 current_input、最终 image_instruction 状态与执行请求数量为判定证据。
 
 ---
 

@@ -243,6 +243,12 @@
             const withPendingQuotePreview=submitHelpers.withPendingQuotePreview;
             const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context,intentOptions={})=>{routeUi.startSlowNotice();return getEffectiveRoute(input,routeAttachments,sessionId,headers,context,{...intentOptions,onSlow:routeUi.showSlowNotice,onStage:routeUi.showSlowNotice,signal:run.abortController?.signal}).finally(()=>routeUi.stopSlowNotice())};
             let quotedImageContext=parseContextValue(quotedMessage?.imageContext),quotedImageAttachments=[],quotedImageRestoreFailure=null;
+            const inheritedQuotedImageContext=submitHelpers.inheritQuotedImageContext?.({
+              quotedMessage,
+              sessionMessages:isTargetActive()?state.messages:(targetSession?.messages||[]),
+              parseContextValue,
+            });
+            if(inheritedQuotedImageContext) quotedImageContext=inheritedQuotedImageContext;
             let replacement=null,preparedChatJobId=resumePendingSubmit?.jobId||"",routeMode=submitMode,routeInfo=null,userNode=null,userDisplayItem=null,requestBaseMessages=null,imageContext="",attachmentContext="",userMessageIdentity=null;
             routeUi=createRouteRecognitionUi({sessionId,assistantNode:()=>assistantNode,liveItem:()=>liveItem,responseIndex:()=>responseIndex,getPromptText:()=>promptText,getPreparedChatJobId:()=>preparedChatJobId,signal:run.abortController?.signal});
 
@@ -392,7 +398,16 @@
                   resolvedClarificationContext = clarification.buildClarificationRouteContext?.({ baseContext: {}, pending: applied.pending }) || {};
                   clearStoredPendingClarification();
                   storedPending = null;
-                  promptText = applied.pending?.baseTaskText || applied.pending?.originalText || promptText;
+                  // A free-text answer to a text-only clarification (e.g. the
+                  // image-instruction "what kind of cat?" slot) IS the content
+                  // of this turn, so it must be rerouted as the current input.
+                  // Structured choice answers reroute the base task and carry
+                  // their selections through the clarification context instead.
+                  const freeText = String(textAnswer?.free_text || '').trim();
+                  const freeTextOnly = freeText && !(Array.isArray(textAnswer?.answers) && textAnswer.answers.length);
+                  promptText = freeTextOnly
+                    ? freeText
+                    : (applied.pending?.baseTaskText || applied.pending?.originalText || promptText);
                 }
               }
             }

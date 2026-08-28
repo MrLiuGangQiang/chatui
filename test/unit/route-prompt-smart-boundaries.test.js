@@ -5,11 +5,10 @@ const routeService = require('../../client/services/route-service');
 
 
 function testRoutePromptMakesModelSemanticsPrimaryAndClarificationSelective() {
-  const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /Model-first:/);
+  const prompt = routeService.UNDERSTAND_SYSTEM_PROMPT;
   assert.match(prompt, /Model-first:/);
   assert.match(prompt, /repair evidence/);
-  assert.match(prompt, /repair evidence/);
+  assert.match(prompt, /优先级/);
 }
 
 function testRoutePromptDefinesMultiImageMergeAndStyleReferenceRoles() {

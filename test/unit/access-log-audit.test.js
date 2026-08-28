@@ -60,7 +60,49 @@ async function testAccessLogWritesTheSafeProxyAuditFields() {
   }
 }
 
+function testProxyAccessAuditLogsRepairReasonCodes() {
+  const audit = proxyAccessAudit({
+    requestPurpose: 'route_repair',
+    submissionId: 'submit-repair-1',
+    repairReasons: [
+      { code: 'quoted_evidence_requires_followup', message: '本轮存在 quoted 引用证据时 relation 不得为 new/continuation。' },
+      'route_intent_invalid',
+    ],
+    payload: { model: 'route-model' },
+  });
+  assert.strictEqual(audit.request_purpose, 'route_repair');
+  assert.strictEqual(audit.repair_reasons, 'quoted_evidence_requires_followup,route_intent_invalid');
+  assert.doesNotMatch(JSON.stringify(audit), /new\/continuation/,
+    'repair reason audit fields must be limited to stable codes, never model-facing prose');
+}
+
+async function testAccessLogWritesRepairReasonCodes() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-access-repair-'));
+  try {
+    const logger = createAccessLogger({ root, enabled: true, maxBytes: 1024 * 1024, rotations: 1 });
+    const written = logger.log({
+      method: 'POST', url: '/api/responses', headers: {},
+      _accessAudit: {
+        request_purpose: 'route_repair',
+        submission_id: 'submit-repair-2',
+        model: 'route-model',
+        response_format: 'chatui_route_intent_v3',
+        repair_reasons: 'quoted_evidence_requires_followup',
+      },
+    }, {}, { statusCode: 200, route: 'proxy', traceId: 'trace-repair-2' });
+    assert.strictEqual(written, true);
+    await logger.flush();
+    const [line] = fs.readFileSync(path.join(root, 'temp', 'logs', 'access.ndjson'), 'utf8')
+      .trim().split(/\r?\n/).map(entry => JSON.parse(entry));
+    assert.strictEqual(line.repair_reasons, 'quoted_evidence_requires_followup');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 module.exports = [
   testProxyAccessAuditCorrelatesStructuredStagesWithoutPromptOrCredentials,
   testAccessLogWritesTheSafeProxyAuditFields,
+  testProxyAccessAuditLogsRepairReasonCodes,
+  testAccessLogWritesRepairReasonCodes,
 ];

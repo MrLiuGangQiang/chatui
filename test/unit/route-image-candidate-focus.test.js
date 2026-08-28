@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const routeService = require('../../client/services/route-service');
+const routePrompts = require('../../client/services/route-prompts');
 const imageRouteContext = require('../../client/core/image-route-context');
 
 function imageCandidate(index, description, messageIndex) {
@@ -126,14 +127,10 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
 }
 
 function testRoutePromptStaysWithinBoundedLength() {
-  const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  const start = source.indexOf('const ROUTE_PROMPT_LINES = [');
-  const end = source.indexOf('\n    ];', start);
-  assert.ok(start >= 0 && end > start, 'route system prompt block must be present');
-  const block = source.slice(start, end);
-  const matches = [...block.matchAll(/^\s*'((?:[^'\\]|\\.)*)'\s*$/gm)];
-  const promptLength = matches.map(match => match[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')).join('\n').length;
-  assert.ok(promptLength <= 5800, `route system prompt must remain bounded, got ${promptLength}`);
+  const routeNodeLength = routePrompts.ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n').length;
+  const understandLength = routePrompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n').length;
+  assert.ok(routeNodeLength <= 5800, 'route node prompt must remain bounded, got ' + routeNodeLength);
+  assert.ok(understandLength <= 2500, 'understand node prompt must remain bounded, got ' + understandLength);
 }
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {

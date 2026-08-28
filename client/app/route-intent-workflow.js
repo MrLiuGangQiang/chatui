@@ -164,7 +164,7 @@
 
     function intentFailureRoute(reason = 'route_models_unavailable') {
       const messages = {
-        route_intent_invalid: '本次未执行：意图模型返回了无效的任务结构。请重试；若持续出现，请更换意图模型。',
+        route_intent_invalid: 'AI 没理解这条请求，请重试；如果还无法理解，请切换更强模型。',
         route_model_unconfigured: '本次未执行：未配置可用的意图模型。请先完成配置后重试。',
         route_model_timeout: '本次未执行：意图识别超时。请重试；若持续出现，请更换意图模型。',
         route_model_auth_error: '本次未执行：意图模型鉴权失败。请检查 Endpoint 和 API Key 权限后重试。',

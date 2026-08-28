@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const TEST_DIRECTORIES = Object.freeze(['legacy', 'unit', 'smoke']);
+const TEST_DIRECTORIES = Object.freeze(['unit', 'smoke']);
 const DEFAULT_TIMEOUT_MS = 10_000;
 const RUNNER_GLOBAL = globalThis;
 const RunnerMap = Map;

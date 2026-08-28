@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const {
   DEFAULT_TIMEOUT_MS,
+  TEST_DIRECTORIES,
   declaredTestNames,
   discoverTestFiles,
   parseCliArgs,
@@ -163,8 +164,27 @@ function testRunnerRejectsEveryNewNonConfigurableGlobal() {
   );
 }
 
+
+function testRunnerDiscoveryExcludesRemovedLegacyDirectory() {
+  assert.ok(!TEST_DIRECTORIES.includes('legacy'), 'the removed test/legacy directory must not be discovered anymore');
+  const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-runner-no-legacy-'));
+  try {
+    fs.mkdirSync(path.join(testRoot, 'legacy'), { recursive: true });
+    fs.mkdirSync(path.join(testRoot, 'unit'), { recursive: true });
+    fs.writeFileSync(path.join(testRoot, 'legacy', 'legacy.test.js'), 'module.exports = [function testLegacy() {}];\n');
+    fs.writeFileSync(path.join(testRoot, 'unit', 'kept.test.js'), 'module.exports = [function testKept() {}];\n');
+    assert.deepStrictEqual(
+      discoverTestFiles({ testRoot }).map(file => path.relative(testRoot, file).replace(/\\/g, '/')),
+      ['unit/kept.test.js'],
+    );
+  } finally {
+    fs.rmSync(testRoot, { recursive: true, force: true });
+  }
+}
+
 module.exports = [
   testRunnerDiscoversAndFiltersFocusedSuites,
+  testRunnerDiscoveryExcludesRemovedLegacyDirectory,
   testRunnerParsesTimeoutAndRejectsUnknownOptions,
   testRunnerRejectsDuplicateNames,
   testRunnerRejectsDeclaredTestsMissingFromExports,

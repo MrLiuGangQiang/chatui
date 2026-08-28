@@ -62,7 +62,7 @@ npm test
 
 统计/反馈访问校验使用 TTL+LRU 有界缓存和 in-flight Promise 合并；统计刷新限流桶有全局上限、过期 sweep 和最旧桶淘汰。默认参数可通过 `USAGE_ACCESS_*`、`MAX_USAGE_REFRESH_BUCKETS`、`USAGE_REFRESH_SWEEP_INTERVAL_MS` 调整。
 
-runner 会按 `legacy/`、`unit/`、`smoke/` 递归发现 `*.test.js`，在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
+runner 会按 `unit/`、`smoke/` 递归发现 `*.test.js`（已移除的 `legacy/` 不再参与发现），在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
 
 ### 2.1 聚焦到一个测试文件
 

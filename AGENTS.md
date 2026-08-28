@@ -77,7 +77,7 @@ Allowed: server and browser layers may depend on `shared/`; high-level orchestra
 ## Testing guidelines
 
 - The custom runner (`test/run-tests.js`) is the only standard test entry point.
-- New tests go in `test/unit/` or `test/smoke/`; do not grow `test/legacy/` unless preserving an existing regression.
+- New tests go in `test/unit/` or `test/smoke/` only; the removed `test/legacy/` directory must stay removed.
 - Name tests after observable behavior. Prefer calling real exported functions and asserting results; use source-string assertions only for frozen wiring.
 - Tests that assert on log files must `await logger.flush()` before reading.
 - Every suite must export a non-empty array of named `test*` functions.
@@ -130,6 +130,6 @@ For a hotfix that only repairs packaging or deployment, still follow the complet
 - Every fixed problem must have its own explicit quality gate that prevents recurrence. Add a dedicated automated regression test or deterministic validation for that exact failure mode, prove that it fails without the fix and passes with the fix, and wire it into `npm run check` and CI. A fix is not complete without its corresponding quality gate.
 - Keep browser, server, and shared-code boundaries described in `docs/architecture.md`.
 - Preserve root static-entry assets unless the static server, Docker image, tests, and documentation are updated together.
-- Add new tests to `test/unit/` or `test/smoke/`; do not expand `test/legacy/` unless preserving an existing regression.
+- Add new tests to `test/unit/` or `test/smoke/` only; the removed `test/legacy/` directory must stay removed.
 - Keep package scripts, CI, Docker validation, and documentation aligned. Run `npm run check` after changes.
 - Do not commit generated reports, logs, local editor state, or secrets.

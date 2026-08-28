@@ -39,14 +39,14 @@ The project currently uses a custom Node.js test runner:
 npm run check
 ```
 
-Add focused tests under `test/unit/` or `test/smoke/` when practical. Run a focused file with `node test/run-tests.js unit/<name>.test.js`; directly executing the test file does not invoke the custom runner. Existing cases in `test/legacy/regression.test.js` should be moved into focused files when they are substantially changed.
+Add focused tests under `test/unit/` or `test/smoke/` when practical. Run a focused file with `node test/run-tests.js unit/<name>.test.js`; directly executing the test file does not invoke the custom runner. The legacy regression suite has been removed; historical regressions must live in focused `test/unit/` or `test/smoke/` files.
 
 ## Known cleanup boundaries
 
 The following areas require dedicated, separately reviewed refactors rather than incidental cleanup:
 
 - Reduce root `app.js` to a bootstrap entry and remove duplicated workflow implementations.
-- Split the large `test/legacy/regression.test.js` suite by feature and keep its debt moving downward.
+- Keep removed `test/legacy/` debt out of the test runner; the historical regression suite must stay migrated to focused files.
 - Replace per-file cache-version strings in `index.html` with generated content hashes or one application version.
 - Separate server-only usage SQL from browser-safe shared range definitions.
 - Document and automate the source, version, and license update process for `vendor/` assets.

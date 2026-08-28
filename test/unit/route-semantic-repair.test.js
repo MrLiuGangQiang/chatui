@@ -144,8 +144,41 @@ async function testSemanticRepairRoundRewritesTheFlaggedField() {
   }
 }
 
+function testAmendWithLegacyPreviousExecutionIsNotRejected() {
+  // Regression: a previous image execution carrying resolved_goal/input but no
+  // explicit task_state field is still a valid amend base (the task continuity
+  // pipeline derives a task state from it). The semantic validator must use the
+  // same derivation as normalizeAmendWithoutBase / transitionTaskContinuity;
+  // otherwise a legitimate amend compiles as ready+amend, gets flagged as
+  // amend_requires_previous_task_state, and the repair loop can never satisfy
+  // the validator, ending in route_intent_invalid ("意图模型返回了无效的任务结构").
+  const legacyPrevious = {
+    schema_version: 'execution_continuity.v1',
+    operation: 'text_to_image',
+    family: 'generate',
+    input: '画一只狗',
+    resolved_goal: '画一只狗',
+    result_kind: 'image',
+    result_reference_id: 'imgref-x',
+    source_message_index: 2,
+  };
+  const amend = compiledRoute({
+    goalMode: 'amend',
+    relation: 'continuation',
+    userGoal: '继续画一只狗',
+  });
+  const issues = routeService.routeIntentSemanticIssues(amend, { context: { previous_execution: legacyPrevious } });
+  assert.deepStrictEqual(issues, [],
+    'amend must be accepted when the previous execution has a derivable task state');
+
+  // Without any previous execution the flag must still fire.
+  const noBase = routeService.routeIntentSemanticIssues(amend, { context: {} });
+  assert.strictEqual(noBase[0].code, 'amend_requires_previous_task_state');
+}
+
 module.exports = [
   testSemanticValidatorFlagsOnlyDeterministicContradictions,
   testRepairPayloadCarriesFieldSpecificReasons,
+  testAmendWithLegacyPreviousExecutionIsNotRejected,
   testSemanticRepairRoundRewritesTheFlaggedField,
 ];

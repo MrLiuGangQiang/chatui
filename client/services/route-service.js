@@ -2224,10 +2224,26 @@
       });
     }
 
-    const previousTaskState = context.previous_execution && typeof context.previous_execution === 'object'
-      ? context.previous_execution.task_state
+    // Whether an amend has an inheritable base must mean exactly what the
+    // execution pipeline means. A previous image execution may carry an
+    // explicit task_state, or a legacy resolved_goal/input from which
+    // taskContinuityFromExecution derives the base state. Checking only the
+    // raw task_state field rejected legitimate amends and sent the repair
+    // loop into an unsatisfiable amend_requires_previous_task_state cycle
+    // that ended in route_intent_invalid ("意图模型返回了无效的任务结构").
+    const previousExecution = context.previous_execution && typeof context.previous_execution === 'object'
+      ? context.previous_execution
       : null;
-    if (goalMode === 'amend' && !previousTaskState) {
+    let hasPreviousTaskState = false;
+    if (previousExecution) {
+      try {
+        hasPreviousTaskState = typeof taskContinuityFromExecution !== 'function'
+          || !!taskContinuityFromExecution(previousExecution);
+      } catch {
+        hasPreviousTaskState = false;
+      }
+    }
+    if (goalMode === 'amend' && !hasPreviousTaskState) {
       issues.push({
         code: 'amend_requires_previous_task_state',
         field: 'goal_mode',

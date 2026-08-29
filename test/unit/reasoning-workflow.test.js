@@ -99,8 +99,29 @@ function testLegacyThinkingFieldsAreIgnoredByBrowserParser() {
   );
 }
 
+function testIsReasoningControlLockedFallsBackWhenDepsLacksSessionBusy() {
+  // Regression: the with() removal wrote deps.isSessionBusy, but production's
+  // createReasoningWorkflow deps do not include isSessionBusy (only tests pass
+  // it). In production the with(deps) block fell through to the global
+  // isSessionBusy declared by the entry bundle; the explicit deps.* lookup broke
+  // bootstrap with "deps.isSessionBusy is not a function". The instruction must
+  // fall back to the global when deps does not provide it.
+  globalThis.isSessionBusy = () => false;
+  try {
+    const workflow = reasoning.createReasoningWorkflow({ state: { activeSessionId: 'session-a' } });
+    assert.strictEqual(workflow.isReasoningControlLocked(), false,
+      'a production-shaped deps (no isSessionBusy) must fall back to the global without crashing');
+    // When deps provides it, the deps value wins.
+    const withDeps = reasoning.createReasoningWorkflow({ state: { activeSessionId: 'b' }, isSessionBusy: () => true });
+    assert.strictEqual(withDeps.isReasoningControlLocked(), true);
+  } finally {
+    delete globalThis.isSessionBusy;
+  }
+}
+
 module.exports = [
   testGpt5ReasoningUsesResponsesReasoningEnvelope,
   testReasoningControlDisplaysRawEffortIdentifiers,
+  testIsReasoningControlLockedFallsBackWhenDepsLacksSessionBusy,
   testLegacyThinkingFieldsAreIgnoredByBrowserParser,
 ];

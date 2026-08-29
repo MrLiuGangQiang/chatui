@@ -233,7 +233,7 @@
 
     function isReasoningControlLocked() {
       { 
-        return deps.isSessionBusy(deps.state.activeSessionId);
+        return (deps.isSessionBusy ?? isSessionBusy)(deps.state.activeSessionId);
        }
     }
 

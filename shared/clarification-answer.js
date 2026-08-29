@@ -160,32 +160,32 @@
   }
 
     function parseInlineMultiSlot(text, slots) {
-    var available = slotChoices(slots || []);
+    const available = slotChoices(slots || []);
     if (available.length < 1) return null;
 
-    var byLabel = new Map();
-    var byPurpose = new Map();
-    for (var i = 0; i < available.length; i++) {
-      var slot = available[i];
-      var l = stringValue(slot.label).toLowerCase();
+    const byLabel = new Map();
+    const byPurpose = new Map();
+    for (let i = 0; i < available.length; i++) {
+      const slot = available[i];
+      const l = stringValue(slot.label).toLowerCase();
       if (l) byLabel.set(l, slot);
-      var keywords = { target: ['编辑','修改','目标','被修改','改','修'], reference: ['参考','参照','依据','来源','照着','模仿'], style_reference: ['风格','样式','配色','风格化'], source: ['来源','输入','原图','素材'], attachment: ['文件','附件','文档'] };
-      var kw = keywords[slot.role] || [];
-      for (var k = 0; k < kw.length; k++) byPurpose.set(kw[k], slot);
+      const keywords = { target: ['编辑','修改','目标','被修改','改','修'], reference: ['参考','参照','依据','来源','照着','模仿'], style_reference: ['风格','样式','配色','风格化'], source: ['来源','输入','原图','素材'], attachment: ['文件','附件','文档'] };
+      const kw = keywords[slot.role] || [];
+      for (let k = 0; k < kw.length; k++) byPurpose.set(kw[k], slot);
     }
 
-    var segments = text.split(/[,，;；\s]+/).filter(function(s) { return s.trim(); });
+    const segments = text.split(/[,，;；\s]+/).filter(function(s) { return s.trim(); });
     if (segments.length < 1) return null;
 
-    var selections = [];
-    var seen = new Set();
+    const selections = [];
+    const seen = new Set();
 
-    for (var s = 0; s < segments.length; s++) {
-      var seg = segments[s].trim().toLowerCase();
+    for (let s = 0; s < segments.length; s++) {
+      const seg = segments[s].trim().toLowerCase();
       if (!seg) continue;
 
-      var matchedSlot = null;
-      var matchLen = 0;
+      let matchedSlot = null;
+      let matchLen = 0;
 
       byLabel.forEach(function(slot, label) {
         if (label && seg.indexOf(label) >= 0 && label.length > matchLen) {
@@ -205,14 +205,14 @@
 
       if (!matchedSlot) continue;
 
-      var choicePattern = /(?:选|选择|为|[:=])\s*(?:第\s*)?([a-z]|\d+|[一二三四五六七八九十])\s*(?:个|张|项|号)?/i;
-      var choiceMatch = seg.match(choicePattern);
+      const choicePattern = /(?:选|选择|为|[:=])\s*(?:第\s*)?([a-z]|\d+|[一二三四五六七八九十])\s*(?:个|张|项|号)?/i;
+      const choiceMatch = seg.match(choicePattern);
       if (!choiceMatch) continue;
 
-      var cnNum = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10' };
-      var choiceToken = cnNum[choiceMatch[1]] || choiceMatch[1];
-      var choice = choiceForToken(matchedSlot, choiceToken);
-      var resourceKey = stringValue(matchedSlot.key);
+      const cnNum = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10' };
+      const choiceToken = cnNum[choiceMatch[1]] || choiceMatch[1];
+      const choice = choiceForToken(matchedSlot, choiceToken);
+      const resourceKey = stringValue(matchedSlot.key);
       if (!choice || seen.has(resourceKey)) continue;
       seen.add(resourceKey);
       selections.push({ resource_key: resourceKey, choice_key: stringValue(choice.key) });

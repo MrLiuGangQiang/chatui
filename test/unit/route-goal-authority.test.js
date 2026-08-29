@@ -14,6 +14,25 @@ function inspect(intent, input, options = {}) {
   return result.route;
 }
 
+function testWebSearchUsesResolvedGoalForEllipticalFollowup() {
+  const input = '尼泊尔情况呢';
+  const goal = '搜索8·26泥石流灾害在尼泊尔一侧的最新情况';
+  const route = inspect({
+    operation: 'web_search',
+    relation: 'new',
+    goal,
+    resource_refs: [],
+  }, input, {
+    context: {
+      recent_messages: [{ index: 1, role: 'assistant', content: '上一轮讨论8·26泥石流灾害。' }],
+      previous_execution: { operation: 'web_search', query: '8·26泥石流灾害在西藏一侧的救援进展' },
+    },
+  });
+  assert.strictEqual(route.executionPrompt, goal);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, goal);
+  assert.strictEqual(route.userGoal, goal);
+}
+
 function testStandaloneNewTextTaskExecutesTheRawUserInput() {
   const input = '把这句话改得更简洁：项目已经基本完成了。';
   const route = inspect({
@@ -163,6 +182,7 @@ function testMaximumGoalSurvivesRouteParsingAndImageExecutionCompilation() {
 }
 
 module.exports = [
+  testWebSearchUsesResolvedGoalForEllipticalFollowup,
   testStandaloneNewTextTaskExecutesTheRawUserInput,
   testTextToImageParametersComeOnlyFromTheRawUserTurn,
   testConversationDependentTextTaskKeepsRawUserInputAsProviderPrompt,

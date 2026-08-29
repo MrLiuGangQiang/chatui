@@ -145,6 +145,58 @@ function testRouteNodePromptsDefineGenerationContinuationNotAsEdit() {
     'the understand prompt must classify generation continuations as image_generate, not image_edit');
 }
 
+
+function testUnderstandPromptUsesBoundedEvidenceLanguageInsteadOfCrypticEnglish() {
+  const prompt = UNDERSTAND_PROMPT;
+  assert.doesNotMatch(prompt, /Model-first:|repair evidence/,
+    'cryptic english directives confuse small routing models');
+  assert.match(prompt, /【证据优先】/);
+  assert.match(prompt, /不得猜测、修改或编造证据/);
+  assert.match(prompt, /有歧义保持歧义/);
+}
+
+function testUnderstandPromptExampleKeepsTheFullPictureDescription() {
+  const prompt = UNDERSTAND_PROMPT;
+  assert.match(prompt, /一只橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格/);
+  assert.match(prompt, /一只金毛犬站在草地上、傍晚逆光、写实摄影风格/);
+}
+
+function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
+  // Quality and accuracy are the hard priority. The simple path must keep
+  // every reachable decision rule; size can only be reduced by removing rules
+  // the deterministic complexity gate proves unreachable.
+  const simple = prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE;
+  assert.ok(simple.length <= 4000, 'simple route prompt may not grow unbounded, got ' + simple.length);
+  assert.match(simple, /把生成当成编辑/);
+  assert.match(simple, /消息（mN）只能绑 context/);
+  assert.match(simple, /file_qa[\s\S]*f=attachment/);
+  assert.match(simple, /P1→P5/);
+  assert.match(simple, /不得只写“基于这个生成/);
+  assert.match(simple, /edit_image多history候选未选定→followup\+ambiguous省略target/,
+    'vague edits must ask instead of guessing a target');
+  assert.match(simple, /current_input已含主体\/动作则历史同义正文不绑/,
+    'self-contained inputs must not over-bind historical message evidence');
+  assert.match(simple, /message_index大者更新，模糊指代选最大/,
+    'candidate recency rules must stay on the simple path');
+  assert.match(simple, /“不使用旧图”不改operation\/goal_mode/,
+    'negated resource policies must not rewrite operation/goal_mode');
+  assert.match(simple, /拒绝使用历史资源只影响resource_refs/,
+    'refusing historical resources must not silently change goal_mode');
+  assert.match(simple, /auto_mode=false\/current_mode=image/,
+    'manual image mode must keep the merge-vs-edit boundary');
+}function testRouteRelationOrderReferencesTheNumberedRulesExplicitly() {
+  const prompt = ROUTE_NODE_PROMPT;
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系[^\n]*必须按下方关系规则1→4顺序判断/);
+  assert.doesNotMatch(prompt, /必须按1→4顺序判断/);
+}
+
+function testImagePlanPromptSeparatesPromptTextFromParameterFields() {
+  const prompt = prompts.IMAGE_PLAN_SYSTEM_PROMPT;
+  assert.match(prompt, /背景\/画布要求写入 background 字段/);
+  assert.match(prompt, /只描述画面内容（主体、场景、风格、修改项）/);
+  assert.match(prompt, /超过 [0-9]+ 个的请求会在上游被拦截/);
+}
+
 module.exports = [
   testMultiTaskPlanPromptKeepsExplicitImageRequests,
   testPromptsTeachMessageRefsAreNotFiles,
@@ -153,6 +205,11 @@ module.exports = [
   testUnderstandNodeOwnsItsProtocolAndSplitsIndependentImageActions,
   testImageInstructionPromptRespectsExplicitDelegationAndAnsweredClarifications,
   testRouteNodePromptsDefineGenerationContinuationNotAsEdit,
+  testUnderstandPromptUsesBoundedEvidenceLanguageInsteadOfCrypticEnglish,
+  testUnderstandPromptExampleKeepsTheFullPictureDescription,
+  testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization,
+  testRouteRelationOrderReferencesTheNumberedRulesExplicitly,
+  testImagePlanPromptSeparatesPromptTextFromParameterFields,
   testRouteNodeOwnsItsProtocolAndKeepsRelationRulesGrouped,
   testRuntimePayloadsUseNodePromptsInsteadOfTheLegacyMonolith,
   testRouteServiceDoesNotReembedPromptOwnershipOrGrowABrowserGlobal,

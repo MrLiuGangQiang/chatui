@@ -1565,6 +1565,12 @@
     // Chat-family providers receive the user's literal instruction. The route
     // goal is routing metadata only; it must never rewrite a text question or
     // drop exact wording before the final model sees the conversation.
+    if (operation === 'web_search') {
+      // Search goals are the route node's normalized query. Short follow-ups
+      // such as "尼泊尔情况呢" otherwise lose the inherited event/topic
+      // before the search-capable chat model can execute them.
+      return (stringValue(intent.relation) !== 'new' || input.length <= 24) ? goal : input;
+    }
     if (capabilityFor(operation)?.api === 'chat') {
       // A multi-task clarification answer uses the raw input only as a task
       // selector ("3"); the model-selected task goal is the real instruction
@@ -4569,6 +4575,9 @@
     return [cleanQuotedContent(text), buildQuotedImagePlaceholders(images)].filter(Boolean).join('\n') || '[quoted_message]';
   }
 
+
+
+
   // ── Exports ─────────────────────────────────────────────────────
   const api = Object.freeze({
     ROUTE_INTENT_VERSION,
@@ -4599,6 +4608,7 @@
     buildRouteContext,
     compactWireRouteContext,
     wireResourceCandidates,
+    compactWireResourceCandidate,
     extractRouteText,
     inspectModelRouteResult,
     routeIntentSemanticIssues,
@@ -4640,6 +4650,7 @@
     clarifyImageInstructionRoute,
     IMAGE_PLAN_VERSION,
     IMAGE_PLAN_MAX_TASKS,
+    IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
     IMAGE_PLAN_RESPONSE_FORMAT,
     hasExactImagePlan,
     assertImagePlan,

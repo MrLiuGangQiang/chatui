@@ -82,6 +82,54 @@ async function testImagePlanCountGateUsesResolvedTargetWhenRawInputHasNoCount() 
   }
 }
 
+async function testImagePlanCeilingGuardFailsClosedBeforeCallingThePlanner() {
+  assert.strictEqual(routeService.IMAGE_PLAN_ABSOLUTE_MAX_TASKS, 50);
+  const previous = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  const calls = [];
+  try {
+    const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+      state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+      getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'route-secret', routeModel: 'route-model', chatModel: 'chat-model' }),
+      getSessionRouteModel: () => 'route-model',
+      getSessionChatModel: () => 'chat-model',
+      buildRouteAttachmentMetadata: () => [],
+      requestJson: async (url, payload, apiKey, options = {}) => {
+        const name = payload?.text?.format?.name;
+        calls.push(name);
+        if (name === 'chatui_route_intent_v3') {
+          return {
+            output_text: JSON.stringify({
+              operation: 'text_to_image',
+              relation: 'new',
+              goal: '生成 60 张猫',
+              goal_mode: 'replace',
+              resource_refs: [],
+              task_shape: 'multi',
+            }),
+          };
+        }
+        if (name === 'chatui_image_plan_v1') {
+          throw new Error('the planner must not run for an over-ceiling request');
+        }
+        throw new Error('unexpected request ' + String(name || '<missing>'));
+      },
+    });
+
+    const route = await workflow.getEffectiveRoute('生成 60 张猫', [], 'session-1');
+
+    assert.strictEqual(route.outcome, 'business_clarification');
+    assert.strictEqual(route.needClarification, true);
+    assert.strictEqual(route.dispatchAuthorized, false);
+    assert.match(route.clarificationQuestion, /一次最多生成 5 张/);
+    assert.ok(!calls.includes('chatui_image_plan_v1'),
+      'an over-ceiling request must fail closed before the image planner runs');
+  } finally {
+    if (previous === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previous;
+  }
+}
 module.exports = [
   testImagePlanCountGateUsesResolvedTargetWhenRawInputHasNoCount,
+  testImagePlanCeilingGuardFailsClosedBeforeCallingThePlanner,
 ];

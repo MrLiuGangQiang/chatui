@@ -12,8 +12,8 @@
 - Phase 3：理解节点输出无效、路由输出无效、plan 不忠实均各做一次 `reasons[]` 定向修复重试，仍失败则失败关闭；路由节点新增确定性语义校验，覆盖 `relation=new` 与非 current 资源矛盾、quoted 证据必须 followup（new/continuation 都要修）、`amend` 无前序 base、单 action 的 operation 与 kind 映射不一致，并对主模型与 fallback 模型统一执行同一套校验+修复路径。
 - Phase 4：`multiTaskPlan` 持久化；规划 1:1 忠实性校验。
 - Phase 5 提示词部分：`UNDERSTAND_SYSTEM_PROMPT` 现在完整声明 `intent_understanding.v1` 输出、kind 闭集、按独立结果拆分 action 的规则与完整示例（≤2500 字符）；`ROUTE_NODE_SYSTEM_PROMPT` 完整声明 `route_intent.v3` 输出与示例（≤5800 字符）；简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词。
-- Phase 5b：路由节点提示词拆成三份。理解证据存在时走 CoT 精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（约 2290 字符）；简单路径（复杂度门判定无附件/引用/指代/多动作）走独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（约 3090 字符，去掉 quoted/指代/附件专属规则）；只有理解节点运行后失败或输出空动作时才回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（约 5390 字符，保留全部场景规则单跑）。理解证据存在时走 CoT 精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（约 2000 字符，只含输出契约、任务选择优先、understanding→六字段映射、goal/goal_mode、歧义澄清与完整示例），把 relation/task_shape/资源选择的推导交给理解节点与本地 Shape Compiler/语义校验；理解节点未运行或失败时回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（约 5300 字符，保留全部场景规则单跑）。
-- 多图兜底：即使理解模型把多图请求合并为一条 action，Shape Compiler 仍按原文显式**输出结果数量**提升到 image_plan，并有端到端回归测试。`explicitImageResultCount` 只识别输出结果单位（生成/改成 N 张、视图枚举、分别枚举），不会把“参考两张图生成一张新图”的输入图或“两只猫”的画面主体误判成多个结果；数量期望与修复门禁对简单路径和 CoT 路径一致生效。
+- Phase 5b：路由节点提示词拆成三份。理解证据存在时走 CoT 精简版 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT`（≤2500 字符，只把 understanding→六字段映射并复核 relation）；简单路径（复杂度门判定无附件/引用/指代/多动作）走独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（约 3600–3900 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/附件专属段落，不删任何可达决策规则）；只有理解节点运行后失败或输出空动作时才回退完整版 `ROUTE_NODE_SYSTEM_PROMPT`（≤5800 字符，保留全部场景规则单跑）。
+- 多图兜底：即使理解模型把多图请求合并为一条 action，Shape Compiler 仍按原文显式**输出结果数量**提升到 image_plan，并有端到端回归测试。`explicitImageResultCount` 只识别输出结果单位（生成/改成 N 张、视图枚举、分别枚举），不会把“参考两张图生成一张新图”的输入图或“两只猫”的画面主体误判成多个结果；数量期望与修复门禁对简单路径和 CoT 路径一致生效；显式输出结果数超过 `image_plan` 结构上限（50）时，在调用规划器前由本地护栏确定性失败关闭（按产品上限提示分批），不再把模型无法满足的数量交给规划器。
 - Phase 5c 执行可观测性：修复轮不再与主识别共用 `intent_recognition`。`route_repair`、`route_fallback`、`multi_task_planning`、`image_planning` 成为独立 requestPurpose，服务端校验白名单与 access audit 同步；修复轮把 `reasons[].code` 以 `repair_reasons` 写入 `access.ndjson`（仅稳定 code，无正文）。
 - 依赖一致性：`reconcileUnderstandingDependency` 在 route payload 物化前把 quoted/非 current 资源等本地事实优先于 `understanding.dependency` 落定，避免 CoT 路径出现“照抄 dependency”与“quoted→followup 校验”互相矛盾导致的修复轮空转/fallback。
 - 自由文本澄清答案闭环（根因 + 护栏）：图片指令物化（image_instruction）只产出无选项文本槽（type=text、choices=[]）的澄清（如“继续画一只猫？什么品种/毛色/姿态”）。此前用户用自由文本回答（“你随机/随便/橘猫”）永远不被当作答案，pending 澄清永不关闭、`clarification_context.answer_complete` 恒为 false，物化器会无限次重复追问，且澄清轮次计数器不推进。现在：`parseClarificationAnswer` 对仅含文本槽的澄清把用户自由文本记为 `clarification_answer.v1.free_text` 并视为完成；`applyClarificationAnswer` 用非空 free_text 满足文本槽；`clarification_context` 输出 `answer_complete=true`、`free_text`、剩余 `unresolved_resources`（不含已答槽）；submit 边界把自由文本答案作为本轮 current_input 重新路由（结构化选择答案仍路由 base_task）。物化器提示词同步新增：用户显式委托（你随机/随便/你决定/看着办/都行/you choose/up to you）或澄清已回答（answer_complete=true）时，必须按 resolved_task 输出 ready 的具体指令，不得再追问已委托的细节；“不得虚构事实”仅约束指代性事实，不约束用户已委托的未指定细节。回归测试：澄清答案协议（text-only 槽解析/应用/上下文）、submit 重路由（自由文本作为 current_input 并消费 pending）、物化器提示词契约。
@@ -22,7 +22,7 @@
 待办（后续轮次）：
 
 - 细粒度修复已覆盖确定性矛盾；goal 自洽、遗漏动作等更高层语义修复仍待后续。
-- 路由节点**完整版**（仅理解失败/空动作时的罕见 fallback）保留全部场景规则（约 5390 字符），不强压缩；CoT 路径用精简版（≤2500），简单路径用独立精简版（约 3560，质量优先、不删可达规则）。后续仍可在真实模型 eval 证明语义无损后继续收窄。
+- 路由节点**完整版**（仅理解失败/空动作时的罕见 fallback）保留全部场景规则（≤5800 字符），不强压缩；CoT 路径用精简版（≤2500），简单路径用独立精简版（约 3600–3900，质量优先，不删任何可达规则；仅移除复杂度门证明不可达的 quoted/指代/附件专属段落）。后续仍可在真实模型 eval 证明语义无损后继续收窄。
 - 理解节点偶发失败或输出合法但 `actions=[]` 时，均视为不可用证据并回退完整版路由节点；继续用真实模型 eval 收敛。
 - fallback 模型当前仍与主模型共用相同的 ≤2 轮语义修复预算（选项 D 的差异化预算待评估）。
 
@@ -253,12 +253,12 @@ goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解�
 
 | 现有段落 | 去向 |
 | --- | --- |
-| Model-first / 【优先级】 / 【可信输入】 / 【引用与附件】 / 【历史建议边界】 | 节点1 理解 |
+| 证据优先 / 【优先级】 / 【可信输入】 / 【引用与附件】 / 【历史建议边界】 | 节点1 理解 |
 | 【判断顺序】 / 【operation】 / 【task_shape】 / 【resource_refs】 / 【goal】 / 【goal_mode】 / relation 1-4 / 【图片交付事实】 | 节点2 路由（relation 用聚焦子提示） |
 | 【任务选择优先】 / 【歧义与空输入】 | 节点0 确定性规则 + 节点2 兜底（去掉“选第一个”） |
 | `MULTI_TASK_PLAN_SYSTEM_PROMPT` | 节点4 规划 |
 
-每个节点提示词目标 `≤1500–2500` 字符，并放一个完整输出示例。
+每个节点提示词目标 `≤1500–2500` 字符，并放一个完整输出示例。例外：简单路径提示词以识别质量为硬约束，保留全部可达规则（≤4000 字符）；只有理解节点与 CoT 精简版按 `≤2500` 执行。
 
 ## 11. 回归与评估
 

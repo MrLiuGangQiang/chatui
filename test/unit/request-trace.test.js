@@ -131,7 +131,7 @@ function testRequestTraceSummarizesResponsesOutputContentWithoutReasoning() {
   });
   const summary = summarizeResponsePayload({
     id: 'resp-output-content',
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     output: [
       {
         type: 'reasoning',

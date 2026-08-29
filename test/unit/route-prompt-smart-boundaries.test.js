@@ -6,9 +6,10 @@ const routeService = require('../../client/services/route-service');
 
 function testRoutePromptMakesModelSemanticsPrimaryAndClarificationSelective() {
   const prompt = routeService.UNDERSTAND_SYSTEM_PROMPT;
-  assert.match(prompt, /Model-first:/);
-  assert.match(prompt, /repair evidence/);
+  assert.match(prompt, /证据优先/);
+  assert.match(prompt, /不得猜测、修改或编造证据/);
   assert.match(prompt, /优先级/);
+  assert.doesNotMatch(prompt, /Model-first:|repair evidence/);
 }
 
 function testRoutePromptDefinesMultiImageMergeAndStyleReferenceRoles() {
@@ -18,7 +19,7 @@ function testRoutePromptDefinesMultiImageMergeAndStyleReferenceRoles() {
   assert.match(prompt, /所有输入图都用 reference/);
   assert.match(prompt, /只提供配色\/色调\/颜色时角色必须是 style_reference/);
   assert.match(prompt, /主体、结构、构图或内容参考才用 reference/);
-  assert.match(prompt, /沿用参考图生成新版本（即使改色）用reference.*goal写description主体\/类型\+本轮变化.*非edit target/);
+  assert.match(prompt, /沿用参考图生成新版本（即使改色）用reference.*goal写画面主体\/类型\+本轮变化.*非edit target/);
   assert.match(prompt, /goal还须保留蒙版、target、reference等执行角色语义/);
 }
 

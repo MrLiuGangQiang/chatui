@@ -795,6 +795,14 @@
             : (typeof routeSvc.explicitImageResultCount === 'function'
               ? routeSvc.explicitImageResultCount(input)
               : 0);
+          const imagePlanAbsoluteMax = Number(routeSvc.IMAGE_PLAN_ABSOLUTE_MAX_TASKS) || 50;
+          const imagePlanMaxTasks = Number(routeSvc.IMAGE_PLAN_MAX_TASKS) || 5;
+          if (Number.isSafeInteger(Number(expectedTaskCount)) && Number(expectedTaskCount) > imagePlanAbsoluteMax) {
+            return completeRoute(imagePlanFailureRoute(
+              materializedRoute,
+              `一次最多生成 ${imagePlanMaxTasks} 张图片，请减少到 ${imagePlanMaxTasks} 张以内，或分批发。`,
+            ), source);
+          }
           const planPayload = routeSvc.buildImagePlanPayload({
             model: primaryModel,
             input,

@@ -18,11 +18,28 @@ function testAnnouncementKeepsRecommendedModelConfigOnlyInSidebar() {
   // The static announcement side panel still provides the same concise reference.
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(index.includes('推荐模型配置'));
-  for (const model of ['deepseek-v4-flash', 'gpt-5.6-luna', 'gpt-image-2']) {
+  assert.ok(index.includes('gpt-5.6-terra'), 'intent recognition must recommend gpt-5.6-terra');
+  assert.doesNotMatch(index, /deepseek-v4-flash/, 'DeepSeek must not be recommended for intent recognition');
+
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  assert.ok(app.includes('welcome-model-note'));
+  assert.ok(app.includes('gpt-5.6-terra'), 'welcome page must recommend gpt-5.6-terra for intent recognition');
+  assert.doesNotMatch(app, /deepseek-v4-flash/, 'welcome page must not recommend DeepSeek for intent recognition');
+  for (const model of ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-image-2']) {
     assert.ok(index.includes(model));
+  }
+}
+
+function testHistoricalModelRecommendationsUseTerraForIntentRecognition() {
+  const root = path.join(__dirname, '../..');
+  for (const filename of ['docs/announcements/v1.10.26.md', 'docs/announcements/v1.10.34.md']) {
+    const source = fs.readFileSync(path.join(root, filename), 'utf8');
+    assert.ok(source.includes('gpt-5.6-terra'), `${filename} must recommend gpt-5.6-terra for intent recognition`);
+    assert.doesNotMatch(source, /gpt-5\.6-luna/, `${filename} must not retain the old intent-model recommendation`);
   }
 }
 
 module.exports = [
   testAnnouncementKeepsRecommendedModelConfigOnlyInSidebar,
+  testHistoricalModelRecommendationsUseTerraForIntentRecognition,
 ];

@@ -71,8 +71,9 @@ function testIntentRecognitionPromptStatesReadableDecisionPriority() {
     assert.ok(routePrompt.includes(section), 'missing routing guidance: ' + section);
   }
   const understandPrompt = routeService.UNDERSTAND_SYSTEM_PROMPT;
-  assert.match(understandPrompt, /Model-first:/);
-  assert.match(understandPrompt, /repair evidence/);
+  assert.match(understandPrompt, /证据优先/);
+  assert.match(understandPrompt, /不得猜测、修改或编造证据/);
+  assert.match(understandPrompt, /有歧义保持歧义/);
   assert.ok(understandPrompt.includes('current_input'));
 }
 

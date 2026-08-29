@@ -152,7 +152,7 @@ function testStructuredOutputFallbackClassifierRecognizesOnlyProtocolCapabilityE
 
 async function testReasoningParamFallbackRetriesResponsesOnceWithoutReasoning() {
   const payload = responsesRoutePayload({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     reasoning: { effort: 'low', summary: 'auto' },
   });
   const attempts = [];

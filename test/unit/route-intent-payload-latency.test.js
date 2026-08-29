@@ -63,7 +63,7 @@ function assertMinimalIntentResponsesPayload(payload) {
 
 function testIntentPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels() {
   const payload = routeService.buildRoutePayload({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     input: '描述一下最后一张图',
     context: representativeContext(),
   });
@@ -74,7 +74,7 @@ function testIntentPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels
 
 function testImagePlanPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteModels() {
   const payload = routeService.buildImagePlanPayload({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     input: '分别生成一只猫和一只狗',
     goal: '分别生成一只猫和一只狗',
     context: representativeContext(),
@@ -86,7 +86,7 @@ function testImagePlanPayloadKeepsResponsesNonStreamingAndMinimalForGpt5RouteMod
 
 function testIntentPayloadCapsRecentMessageLength() {
   const userPayload = JSON.parse(routeService.buildRoutePayload({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     input: '描述一下最后一张图',
     context: representativeContext(),
   }).input[1].content);
@@ -101,7 +101,7 @@ function testIntentPayloadCapsRecentMessageLength() {
 
 function testIntentPayloadStaysBoundedForRepresentativeScenario() {
   const payload = routeService.buildRoutePayload({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-terra',
     input: '描述一下最后一张图',
     context: representativeContext(),
     currentTurn: { messageIndex: 3 },

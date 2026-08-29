@@ -57,7 +57,7 @@ async function testDeepSeekFallbackInstructionRetainsCanonicalImageProtocol() {
 
 function testOnlyDeepSeekGetsTheEagerJsonObjectCompatibilityMode() {
   assert.strictEqual(capabilities.initialStructuredOutputMode('deepseek-v4-pro'), 'json_object');
-  assert.strictEqual(capabilities.initialStructuredOutputMode('gpt-5.6-luna'), '');
+  assert.strictEqual(capabilities.initialStructuredOutputMode('gpt-5.6-terra'), '');
 }
 
 function testRouteWorkflowPassesTheSelectedIntentModelToCompatibility() {

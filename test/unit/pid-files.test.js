@@ -58,9 +58,23 @@ function testPidFilesCanBeDisabled() {
   assert.deepStrictEqual(pidFiles.resolvePidFiles({ port: 8765, pidDir: '' }), []);
 }
 
+function testServerEntryPassesPidFilesToLifecycleHelpers() {
+  // Regression: the pid-file refactor changed the helper signatures to take an
+  // explicit files array, but server.js kept calling them with no arguments, so
+  // the running server silently never wrote or removed a pid file.
+  const serverSrc = fs.readFileSync(path.join(__dirname, '../../server.js'), 'utf8');
+  assert.match(serverSrc, /writePidFiles\(\s*pidFiles\s*\)/,
+    'the entry must write the resolved pid file list');
+  assert.match(serverSrc, /removeOwnPidFiles\(\s*pidFiles\s*\)/,
+    'the entry must remove the resolved pid file list on shutdown');
+  assert.match(serverSrc, /process\.on\('exit',\s*\(\)\s*=>\s*removeOwnPidFiles\(\s*pidFiles\s*\)\)/,
+    'the exit hook must remove the resolved pid file list');
+}
+
 module.exports = [
   testDefaultPortWritesExactlyOnePortScopedPidFile,
   testNonDefaultPortKeepsPortScopedNaming,
   testPidWritingAndOwnershipRemoval,
   testPidFilesCanBeDisabled,
+  testServerEntryPassesPidFilesToLifecycleHelpers,
 ];

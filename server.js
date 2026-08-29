@@ -20,11 +20,11 @@ const pidFiles = resolvePidFiles({ port: PORT, pidDir });
 
 function shutdown(signal) {
   server.close(() => {
-    removeOwnPidFiles();
+    removeOwnPidFiles(pidFiles);
     process.exit(0);
   });
   setTimeout(() => {
-    removeOwnPidFiles();
+    removeOwnPidFiles(pidFiles);
     process.exit(0);
   }, 3000).unref();
 }
@@ -34,7 +34,7 @@ server.on('clientError', (_err, socket) => {
 });
 
 server.listen(PORT, HOST, () => {
-  writePidFiles();
+  writePidFiles(pidFiles);
   console.log(`OpenAPI Chat Image is running locally: http://127.0.0.1:${PORT}`);
   console.log(`LAN access: http://<this-machine-ip>:${PORT}`);
   console.log(`Listening on: ${HOST}:${PORT}`);
@@ -48,4 +48,4 @@ server.listen(PORT, HOST, () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-process.on('exit', removeOwnPidFiles);
+process.on('exit', () => removeOwnPidFiles(pidFiles));

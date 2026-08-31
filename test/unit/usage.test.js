@@ -324,11 +324,22 @@ function testConfigPublicConfigReader() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-public-config-'));
   fs.mkdirSync(path.join(root, 'config'));
   const readPublicConfig = createPublicConfigReader({ root, contextWindowTokens: 123456 });
-  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false, intentPipelineDeadlineMs: 300000 } });
   fs.writeFileSync(path.join(root, 'config', 'public.json'), JSON.stringify({ ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep' }, ignored: true }));
-  assert.deepStrictEqual(readPublicConfig(), { ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep', windowTokens: 123456, summarizeOmitted: false } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: { theme: 'flat' }, features: { usage: true }, context: { other: 'keep', windowTokens: 123456, summarizeOmitted: false, intentPipelineDeadlineMs: 300000 } });
   fs.writeFileSync(path.join(root, 'config', 'public.json'), '[]');
-  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false } });
+  assert.deepStrictEqual(readPublicConfig(), { ui: {}, features: {}, context: { windowTokens: 123456, summarizeOmitted: false, intentPipelineDeadlineMs: 300000 } });
+}
+
+
+function testConfigPublicConfigReaderExposesConfiguredIntentDeadline() {
+  const fs2 = require('fs');
+  const os2 = require('os');
+  const path2 = require('path');
+  const root = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'chatui-public-config-deadline-'));
+  fs2.mkdirSync(path2.join(root, 'config'));
+  const readPublicConfig = createPublicConfigReader({ root, contextWindowTokens: 1000, intentPipelineDeadlineMs: 180000 });
+  assert.strictEqual(readPublicConfig().context.intentPipelineDeadlineMs, 180000);
 }
 
 module.exports = [
@@ -347,5 +358,6 @@ module.exports = [
   testUsageServiceOptimizesDepartmentExportWithBulkUsers,
   testUsageServiceOverviewCombinesPersonalAndRanking,
   testConfigPublicConfigReader,
+  testConfigPublicConfigReaderExposesConfiguredIntentDeadline,
   testConfigPublicConfigReaderExposesSummarizeToggle,
 ];

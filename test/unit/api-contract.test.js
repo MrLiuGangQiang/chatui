@@ -106,6 +106,7 @@ async function testApiContractCoreEndpointsKeepShape() {
     assert.ok(publicConfig.json.config.features && typeof publicConfig.json.config.features === 'object');
     assert.ok(publicConfig.json.config.context && typeof publicConfig.json.config.context === 'object');
     assert.strictEqual(typeof publicConfig.json.config.context.windowTokens, 'number');
+    assert.strictEqual(typeof publicConfig.json.config.context.intentPipelineDeadlineMs, 'number');
 
     const changelog = await request(baseUrl, '/api/changelog');
     assert.strictEqual(changelog.res.status, 200);

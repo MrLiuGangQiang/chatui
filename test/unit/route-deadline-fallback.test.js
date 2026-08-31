@@ -5,11 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const routeService = require('../../client/services/route-service');
 const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
+const submitWorkflowPolicy = require('../../client/app/submit-workflow-policy');
 
 function testRouteDeadlineAllowsSlowContextComposition() {
   const workflowSource = fs.readFileSync(path.join(__dirname, '../../client/app/route-intent-workflow.js'), 'utf8');
   const policySource = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow-policy.js'), 'utf8');
-  assert.ok(policySource.includes('const INTENT_PIPELINE_DEADLINE_MS = 60000;'),
+  assert.ok(policySource.includes('const INTENT_PIPELINE_DEADLINE_MS = 300000;'),
     'the canonical route pipeline budget must remain long enough for grounded prompt composition');
   assert.ok(workflowSource.includes('submitWorkflowPolicy.INTENT_PIPELINE_DEADLINE_MS'),
     'the route workflow must consume the shared pipeline deadline');
@@ -140,10 +141,38 @@ async function testIntentTimeoutFailsClosedWithoutSelectingQuotedOrHistoricalMed
   }
 }
 
+function testResolveConfiguredIntentDeadlineUsesPublicConfigWhenValid() {
+  assert.strictEqual(
+    submitWorkflowPolicy.resolveConfiguredIntentDeadline({ context: { intentPipelineDeadlineMs: 120000 } }),
+    120000,
+  );
+  assert.strictEqual(
+    submitWorkflowPolicy.resolveConfiguredIntentDeadline({ context: { intentPipelineDeadlineMs: 0 } }, 300000),
+    300000,
+  );
+  assert.strictEqual(
+    submitWorkflowPolicy.resolveConfiguredIntentDeadline({ context: { intentPipelineDeadlineMs: 'bad' } }, 300000),
+    300000,
+  );
+  assert.strictEqual(
+    submitWorkflowPolicy.resolveConfiguredIntentDeadline({}, 300000),
+    300000,
+  );
+}
+
+function testRouteWorkflowConsumesConfiguredIntentDeadline() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/route-intent-workflow.js'), 'utf8');
+  assert.ok(source.includes('resolveConfiguredIntentDeadline(pipelineConfig, INTENT_DEADLINE_MS)'),
+    'the route workflow must use the configurable intent deadline before its fallback');
+}
+
+
 module.exports = [
   testRouteDeadlineAllowsSlowContextComposition,
   testWorkflowContainsNoLocalIntentFallback,
   testUnconfiguredIntentModelFailsClosed,
   testUnconfiguredIntentModelAlsoBlocksPlainChat,
   testIntentTimeoutFailsClosedWithoutSelectingQuotedOrHistoricalMedia,
+  testResolveConfiguredIntentDeadlineUsesPublicConfigWhenValid,
+  testRouteWorkflowConsumesConfiguredIntentDeadline,
 ];

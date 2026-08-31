@@ -1,4 +1,4 @@
-﻿(function initChatUIAppFormatting(root) {
+(function initChatUIAppFormatting(root) {
   'use strict';
 
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
@@ -63,6 +63,10 @@
     return '·';
   }
 
+  function intentReasoningRunningMarker() {
+    return '<span class="intent-reasoning-pulse" aria-hidden="true"></span>';
+  }
+
   function intentReasoningHtml(trace = {}, { collapsed = false, currentStatus = '' } = {}) {
     const steps = Array.isArray(trace?.steps) ? trace.steps : [];
     const humanize = executionStatus.humanizeStatusText || (value => String(value || ''));
@@ -73,7 +77,9 @@
       const summary = humanize(step?.summary || step?.stage || '正在处理');
       const decision = step?.decision ? `：${humanize(step.decision)}` : '';
       const evidence = Array.isArray(step?.evidence) && step.evidence.length ? ` · ${step.evidence.map(humanize).join(' · ')}` : '';
-      return `<div class="intent-reasoning-step${step === steps.at(-1) && !terminal ? ' is-current' : ''}" role="listitem"><span class="intent-reasoning-marker" aria-hidden="true">${intentReasoningMarker(status)}</span><span class="intent-reasoning-step-body"><span class="intent-reasoning-summary">${escapeHtml(summary)}</span><span class="intent-reasoning-decision">${escapeHtml(decision + evidence)}</span></span></div>`;
+      const isCurrent = step === steps.at(-1) && !terminal;
+      const marker = isCurrent ? intentReasoningRunningMarker() : intentReasoningMarker(status);
+      return `<div class="intent-reasoning-step${isCurrent ? ' is-current' : ''}" role="listitem"><span class="intent-reasoning-marker${isCurrent ? ' is-running' : ''}" aria-hidden="true">${marker}</span><span class="intent-reasoning-step-body"><span class="intent-reasoning-summary">${escapeHtml(summary)}</span><span class="intent-reasoning-decision">${escapeHtml(decision + evidence)}</span></span></div>`;
     }).join('');
     return { html: `<details class="intent-reasoning-trace intent-waiting-surface${terminal ? ' is-terminal' : ' is-running'}" data-intent-reasoning="true"${collapsed ? '' : ' open'}><summary><span class="intent-reasoning-title${currentStatus ? ' is-current-status' : ''}">${escapeHtml(title)}</span></summary><div class="intent-reasoning-steps" role="list">${rows}</div></details>`, text: steps.map(step => humanize(step?.summary || step?.stage || '')).filter(Boolean).join('\n') };
   }

@@ -21,7 +21,14 @@ const { readVersion } = require('../version-source');
 const APP_VERSION = readVersion({ root: ROOT });
 const { createBuildIdentity } = require('../build-identity');
 const BUILD_IDENTITY = createBuildIdentity({ root: ROOT, version: APP_VERSION });
-const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS, contextSummarizeOmitted: CONTEXT_SUMMARIZE_OMITTED });
+
+const DEFAULT_INTENT_PIPELINE_DEADLINE_MS = 300000;
+function normalizeIntentDeadline(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+const INTENT_PIPELINE_DEADLINE_MS = normalizeIntentDeadline(process.env.CHATUI_INTENT_PIPELINE_DEADLINE_MS, DEFAULT_INTENT_PIPELINE_DEADLINE_MS);
+const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS, contextSummarizeOmitted: CONTEXT_SUMMARIZE_OMITTED, intentPipelineDeadlineMs: INTENT_PIPELINE_DEADLINE_MS });
 
 // Optional provider capability descriptor (design doc v2.7 7.1). Absent or
 // invalid JSON means "unconfigured" -> server gates treat the provider as
@@ -47,6 +54,7 @@ module.exports = {
   UPSTREAM_TIMEOUT_MS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   CONTEXT_WINDOW_TOKENS,
+  INTENT_PIPELINE_DEADLINE_MS,
   PROVIDER_CAPABILITIES,
   ALLOWED_PROXY_METHODS,
   ALLOWED_PROXY_PATHS,

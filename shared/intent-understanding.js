@@ -150,6 +150,7 @@
     const bareGe = new RegExp(NUMBER + '\\s*' + RESULT_GE, 'g');
     for (const match of value.matchAll(bareGe)) counts.push(parseChineseNumber(match[1]));
 
+
     // Counts anchored AFTER the last output verb in each clause. This keeps
     // "参考两张图生成一张新图" at one result while still seeing the outputs.
     const anchored = [];

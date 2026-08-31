@@ -1,7 +1,12 @@
 (function initChatUISubmitWorkflowPolicy(root) {
   'use strict';
 
-  const INTENT_PIPELINE_DEADLINE_MS = 60000;
+  const INTENT_PIPELINE_DEADLINE_MS = 300000;
+
+  function resolveConfiguredIntentDeadline(config = {}, fallback = INTENT_PIPELINE_DEADLINE_MS) {
+    const value = Number(config?.context?.intentPipelineDeadlineMs);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+  }
   const ROUTE_OUTCOMES = Object.freeze({
     READY: 'ready',
     BUSINESS_CLARIFICATION: 'business_clarification',
@@ -205,6 +210,7 @@
     normalizeRouteOutcome,
     isRouteFailureOutcome,
     INTENT_PIPELINE_DEADLINE_MS,
+    resolveConfiguredIntentDeadline,
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('submitWorkflowPolicy', api);

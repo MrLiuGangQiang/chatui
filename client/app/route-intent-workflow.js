@@ -1,4 +1,4 @@
-﻿(function initChatUIRouteIntentWorkflow(root) {
+(function initChatUIRouteIntentWorkflow(root) {
   'use strict';
 
   const requestCompatibility = root?.[Symbol.for('chatui.module-registry.v1')]?.get('requestCompatibility')
@@ -12,6 +12,7 @@
   const createIntentPipelineCancellation = submitWorkflowPolicy.createIntentPipelineCancellation;
   const ROUTE_OUTCOMES = submitWorkflowPolicy.ROUTE_OUTCOMES;
   const normalizeRouteOutcome = submitWorkflowPolicy.normalizeRouteOutcome;
+  const resolveConfiguredIntentDeadline = submitWorkflowPolicy.resolveConfiguredIntentDeadline;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
   const taskConstantsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskConstants')
@@ -561,9 +562,13 @@
       const absoluteDeadlineAt = Number.isFinite(requestedDeadlineAt) && requestedDeadlineAt > 0
         ? requestedDeadlineAt
         : 0;
+      const pipelineConfig = typeof getConfig === 'function' ? getConfig() : {};
+      const effectiveDefaultDeadlineMs = typeof resolveConfiguredIntentDeadline === 'function'
+        ? resolveConfiguredIntentDeadline(pipelineConfig, INTENT_DEADLINE_MS)
+        : INTENT_DEADLINE_MS;
       const deadlineAt = absoluteDeadlineAt && relativeDeadlineAt
         ? Math.min(absoluteDeadlineAt, relativeDeadlineAt)
-        : absoluteDeadlineAt || relativeDeadlineAt || Date.now() + INTENT_DEADLINE_MS;
+        : absoluteDeadlineAt || relativeDeadlineAt || Date.now() + effectiveDefaultDeadlineMs;
       const intentDeadline = createBoundedIntentRequest(parentSignal, deadlineAt);
       let context = routeContextOverride || {};
       let attachmentMeta = [];
@@ -938,39 +943,6 @@
                 materializedRoute,
                 'image_plan_invalid',
                 '本次未执行：多图任务规划模型返回了无效结构，请重试。',
-              ), source);
-            }
-            if (expectedTaskCount >= 2
-                && Array.isArray(inspected.plan.tasks)
-                && inspected.plan.tasks.length !== expectedTaskCount
-                && typeof routeSvc.buildImagePlanRepairPayload === 'function') {
-              emitStage('repairing_route', { modelRole: 'primary' });
-              const repairPayload = routeSvc.buildImagePlanRepairPayload({
-                model: primaryModel,
-                input,
-                goal,
-                attachments: attachmentMeta,
-                context,
-                currentTurn: routeOptions?.currentTurn || null,
-                expectedTaskCount: expectedTaskCount,
-                rejectedPlan: inspected.plan,
-                intentReasoning,
-              });
-              const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary', requestPurpose: 'image_planning' });
-              intentDeadline.assertActive();
-              const repairRaw = routeSvc.extractRouteText(repairResponse);
-              const repaired = routeSvc.inspectImagePlanResult(repairRaw);
-              if (repaired?.plan && Array.isArray(repaired.plan.tasks) && repaired.plan.tasks.length === expectedTaskCount) {
-                inspected = repaired;
-              }
-            }
-            if (expectedTaskCount >= 2
-                && Array.isArray(inspected.plan.tasks)
-                && inspected.plan.tasks.length !== expectedTaskCount) {
-              return completeRoute(routeFailureRoute(
-                materializedRoute,
-                'image_plan_not_faithful',
-                '本次未执行：多图任务规划数量与请求不一致，请重试。',
               ), source);
             }
             const compiled = routeSvc.compileImagePlan(inspected.plan, {

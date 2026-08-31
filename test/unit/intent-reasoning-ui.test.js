@@ -62,6 +62,11 @@ function testRouteRecognitionUiWiresTraceAndAssets() {
   assert.ok(css.includes(".intent-reasoning-steps"));
   assert.ok(css.includes(".intent-reasoning-title.is-current-status::after"));
   assert.ok(css.includes("prefers-reduced-motion"));
+  assert.ok(css.includes(".intent-reasoning-marker.is-running .intent-reasoning-pulse"));
+  assert.ok(css.includes("@keyframes intentReasoningBreathing"));
+  assert.ok(css.includes("width: 10px"), "the breathing dot must be slightly larger");
+  assert.ok(css.includes(".intent-reasoning-marker.is-running {"), "the running marker must be a flex-centred column so the dot is vertically centred");
+  assert.ok(css.includes("align-items: center;"), "the running marker must vertically centre the breathing dot");
 }
 
 function testIntentReasoningHtmlKeepsEveryStepIncludingAdjacentDuplicates() {
@@ -97,6 +102,20 @@ function testIntentReasoningTitleEscapesCurrentStatus() {
   assert.ok(!rendered.html.includes("<img src=x onerror=alert(1)>"), "the raw status must never be injected as markup");
 }
 
+function testCurrentStepShowsBreathingDotWhileRunning() {
+  const rendered = formatting.intentReasoningHtml(trace("running"));
+  assert.ok(rendered.html.includes("intent-reasoning-pulse"), "the running/current step must render a breathing dot");
+  assert.ok(rendered.html.includes("intent-reasoning-marker is-running"), "the current step marker must carry the is-running state");
+  assert.ok(!rendered.html.includes("\u2713"), "the current step must not show a checkmark while still running");
+}
+
+function testTerminalStepShowsCheckmarkInsteadOfBreathingDot() {
+  const rendered = formatting.intentReasoningHtml(trace("ready"));
+  assert.ok(rendered.html.includes("\u2713"), "a completed terminal step must show a checkmark");
+  assert.ok(!rendered.html.includes("intent-reasoning-pulse"), "no step may keep the breathing dot once the trace is terminal");
+}
+
+
 module.exports = [
   testIntentReasoningHtmlShowsEveryStepAndEscapesWhileRunning,
   testIntentReasoningHtmlIsCollapsedAfterTerminalState,
@@ -105,6 +124,8 @@ module.exports = [
   testIntentReasoningHtmlUsesActualStepSummaryDecisionAndEvidence,
   testIntentReasoningTitleEscapesCurrentStatus,
   testPendingFeedbackUsesTheUnifiedIntentSurface,
+  testCurrentStepShowsBreathingDotWhileRunning,
+  testTerminalStepShowsCheckmarkInsteadOfBreathingDot,
 ];
 
 

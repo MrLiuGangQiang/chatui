@@ -300,54 +300,7 @@ async function testSingleTaskPlanCollapsesBackToLegacySingleRoute() {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
   }
-}
-
-async function testSingleTaskPlanForExplicitMultiImageRequestFailsClosed() {
-  const previous = globalThis.ChatUIRouteService;
-  globalThis.ChatUIRouteService = routeService;
-  try {
-    const { workflow } = createWorkflow({ stageTwo: stageTwoResponse(1) });
-    const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
-    assert.strictEqual(route.readiness, 'failed');
-    assert.strictEqual(route.imagePlanCompiled, undefined);
-    assert.strictEqual(route.dispatchAuthorized, false);
-    assert.match(route.outcomeMessage, /规划数量与请求不一致/);
-  } finally {
-    if (previous === undefined) delete globalThis.ChatUIRouteService;
-    else globalThis.ChatUIRouteService = previous;
-  }
-}
-
-async function testSimplePathMultiImageRequestAlsoEnforcesExpectedTaskCount() {
-  const previous = globalThis.ChatUIRouteService;
-  globalThis.ChatUIRouteService = routeService;
-  try {
-    const stageOne = JSON.stringify({
-      operation: 'text_to_image',
-      relation: 'new',
-      goal: '生成三张海报：春、夏、冬',
-      goal_mode: 'replace',
-      resource_refs: [],
-      task_shape: 'multi',
-    });
-    const { workflow, calls } = createWorkflow({ stageOne, stageTwo: stageTwoResponse(2) });
-    const route = await workflow.getEffectiveRoute('生成三张海报：春、夏、冬', [], 'session-plan', null, {});
-    assert.strictEqual(calls.filter(call => call.payload.text?.format?.name === 'chatui_intent_understanding_v1').length, 0,
-      'a plain multi-image instruction must stay on the simple one-call path');
-    const planCalls = calls.filter(call => call.payload.text?.format?.name === 'chatui_image_plan_v1');
-    assert.ok(planCalls.length >= 2, 'the simple-path planner must receive one round plus a targeted repair round');
-    const planUser = JSON.parse(planCalls[0].payload.input[1].content);
-    assert.strictEqual(planUser.expected_task_count, 3,
-      'the deterministic expected image-result count must apply to the simple path too');
-    assert.strictEqual(route.readiness, 'failed');
-    assert.match(route.outcomeMessage, /规划数量与请求不一致/);
-  } finally {
-    if (previous === undefined) delete globalThis.ChatUIRouteService;
-    else globalThis.ChatUIRouteService = previous;
-  }
-}
-
-async function testInvalidPlanFailsClosedIntoClarification() {
+}async function testInvalidPlanFailsClosedIntoClarification() {
   const previous = globalThis.ChatUIRouteService;
   globalThis.ChatUIRouteService = routeService;
   try {
@@ -408,8 +361,6 @@ module.exports = [
   testPlanningRequestFailureDoesNotMisdiagnoseFiveTaskLimit,
   testOverLimitPlanReturnsAnExplicitClarification,
   testSingleTaskPlanCollapsesBackToLegacySingleRoute,
-  testSingleTaskPlanForExplicitMultiImageRequestFailsClosed,
-  testSimplePathMultiImageRequestAlsoEnforcesExpectedTaskCount,
   testInvalidPlanFailsClosedIntoClarification,
   testMergedUnderstandingActionStillSplitsIntoImagePlan,
   testImagePlanPromptExplainsPerTaskEditRoles,

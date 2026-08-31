@@ -45,6 +45,9 @@
   const submitHelpers =
       root?.ChatUISubmitWorkflowHelpers ||
       (typeof require === "function" ? require("./submit-workflow.helpers") : {});
+  const appendIntentStatusHtml = root?.ChatUIAppFormatting?.appendIntentStatusHtml
+    || root?.ChatUIApp?.formatting?.appendIntentStatusHtml
+    || (typeof require === "function" ? require("./formatting").appendIntentStatusHtml : null);
 
     function loadImageBatch(sessionId = deps.state?.activeSessionId || '') {
       const stored = submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;
@@ -236,7 +239,7 @@
           (i ||
             (i = takePendingLiveItem(
               e,
-              a ? "正在恢复图片修改任务…" : "正在恢复图片生成任务…",
+              a ? "正在恢复图片修改任务" : "正在恢复图片生成任务",
               /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/,
             )),
             i &&
@@ -254,14 +257,19 @@
             r = a ? "正在修改图片" : "正在生成图片",
             l = () => {
               const t = Math.max(0, Math.floor((Date.now() - o) / 1e3));
+              const status = `${r} 已等待 ${t} 秒`;
+              const currentHtml = String(i?.html || '');
+              const statusHtml = currentHtml && typeof appendIntentStatusHtml === 'function'
+                ? appendIntentStatusHtml(currentHtml, status) || pendingFeedbackHtml(status)
+                : pendingFeedbackHtml(status);
               updateLiveDisplay(
                 e,
                 i,
                 "assistant",
-                pendingFeedbackHtml(`${r} 已等待 ${t} 秒`),
+                statusHtml,
                 {
                   html: !0,
-                  rawText: `${r}… 已等待 ${t} 秒`,
+                  rawText: `${r} 已等待 ${t} 秒`,
                   pending: !0,
                   noScroll: !shouldFollowScroll(),
                 },
@@ -557,7 +565,7 @@
         const parent = (parentId && (session.display || []).find(item => item?.id === parentId))
           || (session.display || []).find(item => item?.batchId === index.batchId)
           || (hasPendingChildren && typeof takePendingLiveItem === 'function'
-            ? takePendingLiveItem(e, '正在恢复图片生成任务…', /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/)
+            ? takePendingLiveItem(e, '正在恢复图片生成任务', /正在生成图片|正在修改图片|正在恢复图片生成任务|正在恢复图片修改任务|已收到/)
             : null)
           || (!hasPendingChildren && parentId
             ? (() => {
@@ -825,7 +833,7 @@
             let a = takeChatJobLiveItem(
               e,
               s,
-              "正在恢复聊天任务…",
+              "正在恢复聊天任务",
               /正在处理|正在思考|正在恢复聊天任务|已收到/,
             );
             (a &&
@@ -866,7 +874,7 @@
           let a = takeChatJobLiveItem(
             e,
             s,
-            "正在恢复聊天任务…",
+            "正在恢复聊天任务",
             /正在处理|正在思考|正在恢复聊天任务|已收到/,
           );
           (a &&
@@ -912,14 +920,19 @@
               if (o) return;
               const t = Math.max(0, Math.floor((Date.now() - i) / 1e3)),
                 s = shouldFollowScroll();
+              const status = `正在处理 已等待 ${t} 秒`;
+              const currentHtml = String(a?.html || '');
+              const statusHtml = currentHtml && typeof appendIntentStatusHtml === 'function'
+                ? appendIntentStatusHtml(currentHtml, status) || pendingFeedbackHtml(status)
+                : pendingFeedbackHtml(status);
               updateLiveDisplay(
                 e,
                 a,
                 "assistant",
-                pendingFeedbackHtml(`正在处理 已等待 ${t} 秒`),
+                statusHtml,
                 {
                   html: !0,
-                  rawText: `正在处理… 已等待 ${t} 秒`,
+                  rawText: `正在处理 已等待 ${t} 秒`,
                   pending: !0,
                   noScroll: !s,
                   forceScroll: s,

@@ -40,8 +40,10 @@ function testUnderstandingPromptDropsUnconsumedFieldsAndOwnsDeliveryRecovery() {
 
 function testUnderstandingPromptOwnsItsProtocolAndSplitsIndependentImageActions() {
   assert.match(UNDERSTAND_PROMPT, /intent_understanding\.v1/);
-  assert.match(UNDERSTAND_PROMPT, /每张图\/每个文件一条 action/);
-  assert.match(UNDERSTAND_PROMPT, /不得合并或遗漏/);
+  assert.match(UNDERSTAND_PROMPT, /上传图片\/文件只是回答依据，不是独立任务/);
+  assert.match(UNDERSTAND_PROMPT, /每个独立执行结果一条 action/);
+  assert.match(UNDERSTAND_PROMPT, /只有独立输出才拆分/);
+  assert.match(UNDERSTAND_PROMPT, /否定\/排除.*不是 action/);
   assert.match(UNDERSTAND_PROMPT, /"index":1,"kind":"image_generate"/);
   assert.match(UNDERSTAND_PROMPT, /"index":2,"kind":"image_generate"/);
   assert.doesNotMatch(UNDERSTAND_PROMPT, /【判断顺序】/,

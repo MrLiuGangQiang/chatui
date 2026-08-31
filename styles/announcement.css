@@ -248,6 +248,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   color: #4f46e5;
   font-weight: 700;
 }
+.announcement-tip-note .announcement-highlight { color:#ef4444; font-weight:700; }
 .announcement-hero-explain {
   margin: 14px 0 0;
   padding: 13px 15px;

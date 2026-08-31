@@ -962,7 +962,7 @@ GET, POST
 | `PG_POOL_MAX` / `POSTGRES_POOL_MAX` | `10` | PostgreSQL 连接池最大连接数 |
 | `PG_IDLE_TIMEOUT_MS` / `POSTGRES_IDLE_TIMEOUT_MS` | `30000` | PostgreSQL 连接池空闲连接回收时间 |
 | `PG_CONNECTION_TIMEOUT_MS` / `POSTGRES_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL 建连超时时间 |
-| `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |
+| `PGSSL` / `POSTGRES_SSL` | 未设置 | PostgreSQL SSL 开关；可设为 `true` / `require` / `false` |`n| `REDIS_URL` | 未设置 | Redis 连接串，用于多实例共享在线人数统计；例如 `redis://:password@host:6379/0`。未设置时使用单实例内存 presence。 |
 | `USAGE_RANKING_LIMIT` | `10` | 使用排行榜每个范围返回数量，非法值回退到 10，最大 100 |
 | `USAGE_STATS_RANKING_LIMIT` | 未设置 | 排行榜数量兼容别名 |
 | `USAGE_ACCESS_CACHE_TTL_MS` / `USAGE_ACCESS_CACHE_MAX_ENTRIES` | `300000` / `512` | 统计/反馈 API Key+模型访问校验的 TTL 与 LRU 上限；只缓存脱敏结果，不保存原始 Key。 |

@@ -1,5 +1,5 @@
 const http = require('http');
-const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, readPublicConfig } = require('./config');
+const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, REDIS_URL, readPublicConfig } = require('./config');
 const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { createIdempotencyTable } = require('./validators/idempotency.validator');
 const { serveStatic } = require('./http/static');
@@ -12,6 +12,7 @@ const { createRouter } = require('./api/router');
 const { createPostgresConfig, createPostgresPool } = require('./db/postgres');
 const { createUsageStatsRepository } = require('./usage/stats-repository');
 const { createPresenceService, startPresenceSweeper } = require('./services/presence.service');
+const { createRedisPresenceService } = require('./services/presence.redis');
 const { createDingTalkFeedbackSender } = require('./services/dingtalk-feedback.service');
 const { createFeedbackReviewer } = require('./services/feedback-review.service');
 const { createUsageAccessValidator } = require('./services/usage-access.service');
@@ -30,7 +31,23 @@ function createApp() {
   const feedbackSender = createDingTalkFeedbackSender();
   const feedbackReviewer = createFeedbackReviewer();
   const usageAccessValidator = createUsageAccessValidator();
-  const presence = createPresenceService();
+  let presenceRedis = null;
+  let presenceRedisSubscriber = null;
+  let presence = createPresenceService();
+  if (REDIS_URL) {
+    const Redis = require('ioredis');
+    presenceRedis = new Redis(REDIS_URL, { enableOfflineQueue: false, maxRetriesPerRequest: 2, connectTimeout: 5000 });
+    presenceRedisSubscriber = new Redis(REDIS_URL, { enableOfflineQueue: true });
+    presence = createRedisPresenceService({ redis: presenceRedis, subscriber: presenceRedisSubscriber });
+    for (const client of [presenceRedis, presenceRedisSubscriber]) {
+      client.on('error', error => {
+        try { errorLog.log(error, { source: 'presence-redis' }); } catch {}
+      });
+    }
+    Promise.resolve(presence.start()).catch(error => {
+      try { errorLog.log(error, { source: 'presence-redis-subscribe' }); } catch {}
+    });
+  }
   const presenceSweeper = startPresenceSweeper(presence);
   const jobSubscribers = new Map();
   // Late-bound so the job stores can be created before the job handlers that
@@ -153,16 +170,19 @@ function createApp() {
   }
   server.close = function closeServer(callback) {
     closeJobSubscribers(jobSubscribers);
-    presence.closeAll();
-    return originalClose(error => {
-      closeLogsOnce().then(
-        () => callback?.(error),
-        loggingError => {
-          console.error('[logging] graceful close failed:', loggingError?.message || loggingError);
-          callback?.(error || loggingError);
-        },
-      );
-    });
+    return Promise.resolve().then(() => presence.closeAll())
+      .catch(() => {})
+      .then(() => {
+        originalClose(error => {
+          closeLogsOnce().then(
+            () => callback?.(error),
+            loggingError => {
+              console.error('[logging] graceful close failed:', loggingError?.message || loggingError);
+              callback?.(error || loggingError);
+            },
+          );
+        });
+      });
   };
 
   serverLog.started({ host: '0.0.0.0', port: 8765 });
@@ -171,6 +191,8 @@ function createApp() {
     serverLog.stopped({ reason: 'server.close' });
     clearInterval(sweeper);
     clearInterval(presenceSweeper);
+    if (presenceRedisSubscriber) { try { Promise.resolve(presenceRedisSubscriber.disconnect()).catch(() => {}); } catch {} }
+    if (presenceRedis) { try { Promise.resolve(presenceRedis.disconnect()).catch(() => {}); } catch {} }
     postgresPool?.end?.().catch(err => {
       console.error('[postgres] failed to close pool:', err);
       errorLog.log(err, { source: 'postgres' });

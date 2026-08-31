@@ -1,4 +1,4 @@
-﻿const assert = require('assert');
+const assert = require('assert');
 const capabilities = require('../../shared/capability-registry');
 const dispatchContract = require('../../shared/dispatch-contract');
 

@@ -32,6 +32,22 @@ function testPendingStatusRendersOneEscapedAtomicLine() {
   assert.ok(!html.includes('接收任务'));
 }
 
+function testMultiImagePlanningStatusIsNotOverwrittenByReasoningTrace() {
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const routeWorkflow = fs.readFileSync(path.join(root, 'client/app/route-intent-workflow.js'), 'utf8');
+  assert.ok(routeWorkflow.includes('planning_image_tasks'));
+  assert.ok(app.includes('onStage:l,onReasoningTrace:d'), 'reasoning trace updates must not overwrite the concrete route stage');
+  assert.strictEqual(executionStatus.routeStageText('planning_image_tasks'), '正在拆分多个图片任务');
+}
+
+function testHumanizeStatusTextHidesInternalIdentifiers() {
+  assert.strictEqual(executionStatus.humanizeStatusText('intent_critic'), '语义检查');
+  assert.strictEqual(executionStatus.humanizeStatusText('route_intent.v3'), '请求理解结果');
+  const html = formatting.pendingFeedbackHtml('intent_critic');
+  assert.ok(html.includes('语义检查'));
+  assert.ok(!html.includes('intent_critic'));
+}
+
 function testExecutionStatusUsesOperationSpecificLatestState() {
   assert.strictEqual(executionStatus.operationStatusText('plain_chat', 'execute'), '正在等待模型生成回答');
   assert.strictEqual(executionStatus.operationStatusText('ocr', 'execute'), '正在提取图片文字');
@@ -76,12 +92,17 @@ function testPendingStatusAssetsShipWithoutFixedExecutionMap() {
   assert.ok(index.includes('styles.css?v=1.3.5-live-status'));
   assert.ok(index.includes('flat-theme.css?v=2.2.14-welcome-fonts'));
   assert.ok(index.includes('execution-status.js?v=1.0.1-stage-text'));
-  assert.ok(index.includes('formatting.js?v=1.2.70-live-status'));
+  assert.ok(index.includes('formatting.js?v=1.2.72-intent-waiting-copy'));
   assert.ok(index.includes('regenerate-workflow.js?v=1.2.9-intent-first'));
 }
 
 module.exports = [
   testPendingStatusRendersOneEscapedAtomicLine,
   testExecutionStatusUsesOperationSpecificLatestState,
+  testMultiImagePlanningStatusIsNotOverwrittenByReasoningTrace,
+  testHumanizeStatusTextHidesInternalIdentifiers,
   testPendingStatusAssetsShipWithoutFixedExecutionMap,
 ];
+
+
+

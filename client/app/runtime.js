@@ -15,6 +15,8 @@
       }
       node.textContent = label;
     });
+    const announcementVersion = doc.getElementById('announcementVersion');
+    if (announcementVersion) announcementVersion.textContent = compactLabel;
     const railConfigBtn = doc.getElementById('railConfigBtn');
     if (railConfigBtn) {
       railConfigBtn.title = `模型配置 · ${label}`;

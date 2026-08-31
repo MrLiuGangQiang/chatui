@@ -1,4 +1,4 @@
-﻿const assert = require('assert');
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 require('../../client/app/app-context');
@@ -23,7 +23,7 @@ function makeMessageNode() {
   };
 }
 
-function createForceImageFixture({ sendImageImpl } = {}) {
+function createForceImageFixture({ sendImageImpl, routeResult } = {}) {
   const events = [];
   const pending = [];
   const calls = [];
@@ -69,7 +69,7 @@ function createForceImageFixture({ sendImageImpl } = {}) {
     createRouteRecognitionUi: () => ({
       getEffectiveRouteWithSlowNotice: async () => {
         calls.push(['route', 'draw a fox']);
-        return routeService.createExplicitTextToImageRoute('draw a fox');
+        return routeResult || routeService.createExplicitTextToImageRoute('draw a fox');
       },
     }),
     getSubmitWorkflow: () => submitWorkflow,
@@ -111,13 +111,13 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
 }
 
-async function testForceImageRegenerateRunsIntentRecognitionFirst() {
+async function testForceImageRegenerateSkipsIntentRecognitionAndDispatchesDirectly() {
   const fixture = createForceImageFixture();
   await fixture.workflow.forceImageFromUserMessage(makeMessageNode());
   const routeCall = fixture.calls.findIndex(call => call[0] === 'route');
   const sendCall = fixture.calls.findIndex(call => call[0] === 'send');
-  assert.ok(routeCall >= 0, 'explicit text-to-image regeneration must run intent recognition first');
-  assert.ok(sendCall > routeCall, 'execution must wait for the routed intent result');
+  assert.strictEqual(routeCall, -1, 'explicit force-image must not run intent recognition');
+  assert.ok(sendCall >= 0, 'explicit force-image must dispatch the image request directly');
 }
 
 async function testRegeneratePostHandoffFailureEntersRecovery() {
@@ -164,6 +164,28 @@ async function testRegenerateCompletionCallbacksPublishOneHandoffAndOneCompletio
     false,
   );
   assert.strictEqual(fixture.calls.some(call => call[0] === 'error'), false);
+}
+
+async function testForceImageRepairsPlainRouteToCanonicalImageContract() {
+  const wrongRoute = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: 'draw a fox',
+    goal_mode: 'replace',
+    resource_refs: [],
+    task_shape: 'single',
+  }), { input: 'draw a fox', attachments: [], context: {} }).route;
+  const fixture = createForceImageFixture({ routeResult: wrongRoute });
+
+  await fixture.workflow.forceImageFromUserMessage(makeMessageNode());
+
+  const options = fixture.getSentOptions();
+  assert.ok(options, 'force-image must reach the image handoff');
+  assert.strictEqual(options.dispatchContract.operation, 'text_to_image',
+    'explicit force-image action must not dispatch a model-selected plain-chat contract');
+  assert.strictEqual(options.dispatchContract.api, 'image_generation');
+  assert.strictEqual(fixture.calls.some(call => call[0] === 'error'), false,
+    'a wrong model route must be repaired before it becomes a user-visible protocol error');
 }
 
 function testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal() {
@@ -381,6 +403,12 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
           { key: 'c2', source: 'history', index: 2, id: 'cat-b', reference_id: 'cats', label: '猫 2' },
         ],
       }],
+    },
+    sourceImageContext: {
+      attachments: [
+        { imageId: 'cat-a', src: 'indexeddb://cat-a', name: 'cat-a.png' },
+        { imageId: 'cat-b', src: 'indexeddb://cat-b', name: 'cat-b.png' },
+      ],
     },
   });
   const userNode = { dataset: { rawText: '换一下猫的姿势', messageIndex: '0' } };
@@ -641,6 +669,7 @@ async function testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch
 }
 
 module.exports = [
+  testForceImageRepairsPlainRouteToCanonicalImageContract,
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
   testRegeneratePostHandoffFailureEntersRecovery,
   testRegenerateCompletionCallbacksPublishOneHandoffAndOneCompletion,
@@ -653,7 +682,7 @@ module.exports = [
   testRegenerateClearsSelectedImageBeforePersistenceCompletes,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
   testRegenerateUsesCanonicalRouteRecognitionContext,
-  testForceImageRegenerateRunsIntentRecognitionFirst,
+  testForceImageRegenerateSkipsIntentRecognitionAndDispatchesDirectly,
   testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch,
 ];
 

@@ -60,7 +60,7 @@ async function testRouteLiveStatusFollowsActualPrimaryModelEvents() {
       'session-1',
       null,
       null,
-      { onStage: (text, event) => events.push({ text, ...event }) },
+      { enableRouteFallback: true, onStage: (text, event) => events.push({ text, ...event }) },
     );
 
     assert.strictEqual(result, route);
@@ -117,7 +117,7 @@ async function testRouteLiveStatusReportsBackupModelRetry() {
       'session-1',
       null,
       null,
-      { onStage: (text, event) => events.push({ text, ...event }) },
+      { enableRouteFallback: true, onStage: (text, event) => events.push({ text, ...event }) },
     );
 
     assert.strictEqual(result, route);

@@ -179,7 +179,20 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   assert.ok(!paths.includes('/client/services/attachment-service.js'), 'the removed local extraction service must not be bundled');
 }
 
+function testIntentContractsAreIncludedInTheManifestDrivenRuntime() {
+  const root = path.join(__dirname, '..', '..');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  const staticSource = fs.readFileSync(path.join(root, 'server/http/static.js'), 'utf8');
+  for (const asset of ['shared/intent-reasoning.js', 'shared/intent-claims.js', 'shared/semantic-intent.js', 'shared/intent-critic.js']) {
+    assert.ok(index.includes(asset), `manifest must include ${asset}`);
+  }
+  assert.ok(dockerfile.includes('COPY shared ./shared'));
+  assert.ok(staticSource.includes('manifest entries'));
+}
+
 module.exports = [
+  testIntentContractsAreIncludedInTheManifestDrivenRuntime,
   testStaticPathUtilitiesPreserveTraversalAndHashingGuards,
   testStaticBundleManifestParsesLocalEntriesOnly,
   testStaticBundleHelpersBuildExpectedBodyAndMetadata,

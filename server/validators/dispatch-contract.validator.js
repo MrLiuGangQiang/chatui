@@ -7,6 +7,7 @@ const imageInstructionContract = require('../../shared/image-instruction');
 const REQUEST_PURPOSES = Object.freeze({
   INTENT_UNDERSTANDING: 'intent_understanding',
   INTENT_RECOGNITION: 'intent_recognition',
+  INTENT_CRITIC: 'intent_critic',
   ROUTE_REPAIR: 'route_repair',
   ROUTE_FALLBACK: 'route_fallback',
   MULTI_TASK_PLANNING: 'multi_task_planning',
@@ -21,6 +22,7 @@ const IMAGE_GENERATION_TARGET_PATHS = new Set(['/images/generations']);
 const IMAGE_EDIT_TARGET_PATHS = new Set(['/images/edits', '/openai/image_edit']);
 const SEMANTIC_CONTROL_PURPOSES = new Set([
   REQUEST_PURPOSES.INTENT_UNDERSTANDING,
+  REQUEST_PURPOSES.INTENT_CRITIC,
   REQUEST_PURPOSES.ROUTE_REPAIR,
   REQUEST_PURPOSES.ROUTE_FALLBACK,
   REQUEST_PURPOSES.MULTI_TASK_PLANNING,
@@ -89,7 +91,7 @@ function assertRequestPurpose(body = {}, expected = '') {
   if (!actual) {
     throw executionProtocolError('requestPurpose is required', 'REQUEST_PURPOSE_REQUIRED');
   }
-  if (![REQUEST_PURPOSES.INTENT_UNDERSTANDING, REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.ROUTE_REPAIR, REQUEST_PURPOSES.ROUTE_FALLBACK, REQUEST_PURPOSES.MULTI_TASK_PLANNING, REQUEST_PURPOSES.IMAGE_PLANNING, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
+  if (![REQUEST_PURPOSES.INTENT_UNDERSTANDING, REQUEST_PURPOSES.INTENT_RECOGNITION, REQUEST_PURPOSES.INTENT_CRITIC, REQUEST_PURPOSES.ROUTE_REPAIR, REQUEST_PURPOSES.ROUTE_FALLBACK, REQUEST_PURPOSES.MULTI_TASK_PLANNING, REQUEST_PURPOSES.IMAGE_PLANNING, REQUEST_PURPOSES.IMAGE_INSTRUCTION_MATERIALIZATION, REQUEST_PURPOSES.FINAL_EXECUTION, REQUEST_PURPOSES.BACKGROUND_IMAGE_TAG].includes(actual)) {
     throw executionProtocolError('requestPurpose is invalid', 'REQUEST_PURPOSE_INVALID');
   }
   if (expected && actual !== expected) {
@@ -98,9 +100,9 @@ function assertRequestPurpose(body = {}, expected = '') {
   return actual;
 }
 
-function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = 'POST' } = {}) {
+function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = 'POST', expectedPurpose = REQUEST_PURPOSES.INTENT_RECOGNITION } = {}) {
   const normalizedPath = normalizedTargetPath(targetPath);
-  assertRequestPurpose(body, REQUEST_PURPOSES.INTENT_RECOGNITION);
+  const requestPurpose = assertRequestPurpose(body, expectedPurpose);
   assertNoEmbeddedExecutionProtocolFields(body.payload || {});
   if (String(method || 'POST').toUpperCase() !== 'POST' || !CHAT_TARGET_PATHS.has(normalizedPath)) {
     throw executionProtocolError('Intent recognition must use a chat endpoint', 'INTENT_RECOGNITION_TARGET_INVALID');
@@ -114,7 +116,7 @@ function assertIntentRecognitionRequest(body = {}, { targetPath = '', method = '
       throw executionProtocolError('意图识别请求不得携带资源绑定证据', 'INTENT_RECOGNITION_BINDINGS_FORBIDDEN');
     }
   }
-  return Object.freeze({ requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION, targetPath: normalizedPath });
+  return Object.freeze({ requestPurpose, targetPath: normalizedPath });
 }
 
 function assertImageInstructionMaterializationRequest(body = {}, { targetPath = '', method = 'POST' } = {}) {
@@ -298,7 +300,7 @@ function validateProxyExecutionRequest(body = {}, options = {}) {
   }
   const purpose = assertRequestPurpose(body);
   if (SEMANTIC_CONTROL_PURPOSES.has(purpose)) {
-    return assertIntentRecognitionRequest({ ...body, requestPurpose: REQUEST_PURPOSES.INTENT_RECOGNITION }, { targetPath, method });
+    return assertIntentRecognitionRequest(body, { targetPath, method, expectedPurpose: purpose });
   }
   if (purpose === REQUEST_PURPOSES.INTENT_RECOGNITION) {
     return assertIntentRecognitionRequest(body, { targetPath, method });

@@ -26,16 +26,20 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
     return sendJson(res, 404, { error: { message: 'Presence endpoint not found' } }, { 'Access-Control-Allow-Origin': '*' });
   }
 
-  function routeSnapshot(req, res) {
+  async function routeSnapshot(req, res) {
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
     if (!service) return presenceUnavailable(res, sendJson);
-    return sendJson(res, 200, service.snapshot(), {
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-store',
-    });
+    try {
+      return sendJson(res, 200, await service.snapshot(), {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      });
+    } catch {
+      return presenceUnavailable(res, sendJson);
+    }
   }
 
-  function routeStream(req, res) {
+  async function routeStream(req, res) {
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
     if (!service) return presenceUnavailable(res, sendJson);
     let clientId = '';
@@ -46,14 +50,30 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
     if (!normalized) {
       return sendJson(res, 400, { error: { message: 'Valid clientId query parameter is required' } }, { 'Access-Control-Allow-Origin': '*' });
     }
+
+    let initialSnapshot;
+    try {
+      initialSnapshot = await service.snapshot();
+    } catch {
+      return presenceUnavailable(res, sendJson);
+    }
+
     res.writeHead(200, { ...SECURITY_HEADERS, ...JOB_SSE_HEADERS });
-    res.write(`event: presence\ndata: ${JSON.stringify(service.snapshot())}\n\n`);
+    res.write(`event: presence\ndata: ${JSON.stringify(initialSnapshot)}\n\n`);
     res.flushHeaders?.();
-    const joined = service.join(normalized, res);
+
+    let joined;
+    try {
+      joined = await service.join(normalized, res);
+    } catch {
+      try { res.end(); } catch {}
+      return;
+    }
     if (!joined) {
       try { res.end(); } catch {}
       return;
     }
+
     // Proxy/lb timeouts can kill an otherwise idle SSE connection; a comment
     // frame every few seconds keeps the stream alive without client work.
     const keepAlive = setInterval(() => {
@@ -65,7 +85,9 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
     keepAlive.unref?.();
     req.on('close', () => {
       clearInterval(keepAlive);
-      service.leave(normalized, res);
+      try {
+        Promise.resolve(service.leave(normalized, res)).catch(() => {});
+      } catch {}
     });
   }
 
@@ -82,7 +104,11 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
     if (!clientId) {
       return sendJson(res, 400, { error: { message: 'Valid clientId is required' } }, { 'Access-Control-Allow-Origin': '*' });
     }
-    service.touch(clientId);
+    try {
+      await service.touch(clientId);
+    } catch {
+      return presenceUnavailable(res, sendJson);
+    }
     return sendJson(res, 200, { ok: true }, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
   }
 

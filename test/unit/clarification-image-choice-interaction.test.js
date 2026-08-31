@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -150,8 +150,34 @@ function testProductionBootstrapPassesThePreviewActionIntoTheChoiceWorkflow() {
   assert.match(entry, /createBootstrapWorkflow\(\{[^}]*openImagePreview:openImagePreview/s);
 }
 
+function testClarificationOnlyShowsPersistedPreviewableImages() {
+  const info = {
+    clarificationQuestion: '请选择要编辑的图片。',
+    clarificationSlots: [{
+      key: 'r1', type: 'image', role: 'target', reason: 'ambiguous',
+      choices: [
+        { key: 'c1', source: 'history', index: 1, id: 'image-persisted', resource_id: 'res:image:image-persisted', reference_id: 'ref-p', label: '已保存图 | result.png' },
+        { key: 'c2', source: 'history', index: 2, id: 'image-transient', resource_id: 'res:image:image-transient', reference_id: 'ref-t', label: '中间产物 | tmp.png' },
+      ],
+    }],
+  };
+  const rendered = presentation.buildClarificationPresentation(info, {
+    currentImageContext: {
+      attachments: [
+        { imageId: 'image-persisted', src: 'indexeddb://image-persisted', name: 'result.png' },
+      ],
+    },
+  });
+  assert.strictEqual(rendered.hasImageChoices, true);
+  assert.ok(rendered.html.includes('indexeddb://image-persisted'), 'persisted image choice must stay');
+  assert.ok(!rendered.html.includes('image-transient'), 'non-persisted intermediate image must be excluded');
+  assert.ok(!rendered.html.includes('图片暂时无法预览'), 'unpreviewable placeholder cards must not be rendered');
+  assert.ok(rendered.html.includes('1 张候选'), 'candidate count must reflect only persisted choices');
+}
+
 module.exports = [
   testImageClarificationRendersSelectableCardsAndSeparatePreviewControls,
+  testClarificationOnlyShowsPersistedPreviewableImages,
   testImageClickSelectsWhilePreviewButtonOnlyPreviews,
   testImageClarificationLayoutUsesAutoFilledColumnsAndUncroppedMedia,
   testProductionBootstrapPassesThePreviewActionIntoTheChoiceWorkflow,

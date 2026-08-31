@@ -1,4 +1,4 @@
-(function initChatUIExecutionStatus(root) {
+﻿(function initChatUIExecutionStatus(root) {
   'use strict';
 
   const ROUTE_STAGE_TEXT = Object.freeze({
@@ -64,6 +64,18 @@
     execute: '正在等待任务结果',
   });
 
+  const HUMAN_TEXT_MAP = Object.freeze({
+    intent_critic: '语义检查', route_repair: '任务内容修正', route_intent: '请求理解结果',
+    'route_intent.v3': '请求理解结果', intent_recognition: '任务判断', intent_understanding: '请求理解',
+    current_input: '当前消息', review: '检查任务内容', accept: '检查通过', invalid_output: '需要重新确认',
+    pending: '等待处理', running: '处理中', failed: '处理失败', completed: '已完成', primary: '', fallback: '',
+    plain_chat: '普通对话', web_search: '联网搜索', ocr: '图片文字识别', image_compare: '图片比较', image_qa: '图片分析', file_qa: '文件分析', multimodal_qa: '图片和文件分析', text_to_image: '生成图片', image_reference_gen: '参考图生成', edit_image: '修改图片', image_generation: '生成图片', image_edit: '修改图片',
+    transient_error: '网络暂时不稳定', configuration_error: '服务配置需要检查', invalid_model_output: '模型返回的结果无法使用', cancelled: '已停止处理',
+    MODEL_CALL_BUDGET_EXCEEDED: '请求处理步骤过多', route_fallback: '重新确认请求', multi_task_planning: '多任务安排', image_planning: '图片任务安排',
+
+  });
+
+
   function normalizeOperation(value = '') {
     if (value && typeof value === 'object') {
       return String(
@@ -80,6 +92,14 @@
     const key = normalizeOperation(operation);
     const normalizedPhase = phase === 'execute' ? 'execute' : 'prepare';
     return (OPERATION_STATUS[key] || DEFAULT_OPERATION_STATUS)[normalizedPhase];
+  }
+
+  function humanizeStatusText(value = '') {
+    let text = String(value || '').trim();
+    for (const key of Object.keys(HUMAN_TEXT_MAP).sort((a, b) => b.length - a.length)) {
+      text = text.split(key).join(HUMAN_TEXT_MAP[key]);
+    }
+    return text;
   }
 
   function routeStageText(stage = '', details = {}) {
@@ -131,6 +151,8 @@
     OPERATION_STATUS,
     normalizeOperation,
     operationStatusText,
+    HUMAN_TEXT_MAP,
+    humanizeStatusText,
     routeStageText,
     emitRouteStage,
     isExecutionStatusText,
@@ -139,3 +161,4 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('executionStatus', api);
 })(typeof globalThis !== 'undefined' ? globalThis : this);
+

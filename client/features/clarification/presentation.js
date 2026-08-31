@@ -223,22 +223,22 @@
       const imageSections = slots.map((slot, slotIndex) => {
         const roleLabel = imageRoleLabel(slot.role);
         const slotProgress = `第 ${slotIndex + 1}/${slots.length} 项`;
-        const cards = slot.choices.map((choice, choiceIndex) => {
+        const persistedChoices = slot.choices.filter(choice => (
+          imageSource(resolveChoiceImage(choice, lookup) || {})
+        ));
+        if (!persistedChoices.length) return '';
+        const cards = persistedChoices.map((choice, choiceIndex) => {
           const ordinal = choiceIndex + 1;
           const item = resolveChoiceImage(choice, lookup);
           const source = imageSource(item || {});
           const filename = imageName(item || {}) || String(choice.filename || choice.name || '').trim() || `image-${ordinal}.png`;
           const labelText = compactImageChoiceLabel(choice, item, ordinal);
           const sourceText = imageSourceLabel(choice.source);
-          const media = source
-            ? `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" data-filename="${escapeHtml(filename)}" alt="${escapeHtml(labelText)}" />`
-            : `<span class="clarification-choice-placeholder" aria-label="${escapeHtml(labelText)} 暂时无法预览">图片暂时无法预览</span>`;
-          const preview = source
-            ? `<button type="button" class="clarification-choice-preview-button" data-preview-src="${escapeHtml(source)}" data-preview-filename="${escapeHtml(filename)}" aria-label="预览${escapeHtml(labelText)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 12s3.4-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.4 5.5-9.2 5.5S2.8 12 2.8 12Z"/><circle cx="12" cy="12" r="2.6"/></svg><span>预览</span></button>`
-            : '';
+          const media = `<img class="clarification-choice-image" data-persisted-src="${escapeHtml(source)}" data-original-src="${escapeHtml(source)}" data-filename="${escapeHtml(filename)}" alt="${escapeHtml(labelText)}" />`;
+          const preview = `<button type="button" class="clarification-choice-preview-button" data-preview-src="${escapeHtml(source)}" data-preview-filename="${escapeHtml(filename)}" aria-label="预览${escapeHtml(labelText)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 12s3.4-5.5 9.2-5.5 9.2 5.5 9.2 5.5-3.4 5.5-9.2 5.5S2.8 12 2.8 12Z"/><circle cx="12" cy="12" r="2.6"/></svg><span>预览</span></button>`;
           return `<li class="clarification-choice-card" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}"><div class="clarification-image-choice-shell"><button type="button" class="clarification-choice-button clarification-image-choice-select" data-resource-key="${escapeHtml(slot.key || '')}" data-choice-key="${escapeHtml(choice.key || '')}" data-choice-label="${escapeHtml(String(choice.label || labelText))}" aria-pressed="false" aria-label="选择${escapeHtml(labelText)}"><span class="clarification-choice-number" aria-hidden="true">${ordinal}</span><span class="clarification-choice-media">${media}</span><span class="clarification-image-choice-copy"><span class="clarification-choice-meta">${escapeHtml(sourceText)}</span><span class="clarification-choice-action">选择此图</span></span></button>${preview}</div></li>`;
         }).join('');
-        const heading = `<h4 class="clarification-choice-heading"><span class="clarification-choice-role">${escapeHtml(roleLabel)}</span><span class="clarification-choice-progress">${escapeHtml(slotProgress)} · ${slot.choices.length} 张候选</span></h4>`;
+        const heading = `<h4 class="clarification-choice-heading"><span class="clarification-choice-role">${escapeHtml(roleLabel)}</span><span class="clarification-choice-progress">${escapeHtml(slotProgress)} · ${persistedChoices.length} 张候选</span></h4>`;
         return `<section class="clarification-choice-section" data-clarification-role="${escapeHtml(slot.role || '')}" aria-label="${escapeHtml(roleLabel)}，${escapeHtml(slotProgress)}">${heading}<ol class="clarification-image-list">${cards}</ol></section>`;
       }).join('');
 

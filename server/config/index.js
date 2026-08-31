@@ -4,6 +4,10 @@ const { createPublicConfigReader } = require('./public-config');
 const PORT = Number(process.env.PORT || 8765);
 const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_UPSTREAM_BASE_URL = String(process.env.DEFAULT_UPSTREAM_BASE_URL || 'https://ingress.lfans.cn/v1').trim().replace(/\/+$/, '');
+// Shared presence store for multi-instance deployments. Keep this server-side:
+// the URL may contain credentials and must never be exposed through
+// /api/config/public or any static asset.
+const REDIS_URL = String(process.env.REDIS_URL || '').trim() || null;
 const ROOT = path.resolve(__dirname, '../..');
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
@@ -37,6 +41,7 @@ module.exports = {
   PORT,
   HOST,
   DEFAULT_UPSTREAM_BASE_URL,
+  REDIS_URL,
   ROOT,
   ROOT_WITH_SEP,
   UPSTREAM_TIMEOUT_MS,

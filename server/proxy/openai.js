@@ -165,7 +165,13 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
         ? 'route_intent'
         : body.requestPurpose === 'intent_understanding'
           ? 'route_understanding'
-          : ['/chat/completions', '/responses'].includes(upstreamPath) ? 'chat' : '',
+          : body.requestPurpose === 'intent_critic'
+            ? 'route_critic'
+            : body.requestPurpose === 'route_repair'
+              ? 'route_repair'
+              : body.requestPurpose === 'route_fallback'
+                ? 'route_fallback'
+                : ['/chat/completions', '/responses'].includes(upstreamPath) ? 'chat' : '',
       jobId: proxyJobId,
       submissionId: String(body.submissionId || ''),
       method,

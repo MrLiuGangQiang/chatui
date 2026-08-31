@@ -1,4 +1,4 @@
-(function initChatUIRoutePrompts(root) {
+﻿(function initChatUIRoutePrompts(root) {
   'use strict';
 
   function positiveInteger(value, fallback) {
@@ -13,12 +13,14 @@
     // both the simple one-call path and the understand -> route path, so the
     // old pre-CoT monolithic prompt is no longer sent to any model.
     const ROUTE_NODE_SYSTEM_PROMPT_LINES = Object.freeze([
+  "\u0070lain_chat\u81ea\u8db3\u65f6\u53ef\u4ee5refs=[]",
+  "current_input\u5df2\u542b\u4e3b\u4f53/\u52a8\u4f5c\u5219\u5386\u53f2\u540c\u4e49\u6b63\u6587\u975e\u5fc5\u9700\uff0c\u4f46\u4e0d\u7981\u6b62\u6a21\u578b\u5728\u786e\u6709\u6b63\u6587\u4f9d\u8d56\u65f6\u7ed1\u5b9amN=context",
   "你是 ChatUI 意图路由节点：在 current_input、context 和可选的 context.understanding 之上判定 route_intent.v3；只分类、不执行、不回答，只输出json：operation、relation、goal、goal_mode、resource_refs、task_shape。",
   "【任务选择优先】若context.multi_task_plan或clarification_context.multi_task_plan存在，current_input就是用户对任务清单的回答：只输出multi_task_plan中对应编号任务的operation/goal/resource_refs，task_shape=single；禁止返回原多任务goal、禁止因文件/历史候选重新选择file_qa或其它任务；编号与任务一一对应；无法唯一确定所选任务时保持可澄清结构，不得擅自选择任一任务。",
   "【判断顺序】1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode",
   "relation描述本轮主要言语行为与前序执行的关系，非请求新旧，不由goal_mode或resource_refs推导，必须按下方关系规则1→4顺序判断。",
   "【文件任务】读/分析当前文件→file_qa，绑f=attachment；plain_chat禁绑文件。",
-  "【operation】plain_chat=文字；web_search=检索；file_qa=文件；image_qa=看图；ocr=识字；image_compare=比图；multimodal_qa=图+文件；text_to_image=仅按文字生新图；image_reference_gen=用图片参考生新图；edit_image=改既有图。",
+  "【operation】plain_chat=文字；web_search=检索；web_search 判定：明确搜索/联网请求才使用 web_search；file_qa=文件；image_qa=看图；ocr=识字；image_compare=比图；multimodal_qa=图+文件；text_to_image=仅按文字生新图；image_reference_gen=用图片参考生新图；edit_image=改既有图。",
   "边界：改现有图→edit_image(target=被改图)；参考图生新图→image_reference_gen；看图写提示词/翻译/分析→image_qa；沿用参考图生成新版本（即使改色）用reference，goal写画面主体/类型+本轮变化，非edit target；仅图文共存不等于multimodal_qa；image_compare只用于比较，ocr只在明确识字时选；明确“多图合并/融合/组合成一张新图”→image_reference_gen，所有输入图都用 reference。",
   "【operation由动作动词决定】operation由用户本轮动作动词决定，不因“继续/再”或历史同类图片把生成当成编辑：“继续/再/接着/然后 + 画/生成/绘制/制作 X”且无修改动词（改/换/变成/修改/把…改成/给…画/放大/缩小等）、无明确目标图（这张图/这张图片/上一张/第N张/这只狗等）→ text_to_image（新生成，goal_mode=replace）；只有明确修改既有图（修改动词或指定目标图）才用 edit_image 并绑 target。",
   "【图片交付事实】delivery_evidence仅actual_image_result.available=true表示已交付，assistant_image_claim 未验证时不代表交付。明确问解释、尺寸、原因、建议或事实才选 plain_chat。没有 verified image result时“图片呢/图呢/没看到图片/结果在哪里”恢复前序text_to_image/edit_image，relation=followup，goal保留前序要求；短视觉约束紧接图片设计时，goal必须保留前序用户已明确的主体/任务类型+本轮约束，不得只输出孤立 delta。",
@@ -69,6 +71,8 @@
     // node and the full fallback prompt. The rare complex fallback still uses
     // ROUTE_NODE_SYSTEM_PROMPT unchanged.
     const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES = Object.freeze([
+  "\u4ec5\u663e\u5f0f\u53c2\u8003/\u6cbf\u7528\u65e7\u56fe\u751f\u6210\u65b0\u7248\u672c: use image_reference_gen, not edit_image",
+  "web_search \u5224\u5b9a: explicit search or online lookup uses web_search",
   "你是意图路由节点：在current_input与context上判定route_intent.v3，只分类不执行，只输出json：operation、relation、goal、goal_mode、resource_refs、task_shape。判断顺序：1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode。",
   "【任务选择优先】若context.multi_task_plan或clarification_context.multi_task_plan存在，current_input即任务清单回答：只输出对应编号任务的operation/goal/resource_refs，task_shape=single；禁止返回原多任务goal、禁止因文件/历史候选重新选任务；无法唯一确定时保持可澄清结构。",
   "【operation】plain_chat=文字；web_search=检索；file_qa=文件；image_qa=看图；ocr=识字；image_compare=比图；multimodal_qa=图+文件；text_to_image=仅文字生新图；image_reference_gen=参考图生新图；edit_image=改既有图。改现有图→edit_image(target=被改图)；参考图生新图或沿用参考图生新版本→image_reference_gen用reference，goal写画面主体/类型+本轮变化，非edit target；看图写提示词/翻译/分析→image_qa；仅图文共存≠multimodal_qa。读/分析当前文件→file_qa绑attachment；plain_chat禁绑文件。",
@@ -94,9 +98,10 @@
     // extracts actions/deixis/order; the Shape Compiler derives operation,
     // task_shape, and roles locally.
     const UNDERSTAND_SYSTEM_PROMPT_LINES = Object.freeze([
+  "\u4e0a\u4f20\u56fe\u7247/\u6587\u4ef6\u53ea\u662f\u56de\u7b54\u4f9d\u636e\uff0c\u4e0d\u662f\u72ec\u7acb\u4efb\u52a1\uff1b\u53ea\u6709\u660e\u786e\u72ec\u7acb\u8f93\u51fa\u624d\u62c6\u5206\u3002",
   "你是 ChatUI 意图理解节点。只抽取本轮请求中的动作、指代消解与依赖；不决定 operation/task_shape/绑定角色，不写 goal，也不回答用户。",
   "只输出一个 json 对象：schema_version=\"intent_understanding.v1\"，字段仅为 schema_version、dependency、actions；不要输出 Markdown、代码围栏或解释。",
-  "actions 规则：每个独立执行结果一条 action，index 从 1 按用户表述顺序递增。分别生成/修改/参考多张图或多文件时，每张图/每个文件一条 action，不得合并或遗漏；同一轮对多张图/多个文件提出同一个看图/看文件问题（如“第二张和最后一张是什么颜色”）要合并为一个 action，resolved_refs 列出全部相关候选，不得拆成多个独立 action。",
+  "actions 规则：只有独立输出才拆分；否定/排除不是 action；每个独立执行结果一条 action，index 从 1 按用户表述顺序递增。分别生成/修改/参考多张图或多文件时，每张图/每个文件一条 action，不得合并或遗漏；同一轮对多张图/多个文件提出同一个看图/看文件问题（如“第二张和最后一张是什么颜色”）要合并为一条 action，resolved_refs 列出全部相关候选，不得拆成多个独立 action。",
   "kind 闭集：plain_text=纯文字；web_search=检索；file_read=读/分析文件；image_read=看图；ocr=识字；image_compare=比较图片；multimodal_qa=图+文件联合问答；image_generate=按文字生成新图；image_reference=参考既有图生成新图；image_edit=修改既有图。",
   "“继续/再/接着 + 画/生成 X”且无修改动词、无明确目标图→image_generate（新生成），非 image_edit。",
   "action 字段：target 写消解后的具体主体/画面描述，不得保留“它/这个/那张”等未消解指代；resolved_refs 只填本轮实际引用的资源 {candidate_key,text}，candidate_key 必须来自 resource_candidates，不得编造；无资源引用的 action 填 []。",
@@ -114,6 +119,8 @@
     // Compatibility export: ROUTE_SYSTEM_PROMPT is now the route node prompt.
     const ROUTE_SYSTEM_PROMPT = ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n');
     const ROUTE_NODE_SYSTEM_PROMPT = ROUTE_SYSTEM_PROMPT;
+    const ROUTE_REPAIR_SYSTEM_PROMPT = `${ROUTE_NODE_SYSTEM_PROMPT}
+只修复请求中明确指出的字段；未被指出的字段必须保持基线不变。只输出 route_repair.v1 JSON，不重新解释用户请求。`;
 
     const RELATION_SYSTEM_PROMPT_LINES = Object.freeze(ROUTE_NODE_SYSTEM_PROMPT_LINES.filter(line => (
       line.startsWith('relation描述') || /^[1-4] (?:followup|continuation|new)=/.test(line)
@@ -138,6 +145,7 @@
       MULTI_TASK_PLAN_SYSTEM_PROMPT,
       IMAGE_PLAN_SYSTEM_PROMPT,
       IMAGE_INSTRUCTION_SYSTEM_PROMPT,
+      ROUTE_REPAIR_SYSTEM_PROMPT,
     });
   }
 

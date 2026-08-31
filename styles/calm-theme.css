@@ -361,3 +361,81 @@ body,
     background: linear-gradient(to bottom, var(--chatui-canvas) 0%, var(--chatui-canvas) 78%, rgba(247,248,251,0) 100%);
   }
 }
+
+
+/* Intent waiting surface: scoped to the live intent status trace. */
+.intent-reasoning-trace,
+.intent-waiting-surface{
+  width:100%;
+  box-sizing:border-box;
+  margin:0 0 14px;
+  padding:0;
+  border:1px solid #dbe4f0;
+  border-radius:12px;
+  background:#f8fafc;
+  color:#526275;
+  overflow:hidden;
+  font-size:13px;
+  line-height:1.55;
+}
+.intent-reasoning-trace>summary,
+.intent-waiting-surface>summary{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-height:38px;
+  padding:8px 12px;
+  cursor:pointer;
+  list-style:none;
+  user-select:none;
+  background:#f8fafc;
+}
+.intent-reasoning-trace>summary::-webkit-details-marker,
+.intent-waiting-surface>summary::-webkit-details-marker{display:none}
+.intent-reasoning-title{font-weight:650;color:#334e73}
+.intent-reasoning-title.is-current-status::after,
+.intent-reasoning-trace.is-running .intent-reasoning-title::after,
+.intent-waiting-surface.is-running .intent-reasoning-title::after{
+  content:'...';
+  display:inline-block;
+  width:1.05em;
+  overflow:hidden;
+  vertical-align:bottom;
+  white-space:nowrap;
+  animation:intentReasoningEllipsis 1.2s steps(4,end) infinite;
+}
+@keyframes intentReasoningEllipsis{
+  0%,20%{width:0}
+  45%,65%{width:.45em}
+  90%,100%{width:1.05em}
+}
+.intent-reasoning-steps{
+  margin:0;
+  padding:8px 12px 10px;
+  border-top:1px solid #e2e8f0;
+  list-style:none;
+}
+.intent-reasoning-step{
+  display:grid!important;
+  grid-template-columns:20px minmax(0,1fr)!important;
+  align-items:start!important;
+  column-gap:7px!important;
+  margin:0!important;
+  padding:5px 0!important;
+  list-style:none!important;
+}
+.intent-reasoning-marker{
+  width:20px!important;
+  color:#6f8ab4;
+  font-weight:700;
+  text-align:center;
+  line-height:1.55;
+}
+.intent-reasoning-step-body{min-width:0;display:block!important}
+.intent-reasoning-summary{display:inline-block;color:#526275}
+.intent-reasoning-decision{margin-left:7px;color:#365ca8;font-weight:650}
+@media (prefers-reduced-motion:reduce){
+  .intent-reasoning-title.is-current-status::after,
+  .intent-reasoning-trace.is-running .intent-reasoning-title::after,
+  .intent-waiting-surface.is-running .intent-reasoning-title::after{animation:none}
+}

@@ -227,6 +227,7 @@ async function testPrimaryAndFallbackShareOneAbsoluteRouteBudget() {
     const startedAt = Date.now();
     const route = await workflow.getEffectiveRoute('hello', [], 'session-a', null, null, {
       deadlineAt: Date.now() + 40,
+      enableRouteFallback: true,
     });
     const elapsedMs = Date.now() - startedAt;
     assert.deepStrictEqual(calls, ['route-primary', 'route-fallback']);

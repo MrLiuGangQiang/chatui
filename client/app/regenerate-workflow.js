@@ -186,9 +186,18 @@
         task.accept({capture:!0});
         if(i.stopped||i.abortController?.signal?.aborted)return;
         task.captured();task.routing();
-        const routeUi=createRouteRecognitionUi({sessionId:a,assistantNode:()=>o,liveItem:()=>l.liveItem,responseIndex:()=>n,getPromptText:()=>replayPrompt,signal:i.abortController?.signal});
-        const routeInfo=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,[],{},null,{currentTurn:{messageIndex:s+1},submissionId:task.submissionId});
-        if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0){const err=new Error("强制生图任务未能建立有效执行合同，已停止发送");err.code="ROUTE_NOT_READY";throw err}
+        // 强制生图是显式用户覆盖：不做意图识别/路由判断，直接把当前内容作为
+        // text_to_image 提示词构造可执行路由。
+        const forcedImageRoute=typeof routeUtils.createExplicitTextToImageRoute==='function'
+          ? routeUtils.createExplicitTextToImageRoute(replayPrompt)
+          : null;
+        const routeInfo=forcedImageRoute;
+        if(routeUtils.isRouteDispatchable?.(routeInfo)!==!0
+            || routeInfo?.dispatchContract?.operation!=='text_to_image'){
+          const err=new Error("强制生图失败，请重试；如果仍失败，请重新描述图片内容。");
+          err.code="FORCED_IMAGE_ROUTE_NOT_READY";
+          throw err;
+        }
         if(warnMissingModel(routeInfo.mode,!0)){task.fail(new Error("missing image model"));return void l.node?.remove()}
         const executionPools=submitHelpers.buildExecutionResourcePools({current:[],quoted:[],history:[],context:[]},{isImageFile,messages:state.messages||[]});
         const executionMedia=submitHelpers.projectRouteExecutionMedia(routeInfo,executionPools);

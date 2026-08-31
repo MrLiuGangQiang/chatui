@@ -49,6 +49,17 @@
       return announcements[0] || null;
     }
 
+    function resolveCurrentVersion() {
+      const identity = documentRef?.defaultView?.__CHATUI_RUNTIME_IDENTITY
+        || root?.window?.__CHATUI_RUNTIME_IDENTITY
+        || (root?.__CHATUI_RUNTIME_IDENTITY || null);
+      const fromIdentity = String(identity?.version || '').trim();
+      if (fromIdentity) return fromIdentity;
+      const badge = documentRef?.querySelector?.('.sidebar-version-text');
+      const fromBadge = String(badge?.textContent || '').trim();
+      return fromBadge || '';
+    }
+
     function latestIsUnread() {
       const latest = latestAnnouncement();
       return !!latest && !readAcknowledgedVersions().has(String(latest.version || '').trim());
@@ -204,7 +215,7 @@
       const title = getElement('announcementTitle');
       const summary = getElement('announcementSummary');
       if (badge) badge.textContent = String(latest.badge || '系统公告');
-      if (version) version.textContent = String(latest.version || '');
+      if (version) version.textContent = resolveCurrentVersion() || String(latest.version || '');
       if (publishedAt) {
         publishedAt.textContent = String(latest.publishedAt || '');
         publishedAt.toggleAttribute('hidden', !latest.publishedAt);

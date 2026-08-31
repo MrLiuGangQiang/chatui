@@ -132,22 +132,27 @@
       return null;
     }
 
+    function pendingStatusElapsedSeconds(text = '') {
+      const match = /\u5df2\u7b49\u5f85\s*(\d+)\s*\u79d2/.exec(String(text || '').trim());
+      return match ? Number(match[1]) : null;
+    }
+
     function pendingTaskProjectionStatus(owner) {
       const pending = owner?.pendingSubmit;
       const job = owner?.job;
       const startedAt = Number(job?.startedAt || pending?.startedAt || 0);
       const elapsed = startedAt > 0 ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
       if (pending) {
-        if (pending.stage === 'accepted') return '\u6b63\u5728\u63a5\u6536\u4efb\u52a1\u2026';
-        if (pending.stage === 'captured') return '\u6b63\u5728\u51c6\u5907\u6d88\u606f\u2026';
-        if (pending.stage === 'routing') return '\u6b63\u5728\u8bc6\u522b\u4efb\u52a1\u2026';
-        if (pending.stage === 'handoff') return owner.kind === 'image' ? '\u6b63\u5728\u542f\u52a8\u56fe\u7247\u4efb\u52a1\u2026' : '\u6b63\u5728\u8fde\u63a5\u6a21\u578b\u2026';
+        if (pending.stage === 'accepted') return '\u6b63\u5728\u63a5\u6536\u4efb\u52a1';
+        if (pending.stage === 'captured') return '\u6b63\u5728\u51c6\u5907\u6d88\u606f';
+        if (pending.stage === 'routing') return '\u6b63\u5728\u8bc6\u522b\u4efb\u52a1';
+        if (pending.stage === 'handoff') return owner.kind === 'image' ? '\u6b63\u5728\u542f\u52a8\u56fe\u7247\u4efb\u52a1' : '\u6b63\u5728\u8fde\u63a5\u6a21\u578b';
       }
       if (owner?.kind === 'image') {
         const editing = job?.mode === 'edit_image' || job?.imageContext?.mode === 'edit_image';
-        return `${editing ? '\u6b63\u5728\u4fee\u6539\u56fe\u7247' : '\u6b63\u5728\u751f\u6210\u56fe\u7247'}\u2026 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
+        return `${editing ? '\u6b63\u5728\u4fee\u6539\u56fe\u7247' : '\u6b63\u5728\u751f\u6210\u56fe\u7247'} \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
       }
-      return `\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
+      return `\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
     }
 
     function ensurePendingTaskProjection(session, pendingItems, pendingSubmit, activeImageJob, activeChatJob) {
@@ -196,9 +201,23 @@
         const currentText = String(item.rawText || '').trim();
         const currentIsStatus = !currentText || deps.isChatStatusText?.(currentText);
         if (currentIsStatus && currentText !== statusText) {
-          item.rawText = statusText;
-          item.html = typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(statusText) : item.html || '';
-          changed = true;
+          // The projection is a durable-job recovery hint, never the live
+          // source of truth: a running UI timer keeps the item's status
+          // fresher than any recomputed snapshot. Switching sessions must not
+          // downgrade an already ticking elapsed status (for example to
+          // "已等待 0 秒" when the durable job snapshot lost its startedAt),
+          // otherwise the restored bubble freezes at zero seconds. Only
+          // replace a status when the projection is strictly newer than what
+          // is already displayed.
+          const currentElapsed = pendingStatusElapsedSeconds(currentText);
+          const projectionElapsed = pendingStatusElapsedSeconds(statusText);
+          const projectionFresher = currentElapsed === null
+            || (projectionElapsed !== null && projectionElapsed > currentElapsed);
+          if (projectionFresher) {
+            item.rawText = statusText;
+            item.html = typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(statusText) : item.html || '';
+            changed = true;
+          }
         }
         if (!session.display.includes(item)) { session.display.push(item); changed = true; }
       }
@@ -226,8 +245,23 @@
         // assistant response while a replacement or a newly-started response is
         // still pending.
         if (hasCompletePair && !activeChatJob?.id) clearChatJob(session.id);
+        // A batch parent card is an image pending item even before any child
+        // result arrives (its rawText is a "任务 N/M：" / "正在生成 x/y 张图片"
+        // status and it has no imageContext yet). Without recognizing it here,
+        // restorePendingDisplayItems treats it as a non-image pending item and
+        // drops it on a session switch, so the in-flight "正在生成图片" slots
+        // are not restored.
+        const isImageBatchPendingItem = item => {
+          const jobId = String(item?.jobId || '');
+          const rawText = String(item?.rawText || '');
+          return /^imgbatch-/.test(jobId)
+            || /^任务\s*\d+(?:\/\d+)?：/.test(rawText)
+            || /正在生成\s*\d+\/\d+\s*张图片/.test(rawText)
+            || /已完成\s*\d+\/\d+\s*张图片/.test(rawText)
+            || /图片生成完成/.test(rawText);
+        };
         const hasCompletedImage = item => {
-          if (!isImagePendingDisplayItem(item)) return false;
+          if (!isImagePendingDisplayItem(item) && !isImageBatchPendingItem(item)) return false;
           const jobId = String(item.jobId || ''), displayId = String(item.id || ''), responseIndex = String(item.responseIndex || '');
           return (session.messages || []).some(message => (
             typeof isDurableImageCompletionMessage === 'function'
@@ -251,9 +285,11 @@
           if (item?.pending === '1' && matchesActiveChatJob(item)) item.jobId = activeChatJob.id;
         });
         const hasMeaningfulText = item => !!String(item.rawText || '').trim() && !isChatStatusText(item.rawText || '');
-        const shouldKeepPending = item => isImagePendingDisplayItem(item)
-          ? !hasCompletedImage(item) && item.jobId && activeJobIds.has(item.jobId)
-          : !hasCompletedChat(item) && (matchesActiveChatJob(item) || (item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
+        const shouldKeepPending = item => isImageBatchPendingItem(item)
+          ? !hasCompletedImage(item) && String(item.jobId || '').trim() !== ''
+          : isImagePendingDisplayItem(item)
+            ? !hasCompletedImage(item) && item.jobId && activeJobIds.has(item.jobId)
+            : !hasCompletedChat(item) && (matchesActiveChatJob(item) || (item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
         const keptPending = pendingItems.filter(item => item?.pending === '1' && shouldKeepPending(item));
         if (session.display?.length) {
           const before = session.display.length;
@@ -293,7 +329,7 @@
           }
           if (node) {
             node.dataset.streaming = '1';
-            node.dataset.streamKind = isImagePendingDisplayItem(item) ? 'image' : 'chat';
+            node.dataset.streamKind = (isImagePendingDisplayItem(item) || isImageBatchPendingItem(item)) ? 'image' : 'chat';
             node.dataset.sessionId = session.id;
             if (String(item.html || '').includes('pending-feedback')) node.dataset.pendingFeedback = '1';
           }

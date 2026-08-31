@@ -568,7 +568,15 @@ async function testIntentRoutingEvaluationRunnerRetainsRedactedInputOutputAndCom
   assert.ok(!JSON.stringify(report).includes(secret));
 }
 
+function testGoalScoringRecognizesEnumeratedIndependentResults() {
+  const { suite } = evaluation.loadFixtureSuite(FIXTURE_PATH);
+  const fixture = caseById(suite, 'multi-edit-two-current-images');
+  const result = evaluation.goalMatchesExpectation(fixture.expected.goal, '将第一张图片改成黑白并保持原有构图；将第二张图片改成黑白并保持原有构图');
+  assert.strictEqual(result, true, 'explicit first/second result clauses semantically cover two independent results');
+}
+
 module.exports = [
+  testGoalScoringRecognizesEnumeratedIndependentResults,
   testIntentRoutingEvaluationLoadsAndValidatesTheStrictFixture,
   testIntentRoutingEvaluationRequiresExplicitCurrentTurnForDuplicatedInput,
   testIntentRoutingEvaluationBuildsProductionEquivalentCurrentTurnBoundary,

@@ -230,6 +230,9 @@ function requestedBundleRevision(url) {
 }
 
 function serveBundle(req, res, context, kind) {
+  // New intent trace/critic modules are ordinary manifest entries. Keep the
+  // bundle and its fingerprint authoritative so browser cache behavior remains
+  // identical for every application module.
   const mime = contentTypeForBundle(kind);
   let bundle;
   try {

@@ -30,10 +30,11 @@ function testRoutePromptModuleParameterizesImagePlanTaskLimitWithoutChangingNode
 
 function testUnderstandNodeOwnsItsProtocolAndSplitsIndependentImageActions() {
   assert.match(UNDERSTAND_PROMPT, /intent_understanding\.v1/);
-  assert.match(UNDERSTAND_PROMPT, /每张图\/每个文件一条 action/);
-  assert.match(UNDERSTAND_PROMPT, /不得合并或遗漏/);
+  assert.match(UNDERSTAND_PROMPT, /每个独立执行结果一条 action/);
+  assert.match(UNDERSTAND_PROMPT, /只有独立输出才拆分/);
+  assert.match(UNDERSTAND_PROMPT, /否定\/排除.*不是 action/);
   assert.match(UNDERSTAND_PROMPT, /第二张和最后一张是什么颜色/);
-  assert.match(UNDERSTAND_PROMPT, /合并为一个 action/);
+  assert.match(UNDERSTAND_PROMPT, /合并为一条 action/);
   assert.match(UNDERSTAND_PROMPT, /不得拆成多个独立 action/);
   assert.match(UNDERSTAND_PROMPT, /"index":1,"kind":"image_generate"/);
   assert.match(UNDERSTAND_PROMPT, /"index":2,"kind":"image_generate"/);

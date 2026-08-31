@@ -219,6 +219,14 @@ function buildResponsesPayload(model, messages, options = {}) {
   // the reasoning compatibility fallback, which strips it and retries.
   if (options.noReasoning === true) {
     payload.reasoning = { effort: 'none' };
+  } else if (options.reasoning && typeof options.reasoning === 'object' && !Array.isArray(options.reasoning)) {
+    const effort = String(options.reasoning.effort || 'medium').trim();
+    if (effort && effort !== 'none') {
+      payload.reasoning = {
+        effort,
+        summary: String(options.reasoning.summary || options.summary || 'auto').trim() || 'auto',
+      };
+    }
   } else if (options.reasoningEnabled) {
     payload.reasoning = {
       effort: options.reasoningEffort || 'medium',

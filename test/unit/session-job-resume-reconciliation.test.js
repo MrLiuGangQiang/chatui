@@ -159,7 +159,7 @@ function fakeMessageNode(role, index, rawText, { pending = false, jobId = '' } =
 
 function testCanonicalTailVerificationIgnoresPendingFollower() {
   const userNode = fakeMessageNode('user', 1, 'question');
-  const pendingNode = fakeMessageNode('assistant', 2, '\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 1 \u79d2', { pending: true, jobId: 'chatjob-a' });
+  const pendingNode = fakeMessageNode('assistant', 2, '\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 1 \u79d2', { pending: true, jobId: 'chatjob-a' });
   const canonicalTail = { role: 'user', content: 'question', rawText: 'question', messageIndex: '1' };
 
   const matched = displayItems.findCanonicalMessageNode([userNode, pendingNode], canonicalTail, 1);
@@ -203,7 +203,7 @@ function testPendingOwnerProjectsImmediateStatusBeforeFirstResponse() {
 
   assert.ok(renderedItem, 'the durable pending owner must project a visible node immediately, before any upstream token arrives');
   assert.strictEqual(renderedItem.id, 'pending-submit-submit-a');
-  assert.strictEqual(renderedItem.rawText, '\u6b63\u5728\u63a5\u6536\u4efb\u52a1\u2026');
+  assert.strictEqual(renderedItem.rawText, '\u6b63\u5728\u63a5\u6536\u4efb\u52a1');
   assert.strictEqual(renderedItem.pending, '1');
   assert.ok(renderedItem.html.includes('pending-feedback'));
   assert.strictEqual(session.display[0], renderedItem, 'the projected node must become the stable pending display owner');
@@ -215,8 +215,8 @@ function testCachedPendingProjectionReconcilesInPlace() {
   const item = {
     id: 'display-a',
     role: 'assistant',
-    rawText: '\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 1 \u79d2',
-    html: formatting.pendingFeedbackHtml('\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 1 \u79d2'),
+    rawText: '\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 1 \u79d2',
+    html: formatting.pendingFeedbackHtml('\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 1 \u79d2'),
     reasoningText: '',
     pending: '1',
     responseIndex: '1',
@@ -263,7 +263,7 @@ function testCachedPendingProjectionReconcilesInPlace() {
 
   assert.strictEqual(addedNodes, 0, 'a restored pending task must update its cached node instead of creating a second bubble');
   assert.strictEqual(updatedNode, node);
-  assert.match(item.rawText, /^\u6b63\u5728\u5904\u7406\u2026 \u5df2\u7b49\u5f85 [45] \u79d2$/, 'the cached task bubble should immediately catch up to current elapsed state');
+  assert.match(item.rawText, /^\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 [45] \u79d2$/, 'the cached task bubble should immediately catch up to current elapsed state');
   assert.strictEqual(node.dataset.streaming, '1');
   assert.strictEqual(node.dataset.streamKind, 'chat');
 }

@@ -36,7 +36,7 @@ function testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput() {
     'the initial placeholder must use the canonical operation status instead of a fixed execution map'
   );
   assert.ok(
-    source.includes('g?.isConnected&&!n.deferReplacementClear&&setPendingFeedback(g,pendingStatus'),
+    source.includes('g?.isConnected&&canShowChatWaiting(answerStarted)&&setPendingFeedback(g,pendingStatus'),
     'reasoning-enabled streams must keep the pending placeholder until thinking or answer text actually arrives'
   );
   assert.ok(

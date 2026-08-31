@@ -213,13 +213,13 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.8 生产依赖与浏览器 vendor 边界
 
-根 `package.json` 的生产依赖只保留服务端运行所需的 `jszip`、`pg` 和显式锁定的 `undici`。Markdown 渲染器、DOMPurify、jsdom、KaTeX、highlight.js、Mermaid 及 markdown-it 插件属于开发/测试依赖或已提交的浏览器 vendor 资源；服务端入口不得在无 devDependencies 的生产安装中 require 它们。`server/jobs/common.js` 等 Node 运行路径应直接引用显式生产依赖，不能依赖开发依赖的传递安装。
+根 `package.json` 的生产依赖只保留服务端运行所需的 `jszip`、`pg`、`ioredis` 和显式锁定的 `undici`。Markdown 渲染器、DOMPurify、jsdom、KaTeX、highlight.js、Mermaid 及 markdown-it 插件属于开发/测试依赖或已提交的浏览器 vendor 资源；服务端入口不得在无 devDependencies 的生产安装中 require 它们。`server/jobs/common.js` 等 Node 运行路径应直接引用显式生产依赖，不能依赖开发依赖的传递安装。
 
 ### 4.9 在线人数（presence）
 
 - 在线定义：每个打开的浏览器标签页对 `/api/presence/stream` 的存活 SSE 订阅；标签页持有独立 `clientId`（sessionStorage，每标签页一份：刷新复用、新标签页单独计数），网络抖动重连复用同一槽位，不会重复计数。
-- `server/services/presence.service.js` 是唯一事实源：内存 `Map<clientId, {res, lastSeen}>` 会话表，提供 join/leave/touch/sweep/closeAll。按标签页计数，不做用户去重；单实例语义，与使用统计一致，可选 PostgreSQL 是唯一外部存储，跨实例准确计数可在未来接入。
-- 心跳与清理：浏览器每 30s POST `/api/presence/heartbeat` 刷新 lastSeen；定时 sweeper（默认 30s 间隔、120s TTL）清理假死连接，防止在线人数只涨不跌。服务关闭时 `presence.closeAll()` 先于 Node close 结束所有连接。
+- `server/services/presence.service.js` 是单实例唯一事实源：内存 `Map<clientId, {res, lastSeen}>` 会话表，提供 join/leave/touch/sweep/closeAll。按标签页计数，不做用户去重；配置 `REDIS_URL` 后 `server/services/presence.redis.js` 以 Redis 有序集合作为跨实例在线表，本进程仍只保存本机 SSE `res`，全局计数与跨实例广播经 Redis pub/sub 达成。
+- 心跳与清理：浏览器每 30s POST `/api/presence/heartbeat` 刷新 lastSeen（Redis 模式刷新共享 score）；定时 sweeper（默认 30s 间隔、120s TTL）清理假死连接，防止在线人数只涨不跌。服务关闭时 `presence.closeAll()` 先于 Node close 结束本机 SSE 连接，并移除本机 clientId。
 - 路由（`server/api/routes/presence.js`）：`GET /api/presence` 返回 `{count, timestamp}` 快照；`GET /api/presence/stream?clientId=...` 为 SSE presence 事件流（连接即在线）；`POST /api/presence/heartbeat` 返回 `{ok:true}`。
 - 浏览器侧只通过 module-registry 注册（`presenceService`），不新增 `window.ChatUI*` 全局导出；UI 徽标位于右上角快捷按钮组（始终可见），首次收到人数前保持隐藏。
 ## 5. `shared/` 边界
@@ -312,7 +312,7 @@ GET /
 浏览器 presence 服务/UI
   -> client/services/presence.js（稳定 clientId + SSE 订阅 + 心跳）
   -> server presence routes（snapshot / stream / heartbeat）
-  -> server presence service（内存会话表 + TTL sweeper）
+  -> server presence service（内存会话表；配置 REDIS_URL 时 Redis 共享在线表 + pub/sub）
 ```
 ## 8. 禁止的依赖方向
 

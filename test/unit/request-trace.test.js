@@ -11,6 +11,7 @@ const {
   createRequestTraceLogger,
   requestKind,
   summarizeResponsePayload,
+  summarizeRequestPayload,
 } = require('../../server/logging/request-trace');
 const { createOpenAiProxy } = require('../../server/proxy/openai');
 const { runImageJob } = require('../../server/jobs/image');
@@ -455,7 +456,19 @@ async function testManagedImageJobWritesPromptAndBinarySafeResultTrace() {
   }
 }
 
+function testSemanticControlTraceUsesTheSafeMessageSummarizer() {
+  const summary = summarizeRequestPayload({
+    model: 'route-model',
+    input: [{ role: 'user', content: '{"current_input":"检查请求"}' }],
+    text: { format: { name: 'chatui_intent_critic_v1' } },
+  }, { kind: 'route_critic', includeText: true });
+  assert.strictEqual(summary.text_format.name, 'chatui_intent_critic_v1');
+  assert.strictEqual(summary.messages.count, 1);
+  assert.strictEqual(summary.messages.items[0].content.text, '{"current_input":"检查请求"}');
+}
+
 module.exports = [
+  testSemanticControlTraceUsesTheSafeMessageSummarizer,
   testRequestTracePersistsCorrelatedRouteEvidenceWithoutCredentialsOrBinary,
   testFullRequestTraceIncludesCompleteSystemAndStructuredOutputWithoutCredentials,
   testRequestTraceSummarizesResponsesOutputContentWithoutReasoning,

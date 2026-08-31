@@ -3403,7 +3403,8 @@ body{
   color:var(--text-muted,#64748b)!important;
   text-align:center!important;
 }
-.generated-image-slot-task,.generated-image-slot-status{display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.generated-image-slot-task{display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.generated-image-slot-status{display:block!important;max-width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;overflow:visible!important;text-overflow:clip!important}
 .generated-image-batch-slot{
   min-width:0;
   min-height:120px;

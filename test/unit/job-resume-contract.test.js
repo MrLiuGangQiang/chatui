@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');

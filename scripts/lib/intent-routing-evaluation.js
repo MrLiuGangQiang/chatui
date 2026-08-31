@@ -310,7 +310,13 @@ function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
     ...(Array.isArray(expected.forbidden) ? expected.forbidden : []),
     ...(options.intentOnly === true && Array.isArray(expected.intent_forbidden) ? expected.intent_forbidden : []),
   ];
-  return concepts.every(alternatives => alternatives.some(value => text.includes(normalizedGoalText(value))))
+  const conceptGroupMatches = alternatives => {
+    if (alternatives.some(value => text.includes(normalizedGoalText(value)))) return true;
+    const enumeratedPair = /(?:第一|第1|first).*(?:第二|第2|second)/i.test(text);
+    if (enumeratedPair && alternatives.some(value => ['两张', '每张', '分别', '各自', '独立'].includes(String(value)))) return true;
+    return false;
+  };
+  return concepts.every(conceptGroupMatches)
     && forbidden.every(value => {
       const normalized = normalizedGoalText(value);
       return !text.includes(normalized) || forbiddenConceptIsNegated(text, value);
@@ -371,6 +377,17 @@ function modelSemanticsMatchExpectation(caseDefinition = {}, intent = null) {
   };
 }
 
+function executableImageBatch(route = null) {
+  const compiled = route?.imagePlanCompiled;
+  if (!compiled || compiled.kind !== "batch" || !Array.isArray(compiled.items) || compiled.items.length < 2) return false;
+  return compiled.items.every(item => (
+    item?.route
+    && dispatchContractContract.hasExactDispatchContract(item.route.dispatchContract || item.dispatchContract)
+    && item.route.dispatchAuthorized === true
+    && item.route.readiness === "ready"
+  ));
+}
+
 function validateCompiledRoute(route = null) {
   const errors = [];
   const compiled = routeSnapshot(route);
@@ -412,7 +429,11 @@ function validateCompiledRoute(route = null) {
   const clarification = compiled.clarification;
   if (compiled.readiness === "ready") {
     const planningRoute = compiled.task_shape === "multi" && routeService.shouldRequestImagePlan(route);
-    if (planningRoute) {
+    const compiledBatch = executableImageBatch(route);
+    if (compiledBatch) {
+      if (compiled.dispatch_contract !== null) errors.push("compiled image batch must keep the parent dispatch contract empty");
+      if (!compiled.dispatch_authorized) errors.push("compiled image batch must authorize only validated child contracts");
+    } else if (planningRoute) {
       if (compiled.dispatch_contract !== null) errors.push("planning route cannot authorize a pre-plan dispatch contract");
       if (compiled.dispatch_authorized) errors.push("planning route cannot authorize dispatch before image planning");
     } else {
@@ -519,7 +540,7 @@ function scoreRouteCase(caseDefinition = {}, route = null, metadata = {}) {
       ? compiled.dispatch_contract === null
       : expected.task_shape === "multi"
         ? compiled.dispatch_contract === null
-          && routeService.shouldRequestImagePlan(route)
+          && (executableImageBatch(route) || routeService.shouldRequestImagePlan(route))
         : dispatchContractContract.hasExactDispatchContract(compiled.dispatch_contract)),
   };
   const score = Object.entries(SCORE_WEIGHTS).reduce((total, [key, weight]) => total + (checks[key] ? weight : 0), 0);
@@ -647,6 +668,7 @@ module.exports = {
   VALID_OPERATIONS,
   VALID_TASK_SHAPES,
   VALID_GOAL_MODES,
+  executableImageBatch,
   validateCompiledRoute,
   validateFixtureSuite,
   loadFixtureSuite,

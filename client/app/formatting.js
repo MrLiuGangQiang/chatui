@@ -1,4 +1,4 @@
-(function initChatUIAppFormatting(root) {
+﻿(function initChatUIAppFormatting(root) {
   'use strict';
 
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
@@ -50,11 +50,44 @@
   }
 
   function pendingFeedbackHtml(value) {
-    const text = String(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务');
+    const text = executionStatus.humanizeStatusText?.(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务') || String(value || executionStatus.operationStatusText?.('', 'prepare') || '正在准备执行任务');
     const lines = text.split(/\r?\n/);
     const multiline = lines.length > 1;
     const rows = lines.map(line => pendingFeedbackRowHtml(line));
     return `<div class="pending-feedback${multiline ? ' pending-feedback-multiline' : ''}" data-live-status="true" role="status" aria-live="polite" aria-atomic="true">${rows.join('')}</div>`;
+  }
+
+  function intentReasoningMarker(status = '') {
+    if (status === 'failed') return '✕';
+    if (status === 'completed') return '✓';
+    return '·';
+  }
+
+  function intentReasoningHtml(trace = {}, { collapsed = false, currentStatus = '' } = {}) {
+    const steps = Array.isArray(trace?.steps) ? trace.steps : [];
+    const humanize = executionStatus.humanizeStatusText || (value => String(value || ''));
+    const terminal = ['ready', 'clarify', 'failed', 'hidden'].includes(String(trace?.status || ''));
+    const title = String(currentStatus || '').trim() || (terminal ? '已理解你的请求' : '正在理解你的请求');
+    const rows = steps.map(step => {
+      const status = String(step?.status || 'completed');
+      const summary = humanize(step?.summary || step?.stage || '正在处理');
+      const decision = step?.decision ? `：${humanize(step.decision)}` : '';
+      const evidence = Array.isArray(step?.evidence) && step.evidence.length ? ` · ${step.evidence.map(humanize).join(' · ')}` : '';
+      return `<div class="intent-reasoning-step${step === steps.at(-1) && !terminal ? ' is-current' : ''}" role="listitem"><span class="intent-reasoning-marker" aria-hidden="true">${intentReasoningMarker(status)}</span><span class="intent-reasoning-step-body"><span class="intent-reasoning-summary">${escapeHtml(summary)}</span><span class="intent-reasoning-decision">${escapeHtml(decision + evidence)}</span></span></div>`;
+    }).join('');
+    return { html: `<details class="intent-reasoning-trace intent-waiting-surface${terminal ? ' is-terminal' : ' is-running'}" data-intent-reasoning="true"${collapsed ? '' : ' open'}><summary><span class="intent-reasoning-title${currentStatus ? ' is-current-status' : ''}">${escapeHtml(title)}</span></summary><div class="intent-reasoning-steps" role="list">${rows}</div></details>`, text: steps.map(step => humanize(step?.summary || step?.stage || '')).filter(Boolean).join('\n') };
+  }
+  function attachIntentReasoningTrace(node, trace = {}) {
+    if (!node || typeof node.querySelector !== 'function') return false;
+    const rendered = intentReasoningHtml(trace);
+    const current = node.querySelector('.intent-reasoning-trace');
+    if (current) { const currentStatus = String(current.querySelector('.intent-reasoning-title')?.textContent || '').trim(); current.outerHTML = intentReasoningHtml(trace, { currentStatus }).html; return true; }
+    const pending = node.matches?.('.pending-feedback') ? node : node.querySelector('.pending-feedback');
+    if (!pending) return false;
+    const currentStatus = String(pending.textContent || '').replace(/\s+/g, ' ').trim();
+    const unified = intentReasoningHtml(trace, { currentStatus });
+    pending.outerHTML = unified.html;
+    return true;
   }
 
   function isChatStatusText(value = '') {
@@ -112,6 +145,8 @@
     renderStreamingText,
     pendingFeedbackHtml,
     pendingFeedbackRowHtml,
+    intentReasoningHtml,
+    attachIntentReasoningTrace,
     isChatStatusText,
   });
 
@@ -119,3 +154,13 @@
   if (root) root.ChatUIAppFormatting = api;
   if (root?.window) root.window.ChatUIAppFormatting = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
+
+
+
+
+
+
+
+
+
+

@@ -413,7 +413,7 @@ function summarizeRequestPayload(payload = {}, {
   const fields = Object.keys(payload).filter(k => !CREDENTIAL_FIELD_RE.test(k));
   const model = String(payload.model || '');
 
-  if (kind === 'route_intent' || kind === 'chat') {
+  if (['route_intent', 'route_understanding', 'route_critic', 'route_repair', 'route_fallback', 'chat'].includes(kind)) {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
     const input = Array.isArray(payload.input) ? payload.input : [];
     const transport = input.length || payload.text ? 'responses' : 'chat';
@@ -506,7 +506,7 @@ function summarizeResponsePayload(response, {
   const fields = Object.keys(response);
   const model = String(response.model || '');
 
-  if (kind === 'route_intent' || kind === 'chat') {
+  if (['route_intent', 'route_understanding', 'route_critic', 'route_repair', 'route_fallback', 'chat'].includes(kind)) {
     const choices = Array.isArray(response.choices) ? response.choices : [];
     const usage = response.usage || {};
     const outputText = responseOutputText(response);

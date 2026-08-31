@@ -23,17 +23,19 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
     'the app must wire batch resume back to pending-submit recovery for the pre-snapshot refresh window');
   assert.ok(jobResume.includes('missingDurableChild') && jobResume.includes('return await resumePendingSubmit(e)'),
     'an incomplete child durable set must delegate to pending-submit recovery instead of querying an unowned child');
+  assert.strictEqual((jobResume.match(/appendIntentStatusHtml\(currentHtml, status\) \|\| pendingFeedbackHtml\(status\)/g) || []).length, 2,
+    'timed image and chat resume updates must overwrite the status line in the existing reasoning surface');
   assert.ok(batchWorkflow.includes('storageCore.safeSetJsonStorage?.(root.localStorage, key, child.durableJob)')
     && batchWorkflow.includes('onDurableHandoff?.(batchJobId'),
     'batch ownership must be released only after every child snapshot is durable and the single server batch has been accepted');
   assert.ok(regenerate.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
     'regenerated batches must complete through the single parent batch identity');
   assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard')
-    && index.includes('job-resume-workflow.js?v=1.3.5-refresh-batch-owner')
+    && index.includes('job-resume-workflow.js?v=1.3.6-unified-waiting-steps')
     && index.includes('image-batch-workflow.js?v=1.0.4-refresh-batch-owner')
     && index.includes('submit-workflow.helpers.js?v=1.5.2-batch-dispatch-projection')
     && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep')
-    && index.includes('app.js?v=2.3.17-welcome-model'),
+    && index.includes('app.js?v=2.3.19-session-switch-image-restore'),
   'runtime entry assets should receive cache-version updates with the recovery fix');
 }
 

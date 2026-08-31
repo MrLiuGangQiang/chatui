@@ -53,16 +53,16 @@ function testStatusDetectionNeverClassifiesRealAnswerContent() {
       `real assistant content must never be classified as status: ${answer}`);
   }
   const appStatuses = [
-    '正在接收任务…',
-    '正在准备消息…',
-    '正在识别任务…',
-    '正在连接模型…',
-    '正在启动图片任务…',
+    '正在接收任务',
+    '正在准备消息',
+    '正在识别任务',
+    '正在连接模型',
+    '正在启动图片任务',
     '正在处理中 请稍后',
     '正在处理… 已等待 5 秒',
     '正在处理 已等待 12 秒',
     '正在思考',
-    '正在恢复聊天任务…',
+    '正在恢复聊天任务',
     '正在等待模型生成回答',
     '正在准备执行任务',
     '正在读取当前对话上下文',
@@ -121,7 +121,7 @@ function testRegenerationRefreshRendersOrderedMessagesAndPendingContent() {
     { role: 'user', content: 'q1', rawText: 'q1', messageIndex: '0' },
     { role: 'assistant', content: 'a1', rawText: 'a1', responseIndex: '1' },
     { role: 'user', content: 'q2', rawText: 'q2', messageIndex: '2' },
-    { role: 'assistant', content: '正在恢复聊天任务…', rawText: '正在恢复聊天任务…', responseIndex: '3', regenerating: true },
+    { role: 'assistant', content: '正在恢复聊天任务', rawText: '正在恢复聊天任务', responseIndex: '3', regenerating: true },
     { role: 'user', content: 'q3', rawText: 'q3', messageIndex: '4' },
     { role: 'assistant', content: 'a3', rawText: 'a3', responseIndex: '5' },
   ];

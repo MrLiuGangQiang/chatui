@@ -211,7 +211,35 @@ function testExplicitImageResultCountNeverCountsInputsOrSubjects() {
   assert.strictEqual(understanding.explicitImageResultCount('生成三张海报：春、夏、冬'), 3);
 }
 
+function testShapeCompilerKeepsRoleOnlyImageEditAsSingle() {
+  const merged = understanding.compileUnderstandingShape([
+    action('image_edit', 1, '把第一张图的背景改成纯白'),
+    action('image_edit', 2, '第二张作为蒙版'),
+  ], '用第二张作为蒙版，把第一张图的背景改成纯白');
+  assert.strictEqual(merged.taskShape, 'single');
+  assert.strictEqual(merged.actions.length, 1);
+  assert.strictEqual(merged.actions[0].resolved_refs.length, 0);
+
+  const excluded = understanding.compileUnderstandingShape([
+    action('image_edit', 1, '把第二张图改成浅灰'),
+    action('image_edit', 2, '第一张不要改'),
+  ], '只把第二张图改成浅灰，第一张不要改');
+  assert.strictEqual(excluded.taskShape, 'single');
+  assert.strictEqual(excluded.actions.length, 1);
+}
+
+function testShapeCompilerKeepsExplicitIndependentEditsAsMulti() {
+  const shape = understanding.compileUnderstandingShape([
+    action('image_edit', 1, '第一张图改成黑白'),
+    action('image_edit', 2, '第二张图改成黑白'),
+  ], '分别把第一张图和第二张图改成黑白');
+  assert.strictEqual(shape.taskShape, 'multi');
+  assert.strictEqual(shape.actions.length, 2);
+}
+
 module.exports = [
+  testShapeCompilerKeepsRoleOnlyImageEditAsSingle,
+  testShapeCompilerKeepsExplicitIndependentEditsAsMulti,
   testKindEnumMapsToOperations,
   testRequiredResourceRolesAreDeterministic,
   testShapeCompilerSingleAndMergedReadQuestion,

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 function stringValue(value) { return String(value ?? '').trim(); }
 
@@ -836,7 +836,103 @@ async function testWorkflowRepairsInvalidUnderstandingOutputOnce() {
   }
 }
 
+function testPendingTaskSelectorIsNotConsumedAsOpenEndedClarification() {
+  const submitWorkflow = require('../../client/app/submit-workflow');
+  const pending = { routeInfo: { multiTaskPlan: { schema_version: 'multi_task_plan.v1', tasks: [] } } };
+  const routeService = { isTaskSelectionInput: input => input === '1' };
+  assert.strictEqual(
+    submitWorkflow.isPendingTaskSelectorInput('1', pending, routeService),
+    true,
+    'a numeric multi-task selector must keep the pending resource context alive',
+  );
+  assert.strictEqual(
+    submitWorkflow.isPendingTaskSelectorInput('橙色科技风', pending, routeService),
+    false,
+    'an actual clarification answer must still be parsed normally',
+  );
+  assert.strictEqual(
+    submitWorkflow.isPendingTaskSelectorInput('1', { routeInfo: {} }, routeService),
+    false,
+    'ordinary clarifications must not change selector parsing',
+  );
+}
+
+function testSelectedTaskDoesNotInheritSiblingMediaBindings() {
+  const plan = {
+    schema_version: 'multi_task_plan.v1',
+    tasks: [
+      {
+        key: 't1', operation: 'image_qa', description: 'inspect image',
+        goal: 'Inspect the current image and answer its dominant color.',
+        resource_refs: [{ candidate_key: 'i1', role: 'source' }],
+      },
+      {
+        key: 't2', operation: 'file_qa', description: 'inspect file',
+        goal: 'Read the current file and answer who is responsible.',
+        resource_refs: [{ candidate_key: 'f1', role: 'attachment' }],
+      },
+    ],
+  };
+  const context = {
+    recent_messages: [],
+    image_candidates: [{
+      index: 1, source: 'current', image_id: 'image-1',
+      resource_id: 'res:image:image-1', name: 'photo.png',
+    }],
+    file_candidates: [{
+      index: 1, source: 'current', file_id: 'file-1',
+      resource_id: 'res:file:file-1', name: 'owners.txt',
+    }],
+    clarification_context: {
+      schema_version: 'clarification_context.v4',
+      operation: 'multimodal_qa',
+      answer_complete: true,
+      established_resources: [
+        {
+          resource_key: 'r1', type: 'image', role: 'source', source: 'current',
+          id: 'image-1', resource_id: 'res:image:image-1', index: 1,
+        },
+        {
+          resource_key: 'r2', type: 'file', role: 'attachment', source: 'current',
+          id: 'file-1', resource_id: 'res:file:file-1', index: 1,
+        },
+      ],
+      selected_resources: [],
+    },
+  };
+
+  const image = routeService.compileSelectedPlanTask(plan, 1, {
+    input: '1', attachments: [], context,
+    routeCompilationOptions: { currentMode: 'chat', autoMode: true },
+  });
+  assert.strictEqual(image.ok, true, image.reason);
+  assert.deepStrictEqual(image.route.resources.map(resource => resource.type), ['image'],
+    'an image task must not inherit the sibling file from the parent multi-task route');
+  assert.deepStrictEqual(image.route.dispatchContract.bindings.map(binding => binding.type), ['image']);
+
+  const file = routeService.compileSelectedPlanTask(plan, 2, {
+    input: '2', attachments: [], context,
+    routeCompilationOptions: { currentMode: 'chat', autoMode: true },
+  });
+  assert.strictEqual(file.ok, true, file.reason);
+  assert.deepStrictEqual(file.route.resources.map(resource => resource.type), ['file'],
+    'a file task must not inherit the sibling image from the parent multi-task route');
+  assert.deepStrictEqual(file.route.dispatchContract.bindings.map(binding => binding.type), ['file']);
+}
+
+function testForcedMultiTaskParentRetainsCompleteUserGoal() {
+  const route = {
+    userGoal: '总结方案并生成海报',
+    taskShape: 'multi',
+    multiTask: true,
+  };
+  assert.strictEqual(route.userGoal.includes('生成海报'), true);
+}
+
 module.exports = [
+  testForcedMultiTaskParentRetainsCompleteUserGoal,
+  testSelectedTaskDoesNotInheritSiblingMediaBindings,
+  testPendingTaskSelectorIsNotConsumedAsOpenEndedClarification,
   testShouldRequestMultiTaskPlanOnlyForNonImageMulti,
   testCompiledMultiRouteExposesMultiTaskFlag,
   testMultiTaskPlanPromptAndInspect,

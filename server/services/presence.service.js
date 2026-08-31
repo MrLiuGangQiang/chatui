@@ -8,17 +8,24 @@
 // the same slot, a new tab is counted separately, and reconnects after a
 // network blip are never double counted.
 //
-// The service is deliberately in-memory: a single ChatUI process serves all
-// tabs, matching the existing usage-statistics model where optional PostgreSQL
-// is the only external store. A periodic sweeper evicts subscriptions whose
-// last heartbeat is older than ttlMs, because browsers and proxies can drop
-// SSE connections without ever firing a close event; without the sweeper the
-// count would only ever grow (the exact failure this module's tests pin).
+// The in-memory service is deliberately single-instance: a single ChatUI
+// process serves all tabs, matching the existing usage-statistics model where
+// optional PostgreSQL is the only external store. Multi-instance deployments
+// should configure REDIS_URL so server/services/presence.redis.js can keep the
+// global count in a shared Redis sorted set; the local in-memory table below
+// still owns each process's live SSE response objects.
 
 const PRESENCE_TTL_MS = Number(process.env.PRESENCE_TTL_MS || 120 * 1000);
 const PRESENCE_SWEEP_INTERVAL_MS = Number(process.env.PRESENCE_SWEEP_INTERVAL_MS || 30 * 1000);
 const PRESENCE_KEEPALIVE_INTERVAL_MS = Number(process.env.PRESENCE_KEEPALIVE_INTERVAL_MS || 15 * 1000);
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
+
+// Browser tabs generate ids that only contain URL-safe characters; rejecting
+// anything else keeps the stream URL and heartbeat body strict.
+function normalizePresenceClientId(value) {
+  const raw = String(value || '').trim();
+  return CLIENT_ID_PATTERN.test(raw) ? raw : null;
+}
 
 function createPresenceService({ ttlMs = PRESENCE_TTL_MS, now = Date.now } = {}) {
   const sessions = new Map(); // clientId -> { res, lastSeen }
@@ -31,11 +38,8 @@ function createPresenceService({ ttlMs = PRESENCE_TTL_MS, now = Date.now } = {})
     return { count: sessions.size, timestamp: now() };
   }
 
-  // Browser tabs generate ids that only contain URL-safe characters; rejecting
-  // anything else keeps the stream URL and heartbeat body strict.
   function normalizeClientId(value) {
-    const raw = String(value || '').trim();
-    return CLIENT_ID_PATTERN.test(raw) ? raw : null;
+    return normalizePresenceClientId(value);
   }
 
   function broadcast(payload) {
@@ -134,7 +138,12 @@ function createPresenceService({ ttlMs = PRESENCE_TTL_MS, now = Date.now } = {})
 
 function startPresenceSweeper(service, intervalMs = PRESENCE_SWEEP_INTERVAL_MS) {
   const timer = setInterval(() => {
-    try { service.sweep(); } catch {}
+    // Both the in-memory and Redis-backed services share this sweeper. The
+    // in-memory sweep is synchronous while the Redis sweep is async, so route
+    // the result through Promise.resolve and swallow async rejections.
+    try {
+      Promise.resolve(service.sweep()).catch(() => {});
+    } catch {}
   }, intervalMs);
   timer.unref?.();
   return timer;
@@ -143,6 +152,7 @@ function startPresenceSweeper(service, intervalMs = PRESENCE_SWEEP_INTERVAL_MS) 
 module.exports = {
   createPresenceService,
   startPresenceSweeper,
+  normalizePresenceClientId,
   PRESENCE_TTL_MS,
   PRESENCE_SWEEP_INTERVAL_MS,
   PRESENCE_KEEPALIVE_INTERVAL_MS,

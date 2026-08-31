@@ -33,7 +33,7 @@
   function buildImageRoleGuide(imageInputs = [], dispatchContract = null) {
     if (!Array.isArray(imageInputs) || imageInputs.length <= 1) return "";
     const lines = [
-      "随附图片角色（依上传顺序）：",
+      "随附图片角色（按发送顺序）：",
       ...imageInputs.map((item, index) => `- 图片${index + 1}：${imageRoleLabel(item?.routeRole)}`),
     ];
     const operation = String(dispatchContract?.operation || "");

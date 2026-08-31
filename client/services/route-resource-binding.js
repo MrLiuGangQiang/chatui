@@ -47,6 +47,10 @@
     function canonicalBindingRole(operation = '', type = '', role = '', { soleEditImage = false } = {}) {
       const token = bindingRoleToken(role);
       if (type === 'image') {
+        // Read-only visual operations consume every selected image as evidence;
+        // compare/edit/reference roles from a model proposal must not survive
+        // into a source-only execution contract.
+        if (['image_qa', 'ocr', 'multimodal_qa'].includes(operation)) return 'source';
         if (MASK_ROLE_ALIASES.has(token)) return 'mask';
         if (operation === 'image_reference_gen') {
           if (STYLE_REFERENCE_ROLE_ALIASES.has(token)) return 'style_reference';
@@ -120,7 +124,7 @@
         key: stringValue(key),
         type: stringValue(type),
         role: stringValue(role),
-        reason: ['missing', 'ambiguous', 'unavailable'].includes(reason) ? reason : 'missing',
+        reason: ['missing', 'missing_source_text', 'ambiguous', 'unavailable'].includes(reason) ? reason : 'missing',
         choices: (Array.isArray(candidates) ? candidates : []).map(candidateChoice),
       };
     }
@@ -158,7 +162,7 @@
           key,
           type: stringValue(issue?.type),
           role: stringValue(issue?.role),
-          reason: ['missing', 'ambiguous', 'unavailable'].includes(issue?.reason) ? issue.reason : 'missing',
+          reason: ['missing', 'missing_source_text', 'ambiguous', 'unavailable'].includes(issue?.reason) ? issue.reason : 'missing',
           choices: (Array.isArray(issue?.choices) ? issue.choices : []).map((choice, index) => ({
             ...choice,
             key: `c${index + 1}`,

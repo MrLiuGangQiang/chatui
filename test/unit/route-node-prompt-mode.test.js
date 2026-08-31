@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const prompts = require('../../client/services/route-prompts');
@@ -58,6 +58,9 @@ function workflowHarness({ understanding = 'ok', routeOutputs = [] } = {}) {
         routeIndex += 1;
         return { output_text: ROUTE_OUTPUT(output) };
       }
+      if (name === 'chatui_route_repair_v1') {
+        return { output_text: ROUTE_OUTPUT({ relation: 'followup' }) };
+      }
       throw new Error('unexpected request ' + String(name || '<missing>'));
     },
   });
@@ -77,17 +80,17 @@ async function testCoTPathUsesCompactRouteNodePrompt() {
     );
     assert.strictEqual(route.outcome, 'ready');
     const routeCalls = harness.calls.filter(call => call.name === 'chatui_route_intent_v3');
-    assert.ok(routeCalls.length >= 2, 'the understand -> route path must run the route node and a targeted repair round');
+    assert.ok(routeCalls.length >= 1, 'the understand -> route path must run the route node');
     for (const call of routeCalls) {
       assert.strictEqual(systemPromptOf(call), routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
         'the CoT path must send the compact route-node prompt, not the full standalone prompt');
       assert.notStrictEqual(systemPromptOf(call), FULL_PROMPT);
     }
-    const repairCall = routeCalls.find(call => (call.payload?.input || [])
-      .some(message => String(message.content).includes('repair_request')));
+    const repairCall = harness.calls.find(call => call.name === 'chatui_route_repair_v1'
+      && (call.payload?.input || []).some(message => String(message.content).includes('repair_request')));
     assert.ok(repairCall, 'the semantic repair round must run inside the CoT path');
-    assert.strictEqual(systemPromptOf(repairCall), routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
-      'the CoT repair round must keep the compact route-node prompt');
+    assert.strictEqual(systemPromptOf(repairCall), routeService.ROUTE_REPAIR_SYSTEM_PROMPT,
+      'a semantic repair must use the constrained repair contract prompt');
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -215,7 +218,7 @@ async function testFallbackModelRunsTheSameSemanticRepairPath() {
         const name = payload?.text?.format?.name;
         calls.push({ name, model: payload?.model, payload });
         if (name === 'chatui_intent_understanding_v1') return { output_text: UNDERSTANDING_OUTPUT };
-        if (name === 'chatui_route_intent_v3') {
+        if (name === 'chatui_route_intent_v3' || name === 'chatui_route_repair_v1') {
           if (payload.model === 'route-model') {
             const error = new Error('primary gateway reset');
             error.code = 'ECONNRESET';
@@ -229,12 +232,13 @@ async function testFallbackModelRunsTheSameSemanticRepairPath() {
     });
     const route = await workflow.getEffectiveRoute(
       '这个效果怎么样', [], 'session-1', null,
-      { quoted_message: { role: 'user', content: '上一张图', id: 'quoted-1' } },
+      { quoted_message: { role: 'user', content: '锟斤拷一锟斤拷图', id: 'quoted-1' } },
+      { enableRouteFallback: true },
     );
     assert.strictEqual(route.outcome, 'ready');
     assert.strictEqual(route.relation, 'followup',
       'the fallback model must be repaired from a contradictory relation instead of being trusted blindly');
-    const repairCall = calls.find(call => call.name === 'chatui_route_intent_v3'
+    const repairCall = calls.find(call => call.name === 'chatui_route_repair_v1'
       && call.model === 'chat-model'
       && (call.payload?.input || []).some(message => String(message.content).includes('repair_request')));
     assert.ok(repairCall, 'the fallback model must go through the same semantic repair round as the primary model');

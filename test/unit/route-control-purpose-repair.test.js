@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -75,7 +75,7 @@ async function testFallbackAndRepairCarryDistinctPurposesAndReasons() {
     const workflow = routeIntentWorkflow.createRouteIntentWorkflow(baseDeps(async (url, payload, apiKey, options = {}) => {
       const name = payload?.text?.format?.name;
       if (name === 'chatui_intent_understanding_v1') return { output_text: understandingOutput('new') };
-      if (name === 'chatui_route_intent_v3') {
+      if (name === 'chatui_route_intent_v3' || name === 'chatui_route_repair_v1') {
         if (payload.model === 'route-model') {
           const error = new Error('primary gateway reset');
           error.code = 'ECONNRESET';
@@ -97,7 +97,8 @@ async function testFallbackAndRepairCarryDistinctPurposesAndReasons() {
     const route = await workflow.getEffectiveRoute(
       '画一只猫', [], 'session-1', null,
       { quoted_message: { role: 'user', content: '上一张图', id: 'quoted-1' } },
-    );
+
+      { enableRouteFallback: true },    );
     assert.strictEqual(route.outcome, 'ready');
     assert.strictEqual(route.relation, 'followup');
     assert.strictEqual(calls[0].purpose, 'route_fallback', 'the fallback model gets its own request purpose');

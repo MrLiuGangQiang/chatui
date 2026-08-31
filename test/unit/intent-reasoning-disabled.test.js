@@ -1,12 +1,9 @@
 'use strict';
 
-// Regression: intent recognition timed out ("本次未执行：意图识别超时")
-// because the one-shot intent pipeline requests went out without any
-// reasoning directive, letting reasoning models burn the shared 60-second
-// client deadline on their thinking phase. Every intent-pipeline payload
-// builder (route intent, image-instruction materialization, image planning)
-// must now send an explicit reasoning effort "none", translated to
-// reasoning_effort on the Chat Completions compatibility path, and still
+// Regression: the default intent path must remain latency-bounded. Simple
+// requests send an explicit reasoning effort "none", while the adaptive high-risk
+// path may opt into a bounded reasoning summary. The directive is translated to
+// reasoning_effort on the Chat Completions compatibility path and remains
 // strippable by the reasoning fallback for gateways that reject it.
 
 const assert = require('assert');
@@ -109,6 +106,15 @@ async function testNoThinkDirectiveIsStrippedWhenGatewayRejectsIt() {
   assert.strictEqual(Object.hasOwn(attempts[1], 'reasoning'), false, 'the retry must strip the rejected reasoning directive');
 }
 
+function testHighRiskRouteIntentPayloadEnablesBoundedReasoning() {
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '请比较第二张和上一张图片，并保留第三段要求，不要使用旧图',
+    intentReasoning: { enabled: true, effort: 'high' },
+  });
+  assert.deepStrictEqual(payload.reasoning, { effort: 'high', summary: 'auto' });
+}
+
 module.exports = [
   testRouteIntentPayloadDisablesReasoning,
   testImageInstructionPayloadDisablesReasoning,
@@ -116,4 +122,5 @@ module.exports = [
   testNoReasoningDoesNotAlterChatReasoningGate,
   testNoThinkDirectiveSurvivesChatCompletionsFallback,
   testNoThinkDirectiveIsStrippedWhenGatewayRejectsIt,
+  testHighRiskRouteIntentPayloadEnablesBoundedReasoning,
 ];

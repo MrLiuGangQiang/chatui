@@ -51,6 +51,39 @@ function testFileReadDowngradesToPlainTextWhenNoFileCandidateExists() {
 
 // A current/quoted file candidate keeps file_read: a file task is still
 // possible even when the model forgot to bind it in resolved_refs.
+function testPlainTextUnderstandingRemainsAuthoritativeForUnprovidedText() {
+  const inspected = routeService.inspectUnderstandingResult(JSON.stringify(understanding({
+    actions: [{
+      index: 1,
+      kind: 'plain_text',
+      target: 'Summarize the following text, then identify two issues and suggest revisions.',
+      resolved_refs: [],
+    }],
+  })), {
+    input: 'Summarize the following text, then identify two issues and suggest revisions.',
+    attachments: [],
+    context: {},
+  });
+
+  assert.ok(inspected.understanding, inspected.reason);
+  assert.strictEqual(inspected.understanding.actions[0].kind, 'plain_text',
+    'the understanding contract must remain authoritative when no source text was supplied');
+}
+
+function testMissingDeicticTextSourceBecomesTextClarification() {
+  const input = '总结下面这段话，指出两个问题，再给出修改建议。';
+  assert.strictEqual(routeService.missingTextSourceForInput(input, {}, []), true);
+  const result = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat', relation: 'new', goal: input,
+    goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }), { input, attachments: [], context: {} });
+  assert.ok(result.route, result.reason);
+  assert.strictEqual(result.route.needClarification, true);
+  assert.strictEqual(result.route.clarificationSlots[0].reason, 'missing_source_text');
+  assert.doesNotMatch(result.route.clarificationQuestion, /文件/);
+  assert.doesNotMatch(result.route.clarificationQuestion, /file/i);
+}
+
 function testFileReadStaysWhenFileCandidateExists() {
   const inspected = routeService.inspectUnderstandingResult(JSON.stringify(understanding({
     actions: [{
@@ -491,6 +524,25 @@ async function testWorkflowEmptyInputNoResourcesClarifiesWithoutModelCall() {
   } finally { if (previous === undefined) delete globalThis.ChatUIRouteService; else globalThis.ChatUIRouteService = previous; }
 }
 
+async function testWorkflowMissingTextSourceStopsBeforeModelRetries() {
+  const previous = globalThis.ChatUIRouteService; globalThis.ChatUIRouteService = routeService;
+  const calls = [];
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+    getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'k', routeModel: 'm', chatModel: 'm' }),
+    getSessionRouteModel: () => 'm', getSessionChatModel: () => 'm',
+    requestJson: async () => { calls.push('model'); return { output_text: '{}' }; },
+  });
+  try {
+    const route = await workflow.getEffectiveRoute('总结下面这段话，指出两个问题，再给出修改建议', [], 's');
+    assert.strictEqual(calls.length, 0, 'missing source text must be handled before model calls');
+    assert.strictEqual(route.outcome, 'business_clarification');
+    assert.strictEqual(route.operationType, 'plain_chat');
+    assert.strictEqual(route.clarificationSlots[0].reason, 'missing_source_text');
+    assert.doesNotMatch(route.clarificationQuestion, /文件|file/i);
+  } finally { if (previous === undefined) delete globalThis.ChatUIRouteService; else globalThis.ChatUIRouteService = previous; }
+}
+
 async function testWorkflowMultiImageReferenceRunsImagePlan() {
   const previous = globalThis.ChatUIRouteService; globalThis.ChatUIRouteService = routeService;
   const calls = [];
@@ -542,11 +594,68 @@ async function testWorkflowEmptyGenerationSubjectClarifies() {
 
 
 
+function testVagueProductPosterClarifiesBeforeDispatch() {
+  const input = '帮我做一张产品海报。';
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'text_to_image', relation: 'new', goal: input,
+    goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }), {
+    input, attachments: [], context: {},
+    enforceDeterministicPolicies: true,
+  });
+  assert.ok(inspected.route, inspected.reason);
+  assert.strictEqual(inspected.route.operationType, 'text_to_image');
+  assert.strictEqual(inspected.route.needClarification, true,
+    'a product-poster request without product/content details must clarify');
+  assert.strictEqual(inspected.route.dispatchAuthorized, false);
+  assert.strictEqual(inspected.route.dispatchContract, null);
+  assert.match(inspected.route.clarificationQuestion, /主体|场景|风格|内容/);
+}
+
+function testForceImageBypassesVaguePromptClarification() {
+  const route = routeService.createExplicitTextToImageRoute('帮我做一张产品海报。');
+  assert.ok(route, 'explicit force-image action must still produce a canonical image route');
+  assert.strictEqual(route.operationType, 'text_to_image');
+  assert.strictEqual(route.needClarification, false);
+  assert.strictEqual(route.dispatchAuthorized, true);
+  assert.strictEqual(route.dispatchContract.operation, 'text_to_image');
+}
+
+function testConcreteProductPosterPromptRemainsDispatchable() {
+  const input = '生成一张产品海报，主题是夏日促销，主体是橙色饮料瓶。';
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'text_to_image', relation: 'new', goal: input,
+    goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }), { input, attachments: [], context: {}, enforceDeterministicPolicies: true });
+  assert.ok(inspected.route, inspected.reason);
+  assert.strictEqual(inspected.route.needClarification, false);
+  assert.strictEqual(inspected.route.dispatchAuthorized, true);
+}
+
+function testGenericPlanAnalysisPreservesModelOperationAndClarifiesMissingFile() {
+  const input = '请分析一个小型 Node.js 项目的缓存方案，比较内存缓存和 Redis，并给出结论。';
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'file_qa', relation: 'new', goal: input,
+    goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }), { input, attachments: [], context: {} });
+
+  assert.ok(inspected.route, inspected.reason);
+  assert.strictEqual(inspected.route.operationType, 'file_qa');
+  assert.strictEqual(inspected.route.needClarification, true,
+    'a model-declared file task without a file must clarify instead of being rewritten locally');
+}
+
+
 module.exports = [
+  testVagueProductPosterClarifiesBeforeDispatch,
+  testForceImageBypassesVaguePromptClarification,
+  testConcreteProductPosterPromptRemainsDispatchable,
+  testGenericPlanAnalysisPreservesModelOperationAndClarifiesMissingFile,
   testWorkflowEmptyGenerationSubjectClarifies,
   testImagePlanEnvelopeIsNotMaterializedAsSingleInstruction,
   testWorkflowEmptyInputNoResourcesClarifiesWithoutModelCall,
   testWorkflowMultiImageReferenceRunsImagePlan,
+  testWorkflowMissingTextSourceStopsBeforeModelRetries,
   testBuildFallbackMultiTaskPlanFromActions,
   testWorkflowMixedMultiStaysOnMultiTaskPath,
   testWorkflowDisjunctionOffersChoiceInsteadOfFailing,
@@ -561,6 +670,8 @@ module.exports = [
   testRouteIntentForIntentAcceptsFileQaWithFileRef,
 
   testFileReadDowngradesToPlainTextWhenNoFileCandidateExists,
+  testMissingDeicticTextSourceBecomesTextClarification,
+  testPlainTextUnderstandingRemainsAuthoritativeForUnprovidedText,
   testFileReadStaysWhenFileCandidateExists,
   testFileReadStaysWhenFileRefBound,
   testImageReadDowngradesToPlainTextWhenNoImageCandidateExists,

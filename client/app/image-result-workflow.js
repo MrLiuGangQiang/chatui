@@ -109,7 +109,7 @@
 
   function batchSlotPendingHtml(slotIndex, total, status = '', escapeHtml = value => String(value || '')) {
     const statusText = String(status || '等待开始').trim() || '等待开始';
-    return `<div class="generated-image-slot-skeleton generated-image-slot-pending" role="status" aria-live="polite"><span class="generated-image-slot-status">${escapeHtml(statusText)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
+    return `<div class="generated-image-slot-skeleton generated-image-slot-pending" role="status" aria-live="polite"><span class="generated-image-slot-status" title="${escapeHtml(statusText)}">${escapeHtml(statusText)}</span><span class="pending-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>`;
   }
 
   function batchSlotInnerHtml(slotIndex, total, descriptors, {

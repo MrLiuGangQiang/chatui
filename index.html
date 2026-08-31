@@ -243,7 +243,7 @@
                 <span class="announcement-tip-value">gpt-image-2</span>
               </li>
             </ul>
-                        <div class="announcement-tip-note">觉得理解有偏差可换更好更高级的模型</div>
+                        <div class="announcement-tip-note">觉得理解有偏差请在描述时<strong class="announcement-highlight">清晰的指定任务目标</strong>可以同时<strong class="announcement-highlight">更换更高级的意图识别模型</strong>；生图时如果给的内容有歧义、容易误导大模型，可以直接点击<strong class="announcement-highlight">强制生图</strong></div>
             <div class="announcement-tip-note">不同模型能力有差距，处理文档、联网搜索请使用 <strong>GPT 系列</strong>模型</div>
           </div>
           <div class="announcement-hero-explain">
@@ -628,10 +628,20 @@
   <script src="./shared/config/context-budget.js?v=1.2.0-oldest-first-no-summary"></script>
   <script src="./shared/capability-registry.js?v=1.2.0-unified-message-refs"></script>
   <script src="./shared/route-intent.js?v=1.3.0-goal-mode"></script>
+  <script src="./shared/route-repair.js?v=1.0.0-constrained-baseline"></script>
+
   <script src="./shared/dispatch-contract.js?v=1.1.1-context-policy-fix"></script>
   <script src="./shared/image-plan.js?v=1.0.0"></script>
   <script src="./shared/multi-task-plan.js?v=1.0.0"></script>
   <script src="./shared/intent-understanding.js?v=1.0.1"></script>
+  <script src="./shared/intent-claims.js?v=1.0.0-coverage-gate"></script>
+  <script src="./shared/semantic-intent.js?v=1.0.0-evidence-envelope"></script>
+  <script src="./shared/intent-critic.js?v=1.0.1-context-binding-evidence"></script>
+  <script src="./shared/intent-reasoning.js?v=1.0.0-adaptive-trace"></script>
+
+
+
+
   <script src="./shared/image-instruction.js?v=1.0.0"></script>
   <script src="./shared/clarification-answer.js?v=1.0.5-plan-bindings"></script>
   <script src="./shared/clarification-relation.js?v=1.0.1"></script>
@@ -650,11 +660,11 @@
   <script src="./client/config/feature-flags.js?v=1.0.0"></script>
   <script src="./client/services/model-service.js?v=1.2.65"></script>
   <script src="./client/services/job-service.js?v=1.3.2-server-batch-fanout"></script>
-  <script src="./client/services/chat-service.js?v=1.3.3-canonical-fallback-schema"></script>
+  <script src="./client/services/chat-service.js?v=1.3.4-adaptive-intent-reasoning"></script>
   <script src="./client/services/prompt-composer-service.js?v=2.2.0-full-input"></script>
   <script src="./client/services/route-candidates.js?v=1.0.0"></script>
   <script src="./client/services/route-memory-retrieval.js?v=1.0.0"></script>
-  <script src="./client/services/route-prompts.js?v=1.0.10-aggregate-read"></script>
+  <script src="./client/services/route-prompts.js?v=1.0.12-constrained-route-repair"></script>
   <script src="./client/services/route-semantic-normalizer.js?v=1.0.0"></script>
   <script src="./client/services/route-resource-binding.js?v=1.0.0"></script>
   <script src="./client/services/route-image-plan-compiler.js?v=1.0.0"></script>
@@ -666,7 +676,7 @@
 
 
 
-  <script src="./client/services/route-service.js?v=4.9.15-understanding-repair"></script>
+  <script src="./client/services/route-service.js?v=4.9.17-evidence-bound-repair"></script>
   <script src="./client/services/image-generation-service.js?v=1.4.0-image-mask-resources&fail-closed-attachments"></script>
   <script src="./client/services/image-service.js?v=1.8.0-role-preservation"></script>
   <script src="./client/services/runtime-service.js?v=1.1.1-semver-label"></script>
@@ -685,8 +695,8 @@
   <script src="./client/features/clarification/presentation.js?v=1.2.0-choice-list"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
   <script src="./client/app/session-config.js?v=1.2.67-session-active-reset"></script>
-  <script src="./client/app/execution-status.js?v=1.0.1-stage-text"></script>
-  <script src="./client/app/formatting.js?v=1.2.70-live-status-multiline&batch-task-rows=1"></script>
+  <script src="./client/app/execution-status.js?v=1.0.1-stage-text&humanize=1"></script>
+  <script src="./client/app/formatting.js?v=1.2.72-intent-waiting-copy&humanize=1&batch-task-rows=1"></script>
   <script src="./client/app/markdown-utils.js?v=1.2.65"></script>
   <script src="./client/app/display-items.js?v=1.2.71-canonical-insertion-order"></script>
   <script src="./client/app/persistence.js?v=1.2.66-task-lifecycle-state-machine"></script>
@@ -720,20 +730,20 @@
   <script src="./client/app/job-workflow.js?v=1.2.72-compact-events"></script>
   <script src="./client/app/image-caption-workflow.js?v=1.2.0-background-tags-no-ui"></script>
   <script src="./client/app/image-result-workflow.js?v=1.7.4-canonical-batch-completion"></script>
-  <script src="./client/app/job-resume-workflow.js?v=1.3.5-refresh-batch-owner"></script>
+  <script src="./client/app/job-resume-workflow.js?v=1.3.6-unified-waiting-steps"></script>
   <script src="./client/app/submit-workflow.helpers.js?v=1.5.2-batch-dispatch-projection"></script>
   <script src="./client/app/submit-workflow-policy.js?v=1.1.0-canonical-edit-pending-position"></script>
-  <script src="./client/app/submit-workflow.js?v=1.5.12-model-task-selection"></script>
+  <script src="./client/app/submit-workflow.js?v=1.5.13-intent-trace"></script>
   <script src="./client/app/chat-workflow.js?v=1.6.4-full-context-history&context-selection=1&native-file-routing=1&system-context-v2=1"></script>
   <script src="./client/app/image-task-preparation.js?v=1.0.0-shared-image-prep"></script>
   <script src="./client/app/image-workflow.js?v=1.6.7-stable-turn-identity"></script>
   <script src="./client/app/image-batch-workflow.js?v=1.0.4-refresh-batch-owner"></script>
   <script src="./client/app/regenerate-workflow.js?v=1.2.9-intent-first"></script>
   <script src="./client/app/message-workflow.js?v=1.3.44-stable-turn-identity"></script>
-  <script src="./client/app/display-history-workflow.js?v=2.0.7-stable-message-identity"></script>
+  <script src="./client/app/display-history-workflow.js?v=2.0.8-session-switch-image-restore"></script>
   <script src="./client/ui/scroll-metrics.js?v=1.0.0"></script>
   <script src="./client/app/scroll-focus-workflow.js?v=1.3.33"></script>
-  <script src="./client/app/route-intent-workflow.js?v=4.4.11-understanding-repair"></script>
+  <script src="./client/app/route-intent-workflow.js?v=4.4.13-constrained-route-repair"></script>
   <script src="./client/app/clarification-choice-workflow.js?v=1.0.1-persist-disabled-state"></script>
 
   <script src="./client/app/reasoning-workflow.js?v=1.3.35-reasoning-persistence"></script>
@@ -760,7 +770,7 @@
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
   <script src="./client/app/bootstrap-workflow.js?v=2.1.2-ime-platform-guard"></script>
   <script src="./client/app/image-result-reconciliation.js?v=1.1.0-durable-canonical-result"></script>
-  <script src="./app.js?v=2.3.17-welcome-model"></script>
+  <script src="./app.js?v=2.3.19-session-switch-image-restore"></script>
   </template>
 </body>
 </html>

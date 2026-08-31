@@ -11,6 +11,8 @@
   const routeIntentModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeIntent')
     || root?.ChatUIRouteIntent
     || (typeof require === 'function' ? require('../../shared/route-intent') : {});
+  const routeRepairModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeRepair')
+    || (typeof require === 'function' ? require('../../shared/route-repair') : {});
   const routePromptsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routePrompts')
     || (typeof require === 'function' ? require('./route-prompts') : {});
   const routeSemanticNormalizerModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('routeSemanticNormalizer')
@@ -30,6 +32,12 @@
     || (typeof require === 'function' ? require('../../shared/multi-task-plan') : {});
   const intentUnderstandingModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentUnderstanding')
     || (typeof require === 'function' ? require('../../shared/intent-understanding') : {});
+  const intentClaimsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentClaims')
+    || (typeof require === 'function' ? require('../../shared/intent-claims') : {});
+  const semanticIntentModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('semanticIntent')
+    || (typeof require === 'function' ? require('../../shared/semantic-intent') : {});
+  const intentCriticModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentCritic')
+    || (typeof require === 'function' ? require('../../shared/intent-critic') : {});
   const imageInstructionModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageInstruction')
     || root?.ChatUIImageInstruction
     || (typeof require === 'function' ? require('../../shared/image-instruction') : {});
@@ -92,6 +100,15 @@
     resourceTypeForCandidateKey,
   } = routeIntentModule;
   const {
+    ROUTE_REPAIR_VERSION = 'route_repair.v1',
+    ROUTE_REPAIR_RESPONSE_FORMAT,
+    routeRepairResponseFormatForCandidates,
+    hasExactRouteRepair,
+    normalizeRouteRepair,
+    adaptLegacyRouteIntentRepair,
+    applyRouteRepair,
+  } = routeRepairModule;
+  const {
     IMAGE_PLAN_VERSION = 'image_plan.v1',
     IMAGE_PLAN_MAX_TASKS = 5,
     IMAGE_PLAN_ABSOLUTE_MAX_TASKS = 50,
@@ -120,6 +137,18 @@
     operationForKind,
     requiredResourceRoles,
   } = intentUnderstandingModule;
+  const {
+    SEMANTIC_INTENT_VERSION = 'semantic_intent.v1',
+    buildSemanticIntent,
+    hasExactSemanticIntent,
+  } = semanticIntentModule;
+  const {
+    INTENT_CRITIC_VERSION = 'intent_critic.v1',
+    INTENT_CRITIC_RESPONSE_FORMAT,
+    hasExactIntentCritic,
+    normalizeIntentCritic,
+    localCritic,
+  } = intentCriticModule;
 
   const {
     IMAGE_INSTRUCTION_VERSION = 'image_instruction.v1',
@@ -148,12 +177,25 @@
     IMAGE_PLAN_SYSTEM_PROMPT,
     MULTI_TASK_PLAN_SYSTEM_PROMPT,
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
+    ROUTE_REPAIR_SYSTEM_PROMPT,
   } = routePromptsModule.createRoutePromptSet({
     imagePlanAbsoluteMaxTasks: IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
   });
 
   // ── Schema versions ─────────────────────────────────────────────
   const { buildResponsesPayload } = chatService;
+
+  function intentReasoningPayloadOptions(intentReasoning = null) {
+    const value = intentReasoning && typeof intentReasoning === 'object' && !Array.isArray(intentReasoning)
+      ? intentReasoning
+      : {};
+    if (value.enabled !== true) return { noReasoning: true };
+    const allowed = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+    const effort = allowed.has(String(value.effort || '').trim().toLowerCase())
+      ? String(value.effort).trim().toLowerCase()
+      : 'medium';
+    return { reasoning: { effort, summary: 'auto' } };
+  }
 
   const DISPATCH_CONTRACT_VERSION = 'dispatch_contract.v1';
   const EXECUTION_RESOURCE_PROJECTION_VERSION = 'execution_resources.v2';
@@ -174,6 +216,8 @@
   const REJECTED_IMAGE_TARGET_PATTERN = /(?:\u4e0d\u662f(?:\u8fd9\u4e2a|\u8fd9\u5f20|\u90a3\u4e2a|\u90a3\u5f20)?(?:\u56fe|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)?|\u4e0d\u8981(?:\u8fd9\u4e2a|\u8fd9\u5f20|\u90a3\u4e2a|\u90a3\u5f20)?(?:\u56fe|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)?|\u4e0d\u7528(?:\u8fd9\u4e2a|\u8fd9\u5f20|\u90a3\u4e2a|\u90a3\u5f20)?(?:\u56fe|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)?|\u9009\u9519|\u6362\u4e00\u5f20(?:\u56fe|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)?|\u53e6\u4e00\u5f20(?:\u56fe|\u56fe\u7247|\u56fe\u50cf|\u7167\u7247)?)/i;
   const IMAGE_TARGET_CLARIFICATION_PATTERN = /(?:\u76ee\u6807(?:\u56fe\u7247|\u56fe\u50cf|\u56fe)|(?:\u7f16\u8f91|\u4fee\u6539|\u5904\u7406).{0,12}(?:\u54ea\u5f20|\u54ea\u4e00\u5f20)(?:\u56fe\u7247|\u56fe\u50cf|\u56fe)?|(?:\u54ea\u5f20|\u54ea\u4e00\u5f20)(?:\u56fe\u7247|\u56fe\u50cf|\u56fe).{0,12}(?:\u7f16\u8f91|\u4fee\u6539|\u5904\u7406))/i;
   const EXPLICIT_TASK_ADVICE_ACCEPTANCE_PATTERN = /(?:\u6309(?:\u7167)?(?:\u4f60(?:\u521a\u624d|\u4e0a\u4e00\u8f6e)?\u7684)?\u5efa\u8bae|\u7167\u4f60\u8bf4\u7684|\u6839\u636e(?:\u4f60(?:\u521a\u624d|\u4e0a\u4e00\u8f6e)?\u7684)?\u5efa\u8bae)/i;
+  const EXPLICIT_PRIOR_SPEC_ACCEPTANCE_PATTERN = /(?:沿用|保留|继续使用)[^。！？!\r\n]{0,40}(?:上一版|上次|之前)[^。！？!\r\n]{0,32}(?:完整|文字|户型)?(?:要求|规范|方案)/i;
+  const CURRENT_RESOURCE_REPLACEMENT_PATTERN = /(?:选错|改用|换用|重新上传|重新选择|换成这张|使用这张原图|use this image|wrong image)/i;
   const READ_ONLY_FILE_ACTION_PATTERN = /(?:\u603b\u7ed3|\u6982\u62ec|\u6458\u8981|\u63d0\u70bc|\u5206\u6790|\u8bfb\u53d6|\u67e5\u770b|\u68c0\u67e5|\u63d0\u53d6|\bsummari[sz]e\b|\banaly[sz]e\b|\bread\b|\bextract\b|\binspect\b)/i;
   const RESOURCE_CATALOG_METADATA = Symbol('chatui.resource-catalog-metadata');
 
@@ -750,10 +794,31 @@
     return readOnlyRequest ? ['continuation'] : [];
   }
 
+  function exactHistoricalFollowupRelationConstraint(input = '', context = {}, resourceCatalog = []) {
+    const text = stringValue(input);
+    if (!text || context?.quoted_message) return [];
+    const candidates = Array.isArray(resourceCatalog) ? resourceCatalog : [];
+    const hasAvailableNonCurrent = candidates.some(candidate => (
+      candidate?.source !== 'current' && candidate?.availability !== 'unavailable'
+    ));
+    const explicitHistory = /(?:刚才|之前|上次|上一轮|上一版|上一个|上一张|这张|那张|历史|前面|previous|last|earlier|history)/i.test(text);
+    const correction = EXPLICIT_RELATION_CORRECTION_PATTERN.test(text)
+      || /(?:修改|改成|改为|换成|解释|说明|总结|分析|提取|查看|read|summari[sz]e|explain)/i.test(text);
+    if (explicitHistory && correction
+        && (hasAvailableNonCurrent || context?.previous_execution || context?.previous_resource_execution)) return ['followup'];
+    return [];
+  }
+
   function exactRouteRelationConstraint(input = '', context = {}, resourceCatalog = []) {
     const ordinal = exactEllipticalOrdinalRelationConstraint(input, context, resourceCatalog);
     if (ordinal.length) return ordinal;
-    return exactUnavailableReadOnlyContinuationConstraint(input, context, resourceCatalog);
+    // An unavailable read-only anchor has a stronger continuation meaning: the
+    // user is retrying the same resource task, not opening a new discourse turn.
+    const unavailableContinuation = exactUnavailableReadOnlyContinuationConstraint(input, context, resourceCatalog);
+    if (unavailableContinuation.length) return unavailableContinuation;
+    const historicalFollowup = exactHistoricalFollowupRelationConstraint(input, context, resourceCatalog);
+    if (historicalFollowup.length) return historicalFollowup;
+    return [];
   }
 
   function exactGoalModeConstraint(input = '', context = {}) {
@@ -762,10 +827,15 @@
       ? taskContinuityFromExecution(previous || {})
       : null;
     if (!taskState) return ['replace'];
+    // Selecting a newly uploaded/reselected resource replaces the prior visual
+    // base. It is a follow-up speech act, but it is not a textual amendment of
+    // the old task state.
+    if (CURRENT_RESOURCE_REPLACEMENT_PATTERN.test(stringValue(input))) return ['replace'];
     // Explicitly accepting the prior assistant's advice is a task amendment,
     // not a fresh replacement. Constrain only amend-capable image families;
     // reference generation must keep its replacement baseline semantics.
-    if (EXPLICIT_TASK_ADVICE_ACCEPTANCE_PATTERN.test(stringValue(input))
+    if ((EXPLICIT_TASK_ADVICE_ACCEPTANCE_PATTERN.test(stringValue(input))
+        || EXPLICIT_PRIOR_SPEC_ACCEPTANCE_PATTERN.test(stringValue(input)))
         && IMAGE_TASK_AMEND_OPERATIONS.has(stringValue(previous?.operation))) {
       return ['amend'];
     }
@@ -827,6 +897,124 @@
     return metadata;
   }
 
+  function compactIntentClaims(input = '') {
+    const claims = typeof intentClaimsModule.extractClaims === 'function'
+      ? intentClaimsModule.extractClaims(input)
+      : [];
+    return claims.map(claim => ({
+      id: stringValue(claim?.id),
+      type: stringValue(claim?.type),
+      text: stringValue(claim?.text).slice(0, 240),
+      critical: claim?.critical === true,
+      ...(claim?.value && typeof claim.value === 'object' ? {
+        value: {
+          index: Number(claim.value.index) || 0,
+          type: stringValue(claim.value.type),
+          operation: stringValue(claim.value.operation),
+          no_media_binding: claim.value.no_media_binding === true,
+        },
+      } : {}),
+    })).filter(claim => claim.id && claim.text).slice(0, 16);
+  }
+
+  function semanticIntentForRoute(input = '', understanding = null, context = {}) {
+    if (typeof buildSemanticIntent !== 'function') return null;
+    const semantic = buildSemanticIntent({
+      input,
+      understanding,
+      claims: typeof intentClaimsModule.extractClaims === 'function' ? intentClaimsModule.extractClaims(input) : [],
+      context,
+    });
+    return typeof hasExactSemanticIntent !== 'function' || hasExactSemanticIntent(semantic) ? semantic : null;
+  }
+
+  function undeliveredGenerationEvidence(input = '', context = {}) {
+    const delivered = context?.delivery_evidence?.actual_image_result?.available === true
+      || context?.delivery_evidence?.image_delivery_confirmed === true;
+    const priorGeneration = (Array.isArray(context?.recent_messages) ? context.recent_messages : [])
+      .some(message => message?.role === 'user' && /(?:生成|画|绘制|制作|创建|generate|draw|create)/i.test(String(message?.content || message?.rawText || '')));
+    const visualConstraint = /(?:户型|平面图|堂屋|入户门|双开门|背景|构图|布局|颜色|色调|材质|风格|尺寸|比例|卧室|餐厅|卫生间|visual|layout|door|background|composition|style|size)/i.test(stringValue(input));
+    return !delivered && priorGeneration && visualConstraint
+      ? { undelivered_generation_followup: true, reason: '上一轮明确请求生成图片但尚未验证交付，本轮是视觉约束延续。' }
+      : null;
+  }
+
+  function deterministicOperationKeysForInput(input = '', context = {}, resourceCatalog = []) {
+    const text = stringValue(input);
+    const catalog = Array.isArray(resourceCatalog) ? resourceCatalog : [];
+    // Explicit web retrieval is as deterministic as an explicit image/edit verb.
+    // Reuse the shared capability directive so the schema tightening and the
+    // compiler's later operation override stay on one boundary.
+    const explicitDirective = explicitRouteDirectiveFor({ input: text, candidates: catalog });
+    if (explicitDirective?.operation === 'web_search') return ['web_search'];
+    // conversation_focus=text 且输入没有显式媒体/动作词汇时，是文字话题续问，
+    // 不因历史图片/文件候选存在而收窄为媒体操作。
+    const focusText = stringValue(context?.conversation_focus?.kind) === 'text';
+    const explicitMediaOrAction = /(?:图片|图像|照片|图|文件|附件|文档|生成|画|绘制|制作|创建|修改|编辑|改成|改为|变成|换成|参考|比较|分析|总结|提取|识别|翻译|解释|搜索|检索|web\s*search|ocr)/i.test(text);
+    if (focusText && !explicitMediaOrAction && text.length <= 40) return ['plain_chat'];
+    const allImages = catalog.filter(candidate => candidate?.type === 'image');
+    const allFiles = catalog.filter(candidate => candidate?.type === 'file');
+    const images = allImages.filter(candidate => candidate?.availability !== 'unavailable');
+    const files = allFiles.filter(candidate => candidate?.availability !== 'unavailable');
+    const visualCue = /(?:图片|图像|照片|这张图|那张图|目标图|原图|背景|前景|主体|构图|颜色|色彩|光线|材质|风格|蒙版|遮罩|image|photo|picture|background|subject|composition|color|style|mask)/i.test(text);
+    const promptAuthoring = /(?:提示词|prompt|描述词|绘图提示)/i.test(text)
+      && !/(?:生成一张|生成图片|画一张|绘制一张|创建图片|create\s+(?:an?\s+)?image|generate\s+(?:an?\s+)?image)/i.test(text);
+    const explicitlyNoImage = /(?:不要|(?<!分)别|不(?=要|会|再|需要|用|能)|无需|不用|不需要)[^。！？!\r\n]{0,8}(?:生成|画|创建|制作)[^。！？!\r\n]{0,8}(?:图片|图像|海报|image|picture)/i.test(text);
+    const hasJointMedia = images.length > 0 && files.length > 0;
+    if ((promptAuthoring || explicitlyNoImage) && !images.length) return ['plain_chat'];
+    const mentionsImage = /(?:图片|图像|照片|图中|image|photo|picture)/i.test(text);
+    const mentionsFile = /(?:文件|文档|说明|合同|报告|pdf|附件|file|document|report)/i.test(text);
+    const excludesImage = /(?:不|不要|别|无需|不用|不需要)[^。！？!\r\n]{0,10}(?:分析|读取|查看|使用|处理)?(?:图片|图像|照片|图|image|photo|picture)/i.test(text);
+    const excludesFile = /(?:不|不要|别|无需|不用|不需要)[^。！？!\r\n]{0,10}(?:分析|读取|查看|使用|处理)?(?:文件|文档|附件|说明|合同|报告|pdf|file|document|report)/i.test(text);
+    if (hasJointMedia && !excludesImage && !excludesFile
+        && (/(?:图文|图片和文件|图和文件|联合分析|结合图片|结合文件|multimodal|both)/i.test(text)
+          || (mentionsImage && mentionsFile))) return ['multimodal_qa'];
+    if (images.length && typeof intentClaimsModule.hasImageRankingQuestion === 'function'
+        && intentClaimsModule.hasImageRankingQuestion(text)
+        && typeof intentClaimsModule.hasExplicitComparison === 'function'
+        && !intentClaimsModule.hasExplicitComparison(text)) return ['image_qa'];
+    if (typeof intentClaimsModule.isHistoricalTextQuestion === 'function'
+        && intentClaimsModule.isHistoricalTextQuestion(text)) return ['plain_chat'];
+    const fileReadCue = /(?:读|阅读|分析|总结|提取|查找|查看|风险|条款|read|summari[sz]e|extract)/i.test(text);
+    const fileNoun = /(?:文件|附件|文档|合同|报告|pdf|表格|材料|file|document|report)/i.test(text);
+    const multiActionCue = /(?:先|再|然后|之后|接着|同时|最后|first|then|after|and then)/i.test(text);
+    if (fileReadCue && !excludesFile && (fileNoun || multiActionCue) && (!visualCue || fileNoun)) return ['file_qa'];
+    if (images.length && /(?:逆向|反向|看图写|生成)?[^。！？!\r\n]{0,12}(?:提示词|prompt)/i.test(text)) return ['image_qa'];
+    if (images.length && excludesFile && /(?:描述|分析|查看|看图|图片|图中|外观|describe|analy[sz]e|inspect)/i.test(text)) return ['image_qa'];
+    if (images.length && /(?:识字|文字提取|OCR|ocr|读出图片文字|(?:提取|识别|读取)[^。！？!\r\n]{0,20}(?:文字|名称|金额|日期|号码|字))/i.test(text)) return ['ocr'];
+    if (images.length && /(?:参考图|参考图片|参考[^。！？!\r\n]{0,36}|风格图|配色图|沿用[^。！？!\r\n]{0,20}(?:参考|配色|风格)|基于[^。！？!\r\n]{0,30}(?:参考图|这张图|这张|图片|配色|风格)|(?:用|采用|取)[^。！？!\r\n]{0,60}(?:第\s*[一二两三四五六七八九十\d]+张|这张|图片|主体|构图|风格|质感))/i.test(text)
+        && /(?:生成|新图|新版本|海报|再出|制作|改为|create|generate)/i.test(text)
+        && !/(?:修改|编辑|改成|变成|换成|edit|change|modify)/i.test(text)) return ['image_reference_gen'];
+    if (images.length && visualCue && /(?:修改|编辑|改成|改为|变成|换成|把[^。！？!\r\n]{0,24}改|edit|change|modify)/i.test(text)) return ['edit_image'];
+    if (images.length && /(?:看图|查看图片|分析图片|描述图片|图片中|图里|image|photo|picture)/i.test(text)
+        && !/(?:生成|画|制作|修改|编辑|参考|识字|文字提取|OCR|读出图片文字|提取[^。！？!\r\n]{0,12}(?:文字|名称|金额|日期))/i.test(text)) return ['image_qa'];
+    const visualGenerationCue = /(?:画|图片|图像|海报|插画|壁纸|视觉|image|picture|photo|illustration|poster|wallpaper|draw)/i.test(text);
+    if (visualGenerationCue && /(?:生成|画|绘制|制作|创建|generate|draw|create)/i.test(text)
+        && !fileReadCue
+        && !/(?:修改|编辑|改成|参考图|参考图片|配色图|风格图)/i.test(text)) return ['text_to_image'];
+    return null;
+  }
+
+  function deterministicResourceKeysForInput(input = '', context = {}, resourceCatalog = []) {
+    const text = stringValue(input);
+    const quoted = hasQuotedEvidence(context);
+    const focusText = stringValue(context?.conversation_focus?.kind) === 'text';
+    const explicitMediaOrHistory = /(?:第\s*[一二两三四五六七八九十\d]+\s*(?:张|幅|个|份)?|图片|图像|照片|图|文件|附件|文档|上一张|这张|那张|上一条|这条|那条|引用|quoted|history|previous|image|photo|picture|file|document)/i.test(text);
+    const historicalTextOnly = typeof intentClaimsModule.isHistoricalTextQuestion === 'function'
+      && intentClaimsModule.isHistoricalTextQuestion(text);
+    if (quoted || (!historicalTextOnly && !(focusText && !explicitMediaOrHistory))) return null;
+
+    // A text-focused turn may still need the body of a previous message even
+    // when the user refers to it by subject (for example, "the database table")
+    // rather than by a literal "previous message" cue. Narrow only the media
+    // side of the catalog here; message context remains a model-owned semantic
+    // choice and must not be disabled by keyword absence.
+    return (Array.isArray(resourceCatalog) ? resourceCatalog : [])
+      .filter(candidate => candidate?.type === 'message' && candidate?.availability !== 'unavailable')
+      .map(candidate => stringValue(candidate.candidate_key))
+      .filter(Boolean);
+  }
+
   // ── Payload builder ──────────────────────────────────────────────
   const UNDERSTAND_SYSTEM_PROMPT = Array.isArray(UNDERSTAND_SYSTEM_PROMPT_LINES)
     ? UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n')
@@ -840,8 +1028,15 @@
   const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE = Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES)
     ? ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES.join('\n')
     : ROUTE_NODE_SYSTEM_PROMPT;
+  const INTENT_CRITIC_SYSTEM_PROMPT = [
+    '你是 ChatUI 意图语义审查节点。只审查，不执行，不回答用户。',
+    '输入包含 current_input、claims、semantic_intent、understanding、route、resource_candidates 和 context；semantic_intent 是中间语义证据，不是执行授权。',
+    '检查最终 route 是否覆盖用户明确提出的每一个动作、对象、数量、顺序、否定/排除和关键约束；检查 operation、资源角色、relation、goal_mode 与理解证据是否一致；不得因为缺省的非关键细节而要求澄清。对 image_reference_gen，goal_mode=replace 是新建图片的强制正确值；对 text_to_image/edit_image，goal_mode=amend 只修改上一轮文字任务约束，不表示使用或修改旧图，resource_refs=[] 才表示不使用旧图。不得把这些合法组合报告为冲突。若 current_input 已经列出具体尺寸、对象、空间关系或否定条件，即使其中还出现“此前三处要求”等概括性短语，也视为当前输入自足，不得仅因无法从历史恢复概括短语而要求澄清。',
+    '若所有关键要求已覆盖且无冲突，verdict=accept；若可以通过重新生成 route 修复，verdict=repair；若必须让用户选择或补充，verdict=clarify；若输入或协议不可判断，verdict=reject。',
+    '只输出 intent_critic.v1 JSON：schema_version、verdict、covered_claims、missing_claims、conflicts、unsupported_assumptions、ambiguous_bindings、reasons。reason code 只能使用 schema 中列出的值。',
+  ].join('\n');
 
-  function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat, understanding = null } = {}) {
+  function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat, understanding = null, intentReasoning = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
@@ -853,11 +1048,15 @@
     const reconciledUnderstandingDependency = allowedRelations.length === 1
       ? allowedRelations[0]
       : reconcileUnderstandingDependency(understanding, resourceCatalog, priorContext);
+    const compactClaims = compactIntentClaims(input);
     const userPayload = {
       current_input: stringValue(input),
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
+    if (compactClaims.length) userPayload.intent_claims = compactClaims;
+    const visualContinuityEvidence = undeliveredGenerationEvidence(input, priorContext);
+    if (visualContinuityEvidence) userPayload.visual_continuity_evidence = visualContinuityEvidence;
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
     // Some OpenAI-compatible gateways translate Chat Completions structured
     // output into Responses `text.format=json_object` and inspect only the
@@ -883,30 +1082,57 @@
       };
     }
 
+    const semanticIntent = (understanding || intentReasoning?.enabled === true)
+      ? semanticIntentForRoute(input, understanding, priorContext)
+      : null;
+    if (semanticIntent) userPayload.semantic_intent = semanticIntent;
+
     const allowedGoals = exactCurrentInputGoalConstraint(input, priorContext, resourceCatalog);
     const allowedGoalModes = exactGoalModeConstraint(input, priorContext);
+    // Operation is decided once by the route model. Do not project local
+    // keyword policies or understanding-derived enums into the route schema.
+    const allowedOperations = null;
+    if (allowedRelations.length === 1) {
+      userPayload.relation_policy = {
+        allowed_relations: allowedRelations,
+        reason: '当前输入的明确历史依赖或纠正语义已确定 relation；不得选择其它 relation。',
+      };
+    }
+    const allowedResourceKeys = deterministicResourceKeysForInput(input, priorContext, resourceCatalog);
+    if (Array.isArray(allowedResourceKeys)) {
+      userPayload.resource_policy = {
+        allowed_candidate_keys: allowedResourceKeys,
+        reason: allowedResourceKeys.length
+          ? '当前是文字语义问题；禁止绑定图片/文件，但允许模型在确有历史正文依赖时选择 message=context。'
+          : '当前输入没有可用的历史消息正文候选，因此不得绑定 resource_candidates。',
+      };
+    }
     const requestResponseFormat = typeof routeIntentResponseFormatForCandidates === 'function'
-      ? routeIntentResponseFormatForCandidates(resourceCatalog, { allowedRelations, allowedGoals, allowedGoalModes })
+      ? routeIntentResponseFormatForCandidates(resourceCatalog, {
+        allowedRelations,
+        allowedGoals,
+        allowedGoalModes,
+        ...(Array.isArray(allowedResourceKeys) ? { allowedResourceKeys } : {}),
+      })
       : ROUTE_INTENT_RESPONSE_FORMAT;
     if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
-    // This is a non-streaming semantic routing request. Deny tool execution,
-    // and explicitly disable model thinking: the whole intent pipeline runs
-    // under one hard client-side deadline, and a reasoning model's thinking
-    // phase is what pushes TTFT past that budget. Gateways that reject the
-    // reasoning parameter strip it via the compatibility fallback instead of
-    // failing the route.
+    // This is a non-streaming semantic routing request. Deny tool execution.
+    // The default remains a no-reasoning fast path, while high-risk callers may
+    // pass intentReasoning to request a bounded reasoning summary under the same
+    // absolute deadline. Gateways that reject the reasoning parameter strip it
+    // via the compatibility fallback instead of failing the route.
     return buildResponsesPayload(model, [
       { role: 'system', content: systemPrompt || ROUTE_SYSTEM_PROMPT },
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
-      noReasoning: true,
+      ...intentReasoningPayloadOptions(intentReasoning),
       toolChoice: 'none',
       responseFormat: responseFormat || requestResponseFormat,
     });
   }
 
-  function buildImagePlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, systemPrompt, responseFormat } = {}) {
+  function buildImagePlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, systemPrompt, responseFormat, intentReasoning = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const executionGoal = stringValue(goal);
     if (!executionGoal) {
@@ -935,7 +1161,7 @@
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
-      noReasoning: true,
+      ...intentReasoningPayloadOptions(intentReasoning),
       responseFormat: responseFormat || IMAGE_PLAN_RESPONSE_FORMAT,
     });
   }
@@ -943,8 +1169,8 @@
   // expected task count, append the rejected plan, and ask for a corrected
   // image_plan.v1. This prevents a planner that returns one task from silently
   // collapsing an explicitly requested multi-image request (e.g. five views).
-  function buildImagePlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, rejectedPlan = null } = {}) {
-    const payload = buildImagePlanPayload({ model, input, goal, attachments, context, currentTurn, expectedTaskCount });
+  function buildImagePlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, expectedTaskCount = 0, rejectedPlan = null, intentReasoning = null } = {}) {
+    const payload = buildImagePlanPayload({ model, input, goal, attachments, context, currentTurn, expectedTaskCount, intentReasoning });
     payload.input.push({
       role: 'user',
       content: JSON.stringify({
@@ -971,7 +1197,7 @@
       && !Array.isArray(route?.multiTaskPlanCompiled);
   }
 
-  function buildMultiTaskPlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, systemPrompt, responseFormat } = {}) {
+  function buildMultiTaskPlanPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, systemPrompt, responseFormat, intentReasoning = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const executionGoal = stringValue(goal);
     if (!executionGoal) {
@@ -995,13 +1221,13 @@
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
-      noReasoning: true,
+      ...intentReasoningPayloadOptions(intentReasoning),
       responseFormat: responseFormat || MULTI_TASK_PLAN_RESPONSE_FORMAT,
     });
   }
 
-  function buildMultiTaskPlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, rejectedPlan = null, expectedSummary = [] } = {}) {
-    const payload = buildMultiTaskPlanPayload({ model, input, goal, attachments, context, currentTurn });
+  function buildMultiTaskPlanRepairPayload({ model, input, goal = '', attachments = [], context = {}, currentTurn = null, rejectedPlan = null, expectedSummary = [], intentReasoning = null } = {}) {
+    const payload = buildMultiTaskPlanPayload({ model, input, goal, attachments, context, currentTurn, intentReasoning });
     payload.input.push({
       role: 'user',
       content: JSON.stringify({
@@ -1848,13 +2074,36 @@
     return { schema_version: 'multi_task_plan.v1', tasks };
   }
 
+  // The user's uploaded/preview order is the authoritative image order.
+  // candidate_key uses the upload index (i1, i2, ...), so ordering the refs by
+  // that index keeps the execution request identical to the order the user saw,
+  // and lets the role guide name each image by the same order. The image model
+  // proves reliable when the role guide and the submitted image order agree.
+  function imageRefCandidateOrder(ref = {}) {
+    const key = String(ref?.candidate_key || '');
+    const match = key.match(/(\d+)$/);
+    return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+  }
+
+  function orderImageInputRefs(resourceRefs = []) {
+    return [...(Array.isArray(resourceRefs) ? resourceRefs : [])]
+      .sort((left, right) => {
+        const difference = imageRefCandidateOrder(left) - imageRefCandidateOrder(right);
+        return difference || 0;
+      });
+  }
+
   function routeIntentToDraft(intent = {}, options = {}) {
     const operation = stringValue(intent.operation);
     const catalog = routeCompilationCandidateCatalog(options);
     const byCandidateKey = new Map(catalog.map(candidate => [candidate.candidate_key, candidate]));
     const bindings = [];
     const invalidRefs = [];
-    for (const [index, ref] of intent.resource_refs.entries()) {
+    // Preserve the user's upload order: see orderImageInputRefs.
+    const orderedRefs = operation === 'edit_image'
+      ? orderImageInputRefs(intent.resource_refs || [])
+      : (intent.resource_refs || []);
+    for (const [index, ref] of orderedRefs.entries()) {
       const candidateKey = stringValue(ref.candidate_key);
       const candidate = byCandidateKey.get(candidateKey);
       const type = candidate?.type
@@ -1940,7 +2189,11 @@
       // protocol-defined default: inspect everything submitted in this turn. A
       // model-selected subset would silently discard uploaded images or files.
       const defaulted = emptyCurrentAttachmentSetDefault(intent, scopedOptions);
-      let effectiveIntent = reconcileSelectedTaskBindings(normalizeAmendWithoutBase(reconcileModelIntent(defaulted.intent, options, candidateCatalog), options), options);
+      let effectiveIntent = defaulted.intent;
+      effectiveIntent = reconcileSelectedTaskBindings(
+        normalizeAmendWithoutBase(reconcileModelIntent(effectiveIntent, options, candidateCatalog), options),
+        options,
+      );
       effectiveIntent = reconcileQuotedMessageBinding(effectiveIntent, { ...scopedOptions, candidateCatalog });
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
@@ -2004,7 +2257,11 @@
       || Array.isArray(context?.image_candidates) && context.image_candidates.some(item => stringValue(item?.source) === 'quoted');
     if (quoted) return true;
     if (!text) return false;
-    if (Array.isArray(attachments) && attachments.length) return true;
+    // A single current attachment is ordinary evidence for the route model;
+    // it does not by itself justify a second semantic model call. Escalate
+    // only when there are multiple resources or explicit contextual/deictic
+    // complexity below.
+    if (Array.isArray(attachments) && attachments.length > 1) return true;
     if (/(?:这个|那个|它|这张|那幅|上一张|第[一二三四五六七八九十\d]+[张幅个]|最近话题)/.test(text)) return true;
     // An active execution/focus turns short anaphoric continuations into a
     // contextual routing problem. Let the understanding node resolve them
@@ -2017,16 +2274,20 @@
     return /(?:先|再|然后|之后|接着|同时|分别|既要|又要|最后|首先|第一步)/.test(text);
   }
 
-  function buildUnderstandingPayload({ model, input, attachments = [], context = {}, currentTurn = null } = {}) {
+  function buildUnderstandingPayload({ model, input, attachments = [], context = {}, currentTurn = null, intentReasoning = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
+    const compactClaims = compactIntentClaims(input);
     const userPayload = {
       current_input: stringValue(input),
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
+    if (compactClaims.length) userPayload.intent_claims = compactClaims;
+    const visualContinuityEvidence = undeliveredGenerationEvidence(input, priorContext);
+    if (visualContinuityEvidence) userPayload.visual_continuity_evidence = visualContinuityEvidence;
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
     userPayload.output_format = 'json';
     if (currentTurn && typeof currentTurn === 'object') userPayload.current_turn = currentTurn;
@@ -2039,40 +2300,267 @@
       { role: 'user', content: JSON.stringify(userPayload) },
     ], {
       stream: false,
-      noReasoning: true,
+      ...intentReasoningPayloadOptions(intentReasoning),
       responseFormat: UNDERSTANDING_RESPONSE_FORMAT,
     });
   }
 
-  // One bounded semantic-repair round: append the rejected route output and
-  // the precise field-level reasons to the route payload. The model must only
-  // fix those fields and keep the rest unchanged.
-  function buildRouteRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', reasons = [], systemPrompt, understanding = null, currentMode = 'chat', autoMode = true } = {}) {
-    const payload = buildRoutePayload({
-      model, input, attachments, context, currentTurn, systemPrompt, understanding, currentMode, autoMode,
+  // The critic is a read-only semantic coverage check. It receives the
+  // normalized route proposal and deterministic claim inventory, but never an
+  // execution contract or provider credentials.
+  function buildIntentCriticPayload({ model, input, attachments = [], context = {}, currentTurn = null, understanding = null, route = null, rawRoute = null, intentReasoning = null } = {}) {
+    assertInputWithinUnifiedLimit(stringValue(input));
+    const priorContext = contextBeforeCurrentTurn(context, currentTurn);
+    const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
+    const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
+    const claims = typeof intentClaimsModule.extractClaims === 'function'
+      ? intentClaimsModule.extractClaims(input)
+      : [];
+    const userPayload = {
+      current_input: stringValue(input),
+      claims,
+      semantic_intent: semanticIntentForRoute(input, understanding, priorContext),
+      understanding: understanding && typeof understanding === 'object' ? understanding : null,
+      route: rawRoute && typeof rawRoute === 'object' ? rawRoute : {
+        operation: stringValue(route?.operationType || route?.operation || route?.intent),
+        relation: stringValue(route?.relation),
+        goal: stringValue(route?.userGoal || route?.goal),
+        goal_mode: stringValue(route?.goalMode || route?.goal_mode),
+        task_shape: stringValue(route?.taskShape || route?.task_shape),
+        resources: Array.isArray(route?.resources) ? route.resources.map(resource => ({
+          type: stringValue(resource?.type),
+          role: stringValue(resource?.role),
+          source: stringValue(resource?.source),
+          index: Number(resource?.index) || 0,
+        })) : [],
+      },
+      resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
+      context: compactWireRouteContext(priorContext, input, resourceCatalog),
+      output_format: 'json',
+    };
+    if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
+    if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
+    return buildResponsesPayload(model, [
+      { role: 'system', content: INTENT_CRITIC_SYSTEM_PROMPT },
+      { role: 'user', content: JSON.stringify(userPayload) },
+    ], {
+      stream: false,
+      ...intentReasoningPayloadOptions(intentReasoning),
+      responseFormat: INTENT_CRITIC_RESPONSE_FORMAT,
     });
+  }
+
+  function inspectIntentCriticResult(text = '') {
+    const parsed = parseRouteJson(text);
+    if (!parsed.parsed) return { critic: null, reason: parsed.reason, parseError: parsed.parseError || '' };
+    if (typeof hasExactIntentCritic !== 'function' || !hasExactIntentCritic(parsed.parsed)) {
+      return { critic: null, reason: 'intent_critic_invalid' };
+    }
+    return { critic: normalizeIntentCritic(parsed.parsed), reason: '' };
+  }
+
+  function currentInputContainsConcreteRequirements(input = '') {
+    const text = stringValue(input);
+    const hasAction = /(?:生成|画|绘制|制作|创建|修改|编辑|改成|改为|换成|总结|分析|解释|说明|提取|判断|generate|draw|create|edit|summari[sz]e|explain)/i.test(text);
+    const hasConcreteConstraint = /(?:\d+(?:\.\d+)?\s*(?:米|m|张|幅|个|条)|中央|堂屋|入口|进门|卧室|卫生间|厕所|餐厅|通行|分隔|不相邻|不放在一起|主体|构图|颜色|材质|风格|保持|保留|不要|不使用|不参照|必须)/i.test(text);
+    return hasAction && hasConcreteConstraint;
+  }
+
+  function intentCriticSemanticIssues(critic = {}, options = {}) {
+    const normalized = typeof normalizeIntentCritic === 'function' ? normalizeIntentCritic(critic) : critic;
+    if (!normalized || normalized.verdict === 'accept') return [];
+    const route = options.route && typeof options.route === 'object' ? options.route : {};
+    const input = stringValue(options.input);
+    const context = options.context && typeof options.context === 'object' ? options.context : {};
+    const catalog = Array.isArray(options.resourceCatalog) ? options.resourceCatalog : [];
+    const reasons = Array.isArray(normalized.reasons) ? normalized.reasons : [];
+    const filtered = reasons.filter(reason => {
+      const code = stringValue(reason?.code);
+      const field = stringValue(reason?.field).toLowerCase();
+      const operation = stringValue(route.operationType || route.operation || route.intent);
+      const goalMode = stringValue(route.goalMode || route.goal_mode);
+      const relation = stringValue(route.relation);
+      const allowedOperations = deterministicOperationKeysForInput(input, context, catalog);
+      const allowedRelations = exactRouteRelationConstraint(input, context, catalog);
+      const allowedGoalModes = exactGoalModeConstraint(input, context);
+      if ((field.endsWith('operation') || field === 'operation' || code === 'route_operation_mismatch')
+          && Array.isArray(allowedOperations) && allowedOperations.length === 1
+          && operation === allowedOperations[0]) return false;
+      if ((field.endsWith('goal_mode') || field === 'goalmode')
+          && ((allowedGoalModes.length === 1 && goalMode === allowedGoalModes[0])
+            || (goalMode === 'replace' && operation === 'image_reference_gen')
+            || (goalMode === 'replace' && !taskContinuityFromExecution?.(context.previous_execution || {}))
+            || (goalMode === 'amend' && IMAGE_TASK_AMEND_OPERATIONS.has(operation)
+              && EXPLICIT_PRIOR_SPEC_ACCEPTANCE_PATTERN.test(input)))) return false;
+      if ((field.endsWith('relation') || field === 'relation')
+          && allowedRelations.length === 1 && relation === allowedRelations[0]) return false;
+      if ((field.includes('resource') || code === 'route_resource_mismatch')
+          && deterministicResourceKeysForInput(input, context, catalog)?.length === 0
+          && (!Array.isArray(route.resources) || route.resources.length === 0)) return false;
+      if (code === 'route_dependency_lost'
+          && currentInputContainsConcreteRequirements(input)
+          && (!Array.isArray(normalized.ambiguous_bindings) || normalized.ambiguous_bindings.length === 0)
+          && (!Array.isArray(normalized.missing_claims)
+            || normalized.missing_claims.every(item => !/(缺少|未提供|无法恢复|历史指向|此前)/i.test(String(item))))) {
+        return false;
+      }
+      return true;
+    });
+    if (filtered.length) return filtered;
+    // A critic must not overturn a deterministic contract that already proves
+    // the disputed field correct. Treat an unsupported critique as accepted
+    // rather than burning the entire bounded repair budget.
+    return [];
+  }
+
+  // A semantic route repair is a constrained proposal against an exact v3
+  // baseline. It is deliberately a different protocol from route_intent.v3:
+  // the model declares changed_fields and the local compiler applies only those
+  // fields to the trusted baseline.
+  function buildRouteRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', baseIntent = null, reasons = [], systemPrompt, understanding = null, currentMode = 'chat', autoMode = true, intentReasoning = null } = {}) {
+    const hasBase = typeof hasExactRouteIntent === 'function' && hasExactRouteIntent(baseIntent || {});
+    const priorContext = contextBeforeCurrentTurn(context, currentTurn);
+    const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
+    const repairFormat = hasBase && typeof routeRepairResponseFormatForCandidates === 'function'
+      ? routeRepairResponseFormatForCandidates(resourceCatalog)
+      : null;
+    const payload = buildRoutePayload({
+      model,
+      input,
+      attachments,
+      context,
+      currentTurn,
+      ...(hasBase ? { systemPrompt: ROUTE_REPAIR_SYSTEM_PROMPT } : { systemPrompt }),
+      understanding,
+      currentMode,
+      autoMode,
+      intentReasoning,
+      ...(repairFormat ? { responseFormat: repairFormat } : {}),
+    });
+    const repairReasons = (Array.isArray(reasons) ? reasons : []).map(item => (
+      item && typeof item === 'object'
+        ? { code: stringValue(item.code), field: stringValue(item.field), message: stringValue(item.message) }
+        : stringValue(item)
+    ));
     payload.input.push({
       role: 'user',
       content: JSON.stringify({
         repair_request: {
+          protocol: hasBase ? ROUTE_REPAIR_VERSION : ROUTE_INTENT_VERSION,
+          base_route_intent: hasBase ? baseIntent : undefined,
           rejected_output: stringValue(rejectedOutput).slice(0, 8000),
-          reasons: (Array.isArray(reasons) ? reasons : []).map(item => (
-            item && typeof item === 'object'
-              ? { code: stringValue(item.code), field: stringValue(item.field), message: stringValue(item.message) }
-              : stringValue(item)
-          )),
-          instruction: '只修复 reasons 指出的字段，其余字段保持不变。只输出 json。',
+          reasons: repairReasons,
+          allowed_fields: hasBase ? [...routeRepairAllowedFields(repairReasons)] : undefined,
+          instruction: hasBase
+            ? '只输出 route_repair.v1；changed_fields 必须只列出实际修改字段，未列出的字段必须与 base_route_intent 完全一致。'
+            : '只修复 reasons 指出的语义问题；只输出 route_intent.v3 JSON。',
         },
       }),
     });
     return payload;
   }
 
+  function inspectRouteRepairResult(text = '', { baseIntent = null } = {}) {
+    const parsed = parseRouteJson(text);
+    if (!parsed.parsed) return { repair: null, reason: parsed.reason, parseError: parsed.parseError || '' };
+    if (typeof hasExactRouteRepair === 'function' && hasExactRouteRepair(parsed.parsed)) {
+      return { repair: normalizeRouteRepair(parsed.parsed), reason: '', protocol: ROUTE_REPAIR_VERSION };
+    }
+    // Compatibility adapter for gateways that ignore the repair schema and
+    // return a complete route_intent.v3 object. It is never applied wholesale:
+    // derive the declared diff locally, then run the same field-permission and
+    // baseline-preservation checks as a native route_repair.v1 response.
+    if (typeof adaptLegacyRouteIntentRepair === 'function') {
+      try {
+        const adapted = adaptLegacyRouteIntentRepair(parsed.parsed, baseIntent || {});
+        if (adapted) return { repair: adapted, reason: '', protocol: ROUTE_INTENT_VERSION };
+      } catch {}
+    }
+    return { repair: null, reason: 'route_repair_invalid' };
+  }
+
+  const ROUTE_REPAIR_ALL_FIELDS = Object.freeze([
+    'operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape',
+  ]);
+
+  function routeRepairAllowedFields(reasons = []) {
+    const allowed = new Set();
+    for (const item of Array.isArray(reasons) ? reasons : []) {
+      const reason = item && typeof item === 'object' ? item : { code: stringValue(item), field: '' };
+      const code = stringValue(reason.code);
+      const field = stringValue(reason.field).toLowerCase().replace(/-/g, '_');
+      if (code === 'route_intent_invalid' || code === 'intent_critic_invalid') {
+        ROUTE_REPAIR_ALL_FIELDS.forEach(value => allowed.add(value));
+        continue;
+      }
+      // The declared field is authoritative. Reason-code wording can mention a
+      // resource while the actual repair authority is relation (for example,
+      // "new with non-current resource"). Do not widen a patch by substring.
+      if (field === 'operation') {
+        ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape'].forEach(value => allowed.add(value));
+      } else if (field === 'resource_refs') {
+        ['resource_refs', 'operation', 'relation'].forEach(value => allowed.add(value));
+      } else if (field === 'goal_mode' || field === 'goalmode') {
+        ['goal_mode', 'goal'].forEach(value => allowed.add(value));
+      } else if (field === 'goal') {
+        allowed.add('goal');
+      } else if (field === 'relation') {
+        allowed.add('relation');
+      } else if (field === 'task_shape' || field === 'taskshape') {
+        allowed.add('task_shape');
+      } else if (code.includes('operation')) {
+        ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape'].forEach(value => allowed.add(value));
+      } else if (code.includes('binding') || code.includes('resource')) {
+        ['resource_refs', 'operation', 'relation'].forEach(value => allowed.add(value));
+      } else if (code.includes('goal_mode')) {
+        ['goal_mode', 'goal'].forEach(value => allowed.add(value));
+      } else if (code.includes('goal')) {
+        allowed.add('goal');
+      } else if (code.includes('relation')) {
+        allowed.add('relation');
+      } else if (code.includes('task_shape')) {
+        allowed.add('task_shape');
+      }
+    }
+    return allowed;
+  }
+
+  function routeRepairValuesEqual(left, right, field) {
+    if (field === 'resource_refs') return JSON.stringify(left || []) === JSON.stringify(right || []);
+    return stringValue(left) === stringValue(right);
+  }
+
+  function applyRouteRepairResult(baseIntent = {}, repair = {}, reasons = []) {
+    if (typeof hasExactRouteIntent !== 'function' || !hasExactRouteIntent(baseIntent)) {
+      return { intent: null, reason: 'route_repair_base_invalid' };
+    }
+    if (typeof hasExactRouteRepair !== 'function' || !hasExactRouteRepair(repair)) {
+      return { intent: null, reason: 'route_repair_invalid' };
+    }
+    const changed = new Set(repair.changed_fields);
+    const allowed = routeRepairAllowedFields(reasons);
+    for (const field of changed) {
+      if (!allowed.has(field)) return { intent: null, reason: 'route_repair_field_unauthorized', field };
+    }
+    for (const field of ROUTE_REPAIR_ALL_FIELDS) {
+      if (changed.has(field)) continue;
+      if (!routeRepairValuesEqual(repair[field], baseIntent[field], field)) {
+        return { intent: null, reason: 'route_repair_undeclared_change', field };
+      }
+    }
+    try {
+      const intent = applyRouteRepair(baseIntent, repair);
+      return { intent, reason: '', changedFields: [...changed] };
+    } catch (error) {
+      return { intent: null, reason: String(error?.code || 'route_repair_result_invalid') };
+    }
+  }
+
   // One bounded repair round for the understand node itself: append the
   // rejected output and its failure reason, then ask for a corrected
-  // understanding.v1 object.
-  function buildUnderstandingRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', reasons = [] } = {}) {
-    const payload = buildUnderstandingPayload({ model, input, attachments, context, currentTurn });
+  // understanding.v1 object while preserving the caller's reasoning budget.
+  function buildUnderstandingRepairPayload({ model, input, attachments = [], context = {}, currentTurn = null, rejectedOutput = '', reasons = [], intentReasoning = null } = {}) {
+    const payload = buildUnderstandingPayload({ model, input, attachments, context, currentTurn, intentReasoning });
     payload.input.push({
       role: 'user',
       content: JSON.stringify({
@@ -2133,10 +2621,17 @@
       if (typeof hasExactUnderstanding !== 'function' || !hasExactUnderstanding(raw)) return { understanding: null, reason: 'intent_understanding_invalid' };
       const priorContext = contextBeforeCurrentTurn(options.context || {}, options.currentTurn);
       const resourceCatalog = wireResourceCandidates(options.attachments, priorContext, options.input || '');
-      return { understanding: reconcileUnderstandingKinds(raw, resourceCatalog, options.context || {}), reason: '' };
+      const reconciledKinds = reconcileUnderstandingKinds(raw, resourceCatalog, options.context || {});
+      return { understanding: reconciledKinds, reason: '' };
     } catch {
       return { understanding: null, reason: 'intent_understanding_parse_failed' };
     }
+  }
+
+  function extractExactRouteIntent(text = '') {
+    const parsed = parseRouteJson(text);
+    if (!parsed.parsed || typeof hasExactRouteIntent !== 'function' || !hasExactRouteIntent(parsed.parsed)) return null;
+    return parsed.parsed;
   }
 
   function inspectModelRouteResult(text = '', options = {}) {
@@ -2204,8 +2699,7 @@
     const issues = [];
     if (!route || typeof route !== 'object') return issues;
     if (route.needClarification === true || route.readiness !== 'ready') return issues;
-    const operation = stringValue(route.operationType || route.intent);
-    const relation = stringValue(route.relation);
+   const relation = stringValue(route.relation);
     const goal = stringValue(route.userGoal);
     const goalMode = stringValue(route.goalMode) || 'replace';
     const context = options.context || {};
@@ -2257,20 +2751,6 @@
       });
     }
 
-    const understandingActions = options.understandingShape && Array.isArray(options.understandingShape.actions)
-      ? options.understandingShape.actions
-      : [];
-    if (understandingActions.length === 1
-        && typeof operationForKind === 'function'
-        && operationForKind(understandingActions[0]?.kind)
-        && operation && operation !== operationForKind(understandingActions[0].kind)) {
-      issues.push({
-        code: 'route_operation_mismatches_understanding',
-        field: 'operation',
-        message: `路由 operation 与理解节点 kind 映射不一致，应为 ${operationForKind(understandingActions[0].kind)}。`,
-      });
-    }
-
     return issues;
   }
 
@@ -2288,6 +2768,15 @@
     const issues = [];
     const operation = stringValue(intent.operation);
     const refs = Array.isArray(intent.resource_refs) ? intent.resource_refs : [];
+    const input = stringValue(options.input);
+    if (['plain_chat', 'web_search'].includes(operation)
+        && refs.some(ref => ['image', 'file'].includes(resourceTypeForCandidateKey?.(stringValue(ref?.candidate_key))))) {
+      issues.push({
+        code: 'route_resource_mismatch',
+        field: 'resource_refs',
+        message: '文字任务不应绑定图片或文件资源。',
+      });
+    }
     for (const ref of refs) {
       const candidateKey = stringValue(ref.candidate_key);
       const type = resourceTypeForCandidateKey?.(candidateKey) || '';
@@ -2450,6 +2939,12 @@
   const PRIOR_FILE_RESOURCE_PATTERNS = /(?:(?:刚才|之前|上次|前面|上述|那个|那份|那篇)(?:文件|附件|文档|pdf|表格|报告|合同|材料|纪要)|(?:previous|that)\s+(?:file|document|pdf|spreadsheet|report))/i;
   const GENERATIVE_IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen']);
   const EMPTY_GENERATION_PATTERNS = /^(?:生成|画|绘制|做|制作|创建)(?:一张|一个|张|幅|个)?(?:图|图片|图像|海报|插画|壁纸)?[的]?$/i;
+  const VAGUE_GENERATION_REQUEST_PATTERN = /^(?:(?:请|请你|帮我|请帮我|给我|麻烦(?:你)?|please)\s*)?(?:生成|画|绘制|做|制作|创建|设计)\s*(?:(?:一张|一幅|一个|一件|张|幅|个)\s*)?(?:(?:产品|商品|宣传|营销)?海报|图片|图像|图|插画|壁纸|东西|logo|标志|图标)?\s*[的]?\s*[。.!！?？]?$/i;
+
+  function isInsufficientTextToImageRequest(input = '') {
+    const text = stringValue(input);
+    return EMPTY_GENERATION_PATTERNS.test(text) || VAGUE_GENERATION_REQUEST_PATTERN.test(text);
+  }
   // The multi-image planner is itself an instruction-materialization boundary.
   // It must not emit a task that merely points at earlier conversation text.
   const META_INSTRUCTION_GOAL_PATTERN = /^(?:基于\s*(?:这个|那个|上述|以上|上一条|前一条|前面的|之前的|这条|那条)\s*(?:生成|继续|重做|再生成)[\s\S]*|基于\s*(?:上一条|前一条|上面的|之前的)[\s\S]*?提示词[\s\S]*|参考\s*(?:上述|以上|上一条|前一条)[\s\S]*|继续生成[。.。]?)$/i;
@@ -2825,7 +3320,7 @@
   // downgrade to chat, and a generate-family correction cannot bind the
   // result as an edit target. This protects execution continuity on every
   // path, including model-owned routes that skip the local guess layer.
-  function applyLocalExecutionInvariants(route = null, { input = '', context = {}, proposedPrompt = '' } = {}) {
+  function applyLocalExecutionInvariants(route = null, { input = '', context = {}, proposedPrompt = '', allowVagueGeneration = false } = {}) {
     if (!route) return route;
     const text = stringValue(input);
     const previousExecution = context?.previous_execution || null;
@@ -2872,7 +3367,7 @@
             }],
             constraints: [],
           };
-          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context });
+          const rebuilt = compileLocalRoute(basePlan, { input, attachments: [], context, allowVagueGeneration });
           if (rebuilt) {
             setResolvedImagePrompt(rebuilt, resolvedContinuationPrompt(rebuilt));
             rebuilt.editInstruction = '';
@@ -2903,7 +3398,7 @@
     return route;
   }
 
-  function applyLocalRouteGuesses(route = null, { input = '', context = {}, proposedPrompt = '' } = {}) {
+  function applyLocalRouteGuesses(route = null, { input = '', context = {}, proposedPrompt = '', allowVagueGeneration = false } = {}) {
     if (!route) return route;
     const text = stringValue(input);
     const previousExecution = context?.previous_execution || null;
@@ -2937,7 +3432,7 @@
         arguments: { prompt: text },
         bindings: [],
         constraints: [],
-      }, { input, attachments: [], context, skipLocalRouteGates: true });
+      }, { input, attachments: [], context, skipLocalRouteGates: true, allowVagueGeneration });
     }
     if (selectedSubject === 'image') {
       if (planApi === 'image_edit' || planOp === 'image_reference_gen') {
@@ -3099,7 +3594,10 @@
       }
     }
     // ── text_to_image must describe content before dispatch ────────
-    if (planOp === 'text_to_image' && route.readiness === 'ready' && EMPTY_GENERATION_PATTERNS.test(text)) {
+    if (planOp === 'text_to_image'
+        && route.readiness === 'ready'
+        && allowVagueGeneration !== true
+        && isInsufficientTextToImageRequest(text)) {
       return clarifyRoute(route, { question: '你想生成什么样的图片？请补充画面内容描述，例如主体、场景和风格。', slots: [{ key: 'r1', type: 'text', role: 'source', reason: 'missing', choices: [] }] });
     }
 
@@ -3293,7 +3791,7 @@
     const indexes = typedIndexSelectors(text).filter(selector => selector.type === 'image');
     return imageSelectionIndexes(text, candidates).length > 1
       || indexes.length > 1
-      || /(?:全都要|全部|所有|每张|每一张|都要|分别|各自|逐张|all|every|each)/i.test(text);
+      || /(?:全都要|全部|所有|每张|每一张|都要|分别|各自|逐张|all|every|each|\u5206\u522b|\u5404\u81ea|\u9010\u5f20|\u5168\u90e8|\u6bcf\u4e00\u5f20|[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\d]+\u5f20|multiple images)/i.test(text);
   }
 
   function escapedRegExp(value = '') {
@@ -3709,8 +4207,33 @@
     return facts;
   }
 
+  // A completed clarification can carry the resources from its parent route.
+  // When the user selects one task from a mixed multi-task plan, those parent
+  // resources are broader than the selected task's execution contract. Keep
+  // only resource families that the selected operation is allowed to consume;
+  // otherwise an image_qa task can inherit the sibling file (or vice versa) and
+  // fail contract validation even though its own plan binding is correct.
+  function clarificationResourceTypeAllowed(operation = '', type = '') {
+    const op = stringValue(operation);
+    const resourceType = stringValue(type);
+    if (['image_qa', 'ocr'].includes(op)) {
+      return ['image', 'message'].includes(resourceType);
+    }
+    if (op === 'image_compare') return ['image', 'message'].includes(resourceType);
+    if (op === 'file_qa') return ['file', 'message'].includes(resourceType);
+    if (op === 'multimodal_qa') return ['image', 'file', 'message'].includes(resourceType);
+    if (['image_reference_gen', 'edit_image'].includes(op)) return resourceType === 'image';
+    if (['plain_chat', 'web_search', 'text_to_image'].includes(op)) {
+      return ['message', 'text'].includes(resourceType);
+    }
+    // Unknown operations must fail through the normal contract validator rather
+    // than silently discarding evidence at this boundary.
+    return true;
+  }
+
   function clarificationBindingsFor(operation = '', context = {}) {
-    const resources = resolvedClarificationResourceFacts(context);
+    const resources = resolvedClarificationResourceFacts(context)
+      .filter(resource => clarificationResourceTypeAllowed(operation, resource?.type));
     const reservedKeys = new Set(resources
       .map(resource => stringValue(resource?.resource_key || resource?.key))
       .filter(key => /^r[1-9]\d*$/.test(key)));
@@ -3951,6 +4474,28 @@
     return [];
   }
 
+  // Input completeness is independent of operation selection. A deictic
+  // source phrase is not source evidence and must remain a text clarification
+  // until the user supplies text, a quoted message, or a file.
+  function missingTextSourceForInput(input = '', context = {}, catalog = []) {
+    const text = stringValue(input);
+    if (!text) return false;
+    const sourceCue = /(?:\u4e0b\u9762(?:\u8fd9\u6bb5|\u8fd9\u7bc7)?(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)?|\u4ee5\u4e0b(?:\u8fd9\u6bb5|\u8fd9\u7bc7)?(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)?|\u8fd9\u6bb5(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)|the following text|the text below|following passage)/i.test(text);
+    if (!sourceCue || hasQuotedEvidence(context)) return false;
+    // "下面这段文字：实际正文" is self-contained. A source cue only blocks
+    // dispatch when it is genuinely deictic, not when the current input already
+    // carries the text to transform after a delimiter.
+    const inlineSource = /[：:]\s*(?:[“"'‘「『]|[^\s：:])/.test(text);
+    if (inlineSource) return false;
+    return !(Array.isArray(catalog) ? catalog : []).some(candidate => {
+      if (candidate?.availability === 'unavailable') return false;
+      if (candidate?.type === 'file') return true;
+      // The current user turn is the instruction, not the referenced source.
+      // Only a quoted/history/context message can satisfy the deictic source.
+      return candidate?.type === 'message' && stringValue(candidate?.source) !== 'current';
+    });
+  }
+
   function crossApiMultiTask(input = '') {
     const text = stringValue(input);
     if (!text) return false;
@@ -3986,6 +4531,7 @@
     if (first.type === 'file' && first.reason === 'ambiguous' && Array.isArray(first.choices) && first.choices.length) {
       return '没有明确要使用哪个文件，请从下列文件中选择。';
     }
+    if (first.reason === 'missing_source_text') return '\u8bf7\u5148\u63d0\u4f9b\u9700\u8981\u5904\u7406\u7684\u6587\u672c\uff0c\u6216\u7c98\u8d34\u6216\u5f15\u7528\u90a3\u6bb5\u6587\u672c\u540e\u518d\u7ee7\u7eed\u3002';
     if (first.reason === 'ambiguous') return '匹配到多个候选资源，请选择要使用的对象后继续。';
     if (first.type === 'text' && ['text_to_image', 'image_reference_gen'].includes(operation)) return '你想生成什么样的图片？请补充画面内容描述，例如主体、场景和风格。';
     if (first.type === 'text') return '请补充本轮要执行的具体问题或指令。';
@@ -4198,12 +4744,17 @@
       ...options,
       planningImageTasks,
     }).filter(issue => !forcedRequirementKeys.has(`${issue.type}|${issue.role}`));
+    const missingSourceText = op === 'plain_chat'
+      && missingTextSourceForInput(input, options.context || {}, resolved.catalog);
     const issues = [
       ...selectorResult.issues,
       ...resolved.issues,
       ...forcedIssues,
       ...requirementIssues,
     ];
+    if (missingSourceText) {
+      issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing_source_text' }));
+    }
     if (!modelOwnsRouteSemantics(options)) {
       issues.push(...ambiguityIssues(op, input, projectedResources, resolved.catalog, relation));
     }
@@ -4215,7 +4766,9 @@
     if (manualIssue) issues.push(manualIssue);
     if (!executionInput) issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' }));
     // A generation request with no subject (“生成”) cannot dispatch; clarify what to create.
-    if (GENERATIVE_IMAGE_OPERATIONS.has(op) && EMPTY_GENERATION_PATTERNS.test(executionInput)) {
+    if (GENERATIVE_IMAGE_OPERATIONS.has(op)
+        && options.allowVagueGeneration !== true
+        && isInsufficientTextToImageRequest(executionInput)) {
       issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing' }));
     }
     // route_intent.v3 can authorize exactly one operation. Even when the model
@@ -4241,7 +4794,10 @@
       uniqueIssues.push(issue);
     }
 
-    const canonicalResourceIssues = normalizeResourceClarificationIssues(uniqueIssues, projectedResources);
+    const canonicalResourceIssues = normalizeResourceClarificationIssues(uniqueIssues, projectedResources)
+      .map(issue => missingSourceText && issue.type === 'text' && issue.role === 'source'
+        ? { ...issue, reason: 'missing_source_text' }
+        : issue);
     const argumentProblems = [
       ...(argResult.conflicts || []),
       ...(argResult.invalid || []),
@@ -4485,12 +5041,14 @@
         input,
         context: options.context || {},
         proposedPrompt: stringValue(plan?.arguments?.prompt),
+        allowVagueGeneration: options.allowVagueGeneration === true,
       });
     if (modelOwned) return invariantRoute;
     return applyLocalRouteGuesses(invariantRoute, {
       input,
       context: options.context || {},
       proposedPrompt: stringValue(plan?.arguments?.prompt),
+      allowVagueGeneration: options.allowVagueGeneration === true,
     });
   }
 
@@ -4545,7 +5103,7 @@
         arguments: { prompt },
         bindings: [],
         constraints: [],
-      }, { input: prompt, attachments: [], context: {} });
+      }, { input: prompt, attachments: [], context: {}, allowVagueGeneration: true });
       return isRouteDispatchable(route) ? route : null;
     } catch {
       return null;
@@ -4581,6 +5139,7 @@
   // ── Exports ─────────────────────────────────────────────────────
   const api = Object.freeze({
     ROUTE_INTENT_VERSION,
+    SEMANTIC_INTENT_VERSION,
     DISPATCH_CONTRACT_VERSION,
     EXECUTION_RESOURCE_PROJECTION_VERSION,
     ROUTE_SYSTEM_PROMPT,
@@ -4588,9 +5147,22 @@
     ROUTE_NODE_SYSTEM_PROMPT,
     ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
     ROUTE_NODE_SYSTEM_PROMPT_SIMPLE,
+    ROUTE_REPAIR_SYSTEM_PROMPT,
+    INTENT_CRITIC_SYSTEM_PROMPT,
     ROUTE_INTENT_RESPONSE_FORMAT,
     IMAGE_MEMORY_RETRIEVAL_POLICY,
     buildRoutePayload,
+    orderImageInputRefs,
+    buildIntentCriticPayload,
+    inspectIntentCriticResult,
+    intentCriticSemanticIssues,
+    intentReasoningPayloadOptions,
+    semanticIntentForRoute,
+    exactHistoricalFollowupRelationConstraint,
+    deterministicOperationKeysForInput,
+    missingTextSourceForInput,
+    deterministicResourceKeysForInput,
+    undeliveredGenerationEvidence,
     shouldRunUnderstanding,
     buildUnderstandingPayload,
     buildUnderstandingRepairPayload,
@@ -4598,6 +5170,10 @@
     reconcileUnderstandingKinds,
     buildFallbackMultiTaskPlan,
     buildRouteRepairPayload,
+    inspectRouteRepairResult,
+    applyRouteRepairResult,
+    routeRepairAllowedFields,
+    ROUTE_REPAIR_VERSION,
     compileUnderstandingShape,
     explicitImageResultCount,
     maxExplicitImageResultCount,
@@ -4611,13 +5187,14 @@
     compactWireResourceCandidate,
     extractRouteText,
     inspectModelRouteResult,
+    extractExactRouteIntent,
     routeIntentSemanticIssues,
     buildRouteDecision,
     recordRouteMemory,
     routeMemoryContext,
     routeIntentSemanticIssuesForIntent,
-  hasQuotedEvidence,
-  reconcileUnderstandingDependency,
+    hasQuotedEvidence,
+    reconcileUnderstandingDependency,
     compileEmptyCurrentAttachmentSetRoute,
     compileLocalRoute,
     isRouteDispatchable,
@@ -4660,6 +5237,7 @@
     inspectMultiTaskPlan,
     compileMultiTaskPlan,
     shouldRequestImagePlan,
+    hasExplicitMultiImageSelection,
     compileImagePlan,
   });
 

@@ -409,7 +409,7 @@ async function testBackgroundImageTagValidationAllowsChatOnlyAndRejectsContracts
 }
 
 function testSemanticControlPurposesShareIntentRecognitionGuardrails() {
-  for (const purpose of ['route_repair', 'route_fallback', 'multi_task_planning', 'image_planning']) {
+  for (const purpose of ['intent_critic', 'route_repair', 'route_fallback', 'multi_task_planning', 'image_planning']) {
     assert.doesNotThrow(() => validator.validateProxyExecutionRequest(
       { requestPurpose: purpose, payload: {} },
       { targetPath: '/responses', method: 'POST' },

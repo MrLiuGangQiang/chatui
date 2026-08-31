@@ -41,8 +41,8 @@ function testRoutePromptPreservesVisualTaskContextAfterUndeliveredDesign() {
 
 function testRoutePromptDoesNotInventHistoricalDependencyForSelfContainedInputs() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /current_input已含主体\/动作则历史同义正文非必需、不绑mN/);
-  assert.match(prompt, /plain_chat自足时refs=\[\]/);
+  assert.match(prompt, /current_input已含主体\/动作则历史同义正文非必需，但不禁止模型在确有正文依赖时绑定mN=context/);
+  assert.match(prompt, /plain_chat自足时可以refs=\[\]/);
   assert.match(prompt, /无历史证据且只缺current必需角色也new/);
   assert.match(prompt, /edit_image仅有多个history候选且未选定→followup\+ambiguous，省略target/);
 }

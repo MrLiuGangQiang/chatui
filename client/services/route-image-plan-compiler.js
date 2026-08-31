@@ -64,6 +64,7 @@
 
     function shouldRequestImagePlan(route = {}) {
       if (!route || route.needClarification) return false;
+      if (route.imagePlanCompiled && (route.imagePlanCompiled.kind === 'batch' || route.imagePlanCompiled.kind === 'single')) return false;
       const taskShape = stringValue(route.taskShape) || 'single';
       return taskShape === 'multi'
         && imageOperationSet.has(stringValue(route.operationType || route.intent || ''));

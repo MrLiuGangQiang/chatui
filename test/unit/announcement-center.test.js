@@ -77,8 +77,8 @@ function testAnnouncementFilesAreCumulativeAndSortedByVersion() {
 
   const shipped = readAnnouncements({ root: path.join(__dirname, '../..') });
   assert.ok(shipped.length >= 1);
-  assert.strictEqual(shipped[0].version, 'v1.10.85');
-  assert.strictEqual(shipped[0].title, 'ChatUI 正式版发布');
+  assert.strictEqual(shipped[0].version, 'v2.1.0');
+  assert.strictEqual(shipped[0].title, 'ChatUI v2.1.0 正式发布');
   assert.ok(shipped.some(item => item.version === 'v1.0.1' && item.title === 'ChatUI 意图识别协议与问题反馈功能升级'));
   assert.ok(shipped.some(item => item.version === 'v1.0.0' && item.title === '全新公告中心上线'));
   assert.ok(shipped.every(item => item.body && item.version));
@@ -291,6 +291,36 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(css.includes('.announcement-overlay-close'));
 }
 
+async function testAnnouncementHeaderShowsRuntimeVersionOverAnnouncementVersion() {
+  const dom = announcementDom();
+  dom.window.__CHATUI_RUNTIME_IDENTITY = { version: '2.0.7' };
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ announcements: [release('v1.10.85', '旧版公告')] }) }),
+    renderMarkdown: markdown => '<p>' + markdown + '</p>',
+  });
+  controller.bind();
+  await controller.initialize();
+  const version = dom.window.document.getElementById('announcementVersion');
+  assert.strictEqual(version.textContent, '2.0.7', 'the announcement header must mirror the runtime app version from settings');
+}
+
+async function testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntimeIdentity() {
+  const dom = announcementDom();
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ announcements: [release('v1.10.85', '旧版公告')] }) }),
+    renderMarkdown: markdown => '<p>' + markdown + '</p>',
+  });
+  controller.bind();
+  await controller.initialize();
+  const version = dom.window.document.getElementById('announcementVersion');
+  assert.strictEqual(version.textContent, 'v1.10.85', 'without a runtime identity the header falls back to the announcement version');
+}
+
+
 module.exports = [
   testAnnouncementDocumentParsesVersionedMetadata,
   testAnnouncementFilesAreCumulativeAndSortedByVersion,
@@ -302,4 +332,6 @@ module.exports = [
   testAcknowledgedRefreshVerifiesLatestWithoutFlashingAnnouncementDialog,
   testInitialAnnouncementRequestTimesOutIntoRetryState,
   testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime,
+  testAnnouncementHeaderShowsRuntimeVersionOverAnnouncementVersion,
+  testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntimeIdentity,
 ];

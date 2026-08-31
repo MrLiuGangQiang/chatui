@@ -113,6 +113,13 @@
       .map(stringValue)
       .filter(relation => VALID_RELATIONS.has(relation)))];
     if (allowedRelations.length) schema.properties.relation.enum = allowedRelations;
+    const allowedOperations = [...new Set((Array.isArray(options.allowedOperations) ? options.allowedOperations : [])
+      .map(stringValue)
+      .filter(operation => [
+        'plain_chat', 'web_search', 'file_qa', 'multimodal_qa', 'image_qa',
+        'image_compare', 'ocr', 'text_to_image', 'image_reference_gen', 'edit_image',
+      ].includes(operation)))];
+    if (allowedOperations.length) schema.properties.operation.enum = allowedOperations;
     // The current input is deliberately NOT emitted as a goal enum literal:
     // strict structured-output gateways reject long user-derived string
     // literals inside the schema. Goal non-emptiness, the length cap, and the
@@ -124,10 +131,14 @@
       .filter(goalMode => ROUTE_INTENT_GOAL_MODES.has(goalMode)))];
     if (allowedGoalModes.length) schema.properties.goal_mode.enum = allowedGoalModes;
     const resourceRefs = schema.properties.resource_refs;
-    if (!candidateKeys.length) {
+    const requestedResourceKeys = Array.isArray(options.allowedResourceKeys)
+      ? [...new Set(options.allowedResourceKeys.map(stringValue).filter(key => candidateKeys.includes(key)))]
+      : null;
+    const effectiveResourceKeys = requestedResourceKeys || candidateKeys;
+    if (!effectiveResourceKeys.length) {
       resourceRefs.maxItems = 0;
     } else {
-      resourceRefs.items.properties.candidate_key.enum = candidateKeys;
+      resourceRefs.items.properties.candidate_key.enum = effectiveResourceKeys;
     }
     return Object.freeze(responseFormat);
   }

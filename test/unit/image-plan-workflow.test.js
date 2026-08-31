@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const assert = require('assert');
 const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
@@ -109,7 +109,7 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
     const { workflow, calls } = createWorkflow({ stageTwo: stageTwoResponse(3) });
     const route = await workflow.getEffectiveRoute('分别生成一只猫、一只狗、一只鸟', [], 'session-plan', null, {});
     assert.strictEqual(calls.length, 3,
-      'a self-contained new multi-image request must run understanding, route once, then plan once without a redundant instruction-materialization call');
+      'an explicit multi-image request must run understanding, route once, then plan once without instruction materialization');
     assert.strictEqual(calls[0].payload.text.format.name, 'chatui_intent_understanding_v1');
     assert.strictEqual(calls[1].payload.text.format.name, 'chatui_route_intent_v3');
     assert.strictEqual(calls[2].payload.text.format.name, 'chatui_image_plan_v1');

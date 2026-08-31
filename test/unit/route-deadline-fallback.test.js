@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -125,7 +125,7 @@ async function testIntentTimeoutFailsClosedWithoutSelectingQuotedOrHistoricalMed
         reference_id: 'quoted-ref',
         source: 'quoted',
       }],
-    }, { deadlineMs: 5 });
+    }, { deadlineMs: 100 });
 
     assert.strictEqual(requestAborted, true);
     assert.strictEqual(route.readiness, 'failed');

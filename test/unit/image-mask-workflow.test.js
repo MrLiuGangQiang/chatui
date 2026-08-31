@@ -294,7 +294,7 @@ function testReferenceRolesReachTheImageRequestBoundary() {
   ], 'the role map must describe every uploaded image in exact multipart order');
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片1：作为内容参考/);
   assert.match(imageWorkflow.buildImageRoleGuide(inputs), /图片2：仅作为风格参考/);
-  assert.ok(source.includes('随附图片角色（依上传顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
+  assert.ok(source.includes('随附图片角色（按发送顺序）'), 'the image model prompt must explain target, reference, and style-reference order');
   assert.ok(source.includes('payload.image_role_map = JSON.stringify'), 'the managed job payload must retain an auditable role map');
   assert.ok(source.includes('buildImageRoleMap(imageInputs)'), 'the role map must cover the exact uploaded image array, not only a subset');
   assert.ok(source.includes('buildImageRoleGuide(imageInputs, contract)'), 'the final image prompt must derive precise target/reference rules from the validated execution contract');

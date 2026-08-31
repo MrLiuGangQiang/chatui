@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 // Bundle cache policy regression: /assets/chatui.bundle.* URLs are content
 // addressed (?v=<sha1 etag>, rewritten into index.html on every request) but

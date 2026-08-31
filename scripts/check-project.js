@@ -17,6 +17,7 @@ const REQUIRED_SCRIPTS = [
   'check',
   'test',
   'eval:intent',
+  'eval:intent:models',
   'start',
   'verify:release',
   'verify:release-ref',

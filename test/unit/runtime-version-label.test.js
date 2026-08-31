@@ -53,4 +53,19 @@ async function testRuntimeIdentityMismatchNavigatesToBuildAddressedEntryBeforeSt
   assert.deepStrictEqual(navigations, ['/__chatui/sha256%3Anew-build']);
 }
 
-module.exports = [testVisibleVersionExcludesBuildIdentity, testRuntimeIdentityMismatchNavigatesToBuildAddressedEntryBeforeStartup];
+function testSetDisplayedVersionKeepsAnnouncementHeaderInSync() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/runtime.js'), 'utf8');
+  const announcementVersion = { textContent: '' };
+  const doc = {
+    querySelectorAll: () => [],
+    getElementById: (id) => (id === 'announcementVersion' ? announcementVersion : null),
+  };
+  const windowRef = { ChatUIApp: {} };
+  vm.runInNewContext(source, { window: windowRef, document: doc, setTimeout, console }, { filename: 'client/app/runtime.js' });
+  const label = windowRef.ChatUIApp.runtime.setDisplayedVersion('2.0.7', doc);
+  assert.strictEqual(label, 'v2.0.7');
+  assert.strictEqual(announcementVersion.textContent, '2.0.7', 'the announcement header must follow the settings version');
+}
+
+
+module.exports = [testVisibleVersionExcludesBuildIdentity, testRuntimeIdentityMismatchNavigatesToBuildAddressedEntryBeforeStartup, testSetDisplayedVersionKeepsAnnouncementHeaderInSync];

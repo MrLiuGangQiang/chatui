@@ -201,8 +201,15 @@
       if (subjectItems >= 2) return subjectItems;
     }
 
-    // Ordinal enumeration tied to an output verb: 把第1张和第5张改成...
-    if (OUTPUT_VERB.test(value)) {
+    // Ordinal enumeration tied to an output verb: “把第1张和第5张改成…”.
+    // A target plus mask/reference, or an explicit exclusion such as
+    // “第一张不要改”, is one execution with auxiliary constraints—not an
+    // independent multi-result request.
+    const auxiliaryRoleOrExclusion = /(?:蒙版|遮罩|mask|参考图|参考图片|风格参考|配色参考|主体构图|水彩质感|作为(?:主体|构图|风格|配色|蒙版)|用第|采用第|reference|style_reference|不要改|不修改|保持不变|保留原样)/i.test(value);
+    const independentOrdinalCue = /(?:分别|各自|逐张|每张|都|全部|独立|separately|respectively|each)/i.test(value);
+    const explicitSingleOutput = /(?:生成|画|绘制|制作|创建|得到)\s*(?:一张|一幅|一个|一份|a\s+(?:new\s+)?(?:image|picture|poster))/i.test(value);
+    if (OUTPUT_VERB.test(value) && (!auxiliaryRoleOrExclusion || independentOrdinalCue)
+        && (!explicitSingleOutput || independentOrdinalCue)) {
       const ordinals = value.match(/第[一二三四五六七八九十百0-9]+[张幅个组版款套海报图]/g) || [];
       const distinct = new Set(ordinals.map(item => item.replace(/^第/, '')));
       if (distinct.size >= 2) return distinct.size;
@@ -233,8 +240,51 @@
     );
   }
 
+  function actionIsNegationOnly(action = {}) {
+    const target = stringValue(action?.target);
+    return /(?:不要|别|不改|不修改|不动|保持(?:不变|原样)|保留(?:不变|原样)|不得修改|do\s+not|don't)/i.test(target)
+      && !/(?:生成|画|绘制|制作|创建|修改|编辑|改成|改为|变成|换成|分析|总结|读取|查看|比较|识别|提取)/i.test(target);
+  }
+
+  function hasIndependentOutputCue(input = '') {
+    const text = stringValue(input);
+    return /(?:分别|各自|逐张|逐个|每张都|每个都|独立(?:生成|编辑|结果)|各生成|各修改|respectively|each|separately)/i.test(text);
+  }
+
+  function hasAuxiliaryResourceRoleCue(input = '') {
+    return /(?:蒙版|遮罩|mask|参考图|参考图片|风格参考|配色参考|style_reference|reference)/i.test(stringValue(input));
+  }
+
+  function normalizeActionsForShape(actions = [], input = '') {
+    const normalized = Array.isArray(actions) ? actions : [];
+    if (normalized.length <= 1 || hasIndependentOutputCue(input)) return normalized;
+    const usable = normalized.filter(action => !actionIsNegationOnly(action));
+    const allImageEdits = usable.length > 0 && usable.every(action => action.kind === 'image_edit');
+    // A target plus mask/reference is one edit execution. A negative clause is
+    // also a constraint, not a second no-op action. Merge only when the input
+    // does not explicitly request independent outputs.
+    if (allImageEdits && (hasAuxiliaryResourceRoleCue(input) || usable.length < normalized.length)) {
+      const first = usable[0];
+      const refs = [];
+      const seen = new Set();
+      for (const action of usable) {
+        for (const ref of Array.isArray(action.resolved_refs) ? action.resolved_refs : []) {
+          const key = `${stringValue(ref.candidate_key)}|${stringValue(ref.text)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          refs.push(ref);
+        }
+      }
+      return [{ ...first, resolved_refs: refs }];
+    }
+    return normalized;
+  }
+
   function compileUnderstandingShape(actions = [], input = '') {
-    const normalized = (Array.isArray(actions) ? actions : []).map(normalizeAction).filter(Boolean);
+    const normalized = normalizeActionsForShape(
+      (Array.isArray(actions) ? actions : []).map(normalizeAction).filter(Boolean),
+      input,
+    );
     if (!normalized.length) {
       return Object.freeze({ taskShape: 'none', operation: '', branch: 'clarification' });
     }
@@ -411,6 +461,7 @@
     normalizeAction,
     operationForKind,
     requiredResourceRoles,
+    normalizeActionsForShape,
     compileUnderstandingShape,
     maxExplicitImageResultCount,
     explicitImageResultCount,

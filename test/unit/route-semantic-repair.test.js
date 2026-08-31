@@ -49,8 +49,8 @@ function testSemanticValidatorFlagsOnlyDeterministicContradictions() {
       actions: [{ index: 1, kind: 'image_read', target: '这张图', resolved_refs: [] }],
     },
   });
-  assert.strictEqual(mismatchIssues[0].code, 'route_operation_mismatches_understanding',
-    'the route operation must match the deterministic kind mapping');
+  assert.ok(!mismatchIssues.some(issue => issue.code === 'route_operation_mismatches_understanding'),
+    'route operation must not be rewritten by the understanding action kind');
 
   const amend = compiledRoute({ goalMode: 'amend', relation: 'followup', userGoal: '改成夜景' });
   const amendIssues = routeService.routeIntentSemanticIssues(amend, { context: {} });
@@ -59,6 +59,13 @@ function testSemanticValidatorFlagsOnlyDeterministicContradictions() {
   const clarifying = compiledRoute({ readiness: 'needs_clarification', needClarification: true });
   assert.deepStrictEqual(routeService.routeIntentSemanticIssues(clarifying), [],
     'business clarification must not be rewritten as a model repair');
+
+  const mismatchedClarification = compiledRoute({ operationType: 'file_qa', readiness: 'needs_clarification', needClarification: true });
+  const mismatchOnClarification = routeService.routeIntentSemanticIssues(mismatchedClarification, {
+    understandingShape: { actions: [{ index: 1, kind: 'plain_text', target: 'summarize the following text', resolved_refs: [] }] },
+  });
+  assert.deepStrictEqual(mismatchOnClarification, [],
+    'clarification must not be rewritten as a model repair');
 }
 
 function testRepairPayloadCarriesFieldSpecificReasons() {
@@ -96,14 +103,13 @@ async function testSemanticRepairRoundRewritesTheFlaggedField() {
         const name = payload.text?.format?.name;
         calls.push({ name, purpose: options.requestPurpose, payload });
         if (name === 'chatui_route_intent_v3') {
-          const routeCalls = calls.filter(item => item.name === 'chatui_route_intent_v3').length;
-          if (routeCalls === 1) {
-            return { output_text: JSON.stringify({
-              operation: 'text_to_image', relation: 'new',
-              goal: '生成一只橘白短毛猫', goal_mode: 'replace',
-              resource_refs: [], task_shape: 'single',
-            }) };
-          }
+          return { output_text: JSON.stringify({
+            operation: 'text_to_image', relation: 'new',
+            goal: '生成一只橘白短毛猫', goal_mode: 'replace',
+            resource_refs: [], task_shape: 'single',
+          }) };
+        }
+        if (name === 'chatui_route_repair_v1') {
           return { output_text: JSON.stringify({
             operation: 'text_to_image', relation: 'followup',
             goal: '生成一只橘白短毛猫', goal_mode: 'replace',
@@ -128,7 +134,7 @@ async function testSemanticRepairRoundRewritesTheFlaggedField() {
     assert.strictEqual(route.readiness, 'ready');
     assert.strictEqual(route.relation, 'followup',
       'the flagged relation must be repaired from new to followup');
-    const repairCall = calls.find(item => item.name === 'chatui_route_intent_v3'
+    const repairCall = calls.find(item => item.name === 'chatui_route_repair_v1'
       && Array.isArray(item.payload?.input) && item.payload.input.some(message => String(message.content).includes('repair_request')));
     assert.ok(repairCall, 'a targeted routing repair request must be sent');
     const repairPayload = repairCall.payload.input.find(message => String(message.content).includes('repair_request'));

@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const fs = require('fs');
@@ -42,7 +42,7 @@ function testExactRouteIntentV3SchemaErrorTriggersCompatibilityFallback() {
 
 function testStrictSchemaCompatibilityModulesUseFreshStaticCacheKeys() {
   const html = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.match(html, /client\/services\/chat-service\.js\?v=1\.3\.3-canonical-fallback-schema/,
+  assert.match(html, /client\/services\/chat-service\.js\?v=1\.3\.4-adaptive-intent-reasoning/,
     'the schema sanitizer must not be hidden behind the previous cached script URL');
   assert.match(html, /client\/services\/request-compatibility\.js\?v=1\.0\.3-canonical-fallback-schema/,
     'the invalid-schema retry must use a fresh script URL');

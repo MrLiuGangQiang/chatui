@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const assert = require('assert');
 const routeService = require('../../client/services/route-service');
@@ -107,7 +107,36 @@ function testBuildRoutePayloadPreservesContinuationWhenNoDeterministicConstraint
   );
 }
 
+function testExplicitHistoricalReadAndCorrectionRelationsAreNarrowed() {
+  const historyFile = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '总结刚才那份合同中的付款条款。',
+    context: { file_candidates: [{ source: 'history', type: 'file', index: 1, file_id: 'f-old' }] },
+  });
+  assert.deepStrictEqual(historyFile.text.format.schema.properties.relation.enum, ['followup']);
+  const continuation = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '继续用刚才那张草图，再生成一个夜间版本。',
+    context: { image_candidates: [{ source: 'history', type: 'image', index: 1, image_id: 'i-old' }] },
+  });
+  assert.deepStrictEqual(continuation.text.format.schema.properties.relation.enum, ['new', 'followup', 'continuation']);
+}
+
+function testPriorSpecificationContinuationConstrainsGoalModeToAmend() {
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '不使用旧图，沿用上一版完整户型文字要求，再分别生成日间自然光和夜间暖光两张材质方案。',
+    context: {
+      previous_execution: { operation: 'text_to_image', task_state: { schema_version: 'task_continuity.v1', goal_mode: 'replace', segments: [{ kind: 'base', text: '户型要求' }] } },
+      image_candidates: [{ source: 'history', type: 'image', index: 1, image_id: 'old' }],
+    },
+  });
+  assert.deepStrictEqual(payload.text.format.schema.properties.goal_mode.enum, ['amend']);
+}
+
 module.exports = [
+  testPriorSpecificationContinuationConstrainsGoalModeToAmend,
+  testExplicitHistoricalReadAndCorrectionRelationsAreNarrowed,
   testReconcilePreservesContinuationForNonCurrentResources,
   testReconcilePromotesOnlyNewDependencyForNonCurrentResources,
   testReconcileStillForcesFollowupForQuotedEvidence,

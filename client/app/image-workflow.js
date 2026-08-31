@@ -190,13 +190,13 @@
               clearPendingFeedback(d),
               updateMessage(d, pendingImageCard(statusText(`${label} 已等待 0 秒`)), {
                 html: !0,
-                rawText: statusText(`${label}… 已等待 0 秒`),
+                rawText: statusText(`${label} 已等待 0 秒`),
                 skipSave: !0,
               })
             ),
             updateLiveDisplay(n, c, "assistant", pendingImageCard(statusText(`${label} 已等待 0 秒`)), {
               html: !0,
-              rawText: statusText(`${label}… 已等待 0 秒`),
+              rawText: statusText(`${label} 已等待 0 秒`),
               pending: !0,
               runToken: a.token,
             })
@@ -204,7 +204,7 @@
           l = setInterval(() => {
             if (shouldSuppressRunUi(n, a.token)) return;
             const seconds = Math.floor((performance.now() - r) / 1e3);
-            const status = statusText(`${label}… 已等待 ${seconds} 秒`);
+            const status = statusText(`${label} 已等待 ${seconds} 秒`);
             const html = pendingImageCard(statusText(`${label} 已等待 ${seconds} 秒`));
             n === state.activeSessionId && d?.isConnected && updateMessage(d, html, {
               html: !0,
@@ -346,7 +346,7 @@
               sessionId: n,
               onUploadProgress: (e) => {
                 if (!imageStatusPhase.beginUpload() || shouldSuppressRunUi(n, a.token)) return;
-                const t = statusText(`正在上传图片… ${e}%`);
+                const t = statusText(`正在上传图片 ${e}%`);
                 n === state.activeSessionId && d?.isConnected &&
                   updateMessage(d, pendingImageCard(t), {
                     html: !0,

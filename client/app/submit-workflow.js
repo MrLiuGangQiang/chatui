@@ -23,6 +23,16 @@
   } = submitWorkflowPolicy;
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
+  // A multi-task plan is a separate selector protocol. A bare selector
+  // such as "1" must not be consumed as free text for an unrelated open-ended
+  // clarification slot; doing so clears the pending resource context before
+  // the selected child task can restore its attachments.
+  function isPendingTaskSelectorInput(input = '', pending = null, routeService = {}) {
+    return !!pending?.routeInfo?.multiTaskPlan
+      && typeof routeService?.isTaskSelectionInput === 'function'
+      && routeService.isTaskSelectionInput(String(input || '').trim());
+  }
+
   function createSubmitWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers
@@ -241,7 +251,7 @@
             const parseContextValue=submitHelpers.parseContextValue;
             const quotedMessage=resumePendingSubmit?.quoteContext?parseContextValue(resumePendingSubmit.quoteContext):(state.editingIndex===null?getQuotedMessage?.():(state.editingQuoteContext?parseContextValue(state.editingQuoteContext):null)),quoteContext=resumePendingSubmit?.quoteContext||(quotedMessage?JSON.stringify(quotedMessage):"");
             const withPendingQuotePreview=submitHelpers.withPendingQuotePreview;
-            const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context,intentOptions={})=>{routeUi.startSlowNotice();return getEffectiveRoute(input,routeAttachments,sessionId,headers,context,{...intentOptions,onSlow:routeUi.showSlowNotice,onStage:routeUi.showSlowNotice,signal:run.abortController?.signal}).finally(()=>routeUi.stopSlowNotice())};
+            const getEffectiveRouteWithSlowNotice=(input,routeAttachments,headers,context,intentOptions={})=>{routeUi.startSlowNotice();return getEffectiveRoute(input,routeAttachments,sessionId,headers,context,{...intentOptions,onSlow:routeUi.showSlowNotice,onStage:routeUi.showSlowNotice,onReasoningTrace:routeUi.showReasoningTrace,enableIntentCritic:!1,enforceDeterministicPolicies:!1,signal:run.abortController?.signal}).finally(()=>routeUi.stopSlowNotice())};
             let quotedImageContext=parseContextValue(quotedMessage?.imageContext),quotedImageAttachments=[],quotedImageRestoreFailure=null;
             const inheritedQuotedImageContext=submitHelpers.inheritQuotedImageContext?.({
               quotedMessage,
@@ -387,11 +397,13 @@
               const pendingSlots = Array.isArray(storedPending.routeInfo?.clarificationSlots)
                 ? storedPending.routeInfo.clarificationSlots
                 : [];
-              const textAnswer = clarification.parseClarificationAnswer?.(rawPromptText, {
-                clarificationId: storedPending.id,
-                slots: pendingSlots,
-                existingAnswer: storedPending.clarificationAnswer || null,
-              }) || null;
+              const textAnswer = isPendingTaskSelectorInput(rawPromptText, storedPending, routeUtils)
+                ? null
+                : clarification.parseClarificationAnswer?.(rawPromptText, {
+                  clarificationId: storedPending.id,
+                  slots: pendingSlots,
+                  existingAnswer: storedPending.clarificationAnswer || null,
+                }) || null;
               if (textAnswer) {
                 const applied = clarification.applyPendingClarificationAnswer?.(storedPending, textAnswer) || null;
                 if (applied?.complete) {
@@ -593,6 +605,7 @@
       createPendingTransition,
       buildPendingAssistancePresentation,
       INTENT_PIPELINE_DEADLINE_MS,
+      isPendingTaskSelectorInput,
     });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSubmitWorkflow = api;

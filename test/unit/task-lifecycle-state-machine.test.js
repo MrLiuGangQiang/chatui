@@ -255,7 +255,7 @@ function testUndeliveredPendingSubmitIsPresentedAndClearedWithoutReplay() {
   const session = {
     id: 'session-a',
     messages: [{ role: 'user', content: 'draw two portraits' }],
-    display: [{ id: 'pending-submit-submit-a', role: 'assistant', rawText: '正在识别任务…', pending: true, responseIndex: '1' }],
+    display: [{ id: 'pending-submit-submit-a', role: 'assistant', rawText: '正在识别任务', pending: true, responseIndex: '1' }],
   };
   const state = {
     sessions: [session], activeSessionId: session.id, taskStates: new Map(),

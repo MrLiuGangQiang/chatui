@@ -1,4 +1,4 @@
-(function initChatUIRouteIntentWorkflow(root) {
+﻿(function initChatUIRouteIntentWorkflow(root) {
   'use strict';
 
   const requestCompatibility = root?.[Symbol.for('chatui.module-registry.v1')]?.get('requestCompatibility')
@@ -17,6 +17,37 @@
   const taskConstantsModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('taskConstants')
     || root?.ChatUITaskConstants
     || (typeof require === 'function' ? require('../../shared/task-constants') : {});
+  const intentReasoningModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentReasoning')
+    || (typeof require === 'function' ? require('../../shared/intent-reasoning') : {});
+  const intentCriticModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('intentCritic')
+    || (typeof require === 'function' ? require('../../shared/intent-critic') : {});
+  const runLocalIntentCritic = typeof intentCriticModule.localCritic === 'function'
+    ? intentCriticModule.localCritic
+    : (() => ({ verdict: 'accept', reasons: [] }));
+  const criticIssues = typeof intentCriticModule.REASON_CODES !== 'undefined'
+    ? (critic => (Array.isArray(critic?.reasons) ? critic.reasons : []))
+    : (() => []);
+  const createIntentTrace = typeof intentReasoningModule.createTrace === 'function'
+    ? intentReasoningModule.createTrace
+    : () => ({ schema_version: 'intent_reasoning.v1', status: 'running', steps: [], final_summary: '', hidden: false });
+  const appendIntentStep = typeof intentReasoningModule.appendStep === 'function'
+    ? intentReasoningModule.appendStep
+    : (trace, step) => ({ ...trace, steps: [...(trace?.steps || []), step] });
+  const completeIntentTrace = typeof intentReasoningModule.completeTrace === 'function'
+    ? intentReasoningModule.completeTrace
+    : (trace, options = {}) => ({ ...trace, status: options.status || 'ready', final_summary: options.finalSummary || '', hidden: options.hidden === true });
+  const intentStageSummary = typeof intentReasoningModule.stageSummary === 'function'
+    ? intentReasoningModule.stageSummary
+    : (stage => String(stage || '正在处理意图识别'));
+  const intentTraceText = typeof intentReasoningModule.traceText === 'function'
+    ? intentReasoningModule.traceText
+    : (trace => (trace?.steps || []).map(step => String(step.summary || '')).filter(Boolean).join('\n'));
+  const extractReasoningSummary = typeof intentReasoningModule.extractReasoningSummary === 'function'
+    ? intentReasoningModule.extractReasoningSummary
+    : (() => '');
+  const assessIntentRisk = typeof intentReasoningModule.assessIntentRisk === 'function'
+    ? intentReasoningModule.assessIntentRisk
+    : (() => ({ level: 'low', score: 0, signals: [] }));
 
   const MAX_MODEL_CALLS = Number(taskConstantsModule.MAX_MODEL_CALLS) || 6;
   const MODEL_ATTEMPT_LEDGER_VERSION = 'route_model_attempt_ledger.v1';
@@ -383,7 +414,54 @@
         routeOptions?.modelCalls,
       );
       const routeSvc = root.ChatUIRouteService || root.window?.ChatUIRouteService;
-      const emitStage = (stage, details = {}) => executionStatus.emitRouteStage?.(routeOptions, stage, details);
+      let reasoningTrace = createIntentTrace({ requestId: routeOptions?.submissionId || '' });
+      let reasoningStepSequence = 0;
+      let intentRisk = null;
+      let understandingFailed = false;
+      const traceStageFor = Object.freeze({
+        reading_context: 'context', collecting_resources: 'grounding',
+        understanding: 'understanding', compiling_shape: 'understanding',
+        recognizing_intent: 'routing', retrying_route_model: 'routing',
+        validating_route: 'checking', repairing_route: 'repair',
+        planning_multi_tasks: 'routing', planning_image_tasks: 'routing',
+        preparing_clarification: 'clarification', route_ready: 'completed',
+        route_failed: 'failed',
+      });
+      const notifyReasoningTrace = () => {
+        if (typeof routeOptions?.onReasoningTrace !== 'function') return;
+        try { routeOptions.onReasoningTrace(reasoningTrace); } catch (error) {
+          console.warn('[route] reasoning trace callback failed', error);
+        }
+      };
+      const appendReasoningStage = (stage, details = {}, status = 'completed') => {
+        const traceStage = traceStageFor[stage] || stage;
+        const summary = String(details.summary || intentStageSummary(traceStage, details) || '').trim();
+        reasoningTrace = appendIntentStep(reasoningTrace, {
+          id: String(details.traceStepId || `s${++reasoningStepSequence}`),
+          stage: traceStage,
+          status,
+          summary,
+          evidence: details.evidence || details.signals || [],
+          decision: details.decision || details.operation || details.operationType || '',
+          reason_codes: details.reason_codes || details.reasonCodes || (details.reason ? [details.reason] : []),
+        });
+        notifyReasoningTrace();
+      };
+      const appendModelSummary = (stage, response, details = {}) => {
+        const summary = extractReasoningSummary(response);
+        if (!summary) return;
+        appendReasoningStage(stage, {
+          ...details,
+          traceStepId: `s${++reasoningStepSequence}`,
+          summary: `模型摘要：${summary}`,
+          evidence: details.evidence || [],
+        }, 'completed');
+      };
+      const emitStage = (stage, details = {}) => {
+        const text = executionStatus.emitRouteStage?.(routeOptions, stage, details);
+        appendReasoningStage(stage, { ...details, summary: executionStatus.routeStageText?.(stage, details) || details.summary }, 'completed');
+        return text;
+      };
       const completeRoute = (route, source = '') => {
         const snapshot = attemptLedger.snapshot();
         const outcome = typeof normalizeRouteOutcome === 'function'
@@ -422,6 +500,36 @@
           });
         }
         const operation = completed?.operationType || completed?.dispatchContract?.operation || '';
+        const traceStatus = outcome === ROUTE_OUTCOMES.READY
+          ? 'ready'
+          : outcome === ROUTE_OUTCOMES.BUSINESS_CLARIFICATION ? 'clarify'
+            : outcome === ROUTE_OUTCOMES.CANCELLED ? 'failed' : 'failed';
+        reasoningTrace = completeIntentTrace(reasoningTrace, {
+          status: traceStatus,
+          finalSummary: outcome === ROUTE_OUTCOMES.READY
+            ? `已确认${operation || '本轮请求'}可以执行`
+            : outcome === ROUTE_OUTCOMES.BUSINESS_CLARIFICATION
+              ? '需要你补充会影响执行的信息'
+              : String(completed?.outcomeMessage || '本轮意图识别未完成'),
+          hidden: false,
+        });
+        if (completed && typeof completed === 'object') {
+          if (Object.isExtensible(completed)) {
+            completed.intentReasoningTrace = reasoningTrace;
+            completed.intentReasoningText = intentTraceText(reasoningTrace);
+            if (intentRisk) completed.intentRisk = intentRisk;
+            completed.understandingFailed = understandingFailed;
+          } else {
+            completed = {
+              ...completed,
+              intentReasoningTrace: reasoningTrace,
+              intentReasoningText: intentTraceText(reasoningTrace),
+              ...(intentRisk ? { intentRisk } : {}),
+              understandingFailed,
+            };
+          }
+        }
+        notifyReasoningTrace();
         // A multi-task plan must outlive the pending-clarification lifecycle so
         // a later selector turn ("做任务1") can still resolve to its task goal.
         if (completed?.multiTaskPlan) {
@@ -658,7 +766,9 @@
         // The image provider never receives a raw conversational reference such as
         // “按方案A/照你说的/上述内容”.
         async function finalizeRoute(route, source = '') {
-          const materializedRoute = await materializeImageInstruction(route, source);
+          const materializedRoute = routeOptions?.skipImageInstructionMaterialization === true
+            ? route
+            : await materializeImageInstruction(route, source);
           // Mixed multi-intent (understanding branch = multi_task_plan) must stay on
           // the multi-task path even when the route model labelled the operation as
           // an image op; otherwise non-image actions are dropped by the image plan.
@@ -676,6 +786,7 @@
               attachments: attachmentMeta,
               context,
               currentTurn: routeOptions?.currentTurn || null,
+              intentReasoning,
             });
             try {
               intentDeadline.assertActive();
@@ -720,6 +831,7 @@
                       currentTurn: routeOptions?.currentTurn || null,
                       rejectedPlan: inspected.plan,
                       expectedSummary: expectedTasks,
+                      intentReasoning,
                     });
                     const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary', requestPurpose: 'multi_task_planning' });
                     intentDeadline.assertActive();
@@ -754,6 +866,7 @@
               const tasksSummary = inspected.plan.tasks.map((task, index) => `${index + 1}. ${String(task.description || '').trim()}`).join('\n');
               return completeRoute({
                 ...materializedRoute,
+                ...(forceMultiTaskPlan ? { userGoal: String(input).trim(), executionPrompt: String(input).trim() } : {}),
                 multiTaskPlan: inspected.plan,
                 multiTaskPlanCompiled: compiled.items,
                 clarificationQuestion: `${planDisclaimer}${disjunctionNote}识别到 ${inspected.plan.tasks.length} 个独立任务：\n${tasksSummary}\n请回复要执行的编号（一次只执行一个任务）。`.trim(),
@@ -778,7 +891,8 @@
           if (!materializedRoute || materializedRoute.needClarification) {
             return completeRoute(materializedRoute, source);
           }
-          if (typeof routeSvc.shouldRequestImagePlan !== 'function' || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
+          if (typeof routeSvc.shouldRequestImagePlan !== 'function'
+              || !routeSvc.shouldRequestImagePlan(materializedRoute)) {
             return completeRoute(materializedRoute, source);
           }
           emitStage('planning_image_tasks', { modelRole: 'primary' });
@@ -811,6 +925,7 @@
             context,
             currentTurn: routeOptions?.currentTurn || null,
             expectedTaskCount: expectedTaskCount,
+            intentReasoning,
           });
           try {
             intentDeadline.assertActive();
@@ -839,6 +954,7 @@
                 currentTurn: routeOptions?.currentTurn || null,
                 expectedTaskCount: expectedTaskCount,
                 rejectedPlan: inspected.plan,
+                intentReasoning,
               });
               const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'planning_repair', modelRole: 'primary', requestPurpose: 'image_planning' });
               intentDeadline.assertActive();
@@ -902,14 +1018,14 @@
           }
         }
 
-        const inspectResponse = (response, modelRole) => {
+        const inspectRawRoute = (raw, modelRole) => {
           emitStage('validating_route', { modelRole });
           try {
-            const raw = routeSvc.extractRouteText(response);
             const parsed = routeSvc.inspectModelRouteResult(raw, {
               input, attachments: attachmentMeta, context,
               ...routeCompilationOptions(config, deps.state?.mode || 'chat', deps.state?.autoMode !== false),
               currentTurn: routeOptions?.currentTurn || null,
+              enforceDeterministicPolicies: routeOptions?.enforceDeterministicPolicies === true,
               taskShapeOverride: understandingShape?.taskShape,
               understandingBranch: understandingShape?.branch,
             });
@@ -923,6 +1039,10 @@
             return null;
           }
         };
+        const inspectResponse = (response, modelRole) => {
+          const raw = routeSvc.extractRouteText(response);
+          return inspectRawRoute(raw, modelRole);
+        };
 
         const deterministicEmptyAttachmentSet = typeof routeSvc.compileEmptyCurrentAttachmentSetRoute === 'function'
           ? routeSvc.compileEmptyCurrentAttachmentSetRoute({
@@ -934,6 +1054,28 @@
         if (deterministicEmptyAttachmentSet?.route) {
           emitStage('recognizing_intent', { modelRole: 'deterministic' });
           return finalizeRoute(deterministicEmptyAttachmentSet.route, 'empty_current_attachment_set');
+        }
+
+        // Input completeness is a deterministic preflight, not a model
+        // fallback. If the user refers to text that is not present, stop before
+        // understanding/route retries so the missing dependency is clarified
+        // exactly once and cannot be misreported as a file task.
+        const resourceCatalog = typeof routeSvc.buildRouteResourceCandidates === 'function'
+          ? routeSvc.buildRouteResourceCandidates({ attachments: attachmentMeta, context, input })
+          : [];
+        if (typeof routeSvc.missingTextSourceForInput === 'function'
+            && routeSvc.missingTextSourceForInput(input, context, resourceCatalog)) {
+          emitStage('recognizing_intent', { modelRole: 'deterministic' });
+          return completeRoute({
+            mode: 'chat', api: 'clarify', intent: 'clarify', target: 'none',
+            operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat',
+            relation: 'new', goalMode: 'replace',
+            needClarification: true, dispatchAuthorized: false,
+            readiness: 'needs_clarification', dispatchContract: null,
+            executionResources: null, resources: [],
+            clarificationQuestion: '请先提供需要处理的文本，或粘贴或引用那段文本后再继续。',
+            clarificationSlots: [{ key: 'r1', type: 'text', role: 'source', reason: 'missing_source_text', choices: [] }],
+          }, 'missing_text_source');
         }
 
         // Empty submission with no usable resource and no quoted anchor is a
@@ -999,11 +1141,30 @@
           }, 'multi_task_selector');
         }
 
-        // Phase 1: run the understand thinking node for inputs that need
-        // deictic resolution or may contain several ordered actions. Its
-        // deterministic Shape Compiler result overrides the route model's
-        // task_shape so multi-intent requests split reliably.
-        const shouldUnderstand = typeof routeSvc.shouldRunUnderstanding === 'function' && routeSvc.shouldRunUnderstanding(input, attachments, context);
+        // Phase 1: classify semantic risk before choosing the cheapest safe
+        // route. The risk signal never chooses an operation; it only decides
+        // whether the deeper understanding path and a reasoning budget are
+        // justified for this turn.
+        const reasoningEnabled = routeOptions?.enableIntentReasoning === true
+          || routeOptions?.enableIntentCritic === true;
+        intentRisk = reasoningEnabled
+          ? assessIntentRisk({ input, attachments: attachmentMeta, context })
+          : { level: 'low', score: 0, signals: [] };
+        if (reasoningEnabled) appendReasoningStage('risk', {
+          summary: '\u5df2\u5224\u65ad\u672c\u8f6e\u7406\u89e3\u590d\u6742\u5ea6',
+          decision: intentRisk.level,
+          evidence: intentRisk.signals,
+        }, 'completed');
+        // Phase 2: run the understand node for explicit contextual complexity
+        // or for a semantic risk score above the cheap path. Its deterministic
+        // Shape Compiler result still controls task shape.
+        const gateShouldUnderstand = typeof routeSvc.shouldRunUnderstanding === 'function'
+          && routeSvc.shouldRunUnderstanding(input, attachments, context);
+        const canRunUnderstanding = typeof routeSvc.buildUnderstandingPayload === 'function';
+        const shouldUnderstand = gateShouldUnderstand;
+        const intentReasoning = (reasoningEnabled && intentRisk?.level === 'high')
+          ? { enabled: true, effort: 'medium' }
+          : null;
         if (shouldUnderstand) {
           emitStage('understanding');
           try {
@@ -1014,12 +1175,14 @@
               attachments: attachmentMeta,
               context,
               currentTurn: routeOptions?.currentTurn || null,
+              intentReasoning,
             });
             const understandingResponse = await requestWithinDeadline(understandingPayload, {
               phase: 'understanding', modelRole: 'primary', requestPurpose: 'intent_understanding',
             });
             intentDeadline.assertActive();
             const understandingRaw = routeSvc.extractRouteText(understandingResponse);
+            appendModelSummary('understanding', understandingResponse, { modelRole: 'primary' });
             let inspected = typeof routeSvc.inspectUnderstandingResult === 'function'
               ? routeSvc.inspectUnderstandingResult(understandingRaw, {
         input,
@@ -1038,12 +1201,14 @@
                 currentTurn: routeOptions?.currentTurn || null,
                 rejectedOutput: understandingRaw,
                 reasons: [inspected?.reason || 'intent_understanding_invalid'],
+                intentReasoning,
               });
               const repairResponse = await requestWithinDeadline(repairPayload, {
                 phase: 'understanding_repair', modelRole: 'primary', requestPurpose: 'intent_understanding',
               });
               intentDeadline.assertActive();
               const repairRaw = routeSvc.extractRouteText(repairResponse);
+              appendModelSummary('repair', repairResponse, { modelRole: 'primary' });
               const repaired = routeSvc.inspectUnderstandingResult(repairRaw, {
                 input,
                 attachments: attachmentMeta,
@@ -1060,10 +1225,25 @@
                 understandingEvidence = inspected.understanding;
               }
             }
+            if (!understandingShape && !understandingFailed) {
+              understandingFailed = true;
+              appendReasoningStage('understanding', {
+                summary: '理解节点没有形成可用的动作证据，将使用完整路由规则重新确认',
+                decision: 'understanding_empty',
+                evidence: ['intent_understanding_empty'],
+                reason: 'intent_understanding_empty',
+              }, 'failed');
+            }
           } catch (error) {
             if (isRouteCancellation(error, parentSignal, intentDeadline)) throw cancellationError(error);
             if (isRouteTimeout(error, intentDeadline)) return failRoute('route_model_timeout');
-            // Understanding is best-effort evidence; the route node still runs.
+            understandingFailed = true;
+            appendReasoningStage('understanding', {
+              summary: '理解节点未返回有效证据，将使用完整路由规则重新确认',
+              decision: 'understanding_failed',
+              evidence: [String(error?.code || 'intent_understanding_failed')],
+              reason: String(error?.code || 'intent_understanding_failed'),
+            }, 'failed');
             console.warn('[route] understanding node failed', {
               name: String(error?.name || 'Error'),
               code: String(error?.code || 'INTENT_UNDERSTANDING_FAILED'),
@@ -1071,8 +1251,11 @@
           }
         }
 
+        const visualContinuityEvidence = typeof routeSvc.undeliveredGenerationEvidence === 'function'
+          ? routeSvc.undeliveredGenerationEvidence(input, context)
+          : null;
         const routeSystemPrompt = understandingShape
-          ? routeSvc.ROUTE_NODE_SYSTEM_PROMPT_COMPACT
+          ? (visualContinuityEvidence ? routeSvc.ROUTE_NODE_SYSTEM_PROMPT : routeSvc.ROUTE_NODE_SYSTEM_PROMPT_COMPACT)
           : (shouldUnderstand ? null : routeSvc.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE);
         const routeUnderstandingEvidence = understandingShape ? understandingEvidence : null;
         emitStage('recognizing_intent', { modelRole: 'primary' });
@@ -1084,8 +1267,106 @@
         const rawIntentIssuesFor = raw => (raw && typeof routeSvc.routeIntentSemanticIssuesForIntent === 'function')
           ? routeSvc.routeIntentSemanticIssuesForIntent(raw, { input, attachments: attachmentMeta, context, understandingShape })
           : [];
-        const issuesFor = (route, raw) => [...semanticIssuesFor(route), ...rawIntentIssuesFor(raw)];
+        const localCriticFor = route => {
+          if (!route || route.needClarification === true || route.readiness !== 'ready') return [];
+          const verdict = runLocalIntentCritic({ input, route, understanding: understandingEvidence });
+          return criticIssues(verdict);
+        };
+        const issuesFor = (route, raw) => {
+          const values = [
+            ...semanticIssuesFor(route),
+            ...rawIntentIssuesFor(raw),
+            ...localCriticFor(route),
+          ];
+          const result = [];
+          const seen = new Set();
+          for (const issue of values) {
+            const normalized = issue && typeof issue === 'object'
+              ? issue
+              : { code: String(issue || 'route_intent_invalid'), field: 'route', message: String(issue || '') };
+            const key = `${String(normalized.code || '')}|${String(normalized.field || '')}|${String(normalized.message || '')}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(normalized);
+          }
+          return result;
+        };
 
+
+        const modelCriticEnabled = routeOptions?.enableIntentCritic === true
+          && intentRisk?.level === 'high'
+          && typeof routeSvc.buildIntentCriticPayload === 'function'
+          && typeof routeSvc.inspectIntentCriticResult === 'function';
+
+        async function reviewRoute(route, raw, model, modelRole) {
+          if (!route) return { accepted: false, reasons: ['route_intent_invalid'] };
+          const localIssues = issuesFor(route, raw);
+          if (localIssues.length) return { accepted: false, reasons: localIssues };
+          if (route.needClarification === true || route.readiness !== 'ready') {
+            // The local compiler has already converted a proven blocking
+            // ambiguity into a business clarification. Do not ask a second
+            // critic to reinterpret a non-dispatchable route, but still allow
+            // raw-intent protocol issues above to enter the repair loop.
+            return { accepted: true, reasons: [] };
+          }
+          if (!modelCriticEnabled) return { accepted: true, reasons: [] };
+
+          appendReasoningStage('checking', {
+            summary: '正在进行独立语义覆盖审查',
+            decision: 'intent_critic',
+            evidence: ['intent_critic.v1'],
+          }, 'completed');
+          const criticPayload = routeSvc.buildIntentCriticPayload({
+            model,
+            input,
+            attachments: attachmentMeta,
+            context,
+            currentTurn: routeOptions?.currentTurn || null,
+            understanding: routeUnderstandingEvidence,
+            route,
+            intentReasoning,
+          });
+          const criticResponse = await requestWithinDeadline(criticPayload, {
+            phase: 'critic', modelRole, requestPurpose: 'intent_critic',
+          });
+          intentDeadline.assertActive();
+          appendModelSummary('checking', criticResponse, { modelRole });
+          const criticRaw = criticResponse ? routeSvc.extractRouteText(criticResponse) : '';
+          const inspectedCritic = routeSvc.inspectIntentCriticResult(criticRaw);
+          if (!inspectedCritic?.critic) {
+            appendReasoningStage('checking', {
+              summary: '独立语义审查输出无效',
+              decision: 'critic_invalid',
+              evidence: ['intent_critic_invalid'],
+              reason: inspectedCritic?.reason || 'intent_critic_invalid',
+            }, 'failed');
+            return {
+              accepted: false,
+              reasons: [{
+                code: 'intent_critic_invalid',
+                field: 'route',
+                message: '语义审查输出无效，需要重新确认本轮请求。',
+              }],
+              criticInvalid: true,
+            };
+          }
+          const critic = inspectedCritic.critic;
+          const reasons = typeof routeSvc.intentCriticSemanticIssues === 'function'
+            ? routeSvc.intentCriticSemanticIssues(critic, {
+              input,
+              context,
+              route,
+              resourceCatalog: routeSvc.buildRouteResourceCandidates?.({ attachments: attachmentMeta, context, input }) || [],
+            })
+            : (Array.isArray(critic.reasons) ? critic.reasons : []);
+          appendReasoningStage('checking', {
+            summary: critic.verdict === 'accept' ? '独立语义审查通过' : '独立语义审查发现问题',
+            decision: critic.verdict,
+            evidence: ['intent_critic.v1'],
+            reasonCodes: reasons.map(reason => reason.code),
+          }, critic.verdict === 'accept' ? 'completed' : 'failed');
+          return { accepted: critic.verdict === 'accept', reasons, critic };
+        }
 
         // One route attempt with bounded targeted repair, shared by the primary
         // and fallback models so no model can bypass semantic consistency checks.
@@ -1097,41 +1378,101 @@
             currentTurn: routeOptions?.currentTurn || null,
             ...(routeSystemPrompt ? { systemPrompt: routeSystemPrompt } : {}),
             ...(routeUnderstandingEvidence ? { understanding: routeUnderstandingEvidence } : {}),
+            intentReasoning,
           });
           const response = await requestWithinDeadline(payload, { phase: 'routing', modelRole, requestPurpose: modelRole === 'primary' ? 'intent_recognition' : 'route_fallback' });
-          const raw = response ? routeSvc.extractRouteText(response) : '';
-          let route = raw ? inspectResponse(response, modelRole) : null;
+          let raw = response ? routeSvc.extractRouteText(response) : '';
+          appendModelSummary('routing', response, { modelRole });
+          let route = raw ? inspectRawRoute(raw, modelRole) : null;
+          let baseIntent = raw && typeof routeSvc.extractExactRouteIntent === 'function'
+            ? routeSvc.extractExactRouteIntent(raw)
+            : null;
           intentDeadline.assertActive();
-          if (route && !issuesFor(route, raw).length) {
-            return { route, source: modelRole + '_model' };
-          }
-          // At most two targeted repair rounds. A structurally invalid output
-          // starts with route_intent_invalid; a structurally valid output that
-          // contradicts local evidence starts with its field-specific issues.
+          appendReasoningStage('checking', {
+            summary: '正在检查用户要求、资源绑定和路由语义是否完整覆盖',
+            decision: route ? 'review' : 'invalid_output',
+            evidence: route ? ['route_intent.v3'] : ['route_intent_invalid'],
+          }, 'completed');
+          let review = await reviewRoute(route, raw, model, modelRole);
+          if (review.accepted) return { route, source: modelRole + '_model' };
+
+          // A valid v3 route is repaired through a separate constrained protocol.
+          // The original route remains the baseline; a repair response cannot
+          // silently replace fields it did not declare. Only structurally invalid
+          // output uses the legacy full reconstruction path because it has no
+          // trusted baseline to patch.
           let rejectedOutput = raw;
+          let pendingReasons = review.reasons;
           for (let repairRound = 0;
                repairRound < 2 && rejectedOutput && typeof routeSvc.buildRouteRepairPayload === 'function';
                repairRound += 1) {
-            const repairReasons = route ? issuesFor(route, rejectedOutput) : ['route_intent_invalid'];
+            const repairReasons = pendingReasons?.length
+              ? pendingReasons
+              : (route ? issuesFor(route, rejectedOutput) : ['route_intent_invalid']);
             if (!repairReasons.length) break;
-            emitStage('repairing_route', { modelRole });
+            const constrainedRepair = !!baseIntent
+              && typeof routeSvc.inspectRouteRepairResult === 'function'
+              && typeof routeSvc.applyRouteRepairResult === 'function';
+            emitStage('repairing_route', {
+              modelRole,
+              reasonCodes: repairReasons.map(reason => reason.code || reason),
+            });
             const repairPayload = routeSvc.buildRouteRepairPayload({
               model, input, attachments: attachmentMeta, context,
               currentMode: deps.state?.mode || 'chat',
               autoMode: deps.state?.autoMode !== false,
               currentTurn: routeOptions?.currentTurn || null,
               rejectedOutput,
+              ...(constrainedRepair ? { baseIntent } : {}),
               reasons: repairReasons,
               ...(routeSystemPrompt ? { systemPrompt: routeSystemPrompt } : {}),
               ...(routeUnderstandingEvidence ? { understanding: routeUnderstandingEvidence } : {}),
+              intentReasoning,
             });
             const repairResponse = await requestWithinDeadline(repairPayload, { phase: 'routing_repair', modelRole, requestPurpose: 'route_repair', repairReasons });
             intentDeadline.assertActive();
-            rejectedOutput = repairResponse ? routeSvc.extractRouteText(repairResponse) : '';
-            route = rejectedOutput ? inspectResponse(repairResponse, modelRole) : null;
-            if (route && !issuesFor(route, rejectedOutput).length) {
-              return { route, source: modelRole + '_repair' };
+            const repairRaw = repairResponse ? routeSvc.extractRouteText(repairResponse) : '';
+            appendModelSummary('repair', repairResponse, { modelRole });
+
+            if (constrainedRepair) {
+              const inspectedRepair = repairRaw && typeof routeSvc.inspectRouteRepairResult === 'function'
+                ? routeSvc.inspectRouteRepairResult(repairRaw, { baseIntent })
+                : null;
+              const applied = inspectedRepair?.repair
+                ? routeSvc.applyRouteRepairResult(baseIntent, inspectedRepair.repair, repairReasons)
+                : { intent: null, reason: inspectedRepair?.reason || 'route_repair_invalid' };
+              if (!applied?.intent) {
+                appendReasoningStage('checking', {
+                  summary: '自动修复结果未通过一致性校验',
+                  decision: applied?.reason || 'route_repair_invalid',
+                  evidence: ['route_repair_invalid'],
+                }, 'failed');
+                // Keep the trusted baseline intact and spend at most one more
+                // bounded repair attempt. An invalid patch must never become a
+                // new routing baseline or silently alter execution bindings.
+                rejectedOutput = JSON.stringify(baseIntent);
+                pendingReasons = repairReasons;
+                route = null;
+                continue;
+              }
+              baseIntent = applied.intent;
+              rejectedOutput = JSON.stringify(baseIntent);
+              route = inspectRawRoute(rejectedOutput, modelRole);
+            } else {
+              rejectedOutput = repairRaw;
+              route = rejectedOutput ? inspectRawRoute(rejectedOutput, modelRole) : null;
+              baseIntent = rejectedOutput && typeof routeSvc.extractExactRouteIntent === 'function'
+                ? routeSvc.extractExactRouteIntent(rejectedOutput)
+                : null;
             }
+            appendReasoningStage('checking', {
+              summary: '已重新检查修复后的理解和资源绑定',
+              decision: route ? 'review_repaired' : 'invalid_repair',
+              evidence: route ? ['route_repair'] : ['route_repair_invalid'],
+            }, 'completed');
+            review = await reviewRoute(route, rejectedOutput, model, modelRole);
+            if (review.accepted) return { route, source: modelRole + '_repair' };
+            pendingReasons = review.reasons;
           }
           return { route: null, source: null };
         }
@@ -1149,7 +1490,8 @@
           if (!routeErrorAllowsFallback(error)) return failRoute(routeErrorReason(error));
         }
 
-        const canTryFallback = fallbackModel
+        const canTryFallback = routeOptions?.enableRouteFallback !== false
+          && fallbackModel
           && fallbackModel !== primaryModel
           && config.baseUrl
           && (invalidModelOutput || routeErrorAllowsFallback(primaryError));
@@ -1288,3 +1630,4 @@
   if (root) root.ChatUIAppRouteIntentWorkflow = api;
   if (root?.window) root.window.ChatUIAppRouteIntentWorkflow = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
+

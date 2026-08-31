@@ -327,16 +327,26 @@
       }
     }
 
-    function buildRouteContext(sessionId) {
+    function buildRouteContext(sessionId, routeOptions = null) {
       try {
         const state = deps.state || root?.ChatUIApp?.state;
         const session = state?.sessions?.find(item => item.id === sessionId);
         const active = sessionId === state?.activeSessionId;
-        const messages = active ? state?.messages || [] : session?.messages || [];
-        const lastGeneratedImage = active ? state?.lastGeneratedImage : session?.lastGeneratedImage;
-        const latestUploadedImage = deps.getLatestUploadedImageContext?.(sessionId) || null;
-        const latestImageReference = deps.latestImageReferenceMeta?.(sessionId) || null;
-        const recentImageReferences = deps.collectRecentImageReferences?.(sessionId, 6) || [];
+        const rawMessages = active ? state?.messages || [] : session?.messages || [];
+        const currentTurnMessageIndex = Number(routeOptions?.currentTurn?.messageIndex);
+        const isReplacementContext = Number.isInteger(currentTurnMessageIndex) && currentTurnMessageIndex >= 1;
+        const messages = isReplacementContext
+          ? rawMessages.slice(0, currentTurnMessageIndex - 1)
+          : rawMessages;
+        // A replacement (regenerate/edit-resend) must only see evidence written
+        // before the edited user turn. Later answers, executions, candidates and
+        // cache hints are rebuilt from the sliced prefix instead of session state.
+        const lastGeneratedImage = isReplacementContext
+          ? null
+          : (active ? state?.lastGeneratedImage : session?.lastGeneratedImage);
+        const latestUploadedImage = isReplacementContext ? null : (deps.getLatestUploadedImageContext?.(sessionId) || null);
+        const latestImageReference = isReplacementContext ? null : (deps.latestImageReferenceMeta?.(sessionId) || null);
+        const recentImageReferences = isReplacementContext ? [] : (deps.collectRecentImageReferences?.(sessionId, 6) || []);
         const makeReferenceId = deps.makeImageReferenceId || (value => `imgref_${String(value || 'latest')}`);
         const makeItemId = deps.makeImageItemId || ((referenceId, index) => `img_${referenceId}_${index}`);
         const compactLastGenerated = lastGeneratedImage ? {
@@ -607,9 +617,11 @@
         intentDeadline.assertActive();
         emitStage('reading_context');
         try {
-          context = routeContextOverride ? compactRouteContextForIntent(routeContextOverride) : buildRouteContext(sessionId);
+          context = routeContextOverride ? compactRouteContextForIntent(routeContextOverride) : buildRouteContext(sessionId, routeOptions);
+          const replacementContext = Number.isInteger(Number(routeOptions?.currentTurn?.messageIndex))
+            && Number(routeOptions?.currentTurn?.messageIndex) >= 1;
           const memorySession = deps.state?.sessions?.find(item => item.id === sessionId);
-          if (memorySession && typeof routeSvc?.routeMemoryContext === 'function') {
+          if (!replacementContext && memorySession && typeof routeSvc?.routeMemoryContext === 'function') {
             const routeMemory = routeSvc.routeMemoryContext(memorySession);
             if (routeMemory.length) context = { ...context, route_memory: routeMemory };
           }

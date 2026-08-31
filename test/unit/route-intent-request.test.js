@@ -644,6 +644,57 @@ function testIntentPayloadDoesNotRepeatResourceCatalogInsideContext() {
 }
 
 
+async function testReplacementRouteContextExcludesMessagesAfterEditedTurn() {
+  const previousRouteService = globalThis.ChatUIRouteService;
+  const captured = [];
+  const route = {
+    mode: "chat", api: "chat", operationType: "plain_chat", operationApi: "chat", operationMode: "chat",
+    relation: "new", readiness: "ready", dispatchAuthorized: true, needClarification: false,
+  };
+  globalThis.ChatUIRouteService = {
+    buildRoutePayload: options => {
+      captured.push(options);
+      return { model: options.model, input: [{ role: "user", content: options.input }] };
+    },
+    extractRouteText: response => response?.text || "",
+    inspectModelRouteResult: () => ({ route }),
+  };
+  const messages = [
+    { role: "user", content: "before question", messageIndex: "0" },
+    { role: "assistant", content: "before answer", responseIndex: "1" },
+    { role: "user", content: "edited turn", messageIndex: "2" },
+    { role: "assistant", content: "old answer", responseIndex: "3" },
+    { role: "user", content: "later question", messageIndex: "4" },
+    { role: "assistant", content: "later answer", responseIndex: "5" },
+  ];
+  const state = {
+    activeSessionId: "session-replacement", mode: "chat", autoMode: true,
+    sessions: [{ id: "session-replacement", messages }], messages,
+  };
+  const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+    state,
+    getConfig: () => ({ baseUrl: "https://gateway.example/v1", apiKey: "route-secret", routeModel: "route-model", chatModel: "route-model" }),
+    getSessionRouteModel: () => "route-model",
+    getSessionChatModel: () => "route-model",
+    buildRouteAttachmentMetadata: () => [],
+    requestJson: async () => ({ text: "{}" }),
+  });
+  try {
+    await workflow.getEffectiveRoute("edited text", [], "session-replacement", null, null, { currentTurn: { messageIndex: 3 } });
+    assert.strictEqual(captured.length, 1);
+    const recent = (captured[0].context.recent_messages || []).map(message => message.content);
+    assert.deepStrictEqual(recent, ["before question", "before answer"],
+      "replacement intent context must only carry messages before the edited turn");
+    const serialized = JSON.stringify(captured[0].context);
+    assert.ok(!serialized.includes("old answer"), "the replaced assistant reply must not be visible to intent");
+    assert.ok(!serialized.includes("later question") && !serialized.includes("later answer"),
+      "messages after the edited turn must not be visible to intent");
+  } finally {
+    if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousRouteService;
+  }
+}
+
 module.exports = [
   testEmptyCurrentAttachmentSetSkipsResponsesRouting,
   testIntentRecognitionUsesTheResponsesProxyPath,
@@ -659,4 +710,5 @@ module.exports = [
   testIntentContextUsesCompactRecentWindowRegardlessOfConfiguredChatWindow,
   testIntentPayloadUsesShortResourceKeysAndCompilesBindings,
   testIntentPayloadDoesNotRepeatResourceCatalogInsideContext,
+  testReplacementRouteContextExcludesMessagesAfterEditedTurn,
 ];

@@ -166,6 +166,65 @@ async function testRedisStartBroadcastsPublishedCountToLocalSubscribers() {
   assert.ok(writes.at(-1).includes('"count":5'), 'a pub/sub count change must be written to every local SSE subscriber');
 }
 
+async function testRedisSamePrincipalAcrossInstancesCountsOnce() {
+  const redis = makeRedis();
+  const instanceA = createRedisPresenceService({ redis, instanceId: 'instance-a' });
+  const instanceB = createRedisPresenceService({ redis, instanceId: 'instance-b' });
+  await instanceA.join('pres-client-tab-a', makeResponse(), 'principal-device-1');
+  await instanceB.join('pres-client-tab-b', makeResponse(), 'principal-device-1');
+  assert.strictEqual(await instanceA.count(), 1, 'the same device on two instances must count once');
+  assert.strictEqual(redis.members.size, 1, 'the shared sorted set must hold a single principal slot');
+}
+
+async function testRedisLeaveRemovesPrincipalOnlyAfterLastLocalConnection() {
+  const redis = makeRedis();
+  const service = createRedisPresenceService({ redis });
+  const first = makeResponse();
+  const second = makeResponse();
+  await service.join('pres-client-tab-a', first, 'principal-device-1');
+  await service.join('pres-client-tab-b', second, 'principal-device-1');
+  assert.strictEqual(await service.count(), 1);
+  assert.strictEqual(await service.leave('pres-client-tab-a', first), true);
+  assert.strictEqual(await service.count(), 1, 'closing one tab must keep the device online');
+  assert.strictEqual(await service.leave('pres-client-tab-b', second), true);
+  assert.strictEqual(await service.count(), 0, 'closing the last tab must release the device slot');
+  assert.strictEqual(redis.members.size, 0);
+}
+
+async function testRedisHeartbeatRefreshesPrincipalScoreOnAnotherInstance() {
+  const redis = makeRedis();
+  const service = createRedisPresenceService({ redis, ttlMs: 100, now: () => 1000 });
+  await service.join('pres-client-tab-a', makeResponse(), 'principal-device-1');
+  assert.strictEqual(await service.touch('pres-client-zzz', 'principal-device-1'), true);
+  assert.strictEqual(redis.members.get('principal-device-1'), 1000, 'a heartbeat must refresh the principal score in the shared set');
+}
+
+async function testRedisLocalSweepEvictsStaleSocketByLocalLastSeen() {
+  let now = 1000;
+  const redis = makeRedis();
+  const service = createRedisPresenceService({ redis, ttlMs: 500, now: () => now });
+  let ended = 0;
+  const res = { write() { return true; }, flushHeaders() {}, end() { ended += 1; } };
+  await service.join('pres-client-stale', res, 'principal-device-1');
+  now += 600; // local lastSeen is now 600ms old (> ttl)
+  assert.strictEqual(await service.sweep(), 1, 'the stale global slot must be swept');
+  assert.strictEqual(ended, 1, 'the local socket whose lastSeen expired must be ended');
+  assert.strictEqual(await service.count(), 0);
+}
+
+async function testRedisJoinReconnectWithRotatedPrincipalDropsOldSlot() {
+  const redis = makeRedis();
+  const service = createRedisPresenceService({ redis });
+  const first = makeResponse();
+  const replacement = makeResponse();
+  await service.join('pres-client-aaa', first, 'principal-old');
+  assert.strictEqual(await service.count(), 1);
+  await service.join('pres-client-aaa', replacement, 'principal-new');
+  assert.strictEqual(await service.count(), 1, 'reconnecting with a rotated principal must not double count');
+  assert.strictEqual(redis.members.has('principal-old'), false, 'the rotated-away principal slot must not linger');
+  assert.strictEqual(redis.members.has('principal-new'), true);
+}
+
 async function testRedisJoinBroadcastsLocallyWithoutWaitingForPubSub() {
   const redis = makeRedis();
   const service = createRedisPresenceService({ redis, instanceId: 'instance-a' });
@@ -186,4 +245,9 @@ module.exports = [
   testRedisCloseAllEndsLocalConnectionsAndRemovesTheirSlots,
   testRedisStartBroadcastsPublishedCountToLocalSubscribers,
   testRedisJoinBroadcastsLocallyWithoutWaitingForPubSub,
+  testRedisSamePrincipalAcrossInstancesCountsOnce,
+  testRedisLeaveRemovesPrincipalOnlyAfterLastLocalConnection,
+  testRedisHeartbeatRefreshesPrincipalScoreOnAnotherInstance,
+  testRedisLocalSweepEvictsStaleSocketByLocalLastSeen,
+  testRedisJoinReconnectWithRotatedPrincipalDropsOldSlot,
 ];

@@ -43,7 +43,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/presence` | `{count, timestamp}` 快照 |
+| GET | `/api/presence` | `{count, timestamp}` 快照；count 为去重后的在线浏览器/设备数（同一浏览器多标签页计 1） |
 | GET | `/api/presence/stream?clientId=...` | SSE 在线人数流；每 30s 心跳，默认 120s TTL 清理 |
 | POST | `/api/presence/heartbeat` | 刷新心跳，body `{clientId}` |
 

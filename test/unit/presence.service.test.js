@@ -164,6 +164,64 @@ function testOldConnectionCloseMustNotRemoveReplacementSession() {
   assert.strictEqual(service.count(), 0);
 }
 
+function testSamePrincipalAcrossTabsCountsOnce() {
+  const service = createPresenceService();
+  const writes = [];
+  const first = makeResponse(writes);
+  const second = makeResponse(writes);
+  service.join('pres-client-tab-a', first, 'principal-device-1');
+  service.join('pres-client-tab-b', second, 'principal-device-1');
+  assert.strictEqual(service.count(), 1, 'two tabs of the same browser must count as one online device');
+  // Closing one tab keeps the device online; closing the last tab removes it.
+  assert.strictEqual(service.leave('pres-client-tab-a', first), true);
+  assert.strictEqual(service.count(), 1);
+  assert.strictEqual(service.leave('pres-client-tab-b', second), true);
+  assert.strictEqual(service.count(), 0);
+}
+
+function testDistinctPrincipalsCountSeparately() {
+  const service = createPresenceService();
+  service.join('pres-client-tab-a', makeResponse(), 'principal-device-1');
+  service.join('pres-client-tab-b', makeResponse(), 'principal-device-2');
+  assert.strictEqual(service.count(), 2, 'different browsers/devices must each count once');
+}
+
+function testPrincipalChangeOnReconnectDoesNotLeavePhantom() {
+  const service = createPresenceService();
+  const writes = [];
+  const first = makeResponse(writes);
+  const replacement = makeResponse(writes);
+  service.join('pres-client-aaa', first, 'principal-old');
+  assert.strictEqual(service.count(), 1);
+  // A rotated principal cookie on reconnect replaces the identity; the old
+  // device must not linger once no connection holds it.
+  service.join('pres-client-aaa', replacement, 'principal-new');
+  assert.strictEqual(service.count(), 1, 'reconnect with a rotated principal must not double count');
+  service.leave('pres-client-aaa', replacement);
+  assert.strictEqual(service.count(), 0);
+}
+
+function testAnonymousConnectionsFallBackToClientId() {
+  const service = createPresenceService();
+  service.join('pres-client-aaa', makeResponse());
+  service.join('pres-client-bbb', makeResponse());
+  assert.strictEqual(service.count(), 2, 'connections without a principal fall back to per-tab counting');
+}
+
+function testPrincipalKeyFromPrincipalDerivesStableKey() {
+  const { createRequestPrincipalService } = require('../../server/security/request-principal');
+  const { principalKeyFromPrincipal } = require('../../server/services/presence.service');
+  const service = createRequestPrincipalService({ secret: 's'.repeat(32), now: () => 2000000000000 });
+  const req = { method: 'GET', url: '/', headers: {} };
+  const res = { writeHead() {}, getHeader() {} };
+  const principal = service.attach(req, res);
+  const key = principalKeyFromPrincipal(principal);
+  assert.ok(/^[A-Za-z0-9_-]{43}$/.test(key), `principal key must be a 32-byte base64url value, got: ${key}`);
+  assert.strictEqual(key, principalKeyFromPrincipal(principal), 'the derived key must be stable for the same principal');
+  assert.strictEqual(principalKeyFromPrincipal(null), null);
+  assert.strictEqual(principalKeyFromPrincipal({}), null);
+}
+
 function testLoadClientIdIsPerTabAndStableAcrossReloads() {
   const { loadClientId } = require('../../client/services/presence');
   const makeStorage = () => {
@@ -193,5 +251,10 @@ module.exports = [
   testNormalizeClientIdRejectsInvalidValues,
   testBroadcastSkipsBrokenResponsesAndCleansThemUp,
   testOldConnectionCloseMustNotRemoveReplacementSession,
+  testSamePrincipalAcrossTabsCountsOnce,
+  testDistinctPrincipalsCountSeparately,
+  testPrincipalChangeOnReconnectDoesNotLeavePhantom,
+  testAnonymousConnectionsFallBackToClientId,
+  testPrincipalKeyFromPrincipalDerivesStableKey,
   testLoadClientIdIsPerTabAndStableAcrossReloads,
 ];

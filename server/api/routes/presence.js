@@ -1,7 +1,7 @@
 'use strict';
 
 const { readBody, parseJson } = require('../../http/body');
-const { PRESENCE_KEEPALIVE_INTERVAL_MS } = require('../../services/presence.service');
+const { PRESENCE_KEEPALIVE_INTERVAL_MS, principalKeyFromPrincipal } = require('../../services/presence.service');
 const { SECURITY_HEADERS, sendJson, sendMethodNotAllowed } = require('../../http/response');
 const { JOB_SSE_HEADERS } = require('../../jobs/http-contract');
 
@@ -64,7 +64,7 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
 
     let joined;
     try {
-      joined = await service.join(normalized, res);
+      joined = await service.join(normalized, res, principalKeyFromPrincipal(req?.authPrincipal));
     } catch {
       try { res.end(); } catch {}
       return;
@@ -105,7 +105,7 @@ function createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed }) {
       return sendJson(res, 400, { error: { message: 'Valid clientId is required' } }, { 'Access-Control-Allow-Origin': '*' });
     }
     try {
-      await service.touch(clientId);
+      await service.touch(clientId, principalKeyFromPrincipal(req?.authPrincipal));
     } catch {
       return presenceUnavailable(res, sendJson);
     }

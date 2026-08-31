@@ -7,6 +7,7 @@
 const assert = require('assert');
 const { createPresenceRoutes } = require('../../server/api/routes/presence');
 const { createPresenceService } = require('../../server/services/presence.service');
+const { createRequestPrincipalService } = require('../../server/security/request-principal');
 const { sendJson, sendMethodNotAllowed } = require('../../server/http/response');
 
 function response() {
@@ -43,11 +44,33 @@ function request({ method, url, body = '' }) {
   return req;
 }
 
-function invokeRoute(path, { method = 'GET', body = '', presence = createPresenceService() } = {}) {
+function invokeRoute(path, { method = 'GET', body = '', presence = createPresenceService(), req: providedReq } = {}) {
   const { routePresence } = createPresenceRoutes({ presence, sendJson, sendMethodNotAllowed });
-  const req = request({ method, url: path, body });
+  const req = providedReq || request({ method, url: path, body });
   const res = response();
   return Promise.resolve(routePresence(req, res)).then(() => ({ req, res, presence }));
+}
+
+// Principal helper: issue a real principal cookie through the request-principal
+// service and reuse the same cookie on later requests to simulate the same
+// browser opening multiple tabs.
+function makePrincipalService() {
+  return createRequestPrincipalService({ secret: 's'.repeat(32), now: () => 2000000000000 });
+}
+
+function issuePrincipalCookie(service, res = response()) {
+  const req = request({ method: 'GET', url: '/', body: '' });
+  const principal = service.attach(req, res);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  const setCookie = res.headers['Set-Cookie'];
+  return { principal, cookie: Array.isArray(setCookie) ? setCookie[0] : setCookie };
+}
+
+function requestWithPrincipalCookie(service, cookie, url, { method = 'GET', body = '' } = {}) {
+  const req = request({ method, url, body });
+  if (cookie) req.headers.cookie = cookie;
+  service.attach(req, response());
+  return req;
 }
 
 async function testPresenceSnapshotReturnsCountWithCors() {
@@ -117,6 +140,73 @@ async function testPresenceHeartbeatValidatesAndTouches() {
   joined.req.emitClose();
 }
 
+async function testPresenceStreamCountsByRequestPrincipalNotClientId() {
+  const presence = createPresenceService();
+  const principalService = makePrincipalService();
+  const { cookie } = issuePrincipalCookie(principalService);
+
+  const first = await invokeRoute('/api/presence/stream?clientId=pres-client-tab-a', {
+    presence,
+    req: requestWithPrincipalCookie(principalService, cookie, '/api/presence/stream?clientId=pres-client-tab-a'),
+  });
+  assert.strictEqual(presence.count(), 1);
+
+  const second = await invokeRoute('/api/presence/stream?clientId=pres-client-tab-b', {
+    presence,
+    req: requestWithPrincipalCookie(principalService, cookie, '/api/presence/stream?clientId=pres-client-tab-b'),
+  });
+  assert.strictEqual(presence.count(), 1, 'a second tab of the same browser must not add an online device');
+
+  first.req.emitClose();
+  assert.strictEqual(presence.count(), 1, 'closing one tab must keep the device online');
+  second.req.emitClose();
+  assert.strictEqual(presence.count(), 0);
+}
+
+async function testPresenceStreamWithDistinctPrincipalsCountsEachDevice() {
+  const presence = createPresenceService();
+  const firstService = makePrincipalService();
+  const secondService = makePrincipalService();
+  const firstCookie = issuePrincipalCookie(firstService).cookie;
+  const secondCookie = issuePrincipalCookie(secondService).cookie;
+
+  const first = await invokeRoute('/api/presence/stream?clientId=pres-client-tab-a', {
+    presence,
+    req: requestWithPrincipalCookie(firstService, firstCookie, '/api/presence/stream?clientId=pres-client-tab-a'),
+  });
+  const second = await invokeRoute('/api/presence/stream?clientId=pres-client-tab-b', {
+    presence,
+    req: requestWithPrincipalCookie(secondService, secondCookie, '/api/presence/stream?clientId=pres-client-tab-b'),
+  });
+  assert.strictEqual(presence.count(), 2, 'different browsers must each count once');
+  first.req.emitClose();
+  second.req.emitClose();
+}
+
+async function testPresenceHeartbeatWithPrincipalCookieStillTouches() {
+  const presence = createPresenceService();
+  const principalService = makePrincipalService();
+  const { cookie } = issuePrincipalCookie(principalService);
+
+  const joined = await invokeRoute('/api/presence/stream?clientId=pres-client-tab-a', {
+    presence,
+    req: requestWithPrincipalCookie(principalService, cookie, '/api/presence/stream?clientId=pres-client-tab-a'),
+  });
+  assert.strictEqual(presence.count(), 1);
+
+  const body = JSON.stringify({ clientId: 'pres-client-tab-a' });
+  const hb = await invokeRoute('/api/presence/heartbeat', {
+    method: 'POST',
+    body,
+    presence,
+    req: requestWithPrincipalCookie(principalService, cookie, '/api/presence/heartbeat', { method: 'POST', body }),
+  });
+  assert.strictEqual(hb.res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(hb.res.body), { ok: true });
+  assert.strictEqual(presence.count(), 1, 'a heartbeat must not change the count');
+  joined.req.emitClose();
+}
+
 async function testPresenceUnknownPathReturns404() {
   const { res } = await invokeRoute('/api/presence/nope');
   assert.strictEqual(res.statusCode, 404);
@@ -128,5 +218,8 @@ module.exports = [
   testPresenceStreamRequiresValidClientId,
   testPresenceStreamJoinsBroadcastsAndLeavesOnClose,
   testPresenceHeartbeatValidatesAndTouches,
+  testPresenceStreamCountsByRequestPrincipalNotClientId,
+  testPresenceStreamWithDistinctPrincipalsCountsEachDevice,
+  testPresenceHeartbeatWithPrincipalCookieStillTouches,
   testPresenceUnknownPathReturns404,
 ];

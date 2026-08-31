@@ -3,10 +3,13 @@
 
   // Browser-side presence client. Each tab carries its own stable clientId
   // persisted in sessionStorage: a reload in the same tab reuses the id (no
-  // double count), while a second tab gets its own id and is counted
-  // separately. The SSE stream is the "online" signal; a periodic heartbeat
-  // keeps the server-side lastSeen fresh so the presence sweeper never evicts
-  // a healthy but quiet tab.
+  // double count), while a second tab gets its own id so every tab owns a
+  // distinct SSE slot. The server derives the online identity from the
+  // principal cookie that rides along with every request, so multiple tabs of
+  // the same browser collapse into a single online device in the count. The
+  // SSE stream is the "online" signal; a periodic heartbeat keeps the
+  // server-side lastSeen fresh so the presence sweeper never evicts a healthy
+  // but quiet tab.
   //
   // This module intentionally registers through the module registry instead of
   // adding a window.ChatUI* namespace export: the architecture baseline for
@@ -24,9 +27,10 @@
   }
 
   // Each storage instance (sessionStorage per tab) owns its own id: a reload in
-  // the same tab reuses it, while a different tab gets a different id so tabs
-  // are counted separately instead of fighting over one server slot. The
-  // in-memory fallback is only used when storage is unavailable (private mode).
+  // the same tab reuses it, while a different tab gets a different id so each
+  // tab owns a separate SSE slot (the server dedupes the count by the
+  // browser's principal cookie). The in-memory fallback is only used when
+  // storage is unavailable (private mode).
   function loadClientId(storage) {
     try {
       const existing = storage?.getItem?.(STORAGE_KEY);

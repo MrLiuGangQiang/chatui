@@ -195,9 +195,8 @@ function testAllChatStreamingEntryPointsConvergeOnOneCommitPath() {
 
   assert.match(chat, /updateMessageContentLight\(g,z,\{[\s\S]{0,500}streamKind:"chat"[\s\S]{0,500}tailLock:streamTailLock/,
     'the chat sender must route every text token through the shared live-message renderer');
-  assert.match(regenerate, /await sendChat\(chatPrompt,[\s\S]{0,700}replaceAssistantIndex:a/,
-    'regeneration must enter the same sendChat stream rather than write a separate token renderer');
-  assert.match(submit, /await sendChat\(chatPrompt,[\s\S]{0,700}replaceAssistantIndex:replacementResponseIndex/,
+    assert.ok(regenerate.includes('submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})'),
+    'regeneration must delegate to the same sendChat stream owned by submit');  assert.match(submit, /await sendChat\(chatPrompt,[\s\S]{0,700}replaceAssistantIndex:replacementResponseIndex/,
     'edit/resend must enter the same sendChat stream rather than write a separate token renderer');
   assert.strictEqual(app.includes('setTimeout(()=>{armStreamingOutputFocus'), false,
     'preparation paths must not schedule a second stream-focus lifecycle after sendChat owns the stream');

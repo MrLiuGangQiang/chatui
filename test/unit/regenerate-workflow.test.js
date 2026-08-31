@@ -194,199 +194,48 @@ function testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal() {
   assert.strictEqual(typeof registered.createRegenerateWorkflow, 'function');
 }
 
-function testRegenerateReusesSubmitResourceAndClarificationSemantics() {
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
-  assert.ok(source.includes('clarificationApi.createPendingClarification'), 'a regenerate clarification must become persisted pending state instead of an exception');
-  assert.ok(source.includes('task.completePreflight()'), 'clarification must finish as a terminal preflight without inventing a managed job handoff');
-  assert.ok(source.includes('submitHelpers.buildMediaMapContext?.(executionMedia.chatImages'), 'regenerate must preserve image roles in compact system context');
-  assert.ok(source.includes('systemContext:mediaMapContext?[mediaMapContext]:[]'), 'regenerate must preserve the original image numbering map at the system-context boundary');
-  assert.ok(source.includes('await sendChat(chatPrompt,chatH'), 'regenerate must send the same role-aware prompt shape as ordinary submit');
-  assert.ok(source.includes('getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode'),
-    'ordinary regeneration must invoke the canonical route recognizer with the current-turn marker');
-  assert.ok(!source.includes('regenerateContextOverride'),
-    'ordinary regeneration must not replace canonical route recognition with a hand-built context');
-  assert.ok(source.includes('const imageBatchPlan=submitHelpers.executableImageBatch?.(p);'),
-    'regeneration must inspect the compiled image plan instead of always dispatching the top-level image contract');
-  assert.ok(source.includes('await sendImageBatch(l,{items:compiledBatch.items.map'),
-    'a compiled multi-image plan must delegate to one server batch endpoint instead of browser-side fan-out');
-  assert.ok(source.includes('batchParent:m'),
-    'all regenerated batch children must target the same replacement assistant message rather than creating separate messages');
-  assert.ok(source.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
-    'regeneration must complete the replacement task through the single parent batch identity');
-  assert.ok(!source.includes('err.code="ROUTE_NEEDS_CLARIFICATION"'), 'a clarification route must not be degraded into an error toast');
+function testRegenerateDelegatesToUnifiedSubmitPipeline() {
+  const source = fs.readFileSync(path.join(__dirname, "..", "..", "client", "app", "regenerate-workflow.js"), "utf8");
+  assert.ok(source.includes("submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})"),
+    "regeneration must submit through the unified submit pipeline with the original text");
+  assert.ok(source.includes("state.editingIndex=n"), "regeneration must prepare the edit message index");
+  assert.ok(source.includes("state.editingNode=t"), "regeneration must prepare the edit message node");
+  assert.ok(source.includes("state.editingQuoteContext=String("), "regeneration must prepare the edit quote context");
+  assert.ok(source.includes("clarificationApi.matchesPendingClarificationMessage"),
+    "a regenerated clarification must remain a persisted pending state");
+  assert.ok(!source.includes("getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null"),
+    "regeneration must not run its own route recognition anymore");
+  assert.ok(!source.includes("truncateRegenerationBranch"), "the old regenerate branch truncation implementation must stay removed");
+  assert.ok(!source.includes("createRouteRecognitionUi"), "the old independent regenerate route recognizer wiring must stay removed");
+  assert.ok(!source.includes("sendImageBatch("), "the old independent regenerate batch dispatch must stay removed");
+
+  const submitSource = fs.readFileSync(path.join(__dirname, "..", "..", "client", "app", "submit-workflow.js"), "utf8");
+  assert.ok(submitSource.includes("async function onSubmit(e, options = {})"),
+    "submit must expose an options argument for programmatic replay");
+  assert.ok(submitSource.includes("return runSubmit(e, options);"),
+    "submit must forward replay options into the canonical runSubmit pipeline");
 }
 
-
-function createCancelledRegenerateFixture(routeImpl) {
-  const events = [];
-  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
-  const userNode = { dataset: { rawText: 'ambiguous regenerate request', messageIndex: '0', displayItemId: 'user-cancel' } };
-  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
-  const assistantNode = {
-    dataset: { responseIndex: '1' },
-    isConnected: false,
-    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
-  };
-  const liveItem = { id: 'display-cancel', role: 'assistant', content: 'routing', pending: '1', responseIndex: '1' };
-  const session = { id: 'session-cancel-regenerate', messages: [], display: [liveItem] };
-  const state = {
-    activeSessionId: session.id,
-    autoMode: true,
-    messages: [
-      { role: 'user', content: 'ambiguous regenerate request', rawText: 'ambiguous regenerate request', messageIndex: '0' },
-      { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
-    ],
-    sessions: [session],
-  };
-  session.messages = state.messages.slice();
-  const submitWorkflow = {
-    savePendingSubmit: () => true,
-    clearPendingSubmit: () => {},
-  };
-  const workflow = regenerateWorkflow.createRegenerateWorkflow({
-    state,
-    taskEvents: taskState.TASK_EVENTS,
-    jobLifecycle: {
-      makeSubmissionId: () => 'submit-cancel-regenerate',
-      shouldPreservePendingSubmitOnError: () => false,
-    },
-    messageReplacement: {
-      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
-      ensureAssistantReplacementSlot: (_messages, turn) => turn,
-    },
-    dispatchTaskEvent: (_sessionId, event) => events.push(event),
-    isSessionBusy: () => false,
-    findPreviousUserMessageNode: () => userNode,
-    toast: () => {},
-    ensureActiveRun: () => run,
-    resetMessageActionStates: () => {},
-    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
-    getUserAttachmentContextFromNode: () => '',
-    restoreUserAttachmentsFromContext: async () => [],
-    updateModeUi: () => {},
-    warnMissingModel: () => false,
-    isImageFile: () => false,
-    sendImage: async () => { throw new Error('cancelled regeneration must not dispatch an image'); },
-    sendChat: async () => { throw new Error('cancelled regeneration must not dispatch chat'); },
-    showRunError: () => { throw new Error('cancelled regeneration must not render an error'); },
-    resetActionButtonState: () => {},
-    finishSessionTask: () => {},
-    updateResumeStreamButton: () => {},
-    getSubmitWorkflow: () => submitWorkflow,
-    createRouteRecognitionUi: () => ({
-      stopSlowNotice() {},
-      getEffectiveRouteWithSlowNotice: () => routeImpl(run),
-    }),
-    quotedFileCandidatesFromContext: () => [],
-    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
-    parseImageContext: () => null,
-    restoreImageAttachmentsFromContext: async () => [],
-    makeClientChatJobId: () => 'chatjob-cancel-regenerate',
-    makeClientImageJobId: () => 'imgjob-cancel-regenerate',
-    resumeSessionJobs: () => {},
-  });
-  return { workflow, assistantNode, state, events, run };
-}
-
-async function testRegenerateCancellationBeforeClarificationDoesNotCommitCompletion() {
-  const fixture = createCancelledRegenerateFixture(async run => {
-    run.stopped = true;
-    run.abortController.abort();
-    return {
-      mode: 'chat', api: 'clarify', needClarification: true, dispatchAuthorized: false,
-      readiness: 'needs_clarification', relation: 'new', operationType: 'plain_chat',
-      clarificationQuestion: 'This cancelled clarification must not be committed.',
-      clarificationSlots: [], resources: [],
-    };
-  });
-  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  assert.strictEqual(
-    fixture.state.messages.some(message => /cancelled clarification/.test(String(message?.content || ''))),
-    false,
-  );
-  assert.strictEqual(
-    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_COMPLETED_COMMITTED),
-    false,
-  );
-  assert.strictEqual(
-    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
-    1,
-  );
-}
-
-async function testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent() {
-  const fixture = createCancelledRegenerateFixture(async run => {
-    run.stopped = true;
-    run.abortController.abort();
-    const error = new Error('regeneration cancelled');
-    error.name = 'AbortError';
-    throw error;
-  });
-  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  assert.strictEqual(
-    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
-    1,
-    'catch and finally must not publish duplicate stopped terminal events',
-  );
-  assert.strictEqual(
-    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_FAILED),
-    false,
-  );
-}
-
-async function testRegenerateAbortSignalSuppressesLateNonAbortError() {
-  const fixture = createCancelledRegenerateFixture(async run => {
-    run.abortController.abort();
-    throw new Error('late adapter failure after cancellation');
-  });
-  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  assert.strictEqual(
-    fixture.events.filter(event => event.type === taskState.TASK_EVENTS.TASK_STOPPED).length,
-    1,
-    'an aborted regenerate run must publish one stopped terminal event even if the adapter throws a generic error',
-  );
-  assert.strictEqual(
-    fixture.events.some(event => event.type === taskState.TASK_EVENTS.TASK_FAILED),
-    false,
-  );
-}
-
-
-async function testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement() {
-  const fixture = createCancelledRegenerateFixture(async run => {
-    run.stopped = true;
-    run.abortController.abort();
-    throw new DOMException('Stopped', 'AbortError');
-  });
-  const trailingNode = {
-    removed: false,
-    nextElementSibling: null,
-    classList: { contains: value => value === 'message' },
-    remove() { this.removed = true; },
-  };
-  fixture.assistantNode.nextElementSibling = trailingNode;
+async function testRegeneratePreservesConversationBeforeUnifiedSubmit() {
+  const fixture = createUnifiedRegenerateFixture();
   fixture.state.messages = [
-    { role: 'user', content: 'ambiguous regenerate request', rawText: 'ambiguous regenerate request', messageIndex: '0' },
-    { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
-    { role: 'user', content: 'discarded follow-up', rawText: 'discarded follow-up', messageIndex: '2' },
-    { role: 'assistant', content: 'discarded answer', rawText: 'discarded answer', responseIndex: '3' },
+    { role: "user", content: "ambiguous regenerate request", rawText: "ambiguous regenerate request", messageIndex: "0" },
+    { role: "assistant", content: "old answer", rawText: "old answer", responseIndex: "1" },
+    { role: "user", content: "later follow-up", rawText: "later follow-up", messageIndex: "2" },
+    { role: "assistant", content: "later answer", rawText: "later answer", responseIndex: "3" },
   ];
   fixture.state.sessions[0].messages = fixture.state.messages.slice();
-  fixture.state.sessions[0].display = [
-    { id: 'pending-tail', role: 'assistant', pending: '1', responseIndex: '3' },
-  ];
-  fixture.state.sessions[0].lastGeneratedImage = { referenceId: 'imgref_discarded', src: 'indexeddb://discarded' };
-  fixture.state.lastGeneratedImage = fixture.state.sessions[0].lastGeneratedImage;
+  fixture.userNode.dataset.rawText = "ambiguous regenerate request";
 
   await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
 
-  assert.deepStrictEqual(fixture.state.messages.map(message => message.content), ['ambiguous regenerate request', 'discarded follow-up', 'discarded answer']);
-  assert.deepStrictEqual(fixture.state.sessions[0].messages.map(message => message.content), ['ambiguous regenerate request', 'discarded follow-up', 'discarded answer']);
-  assert.deepStrictEqual(fixture.state.sessions[0].display, [{ id: 'pending-tail', role: 'assistant', pending: '1', responseIndex: '3' }]);
-  assert.strictEqual(fixture.state.sessions[0].pendingClarification || null, null);
-  assert.strictEqual(fixture.state.sessions[0].lastGeneratedImage, null);
-  assert.strictEqual(fixture.state.lastGeneratedImage, null);
-  assert.strictEqual(trailingNode.removed, false, 'historical regeneration must retain rendered messages after the regenerated answer');
+  assert.deepStrictEqual(fixture.state.messages.map(message => message.content),
+    ["ambiguous regenerate request", "old answer", "later follow-up", "later answer"],
+    "the adapter must not truncate or rewrite conversation state before the unified submit pipeline");
+  assert.strictEqual(fixture.onSubmitCalls.length, 1);
+  assert.strictEqual(fixture.onSubmitCalls[0].options.promptOverride, "ambiguous regenerate request");
+  assert.strictEqual(fixture.state.editingIndex, 0);
+  assert.strictEqual(fixture.state.editingNode, fixture.userNode);
 }
 
 async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting() {
@@ -475,339 +324,99 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
 }
 
 
-async function testRegenerateClearsSelectedImageBeforePersistenceCompletes() {
-  let releasePersistence;
-  const persistenceGate = new Promise(resolve => { releasePersistence = resolve; });
+function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "", restoredAttachments = [], onSubmitImpl = null } = {}) {
+  const onSubmitCalls = [];
   const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
-  const userNode = { dataset: { rawText: 'draw a fox', messageIndex: '0', displayItemId: 'user-immediate-clear' } };
+  const userNode = {
+    dataset: { rawText: "draw a fox", messageIndex: "0", displayItemId: "user-unified" },
+    classList: { add() {}, remove() {} },
+    querySelector() { return null; },
+    __displayItem: null,
+  };
   const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
   const assistantNode = {
-    dataset: { responseIndex: '1', displayItemId: 'image-old' },
-    oldImageVisible: true,
-    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
-  };
-  const session = { id: 'session-immediate-clear', display: [], messages: [] };
-  const state = {
-    activeSessionId: session.id,
-    autoMode: true,
-    messages: [
-      { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0' },
-      {
-        role: 'assistant', content: '[图片生成完成] draw a fox', rawText: 'old image',
-        html: '<img data-persisted-src="indexeddb://old-image">',
-        imageContext: '{"attachments":[{"src":"indexeddb://old-image"}]}', responseIndex: '1',
-      },
-    ],
-    sessions: [session],
-  };
-  session.messages = state.messages.slice();
-  let prepareCalls = 0;
-  const workflow = regenerateWorkflow.createRegenerateWorkflow({
-    state,
-    taskEvents: taskState.TASK_EVENTS,
-    jobLifecycle: {
-      makeSubmissionId: () => 'submit-immediate-clear',
-      shouldPreservePendingSubmitOnError: () => false,
-    },
-    messageReplacement: sessionPersistence,
-    replaceSessionMessages: () => persistenceGate,
-    isSessionBusy: () => false,
-    findPreviousUserMessageNode: () => userNode,
-    toast: () => {},
-    ensureActiveRun: () => run,
-    resetMessageActionStates: () => {},
-    prepareRegeneratedResponse: () => {
-      prepareCalls += 1;
-      assistantNode.oldImageVisible = false;
-      return { node: assistantNode, liveItem: { id: 'display-immediate-clear', responseIndex: '1' } };
-    },
-    getUserAttachmentContextFromNode: () => '',
-    restoreUserAttachmentsFromContext: async () => [],
-    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
-    parseImageContext: () => null,
-    restoreImageAttachmentsFromContext: async () => [],
-    quotedFileCandidatesFromContext: () => [],
-    createRouteRecognitionUi: () => ({
-      stopSlowNotice() {},
-      async getEffectiveRouteWithSlowNotice() {
-        run.stopped = true;
-        run.abortController.abort();
-        throw new DOMException('Stopped', 'AbortError');
-      },
-    }),
-    getSubmitWorkflow: () => ({ savePendingSubmit: () => true, clearPendingSubmit: () => {} }),
-    dispatchTaskEvent: () => {},
-    resetActionButtonState: () => {},
-    finishSessionTask: () => {},
-    updateResumeStreamButton: () => {},
-    showRunError: () => { throw new Error('cancelled immediate-clear fixture must not render an error'); },
-    updateModeUi: () => {},
-    warnMissingModel: () => false,
-    isImageFile: () => false,
-    sendChat: async () => { throw new Error('cancelled immediate-clear fixture must not send chat'); },
-    sendImage: async () => { throw new Error('cancelled immediate-clear fixture must not send an image'); },
-    resumeSessionJobs: () => {},
-  });
-
-  const regeneration = workflow.regenerateAssistantMessage(assistantNode);
-  const prepareCallsBeforeRelease = prepareCalls;
-  const oldImageVisibleBeforeRelease = assistantNode.oldImageVisible;
-  releasePersistence();
-  await regeneration;
-
-  assert.strictEqual(prepareCallsBeforeRelease, 1,
-    'clicking regenerate must project the replacement immediately instead of waiting for snapshot persistence');
-  assert.strictEqual(oldImageVisibleBeforeRelease, false,
-    'the selected image result must be removed before asynchronous persistence can remount the stale result');
-}
-
-
-async function testRegenerateUsesCanonicalRouteRecognitionContext() {
-  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'regenerate-workflow.js'), 'utf8');
-  assert.ok(source.includes('getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode'));
-  assert.ok(!source.includes('regenerateContextOverride'));
-}
-
-function createChatRegenerateFixture() {
-  const events = [];
-  const order = [];
-  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
-  const userNode = { dataset: { rawText: 'draw a fox', messageIndex: '0', displayItemId: 'user-chat-regenerate' } };
-  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
-  const assistantNode = {
-    dataset: { responseIndex: '1', displayItemId: 'answer-chat-regenerate' },
-    isConnected: false,
-    querySelector(selector) { return selector === '.refresh-btn' ? refreshButton : null; },
-  };
-  const liveItem = { id: 'display-chat-regenerate', role: 'assistant', content: 'routing', pending: '1', responseIndex: '1' };
-  const session = { id: 'session-chat-regenerate', messages: [], display: [liveItem] };
-  const state = {
-    activeSessionId: session.id,
-    autoMode: true,
-    messages: [
-      { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0' },
-      { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
-    ],
-    sessions: [session],
-  };
-  session.messages = state.messages.slice();
-  const submitWorkflow = { savePendingSubmit: () => true, clearPendingSubmit: () => {} };
-  const finalExecution = makeExecutionFixture({ operation: 'plain_chat', relation: 'new', prompt: 'draw a fox' });
-  const chatRoute = {
-    mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
-    operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'new',
-    resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
-    selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
-    selectedImageIds: [], selectedReferenceId: '', usePreviousImage: false,
-    contextualImagePrompt: 'draw a fox', editInstruction: '', evidence: 'dispatch_contract.v1',
-    localClarification: false,
-    executionResources: finalExecution.executionResources,
-    dispatchContract: finalExecution.dispatchContract,
-  };
-  const workflow = regenerateWorkflow.createRegenerateWorkflow({
-    state,
-    taskEvents: taskState.TASK_EVENTS,
-    jobLifecycle: {
-      makeSubmissionId: () => 'submit-chat-regenerate',
-      shouldPreservePendingSubmitOnError: () => false,
-    },
-    messageReplacement: {
-      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
-      ensureAssistantReplacementSlot: (_messages, turn) => turn,
-    },
-    dispatchTaskEvent: (_sessionId, event) => events.push(event),
-    isSessionBusy: () => false,
-    findPreviousUserMessageNode: () => userNode,
-    toast: () => {},
-    ensureActiveRun: () => run,
-    resetMessageActionStates: () => {},
-    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
-    getUserAttachmentContextFromNode: () => '',
-    restoreUserAttachmentsFromContext: async () => [],
-    updateModeUi: () => {},
-    warnMissingModel: () => false,
-    isImageFile: () => false,
-    sendImage: async () => { throw new Error('a chat regeneration must not dispatch an image'); },
-    sendChat: async (chatPrompt, files, _node, options) => {
-      order.push(`send:${chatPrompt}`);
-      return options.onDurableHandoff();
-    },
-    showRunError: (_sessionId, error) => { throw error; },
-    resetActionButtonState: () => {},
-    finishSessionTask: () => {},
-    updateResumeStreamButton: () => {},
-    getSubmitWorkflow: () => submitWorkflow,
-    createRouteRecognitionUi: () => ({
-      stopSlowNotice() {},
-      async getEffectiveRouteWithSlowNotice(input) {
-        order.push(`route:${input}`);
-        return chatRoute;
-      },
-    }),
-    quotedFileCandidatesFromContext: () => [],
-    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
-    parseImageContext: () => null,
-    restoreImageAttachmentsFromContext: async () => [],
-    makeClientChatJobId: () => 'chatjob-chat-regenerate',
-    makeClientImageJobId: () => 'imgjob-chat-regenerate',
-    resumeSessionJobs: () => {},
-  });
-  return { workflow, state, run, events, order, assistantNode };
-}
-
-async function testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch() {
-  const fixture = createChatRegenerateFixture();
-  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  const routeIndex = fixture.order.findIndex(entry => entry.startsWith('route:'));
-  const sendIndex = fixture.order.findIndex(entry => entry.startsWith('send:'));
-  assert.ok(routeIndex >= 0, 'regeneration must run intent recognition first');
-  assert.strictEqual(fixture.order[routeIndex], 'route:draw a fox', 'the routed intent input must be the original user prompt');
-  assert.ok(sendIndex > routeIndex, 'regenerated execution must wait for the routed intent result');
-  assert.strictEqual(fixture.order[sendIndex], 'send:draw a fox', 'execution must dispatch the routed prompt');
-  assert.strictEqual(fixture.order.filter(entry => entry.startsWith('route:')).length, 1, 'regeneration must route exactly once');
-  assert.strictEqual(fixture.order.filter(entry => entry.startsWith('send:')).length, 1, 'regeneration must dispatch exactly once');
-}
-
-
-
-function createImageRegenerateFixture({ routePrompt = "draw a fox", resolvedPrompt = routePrompt } = {}) {
-  const order = [];
-  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
-  const userNode = { dataset: { rawText: routePrompt, messageIndex: "0", displayItemId: "user-image-regenerate" } };
-  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
-  const assistantNode = {
-    dataset: { responseIndex: "1", displayItemId: "answer-image-regenerate" },
+    dataset: { responseIndex: "1", displayItemId: "answer-unified" },
     isConnected: false,
     querySelector(selector) { return selector === ".refresh-btn" ? refreshButton : null; },
   };
-  const liveItem = { id: "display-image-regenerate", role: "assistant", content: "routing", pending: "1", responseIndex: "1" };
-  const session = { id: "session-image-regenerate", messages: [], display: [liveItem] };
+  const defaultMessages = [
+    { role: "user", content: "draw a fox", rawText: "draw a fox", messageIndex: "0" },
+    { role: "assistant", content: "old answer", rawText: "old answer", responseIndex: "1" },
+  ];
+  const baseMessages = Array.isArray(messages) ? messages : defaultMessages;
+  const session = {
+    id: "session-unified",
+    display: [{ id: "display-unified", role: "assistant", content: "old answer", rawText: "old answer", responseIndex: "1" }],
+    messages: [],
+  };
   const state = {
     activeSessionId: session.id,
     autoMode: true,
-    messages: [
-      { role: "user", content: routePrompt, rawText: routePrompt, messageIndex: "0" },
-      { role: "assistant", content: "old image", rawText: "old image", responseIndex: "1" },
-    ],
+    messages: baseMessages.slice(),
     sessions: [session],
+    attachments: [],
+    editingIndex: null,
+    editingNode: null,
+    editingQuoteContext: "",
+    mode: "chat",
   };
   session.messages = state.messages.slice();
-  const submitWorkflow = { savePendingSubmit: () => true, clearPendingSubmit: () => {} };
-  const finalExecution = makeExecutionFixture({ operation: "text_to_image", relation: "new", prompt: routePrompt });
-  const imageRoute = {
-    mode: "image", api: "image_generation", needClarification: false, dispatchAuthorized: true, readiness: "ready",
-    operationType: "text_to_image", operationApi: "image_generation", operationMode: "image", relation: "new",
-    resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
-    selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
-    selectedImageIds: [], selectedReferenceId: "", usePreviousImage: false,
-    contextualImagePrompt: resolvedPrompt, editInstruction: "", evidence: "dispatch_contract.v1",
-    localClarification: false,
-    executionResources: finalExecution.executionResources,
-    dispatchContract: finalExecution.dispatchContract,
-  };
   const workflow = regenerateWorkflow.createRegenerateWorkflow({
     state,
     taskEvents: taskState.TASK_EVENTS,
-    jobLifecycle: {
-      makeSubmissionId: () => "submit-image-regenerate",
-      shouldPreservePendingSubmitOnError: () => false,
-    },
-    messageReplacement: {
-      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
-      ensureAssistantReplacementSlot: (_messages, turn) => turn,
-    },
-    dispatchTaskEvent: () => {},
+    messageReplacement: sessionPersistence,
     isSessionBusy: () => false,
     findPreviousUserMessageNode: () => userNode,
     toast: () => {},
-    ensureActiveRun: () => run,
     resetMessageActionStates: () => {},
-    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
-    getUserAttachmentContextFromNode: () => "",
-    restoreUserAttachmentsFromContext: async () => [],
-    updateModeUi: () => {},
-    warnMissingModel: () => false,
-    isImageFile: () => false,
-    sendImage: async (prompt, options) => {
-      order.push(`send:${prompt}`);
-      return options.onDurableHandoff();
-    },
-    sendChat: async () => { throw new Error("an image regeneration must not dispatch chat"); },
-    showRunError: (_sessionId, error) => { throw error; },
-    resetActionButtonState: () => {},
-    finishSessionTask: () => {},
-    updateResumeStreamButton: () => {},
-    getSubmitWorkflow: () => submitWorkflow,
-    createRouteRecognitionUi: () => ({
-      stopSlowNotice() {},
-      async getEffectiveRouteWithSlowNotice(input) {
-        order.push(`route:${input}`);
-        return imageRoute;
+    getUserAttachmentContextFromNode: () => attachmentContext,
+    restoreUserAttachmentsFromContext: async () => restoredAttachments,
+    getSubmitWorkflow: () => ({
+      onSubmit: async (event, options) => {
+        onSubmitCalls.push({ event, options });
+        if (typeof onSubmitImpl === "function") await onSubmitImpl({ event, options });
       },
     }),
-    quotedFileCandidatesFromContext: () => [],
-    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
-    parseImageContext: () => null,
-    restoreImageAttachmentsFromContext: async () => [],
-    makeClientChatJobId: () => "chatjob-image-regenerate",
-    makeClientImageJobId: () => "imgjob-image-regenerate",
-    resumeSessionJobs: () => {},
   });
-  return { workflow, assistantNode, state, run, order };
+  return { workflow, state, session, userNode, assistantNode, onSubmitCalls, run };
 }
 
-async function testImageRegenerateDoesNotDuplicateIdenticalResolvedPrompt() {
-  const fixture = createImageRegenerateFixture();
+async function testRegeneratePreparesEditStateAndDelegatesOriginalText() {
+  const fixture = createUnifiedRegenerateFixture();
   await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
-  assert.strictEqual(sendCall, "send:draw a fox",
-    "an identical resolved image prompt must not be appended after the original input");
-  assert.strictEqual(fixture.order.filter(entry => entry.startsWith("send:")).length, 1,
-    "image regeneration must dispatch exactly once with a single prompt");
+
+  assert.strictEqual(fixture.onSubmitCalls.length, 1, "regeneration must delegate exactly once to submit");
+  assert.strictEqual(fixture.onSubmitCalls[0].options.promptOverride, "draw a fox",
+    "regeneration must submit the original user text");
+  assert.strictEqual(fixture.state.editingIndex, 0, "regeneration must reuse the edit message index");
+  assert.strictEqual(fixture.state.editingNode, fixture.userNode, "regeneration must reuse the edit message node");
+  assert.strictEqual(fixture.state.editingQuoteContext, "", "regeneration must prepare the edit quote context");
+  assert.strictEqual(fixture.state.attachments.length, 0, "regeneration must restore an empty original attachment set");
 }
 
-async function testImageRegenerateKeepsDistinctResolvedPromptAsSupplement() {
-  const fixture = createImageRegenerateFixture({
-    routePrompt: "draw a fox",
-    resolvedPrompt: "画一只坐在草地上的红狐狸",
+async function testRegenerateRestoresOriginalAttachmentsForUnifiedEditSubmit() {
+  const restored = [{ name: "cat.png", type: "image/png" }];
+  const fixture = createUnifiedRegenerateFixture({
+    attachmentContext: "{\"attachments\":[{\"name\":\"cat.png\"}]}",
+    restoredAttachments: restored,
   });
   await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
-  assert.strictEqual(sendCall, "send:draw a fox\n\n画一只坐在草地上的红狐狸",
-    "a resolved prompt that adds information must remain as a supplement after the original input");
-}
 
-async function testImageRegenerateSkipsResolvedPromptAlreadyContainedInInput() {
-  const fixture = createImageRegenerateFixture({
-    routePrompt: "画一只橘白短毛猫，背景是雪山",
-    resolvedPrompt: "画一只橘白短毛猫",
-  });
-  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
-  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
-  assert.strictEqual(sendCall, "send:画一只橘白短毛猫，背景是雪山",
-    "a resolved prompt already contained in the original input must not be appended again");
+  assert.deepStrictEqual(fixture.state.attachments, restored,
+    "regeneration must restore the original message attachments into the edit state");
+  assert.strictEqual(fixture.onSubmitCalls.length, 1);
 }
 
 module.exports = [
   testForceImageRepairsPlainRouteToCanonicalImageContract,
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
+  testForceImageRegenerateSkipsIntentRecognitionAndDispatchesDirectly,
   testRegeneratePostHandoffFailureEntersRecovery,
   testRegenerateCompletionCallbacksPublishOneHandoffAndOneCompletion,
   testRegenerateWorkflowUsesExplicitCompositionWithoutNewGlobal,
-  testRegenerateReusesSubmitResourceAndClarificationSemantics,
-  testRegenerateCancellationBeforeClarificationDoesNotCommitCompletion,
-  testRegenerateThrownCancellationEmitsOneStoppedTerminalEvent,
-  testRegenerateAbortSignalSuppressesLateNonAbortError,
-  testRegenerateTruncatesDiscardedConversationBranchBeforeReplacement,
-  testRegenerateClearsSelectedImageBeforePersistenceCompletes,
+  testRegenerateDelegatesToUnifiedSubmitPipeline,
+  testRegeneratePreservesConversationBeforeUnifiedSubmit,
+  testRegeneratePreparesEditStateAndDelegatesOriginalText,
+  testRegenerateRestoresOriginalAttachmentsForUnifiedEditSubmit,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
-  testRegenerateUsesCanonicalRouteRecognitionContext,
-  testForceImageRegenerateSkipsIntentRecognitionAndDispatchesDirectly,
-  testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch,
-  testImageRegenerateDoesNotDuplicateIdenticalResolvedPrompt,
-  testImageRegenerateKeepsDistinctResolvedPromptAsSupplement,
-  testImageRegenerateSkipsResolvedPromptAlreadyContainedInInput,
 ];
-
-
-

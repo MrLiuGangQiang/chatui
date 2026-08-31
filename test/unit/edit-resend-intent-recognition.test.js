@@ -186,9 +186,130 @@ async function testEditResendSharesNewSendIntentRecognitionPipeline() {
   }
 }
 
+const IMAGE_PROMPT = "设计一个AI网页聊天应用的图标，应用名字叫ChatUI";
+
+function makeImageEditFixture({ editing = true, promptValue = IMAGE_PROMPT } = {}) {
+  const session = {
+    id: "session-image-edit-intent",
+    messages: [{ role: "user", content: promptValue, rawText: promptValue, messageIndex: "0", id: "message-image-original", turnId: "turn-image-original" }],
+    display: [],
+  };
+  const state = {
+    activeSessionId: session.id,
+    sessions: [session],
+    messages: session.messages.map(item => ({ ...item })),
+    attachments: [],
+    disposedSessionIds: new Set(),
+    promptDrafts: new Map(),
+    autoMode: true,
+    mode: "image",
+    editingIndex: editing ? 0 : null,
+    editingNode: editing ? { dataset: { rawText: promptValue, messageIndex: "0" } } : null,
+    editingQuoteContext: "",
+  };
+  const prompt = { value: promptValue, focus() {} };
+  const run = { stopped: false, abortController: new AbortController() };
+  const routed = [];
+  const sent = [];
+  const edits = [];
+  const events = [];
+  const finalExecution = makeExecutionFixture({ operation: "text_to_image", relation: "new", prompt: promptValue });
+  const finalRoute = {
+    mode: "image", api: "image_generation", needClarification: false, dispatchAuthorized: true, readiness: "ready",
+    operationType: "text_to_image", operationApi: "image_generation", operationMode: "image", relation: "new",
+    resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
+    selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
+    selectedImageIds: [], selectedReferenceId: "", usePreviousImage: false,
+    contextualImagePrompt: promptValue, editInstruction: "", evidence: "dispatch_contract.v1",
+    localClarification: false,
+    executionResources: finalExecution.executionResources,
+    dispatchContract: finalExecution.dispatchContract,
+  };
+  const workflow = submitWorkflow.createSubmitWorkflow({
+    state,
+    taskEvents: taskState.TASK_EVENTS,
+    $: id => (id === "prompt" ? prompt : { querySelectorAll: () => [] }),
+    applyPendingEdit: (newText, options) => {
+      edits.push({ newText, messageIndex: options.messageIndex });
+      const index = Number(options.messageIndex);
+      state.messages[index] = { role: "user", content: newText, rawText: newText, messageIndex: String(index), id: "message-image-edited", turnId: "turn-image-edited", submissionId: options.submissionId };
+      session.messages[index] = { ...state.messages[index] };
+      return { index, responseIndex: index + 1 };
+    },
+    isSessionBusy: () => false,
+    stopActiveRun: async () => {}, toast: () => {}, hasPendingUploads: () => false,
+    updateSendAvailability: () => {}, unlockDoneSound: () => {}, saveConfig: () => {},
+    ensureActiveRun: () => run, prepareUserAttachmentPreviews: async () => {},
+    prepareChatImageAttachments: async files => files,
+    buildUploadedImageContext: async () => null, buildUserAttachmentContext: async () => null,
+    renderUserMessageWithAttachments: text => text, buildUserMessageContent: text => text,
+    buildUserApiContent: text => text, addMessage: () => ({ dataset: {}, isConnected: false }),
+    appendSessionDisplayMessage: (_sessionId, role, content, options = {}) => {
+      const item = { id: "display-" + (session.display.length + 1), role, content, ...options };
+      session.display.push(item);
+      return item;
+    },
+    persistSessionDisplay: () => {}, cloneMessageList: list => list.map(item => ({ ...item })),
+    getActiveSession: () => session, saveChatHistory: async () => {}, saveSessionMessages: async () => {},
+    replaceSessionMessages: async () => {},
+    clearAttachments: () => {}, clearQuotedMessage: () => {}, getQuotedMessage: () => null,
+    scheduleAutoResize: () => {}, setSessionBusy: () => {},
+    prepareReplacementResponse: () => ({ node: { dataset: {}, isConnected: false }, liveItem: { id: "display-image-edit-replacement" } }), pendingFeedbackHtml: text => text,
+    clearReasoning: () => {}, clearPendingFeedback: () => {},
+    hasImageAttachments: () => false, normalizeRoute: value => value,
+    getEffectiveRoute: async (input, routeAttachments, _sessionId, _headers, routeContext) => {
+      routed.push({ input, routeAttachments, routeContext });
+      return finalRoute;
+    },
+    createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
+    updateModeUi: () => {}, warnMissingModel: () => false,
+    updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; }, updateSessionDisplayItem: () => {},
+    sendChat: async () => { throw new Error("an image edit resend must not dispatch chat"); },
+    sendImage: async (imagePrompt, options) => {
+      sent.push({ imagePrompt, options });
+      return options.onDurableHandoff();
+    },
+    sendImageBatch: async () => {},
+    getLatestUploadedImageContext: () => null, getUploadedImageContext: () => null,
+    restoreImageAttachmentsFromContext: async () => [], restoreUserAttachmentsFromContext: async () => [],
+    getConfig: () => ({ baseUrl: "https://example.test/v1", apiKey: "test-key", routeModel: "route-model" }),
+    getSessionRouteModel: () => "route-model", quotedAttachmentTextFromContext: () => "", quotedFileCandidatesFromContext: () => [],
+    clearActiveRun: () => {}, finishSessionTask: () => {}, dispatchTaskEvent: (_sessionId, event) => events.push(event), resumeSessionJobs: () => {},
+    makeClientChatJobId: () => "chatjob-image-edit-intent", makeClientImageJobId: () => "imgjob-image-edit-intent", saveChatJob: () => {}, clearChatJob: () => {},
+    shouldPrepareManagedChatJob: () => false, findMessageNodeByDisplayItem: () => null, insertMessageNodeAtDisplayPosition: () => {},
+    saveSessionsMeta: () => {}, buildRouteContext: () => ({}),
+    requestJson: async () => { throw new Error("an edited image resend must never invoke an independent classifier"); },
+  });
+  return { workflow, state, session, routed, sent, edits, events, prompt };
+}
+
+async function testEditResendImageUsesCanonicalPromptWithoutDuplication() {
+  const restore = [
+    replaceGlobal("window", global),
+    replaceGlobal("localStorage", memoryStorage()),
+    replaceGlobal("ChatUIAppJobWorkflow", jobWorkflow),
+    replaceGlobal("ChatUIRouteService", { cleanQuotedContent: value => String(value || ""), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const fixture = makeImageEditFixture({ editing: true });
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: "sendBtn" } });
+    assert.strictEqual(fixture.routed.length, 1);
+    assert.strictEqual(fixture.routed[0].input, IMAGE_PROMPT);
+    assert.strictEqual(fixture.sent.length, 1);
+    assert.strictEqual(fixture.sent[0].imagePrompt, IMAGE_PROMPT,
+      "the unified edit/resend path must send exactly the canonical image prompt");
+    assert.strictEqual(fixture.sent[0].options.dispatchContract.arguments.prompt, IMAGE_PROMPT);
+    assert.strictEqual(fixture.sent[0].imagePrompt.split(IMAGE_PROMPT).length - 1, 1,
+      "the canonical image prompt must not be duplicated");
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
+
 module.exports = [
   testEditResendRunsIntentRecognitionBeforeExecution,
   testEditResendSharesNewSendIntentRecognitionPipeline,
+  testEditResendImageUsesCanonicalPromptWithoutDuplication,
 ];
 
 

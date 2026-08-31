@@ -112,8 +112,12 @@ function testImageDispatchCallersForwardOnlyCanonicalDispatchContract() {
     'explicit image regeneration must forward its canonical execution plan',
   );
   assert.ok(
-    regenerateSource.includes('executionMedia,dispatchContract:p.dispatchContract,clarificationReplay'),
-    'routed regeneration must forward its canonical execution plan',
+    regenerateSource.includes('submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})'),
+    'routed regeneration must delegate its canonical execution plan through the unified submit pipeline',
+  );
+  assert.ok(
+    !regenerateSource.includes('dispatchContract:p.dispatchContract'),
+    'regenerate must not forward a second execution plan outside submit',
   );
   assert.ok(
     imageWorkflowSource.includes('executionBindingEvidence = dispatchContract.bindingEvidenceFromMedia(t.executionMedia || {})'),

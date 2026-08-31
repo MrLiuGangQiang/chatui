@@ -124,8 +124,10 @@ function testSubmitWorkflowDelegatesBatchToServerEndpoint() {
     'submit must not fan out individual image jobs from the browser anymore');
   assert.ok(submitWorkflow.includes('batchParent,responseIndex,userMessageId:userMessageIdentity?.id||"",turnId:userMessageIdentity?.turnId||"",clarificationReplay'),
     'the shared parent card and clarification replay must pass into the server batch workflow');
-  assert.ok(regenerateWorkflow.includes('await sendImageBatch(l,{items:compiledBatch.items.map'),
-    'regenerate must use the same single server batch endpoint');
+  assert.ok(regenerateWorkflow.includes('submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})'),
+    'regenerate must reach the single server batch endpoint through the unified submit pipeline');
+  assert.ok(!regenerateWorkflow.includes('sendImageBatch('),
+    'regenerate must not call the batch endpoint independently anymore');
   assert.ok(jobService.includes("url: '/api/image-batches'"), 'the client job service must expose the single batch endpoint');
   assert.ok(jobService.includes('async function getImageBatchJob'), 'the client must poll the parent batch job');
   assert.ok(jobService.includes('async function disposeImageBatchJob'), 'the client must dispose the completed server parent batch');

@@ -3,9 +3,6 @@
 
   const executionStatus = root?.[Symbol.for('chatui.module-registry.v1')]?.get('executionStatus')
     || (typeof require === 'function' ? require('./execution-status') : {});
-  const dispatchContractModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
-    || root?.ChatUIDispatchContract
-    || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
 
   function createRegenerateWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -19,14 +16,10 @@
       resetMessageActionStates, prepareRegeneratedResponse, getUserAttachmentContextFromNode,
       restoreUserAttachmentsFromContext, updateModeUi, warnMissingModel, isImageFile,
       sendImage, showRunError, resetActionButtonState, finishSessionTask,
-      updateResumeStreamButton, getSubmitWorkflow, createRouteRecognitionUi,
-      getMessageWorkflow, parseImageContext, restoreImageAttachmentsFromContext,
-      quotedFileCandidatesFromContext,
-      sendChat, dispatchTaskEvent,
-      makeClientChatJobId, makeClientImageJobId, resumeSessionJobs,
-      getPreviousImageAttachments, replaceSessionMessages, updateSessionDisplayItem, updateMessage,
+      updateResumeStreamButton, getSubmitWorkflow,
+      dispatchTaskEvent, makeClientImageJobId, resumeSessionJobs,
+      replaceSessionMessages, updateMessage,
     } = deps;
-    const restorePreviousImageAttachments = getPreviousImageAttachments || root?.getPreviousImageAttachments;
     const window = root;
     const taskEvents = deps.taskEvents || root?.ChatUICore?.taskState?.TASK_EVENTS || {};
     const jobLifecycle = deps.jobLifecycle || root?.ChatUIAppJobWorkflow || {};
@@ -36,30 +29,6 @@
     const emitTaskEvent = (sessionId, type, details = {}) => type
       ? dispatchTaskEvent?.(sessionId, { type, ...details })
       : null;
-
-    function retainedPendingDisplay(session,responseIndex,preserveAssistant=false){
-      // A historical regeneration only replaces the selected answer. Keep
-      // later display items so the rendered conversation and its durable
-      // snapshot stay aligned with state.messages.
-      return (session?.display||[]).slice();
-    }
-    async function truncateRegenerationBranch(sessionId,turn,preserveAssistant=false){
-      const removed=replacementApi.truncateConversationForRegeneration?.(state.messages,turn,{preserveAssistant})||(()=>{
-        if(!Array.isArray(state.messages)||!Number.isInteger(turn?.userIndex)||turn.userIndex<0||turn.userIndex>=state.messages.length)return null;
-        const assistantIndex=Number.isInteger(turn.assistantIndex)&&turn.assistantIndex>turn.userIndex?turn.assistantIndex:turn.userIndex+1;
-        const hasAssistant=state.messages[assistantIndex]?.role==="assistant";
-        if(hasAssistant&&!preserveAssistant)state.messages.splice(assistantIndex,1);
-        state.messages.forEach((message,index)=>{if(message?.role==="user")message.messageIndex=String(index);if(message?.role==="assistant")message.responseIndex=String(index)});
-        return {assistantIndex};
-      })();
-      if(!removed)return null;
-      const session=state.sessions?.find(item=>item?.id===sessionId);
-      const options={display:retainedPendingDisplay(session,removed.assistantIndex,preserveAssistant),pendingClarification:preserveAssistant?session?.pendingClarification||null:null,lastGeneratedImage:null};
-      if(typeof replaceSessionMessages==="function")await replaceSessionMessages(sessionId,state.messages,options);
-      else if(typeof root?.replaceSessionMessages==="function")await root.replaceSessionMessages(sessionId,state.messages,options);
-      else if(session){session.messages=state.messages.slice();session.display=options.display;session.pendingClarification=options.pendingClarification;session.lastGeneratedImage=null;state.lastGeneratedImage=null}
-      return removed;
-    }
 
     function createRegenerateTask({ sessionId, run, readPending }) {
       const submissionId = jobLifecycle.makeSubmissionId?.()
@@ -258,144 +227,37 @@
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");
       const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};
       const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null,{message:state.messages?.[a],userText:s});
-      // Canonical truncation and replaceSessionMessages mutate the in-memory branch synchronously,
-      // but durable snapshot persistence can be asynchronous. Project the replacement before waiting
-      // so a stale completed image/text node cannot remain mounted and later coexist with its result.
-      const branchCommit=truncateRegenerationBranch(l,turn,replayPending);
       if(replayPending){
         const replayStatus=executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文",replayHtml=typeof deps.pendingFeedbackHtml==="function"?deps.pendingFeedbackHtml(replayStatus):replayStatus;
         resetMessageActionStates(e);
         if(e?.dataset){delete e.dataset.imageContext;delete e.dataset.attachmentContext;delete e.dataset.jobId}
         updateMessage?.(e,replayHtml,{html:!0,rawText:replayStatus,skipSave:!0,noScroll:!0,responseIndex:a,preserveLiveMedia:!1});
-        if(!await branchCommit)return void toast("找不到这条消息上下文，无法重新生成");
         await replayPendingClarification(e,{sessionId:l,userText:s,assistantIndex:a});return
       }
-      turn=replacementApi.ensureAssistantReplacementSlot?.(state.messages,{...turn,assistantIndex:a,hasAssistant:!1},{responseIndex:String(a),replacing:!0})||turn;
-      const d=ensureActiveRun(l),refreshBtn=e.querySelector(".refresh-btn");
-      resetMessageActionStates(e);refreshBtn&&(refreshBtn.classList.add("refreshing"),refreshBtn.disabled=!0);
-      const c=prepareRegeneratedResponse(t,e,l,a,executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文");e=c.node;let m=c.liveItem;
-      if(!await branchCommit)return void toast("找不到这条消息上下文，无法重新生成");
-      const userMessage=state.messages[n]||{},u=getUserAttachmentContextFromNode(t),replay=clarificationApi.normalizeClarificationReplay?.(userMessage.clarificationReplay)||clarificationApi.normalizeClarificationReplay?.(state.messages[a]?.clarificationReplay)||null,replayPrompt=replay?.resolvedInput||s;
-      const baseRequestMessages=state.messages.slice(0,n),startedAt=Date.now();
-      const task=createRegenerateTask({sessionId:l,run:d,readPending:()=>({promptText:replayPrompt,rawPromptText:s,submitMode:"chat",messageIndex:n,responseIndex:a,liveItemId:m?.id||"",userDisplayItemId:t?.dataset?.displayItemId||t?.__displayItem?.id||"",imageContext:t?.dataset?.imageContext||t?.__displayItem?.imageContext||userMessage.imageContext||"",attachmentContext:u||userMessage.attachmentContext||"",quoteContext:t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||userMessage.quoteContext||"",requestBaseMessages:baseRequestMessages,regenerate:!0,replaceAssistantIndex:a,startedAt})});
-      const routeUi=createRouteRecognitionUi({sessionId:l,assistantNode:()=>e,liveItem:()=>m,responseIndex:()=>a,getPromptText:()=>replayPrompt,signal:d.abortController?.signal});
+      const submitWorkflow=getSubmitWorkflow();
+      if(typeof submitWorkflow?.onSubmit!=="function"){
+        const failure=new Error("统一提交工作流不可用，请刷新页面后重试");
+        failure.code="REGENERATE_SUBMIT_WORKFLOW_UNAVAILABLE";
+        throw failure
+      }
+      // Regeneration is the edit/resend pipeline with the original text. Prepare the
+      // same editing state editUserMessage prepares, then let submitWorkflow.runSubmit
+      // own preflight, routing, resource pools, dispatch, replacement, and task lifecycle.
+      state.editingNode?.classList.remove("editing");
+      state.editingIndex=n;
+      state.editingNode=t;
+      state.editingQuoteContext=String(t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||state.messages[n]?.quoteContext||"");
+      t.classList.add("editing");
       try{
-        task.accept({capture:!0});
-        const h=u?await restoreUserAttachmentsFromContext(u):[];if(u&&!h.length)throw new Error("原消息附件当前无法恢复，为避免缺少资源时继续执行，请重新上传附件后再试");
-        const quoteRaw=t.dataset.quoteContext||t.__displayItem?.quoteContext||userMessage.quoteContext||"";
-        const quotedMessage=quoteRaw?getMessageWorkflow().readQuoteContext(quoteRaw):null;
-        const quotedImageContext=quotedMessage?.imageContext?parseImageContext(quotedMessage.imageContext):null;
-        let quotedImageAttachments=[];
-        if(quotedImageContext?.attachments?.length){if(typeof restoreImageAttachmentsFromContext!=="function")throw new Error("引用图片恢复服务不可用");try{quotedImageAttachments=await restoreImageAttachmentsFromContext(quotedImageContext)}catch(err){console.warn("restore quoted image attachments for regenerate failed",err);throw new Error("引用消息中的图片当前无法恢复，为避免脱离引用内容继续执行，请重新发送或重新上传图片后再试")}if(!Array.isArray(quotedImageAttachments)||quotedImageAttachments.length<quotedImageContext.attachments.length)throw new Error("引用消息中的图片恢复不完整，为避免脱离引用内容继续执行，请重新发送或重新上传图片后再试")}
-        const quotedFileCandidates=quotedFileCandidatesFromContext(quotedMessage?.attachmentContext||quotedMessage?.attachment_context||"");
-        const quotedRoute=submitHelpers.buildQuotedRouteContext({quotedMessage,quotedImageContext,restoredImageAttachments:quotedImageAttachments,quotedFileCandidates,currentInput:s,cleanQuotedContent:routeUtils.cleanQuotedContent,buildQuotedRouteContent:routeUtils.buildQuotedRouteContent});
-        const buildQuotedRouteContext=()=>quotedRoute.context;
-        task.captured();task.routing();
-        let p,g;
-        try{if(replay?.clarificationRouteContext){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},replay.clarificationRouteContext),g=p.mode}
-        else if(quotedMessage){p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},buildQuotedRouteContext()),g=p.mode}
-        else{p=await routeUi.getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null,{currentTurn:{messageIndex:n+1},submissionId:task.submissionId}),g=p.mode}}catch(err){throw err}
-        if(d.stopped||d.abortController?.signal?.aborted)return;
-        if(p.needClarification){
-          const question=String(p.clarificationQuestion||"请先明确要使用的资源").trim();
-          const clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService;
-          const presentationApi=root?.ChatUIApp?.appContext?.getWorkflowModule?.("clarificationPresentation");
-          const session=state.sessions?.find(item=>item?.id===l);
-          const presentation=presentationApi?.buildClarificationPresentation?.({ ...p, clarificationQuestion: question },{
-            messages:state.messages||[], lastGeneratedImage:session?.lastGeneratedImage||null,
-          })||{html:""};
-          const clarificationHtml=String(presentation.html||"");
-          if(e?.isConnected){
-            if(typeof root?.updateMessage==="function")root.updateMessage(e,clarificationHtml||question,{html:!!clarificationHtml,rawText:question,responseIndex:a});
-            else if(e.querySelector?.(".content"))e.querySelector(".content").textContent=question;
-          }
-          if(m){
-            m.content=clarificationHtml||question;m.rawText=question;m.html=clarificationHtml;m.pending=!1;m.responseIndex=a;
-            root?.persistSessionDisplay?.(l);
-          }
-          const createdPending=clarificationApi?.createPendingClarification?clarificationApi.createPendingClarification({
-            messages:state.messages.slice(0,n+1),clarificationText:question,routeInfo:p,
-            sourceImageContext:userMessage.imageContext||null,sourceAttachmentContext:userMessage.attachmentContext||u||null,sourceQuoteContext:userMessage.quoteContext||null,
-          }):null;
-          const clarificationId=String(createdPending?.id||"");
-          clarificationId&&e?.isConnected&&(e.dataset.clarificationId=clarificationId);
-          if(m&&clarificationId){m.clarificationId=clarificationId;root?.persistSessionDisplay?.(l)}
-          const assistant={role:"assistant",content:question,rawText:question,responseIndex:a,...clarificationHtml?{html:clarificationHtml}:{},...clarificationId?{clarificationId}:{}};
-          if(Array.isArray(state.messages)){
-            if("assistant"===state.messages[a]?.role)state.messages[a]=assistant;
-            else state.messages.splice(a,0,assistant);
-          }
-          if(session){
-            session.messages=Array.isArray(state.messages)?state.messages.slice():session.messages||[];
-            if(createdPending){
-              session.pendingClarification=createdPending;
-              root?.saveSessionsMeta?.();
-            }
-            root?.saveSessionMessages?.(l,session.messages);
-          }
-          task.completePreflight();
-          return;
-        }
-        if(routeUtils.isRouteDispatchable?.(p)!==!0){const err=new Error("路由任务尚未完成资源确认，已停止发送");err.code="ROUTE_NOT_READY";throw err}
-        if(updateModeUi(g,state.autoMode),warnMissingModel(g,!0)){task.fail(new Error(`missing ${g} model`));return void e.remove()}
-        if(d.stopped||d.abortController?.signal?.aborted)return;
-        const routeMessageProjection=submitHelpers.projectRouteMessageContext?.(p,state.messages||[],quotedMessage)||null,hasRouteMessageRefs=Array.isArray(p?.messageRefs)&&p.messageRefs.length>0;
-        if(hasRouteMessageRefs&&!routeMessageProjection)throw new Error("路由选择的历史消息已不存在或不再匹配，已停止发送以避免脱离指定上下文回答");
-        const quoteScopedChat=!!quotedMessage&&(!hasRouteMessageRefs||routeMessageProjection?.usesExplicitQuote),routeBaseMessages=routeMessageProjection?.messages||(quoteScopedChat?[quotedMessage]:baseRequestMessages);
-        const restoreBoundImagePool=source=>submitHelpers.restoreBoundImagePool(p,{source,sessionId:l,getPreviousImageAttachments:restorePreviousImageAttachments});
-        const quotedResourceAttachments=[...quotedImageAttachments];
-        if(quotedMessage?.attachmentContext&&typeof restoreUserAttachmentsFromContext==="function"){
-          const restoredQuote=await restoreUserAttachmentsFromContext(quotedMessage.attachmentContext);
-          for(const item of restoredQuote){
-            const type=isImageFile(item)?"image":"file",id=submitHelpers.mediaIdentity?.(item,type)||"";
-            if(!quotedResourceAttachments.some(existing=>isImageFile(existing)===isImageFile(item)&&id&&submitHelpers.mediaIdentity?.(existing,type)===id))quotedResourceAttachments.push(item)
-          }
-        }
-        const historyFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"history"});
-        const contextFiles=await submitHelpers.restoreHistoricalFilePool(p,{messages:state.messages||[],restoreUserAttachmentsFromContext,isImageFile,source:"context"});
-        const sourcePools={current:h,quoted:quotedResourceAttachments,history:[...await restoreBoundImagePool("history"),...historyFiles],context:[...await restoreBoundImagePool("context"),...contextFiles]};
-        const executionPools=submitHelpers.buildDispatchExecutionResourcePools(p,sourcePools,{isImageFile,messages:routeMessageProjection?.messages||state.messages||[]});
-        const imageBatchPlan=submitHelpers.executableImageBatch?.(p);
-        const executionMedia=submitHelpers.projectRouteExecutionMediaForDispatch(p,executionPools);
-         const quotedCleanText=quotedRoute?.cleanText||"";
-         // 最终执行 prompt 必须包含用户原始完整输入（replayPrompt），
-         // LLM 概括（contextualImagePrompt/editInstruction）只能作为补充、不能替代。
-         const summarizedPrompt=String(p.contextualImagePrompt||p.editInstruction||"").trim();
-         const originalReplayText=String(replayPrompt||"").trim();
-         const qParts=[quotedMessage&&quotedCleanText?quotedCleanText:null,originalReplayText];
-         const summarizedAlreadyCovered=summarizedPrompt&&(
-           originalReplayText.includes(summarizedPrompt)||
-           (summarizedPrompt.includes(originalReplayText)&&summarizedPrompt.length>originalReplayText.length)
-         );
-         if(summarizedPrompt&&!summarizedAlreadyCovered)qParts.push(summarizedPrompt);
-         const q=String(qParts.filter(Boolean).join("\n\n")).trim();
-         if("chat"!==g&&q&&p?.dispatchContract&&typeof dispatchContractModule?.withArguments==="function"&&q!==String(p.dispatchContract.arguments?.prompt||"").trim()){p.dispatchContract=dispatchContractModule.withArguments(p.dispatchContract,{prompt:q})}
-         const chatH=executionMedia?[...executionMedia.chatFiles,...executionMedia.chatImages]:[],editH=executionMedia?.imageInputs||[];
-         const originalImageIndex=submitHelpers.originalImageIndex;
-         const mediaMapContext=executionMedia?submitHelpers.buildMediaMapContext?.(executionMedia.chatImages,{isImageFile,originalIndex:originalImageIndex})||"":"";
-         const chatPrompt=replayPrompt;
-        if("chat"===g){
-          const jobId=task.prepareHandoff("chat",makeClientChatJobId?.());
-          await sendChat(chatPrompt,chatH,e,{sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,requestBaseMessages:routeBaseMessages,quotedMessage:quoteScopedChat?quotedMessage:null,systemContext:mediaMapContext?[mediaMapContext]:[],routeContextMessageCount:routeMessageProjection?.protectedMessageCount||0,dispatchContract:p.dispatchContract,executionMedia,clarificationReplay:replay,deferReplacementClear:!0,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff()});
-        }else{
-          if(imageBatchPlan){
-            const compiledBatch=imageBatchPlan;
-            const batchJobId=task.prepareHandoff("image_batch",makeClientBatchJobId?.());
-            if(!m?.id){const error=new Error("多图重新生成缺少可恢复的显示记录，已停止发送");error.code="IMAGE_BATCH_DISPLAY_ITEM_MISSING";throw error}
-            m.jobId=batchJobId;m.pending="1";root?.persistSessionDisplay?.(l);
-            e?.dataset&&(e.dataset.jobId=batchJobId);root?.clearPendingFeedback?.(e);root?.clearReasoning?.(e);
-            const batchAggregate={total:compiledBatch.items.length,completed:0,failed:0,statuses:compiledBatch.items.map(()=>"正在准备图片任务"),slotSizes:compiledBatch.items.map(item=>String(item?.dispatchContract?.arguments?.size||"auto").trim()||"auto"),slotSize:"auto",imageContext:null,childImageContexts:Array(compiledBatch.items.length).fill(null)};
-            const initialBatchRawText=batchAggregate.statuses.map((status,index)=>`任务 ${index+1}/${batchAggregate.total}：${status}`).join("\n"),initialBatchHtml=typeof deps.renderImageBatchResult==="function"?deps.renderImageBatchResult({}, {total:batchAggregate.total, childContexts:batchAggregate.childImageContexts, statusHtml:deps.pendingFeedbackHtml?.(initialBatchRawText)||"", complete:false}):m.html;updateSessionDisplayItem?.(l,m,"assistant",initialBatchHtml,{html:!0,rawText:initialBatchRawText,pending:!0,responseIndex:m.responseIndex});e?.isConnected&&updateMessage?.(e,initialBatchHtml,{html:!0,rawText:initialBatchRawText,skipSave:!0,preserveLiveMedia:!0});root?.persistSessionDisplay?.(l);await sendImageBatch(l,{items:compiledBatch.items.map(item=>({dispatchContract:item.dispatchContract,executionMedia:submitHelpers.projectRouteExecutionMedia?.(item.route,executionPools)||item.executionResources,prompt:String(item.dispatchContract?.arguments?.prompt||"").trim(),label:String(item.task?.label||"").trim()})),batchJobId,submissionId:task.submissionId,batchParent:m,responseIndex:a,clarificationReplay:replay,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
-
-          }else{
-            const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
-            await sendImage(q,{loadingNode:e,routePrompt:q,originalPrompt:replayPrompt,attachments:editH,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:p.dispatchContract,clarificationReplay:replay,sessionId:l,userAlreadyAdded:!0,liveItem:m,replaceAssistantIndex:a,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
-          }
-        }
-        task.complete()
-      }catch(t){const failure=task.fail(t);failure.preserve||failure.terminalBeforeError||failure.cancelled||d.stopped||"AbortError"===t?.name||showRunError(l,t,m,e)}finally{task.stopped(),resetActionButtonState(refreshBtn),finishSessionTask(l,{run:d,stopSlowNotice:()=>routeUi.stopSlowNotice?.()}),updateResumeStreamButton()}
+        const originalAttachmentContext=getUserAttachmentContextFromNode(t);
+        state.attachments=originalAttachmentContext?await restoreUserAttachmentsFromContext(originalAttachmentContext):[];
+      }catch(err){
+        console.warn("restore regeneration attachments failed",err);
+        state.attachments=[]
+      }
+      resetMessageActionStates(e);
+      await submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})
     }
-
     return Object.freeze({ forceImageFromUserMessage, regenerateAssistantMessage });
   }
 

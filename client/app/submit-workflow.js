@@ -134,13 +134,13 @@
       }
     }
 
-    async function onSubmit(e) {
+    async function onSubmit(e, options = {}) {
       const clarificationAnswerEvent = e?.__chatuiClarificationAnswer;
       const clarificationRelationEvent = e?.__chatuiClarificationRelationAnswer;
       if (clarificationAnswerEvent || clarificationRelationEvent) {
         return handleClarificationMarkerEvent(e, clarificationAnswerEvent, clarificationRelationEvent);
       }
-      return runSubmit(e);
+      return runSubmit(e, options);
     }
 
     async function handleClarificationMarkerEvent(e, answer, relationAnswer) {

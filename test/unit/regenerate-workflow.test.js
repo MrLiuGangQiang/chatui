@@ -668,6 +668,126 @@ async function testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch
   assert.strictEqual(fixture.order.filter(entry => entry.startsWith('send:')).length, 1, 'regeneration must dispatch exactly once');
 }
 
+
+
+function createImageRegenerateFixture({ routePrompt = "draw a fox", resolvedPrompt = routePrompt } = {}) {
+  const order = [];
+  const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
+  const userNode = { dataset: { rawText: routePrompt, messageIndex: "0", displayItemId: "user-image-regenerate" } };
+  const refreshButton = { disabled: false, classList: { add() {}, remove() {} } };
+  const assistantNode = {
+    dataset: { responseIndex: "1", displayItemId: "answer-image-regenerate" },
+    isConnected: false,
+    querySelector(selector) { return selector === ".refresh-btn" ? refreshButton : null; },
+  };
+  const liveItem = { id: "display-image-regenerate", role: "assistant", content: "routing", pending: "1", responseIndex: "1" };
+  const session = { id: "session-image-regenerate", messages: [], display: [liveItem] };
+  const state = {
+    activeSessionId: session.id,
+    autoMode: true,
+    messages: [
+      { role: "user", content: routePrompt, rawText: routePrompt, messageIndex: "0" },
+      { role: "assistant", content: "old image", rawText: "old image", responseIndex: "1" },
+    ],
+    sessions: [session],
+  };
+  session.messages = state.messages.slice();
+  const submitWorkflow = { savePendingSubmit: () => true, clearPendingSubmit: () => {} };
+  const finalExecution = makeExecutionFixture({ operation: "text_to_image", relation: "new", prompt: routePrompt });
+  const imageRoute = {
+    mode: "image", api: "image_generation", needClarification: false, dispatchAuthorized: true, readiness: "ready",
+    operationType: "text_to_image", operationApi: "image_generation", operationMode: "image", relation: "new",
+    resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
+    selectedIndexes: [], selectedImageIndexes: [], selectedFileIndexes: [],
+    selectedImageIds: [], selectedReferenceId: "", usePreviousImage: false,
+    contextualImagePrompt: resolvedPrompt, editInstruction: "", evidence: "dispatch_contract.v1",
+    localClarification: false,
+    executionResources: finalExecution.executionResources,
+    dispatchContract: finalExecution.dispatchContract,
+  };
+  const workflow = regenerateWorkflow.createRegenerateWorkflow({
+    state,
+    taskEvents: taskState.TASK_EVENTS,
+    jobLifecycle: {
+      makeSubmissionId: () => "submit-image-regenerate",
+      shouldPreservePendingSubmitOnError: () => false,
+    },
+    messageReplacement: {
+      resolveUserMessageTurn: () => ({ userIndex: 0, assistantIndex: 1 }),
+      ensureAssistantReplacementSlot: (_messages, turn) => turn,
+    },
+    dispatchTaskEvent: () => {},
+    isSessionBusy: () => false,
+    findPreviousUserMessageNode: () => userNode,
+    toast: () => {},
+    ensureActiveRun: () => run,
+    resetMessageActionStates: () => {},
+    prepareRegeneratedResponse: () => ({ node: assistantNode, liveItem }),
+    getUserAttachmentContextFromNode: () => "",
+    restoreUserAttachmentsFromContext: async () => [],
+    updateModeUi: () => {},
+    warnMissingModel: () => false,
+    isImageFile: () => false,
+    sendImage: async (prompt, options) => {
+      order.push(`send:${prompt}`);
+      return options.onDurableHandoff();
+    },
+    sendChat: async () => { throw new Error("an image regeneration must not dispatch chat"); },
+    showRunError: (_sessionId, error) => { throw error; },
+    resetActionButtonState: () => {},
+    finishSessionTask: () => {},
+    updateResumeStreamButton: () => {},
+    getSubmitWorkflow: () => submitWorkflow,
+    createRouteRecognitionUi: () => ({
+      stopSlowNotice() {},
+      async getEffectiveRouteWithSlowNotice(input) {
+        order.push(`route:${input}`);
+        return imageRoute;
+      },
+    }),
+    quotedFileCandidatesFromContext: () => [],
+    getMessageWorkflow: () => ({ readQuoteContext: () => null }),
+    parseImageContext: () => null,
+    restoreImageAttachmentsFromContext: async () => [],
+    makeClientChatJobId: () => "chatjob-image-regenerate",
+    makeClientImageJobId: () => "imgjob-image-regenerate",
+    resumeSessionJobs: () => {},
+  });
+  return { workflow, assistantNode, state, run, order };
+}
+
+async function testImageRegenerateDoesNotDuplicateIdenticalResolvedPrompt() {
+  const fixture = createImageRegenerateFixture();
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
+  assert.strictEqual(sendCall, "send:draw a fox",
+    "an identical resolved image prompt must not be appended after the original input");
+  assert.strictEqual(fixture.order.filter(entry => entry.startsWith("send:")).length, 1,
+    "image regeneration must dispatch exactly once with a single prompt");
+}
+
+async function testImageRegenerateKeepsDistinctResolvedPromptAsSupplement() {
+  const fixture = createImageRegenerateFixture({
+    routePrompt: "draw a fox",
+    resolvedPrompt: "画一只坐在草地上的红狐狸",
+  });
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
+  assert.strictEqual(sendCall, "send:draw a fox\n\n画一只坐在草地上的红狐狸",
+    "a resolved prompt that adds information must remain as a supplement after the original input");
+}
+
+async function testImageRegenerateSkipsResolvedPromptAlreadyContainedInInput() {
+  const fixture = createImageRegenerateFixture({
+    routePrompt: "画一只橘白短毛猫，背景是雪山",
+    resolvedPrompt: "画一只橘白短毛猫",
+  });
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+  const sendCall = fixture.order.find(entry => entry.startsWith("send:"));
+  assert.strictEqual(sendCall, "send:画一只橘白短毛猫，背景是雪山",
+    "a resolved prompt already contained in the original input must not be appended again");
+}
+
 module.exports = [
   testForceImageRepairsPlainRouteToCanonicalImageContract,
   testForceImageRegenerateUsesCanonicalDurableTaskChain,
@@ -684,6 +804,9 @@ module.exports = [
   testRegenerateUsesCanonicalRouteRecognitionContext,
   testForceImageRegenerateSkipsIntentRecognitionAndDispatchesDirectly,
   testRegenerateAssistantMessageRunsIntentRecognitionBeforeDispatch,
+  testImageRegenerateDoesNotDuplicateIdenticalResolvedPrompt,
+  testImageRegenerateKeepsDistinctResolvedPromptAsSupplement,
+  testImageRegenerateSkipsResolvedPromptAlreadyContainedInInput,
 ];
 
 

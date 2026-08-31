@@ -363,7 +363,11 @@
          const summarizedPrompt=String(p.contextualImagePrompt||p.editInstruction||"").trim();
          const originalReplayText=String(replayPrompt||"").trim();
          const qParts=[quotedMessage&&quotedCleanText?quotedCleanText:null,originalReplayText];
-         if(summarizedPrompt&&!(summarizedPrompt.includes(originalReplayText)&&summarizedPrompt.length>originalReplayText.length))qParts.push(summarizedPrompt);
+         const summarizedAlreadyCovered=summarizedPrompt&&(
+           originalReplayText.includes(summarizedPrompt)||
+           (summarizedPrompt.includes(originalReplayText)&&summarizedPrompt.length>originalReplayText.length)
+         );
+         if(summarizedPrompt&&!summarizedAlreadyCovered)qParts.push(summarizedPrompt);
          const q=String(qParts.filter(Boolean).join("\n\n")).trim();
          if("chat"!==g&&q&&p?.dispatchContract&&typeof dispatchContractModule?.withArguments==="function"&&q!==String(p.dispatchContract.arguments?.prompt||"").trim()){p.dispatchContract=dispatchContractModule.withArguments(p.dispatchContract,{prompt:q})}
          const chatH=executionMedia?[...executionMedia.chatFiles,...executionMedia.chatImages]:[],editH=executionMedia?.imageInputs||[];

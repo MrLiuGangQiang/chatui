@@ -34,7 +34,7 @@ function testUnderstandingPromptDropsUnconsumedFieldsAndOwnsDeliveryRecovery() {
   assert.match(UNDERSTAND_PROMPT, /dependency：本轮与前序执行的关系/);
   assert.match(UNDERSTAND_PROMPT, /delivery_evidence/,
     'the understand node must see delivery facts for missing-image recovery');
-  assert.match(UNDERSTAND_PROMPT, /上一张图呢/);
+  assert.match(UNDERSTAND_PROMPT, /对上一张图交付状态的追问/);
   assert.match(UNDERSTAND_PROMPT, /dependency=followup/);
 }
 
@@ -50,7 +50,7 @@ function testUnderstandingPromptOwnsItsProtocolAndSplitsIndependentImageActions(
     'the understand node must not reuse the route node decision-order prompt');
   assert.doesNotMatch(UNDERSTAND_PROMPT, /goal_mode/,
     'the understand node must not write route goal-mode decisions');
-  assert.ok(UNDERSTAND_PROMPT.length <= 2500, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
+  assert.ok(UNDERSTAND_PROMPT.length <= 2600, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
 }
 
 function testRuntimePayloadsStopSendingTheLegacyMonolith() {

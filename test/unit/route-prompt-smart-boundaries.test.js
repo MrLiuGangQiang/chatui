@@ -20,7 +20,7 @@ function testRoutePromptDefinesMultiImageMergeAndStyleReferenceRoles() {
   assert.match(prompt, /只提供配色\/色调\/颜色时角色必须是 style_reference/);
   assert.match(prompt, /主体、结构、构图或内容参考才用 reference/);
   assert.match(prompt, /沿用参考图生成新版本（即使改色）用reference.*goal写画面主体\/类型\+本轮变化.*非edit target/);
-  assert.match(prompt, /goal还须保留蒙版、target、reference等执行角色语义/);
+  assert.match(prompt, /goal还须保留蒙版、target、reference等?角色语义/);
 }
 
 function testRoutePromptSeparatesHistoricalFollowupFromContinuationAmendment() {
@@ -34,15 +34,15 @@ function testRoutePromptSeparatesHistoricalFollowupFromContinuationAmendment() {
 
 function testRoutePromptPreservesVisualTaskContextAfterUndeliveredDesign() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /没有 verified image result/);
-  assert.match(prompt, /保留前序用户已明确的主体\/任务类型/);
-  assert.match(prompt, /不得只输出孤立 delta/);
+  assert.ok(prompt.includes('没有交付时'));
+  assert.ok(prompt.includes('保留前序主体/任务类型'));
+  assert.ok(prompt.includes('保留前序主体/任务类型和本轮约束'));
 }
 
 function testRoutePromptDoesNotInventHistoricalDependencyForSelfContainedInputs() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /current_input已含主体\/动作则历史同义正文非必需，但不禁止模型在确有正文依赖时绑定mN=context/);
-  assert.match(prompt, /plain_chat自足时可以refs=\[\]/);
+  assert.match(prompt, /当前输入已自足且未明确指向历史资源时不绑历史资源/);
+  assert.match(prompt, /plain_chat仅在不依赖当前附件时可refs=\[\]/);
   assert.match(prompt, /无历史证据且只缺current必需角色也new/);
   assert.match(prompt, /edit_image仅有多个history候选且未选定→followup\+ambiguous，省略target/);
 }

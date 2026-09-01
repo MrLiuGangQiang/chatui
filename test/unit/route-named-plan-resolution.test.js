@@ -61,7 +61,7 @@ function testRouteKeepsSelectionSemanticsSeparateFromPromptMaterialization() {
   assert.strictEqual(envelope.current_input, undefined);
   assert.strictEqual(envelope.provisional_instruction, undefined);
   assert.strictEqual(envelope.context.recent_messages[0].content, OPTIONS_MESSAGE);
-  assert.match(payload.input.find(item => item.role === 'system').content, /complete provider-facing image description/);
+  assert.match(payload.input.find(item => item.role === 'system').content, /只包含本轮要发给provider的图片描述与当前约束/);
 
   const materialized = routeService.applyMaterializedImageInstruction(route, SELECTED_PLAN, { context });
   assert.strictEqual(materialized.goalMode, 'replace');
@@ -98,8 +98,8 @@ function testInstructionPayloadSeparatesEvidenceFromTheProviderInstruction() {
   assert.strictEqual(envelope.current_input, undefined);
   assert.strictEqual(envelope.provisional_instruction, undefined);
   const system = payload.input.find(item => item.role === 'system').content;
-  assert.match(system, /Never copy, quote, prefix, or append user_request_evidence/);
-  assert.match(system, /this breed/);
+  assert.match(system, /绝不要把user_request_evidence原文照抄、引用、前置或附加/);
+  assert.match(system, /这个品种/);
 }
 
 function testImageInstructionProtocolRejectsProviderPromptThatIsNotReady() {
@@ -145,6 +145,18 @@ function testImageInstructionProtocolRejectsProviderPromptThatIsNotReady() {
     'the execution boundary must reject a ready-shaped response that still needs chat history to execute');
   assert.strictEqual(routeService.hasUnresolvedImageInstructionReference('按照方案A重新生成'), true);
   assert.strictEqual(routeService.hasUnresolvedImageInstructionReference(SELECTED_PLAN), false);
+
+  const crossTurnStyleReady = routeService.inspectImageInstructionResult(JSON.stringify({
+    schema_version: 'image_instruction.v1',
+    status: 'ready',
+    instruction: '一只狗的插画，风格与之前生成的猫的插画保持一致，但主体是一只狗。狗的姿态和表情活泼友好，背景简洁，色彩明亮。',
+    clarification: '',
+  }));
+  assert.strictEqual(crossTurnStyleReady.materialization, null);
+  assert.strictEqual(crossTurnStyleReady.reason, 'image_instruction_not_standalone',
+    'a ready-shaped response that keeps the style of an earlier image is a conversational reference the image provider cannot resolve');
+  assert.strictEqual(routeService.hasUnresolvedImageInstructionReference('一只狗的插画，风格与之前生成的猫的插画保持一致，但主体是一只狗。'), true);
+  assert.strictEqual(routeService.hasUnresolvedImageInstructionReference('保持与参考图一致的插画风格，主体是一只狗。'), false);
 }
 
 function testMaterializedEditInstructionKeepsOnlyTargetBinding() {

@@ -722,10 +722,11 @@
               resolvedTask: route.userGoal || route.executionPrompt || route.dispatchContract?.arguments?.prompt || '',
             };
             let inspected = routeSvc.inspectImageInstructionResult(raw, inspectionOptions);
-            // A structurally invalid echo is recoverable: make one model-driven
+            // A structurally invalid echo or an instruction that still carries
+            // conversational references is recoverable: make one model-driven
             // repair round with the rejected output as data, rather than editing
             // the provider instruction locally or asking the user to retry.
-            if (!inspected?.materialization && inspected?.reason === 'image_instruction_echoed_source_request') {
+            if (!inspected?.materialization && ['image_instruction_echoed_source_request', 'image_instruction_not_standalone'].includes(inspected?.reason)) {
               const repairPayload = routeSvc.buildImageInstructionPayload({
                 model: primaryModel,
                 input,

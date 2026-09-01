@@ -116,8 +116,8 @@ function testPromptRequiresHistoricalTextEvidenceBinding() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /resource_refs按执行事实(?:绑定)?(?:，不按|而非)relation/);
   assert.match(prompt, /(?:禁止仅|勿(?:仅)?)因followup\/continuation绑(?:定)?mN/);
-  assert.match(prompt, /P3 quoted正文是消息证据来源：只有 quoted\/history 正文为goal提供必需事实时，才绑定对应mN=context/);
-  assert.match(prompt, /若goal使用quoted\/history正文事实，必须绑定相应mN=context/);
+  assert.match(prompt, /P3 quoted正文是消息证据来源：只有 current_input明确指向quoted\/history且其正文为goal提供必需事实时，才绑定对应mN=context/);
+  assert.match(prompt, /若goal使用quoted\/history正文事实，必须绑(?:定)?相应mN=context/);
   assert.match(prompt, /仅仅存在quoted不绑定/,
     'quoted message presence alone must not create an unnecessary context binding');
   assert.match(prompt, /即使已消解/);

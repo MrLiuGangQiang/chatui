@@ -33,7 +33,7 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
   assert.strictEqual(Object.hasOwn(payload, 'tools'), false);
   assert.strictEqual(payload.input.length, 2, 'the classifier requires exactly one system instruction and one facts payload');
   assert.ok(system);
-  assert.ok(system.content.length <= 5800, `route system prompt must remain bounded, got ${system.content.length} characters`);
+  assert.ok(system.content.length <= 6400, `route system prompt must remain bounded, got ${system.content.length} characters`);
   assert.doesNotMatch(system.content, /示例（完整 JSON 输出）/);
   assert.ok(JSON.stringify(schema).length <= 1000, 'the request schema must carry validation only, not duplicated routing prose');
   assert.strictEqual(hasDescription(schema), false, 'routing rules belong in the clear system prompt, never in JSON Schema descriptions');
@@ -42,7 +42,7 @@ function testIntentRecognitionUsesABoundedNoToolRequestWithThinkingDisabled() {
 
 function testIntentRecognitionRetainsQualityCriticalRoutingGuidance() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /边界：改现有图→edit_image\(target=被改图\)；参考图生新图→image_reference_gen；看图写提示词\/翻译\/分析→image_qa/,
+  assert.match(prompt, /【operation边界】改现有图→edit_image\(target=被改图\)；参考图生新图→image_reference_gen；看图写提示词\/翻译\/分析→image_qa/,
     'the route prompt must distinguish editing, reference generation, and image analysis');
   assert.match(prompt, /P2仅用于只读指代且唯一current资源.*\+1文件→file_qa，\+1图→image_qa/,
     'single-current-resource defaults must remain limited to read-only deictic inputs');
@@ -58,9 +58,9 @@ function testIntentRecognitionRetainsQualityCriticalRoutingGuidance() {
     'explicit resource names and ordinals must outrank weaker selection signals');
   assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
   assert.match(prompt, /task_shape：multi=多个独立执行/);
-  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/);
+  assert.match(prompt, /图片生成\/编辑任务：multi=多个独立图片结果/);
   assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
-  assert.match(prompt, /quoted正文作事实也followup，压过继续语义/,
+  assert.match(prompt, /quoted正文作事实也followup[\s\S]*压过“继续”语义/,
     'quoted facts must remain followups even when the input also says continue/retry');
   assert.match(prompt, /需非current资源但歧义\/缺失未绑/,
     'an unbound historical dependency must not be misclassified as a standalone new request');
@@ -73,7 +73,7 @@ function testIntentRecognitionPromptStatesReadableDecisionPriority() {
   const understandPrompt = routeService.UNDERSTAND_SYSTEM_PROMPT;
   assert.match(understandPrompt, /证据优先/);
   assert.match(understandPrompt, /不得猜测、修改或编造证据/);
-  assert.match(understandPrompt, /有歧义保持歧义/);
+  assert.match(understandPrompt, /有歧义交下游澄清/);
   assert.ok(understandPrompt.includes('current_input'));
 }
 

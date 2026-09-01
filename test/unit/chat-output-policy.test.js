@@ -13,9 +13,8 @@ function testDefaultChatPolicyConstrainsMissingPersonalizationAndNarrowing() {
   assert.ok(prompt.includes('缺少会显著影响适用性或安全性的关键条件时，先只询问最少必要信息'));
   assert.ok(prompt.includes('只输出筛选后保留的内容'));
   assert.ok(prompt.includes('把上一条答案当作唯一候选集合'));
-  assert.ok(prompt.includes('负责人、责任人、审批人、值守、值班、观察窗口'));
-  assert.ok(prompt.includes('绝对删除并禁止输出'));
-  assert.ok(prompt.includes('若一条同时包含允许内容和上述禁止内容，整条删除'));
+  assert.ok(!prompt.includes('负责人、责任人、审批人、值守、值班、观察窗口'),
+    'the general chat policy must not inject release-operations rules into unrelated chats');
   assert.strictEqual(prompt, instance.defaultChatOutputPolicy);
   assert.strictEqual(instance.composeSystemPrompt({}, {}, {}), '',
     'ordinary chats should not pay the extra output-boundary prompt cost');

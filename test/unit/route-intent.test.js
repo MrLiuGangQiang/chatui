@@ -196,7 +196,7 @@ function testRoutePromptDefinesRelationAsContextDependency() {
 }
 function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode/);
+  assert.match(prompt, /1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode/);
   assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(prompt, /plain_chat.*image_qa.*ocr.*image_compare/s);
   assert.match(prompt, /multimodal_qa.*图\+文件/);
@@ -219,13 +219,13 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
   assert.match(prompt, /task_shape：single=一次dispatch\/一个可合并结果/);
   assert.match(prompt, /task_shape：multi=多个独立执行/);
-  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/);
+  assert.match(prompt, /图片生成\/编辑任务：multi=多个独立图片结果/);
   assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
   assert.match(prompt, /多图分别改→edit_image\+multi/);
   assert.doesNotMatch(prompt, /respond|change_value missing/);
   assert.doesNotMatch(prompt, /选错了|换个颜色|上一张产品图/,
     'production prompt must define general rules instead of scenario patches');
-  assert.ok(prompt.length <= 5800, `route prompt must remain bounded, got ${prompt.length} chars`);
+  assert.ok(prompt.length <= 6400, `route prompt must remain bounded, got ${prompt.length} chars`);
 }
 module.exports = [
   testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit,

@@ -65,7 +65,7 @@ function makeTextPending() {
   });
 }
 
-function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null } = {}) {
+function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, routeImpl = null } = {}) {
   const effectivePending = pending || makePending();
   const session = { id: 'session-answer', messages: [], display: [], pendingClarification: effectivePending };
   const state = {
@@ -117,10 +117,10 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null } 
     scheduleAutoResize: () => {}, setSessionBusy: () => {},
     prepareReplacementResponse: () => null, pendingFeedbackHtml: text => text,
     hasImageAttachments: () => false, normalizeRoute: value => value,
-    getEffectiveRoute: async (input, routeAttachments, _sessionId, _headers, routeContext, routeOptions) => {
+    getEffectiveRoute: routeImpl || (async (input, routeAttachments, _sessionId, _headers, routeContext, routeOptions) => {
       routed.push({ input, routeAttachments, routeContext, routeOptions });
       return finalRoute;
-    },
+    }),
     createRouteRecognitionUi: () => ({ startSlowNotice() {}, stopSlowNotice() {}, showSlowNotice() {} }),
     updateModeUi: () => {}, warnMissingModel: () => false,
     updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; }, updateSessionDisplayItem: () => {},
@@ -359,6 +359,83 @@ async function testFreeTextAnswerReroutesWithTheFreeTextAndConsumesPending() {
   }
 }
 
+async function testBudgetExhaustedFailureClearsStoredLedgerForRetry() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const ledger = {
+      schema_version: 'route_model_attempt_ledger.v1',
+      max_provider_attempts: 6,
+      logical_rounds: 2,
+      provider_attempts: 5,
+      primary_attempts: 4,
+      fallback_attempts: 1,
+      planning_attempts: 0,
+      compatibility_attempts: 3,
+      reasoning_fallback_attempts: 1,
+      format_fallback_attempts: 1,
+    };
+    const failureRoute = {
+      mode: 'chat', api: 'route_error', target: 'none', intent: 'route_error',
+      outcome: 'transient_error',
+      outcomeMessage: '本次未执行：本轮任务模型请求次数已达上限。请重试当前任务。',
+      retryable: true, needClarification: false, dispatchAuthorized: false, readiness: 'failed',
+      operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'new',
+      resources: [], imageRefs: [], fileRefs: [], messageRefs: [], executionResources: null,
+      dispatchContract: null, evidence: 'model_calls_exceeded',
+      clarificationQuestion: '本次未执行：本轮任务模型请求次数已达上限。请重试当前任务。', clarificationSlots: [],
+    };
+    const fixture = makeFixture({
+      promptValue: '帮我写一份周报',
+      routeImpl: async (input, routeAttachments, _sessionId, _headers, routeContext, routeOptions) => {
+        fixture.routed.push({ input, routeAttachments, routeContext, routeOptions });
+        return fixture.routed.length === 1 ? failureRoute : fixture.finalRoute;
+      },
+    });
+    const pendingWithRelation = clarification.createPendingRelationClarification(fixture.pending, { input: '帮我写一份周报', sourceMessageIndex: 1 });
+    pendingWithRelation.routeInfo.modelAttemptLedger = ledger;
+    pendingWithRelation.routeInfo.modelCalls = ledger.provider_attempts;
+    fixture.session.pendingClarification = pendingWithRelation;
+    const answer = clarificationRelation.createRelationAnswer({
+      clarificationId: pendingWithRelation.relationClarification.clarification_id,
+      pendingId: pendingWithRelation.id,
+      decision: 'continue',
+    });
+
+    await fixture.workflow.onSubmit({
+      preventDefault() {},
+      __chatuiClarificationRelationAnswer: answer,
+      __chatuiClarificationId: pendingWithRelation.relationClarification.clarification_id,
+    });
+
+    assert.strictEqual(fixture.routed.length, 1);
+    assert.deepStrictEqual(fixture.routed[0].routeOptions.modelAttemptLedger, ledger,
+      'an active clarification continuation must still resume the stored ledger before the failure');
+    assert.ok(fixture.session.pendingClarification, 'a budget-exhausted failure must keep the pending clarification so the user can retry');
+    assert.strictEqual(fixture.session.pendingClarification.routeInfo.modelAttemptLedger, undefined,
+      'the exhausted provider-attempt ledger must be cleared from the stored pending so a retry starts with a fresh budget');
+    assert.strictEqual(fixture.session.pendingClarification.routeInfo.modelCalls, undefined);
+
+    await fixture.workflow.onSubmit({
+      preventDefault() {},
+      __chatuiClarificationRelationAnswer: answer,
+      __chatuiClarificationId: pendingWithRelation.relationClarification.clarification_id,
+    });
+
+    assert.strictEqual(fixture.routed.length, 2, 'the retry must re-run the routing round');
+    assert.strictEqual(fixture.routed[1].routeOptions.modelAttemptLedger, null,
+      'the retry must not inherit the exhausted ledger');
+    assert.strictEqual(fixture.routed[1].routeOptions.modelCalls, 0, 'the retry must not inherit the exhausted attempt count');
+    assert.strictEqual(fixture.sent.length, 1, 'the retry with a fresh budget must reach dispatch');
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
 module.exports = [
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
@@ -366,5 +443,6 @@ module.exports = [
   testRelationNewTaskClearsPendingAndSubmitsCurrentPrompt,
   testRelationContinueReroutesBaseTaskAndConsumesPendingOnHandoff,
   testClarificationRerouteForwardsTheTaskAttemptLedger,
+  testBudgetExhaustedFailureClearsStoredLedgerForRetry,
   testFreeTextAnswerReroutesWithTheFreeTextAndConsumesPending,
 ];

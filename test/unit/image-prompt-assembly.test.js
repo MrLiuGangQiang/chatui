@@ -142,7 +142,7 @@ function testChatOperationWithMessageRefKeepsRawUserInput() {
 }
 
 function testRoutePromptDeclaresResolvedGoalAndUnifiedMessageRefs() {
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('1 operation → 2 task_shape → 3 resource_refs → 4 relation → 5 goal → 6 goal_mode'));
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.includes('1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode'));
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /resource_refs[^。\n]*只绑[^。\n]*必需[^。\n]*最少[^。\n]*明确/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /edit_image的amend goal同时就是发给目标图的本轮编辑指令/);

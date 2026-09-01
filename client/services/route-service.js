@@ -169,6 +169,7 @@
     throw new TypeError('Route prompt module is unavailable');
   }
   const {
+    ROUTE_EVIDENCE_PRIORITY,
     ROUTE_SYSTEM_PROMPT,
     UNDERSTAND_SYSTEM_PROMPT_LINES,
     ROUTE_NODE_SYSTEM_PROMPT_LINES,
@@ -178,6 +179,7 @@
     MULTI_TASK_PLAN_SYSTEM_PROMPT,
     IMAGE_INSTRUCTION_SYSTEM_PROMPT,
     ROUTE_REPAIR_SYSTEM_PROMPT,
+    INTENT_CRITIC_SYSTEM_PROMPT,
   } = routePromptsModule.createRoutePromptSet({
     imagePlanAbsoluteMaxTasks: IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
   });
@@ -897,24 +899,30 @@
     return metadata;
   }
 
-  function compactIntentClaims(input = '') {
+  function compactIntentClaims(input = '', context = {}) {
     const claims = typeof intentClaimsModule.extractClaims === 'function'
       ? intentClaimsModule.extractClaims(input)
       : [];
-    return claims.map(claim => ({
-      id: stringValue(claim?.id),
-      type: stringValue(claim?.type),
-      text: stringValue(claim?.text).slice(0, 240),
-      critical: claim?.critical === true,
-      ...(claim?.value && typeof claim.value === 'object' ? {
-        value: {
-          index: Number(claim.value.index) || 0,
-          type: stringValue(claim.value.type),
-          operation: stringValue(claim.value.operation),
-          no_media_binding: claim.value.no_media_binding === true,
-        },
-      } : {}),
-    })).filter(claim => claim.id && claim.text).slice(0, 16);
+    // image_ranking_question is an image-scoped claim: the lexical extractor
+    // cannot see the conversation focus, so a text-topic ranking question
+    // ("哪个协议效果最好") must not publish an image operation directive.
+    const textFocus = stringValue(context?.conversation_focus?.kind) === 'text';
+    return claims
+      .filter(claim => !(textFocus && stringValue(claim?.type) === 'image_ranking_question'))
+      .map(claim => ({
+        id: stringValue(claim?.id),
+        type: stringValue(claim?.type),
+        text: stringValue(claim?.text).slice(0, 240),
+        critical: claim?.critical === true,
+        ...(claim?.value && typeof claim.value === 'object' ? {
+          value: {
+            index: Number(claim.value.index) || 0,
+            type: stringValue(claim.value.type),
+            operation: stringValue(claim.value.operation),
+            no_media_binding: claim.value.no_media_binding === true,
+          },
+        } : {}),
+      })).filter(claim => claim.id && claim.text).slice(0, 16);
   }
 
   function semanticIntentForRoute(input = '', understanding = null, context = {}) {
@@ -1028,14 +1036,6 @@
   const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE = Array.isArray(ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES)
     ? ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES.join('\n')
     : ROUTE_NODE_SYSTEM_PROMPT;
-  const INTENT_CRITIC_SYSTEM_PROMPT = [
-    '你是 ChatUI 意图语义审查节点。只审查，不执行，不回答用户。',
-    '输入包含 current_input、claims、semantic_intent、understanding、route、resource_candidates 和 context；semantic_intent 是中间语义证据，不是执行授权。',
-    '检查最终 route 是否覆盖用户明确提出的每一个动作、对象、数量、顺序、否定/排除和关键约束；检查 operation、资源角色、relation、goal_mode 与理解证据是否一致；不得因为缺省的非关键细节而要求澄清。对 image_reference_gen，goal_mode=replace 是新建图片的强制正确值；对 text_to_image/edit_image，goal_mode=amend 只修改上一轮文字任务约束，不表示使用或修改旧图，resource_refs=[] 才表示不使用旧图。不得把这些合法组合报告为冲突。若 current_input 已经列出具体尺寸、对象、空间关系或否定条件，即使其中还出现“此前三处要求”等概括性短语，也视为当前输入自足，不得仅因无法从历史恢复概括短语而要求澄清。',
-    '若所有关键要求已覆盖且无冲突，verdict=accept；若可以通过重新生成 route 修复，verdict=repair；若必须让用户选择或补充，verdict=clarify；若输入或协议不可判断，verdict=reject。',
-    '只输出 intent_critic.v1 JSON：schema_version、verdict、covered_claims、missing_claims、conflicts、unsupported_assumptions、ambiguous_bindings、reasons。reason code 只能使用 schema 中列出的值。',
-  ].join('\n');
-
   function buildRoutePayload({ model, input, attachments = [], context = {}, currentMode = 'chat', autoMode = true, currentTurn = null, systemPrompt, responseFormat, understanding = null, intentReasoning = null } = {}) {
     assertInputWithinUnifiedLimit(stringValue(input));
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
@@ -1048,15 +1048,14 @@
     const reconciledUnderstandingDependency = allowedRelations.length === 1
       ? allowedRelations[0]
       : reconcileUnderstandingDependency(understanding, resourceCatalog, priorContext);
-    const compactClaims = compactIntentClaims(input);
+    const compactClaims = compactIntentClaims(input, priorContext);
     const userPayload = {
       current_input: stringValue(input),
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
     if (compactClaims.length) userPayload.intent_claims = compactClaims;
-    const visualContinuityEvidence = undeliveredGenerationEvidence(input, priorContext);
-    if (visualContinuityEvidence) userPayload.visual_continuity_evidence = visualContinuityEvidence;
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
     // Some OpenAI-compatible gateways translate Chat Completions structured
     // output into Responses `text.format=json_object` and inspect only the
@@ -1144,7 +1143,9 @@
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
     const userPayload = {
+      current_input: stringValue(input),
       route_goal: executionGoal,
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
@@ -1209,7 +1210,9 @@
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
     const userPayload = {
+      current_input: stringValue(input),
       route_goal: executionGoal,
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
@@ -1429,6 +1432,7 @@
       relation: stringValue(route.relation),
       goal_mode: stringValue(route.goalMode) || 'replace',
       task_shape: stringValue(route.taskShape) || 'single',
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
       output_format: 'json',
@@ -1638,6 +1642,22 @@
     );
     if (hasPrevious) return intent;
     return Object.freeze({ ...intent, goal_mode: 'replace' });
+  }
+
+  // The capability registry declares explicit route directives as user-language
+  // facts. A declared web_search lookup (e.g. “查查最新信息”) cannot be
+  // downgraded to plain_chat by a weak model proposal: only the operation
+  // follows the directive; goal, relation, resources and task shape remain
+  // model-owned. Local file/image lookups are excluded by the directive itself.
+  function reconcileExplicitWebSearchDirective(intent = {}, options = {}) {
+    if (!intent || stringValue(intent?.operation) === 'web_search') return intent;
+    const input = stringValue(options?.input);
+    const catalog = Array.isArray(options?.candidateCatalog) ? options.candidateCatalog : [];
+    const directive = typeof explicitRouteDirectiveFor === 'function'
+      ? explicitRouteDirectiveFor({ input, candidates: catalog })
+      : null;
+    if (!directive || directive.operation !== 'web_search') return intent;
+    return Object.freeze({ ...intent, operation: 'web_search' });
   }
 
   function goalModeForIntent(intent = {}) {
@@ -2195,6 +2215,7 @@
         options,
       );
       effectiveIntent = reconcileQuotedMessageBinding(effectiveIntent, { ...scopedOptions, candidateCatalog });
+      effectiveIntent = reconcileExplicitWebSearchDirective(effectiveIntent, scopedOptions);
       const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);
@@ -2279,15 +2300,14 @@
     const priorContext = contextBeforeCurrentTurn(context, currentTurn);
     const resourceCatalog = wireResourceCandidates(attachments, priorContext, input);
     const catalogMetadata = compactResourceCatalogMetadata(resourceCatalog);
-    const compactClaims = compactIntentClaims(input);
+    const compactClaims = compactIntentClaims(input, priorContext);
     const userPayload = {
       current_input: stringValue(input),
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
     };
     if (compactClaims.length) userPayload.intent_claims = compactClaims;
-    const visualContinuityEvidence = undeliveredGenerationEvidence(input, priorContext);
-    if (visualContinuityEvidence) userPayload.visual_continuity_evidence = visualContinuityEvidence;
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
     userPayload.output_format = 'json';
     if (currentTurn && typeof currentTurn === 'object') userPayload.current_turn = currentTurn;
@@ -2336,6 +2356,7 @@
       },
       resource_candidates: resourceCatalog.map(compactWireResourceCandidate),
       context: compactWireRouteContext(priorContext, input, resourceCatalog),
+      evidence_priority: ROUTE_EVIDENCE_PRIORITY,
       output_format: 'json',
     };
     if (catalogMetadata) userPayload.resource_catalog = catalogMetadata;
@@ -5138,6 +5159,7 @@
 
   // ── Exports ─────────────────────────────────────────────────────
   const api = Object.freeze({
+    ROUTE_EVIDENCE_PRIORITY,
     ROUTE_INTENT_VERSION,
     SEMANTIC_INTENT_VERSION,
     DISPATCH_CONTRACT_VERSION,

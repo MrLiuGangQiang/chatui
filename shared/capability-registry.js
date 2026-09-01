@@ -84,8 +84,25 @@
         /(?:\u8054\u7f51|\u4e0a\u7f51|\u7f51\u7edc)\s*(?:\u641c\u7d22|\u67e5\u8be2|\u67e5\u627e)/i,
         /(?:\u641c\u7d22|\u67e5\u8be2|\u67e5\u627e)\s*(?:\u7f51\u9875|\u7f51\u7edc|\u6700\u65b0)/i,
         /\bweb\s*search\b/i,
+        // 查查/查一下/看看/了解 + 最新/最近/当下… + 信息类名词（“查查最新信息”）。
+        /(?<![检审])(?:查(?:查|一下|一查|下)?|查询|查找|搜(?:索|一下|下)?|检索|看(?:看|一下)?|了解(?:一下|下)?|关注(?:一下)?)[^。！？!?\r\n]{0,10}(?:最新|最近|近期|当下|现在|当前|实时|今日|今天)(?:的)?[^。！？!?\r\n]{0,10}(?:信息|消息|新闻|资讯|行情|动态|价格|数据|进展|版本|发布|公告|通知|天气|汇率|股价|排名|情况|走势|报价|更新|状态|报告|文章)/i,
+        // 最新/最近… + 信息类名词（“最近有什么新闻”“最新消息”）。今天/现在等
+        // 常出现在陈述句中（“现在状态不错”），不作为独立锚点。
+        /(?:^|[，,。；！？\s])(?:最新|最近|近期|实时|当下)(?:的)?[^。！？!?\r\n]{0,8}(?:信息|消息|新闻|资讯|行情|动态|价格|数据|进展|版本|发布|公告|通知|天气|汇率|股价|排名|情况|走势|报价|更新|状态|报告|文章)/i,
+        /\b(?:check|look\s*up|find\s*out|search|research|google|bing)\b[^.!?\r\n]{0,24}\b(?:latest|recent|current|today'?s|up[-\s]?to[-\s]?date)\b[^.!?\r\n]{0,12}\b(?:news|info(?:rmation)?|updates?|prices?|status|releases?|weather|rates?|scores?|results?|version)\b/i,
+        /\b(?:latest|recent|current|today'?s)\b[^.!?\r\n]{0,12}\b(?:news|updates?|info(?:rmation)?|prices?|status|weather|releases?|rates?)\b/i,
       ]),
-      excluded_input_patterns: Object.freeze([]),
+      excluded_input_patterns: Object.freeze([
+        // 本地文件/图片请求不是联网查找（“查一下最新的文档”“看看最新生成的图”）。
+        /(?:查(?:查|一下|下)?|查询|查找|搜(?:索|一下)?|检索)[^。！？!?\r\n]{0,6}(?:这个|这份|这篇|我的|我们)?(?:文件|文档|附件|图片|照片|截图|图)/i,
+        /(?:查(?:查|一下|下)?|查询|查找|搜(?:索|一下)?|检索)\s*(?:这个|这份|这篇|我的|我们)?\s*(?:报告|文章)/i,
+        /(?:看(?:看|一下)?|了解(?:一下)?)[^。！？!?\r\n]{0,6}(?:这张|那张|这张图|那张图|图片|照片|图)/i,
+        /(?:最新|最近|近期)(?:的)?\s*(?:文件|文档|附件|图片|照片|截图)/i,
+        // “把最新版本发我/下载/安装”要的是已有产物，不是检索。
+        /(?:最新|最近|近期)(?:的)?[^。！？!?\r\n]{0,10}(?:版本|更新|状态|数据|信息)[^。！？!?\r\n]{0,4}(?:发我|发给我|发一下|上传|下载|安装)/i,
+        /\b(?:check|look\s*up|look\s*at)\b[^.!?\r\n]{0,12}\b(?:this|the|my)\s+(?:file|document|image|photo|picture|attachment)\b/i,
+        /\b(?:latest|recent|current)\b[^.!?\r\n]{0,10}\b(?:file|document|image|photo|picture|attachment)\b/i,
+      ]),
     }),
     Object.freeze({
       operation: 'ocr',
@@ -245,19 +262,24 @@
     return RESOURCE_REQUIREMENTS[stringValue(operation)] || Object.freeze([]);
   }
 
+  function directiveMatches(directive = {}, text = '', catalog = []) {
+    if (!directive?.input_patterns?.some(pattern => pattern.test(text))) return false;
+    if (directive.excluded_input_patterns?.some(pattern => pattern.test(text))) return false;
+    if (directive.required_current_resource_type
+        && !catalog.some(candidate => (
+          candidate?.source === 'current'
+          && candidate?.type === directive.required_current_resource_type
+        ))) return false;
+    return true;
+  }
+
   function explicitRouteDirectiveFor({ input = '', candidates = [] } = {}) {
     const text = stringValue(input);
     const catalog = Array.isArray(candidates) ? candidates : [];
     const uploadDirective = currentUploadDirective(text, catalog);
     if (uploadDirective) return uploadDirective;
     for (const directive of EXPLICIT_ROUTE_DIRECTIVES) {
-      if (!directive.input_patterns.some(pattern => pattern.test(text))) continue;
-      if (directive.excluded_input_patterns.some(pattern => pattern.test(text))) continue;
-      if (directive.required_current_resource_type
-          && !catalog.some(candidate => (
-            candidate?.source === 'current'
-            && candidate?.type === directive.required_current_resource_type
-          ))) continue;
+      if (!directiveMatches(directive, text, catalog)) continue;
       return Object.freeze({
         operation: directive.operation,
         relation: directive.relation,
@@ -265,6 +287,19 @@
       });
     }
     return null;
+  }
+
+  // Single fact source for "explicit online lookup" semantics. The web_search
+  // directive's own patterns decide this; consumers must not copy the phrase
+  // lists. An explicit online lookup is a user-language fact ("查查最新信息",
+  // "check the latest news"): the request references information that cannot
+  // exist in offline knowledge, so it is retrieval by definition - not a guess
+  // about user intent.
+  function isExplicitWebLookup(input = '') {
+    const text = stringValue(input);
+    if (!text) return false;
+    const webSearchDirective = EXPLICIT_ROUTE_DIRECTIVES.find(directive => directive.operation === 'web_search');
+    return !!webSearchDirective && directiveMatches(webSearchDirective, text, []);
   }
 
   function ordinalResourceScopeFor({ input = '', type = '', candidates = [] } = {}) {
@@ -825,6 +860,7 @@
     capabilityFor,
     resourceRequirementsFor,
     explicitRouteDirectiveFor,
+    isExplicitWebLookup,
     ordinalResourceScopeFor,
     executionBindingIssues,
     validateExecutionBindings,

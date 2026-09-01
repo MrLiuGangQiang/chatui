@@ -139,7 +139,7 @@ function testRoutePromptDefinesMultiAsIndependentExecutionAndGatesNonImageSplits
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
   assert.match(prompt, /task_shape：multi=多个独立执行/);
-  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/);
+  assert.match(prompt, /图片生成\/编辑任务：multi=多个独立图片结果/);
   assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
   assert.match(prompt, /非图片或跨operation的多个必做步骤.*task_shape=multi.*需要拆分/);
   assert.match(prompt, /operation 填第一个必做步骤.*goal 保留全部任务/);

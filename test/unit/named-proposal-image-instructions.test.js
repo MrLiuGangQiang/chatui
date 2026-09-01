@@ -159,8 +159,8 @@ function testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRaw
     const plannerPayload = requestPayloads.find(request => request.payload.text?.format?.name === 'chatui_image_plan_v1')?.payload;
     assert.ok(plannerPayload, 'the multi-image planner must run after instruction materialization');
     const plannerEnvelope = JSON.parse(plannerPayload.input.find(item => item.role === 'user').content);
-    assert.strictEqual(plannerEnvelope.current_input, undefined,
-      'the planner must not receive the raw conversational selection as executable input');
+    assert.strictEqual(plannerEnvelope.current_input, '按照方案A生成两张不同角度的图',
+      'the planner may receive raw input only as highest-priority fidelity evidence');
     assert.strictEqual(plannerEnvelope.route_goal, SELECTED_OPTION);
     assert.strictEqual(result.imagePlanCompiled.kind, 'batch');
     for (const item of result.imagePlanCompiled.items) {
@@ -200,12 +200,73 @@ function testPipelineRepromptsTheMaterializerWhenItEchoesSourceEvidence() {
 function testPipelineStopsWhenReadyMaterializationStillContainsAConversationReference() {
   return runPipeline({
     input: '按照方案A重新生成',
-    materialization: readyInstruction('按照方案A重新生成'),
+    materialization: [
+      readyInstruction('按照方案A重新生成'),
+      readyInstruction('按照方案A重新生成一次'),
+    ],
   }).then(({ result, requests }) => {
-    assert.deepStrictEqual(requests, ['intent_recognition', 'image_instruction_materialization']);
+    assert.deepStrictEqual(requests, [
+      'intent_recognition',
+      'image_instruction_materialization',
+      'image_instruction_materialization',
+    ]);
     assert.strictEqual(result.dispatchAuthorized, false);
     assert.strictEqual(result.dispatchContract, null);
     assert.strictEqual(result.readiness, 'failed');
+  });
+}
+
+function testPipelineRepromptsMaterializerForCrossTurnStyleReference() {
+  const rawInput = '一只狗的插画，风格与之前生成的猫的插画保持一致，但主体是一只狗。';
+  const finalInstruction = '一只狗的插画，姿态活泼友好，背景简洁，色彩明亮，扁平矢量风格。';
+  return runPipeline({
+    input: rawInput,
+    routeGoal: rawInput,
+    materialization: [
+      readyInstruction(rawInput),
+      readyInstruction(finalInstruction),
+    ],
+  }).then(({ result, requests, requestPayloads }) => {
+    const materializationCalls = requests.filter(request => request === 'image_instruction_materialization');
+    assert.strictEqual(materializationCalls.length, 2,
+      'a cross-turn style reference must trigger one materializer repair round');
+    assert.strictEqual(result.dispatchAuthorized, true);
+    assert.strictEqual(result.dispatchContract.arguments.prompt, finalInstruction);
+    assert.doesNotMatch(result.dispatchContract.arguments.prompt, /之前|上一张|保持一致/);
+    const repairPayload = requestPayloads.filter(request => request.payload.text?.format?.name === 'chatui_image_instruction_v1')[1]?.payload;
+    assert.ok(repairPayload, 'the repair round must carry the rejected instruction as data');
+    const repairEnvelope = JSON.parse(repairPayload.input.find(item => item.role === 'user').content);
+    assert.strictEqual(repairEnvelope.repair.rejection_reason, 'image_instruction_not_standalone');
+    assert.match(repairEnvelope.repair.rejected_instruction, /之前生成的/);
+  });
+}
+
+function testPipelineRepromptsMaterializerForTurnPositionedEditTarget() {
+  const rawInput = '在最近生成的那张猫的插画基础上，将背景替换为雪山前的草地场景。';
+  const finalInstruction = '在这张猫的插画的基础上，将背景替换为雪山前的草地场景。保持猫的主体形象、姿态、表情和插画风格不变。';
+  return runPipeline({
+    operation: 'edit_image',
+    understandingKind: 'image_edit',
+    input: rawInput,
+    attachments: [{ type: 'image/png', image_id: 'target-cat', resource_id: 'res:image:target-cat', name: 'target.png' }],
+    resourceRefs: [{ candidate_key: 'i1', role: 'target' }],
+    routeGoal: rawInput,
+    materialization: [
+      readyInstruction(rawInput),
+      readyInstruction(finalInstruction),
+    ],
+  }).then(({ result, requests, requestPayloads }) => {
+    const materializationCalls = requests.filter(request => request === 'image_instruction_materialization');
+    assert.strictEqual(materializationCalls.length, 2,
+      'a turn-positioned edit target must trigger one materializer repair round');
+    assert.strictEqual(result.dispatchAuthorized, true);
+    assert.strictEqual(result.dispatchContract.arguments.prompt, finalInstruction);
+    assert.doesNotMatch(result.dispatchContract.arguments.prompt, /最近生成|上一张/);
+    const repairPayload = requestPayloads.filter(request => request.payload.text?.format?.name === 'chatui_image_instruction_v1')[1]?.payload;
+    assert.ok(repairPayload, 'the repair round must carry the rejected instruction as data');
+    const repairEnvelope = JSON.parse(repairPayload.input.find(item => item.role === 'user').content);
+    assert.strictEqual(repairEnvelope.repair.rejection_reason, 'image_instruction_not_standalone');
+    assert.match(repairEnvelope.repair.rejected_instruction, /最近生成/);
   });
 }
 
@@ -232,5 +293,7 @@ module.exports = [
   testMultiImageSelectionMaterializesBeforePlanningAndNeverForwardsTheRawReference,
   testPipelineRepromptsTheMaterializerWhenItEchoesSourceEvidence,
   testPipelineStopsWhenReadyMaterializationStillContainsAConversationReference,
+  testPipelineRepromptsMaterializerForCrossTurnStyleReference,
+  testPipelineRepromptsMaterializerForTurnPositionedEditTarget,
   testPipelineStopsWhenInstructionMaterializerNeedsClarification,
 ];

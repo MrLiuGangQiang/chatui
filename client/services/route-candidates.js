@@ -424,14 +424,16 @@
       };
     }
 
-    // Historical image candidates are direct route evidence only when the
-    // current turn is actually about images. A text-only conversation must
-    // not keep stale generated images at the top of the catalog: an
-    // ambiguous anaphoric follow-up ("哪个效果最好") must resolve to the
-    // recent text topic, not to an old image batch. Explicit image
-    // vocabulary, a recent image result, an image focus, or current/quoted
-    // images keep the candidates published.
+    // Current-turn attachments are the highest-priority resource evidence.
+    // Historical media/messages remain available only when the current input
+    // explicitly points back to history, or when the requested resource type is
+    // absent from the current turn and must be recovered from history. This
+    // prevents a first route attempt from making the model choose between a
+    // current upload and unrelated old candidates.
     const EXPLICIT_IMAGE_REFERENCE_PATTERN = /图|图片|照片|画|生成|编辑|修改|改|换|调|修|加|去|删|变|第\s*[0-9一二两三四五六七八九十百千万]+\s*(?:张|幅|个|次)|哪张|这张|那张|这些图|那些图|image|photo/i;
+    const EXPLICIT_HISTORY_REFERENCE_PATTERN = /上一张|上一条|之前的?|此前的?|以前的?|刚才的?|上次的?|前面的?|上面的?|前文|上文|上一轮|历史|引用的?|previous|last|earlier|history/i;
+    const IMAGE_RESOURCE_INPUT_PATTERN = /图|图片|照片|截图|图表|监控图|image|photo|picture/i;
+    const FILE_RESOURCE_INPUT_PATTERN = /文件|文档|合同|报告|pdf|表格|附件|file|document|report/i;
     // After a long text-only topic, old generated images are no longer the
     // subject of an ambiguous follow-up. Only a recent image result (within a
     // few turns) remains a legitimate visual target without explicit wording.
@@ -457,6 +459,32 @@
         if (Number.isInteger(index) && index > latestImageIndex) latestImageIndex = index;
       }
       return latestHistoryIndex - latestImageIndex <= STALE_IMAGE_TURN_GAP;
+    }
+
+    const CHINESE_ORDINAL_DIGITS = Object.freeze({
+      一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+    });
+
+    function ordinalValue(token = '') {
+      if (/^[0-9]+$/.test(token)) return Number(token);
+      const chars = [...String(token)];
+      if (chars.length === 1) return CHINESE_ORDINAL_DIGITS[token] || 0;
+      if (chars[0] === '十') return 10 + (CHINESE_ORDINAL_DIGITS[chars[1]] || 0);
+      if (chars[chars.length - 1] === '十') return (CHINESE_ORDINAL_DIGITS[chars[0]] || 0) * 10;
+      if (chars.length === 3 && chars[1] === '十') {
+        return (CHINESE_ORDINAL_DIGITS[chars[0]] || 0) * 10 + (CHINESE_ORDINAL_DIGITS[chars[2]] || 0);
+      }
+      return 0;
+    }
+
+    // A bare image ordinal ("第2张") names an image by position. When the
+    // ordinal counts past the images attached to the current turn, the referent
+    // cannot live in the current turn and must be recovered from history.
+    function imageOrdinalBeyondCurrentTurn(text = '', currentImageCount = 0) {
+      const match = String(text || '').match(/第\s*([0-9]+|[一二两三四五六七八九十]+)\s*(?:张|幅)/i);
+      if (!match) return false;
+      const value = ordinalValue(match[1]);
+      return Number.isSafeInteger(value) && value > 0 && value > currentImageCount;
     }
 
     function buildResourceCandidates(attachments = [], context = {}, input = '', options = {}) {
@@ -497,9 +525,29 @@
         });
       });
 
-      const directImageCandidates = historicalImageCandidatesRelevant(context, input)
-        ? (Array.isArray(context?.image_candidates) ? context.image_candidates : [])
-        : [];
+      const text = String(input || '').trim();
+      const contextMediaCandidates = [
+        ...(Array.isArray(context?.image_candidates) ? context.image_candidates : []),
+        ...(Array.isArray(context?.file_candidates) ? context.file_candidates : []),
+      ];
+      const currentImageCount = candidates.filter(candidate => candidate?.type === 'image' && candidate?.source === 'current').length
+        + contextMediaCandidates.filter(candidate => candidate?.type === 'image' && candidate?.source === 'current').length;
+      const currentFileCount = candidates.filter(candidate => candidate?.type === 'file' && candidate?.source === 'current').length
+        + contextMediaCandidates.filter(candidate => candidate?.type === 'file' && candidate?.source === 'current').length;
+      const hasCurrentTurnMedia = currentImageCount + currentFileCount > 0;
+      const explicitHistoricalReference = EXPLICIT_HISTORY_REFERENCE_PATTERN.test(text);
+      const allowHistoricalResources = !hasCurrentTurnMedia || explicitHistoricalReference;
+      const allowHistoricalImages = allowHistoricalResources
+        || imageOrdinalBeyondCurrentTurn(text, currentImageCount)
+        || (currentImageCount === 0 && IMAGE_RESOURCE_INPUT_PATTERN.test(text));
+      const allowHistoricalFiles = allowHistoricalResources
+        || (currentFileCount === 0 && FILE_RESOURCE_INPUT_PATTERN.test(text));
+      const directImageCandidates = (Array.isArray(context?.image_candidates) ? context.image_candidates : [])
+        .filter(item => {
+          const source = String(item?.source || item?.route_source || '').trim();
+          if (source === 'current' || source === 'quoted') return true;
+          return allowHistoricalImages && historicalImageCandidatesRelevant(context, input);
+        });
       directImageCandidates.forEach((item, index) => {
         add('image', item, { source: normalizedSource(item?.source, 'history'), index: index + 1 });
       });
@@ -511,11 +559,15 @@
             .map(candidate => ({ ...candidate, memory_retrieval: 'clarification' })),
           metadata: null,
         }
-        : selectImageMemoryCards(input, allMemoryCards, context, candidates);
+        : allowHistoricalImages
+          ? selectImageMemoryCards(input, allMemoryCards, context, candidates)
+          : { cards: [], metadata: null };
       memorySelection.cards.forEach((item, index) => {
         add('image', item, { source: normalizedSource(item?.source, 'history'), index: Number(item?.memory_index) || index + 1 });
       });
       (Array.isArray(context?.file_candidates) ? context.file_candidates : []).forEach((item, index) => {
+        const source = String(item?.source || item?.route_source || '').trim();
+        if (source !== 'current' && source !== 'quoted' && !allowHistoricalFiles) return;
         add('file', item, { source: normalizedSource(item?.source, 'history'), index: index + 1 });
       });
 
@@ -530,6 +582,7 @@
           quoteId && messageId && quoteId === messageId
           || Number.isInteger(quoteIndex) && quoteIndex >= 1 && quoteIndex === Number(message?.index || index + 1)
         );
+        if (!isQuote && !allowHistoricalResources) return;
         add('message', message, { source: isQuote ? 'quoted' : 'history', index: Number(message?.index) || index + 1 });
       });
       if (quote && !candidates.some(candidate => candidate.type === 'message' && candidate.source === 'quoted')) {

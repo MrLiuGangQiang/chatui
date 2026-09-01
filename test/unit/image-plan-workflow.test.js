@@ -118,8 +118,8 @@ async function testMultiImageRouteRequestsSecondPlanningCallAndCompilesBatch() {
     assert.strictEqual(calls.some(call => call.payload.text?.format?.name === 'chatui_image_instruction_v1'), false,
       'the canonical route goal is already standalone, so materialization must not make an extra request');
     const planningInput = JSON.parse(calls[2].payload.input[1].content);
-    assert.strictEqual(planningInput.current_input, undefined,
-      'the multi-image planner must consume the canonical route goal instead of a raw conversational request');
+    assert.strictEqual(planningInput.current_input, '分别生成一只猫、一只狗、一只鸟',
+      'the planner must retain the current input as the highest-priority fidelity evidence');
     assert.strictEqual(planningInput.route_goal, route.userGoal,
       'the planner must receive the route model’s canonical task goal on the fast path');
     assert.strictEqual(route.taskShape, 'multi');

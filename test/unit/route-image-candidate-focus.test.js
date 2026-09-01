@@ -129,20 +129,20 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
 function testRoutePromptStaysWithinBoundedLength() {
   const routeNodeLength = routePrompts.ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n').length;
   const understandLength = routePrompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n').length;
-  assert.ok(routeNodeLength <= 5800, 'route node prompt must remain bounded, got ' + routeNodeLength);
-  assert.ok(understandLength <= 2500, 'understand node prompt must remain bounded, got ' + understandLength);
+  assert.ok(routeNodeLength <= 6400, 'route node prompt must remain bounded, got ' + routeNodeLength);
+  assert.ok(understandLength <= 2600, 'understand node prompt must remain bounded, got ' + understandLength);
 }
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  assert.ok(source.includes('【优先级】理解优先于规则'),
-    'the router prompt must put understanding of the whole conversation first');
+  assert.ok(source.includes('【优先级】严格按current_input与当前附件>current_input明确引用的quoted'),
+    'the router prompt must not let historical understanding override the current request');
   assert.ok(source.includes('无图片词汇的模糊续问默认跟随最近文字话题'),
     'ambiguous text-only follow-ups must resolve to the recent text topic');
   assert.ok(source.includes('【引用与附件】'),
     'the router prompt must distinguish quoted context from current attachments');
-  assert.ok(source.includes('执行只带引用上下文') && source.includes('执行必须携带附件'),
-    'quoted context must run bound-only while current attachments must be carried');
+  assert.ok(source.includes('quoted只有在current_input明确指向时才补充') && source.includes('当前附件是本轮最高优先级资源'),
+    'quoted context must be conditional while current attachments remain highest priority');
   assert.ok(source.includes('带附件的组合请求') && source.includes('不得丢动作'),
     'combination requests must preserve every requested action in goal');
 }

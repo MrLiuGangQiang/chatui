@@ -1,12 +1,17 @@
 (function initChatUIIntentClaims(root, factory) {
   'use strict';
 
-  const api = factory();
+  const capabilityRegistry = root?.[Symbol.for('chatui.module-registry.v1')]?.get('capabilityRegistry')
+    || root?.ChatUICapabilityRegistry
+    || (typeof require === 'function' ? require('./capability-registry') : {});
+  const api = factory(capabilityRegistry);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   const registry = root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry');
   if (registry?.register) registry.register('intentClaims', api);
-})(typeof globalThis !== 'undefined' ? globalThis : this, function createChatUIIntentClaims() {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function createChatUIIntentClaims(capabilityRegistry) {
   'use strict';
+
+  capabilityRegistry = capabilityRegistry || {};
 
   const INTENT_CLAIMS_VERSION = 'intent_claims.v1';
   const ORDINAL_DIGITS = Object.freeze({
@@ -108,6 +113,20 @@
     return historical && textTask && !visual && !file;
   }
 
+  // Explicit online lookups. A chat model cannot answer a "最新/最近 + 信息类
+  // 名词" request without web access, so the request itself is a deterministic
+  // web_search fact, not a semantic guess. The capability registry's
+  // web_search directive is the single source of truth for this phrasing; this
+  // claim only publishes that fact as model evidence and never re-implements
+  // the phrase lists.
+  const isExplicitWebLookup = typeof capabilityRegistry.isExplicitWebLookup === 'function'
+    ? capabilityRegistry.isExplicitWebLookup
+    : () => false;
+
+  function hasWebSearchRequest(input = '') {
+    return isExplicitWebLookup(input);
+  }
+
   function extractClaims(input = '') {
     const text = stringValue(input);
     const claims = [];
@@ -132,6 +151,15 @@
         text,
         critical: true,
         value: Object.freeze({ operation: 'image_qa' }),
+      }));
+    }
+    if (hasWebSearchRequest(text)) {
+      claims.push(Object.freeze({
+        id: 'web_search_request',
+        type: 'web_search_request',
+        text,
+        critical: true,
+        value: Object.freeze({ operation: 'web_search' }),
       }));
     }
     if (hasIndependentOutputClaim(text)) {
@@ -168,6 +196,7 @@
     explicitExclusions,
     hasExplicitComparison,
     hasImageRankingQuestion,
+    hasWebSearchRequest,
     hasIndependentOutputClaim,
     isHistoricalTextQuestion,
     extractClaims,

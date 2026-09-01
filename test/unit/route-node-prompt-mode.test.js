@@ -84,7 +84,6 @@ async function testCoTPathUsesCompactRouteNodePrompt() {
     for (const call of routeCalls) {
       assert.strictEqual(systemPromptOf(call), routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
         'the CoT path must send the compact route-node prompt, not the full standalone prompt');
-      assert.notStrictEqual(systemPromptOf(call), FULL_PROMPT);
     }
     const repairCall = harness.calls.find(call => call.name === 'chatui_route_repair_v1'
       && (call.payload?.input || []).some(message => String(message.content).includes('repair_request')));
@@ -131,7 +130,6 @@ async function testFailedUnderstandingFallsBackToFullRouteNodePrompt() {
     assert.strictEqual(routeCalls.length, 1, 'a failed understand node must run the route node once without evidence');
     assert.strictEqual(systemPromptOf(routeCalls[0]), routeService.ROUTE_NODE_SYSTEM_PROMPT,
       'the standalone fallback after a failed understand node must use the full prompt');
-    assert.notStrictEqual(systemPromptOf(routeCalls[0]), routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT);
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;
@@ -141,14 +139,14 @@ async function testFailedUnderstandingFallsBackToFullRouteNodePrompt() {
 function testCompactPromptCarriesTheCoTMappingContract() {
   assert.strictEqual(routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT, prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
     'route-service must re-export the compact prompt without divergence');
-  assert.ok(COMPACT_PROMPT.length <= 2500, `compact CoT route prompt must stay bounded, got ${COMPACT_PROMPT.length}`);
+  assert.ok(COMPACT_PROMPT.length <= 6400, `complex-path route prompt must stay bounded, got ${COMPACT_PROMPT.length}`);
   assert.match(COMPACT_PROMPT, /route_intent\.v3/);
   assert.match(COMPACT_PROMPT, /context\.understanding/);
   assert.match(COMPACT_PROMPT, /image_generate→text_to_image/,
     'the CoT prompt must map understanding action kinds onto operations');
-  assert.match(COMPACT_PROMPT, /understanding\.dependency[^。；]*候选/,
-    'the CoT prompt must treat understanding.dependency as evidence, not the final relation');
-  assert.match(COMPACT_PROMPT, /quoted 正文作事实[^。；]*followup/,
+  assert.match(COMPACT_PROMPT, /understanding\.dependency[^。；]*(候选|证据)/,
+    'the complex-path prompt must treat understanding.dependency as evidence, not the final relation');
+  assert.match(COMPACT_PROMPT, /quoted\s*正文作事实[^。；]*followup/,
     'the CoT prompt must re-check the relation rules instead of trusting dependency blindly');
   assert.match(COMPACT_PROMPT, /压过“继续”语义/);
   assert.match(COMPACT_PROMPT, /【goal_mode】/);
@@ -158,13 +156,18 @@ function testCompactPromptCarriesTheCoTMappingContract() {
   assert.match(COMPACT_PROMPT, /不得把资源选择的对话控制语当\s*goal/);
   assert.match(COMPACT_PROMPT, /短视觉约束紧接图片设计/,
     'the compact prompt must keep the image-design delta guardrail');
-  assert.doesNotMatch(COMPACT_PROMPT, /P1名称\/索引/,
-    'the standalone candidate-selection rules must not leak into the CoT prompt');
-  assert.doesNotMatch(COMPACT_PROMPT, /【图片交付事实】/,
-    'the standalone delivery-evidence rule must not leak into the CoT prompt');
-  assert.doesNotMatch(COMPACT_PROMPT, /quoted正文作事实也followup/,
-    'the CoT prompt must not re-derive relation from scratch');
-  assert.ok(COMPACT_PROMPT.length < FULL_PROMPT.length, 'the CoT prompt must be strictly smaller than the standalone prompt');
+  // Regression: a slimmed CoT prompt that omitted the standalone resource and
+  // delivery families measurably misrouted complex turns (merge->edit,
+  // style_reference->reference, undelivered visual constraints). The complex
+  // path must carry the complete decision set, so these families are present.
+  assert.match(COMPACT_PROMPT, /P1名称\/索引/,
+    'the complex path must keep the candidate-selection rules');
+  assert.match(COMPACT_PROMPT, /【图片交付事实】/,
+    'the complex path must keep the delivery-evidence rule');
+  assert.match(COMPACT_PROMPT, /quoted\s*正文作事实也\s*followup/,
+    'the CoT prompt must preserve the current-input-first quoted relation boundary');
+  assert.strictEqual(COMPACT_PROMPT, FULL_PROMPT,
+  'the complex path must carry the complete rule set (COMPACT == FULL)');
 }
 
 async function testEmptyUnderstandingActionsDropToFullRoutePrompt() {
@@ -196,7 +199,6 @@ async function testEmptyUnderstandingActionsDropToFullRoutePrompt() {
     assert.ok(routeCall, 'the route node must still run after an empty understanding output');
     assert.strictEqual(systemPromptOf(routeCall), routeService.ROUTE_NODE_SYSTEM_PROMPT,
       'valid-but-empty understanding actions are not usable evidence and must fall back to the full prompt');
-    assert.notStrictEqual(systemPromptOf(routeCall), routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT);
   } finally {
     if (previous === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previous;

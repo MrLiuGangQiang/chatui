@@ -8,6 +8,7 @@ const routeIntent = require('../../shared/route-intent');
 const dispatchContract = require('../../shared/dispatch-contract');
 const chatService = require('../../client/services/chat-service');
 const chatWorkflow = require('../../client/app/chat-workflow');
+const routeIntentWorkflow = require('../../client/app/route-intent-workflow');
 const routeService = require('../../client/services/route-service');
 const { normalizeWebSearchJobError } = require('../../server/jobs/chat');
 
@@ -28,6 +29,153 @@ function testExplicitWebSearchDirectiveRecognizesDirectRequests() {
     relation: 'new',
     resource_scope: 'none',
   });
+}
+
+function testExplicitWebSearchDirectiveRecognizesLatestLookupPhrasings() {
+  for (const input of [
+    '查查最新信息',
+    '帮我查查最新的GPT信息',
+    '查一下最近的消息',
+    '看看最新新闻',
+    '了解下最近的行情',
+    '查查最新天气',
+    '查查最新版本',
+    '最近有什么新闻',
+    '最新消息',
+    '查查最新的房价报告',
+    'check the latest news',
+    'look up the latest prices',
+    'what is the latest news',
+  ]) {
+    const directive = capabilityRegistry.explicitRouteDirectiveFor({ input, candidates: [] });
+    assert.deepStrictEqual(directive, {
+      operation: 'web_search',
+      relation: 'new',
+      resource_scope: 'none',
+    }, `explicit online lookup must map to web_search: ${input}`);
+  }
+}
+
+function testExplicitWebSearchDirectiveExcludesLocalFileAndImageLookups() {
+  for (const input of [
+    '查一下最新的文档',
+    '查查文件里的最新信息',
+    '看看最新生成的图',
+    '查查这个报告',
+    '查查这份报告',
+    '把最新版本发我',
+    '下载最新版本',
+    '现在状态不错',
+    '今天天气很好',
+    '解释一下什么是闭包',
+    '检查一下代码里的变量',
+    '查一下这个文件',
+    '把第二张图改成黑白',
+    '画一只狗',
+  ]) {
+    const directive = capabilityRegistry.explicitRouteDirectiveFor({ input, candidates: [] });
+    assert.ok(!directive || directive.operation !== 'web_search',
+      `local/statement phrasing must not map to web_search: ${input}`);
+  }
+}
+
+function testWebSearchRequestClaimIsExtractedForExplicitLatestLookups() {
+  const claims = require('../../shared/intent-claims');
+  const extracted = claims.extractClaims('查查最新信息');
+  assert.ok(extracted.some(claim => claim.type === 'web_search_request' && claim.critical === true),
+    'an explicit latest-info lookup must publish a critical web_search_request claim');
+  assert.ok(extracted.some(claim => claim.value.operation === 'web_search'));
+  assert.ok(!claims.extractClaims('画一只狗').some(claim => claim.type === 'web_search_request'));
+  assert.ok(!claims.extractClaims('查一下最新的文档').some(claim => claim.type === 'web_search_request'));
+}
+
+function testWebSearchClaimAndDirectiveStayOneFactSource() {
+  const claims = require('../../shared/intent-claims');
+  const samples = [
+    '查查最新信息', '帮我查查最新的GPT信息', '查一下最近的消息', '看看最新新闻',
+    '了解下最近的行情', '查查最新天气', '查查最新版本', '最近有什么新闻', '最新消息',
+    '查查最新的房价报告', 'check the latest news', 'look up the latest prices',
+    '查一下最新的文档', '查查文件里的最新信息', '看看最新生成的图', '查查这个报告',
+    '把最新版本发我', '下载最新版本', '现在状态不错', '今天天气很好', '解释一下什么是闭包',
+    '检查一下代码里的变量', '查一下这个文件', '画一只狗', '把第二张图改成黑白',
+  ];
+  for (const sample of samples) {
+    const directiveOperation = capabilityRegistry.explicitRouteDirectiveFor({ input: sample, candidates: [] })?.operation || '';
+    const claimed = claims.hasWebSearchRequest(sample);
+    assert.strictEqual(claimed, directiveOperation === 'web_search',
+      `the web_search_request claim must agree with the capability directive: ${sample}`);
+  }
+}
+
+function testRouteCompilerKeepsExplicitLookupAsWebSearchWhenModelSaysPlainChat() {
+  for (const input of ['查查最新信息', '请联网搜索最新的人工智能新闻']) {
+    const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+      operation: 'plain_chat',
+      relation: 'new',
+      goal: input,
+      task_shape: 'single',
+      resource_refs: [],
+    }), {
+      input,
+      attachments: [],
+      context: {},
+    });
+    assert.ok(inspected.route, inspected.reason || inspected.error || 'route compilation failed');
+    assert.strictEqual(inspected.route.operationType, 'web_search',
+      `an explicit lookup must not be downgraded to plain_chat: ${input}`);
+    assert.strictEqual(inspected.route.dispatchContract.operation, 'web_search');
+    assert.strictEqual(inspected.route.needClarification, false);
+  }
+  const localFileLookup = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'plain_chat',
+    relation: 'new',
+    goal: '查一下最新的文档',
+    task_shape: 'single',
+    resource_refs: [],
+  }), {
+    input: '查一下最新的文档',
+    attachments: [],
+    context: {},
+  });
+  assert.strictEqual(localFileLookup.route.operationType, 'plain_chat',
+    'a local file lookup must keep the model operation');
+}
+
+async function testWorkflowDispatchesExplicitLatestLookupAsWebSearch() {
+  const previousServices = globalThis.ChatUIRouteService;
+  globalThis.ChatUIRouteService = routeService;
+  const requests = [];
+  try {
+    const workflow = routeIntentWorkflow.createRouteIntentWorkflow({
+      state: { mode: 'chat', autoMode: true, sessions: [], messages: [] },
+      getConfig: () => ({ baseUrl: 'https://gateway.example/v1', apiKey: 'test-key', routeModel: 'route-model', chatModel: 'route-model' }),
+      getSessionRouteModel: () => 'route-model',
+      getSessionChatModel: () => 'route-model',
+      buildRouteAttachmentMetadata: items => items,
+      requestJson: async (_url, payload, _apiKey, options = {}) => {
+        requests.push(options.requestPurpose);
+        if (payload?.text?.format?.name === 'chatui_route_intent_v3') {
+          return { output_text: JSON.stringify({
+            operation: 'plain_chat',
+            relation: 'new',
+            goal: '查查最新信息',
+            goal_mode: 'replace',
+            resource_refs: [],
+            task_shape: 'single',
+          }) };
+        }
+        throw new Error(`unexpected structured request: ${payload?.text?.format?.name || '<missing>'}`);
+      },
+    });
+    const result = await workflow.getEffectiveRoute('查查最新信息', [], 'session-1', null, {});
+    assert.deepStrictEqual(requests, ['intent_recognition'], 'the explicit lookup must stay a single route-model call');
+    assert.strictEqual(result.operationType, 'web_search');
+    assert.strictEqual(result.dispatchContract.operation, 'web_search');
+    assert.strictEqual(result.dispatchAuthorized, true);
+  } finally {
+    if (previousServices === undefined) delete globalThis.ChatUIRouteService;
+    else globalThis.ChatUIRouteService = previousServices;
+  }
 }
 
 function testResponsesPayloadAddsOnlyTheAuthorizedWebSearchTool() {
@@ -238,6 +386,12 @@ function testRouteCompilerAcceptsWebSearchIntentWithoutResourceClarification() {
 module.exports = [
   testWebSearchCapabilityIsRegistered,
   testExplicitWebSearchDirectiveRecognizesDirectRequests,
+  testExplicitWebSearchDirectiveRecognizesLatestLookupPhrasings,
+  testExplicitWebSearchDirectiveExcludesLocalFileAndImageLookups,
+  testWebSearchRequestClaimIsExtractedForExplicitLatestLookups,
+  testWebSearchClaimAndDirectiveStayOneFactSource,
+  testRouteCompilerKeepsExplicitLookupAsWebSearchWhenModelSaysPlainChat,
+  testWorkflowDispatchesExplicitLatestLookupAsWebSearch,
   testResponsesPayloadAddsOnlyTheAuthorizedWebSearchTool,
   testOrdinaryChatCannotInjectWebSearchTool,
   testChatWorkflowForcesResponsesForAuthorizedWebSearch,

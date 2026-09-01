@@ -87,7 +87,7 @@ function testWrongImageOperationIsNotLocallyChangedToFileQa() {
   assert.deepStrictEqual(result.route.resources, []);
 }
 
-function testModelHistoricalImageBindingIsNotDiscardedByCurrentFileRules() {
+function testUnstatedHistoricalImageBindingIsRejectedWhenCurrentFileExists() {
   const result = routeService.inspectModelRouteResult(JSON.stringify({
     operation: 'image_qa',
     relation: 'followup',
@@ -103,13 +103,10 @@ function testModelHistoricalImageBindingIsNotDiscardedByCurrentFileRules() {
   assert.ok(result.route, result.error || result.reason);
   assert.strictEqual(result.route.operationType, 'image_qa');
   assert.strictEqual(result.route.relation, 'followup');
-  assert.deepStrictEqual(result.route.resources.map(resource => ({
-    type: resource.type,
-    id: resource.id,
-    source: resource.source,
-  })), [{ type: 'image', id: 'history-image-1', source: 'history' }]);
-  assert.doesNotMatch(result.route.dispatchContract.arguments.prompt, /^\[execution_semantic_context\.v1\]/);
-  assert.strictEqual(result.route.dispatchContract.arguments.prompt, '这是什么');
+  assert.strictEqual(result.route.readiness, 'needs_clarification');
+  assert.strictEqual(result.route.dispatchAuthorized, false);
+  assert.deepStrictEqual(result.route.resources, [],
+    'a model cannot bind an omitted historical image when a current file is the only current resource');
 }
 
 function testExplicitPreviousImageQuestionStillUsesModelSelectedHistory() {
@@ -138,6 +135,6 @@ function testExplicitPreviousImageQuestionStillUsesModelSelectedHistory() {
 module.exports = [
   testModelCanBindTheSingleCurrentFileForADeicticQuestion,
   testWrongImageOperationIsNotLocallyChangedToFileQa,
-  testModelHistoricalImageBindingIsNotDiscardedByCurrentFileRules,
+  testUnstatedHistoricalImageBindingIsRejectedWhenCurrentFileExists,
   testExplicitPreviousImageQuestionStillUsesModelSelectedHistory,
 ];

@@ -23,7 +23,7 @@ function testQuotedFactsOverrideContinuationSemantics() {
   assert.ok(quotedFollowup >= 0, 'quoted fact grounding must be explicitly classified as followup');
   assert.ok(continuation >= 0, 'the route contract must define continuation');
   assert.ok(quotedFollowup < continuation, 'quoted grounding must take precedence over continuation wording');
-  assert.match(prompt, /quoted正文作事实也followup，压过继续语义/);
+  assert.match(prompt, /quoted正文作事实也followup[\s\S]*压过“继续”语义/);
   assert.match(prompt, /2 continuation=无1且明确仍是同一任务\/主题\/设计维度的继续、重复、重试或下一项，且非quoted/);
 }
 
@@ -79,7 +79,7 @@ function testComposableSameApiRequirementsRemainOneTaskShape() {
     'task shape must describe independent executions, not the number of resources');
   assert.match(prompt, /task_shape：multi=多个独立执行/,
     'multi must represent multiple independent executions across task types');
-  assert.match(prompt, /对于可直接执行的图片生成\/编辑任务，multi=多个独立图片结果/,
+  assert.match(prompt, /图片生成\/编辑任务：multi=多个独立图片结果/,
     'only image generation and editing may turn multi into a directly executable image batch');
   assert.match(prompt, /非图片或跨operation的多个必做步骤.*需要拆分.*不会进入图片规划或授权图片批次/,
     'non-image or cross-operation multi requests must be marked for splitting, not image planning');

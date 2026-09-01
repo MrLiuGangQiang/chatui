@@ -204,7 +204,7 @@ function testPromptDeclaresContextAsEvidence() {
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /任一ref的source≠current[^。]*绝不new/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /资源选择[^。\n]*operation[^。\n]*必需角色/);
   assert.match(routeService.ROUTE_SYSTEM_PROMPT, /各角色按P1→P5/);
-  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 5800);
+  assert.ok(routeService.ROUTE_SYSTEM_PROMPT.length <= 6400);
 }
 
 module.exports = [

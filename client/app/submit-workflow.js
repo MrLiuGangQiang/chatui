@@ -468,6 +468,20 @@
             if(typeof isRouteFailureOutcome==="function"&&isRouteFailureOutcome(routeOutcome)){
               const message=String(routeInfo?.outcomeMessage||routeInfo?.clarificationQuestion||"本次路由未完成，请重试。");
               const routeFailure=new Error(message);routeFailure.code=String(routeInfo?.evidence||"ROUTE_OUTCOME_FAILURE");routeFailure.routeOutcome=routeOutcome;
+              // A budget-exhausted routing round is a terminal failure of this
+              // task, not a transient condition. The stored clarification must
+              // not keep the consumed provider-attempt ledger, or every retry
+              // would inherit it and fail again before the task can complete.
+              if(routeInfo?.evidence==="model_calls_exceeded"){
+                let resetLedger=!1;
+                [targetSession?.pendingClarification,sessionForReply?.pendingClarification,storedPending].forEach(host=>{
+                  const hostRoute=host?.routeInfo;
+                  if(hostRoute&&typeof hostRoute==="object"&&Object.isExtensible(hostRoute)&&(Object.prototype.hasOwnProperty.call(hostRoute,"modelAttemptLedger")||Object.prototype.hasOwnProperty.call(hostRoute,"modelCalls"))){
+                    delete hostRoute.modelAttemptLedger;delete hostRoute.modelCalls;resetLedger=!0
+                  }
+                });
+                resetLedger&&saveSessionsMeta?.();
+              }
               return finishPreflightReply(message,{metaText:routeInfo?.retryable===!0?"可重试":"未发送到执行模型",terminalEvent:taskEvents.TASK_FAILED,error:routeFailure})
             }
             const routeRelation=String(routeInfo?.relation||"new");

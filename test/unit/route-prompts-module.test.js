@@ -265,7 +265,7 @@ function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
     'vague edits must ask instead of guessing a target');
   assert.match(simple, /当前输入已自足且未明确指向历史时历史同义正文不绑/,
     'self-contained inputs must not over-bind historical message evidence');
-  assert.match(simple, /message_index大者更新，模糊指代选最大/,
+  assert.match(simple, /消息序号大者更新，模糊指代选最大/,
     'candidate recency rules must stay on the simple path');
   assert.match(simple, /“不使用旧图”不改operation\/goal_mode/,
     'negated resource policies must not rewrite operation/goal_mode');

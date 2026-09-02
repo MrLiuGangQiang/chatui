@@ -46,7 +46,8 @@ function testMessageCandidatesCarryTheirMessageIndexAsRecencySignal() {
 
 function testRoutePromptDeclaresRecencyPriorityAsAGeneralRule() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /message_index大者更新/);
+  assert.match(prompt, /消息序号大者更新/,
+    'the recency rule must describe the ordering signal without exposing the wire field name');
   assert.match(prompt, /模糊指代[^。\n]*选最大/);
   // 必须是通用机制，而不是针对具体失败句式打的补丁。
   assert.doesNotMatch(prompt, /基于这个生成图片|鲨鱼|提示词文本/,

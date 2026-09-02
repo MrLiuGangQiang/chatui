@@ -182,6 +182,7 @@
     INTENT_CRITIC_SYSTEM_PROMPT,
   } = routePromptsModule.createRoutePromptSet({
     imagePlanAbsoluteMaxTasks: IMAGE_PLAN_ABSOLUTE_MAX_TASKS,
+    imagePlanMaxTasks: IMAGE_PLAN_MAX_TASKS,
   });
 
   // ── Schema versions ─────────────────────────────────────────────

@@ -296,9 +296,15 @@ function executionGoalMatchesExpectation(caseDefinition = {}, actual = "") {
   const expected = caseDefinition.expected || {};
   const rawInput = scalar(caseDefinition.input).trim();
   const execution = executionGoalForEvaluation(scalar(actual));
+  // The chat dispatch layer always sends the raw user input as the provider
+  // prompt (normalizeRouteDraft pins arguments.prompt to current_input), so a
+  // chat routing goal is evidence for the route, not the wire instruction.
+  // Accept the raw input verbatim or a faithful restatement that satisfies
+  // the same concept/forbidden-word contract as any other chat goal.
   if (!expected.clarification?.required
       && CHAT_EXECUTION_OPERATIONS.has(expected.operation)
-      && rawInput) return execution === rawInput;
+      && rawInput
+      && execution === rawInput) return true;
   return goalMatchesExpectation(expected.goal, execution);
 }
 

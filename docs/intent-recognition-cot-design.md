@@ -11,8 +11,8 @@
 - Phase 2：复杂路径路由使用独立的 `ROUTE_NODE_SYSTEM_PROMPT`，并把 `understanding` 作为已解析证据注入路由 payload；relation 规则保持节点内聚。
 - Phase 3：理解节点输出无效、路由输出无效、plan 不忠实均各做一次 `reasons[]` 定向修复重试，仍失败则失败关闭；路由节点新增确定性语义校验，覆盖 `relation=new` 与非 current 资源矛盾、quoted 证据必须 followup（new/continuation 都要修）、`amend` 无前序 base、单 action 的 operation 与 kind 映射不一致，并对主模型与 fallback 模型统一执行同一套校验+修复路径。
 - Phase 4：`multiTaskPlan` 持久化；规划 1:1 忠实性校验。
-- Phase 5 提示词部分：`UNDERSTAND_SYSTEM_PROMPT` 现在完整声明 `intent_understanding.v1` 输出、kind 闭集、按独立结果拆分 action 的规则与完整示例（≤2600 字符）；`ROUTE_NODE_SYSTEM_PROMPT` 完整声明 `route_intent.v3` 输出与正反示例（≤6400 字符）；简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词。
-- Phase 5b：路由节点提示词按复杂/简单两条路径组织。复杂路径（理解证据存在）的 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT` 与完整版 `ROUTE_NODE_SYSTEM_PROMPT` 共享同一份完整规则集（≤6400 字符，含 operation 边界、资源角色、relation 1-4、交付事实与正反示例；理解节点只补充动作/指代/依赖证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由）；简单路径（复杂度门判定无附件/引用/指代/多动作）走独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（≤4000 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/多资源段落）；理解节点失败或输出空动作时同样回退完整规则集。
+- Phase 5 提示词部分：`UNDERSTAND_SYSTEM_PROMPT` 现在完整声明 `intent_understanding.v1` 输出、kind 闭集、按独立结果拆分 action 的规则与完整示例（≤2800 字符）；`ROUTE_NODE_SYSTEM_PROMPT` 完整声明 `route_intent.v3` 输出与正反示例（≤7400 字符）；简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词。
+- Phase 5b：路由节点提示词按复杂/简单两条路径组织。复杂路径（理解证据存在）的 `ROUTE_NODE_SYSTEM_PROMPT_COMPACT` 与完整版 `ROUTE_NODE_SYSTEM_PROMPT` 共享同一份完整规则集（≤7400 字符，含 operation 边界、资源角色、relation 1-4、交付事实与正反示例；理解节点只补充动作/指代/依赖证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由）；简单路径（复杂度门判定无附件/引用/指代/多动作）走独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（≤4400 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/多资源段落）；理解节点失败或输出空动作时同样回退完整规则集。
 - 多图兜底：即使理解模型把多图请求合并为一条 action，Shape Compiler 仍按原文显式**输出结果数量**提升到 image_plan，并有端到端回归测试。`explicitImageResultCount` 只识别输出结果单位（生成/改成 N 张、视图枚举、分别枚举），不会把“参考两张图生成一张新图”的输入图或“两只猫”的画面主体误判成多个结果；数量期望与修复门禁对简单路径和 CoT 路径一致生效；显式输出结果数超过 `image_plan` 结构上限（50）时，在调用规划器前由本地护栏确定性失败关闭（按产品上限提示分批），不再把模型无法满足的数量交给规划器。
 - Phase 5c 执行可观测性：修复轮不再与主识别共用 `intent_recognition`。`route_repair`、`route_fallback`、`multi_task_planning`、`image_planning` 成为独立 requestPurpose，服务端校验白名单与 access audit 同步；修复轮把 `reasons[].code` 以 `repair_reasons` 写入 `access.ndjson`（仅稳定 code，无正文）。
 - 依赖一致性：`reconcileUnderstandingDependency` 在 route payload 物化前把 quoted/非 current 资源等本地事实优先于 `understanding.dependency` 落定，避免 CoT 路径出现“照抄 dependency”与“quoted→followup 校验”互相矛盾导致的修复轮空转/fallback。
@@ -22,7 +22,7 @@
 待办（后续轮次）：
 
 - 细粒度修复已覆盖确定性矛盾；goal 自洽、遗漏动作等更高层语义修复仍待后续。
-- 复杂路径（COMPACT）与完整版共享完整规则集（≤6400 字符），不再单独压缩；简单路径用独立精简版（≤4000，质量优先，不删任何可达规则；仅移除复杂度门证明不可达的 quoted/指代/多资源段落）。后续仍可在真实模型 eval 证明语义无损后继续收窄。
+- 复杂路径（COMPACT）与完整版共享完整规则集（≤7400 字符），不再单独压缩；简单路径用独立精简版（≤4400，质量优先，不删任何可达规则；仅移除复杂度门证明不可达的 quoted/指代/多资源段落）。后续仍可在真实模型 eval 证明语义无损后继续收窄。
 - 理解节点偶发失败或输出合法但 `actions=[]` 时，均视为不可用证据并回退完整版路由节点；继续用真实模型 eval 收敛。
 - fallback 模型当前仍与主模型共用相同的 ≤2 轮语义修复预算（选项 D 的差异化预算待评估）。
 
@@ -258,7 +258,7 @@ goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解�
 | 【任务选择优先】 / 【歧义与空输入】 | 节点0 确定性规则 + 节点2 兜底（去掉“选第一个”） |
 | `MULTI_TASK_PLAN_SYSTEM_PROMPT` | 节点4 规划 |
 
-每个节点提示词目标 `≤1500–2500` 字符，并放一个完整输出示例。例外：简单路径提示词以识别质量为硬约束，保留全部可达规则（≤4000 字符）；理解节点按 `≤2600` 执行；复杂路径（COMPACT）与完整版共享完整规则集（≤6400 字符）——理解节点只补充证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由。
+每个节点提示词目标 `≤1500–2500` 字符，并放一个完整输出示例。例外：简单路径提示词以识别质量为硬约束，保留全部可达规则（≤4400 字符）；理解节点按 `≤2800` 执行；复杂路径（COMPACT）与完整版共享完整规则集（≤7400 字符）——理解节点只补充证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由。
 
 ## 11. 回归与评估
 

@@ -2,7 +2,6 @@
   'use strict';
 
   const UNVERIFIED_IMAGE_DELIVERY_QUERY_PATTERN = /^(?:图片呢|图呢|图片在哪里|图在哪里|还没(?:看到|收到)图片|没有(?:看到|收到)图片|结果呢|结果在哪里|发图了吗|图片还没来)[。！？!?\s]*$/i;
-  const SHORT_VISUAL_CONSTRAINT_PATTERN = /(?:堂屋|户型|平面图|入户门|双开门|门口|背景|构图|布局|颜色|色调|材质|风格|尺寸|比例|中央|镜像|对称|通行|家具|卧室|餐厅|卫生间)/i;
   const DEFAULT_IMAGE_GENERATION_INTENT_PATTERN = /(?:生成|画|绘制|制作|创建|\bgenerate\b|\bdraw\b|\bcreate\b)/i;
 
   function createRouteSemanticNormalizer({
@@ -45,7 +44,8 @@
       if (previousState && typeof renderTaskContinuity === 'function') return stringValue(renderTaskContinuity(previousState));
       if (stringValue(previous.resolved_goal || previous.input)) return stringValue(previous.resolved_goal || previous.input);
       const messages = recentUserMessages(options.context).reverse();
-      return messages.find(message => isImageGenerationIntent(message) || SHORT_VISUAL_CONSTRAINT_PATTERN.test(message)) || '';
+      // Fall back to an explicit generation request only. A domain-noun list is not a reliable signal that the conversation had a visual task.
+      return messages.find(message => isImageGenerationIntent(message)) || '';
     }
 
     function comparableImageTaskText(value = '') {
@@ -136,14 +136,16 @@
           || goalModeForIntentSafe(intent) === 'amend'
           || !text
           || text.length > 80
-          || !SHORT_VISUAL_CONSTRAINT_PATTERN.test(text)
           || isImageGenerationIntent(text)
           || stringValue(intent.relation) !== 'followup') return intent;
       const previousGoal = previousImageTaskGoal(options);
       const currentGoal = stringValue(intent.goal);
       if (!previousGoal || !currentGoal || currentGoal.length > 160
           || /(?:重新设计|完整重做|从头|新主题|新的方案|改为新的)/i.test(currentGoal)) return intent;
-      if (currentGoal.includes(previousGoal) || previousGoal.includes(currentGoal)) {
+      // Compare with punctuation and whitespace stripped so a model goal that already carries the base subject is not duplicated again.
+      const comparableCurrent = comparableImageTaskText(currentGoal);
+      const comparablePrevious = comparableImageTaskText(previousGoal);
+      if (comparableCurrent.includes(comparablePrevious) || comparablePrevious.includes(comparableCurrent)) {
         return { ...intent, goal: `${previousGoal}；${text}`.slice(0, goalLimit) };
       }
       return { ...intent, goal: `${previousGoal}；${currentGoal}`.slice(0, goalLimit) };
@@ -186,17 +188,17 @@
     }
 
     // The model is the primary semantic recognizer. This reconciler repairs a
-    // model proposal only when stronger evidence exists in the current user
-    // turn or verified conversation state. It never uses a weak keyword hit to
-    // replace a plausible model interpretation.
+    // model proposal only when stronger structured evidence exists in the
+    // current user turn or verified conversation state. A prior visual task is
+    // identified by previous_execution.operation or an explicit generation
+    // verb, never by a domain-noun whitelist.
     function reconcileModelIntent(intent = {}, options = {}, candidateCatalog = []) {
       let next = { ...intent };
       const input = stringValue(options.input || options.current_input);
       const previousExecution = options.context?.previous_execution || null;
       const priorUsers = recentUserMessages(options.context);
-      const hasPriorVisualTask = priorUsers.some(message => (
-        isImageGenerationIntent(message) || SHORT_VISUAL_CONSTRAINT_PATTERN.test(message)
-      ));
+      const hasPriorVisualTask = relationOperations.has(stringValue(previousExecution?.operation))
+        || priorUsers.some(message => isImageGenerationIntent(message));
       const imageOperation = relationOperations.has(stringValue(next.operation));
 
       const evidence = options.context?.delivery_evidence || {};
@@ -221,7 +223,6 @@
           && imageOperation
           && stringValue(next.relation) === 'continuation'
           && input.length <= 80
-          && SHORT_VISUAL_CONSTRAINT_PATTERN.test(input)
           && !isImageGenerationIntent(input)) {
         next = { ...next, relation: 'followup' };
       }

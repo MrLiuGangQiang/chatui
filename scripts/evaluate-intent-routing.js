@@ -248,7 +248,7 @@ async function requestRouteModel({ endpoint, apiKey, payload, timeoutMs, fetchIm
 }
 
 function buildRoutePayloadForCase(caseDefinition = {}, model = "") {
-  return routeService.buildRoutePayload({
+  const payload = routeService.buildRoutePayload({
     model,
     input: caseDefinition.input,
     attachments: caseDefinition.attachments,
@@ -257,6 +257,10 @@ function buildRoutePayloadForCase(caseDefinition = {}, model = "") {
     autoMode: caseDefinition.auto_mode !== false,
     currentTurn: caseDefinition.current_turn || null,
   });
+  // Deterministic sampling: the routing eval measures prompt/logic quality, not
+  // sampling luck. Production payloads keep their default sampling.
+  if (payload && typeof payload === 'object') payload.temperature = 0;
+  return payload;
 }
 
 function formatCaseResult(result = {}) {

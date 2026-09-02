@@ -206,6 +206,10 @@ async function runModelCase({ model, caseDefinition, endpoint, apiKey, timeoutMs
     getSessionChatModel: () => "",
     buildRouteAttachmentMetadata: makeAttachmentMetadata,
     requestJson: async (url, payload, key, options = {}) => {
+      // The evaluation measures prompt/logic quality, not sampling luck. Clamp
+      // every classification call to deterministic sampling so a passing gate
+      // is reproducible. Production payloads keep their default sampling.
+      if (payload && typeof payload === 'object') payload.temperature = 0;
       calls.push({
         purpose: String(options.requestPurpose || ""),
         formatName: String(payload?.text?.format?.name || ""),

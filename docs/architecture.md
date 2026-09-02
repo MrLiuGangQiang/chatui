@@ -351,9 +351,9 @@ GET /
 
 意图识别已按“理解 → 路由 → 校验/修复”节点流水线运行，以 `docs/intent-recognition-cot-design.md` 为唯一参考设计。节点级提示词已拆分：
 
-- `UNDERSTAND_SYSTEM_PROMPT` 输出 `intent_understanding.v1`（`schema_version`/`dependency`/`actions` 单一契约，含完整示例，≤2600 字符）；提示词只把理解结果作为低优先级证据，不授予 operation、relation 或资源的最终裁决权；
-- `ROUTE_NODE_SYSTEM_PROMPT` 输出 `route_intent.v3`（含完整示例与 relation/goal_mode/资源角色正反示例，≤6400 字符）；
-- 复杂路径（理解证据存在）与完整版共享同一份完整规则集：`ROUTE_NODE_SYSTEM_PROMPT_COMPACT` 与 `ROUTE_NODE_SYSTEM_PROMPT` 相同（≤6400 字符，含 operation 边界、资源角色、relation 1-4、交付事实与正反示例；理解节点只补充动作/指代/依赖证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由）；简单路径使用独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（≤4000 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/多资源段落）；理解节点失败或输出空动作时同样回退完整规则集；
+- `UNDERSTAND_SYSTEM_PROMPT` 输出 `intent_understanding.v1`（`schema_version`/`dependency`/`actions` 单一契约，含完整示例，≤2800 字符）；提示词只把理解结果作为低优先级证据，不授予 operation、relation 或资源的最终裁决权；
+- `ROUTE_NODE_SYSTEM_PROMPT` 输出 `route_intent.v3`（含完整示例与 relation/goal_mode/资源角色正反示例，≤7400 字符）；
+- 复杂路径（理解证据存在）与完整版共享同一份完整规则集：`ROUTE_NODE_SYSTEM_PROMPT_COMPACT` 与 `ROUTE_NODE_SYSTEM_PROMPT` 相同（≤7400 字符，含 operation 边界、资源角色、relation 1-4、交付事实与正反示例；理解节点只补充动作/指代/依赖证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由）；简单路径使用独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（≤4400 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/多资源段落）；理解节点失败或输出空动作时同样回退完整规则集；
 - 简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词；
 - 理解节点结构化输出 schema 与提示词同源：不使用 OpenAI 不支持的数值边界关键字，声明且必填的字段与提示词一致（无消费者的 `ordering`/`verb` 已从契约移除）；
 - 路由节点新增确定性语义校验：对 `relation=new` 与非 current 资源矛盾、quoted 证据必须 followup（new/continuation 均修复）、`amend` 无前序 base、单 action 的 operation 与 kind 映射不一致给出字段级 reasons 并做有界定向修复；主模型与 fallback 模型共用同一校验+修复路径；业务澄清与图片指令物化不参与该修复。

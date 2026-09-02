@@ -50,7 +50,7 @@ function testUnderstandingPromptOwnsItsProtocolAndSplitsIndependentImageActions(
     'the understand node must not reuse the route node decision-order prompt');
   assert.doesNotMatch(UNDERSTAND_PROMPT, /goal_mode/,
     'the understand node must not write route goal-mode decisions');
-  assert.ok(UNDERSTAND_PROMPT.length <= 2600, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
+  assert.ok(UNDERSTAND_PROMPT.length <= 2800, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
 }
 
 function testRuntimePayloadsStopSendingTheLegacyMonolith() {

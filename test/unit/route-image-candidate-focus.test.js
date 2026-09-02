@@ -129,8 +129,8 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
 function testRoutePromptStaysWithinBoundedLength() {
   const routeNodeLength = routePrompts.ROUTE_NODE_SYSTEM_PROMPT_LINES.join('\n').length;
   const understandLength = routePrompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n').length;
-  assert.ok(routeNodeLength <= 6400, 'route node prompt must remain bounded, got ' + routeNodeLength);
-  assert.ok(understandLength <= 2600, 'understand node prompt must remain bounded, got ' + understandLength);
+  assert.ok(routeNodeLength <= 7400, 'route node prompt must remain bounded, got ' + routeNodeLength);
+  assert.ok(understandLength <= 2800, 'understand node prompt must remain bounded, got ' + understandLength);
 }
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {

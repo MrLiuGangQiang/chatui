@@ -573,6 +573,9 @@ function testGoalScoringRecognizesEnumeratedIndependentResults() {
   const fixture = caseById(suite, 'multi-edit-two-current-images');
   const result = evaluation.goalMatchesExpectation(fixture.expected.goal, '将第一张图片改成黑白并保持原有构图；将第二张图片改成黑白并保持原有构图');
   assert.strictEqual(result, true, 'explicit first/second result clauses semantically cover two independent results');
+  const amendmentFixture = caseById(suite, 'multi-text-to-image-amendment-keeps-shared-prior-specification');
+  const cardinalPair = evaluation.goalMatchesExpectation(amendmentFixture.expected.goal, '生成两张材质方案：一张日间自然光效果，一张夜间暖光效果');
+  assert.strictEqual(cardinalPair, true, 'cardinal "one ... one ..." distribution is the same semantic claim as 分别/各自');
 }
 
 module.exports = [

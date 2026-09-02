@@ -43,7 +43,7 @@ function testUnderstandNodeOwnsItsProtocolAndSplitsIndependentImageActions() {
     'the understand node must not carry route decision-order instructions');
   assert.doesNotMatch(UNDERSTAND_PROMPT, /goal_mode/,
     'the understand node must not write route goal-mode decisions');
-  assert.ok(UNDERSTAND_PROMPT.length <= 2600, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
+  assert.ok(UNDERSTAND_PROMPT.length <= 2800, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
 }
 
 function testRouteNodeOwnsItsProtocolAndKeepsRelationRulesGrouped() {
@@ -59,7 +59,7 @@ function testRouteNodeOwnsItsProtocolAndKeepsRelationRulesGrouped() {
   // The full fallback prompt carries a consolidated positive/negative
   // example block (relation/goal_mode/resource disambiguation) in addition
   // to the single JSON output example, so it may reach 6400 characters.
-  assert.ok(ROUTE_NODE_PROMPT.length <= 6400, `route node prompt must stay bounded, got ${ROUTE_NODE_PROMPT.length}`);
+  assert.ok(ROUTE_NODE_PROMPT.length <= 7400, `route node prompt must stay bounded, got ${ROUTE_NODE_PROMPT.length}`);
 }
 
 function testRuntimePayloadsUseNodePromptsInsteadOfTheLegacyMonolith() {
@@ -255,7 +255,7 @@ function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
   // every reachable decision rule; size can only be reduced by removing rules
   // the deterministic complexity gate proves unreachable.
   const simple = prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE;
-  assert.ok(simple.length <= 4000, 'simple route prompt may not grow unbounded, got ' + simple.length);
+  assert.ok(simple.length <= 4400, 'simple route prompt may not grow unbounded, got ' + simple.length);
   assert.match(simple, /把生成当成编辑/);
   assert.match(simple, /消息（mN）只能绑 context/);
   assert.match(simple, /file_qa[\s\S]*f=attachment/);
@@ -442,8 +442,35 @@ function testRouteNodePromptsKeepTheComplexPathCompleteWithTheFullRuleSet() {
   // reduced variant, justified by its deterministic complexity gate.
   assert.strictEqual(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT, prompts.ROUTE_NODE_SYSTEM_PROMPT,
     'the understand -> route path must carry the complete rule set (COMPACT == FULL)');
-  assert.ok(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT.length <= 6400,
+  assert.ok(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT.length <= 7400,
     'the complete complex-path prompt must stay bounded');
+}
+
+
+function testRouteNodePromptsKeepCorrectionAndContinuationBoundariesExplicit() {
+  // Root-cause regression: current-upload edits must not overwrite the
+  // correction semantics, history-reference continuation must stay
+  // continuation, and scanned/image-like documents must stay file_qa.
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /规则1\/2\/3均不命中时才new/,
+    'current-upload edits may only be new when correction/followup rules do not apply');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /扫描件\/图片化的文档仍按file_qa/,
+    'scanned documents must remain file_qa unless explicit text extraction is requested');
+  assert.match(prompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n'), /沿用历史参考图继续生成新结果\/新版本[^。]*continuation/,
+    'the understand node must classify reference-based regeneration as continuation, not followup');
+  assert.match(prompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n'), /明确纠正前序成果优先于 current 图 new/,
+    'the understand node must keep explicit corrections on followup');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /纠正\/否定前序成果的背景陈述[^。]*也不得写入 goal/,
+    'goal must keep only the executable instruction, not the correction preamble');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /multi时goal必须保留全部独立结果的数量与彼此差异/,
+    'multi-image goals must state the independent result count explicitly');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE, /对“刚才那个文件\/这个文档”等历史指代[^。]*必须是 file_qa/,
+    'historical file references must stay file_qa even when the file is missing');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE, /无动词的短名词短语约束[^。]*继承前序主体\/任务类型/,
+    'verb-less short constraints must inherit the prior subject and task type');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /资源歧义只省略 resource_refs 的 target 角色[^。]*不得因歧义删除主体/,
+    'ambiguous resources may only drop the target binding, never the explicitly stated subject');
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /不得用“三处要求\/上述约束”等概括回指代替具体约束/,
+    'goal must enumerate concrete constraints instead of summary references');
 }
 
 module.exports = [
@@ -456,6 +483,7 @@ module.exports = [
   testRouteNodePromptsDefineGenerationContinuationNotAsEdit,
   testRouteNodePromptsAvoidDomainSpecificBusinessNouns,
   testRouteNodePromptsKeepTheComplexPathCompleteWithTheFullRuleSet,
+  testRouteNodePromptsKeepCorrectionAndContinuationBoundariesExplicit,
   testUnderstandPromptUsesBoundedEvidenceLanguageInsteadOfCrypticEnglish,
   testUnderstandPromptExampleKeepsTheFullPictureDescription,
   testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization,

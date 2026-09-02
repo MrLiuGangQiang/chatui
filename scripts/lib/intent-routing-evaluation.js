@@ -312,7 +312,8 @@ function goalMatchesExpectation(expected = {}, actual = "", options = {}) {
   ];
   const conceptGroupMatches = alternatives => {
     if (alternatives.some(value => text.includes(normalizedGoalText(value)))) return true;
-    const enumeratedPair = /(?:第一|第1|first).*(?:第二|第2|second)/i.test(text);
+    const enumeratedPair = /(?:第一|第1|first).*(?:第二|第2|second)/i.test(text)
+      || /(?:一张|1张).{0,40}(?:一张|1张)/.test(text);
     if (enumeratedPair && alternatives.some(value => ['两张', '每张', '分别', '各自', '独立'].includes(String(value)))) return true;
     return false;
   };

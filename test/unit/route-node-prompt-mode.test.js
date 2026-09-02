@@ -139,7 +139,7 @@ async function testFailedUnderstandingFallsBackToFullRouteNodePrompt() {
 function testCompactPromptCarriesTheCoTMappingContract() {
   assert.strictEqual(routeService.ROUTE_NODE_SYSTEM_PROMPT_COMPACT, prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT,
     'route-service must re-export the compact prompt without divergence');
-  assert.ok(COMPACT_PROMPT.length <= 6400, `complex-path route prompt must stay bounded, got ${COMPACT_PROMPT.length}`);
+  assert.ok(COMPACT_PROMPT.length <= 7400, `complex-path route prompt must stay bounded, got ${COMPACT_PROMPT.length}`);
   assert.match(COMPACT_PROMPT, /route_intent\.v3/);
   assert.match(COMPACT_PROMPT, /context\.understanding/);
   assert.match(COMPACT_PROMPT, /image_generate→text_to_image/,

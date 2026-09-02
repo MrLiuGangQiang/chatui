@@ -136,7 +136,78 @@ function testRouteServiceUsesSemanticNormalizerWithoutReembeddingRulesOrGlobals(
   assert.strictEqual(typeof routeService.inspectModelRouteResult, 'function');
 }
 
+function testSemanticReconcilerInheritsPriorVisualSubjectWithoutDomainKeywords() {
+  const normalizer = createNormalizer();
+  const cases = [
+    { input: '戴帽子的猫', goal: '戴帽子的猫' },
+    { input: '把门改窄一点', goal: '把门改窄一点' },
+    { input: '天花板加个吊灯', goal: '天花板加个吊灯' },
+  ];
+  for (const item of cases) {
+    const result = normalizer.reconcileModelIntent({
+      operation: 'text_to_image', relation: 'continuation', goal: item.goal, goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+    }, {
+      input: item.input,
+      context: { previous_execution: { operation: 'text_to_image', resolved_goal: '一只坐在窗台上的猫' } },
+    });
+    assert.strictEqual(result.relation, 'followup', item.input + ' must repair continuation to followup');
+    assert.strictEqual(result.goal, '一只坐在窗台上的猫；' + item.goal, item.input + ' must inherit the prior subject without a domain-noun whitelist');
+  }
+}
+
+function testSemanticReconcilerUsesStructuredPreviousExecutionWithoutMessageScan() {
+  const normalizer = createNormalizer();
+  const result = normalizer.reconcileModelIntent({
+    operation: 'text_to_image', relation: 'continuation', goal: '戴帽子的猫', goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }, {
+    input: '戴帽子的猫',
+    context: { previous_execution: { operation: 'edit_image', resolved_goal: '一张海报' } },
+  });
+  assert.strictEqual(result.relation, 'followup', 'a prior visual execution must count as structured evidence');
+  assert.strictEqual(result.goal, '一张海报；戴帽子的猫', 'the prior visual subject must survive even when recent user messages are absent');
+}
+
+function testSemanticReconcilerDoesNotInheritForNonVisualFollowups() {
+  const normalizer = createNormalizer();
+  for (const input of ['谢谢', '价格呢', '好的']) {
+    const result = normalizer.reconcileModelIntent({
+      operation: 'plain_chat', relation: 'followup', goal: '礼貌性回复', goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+    }, {
+      input,
+      context: { previous_execution: { operation: 'text_to_image', resolved_goal: '一只猫' } },
+    });
+    assert.strictEqual(result.operation, 'plain_chat', input + ' must stay plain chat');
+    assert.strictEqual(result.goal, '礼貌性回复', input + ' must not inherit the prior visual goal');
+  }
+}
+
+function testSemanticReconcilerKeepsContinuationWithoutPriorVisualEvidence() {
+  const normalizer = createNormalizer();
+  const result = normalizer.reconcileModelIntent({
+    operation: 'text_to_image', relation: 'continuation', goal: '戴帽子的猫', goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }, { input: '戴帽子的猫', context: {} });
+  assert.strictEqual(result.relation, 'continuation', 'without prior visual evidence the model relation must survive');
+  assert.strictEqual(result.goal, '戴帽子的猫', 'without prior visual evidence the goal must not be rewritten');
+}
+function testSemanticReconcilerDoesNotDuplicateAnAlreadyMergedVisualConstraint() {
+  const normalizer = createNormalizer();
+  const result = normalizer.reconcileModelIntent({
+    operation: 'text_to_image', relation: 'followup',
+    goal: '生成一张住宅户型平面图，中央设置堂屋，堂屋正中的入户双开门',
+    goal_mode: 'replace', resource_refs: [], task_shape: 'single',
+  }, {
+    input: '堂屋正中的入户双开门',
+    context: { previous_execution: { operation: 'text_to_image', resolved_goal: '生成一张住宅户型平面图，中央设置堂屋。' } },
+  });
+  assert.strictEqual(result.goal, '生成一张住宅户型平面图，中央设置堂屋。；堂屋正中的入户双开门',
+    'a model goal that already contains the prior base must not be duplicated');
+}
 module.exports = [
+  testSemanticReconcilerDoesNotDuplicateAnAlreadyMergedVisualConstraint,
+  testSemanticReconcilerInheritsPriorVisualSubjectWithoutDomainKeywords,
+  testSemanticReconcilerUsesStructuredPreviousExecutionWithoutMessageScan,
+  testSemanticReconcilerDoesNotInheritForNonVisualFollowups,
+  testSemanticReconcilerKeepsContinuationWithoutPriorVisualEvidence,
   testSemanticNormalizerPreservesFirstAmendmentClause,
   testSemanticReconcilerRepairsOnlyStrongEvidence,
   testSemanticReconcilerMovesQuotedTextOnlyGenerationToTextToImage,

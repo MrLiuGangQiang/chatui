@@ -2,7 +2,10 @@ const fs = require('fs');
 const path = require('path');
 
 const RELEASE_FILE_PATTERN = /^v(\d+)\.(\d+)\.(\d+)\.md$/i;
-const MAX_RELEASE_FILES = 100;
+// Keep the v1.10.4 platform-overview baseline inside the served changelog:
+// each new release adds a file, and api-contract.test.js requires the baseline
+// to remain reachable (it fails when a new release pushes it past the cap).
+const MAX_RELEASE_FILES = 200;
 const MAX_RELEASE_BYTES = 512 * 1024;
 
 function versionParts(version) {

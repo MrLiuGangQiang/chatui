@@ -494,8 +494,9 @@ async function testStandaloneImageGenerationUsesTheIntentModel() {
     assert.strictEqual(calls[0].text?.format?.name, 'chatui_route_intent_v3');
     assert.strictEqual(calls.some(payload => payload.text?.format?.name === 'chatui_image_instruction_v1'), false,
       'standalone new text-to-image must not invoke redundant instruction materialization');
-    assert.strictEqual(route.dispatchContract.arguments.prompt, '画一只鸟',
-      'the provider receives the route model’s canonical standalone instruction directly');
+    assert.strictEqual(route.dispatchContract.arguments.prompt, '画一只鸡',
+      'the provider receives the user’s self-contained standalone instruction; a model goal that silently renames the subject must not be executed');
+    assert.strictEqual(route.userGoal, '画一只鸟');
     assert.strictEqual(route.operationType, 'text_to_image');
     assert.strictEqual(route.relation, 'new');
     assert.strictEqual(routeService.isRouteDispatchable(route), true);

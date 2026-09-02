@@ -37,7 +37,14 @@
   const LEGACY_ROUTE_INTENT_FIELDS = ROUTE_INTENT_V1_FIELDS;
   const RESOURCE_REF_FIELDS = Object.freeze(['candidate_key', 'role']);
   const ROUTE_INTENT_MAX_RESOURCE_REFS = 16;
-  const ROUTE_INTENT_MAX_GOAL_LENGTH = 1000;
+  // route_intent.v3 goal is the model's resolved instruction. The old fixed
+  // 1000-char cap silently truncated long, provider-ready image prompts and
+  // made faithful "echo the current input" routes invalid. The local bound is
+  // aligned with the image task-continuity rendering ceiling (16000) so direct
+  // generation prompts are never cut merely because they are long; the strict
+  // provider wire schema strips length keywords anyway (see
+  // strictStructuredOutputProviderSchema) and enforces no such cap.
+  const ROUTE_INTENT_MAX_GOAL_LENGTH = 16000;
 
   const ROUTE_INTENT_RESPONSE_FORMAT = Object.freeze({
     type: 'json_schema',

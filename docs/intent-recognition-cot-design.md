@@ -147,14 +147,14 @@ actions > 1 且包含非图片 operation       → 非图片multi → 节点4 mu
 
 ### 5.3 goal 物化
 
-goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解指代、合并明确约束，不写候选键/资源ID，不增加未提主体/场景/风格，不写分析、理由、operation、澄清问题。
+goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解指代、合并明确约束，不写候选键/资源ID，不增加未提主体/场景/风格，不写分析、理由、operation、澄清问题；goal 本地上限为 16000（与 `task_continuity` 渲染上限一致）并移除旧的 1000 字符截断。
 
 路由 goal 是路由证据，不是聊天类的线上指令：chat 执行 prompt 由派发层从用户原文确定（`web_search` 见 5.3.1 的检索词例外）。因此评测契约（`executionGoalMatchesExpectation`）接受与用户输入逐字一致、或满足同一概念/禁词契约的忠实转述，不要求聊天类 goal 逐字等于用户输入。
 
 ### 5.3.1 provider prompt 规则（保留）
 
 - chat 系操作（`plain_chat` / `file_qa` 等）保留原文输入；任务选择回合用计划 task goal 作为 provider prompt。`web_search` 例外：`executionPromptForIntent` 对 followup 或短输入（≤24 字符）发送路由 goal 作为归一化检索词，避免省略式追问丢失继承主题，仅对自足的较长新请求保留原文输入。
-- `text_to_image` 使用 `task_continuity` 渲染后的完整任务状态；`edit_image` 只发送当前编辑指令（目标图承载视觉基线）；`image_reference_gen` 建立 replacement 状态；
+- `text_to_image` 使用 `task_continuity` 渲染后的完整任务状态；其中自足直接生成（`new + replace + 无绑定`且 `current_input` 已完整可执行）以用户原文建立该状态，route goal 仅作 `userGoal` 路由元数据，禁止用浓缩转写替代原文丢细节；`edit_image` 只发送当前编辑指令（目标图承载视觉基线）；`image_reference_gen` 建立 replacement 状态；
 - `image_instruction` 自足快路径（完整 goal 不再二次物化）保留；
 
 ## 6. 统一错误分类与自我修复协议

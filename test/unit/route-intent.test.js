@@ -85,7 +85,7 @@ function testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles() {
 
 function testRouteIntentRequiresANonEmptyBoundedGoal() {
   const maxGoalLength = routeIntent.ROUTE_INTENT_MAX_GOAL_LENGTH;
-  assert.strictEqual(maxGoalLength, 1000);
+  assert.ok(maxGoalLength > 1000, 'goal cap must no longer truncate long provider-ready prompts at 1000 chars');
   assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '' })), false);
   assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '   ' })), false);
   assert.strictEqual(routeIntent.hasExactRouteIntent(intent({ goal: '目'.repeat(maxGoalLength) })), true);

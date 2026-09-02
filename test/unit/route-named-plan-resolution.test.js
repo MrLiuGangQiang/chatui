@@ -98,7 +98,7 @@ function testInstructionPayloadSeparatesEvidenceFromTheProviderInstruction() {
   assert.strictEqual(envelope.current_input, undefined);
   assert.strictEqual(envelope.provisional_instruction, undefined);
   const system = payload.input.find(item => item.role === 'system').content;
-  assert.match(system, /绝不要把user_request_evidence原文照抄、引用、前置或附加/);
+  assert.match(system, /instruction必须完整保留current_input中用户明确写出的对象、数量、顺序、否定\/排除与全部细节/);
   assert.match(system, /这个品种/);
 }
 

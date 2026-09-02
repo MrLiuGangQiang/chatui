@@ -129,10 +129,12 @@ function testExplicitNewImageTaskDoesNotInheritThePreviousGoal() {
     resource_refs: [],
   }, '不要原来的住宅要求，从零开始生成赛博朋克咖啡店。', context);
 
-  assert.ok(route.executionPrompt.endsWith(newGoal));
-  assert.ok(route.dispatchContract.arguments.prompt.endsWith(newGoal));
+  // A direct generation request is executed from the user's own wording so
+  // explicit constraints survive; the route goal stays routing metadata.
+  assert.strictEqual(route.executionPrompt, '不要原来的住宅要求，从零开始生成赛博朋克咖啡店。');
+  assert.strictEqual(route.dispatchContract.arguments.prompt, '不要原来的住宅要求，从零开始生成赛博朋克咖啡店。');
   assert.ok(!route.executionPrompt.includes(baseGoal) && !route.dispatchContract.arguments.prompt.includes(baseGoal),
-    'an explicit new image task must not inherit the previous task goal, even when raw input is preserved in a semantic envelope');
+    'an explicit new image task must not inherit the previous task goal');
 }
 
 function testRoutePromptSeparatesTextGoalInheritanceFromOldImageReference() {

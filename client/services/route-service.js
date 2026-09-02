@@ -90,7 +90,7 @@
     ROUTE_INTENT_VERSION = 'route_intent.v3',
     ROUTE_INTENT_RESPONSE_FORMAT,
     ROUTE_INTENT_MAX_RESOURCE_REFS = 16,
-    ROUTE_INTENT_MAX_GOAL_LENGTH = 1000,
+    ROUTE_INTENT_MAX_GOAL_LENGTH = 16000,
     routeIntentResponseFormatForCandidates,
     hasExactRouteIntent,
     hasExactLegacyRouteIntentV2,
@@ -847,7 +847,7 @@
 
   function exactCurrentInputGoalConstraint(input = '', context = {}, resourceCatalog = []) {
     const goal = stringValue(input);
-    if (!goal || goal.length > ROUTE_INTENT_MAX_GOAL_LENGTH) return [];
+    if (!goal) return [];
     const hasHistoricalState = !!(
       context?.quoted_message
       || context?.pending_task
@@ -1673,6 +1673,28 @@
     return goalMode;
   }
 
+  // A self-contained direct text_to_image request ("new" + replace + no bound
+  // resources) is already a complete provider prompt written by the user. The
+  // route model's goal must not replace it with a summarized paraphrase: any
+  // rewrite can silently drop explicit details, and the image provider can only
+  // draw what it actually receives. The model goal stays available as routing
+  // metadata (userGoal), but the execution/task text keeps the user's own
+  // wording. Vague generation requests ("生成一张图") stay on the model goal
+  // because their concrete content is supplied by resolved context instead.
+  function directSelfContainedImagePrompt(intent = {}, options = {}) {
+    if (stringValue(intent.operation) !== 'text_to_image') return '';
+    if (stringValue(intent.relation) !== 'new') return '';
+    if (goalModeForIntent(intent) !== 'replace') return '';
+    if (Array.isArray(intent.resource_refs) && intent.resource_refs.length) return '';
+    const input = stringValue(options.input || options.current_input);
+    if (!input) return '';
+    if (typeof hasUnresolvedImageInstructionReference === 'function'
+        && hasUnresolvedImageInstructionReference(input)) return '';
+    if (typeof isInsufficientTextToImageRequest === 'function'
+        && isInsufficientTextToImageRequest(input)) return '';
+    return input;
+  }
+
   function imageTaskContinuityForIntent(intent = {}, options = {}) {
     const operation = stringValue(intent.operation);
     const goalMode = goalModeForIntent(intent);
@@ -1692,19 +1714,22 @@
     if (typeof transitionTaskContinuity !== 'function' || typeof renderTaskContinuity !== 'function') {
       throw new TypeError('Task continuity protocol is unavailable');
     }
-    const goal = stringValue(intent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
+    const goal = stringValue(intent.goal);
+    const directPrompt = directSelfContainedImagePrompt(intent, options);
+    const executionText = directPrompt || goal;
+    const normalizedGoal = !directPrompt && goalMode === 'amend' && !modelOwnsRouteSemantics(options)
+      ? normalizeImageAmendmentGoal(goal, options)
+      : executionText;
     return transitionTaskContinuity({
       goalMode,
-      goal: goalMode === 'amend' && !modelOwnsRouteSemantics(options)
-        ? normalizeImageAmendmentGoal(goal, options)
-        : goal,
+      goal: normalizedGoal,
       previousExecution: options.context?.previous_execution || null,
     });
   }
 
   function resolvedImageGoalForIntent(intent = {}, options = {}, taskState = null) {
     const operation = stringValue(intent.operation);
-    const goal = stringValue(intent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
+    const goal = stringValue(intent.goal);
     if (!IMAGE_TASK_STATE_OPERATIONS.has(operation)) return goal;
     const state = taskState || imageTaskContinuityForIntent(intent, options);
     return renderTaskContinuity(state);
@@ -2217,7 +2242,7 @@
       );
       effectiveIntent = reconcileQuotedMessageBinding(effectiveIntent, { ...scopedOptions, candidateCatalog });
       effectiveIntent = reconcileExplicitWebSearchDirective(effectiveIntent, scopedOptions);
-      const goal = stringValue(effectiveIntent.goal).slice(0, ROUTE_INTENT_MAX_GOAL_LENGTH);
+      const goal = stringValue(effectiveIntent.goal);
       const goalMode = goalModeForIntent(effectiveIntent);
       const taskState = imageTaskContinuityForIntent(effectiveIntent, options);
       const resolvedImageGoal = resolvedImageGoalForIntent(effectiveIntent, options, taskState);

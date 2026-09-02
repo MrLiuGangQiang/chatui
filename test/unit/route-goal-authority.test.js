@@ -59,8 +59,35 @@ function testTextToImageParametersComeOnlyFromTheRawUserTurn() {
 
   assert.strictEqual(route.needClarification, false);
   assert.strictEqual(Object.hasOwn(route.dispatchContract.arguments, 'count'), false, 'count is no longer an image argument');
-  assert.strictEqual(route.executionPrompt, '画一位中国美女和一位俄罗斯美女。');
-  assert.strictEqual(route.dispatchContract.arguments.prompt, '画一位中国美女和一位俄罗斯美女。');
+  // A direct, self-contained generation request is already a complete provider
+  // prompt. The route summary is advisory routing metadata (userGoal) and must
+  // never replace the user's own wording, otherwise explicit details (here the
+  // two subjects and the “两张图” count) are silently lost.
+  assert.strictEqual(route.executionPrompt, input);
+  assert.strictEqual(route.dispatchContract.arguments.prompt, input);
+  assert.strictEqual(route.contextualImagePrompt, input);
+  assert.strictEqual(route.userGoal, '画一位中国美女和一位俄罗斯美女。');
+}
+
+function testDirectLongImagePromptIsNotReplacedByShorterRouteGoal() {
+  // Regression gate: a long, provider-ready image prompt (> old 1000-char route
+  // goal cap) must survive routing. The route model may return a shorter goal
+  // for recognition metadata, but the final execution prompt has to keep the
+  // user's complete original wording with every explicit constraint.
+  const marker = '保持橘猫坐在窗台上，晨光从左侧洒入，木地板反射暖光，背景是灰蓝色旧城区屋顶';
+  const input = `生成一张写实插画：${marker}，画面禁止出现文字、水印、边框、模糊、畸形、额外肢体；构图干净，8K。${String('细节').repeat(200)}`;
+  const route = inspect({
+    operation: 'text_to_image',
+    relation: 'new',
+    goal: '生成一张写实插画。',
+    resource_refs: [],
+  }, input);
+  assert.strictEqual(route.needClarification, false);
+  assert.ok(String(route.executionPrompt).includes(marker), 'long direct image prompt must keep user constraints verbatim');
+  assert.strictEqual(String(route.executionPrompt), input, 'self-contained direct generation must execute the raw user prompt');
+  assert.strictEqual(String(route.dispatchContract.arguments.prompt), input);
+  assert.strictEqual(String(route.contextualImagePrompt), input);
+  assert.strictEqual(route.userGoal, '生成一张写实插画。');
 }
 
 function testConversationDependentTextTaskKeepsRawUserInputAsProviderPrompt() {
@@ -120,6 +147,26 @@ function testResourceResolvedChatKeepsRawUserInputAsProviderPrompt() {
   assert.strictEqual(route.dispatchContract.arguments.prompt, input);
   assert.strictEqual(route.userGoal, goal);
 }
+
+function testRouteGoalOverOneThousandCharsIsValidWhenItFaithfullyCarriesTheUserPrompt() {
+  // Regression gate for removing the old 1000-char route-goal truncation: a
+  // faithful long echo (a provider-ready prompt longer than the old cap) must
+  // parse as a valid route and still execute the full user text.
+  const detail = String('细节').repeat(700);
+  const input = `生成一张超写实插画：${detail}`;
+  assert.ok(input.length > 1000, 'test input must exceed the removed legacy goal cap');
+  const route = inspect({
+    operation: 'text_to_image',
+    relation: 'new',
+    goal: input,
+    resource_refs: [],
+  }, input);
+  assert.strictEqual(route.needClarification, false);
+  assert.strictEqual(String(route.executionPrompt), input);
+  assert.strictEqual(String(route.dispatchContract.arguments.prompt), input);
+  assert.strictEqual(route.userGoal, input);
+}
+
 function testRoutePromptForbidsInventingUnrequestedCreativeDetails() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /只消解指代[^。\n]*合并明确约束/);
@@ -185,6 +232,8 @@ module.exports = [
   testWebSearchUsesResolvedGoalForEllipticalFollowup,
   testStandaloneNewTextTaskExecutesTheRawUserInput,
   testTextToImageParametersComeOnlyFromTheRawUserTurn,
+  testDirectLongImagePromptIsNotReplacedByShorterRouteGoal,
+  testRouteGoalOverOneThousandCharsIsValidWhenItFaithfullyCarriesTheUserPrompt,
   testConversationDependentTextTaskKeepsRawUserInputAsProviderPrompt,
   testResourceBoundChatKeepsRawUserInputAsProviderPrompt,
   testResourceResolvedChatKeepsRawUserInputAsProviderPrompt,

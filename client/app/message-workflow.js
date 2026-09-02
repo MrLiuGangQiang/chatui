@@ -506,6 +506,7 @@
             contentNode.innerHTML = s.preserveLiveMedia ? String(t || "") : stripTransientBlobUrlsFromHtml(t);
             e.dataset.renderedHash = rawHash;
             delete e.dataset.enhancedHash;
+            if (e.classList?.contains('assistant') && e.querySelector?.('img.generated-thumb')) deps.moveImageActionsToMessageActions?.(e);
           } else if (chatuiShouldLazyRender(e.classList?.contains("user") ? "user" : "assistant", rawValue, { ...s, final: true }) && !chatuiIsNearViewport(e)) {
             chatuiQueueLazyMessage(e, rawValue);
           } else {

@@ -10,6 +10,7 @@
     normalizeBlockquoteFencedCodeContent,
     decodeHtmlEntities,
     highlightedTextMatchesSource,
+    registerCompactEmphasisFix,
   } = enginePrimitives;
   const sourceNormalizer = global.ChatUIMarkdownSourceNormalizer || {};
   const linkPolicy = global.ChatUIMarkdownLinkPolicy || {};
@@ -35,6 +36,7 @@
     const tablePlugin = pluginExport(pluginGlobal('markdownitMultimdTable'));
     if (tablePlugin) { try { md.use(tablePlugin, { multiline: true, rowspan: true, headerless: false, multibody: true, autolabel: true }); } catch (err) { console.warn('[markdown] plugin failed: markdownitMultimdTable', err); } } else console.warn('[markdown] plugin unavailable: markdownitMultimdTable');
     [['markdownItTaskLists', { enabled: true, label: true, labelAfter: true }], ['markdownitEmoji'], ['markdownitFootnote'], ['markdownitDeflist'], ['markdownitAbbr'], ['markdownitMark'], ['markdownitSub'], ['markdownitSup']].forEach(([name, options]) => { const plugin = pluginExport(pluginGlobal(name)); if (plugin) { try { md.use(plugin, options); } catch (err) { console.warn(`[markdown] plugin failed: ${name}`, err); } } else console.warn(`[markdown] plugin unavailable: ${name}`); });
+    registerCompactEmphasisFix(md);
     const defaultFence = md.renderer.rules.fence;
     md.renderer.rules.fence = (tokens, idx, opts, env, slf) => { const token = tokens[idx]; const lang = (token.info || '').trim().split(/\s+/)[0].toLowerCase(); token.content = normalizeBlockquoteFencedCodeContent(token.content); if (MERMAID_LANGS.has(lang)) { const lines = Math.max(6, String(token.content || '').split('\n').length); const reserved = Math.max(180, Math.min(560, 120 + lines * 18)); return `<div class="mermaid-block markdown-mermaid-pending" data-mermaid-rendered="0" data-mermaid-reserved-height="${reserved}" style="--mermaid-reserved-height:${reserved}px"><pre><code class="language-mermaid">${escapeHtml(token.content)}</code></pre></div>`; } return defaultFence(tokens, idx, opts, env, slf); };
     const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, idx, opts, env, slf) => slf.renderToken(tokens, idx, opts));

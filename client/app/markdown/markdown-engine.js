@@ -14,6 +14,7 @@ const {
   applyTaskListFallback,
   normalizeTableAlignToken,
   normalizeBlockquoteFencedCodeContent,
+  registerCompactEmphasisFix,
   decodeHtmlEntities,
   highlightedTextMatchesSource,
 } = require('./engine-primitives');
@@ -84,6 +85,7 @@ function createMarkdownEngine(options = {}) {
   for (const desc of PLUGINS.filter(item => !item.math)) {
     if (applyPlugin(md, desc)) loadedPlugins.push(desc.packageName);
   }
+  registerCompactEmphasisFix(md);
 
   const defaultFence = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, idx, opts, env, slf) => {

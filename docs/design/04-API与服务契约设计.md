@@ -49,7 +49,7 @@
 
 ## 5. 使用统计与反馈端点
 
-`/api/usage/overview`、`/api/usage/rankings`、`/api/usage/personal`、`/api/usage/department/verify|summary|rankings|users|export`、`/api/usage/feedback`。未配置数据库时显式返回不可用状态。
+`/api/usage/overview`、`/api/usage/rankings`、`/api/usage/personal`、`/api/usage/department/verify|summary|rankings|users|export`、`/api/usage/feedback`。未配置数据库时显式返回不可用状态。 `/api/usage/feedback` 提交前由当前聊天模型审核：内容可以简短，但问题描述、复现描述、期望结果三项均需存在，空泛、占位、广告或胡言乱语仍会被拒绝。
 
 ## 6. 代理契约（OpenAI 兼容）
 

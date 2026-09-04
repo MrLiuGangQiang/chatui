@@ -165,7 +165,25 @@ async function testFeedbackReviewerAcceptsResponsesOutputArrayRejection() {
   assert.strictEqual(result.message, '请补充期望结果。');
 }
 
+function testFeedbackReviewPromptAllowsBriefNormalFeedbackButRejectsVaguePlaceholderAd() {
+  const payload = feedbackReview.createFeedbackReviewPayload({
+    model: 'gpt-test',
+    content: '【问题描述】\n点击发送没有反应。\n\n【复现描述】\n输入一句话后点发送。\n\n【期望结果】\n应该发出这条消息。',
+  });
+  const systemPrompt = payload.input[0].content;
+  assert.ok(systemPrompt.includes('反馈可以简短'), 'brief feedback must be acceptable');
+  assert.ok(systemPrompt.includes('不要求写得详细'), 'review must not demand excessive detail');
+  assert.ok(systemPrompt.includes('胡言乱语'), 'nonsense must still be rejected');
+  assert.ok(systemPrompt.includes('空泛'), 'vague feedback must still be rejected');
+  assert.ok(systemPrompt.includes('占位文字'), 'placeholder feedback must still be rejected');
+  assert.ok(systemPrompt.includes('广告'), 'advertising must still be rejected');
+  assert.ok(systemPrompt.includes('不可信数据'), 'untrusted feedback must still be guarded');
+  const accepted = feedbackReview.parseFeedbackReviewResult(JSON.stringify(reviewResult()));
+  assert.strictEqual(accepted.accepted, true);
+}
+
 module.exports = [
+  testFeedbackReviewPromptAllowsBriefNormalFeedbackButRejectsVaguePlaceholderAd,
   testFeedbackReviewPromptAndParserRequireAllThreeSections,
   testFeedbackReviewerRepairsOneInvalidModelResponse,
   testFeedbackReviewerRetriesWithoutUnsupportedStructuredOutput,

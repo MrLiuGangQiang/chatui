@@ -197,15 +197,26 @@
       const input = stringValue(options.input || options.current_input);
       const previousExecution = options.context?.previous_execution || null;
       const priorUsers = recentUserMessages(options.context);
-      const hasPriorVisualTask = relationOperations.has(stringValue(previousExecution?.operation))
-        || priorUsers.some(message => isImageGenerationIntent(message));
+      const previousOperation = stringValue(previousExecution?.operation);
+      // Prefer the structured latest execution as the authority. Only when that
+      // record is absent may the latest prior user turn provide the legacy
+      // visual-task signal; older image prompts must not turn a text result
+      // follow-up into a new image job.
+      const latestPriorUser = priorUsers.at(-1) || '';
+      const hasPriorVisualTask = relationOperations.has(previousOperation)
+        || (!previousExecution && isImageGenerationIntent(latestPriorUser));
       const imageOperation = relationOperations.has(stringValue(next.operation));
 
       const evidence = options.context?.delivery_evidence || {};
       const imageAvailable = evidence.actual_image_result?.available === true
         || evidence.image_delivery_confirmed === true;
-      if (!imageAvailable && UNVERIFIED_IMAGE_DELIVERY_QUERY_PATTERN.test(input)) {
-        const previousOperation = stringValue(previousExecution?.operation);
+      // "结果呢" is also a normal text follow-up. Only restore an image
+      // task when verified conversation state proves that the prior task was
+      // visual; otherwise a plain-chat result request must not create an image
+      // generation dispatch.
+      if (!imageAvailable
+          && hasPriorVisualTask
+          && UNVERIFIED_IMAGE_DELIVERY_QUERY_PATTERN.test(input)) {
         next = {
           ...next,
           operation: relationOperations.has(previousOperation) ? previousOperation : 'text_to_image',

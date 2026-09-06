@@ -198,6 +198,29 @@ function testInlineCurrentTextIsNotMistakenForAMissingSource() {
   ), true);
 }
 
+function testMultilineCurrentTextIsNotMistakenForAMissingSource() {
+  assert.strictEqual(routeService.missingTextSourceForInput(
+    "请总结下面这段话\n本周完成登录模块，下一周开始联调。",
+    {},
+    [],
+  ), false);
+  assert.strictEqual(routeService.missingTextSourceForInput(
+    "以下是需要翻译的内容\nThe deployment completed successfully.",
+    {},
+    [],
+  ), false);
+  assert.strictEqual(routeService.missingTextSourceForInput(
+    "请总结下面这段话\n",
+    {},
+    [],
+  ), true);
+  assert.strictEqual(routeService.missingTextSourceForInput(
+    "请总结下面这段话\n指出两个问题并给出修改建议。",
+    {},
+    [],
+  ), true);
+}
+
 module.exports = [
   testRouteRepairUsesAnExplicitVersionedPatchContract,
   testRouteRepairAppliesOnlyDeclaredFieldsAndPreservesContextBinding,
@@ -206,4 +229,5 @@ module.exports = [
   testValidHistoricalTableFollowupDoesNotEnterRepair,
   testInvalidRepairCannotReplaceTheTrustedRouteBaseline,
   testInlineCurrentTextIsNotMistakenForAMissingSource,
+  testMultilineCurrentTextIsNotMistakenForAMissingSource,
 ];

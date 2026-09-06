@@ -7,6 +7,8 @@
 // strippable by the reasoning fallback for gateways that reject it.
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const routeService = require('../../client/services/route-service');
 const chatService = require('../../client/services/chat-service');
 const compatibility = require('../../client/services/request-compatibility');
@@ -33,6 +35,18 @@ function readyImageRoute() {
   assert.ok(result.route, 'fixture route must compile');
   assert.strictEqual(routeService.requiresImageInstructionMaterialization(result.route), true);
   return result.route;
+}
+
+function testProductionIntentPipelineKeepsCriticAndReasoningDisabledByDefault() {
+  const root = path.join(__dirname, '../..');
+  const submitWorkflow = fs.readFileSync(path.join(root, 'client/app/submit-workflow.js'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  assert.match(submitWorkflow, /enableIntentCritic:!1/);
+  assert.match(submitWorkflow, /enforceDeterministicPolicies:!1/);
+  assert.match(app, /enableIntentCritic:!1/);
+  assert.match(app, /enforceDeterministicPolicies:!1/);
+  assert.doesNotMatch(submitWorkflow, /enableIntentReasoning:!0/);
+  assert.doesNotMatch(app, /enableIntentReasoning:!0/);
 }
 
 function testRouteIntentPayloadDisablesReasoning() {
@@ -116,6 +130,7 @@ function testHighRiskRouteIntentPayloadEnablesBoundedReasoning() {
 }
 
 module.exports = [
+  testProductionIntentPipelineKeepsCriticAndReasoningDisabledByDefault,
   testRouteIntentPayloadDisablesReasoning,
   testImageInstructionPayloadDisablesReasoning,
   testImagePlanPayloadDisablesReasoning,

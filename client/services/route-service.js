@@ -4527,13 +4527,28 @@
   function missingTextSourceForInput(input = '', context = {}, catalog = []) {
     const text = stringValue(input);
     if (!text) return false;
-    const sourceCue = /(?:\u4e0b\u9762(?:\u8fd9\u6bb5|\u8fd9\u7bc7)?(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)?|\u4ee5\u4e0b(?:\u8fd9\u6bb5|\u8fd9\u7bc7)?(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)?|\u8fd9\u6bb5(?:\u8bdd|\u6587\u5b57|\u5185\u5bb9)|the following text|the text below|following passage)/i.test(text);
+    // Keep the cue narrow enough to avoid treating ordinary lead-ins such as
+    // "以下是我的需求" as a request for an omitted source. The match also
+    // retains the end position so a source placed on the next line can be
+    // recognized without turning a later instruction into source text.
+    const sourceCue = /(?:下面这段(?:话|文字|内容|[^。！？!?:：\n]{1,40})?|下面这篇(?:文章|内容|文字)?|以下(?:这段|这篇)?(?:话|文字|内容)|以下是[^。！？!?:：\n]{0,30}(?:内容|文字|文本|段落)|这段(?:话|文字|内容)|the following text|the text below|following passage)/i.exec(text);
     if (!sourceCue || hasQuotedEvidence(context)) return false;
     // "下面这段文字：实际正文" is self-contained. A source cue only blocks
     // dispatch when it is genuinely deictic, not when the current input already
     // carries the text to transform after a delimiter.
-    const inlineSource = /[：:]\s*(?:[“"'‘「『]|[^\s：:])/.test(text);
+    const afterCue = text.slice(sourceCue.index + sourceCue[0].length);
+    const inlineSource = /[：:]\s*(?:[“"'‘「『]|[^\s：:])/.test(afterCue);
     if (inlineSource) return false;
+    // A common paste shape puts the source on the next line. A line that is
+    // clearly another processing instruction is not source content; everything
+    // else substantive remains the route model's job rather than a second local
+    // intent classifier.
+    const newlineSource = afterCue.match(/\r?\n([\s\S]*)/);
+    if (newlineSource) {
+      const nextLine = String(newlineSource[1] || '').trim();
+      const continuationInstruction = /^(?:指出|列出|给出|提供|然后|并且|并|再|请)|^(?:identify|list|provide|then|and)\b/i.test(nextLine);
+      if (nextLine && !continuationInstruction) return false;
+    }
     return !(Array.isArray(catalog) ? catalog : []).some(candidate => {
       if (candidate?.availability === 'unavailable') return false;
       if (candidate?.type === 'file') return true;

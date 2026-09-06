@@ -72,6 +72,58 @@ function testSemanticReconcilerRepairsOnlyStrongEvidence() {
   assert.deepStrictEqual(plain.resource_refs, []);
 }
 
+function testGenericResultFollowupAfterPlainChatDoesNotBecomeImageGeneration() {
+  const normalizer = createNormalizer();
+  for (const input of ['结果呢', '图片呢']) {
+    const result = normalizer.reconcileModelIntent({
+      operation: 'plain_chat',
+      relation: 'followup',
+      goal: '说明上一轮文本结果',
+      goal_mode: 'replace',
+      resource_refs: [],
+      task_shape: 'single',
+    }, {
+      input,
+      context: {
+        previous_execution: {
+          operation: 'plain_chat',
+          input: '解释一下 HTTP/3',
+        },
+        recent_messages: [
+          { role: 'user', content: '生成一张旧的猫咪图片' },
+          { role: 'user', content: '解释一下 HTTP/3' },
+        ],
+        delivery_evidence: {
+          actual_image_result: { available: false },
+          image_delivery_confirmed: false,
+        },
+      },
+    });
+    assert.strictEqual(result.operation, 'plain_chat', input);
+    assert.strictEqual(result.relation, 'followup', input);
+  }
+}
+
+function testImageDeliveryQuestionStillRestoresAnImageTask() {
+  const normalizer = createNormalizer();
+  const result = normalizer.reconcileModelIntent({
+    operation: 'plain_chat',
+    relation: 'continuation',
+    goal: '说明图片尚未交付',
+    goal_mode: 'replace',
+    resource_refs: [],
+    task_shape: 'single',
+  }, {
+    input: '图片呢',
+    context: {
+      previous_execution: previousExecution(),
+      delivery_evidence: { actual_image_result: { available: false } },
+    },
+  });
+  assert.strictEqual(result.operation, 'text_to_image');
+  assert.strictEqual(result.relation, 'followup');
+}
+
 function testSemanticReconcilerRemovesMediaRefsFromPlainChat() {
   const normalizer = createNormalizer();
   const result = normalizer.reconcileModelIntent({
@@ -213,5 +265,7 @@ module.exports = [
   testSemanticReconcilerMovesQuotedTextOnlyGenerationToTextToImage,
   testSemanticReconcilerRepairsStyleOnlyReferenceRole,
   testSemanticReconcilerRemovesMediaRefsFromPlainChat,
+  testGenericResultFollowupAfterPlainChatDoesNotBecomeImageGeneration,
+  testImageDeliveryQuestionStillRestoresAnImageTask,
   testRouteServiceUsesSemanticNormalizerWithoutReembeddingRulesOrGlobals,
 ];

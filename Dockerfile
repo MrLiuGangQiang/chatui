@@ -32,6 +32,7 @@ ENV NODE_ENV=production \
 COPY version.json package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+# Keep the preview toolbar markup and its manifest-loaded styles/workflow in this same image.
 COPY server.js index.html app.js styles.css favicon.svg ./
 COPY pages ./pages
 COPY config ./config

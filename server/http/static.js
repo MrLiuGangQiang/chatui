@@ -35,7 +35,6 @@ const NO_STORE = 'no-store, no-cache, max-age=0, must-revalidate, proxy-revalida
 const BUNDLE_IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
-// Preview compression uses the existing entry and client/style bundles; no new public endpoint is needed.
 const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
 const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/', '/pages/'];
 

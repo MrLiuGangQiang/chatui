@@ -13,7 +13,6 @@ function createEnvironment() {
       <span id="imagePreviewPosition" hidden></span>
       <button id="imagePreviewDownload" type="button" hidden></button>
       <button id="imagePreviewCopy" type="button" hidden></button>
-      <button id="imagePreviewCompressDownload" type="button" hidden></button>
       <button id="imagePreviewClose" type="button"></button>
       <img id="imagePreviewImg" />
     </div>
@@ -49,12 +48,10 @@ async function testImagePreviewNavigatesImagesFromTheSameCollection() {
   const next = dom.window.document.getElementById('imagePreviewNext');
   const position = dom.window.document.getElementById('imagePreviewPosition');
   assert.strictEqual(preview.classList.contains('show'), true);
-  assert.notStrictEqual(dom.window.document.activeElement?.id, 'imagePreviewClose', 'opening preview must not select an action button');
   assert.strictEqual(image.dataset.filename, 'one.png');
   assert.strictEqual(position.textContent, '1 / 3');
   assert.strictEqual(previous.disabled, true);
   assert.strictEqual(next.disabled, false);
-  assert.strictEqual(dom.window.document.getElementById("imagePreviewCompressDownload").hidden, false);
 
   await workflow.navigateImagePreview(1);
   assert.strictEqual(image.dataset.persistedSrc, 'data:image/png;base64,two');
@@ -121,7 +118,6 @@ async function testClosingPreviewClearsNavigationState() {
   assert.strictEqual(preview.getAttribute('aria-hidden'), 'true');
   assert.strictEqual(previous.hidden, true);
   assert.strictEqual(next.hidden, true);
-  assert.strictEqual(dom.window.document.getElementById("imagePreviewCompressDownload").hidden, true);
   assert.strictEqual(dom.window.document.getElementById('imagePreviewImg').getAttribute('src'), null);
 }
 

@@ -1482,7 +1482,7 @@ body {
   cursor: zoom-out !important;
 }
 
-/* All four toolbar buttons: uniform size, smaller, rounded-square */
+/* All three toolbar buttons: uniform size, smaller, rounded-square */
 .image-preview-action,
 .image-preview-close {
   top: 14px !important;
@@ -1502,7 +1502,6 @@ body {
 .image-preview-close     { right: 14px !important; }
 .image-preview-download  { right: 56px !important; }
 .image-preview-copy      { right: 98px !important; }
-.image-preview-compress-download { right: 140px !important; }
 
 /* Smaller icons */
 .image-preview-action svg,
@@ -1559,7 +1558,6 @@ body {
   .image-preview-close     { right: 10px !important; }
   .image-preview-download  { right: 46px !important; }
   .image-preview-copy      { right: 82px !important; }
-  .image-preview-compress-download { right: 118px !important; }
   .image-preview-action svg,
   .image-preview-close svg {
     width: 16px !important;
@@ -6253,8 +6251,3 @@ body.session-sidebar-collapsed{
   .welcome-feature-icon svg{ width:13px!important; height:13px!important; }
   .welcome-feature-card h3{ margin:5px 0 0!important; font-size:12.5px!important; }
 }
-/* Keep the close control visually identical to the three image actions; focus is shown without changing its box size. */
-.image-preview-action:focus,
-.image-preview-close:focus,
-.image-preview-action:focus-visible,
-.image-preview-close:focus-visible{outline:none!important;border:0!important;box-shadow:0 0 0 2px rgba(255,255,255,.45)!important}

@@ -9,11 +9,6 @@
       imageClipboardUnsupportedMessage,
       URL,
       document = root?.document,
-      prompt = root?.prompt,
-      Image = root?.Image,
-      fetch = root?.fetch,
-      alert = root?.alert,
-      setTimeout = root?.setTimeout,
     } = deps;
     const MIN_PREVIEW_SCALE = 0.5;
     const MAX_PREVIEW_SCALE = 5;
@@ -21,7 +16,6 @@
     let previewScale = 1;
     let previewItems = [];
     let previewIndex = -1;
-    let compressionBusy = false;
 
     function updateImagePreviewCopyAvailability() {
       const button = getElement('imagePreviewCopy');
@@ -121,8 +115,6 @@
         download.dataset.filename = item.filename || 'image.png';
         download.hidden = false;
       }
-      const compressed = getElement('imagePreviewCompressDownload');
-      if (compressed) compressed.hidden = false;
       const copy = getElement('imagePreviewCopy');
       if (copy) {
         copy.dataset.persistedHref = item.source || resolved.src;
@@ -136,107 +128,6 @@
 
     async function navigateImagePreview(offset) {
       return showPreviewItem(previewIndex + Number(offset || 0));
-    }
-
-    async function compressDownloadImage() {
-      if (compressionBusy) return;
-      const image = getElement('imagePreviewImg');
-      const source = image?.dataset?.persistedSrc || image?.src;
-      const filename = image?.dataset?.filename || 'image.png';
-      if (!source) return;
-      const answer = prompt?.('目标文件大小（宽高、格式不变）：\n输入 75% 或 0.75，表示目标为原图大小的 75%。\nPNG 仅无损重编码，可能无法达到目标大小。', '75%');
-      if (answer === null || answer === undefined) return;
-      const value = String(answer).trim();
-      const ratio = Number(value.replace(/%$/, '')) / (value.endsWith('%') ? 100 : 1);
-      if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 1) {
-        alert?.('请输入大于 0、且不超过 100% 的比例，例如 75% 或 0.75。');
-        return;
-      }
-      compressionBusy = true;
-      const button = getElement('imagePreviewCompressDownload');
-      if (button) button.disabled = true;
-      let inputUrl = '';
-      try {
-        let blob;
-        if (String(source).startsWith('indexeddb://')) {
-          blob = await getImageBlob(String(source).replace('indexeddb://', ''));
-        } else {
-          const response = await fetch(source);
-          if (!response.ok) throw new Error('图片读取失败');
-          blob = await response.blob();
-        }
-        if (!blob?.size) throw new Error('图片读取失败');
-        if (ratio === 1) return downloadCompressedBlob(blob, filename);
-        const mime = String(blob.type || '').split(';', 1)[0].toLowerCase();
-        if (!['image/png', 'image/jpeg', 'image/webp', 'image/avif'].includes(mime)) {
-          throw new Error('当前图片格式不支持压缩');
-        }
-        inputUrl = URL.createObjectURL(blob);
-        const loaded = await new Promise((resolve, reject) => {
-          const item = new Image();
-          item.onload = () => resolve(item);
-          item.onerror = () => reject(new Error('图片读取失败'));
-          item.src = inputUrl;
-        });
-        const canvas = document.createElement('canvas');
-        canvas.width = loaded.naturalWidth || loaded.width;
-        canvas.height = loaded.naturalHeight || loaded.height;
-        const context = canvas.getContext('2d');
-        if (!context || !canvas.width || !canvas.height) throw new Error('图片读取失败');
-        context.drawImage(loaded, 0, 0, canvas.width, canvas.height);
-        const encode = quality => new Promise((resolve, reject) => {
-          canvas.toBlob(result => {
-            // Unsupported encoders can silently return PNG. Never rename that output as another format.
-            if (!result?.size || result.type !== mime) reject(new Error('浏览器不支持原格式编码'));
-            else resolve(result);
-          }, mime, quality);
-        });
-        const target = Math.max(1, Math.round(blob.size * ratio));
-        let compressed = await encode(1);
-        if (mime !== 'image/png' && compressed.size > target) {
-          let low = 0;
-          let high = 1;
-          for (let attempt = 0; attempt < 8; attempt += 1) {
-            const mid = (low + high) / 2;
-            const candidate = await encode(mid);
-            if (Math.abs(candidate.size - target) < Math.abs(compressed.size - target)) compressed = candidate;
-            if (candidate.size > target) high = mid;
-            else low = mid;
-          }
-        }
-        if (compressed.size >= blob.size) {
-          alert?.('在保持原格式和宽高的条件下，无法进一步减小这张图片，已为你下载原图。');
-          return downloadCompressedBlob(blob, filename);
-        }
-        if (Math.abs(compressed.size - target) > target * 0.05) {
-          alert?.('已保持原格式和宽高，但无法精确达到目标大小，将下载可生成的压缩结果。');
-        }
-        const extension = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
-        const stem = filename.replace(/\.[^.]+$/, '');
-        downloadCompressedBlob(compressed, `${stem}-compressed-${Math.round(ratio * 100)}%.${extension}`);
-      } catch {
-        alert?.('图片压缩失败，或浏览器不支持原格式编码。请重试，也可以使用原图下载。');
-      } finally {
-        if (inputUrl) URL.revokeObjectURL(inputUrl);
-        compressionBusy = false;
-        if (button) button.disabled = false;
-      }
-    }
-
-    function downloadCompressedBlob(blob, filename) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      try {
-        link.href = url;
-        link.download = filename;
-        link.rel = 'noreferrer';
-        document.body.appendChild(link);
-        link.click();
-      } finally {
-        link.remove();
-        // Keep the download source alive while the browser begins consuming it.
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-      }
     }
 
     function bindPreviewControls() {
@@ -254,7 +145,6 @@
         event.preventDefault();
         resetPreviewZoom();
       });
-      getElement('imagePreviewCompressDownload')?.addEventListener('click', compressDownloadImage);
       getElement('imagePreviewPrevious')?.addEventListener('click', () => navigateImagePreview(-1));
       getElement('imagePreviewNext')?.addEventListener('click', () => navigateImagePreview(1));
       const keyTarget = document?.documentElement || document;
@@ -285,7 +175,7 @@
         preview.classList.add('show');
         preview.setAttribute('aria-hidden', 'false');
       }
-      if (await showPreviewItem(requestedIndex)) document?.activeElement?.blur?.();
+      if (await showPreviewItem(requestedIndex)) getElement('imagePreviewClose')?.focus?.({ preventScroll: true });
     }
 
     function closeImagePreview() {
@@ -313,7 +203,6 @@
       previewItems = [];
       previewIndex = -1;
       getElement('imagePreviewCopy') && (getElement('imagePreviewCopy').hidden = true);
-      getElement('imagePreviewCompressDownload') && (getElement('imagePreviewCompressDownload').hidden = true);
       getElement('imagePreviewDownload') && (getElement('imagePreviewDownload').hidden = true);
       updatePreviewNavigation();
       preview?.classList.remove('show');
@@ -331,7 +220,6 @@
       zoomImagePreview,
       resetPreviewZoom,
       applyPreviewScale,
-      compressDownloadImage,
     });
   }
 

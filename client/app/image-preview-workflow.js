@@ -175,7 +175,7 @@
         preview.classList.add('show');
         preview.setAttribute('aria-hidden', 'false');
       }
-      if (await showPreviewItem(requestedIndex)) getElement('imagePreviewClose')?.focus?.({ preventScroll: true });
+      if (await showPreviewItem(requestedIndex)) document?.activeElement?.blur?.()
     }
 
     function closeImagePreview() {

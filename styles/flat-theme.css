@@ -6251,3 +6251,28 @@ body.session-sidebar-collapsed{
   .welcome-feature-icon svg{ width:13px!important; height:13px!important; }
   .welcome-feature-card h3{ margin:5px 0 0!important; font-size:12.5px!important; }
 }
+
+/* Preview toolbar icons use distinct colors while retaining shared button chrome. */
+.image-preview-download svg path { stroke: #60a5fa !important; }
+.image-preview-copy svg path,
+.image-preview-copy svg rect { stroke: #c084fc !important; }
+.image-preview-close svg path { stroke: #fb7185 !important; }
+
+/* Message action colors apply to icons only, including hover and generated-image actions. */
+.msg-actions .mobile-more-btn { --message-action-color: #64748b; }
+.msg-actions .quote-btn { --message-action-color: #0891b2; }
+.msg-actions .edit-btn { --message-action-color: #d97706; }
+.msg-actions .force-image-btn { --message-action-color: #db2777; }
+.msg-actions .refresh-btn { --message-action-color: #059669; }
+.msg-actions .copy-btn,
+.msg-actions [data-copy-image] { --message-action-color: #9333ea; }
+.msg-actions .download-answer-btn,
+.msg-actions [data-download-image],
+.msg-actions [data-download-all-images] { --message-action-color: #2563eb; }
+.msg-actions [data-share-image] { --message-action-color: #0891b2; }
+.msg-actions button.copied { --message-action-color: #059669; }
+.msg-actions button svg,
+.msg-actions button svg * {
+  color: var(--message-action-color, #64748b) !important;
+  stroke: currentColor !important;
+}

@@ -48,6 +48,7 @@ async function testImagePreviewNavigatesImagesFromTheSameCollection() {
   const next = dom.window.document.getElementById('imagePreviewNext');
   const position = dom.window.document.getElementById('imagePreviewPosition');
   assert.strictEqual(preview.classList.contains('show'), true);
+  assert.notStrictEqual(dom.window.document.activeElement?.id, 'imagePreviewClose', 'opening preview must not select an action button');
   assert.strictEqual(image.dataset.filename, 'one.png');
   assert.strictEqual(position.textContent, '1 / 3');
   assert.strictEqual(previous.disabled, true);

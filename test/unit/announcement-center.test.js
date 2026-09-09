@@ -75,10 +75,12 @@ function testAnnouncementFilesAreCumulativeAndSortedByVersion() {
     fs.rmSync(root, { recursive: true, force: true });
   }
 
-  const shipped = readAnnouncements({ root: path.join(__dirname, '../..') });
+  const projectRoot = path.join(__dirname, '../..');
+  const shipped = readAnnouncements({ root: projectRoot });
+  const canonicalVersion = require(path.join(projectRoot, 'version.json')).version;
   assert.ok(shipped.length >= 1);
-  assert.strictEqual(shipped[0].version, 'v2.1.0');
-  assert.strictEqual(shipped[0].title, 'ChatUI v2.1.0 正式发布');
+  assert.strictEqual(shipped[0].version, `v${canonicalVersion}`, 'the latest announcement must use the canonical release version');
+  assert.strictEqual(shipped[0].title, '模型与能力更新');
   assert.ok(shipped.some(item => item.version === 'v1.0.1' && item.title === 'ChatUI 意图识别协议与问题反馈功能升级'));
   assert.ok(shipped.some(item => item.version === 'v1.0.0' && item.title === '全新公告中心上线'));
   assert.ok(shipped.every(item => item.body && item.version));

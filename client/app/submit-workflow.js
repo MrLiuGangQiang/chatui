@@ -393,6 +393,9 @@
             if(revisedClarificationReplay)promptText=revisedClarificationReplay.resolvedInput;
             let effectivePromptText=promptText;
             let resolvedClarificationContext = options?.resolvedClarificationContext || null;
+            const routeContextBuilder = typeof deps?.buildRouteContext === 'function'
+              ? deps.buildRouteContext
+              : typeof root?.buildRouteContext === 'function' ? root.buildRouteContext : null;
             if (!resolvedClarificationContext && storedPending) {
               const pendingSlots = Array.isArray(storedPending.routeInfo?.clarificationSlots)
                 ? storedPending.routeInfo.clarificationSlots
@@ -407,7 +410,11 @@
               if (textAnswer) {
                 const applied = clarification.applyPendingClarificationAnswer?.(storedPending, textAnswer) || null;
                 if (applied?.complete) {
-                  resolvedClarificationContext = clarification.buildClarificationRouteContext?.({ baseContext: {}, pending: applied.pending }) || {};
+                  resolvedClarificationContext = clarification.buildClarificationRouteContext?.({
+                    baseContext: routeContextBuilder ? routeContextBuilder(sessionId) : {},
+                    quotedContext: hasQuotedMessage ? buildQuotedRouteContext() : null,
+                    pending: applied.pending,
+                  }) || {};
                   clearStoredPendingClarification();
                   storedPending = null;
                   // A free-text answer to a text-only clarification (e.g. the
@@ -424,7 +431,6 @@
               }
             }
             effectivePromptText = promptText;
-            const routeContextBuilder=typeof deps?.buildRouteContext==="function"?deps.buildRouteContext:typeof root?.buildRouteContext==="function"?root.buildRouteContext:null;
             const clarificationRouteContext=resolvedClarificationContext||(storedPending?clarification.buildClarificationRouteContext?.({baseContext:routeContextBuilder?routeContextBuilder(sessionId):{},quotedContext:hasQuotedMessage?buildQuotedRouteContext():null,pending:storedPending}):null);
             const currentRouteTurn={messageIndex:Number(messageIndex)+1};
             if(storedPending&&!clarificationRouteContext)throw new Error("澄清上下文未能通过结构化校验，已停止发送");
@@ -452,12 +458,12 @@
             }
             if(pendingMerge?.merged){
                try{routeInfo=await getEffectiveRouteWithSlowNotice(effectivePromptText,continuationRequestAttachments,{},clarificationRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId,modelAttemptLedger:inheritedModelAttemptLedger,modelCalls:inheritedModelCalls}),routeMode=routeInfo.mode}catch(e){throw e}
-            }else if(hasQuotedMessage){
+            }else if(hasQuotedMessage&&!clarificationRouteContext){
                try{
-                 // A user-selected quote is an explicit task boundary: route intent
-                 // against that message only. The current turn's attachments still
-                 // travel separately, but unrelated session history must not change
-                 // what the quoted follow-up means.
+                 // A user-selected quote is an explicit task boundary only
+                 // when no clarification reroute is in flight. Inside a
+                 // clarification the pending task and its retained history must
+                 // win: the quote is an answer supplement, not a new scope.
                  const quoteScopedRouteContext=buildQuotedRouteContext();
                  routeInfo=await getEffectiveRouteWithSlowNotice(promptText,currentTurnAttachments,{},quoteScopedRouteContext,{deadlineAt:intentDeadlineAt,currentTurn:currentRouteTurn,submissionId,modelAttemptLedger:inheritedModelAttemptLedger,modelCalls:inheritedModelCalls}),routeMode=routeInfo.mode
                }catch(e){throw e}

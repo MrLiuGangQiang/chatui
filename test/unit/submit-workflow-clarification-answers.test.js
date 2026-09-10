@@ -65,7 +65,7 @@ function makeTextPending() {
   });
 }
 
-function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, routeImpl = null } = {}) {
+function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, routeImpl = null, quotedMessage = null, routeContext = {} } = {}) {
   const effectivePending = pending || makePending();
   const session = { id: 'session-answer', messages: [], display: [], pendingClarification: effectivePending };
   const state = {
@@ -113,7 +113,7 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, r
     },
     persistSessionDisplay: () => {}, cloneMessageList: list => list.map(item => ({ ...item })),
     getActiveSession: () => session, saveChatHistory: async () => {}, saveSessionMessages: async () => {},
-    clearAttachments: () => {}, clearQuotedMessage: () => {}, getQuotedMessage: () => null,
+    clearAttachments: () => {}, clearQuotedMessage: () => {}, getQuotedMessage: () => quotedMessage,
     scheduleAutoResize: () => {}, setSessionBusy: () => {},
     prepareReplacementResponse: () => null, pendingFeedbackHtml: text => text,
     hasImageAttachments: () => false, normalizeRoute: value => value,
@@ -132,7 +132,7 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, r
     clearActiveRun: () => {}, finishSessionTask: () => {}, dispatchTaskEvent: (_sessionId, event) => events.push(event), resumeSessionJobs: () => {},
     makeClientChatJobId: () => 'chatjob-answer', makeClientImageJobId: () => 'imgjob-answer', saveChatJob: () => {}, clearChatJob: () => {},
     shouldPrepareManagedChatJob: () => true, findMessageNodeByDisplayItem: () => null, insertMessageNodeAtDisplayPosition: () => {},
-    saveSessionsMeta: () => {}, buildRouteContext: () => ({}),
+    saveSessionsMeta: () => {}, buildRouteContext: () => routeContext,
     requestJson: async () => { throw new Error('a text clarification answer must never invoke an independent classifier'); },
   });
   return { workflow, state, session, routed, sent, events, pending: effectivePending, prompt, finalRoute };
@@ -436,6 +436,48 @@ async function testBudgetExhaustedFailureClearsStoredLedgerForRetry() {
     restore.forEach(fn => fn());
   }
 }
+async function testQuotedTextAnswerReroutesWithQuoteAndRetainedHistory() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const planReply = [
+      '方案一：大型翻车现场。',
+      '细节'.repeat(400),
+      '方案三：悲壮的旱鸭子史诗。',
+    ].join('\n');
+    const quotedContent = '按照方案三的描述修改';
+    const fixture = makeFixture({
+      promptValue: '就是你输出的方案三',
+      pending: makeTextPending(),
+      quotedMessage: { id: 'msg-5', messageId: 'msg-5', role: 'user', content: quotedContent },
+      routeContext: {
+        recent_messages: [
+          { index: 1, role: 'assistant', id: 'msg-2', content: planReply },
+          { index: 2, role: 'user', id: 'msg-5', content: quotedContent },
+        ],
+      },
+    });
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+
+    assert.strictEqual(fixture.routed.length, 1);
+    const context = fixture.routed[0].routeContext;
+    assert.ok(context?.quoted_message,
+      'a quoted clarification answer must carry the quote into the reroute context');
+    assert.ok(Array.isArray(context.recent_messages)
+      && context.recent_messages.some(message => String(message.content || '').includes('方案三')),
+    'the reroute must retain the assistant reply that defines the numbered reference');
+    const anchor = context.recent_messages.find(message => Number(message.index) === Number(context.quoted_message.index));
+    assert.ok(anchor && String(anchor.content || '').includes('按照方案三的描述修改'),
+      'the quoted anchor must point at the referenced message inside the retained window');
+  } finally {
+    restore.forEach(fn => fn());
+  }
+}
 module.exports = [
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
@@ -445,4 +487,5 @@ module.exports = [
   testClarificationRerouteForwardsTheTaskAttemptLedger,
   testBudgetExhaustedFailureClearsStoredLedgerForRetry,
   testFreeTextAnswerReroutesWithTheFreeTextAndConsumesPending,
+  testQuotedTextAnswerReroutesWithQuoteAndRetainedHistory,
 ];

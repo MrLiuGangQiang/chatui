@@ -37,9 +37,13 @@ const MAX_RESOLVED_IMAGE_GOAL_LENGTH = Number(taskContinuity.TASK_CONTINUITY_MAX
 const ROUTE_CONTEXT_POLICY = Object.freeze({
   schema_version: 'route_context_policy.v1',
   max_serialized_chars: DEFAULT_ROUTE_CONTEXT_MAX_CHARS,
-  message_excerpt_chars: 240,
-  recent_message_excerpt_chars: 800,
-  recent_message_count: 6,
+  // Numbered references such as "方案三" are resolved from the assistant
+  // reply that defined them. The recent window must therefore retain a full
+  // long-form reply (plan or option lists) so the router never sees the
+  // reference without its referent.
+  message_excerpt_chars: 800,
+  recent_message_excerpt_chars: 4000,
+  recent_message_count: 10,
   preferred_image_candidates: 12,
   preferred_reference_groups: 1,
   summarize_omitted: false,

@@ -148,17 +148,17 @@ function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
 }
 
 function testRecentRouteMessagesCarryMoreContextThanOlderHistory() {
-  const messages = Array.from({ length: 10 }, (_, index) => ({
+  const messages = Array.from({ length: 12 }, (_, index) => ({
     role: index % 2 === 0 ? 'user' : 'assistant',
     id: 'message-' + (index + 1),
-    content: 'message ' + (index + 1) + ' ' + 'x'.repeat(600),
+    content: 'message ' + (index + 1) + ' ' + 'x'.repeat(1600),
   }));
   const context = imageRouteContext.buildRouteContext({ messages, maxChars: 256 * 1024 });
-  const older = context.recent_messages.slice(0, -6);
-  const recent = context.recent_messages.slice(-6);
-  assert.ok(older.every(message => message.content.length <= 240),
-    'older history must stay compact for the intent model');
-  assert.ok(recent.every(message => message.content.length > 240),
+  const older = context.recent_messages.slice(0, -10);
+  const recent = context.recent_messages.slice(-10);
+  assert.ok(older.every(message => message.content.length <= 800),
+    'older history must stay bounded for the intent model');
+  assert.ok(recent.every(message => message.content.length > 800),
     'the most recent turns must keep more of their content so the intent model understands the current topic');
 }
 

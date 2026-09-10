@@ -697,6 +697,59 @@
     return !!normalizePendingClarification(pending) && isClarificationResponse(input, options);
   }
 
+  function routeMessageIdentityValue(message = {}) {
+    return stringValue(message?.id || message?.message_id || message?.messageId
+      || message?.resource_id || message?.resourceId);
+  }
+
+  // A quoted projection is anchored to the message it references. When the
+  // reroute already carries the surrounding conversation window, keep that
+  // window intact and mark the referenced message instead of replacing the
+  // whole history with the quote: numbered references such as 方案三 need the
+  // assistant reply that defined them. Only append the projection when the
+  // referenced message fell outside the retained window, and always realign
+  // quoted_message.index so route candidates can resolve the anchor.
+  function mergeQuotedRouteMessages(baseMessages = [], quotedMessages = [], quotedMessage = null) {
+    const existing = (Array.isArray(baseMessages) ? baseMessages : [])
+      .filter(message => message && typeof message === 'object' && !Array.isArray(message))
+      .map(message => ({ ...message }));
+    const quotedList = (Array.isArray(quotedMessages) ? quotedMessages : [])
+      .filter(message => message && typeof message === 'object' && !Array.isArray(message));
+    const nextIndex = () => existing.reduce((max, message) => {
+      const index = Number(message?.index);
+      return Number.isInteger(index) && index > max ? index : max;
+    }, 0) + 1;
+    if (!existing.length) {
+      return {
+        messages: quotedList.map(message => ({ ...message })),
+        quoted: quotedMessage && typeof quotedMessage === 'object' ? { ...quotedMessage } : quotedMessage,
+      };
+    }
+    let anchor = null;
+    for (const message of quotedList) {
+      const identity = routeMessageIdentityValue(message);
+      const text = stringValue(message?.content ?? message?.rawText);
+      let match = existing.find(candidate => {
+        const candidateIdentity = routeMessageIdentityValue(candidate);
+        if (identity && candidateIdentity) return identity === candidateIdentity;
+        return !!text && stringValue(candidate?.content ?? candidate?.rawText) === text;
+      });
+      if (!match) {
+        match = { ...message, index: nextIndex() };
+        existing.push(match);
+      } else if (!(Number(match.index) >= 1)) {
+        match.index = nextIndex();
+      }
+      if (!anchor) anchor = match;
+    }
+    return {
+      messages: existing,
+      quoted: quotedMessage && typeof quotedMessage === 'object'
+        ? { ...quotedMessage, ...(anchor && Number(anchor.index) >= 1 ? { index: Number(anchor.index) } : {}) }
+        : quotedMessage,
+    };
+  }
+
   function buildClarificationRouteContext({ baseContext = {}, quotedContext = null, pending = null } = {}) {
     const normalized = normalizePendingClarification(pending);
     if (!normalized) return null;
@@ -833,7 +886,13 @@
           : [];
         if (quoted.length) context[key] = [...quoted, ...(Array.isArray(context[key]) ? context[key] : [])];
       }
-      if (quotedContext.recent_messages !== undefined) context.recent_messages = quotedContext.recent_messages;
+      if (Array.isArray(quotedContext.recent_messages) && quotedContext.recent_messages.length) {
+        const merged = mergeQuotedRouteMessages(context.recent_messages, quotedContext.recent_messages, context.quoted_message);
+        context.recent_messages = merged.messages;
+        if (merged.quoted !== undefined) context.quoted_message = merged.quoted;
+      } else if (quotedContext.recent_messages !== undefined) {
+        context.recent_messages = quotedContext.recent_messages;
+      }
     }
     return context;
   }

@@ -1,8 +1,10 @@
+'use strict';
+
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { compareVersions } = require('./release-notes.service');
 
-const ANNOUNCEMENT_FILE_PATTERN = /^v(\d+)\.(\d+)\.(\d+)\.md$/i;
+const RUNTIME_ANNOUNCEMENT_FILENAME = 'announcement.md';
 const MAX_ANNOUNCEMENT_BYTES = 256 * 1024;
 const FRONT_MATTER_PATTERN = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/;
 
@@ -37,47 +39,44 @@ function parseAnnouncementDocument(source = '') {
   });
 }
 
-function readAnnouncements({ root, fsImpl = fs } = {}) {
-  const announcementRoot = path.join(path.resolve(root || process.cwd()), 'docs', 'announcements');
-  let names;
+function announcementVersion(source = '') {
+  const digest = crypto.createHash('sha256').update(String(source || ''), 'utf8').digest('hex');
+  return `announcement-${digest.slice(0, 16)}`;
+}
+
+function readRuntimeAnnouncements({ directory, fsImpl = fs } = {}) {
+  if (!directory) return Object.freeze([]);
+  const filePath = path.join(path.resolve(directory), RUNTIME_ANNOUNCEMENT_FILENAME);
   try {
-    names = fsImpl.readdirSync(announcementRoot);
+    const stat = fsImpl.statSync(filePath);
+    if (!stat.isFile() || stat.size > MAX_ANNOUNCEMENT_BYTES) return Object.freeze([]);
+    const source = fsImpl.readFileSync(filePath, 'utf8');
+    const parsed = parseAnnouncementDocument(source);
+    if (!parsed.title || !parsed.body) return Object.freeze([]);
+    return Object.freeze([
+      Object.freeze({
+        version: announcementVersion(source),
+        title: parsed.title,
+        summary: parsed.summary,
+        publishedAt: parsed.publishedAt,
+        badge: parsed.badge,
+        body: parsed.body,
+      }),
+    ]);
   } catch {
     return Object.freeze([]);
   }
+}
 
-  const announcements = names
-    .map(name => {
-      const match = String(name).match(ANNOUNCEMENT_FILE_PATTERN);
-      if (!match) return null;
-      const version = `v${match[1]}.${match[2]}.${match[3]}`;
-      const filePath = path.join(announcementRoot, name);
-      try {
-        const stat = fsImpl.statSync(filePath);
-        if (!stat.isFile() || stat.size > MAX_ANNOUNCEMENT_BYTES) return null;
-        const parsed = parseAnnouncementDocument(fsImpl.readFileSync(filePath, 'utf8'));
-        if (!parsed.body) return null;
-        return Object.freeze({
-          version,
-          title: parsed.title || `ChatUI 公告 ${version}`,
-          summary: parsed.summary,
-          publishedAt: parsed.publishedAt,
-          badge: parsed.badge,
-          body: parsed.body,
-        });
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .sort((left, right) => compareVersions(left.version, right.version));
-
-  return Object.freeze(announcements);
+function readAnnouncements({ runtimeDir, fsImpl = fs } = {}) {
+  return readRuntimeAnnouncements({ directory: runtimeDir, fsImpl });
 }
 
 module.exports = {
-  ANNOUNCEMENT_FILE_PATTERN,
+  RUNTIME_ANNOUNCEMENT_FILENAME,
   MAX_ANNOUNCEMENT_BYTES,
   parseAnnouncementDocument,
+  announcementVersion,
+  readRuntimeAnnouncements,
   readAnnouncements,
 };

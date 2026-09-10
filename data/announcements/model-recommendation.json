@@ -1,0 +1,6 @@
+{
+  "route_model": "deepseek-flash",
+  "chat_model": "deepseek-flash",
+  "image_model": "gpt-image-flash",
+  "note": "处理文档、联网搜索请使用 GPT 系列。"
+}

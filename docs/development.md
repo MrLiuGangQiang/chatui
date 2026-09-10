@@ -250,35 +250,42 @@ CI 结果只对它检出的确切 commit 有效。脏工作区、另一 worktree
 
 分支保护、tag ruleset、required check 配置属于 GitHub 仓库设置，不由本地脚本自动证明；发布者仍需确认这些外部设置和 check 状态。
 
-## 9. 版本化强制公告
+## 9. 公告维护
 
-重要公告使用独立目录维护，不复用 Release Notes：
+运行期公告优先读取部署目录，默认是仓库下的 `data/announcements/`，可通过 `CHATUI_ANNOUNCEMENTS_DIR` 覆盖：
 
 ```text
-docs/announcements/vMAJOR.MINOR.PATCH.md
+data/announcements/
+  README.md
+  _template.md
+  announcement.md
+  model-recommendation.json
 ```
 
-- 文件版本按语义版本排序，最新版本作为当前公告；
-- 只新增，不删除历史公告；
-- front matter 支持 `published_at`、`badge`、`summary`；
-- 浏览器以 `chatui-announcements-read-v1` 保存已读版本；
-- 最新公告未读时，首屏使用 fail-closed 遮罩并将主应用设为 `inert`，直到用户确认已读；
-- 新增更高版本公告后，当前最新版本不在已读集合中，遮罩自动重新出现；
-- 历史公告通过公告中心的“查看历史公告”展开，不影响最新公告确认流程。
+发布步骤：
 
-新增公告后至少运行：
+1. 复制 `_template.md`，保存为固定文件名 `announcement.md`；
+2. 填写 `published_at`、`badge`、`summary`、一级标题和正文；
+3. 保存文件；服务端只读取 `announcement.md`，不需要重启或发版；
+4. Docker 部署使用 `-v /宿主机目录:/app/data/announcements:ro` 只读挂载。
+
+修改 `announcement.md` 内容会自动改变阅读标识并重新触发未读。其他 Markdown 文件名不会被读取。
+
+运行目录只读取固定文件 `announcement.md`；旧文件和 `docs/announcements` 不进入接口、Docker 镜像或 runtime source revision。
+
+推荐模型配置直接编辑同目录下的 `model-recommendation.json`。修改 `route_model`、`chat_model`、`image_model` 或 `note` 后刷新页面即可；文件缺失或无效时使用内置推荐值。
+
+新增或修改实现后至少运行：
 
 ```bash
 npm run check
 ```
 
-公告目录会被 Docker 复制到 `/app/docs/announcements`，并参与 runtime source revision，避免公告内容与已验证镜像不一致。
-
-## 9. 完整 Release 流程
+## 10. 完整 Release 流程
 
 “推送 tag”不是完整发布。正式 release 必须执行全部步骤。
 
-### 9.1 准备候选提交
+### 10.1 准备候选提交
 
 1. 获取最新远端状态，确认基于当前 `origin/main` 工作；
 2. 确认没有未提交或未跟踪的候选改动；
@@ -286,7 +293,7 @@ npm run check
 4. 确认命令已同步 `package.json`、`package-lock.json` 顶层版本和 lockfile 根 package 镜像字段；
 5. 完成命令新建的 `docs/releases/vMAJOR.MINOR.PATCH.md`，标题以 `# ChatUI vMAJOR.MINOR.PATCH` 开头，并写清用户可见影响。
 
-### 9.2 本地验证与推送 main
+### 10.2 本地验证与推送 main
 
 ```bash
 npm run check
@@ -300,7 +307,7 @@ npm run preview:release
 
 提交 release candidate 并推送到 `main`。等待该精确提交的全部 main CI，特别是 `Exact Docker runtime`，成功后才能打 tag；不能以脏工作区、另一 worktree 或较早 commit 的结果作为候选依据。
 
-### 9.3 创建 annotated tag
+### 10.3 创建 annotated tag
 
 在已验证的 main commit 上创建 annotated tag：
 
@@ -311,7 +318,7 @@ git push origin vMAJOR.MINOR.PATCH
 
 不要使用 lightweight tag，也不要把 tag 指向未通过 main CI 的提交。
 
-### 9.4 Tag workflow
+### 10.4 Tag workflow
 
 `.github/workflows/release.yml` 以阿里云 ACR 为主发布路径，当前会：
 
@@ -329,7 +336,7 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 
 当前 workflow 仅构建并验证 `linux/amd64` 镜像；ARM64 部署不在发布支持范围内。
 
-### 9.5 发布完成条件
+### 10.5 发布完成条件
 
 只有全部满足时才能报告“发布完成”：
 
@@ -343,7 +350,7 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 
 报告至少包含：版本、commit、tag、GitHub Release URL/状态、镜像 digest、workflow URL/结果、source revision 和剩余部署动作。如果 workflow 尚未结束，只能报告“发布进行中”。
 
-## 10. 只能在远端或外部系统确认的事项
+## 11. 只能在远端或外部系统确认的事项
 
 下列项目不能仅凭本地 `npm run check` 或 Git tag 推断：
 
@@ -358,7 +365,7 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 
 这些事项必须通过相应平台 API、workflow 日志、registry inspect 或部署平台健康检查取得证据。
 
-## 11. 提交卫生
+## 12. 提交卫生
 
 提交前确认：
 

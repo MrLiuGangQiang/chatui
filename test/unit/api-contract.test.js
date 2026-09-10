@@ -105,8 +105,15 @@ async function testApiContractCoreEndpointsKeepShape() {
     assert.ok(publicConfig.json.config.ui && typeof publicConfig.json.config.ui === 'object');
     assert.ok(publicConfig.json.config.features && typeof publicConfig.json.config.features === 'object');
     assert.ok(publicConfig.json.config.context && typeof publicConfig.json.config.context === 'object');
+    assert.match(publicConfig.res.headers.get('cache-control') || '', /no-store/);
     assert.strictEqual(typeof publicConfig.json.config.context.windowTokens, 'number');
     assert.strictEqual(typeof publicConfig.json.config.context.intentPipelineDeadlineMs, 'number');
+    assert.deepStrictEqual(
+      Object.keys(publicConfig.json.config.modelRecommendation || {}).sort(),
+      ['chatModel', 'imageModel', 'note', 'routeModel']
+    );
+    assert.strictEqual(typeof publicConfig.json.config.modelRecommendation.routeModel, 'string');
+    assert.ok(publicConfig.json.config.modelRecommendation.routeModel.trim());
 
     const changelog = await request(baseUrl, '/api/changelog');
     assert.strictEqual(changelog.res.status, 200);
@@ -116,8 +123,10 @@ async function testApiContractCoreEndpointsKeepShape() {
     const announcements = await request(baseUrl, '/api/announcements');
     assert.strictEqual(announcements.res.status, 200);
     assertCorsJson(announcements);
+    assert.match(announcements.res.headers.get('cache-control') || '', /no-store/);
     assert.ok(Array.isArray(announcements.json.announcements));
-    assert.ok(announcements.json.announcements.some(item => item.version === 'v1.0.0'));
+    assert.ok(announcements.json.announcements.length <= 1, 'the announcement feed must expose only the latest runtime announcement');
+    assert.ok(!announcements.json.announcements.some(item => item.version === 'v1.0.0'), 'legacy announcements must not be served');
   });
 }
 

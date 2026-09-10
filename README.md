@@ -153,10 +153,34 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 
 ### 公告中心
 
-- 支持独立的版本化公告目录：`docs/announcements/vMAJOR.MINOR.PATCH.md`；
-- 最新公告未读时会以强制遮罩展示，遮罩期间不能使用 ChatUI 的其他功能；
-- 点击“我已阅读，进入 ChatUI”后，当前及历史公告不会再次自动弹出；
-- 新增更高版本公告会自动重置阅读状态；历史公告永久累计，并可在公告中心展开查看。
+- 运行期公告优先从 `CHATUI_ANNOUNCEMENTS_DIR` 读取，本地默认 `data/announcements/`，无需发版；
+- 复制 `data/announcements/_template.md`，保存为固定文件名 `announcement.md` 并填写 Markdown 即可发布；
+- Docker 建议将宿主机公告目录只读挂载到 `/app/data/announcements`：`-v /宿主机目录:/app/data/announcements:ro`；
+- 接口只读取固定文件 `announcement.md`；其他文件名不上前台，不展示历史公告；
+- 最新公告未读时会以强制遮罩展示；修改固定文件内容会重新触发未读。
+
+### 运行时推荐模型配置
+
+推荐模型配置和公告共用 `CHATUI_ANNOUNCEMENTS_DIR` 目录，不需要发版：
+
+```text
+data/announcements/model-recommendation.json
+```
+
+直接编辑该文件；Docker 部署时挂载目录中的同名文件会覆盖镜像默认值。
+
+文件字段：
+
+```json
+{
+  "route_model": "gpt-6-astra",
+  "chat_model": "gpt-6-astra",
+  "image_model": "gpt-image-2",
+  "note": "处理文档、联网搜索请使用 GPT 系列。"
+}
+```
+
+保存后刷新页面，公告侧栏和新会话欢迎页会使用新推荐值。文件缺失或格式错误时继续使用内置推荐值，不覆盖用户自己保存的模型配置。
 
 ### 部署与工程能力
 
@@ -834,7 +858,8 @@ PGPASSWORD=password
 | API | 方法 | 说明 |
 | --- | --- | --- |
 | `/api/version` | GET | 返回当前应用版本，来自根目录唯一版本源 `version.json` |
-| `/api/announcements` | GET | 返回按公告版本倒序排列的累计公告；前端据此判断最新公告是否需要强制阅读 |
+| `/api/config/public` | GET | 返回 UI、features、context 与运行期推荐模型配置，`no-store` |
+| `/api/announcements` | GET | 只读取固定文件 `announcement.md`；每次请求读取，前端据此判断是否需要强制阅读 |
 | `/api/image` | POST | 同源图片代理下载，用于上游图片 URL 无法直接加载时 |
 | `/api/chat-stream-jobs` | POST | 注册/启动聊天流式 Job |
 | `/api/usage/overview` | POST | 一次查询排行榜与个人统计，body 包含 `api_key`、`model` 和范围 |
@@ -949,6 +974,7 @@ GET, POST
 | `JOB_TTL_MS` | `3600000` | JobStore 任务保留时长，默认 1 小时 |
 | `MAX_JOBS_PER_STORE` | `200` | 每类任务最多保留数量 |
 | `NODE_ENV` | Docker 中为 `production` | Node 运行环境 |
+| `CHATUI_ANNOUNCEMENTS_DIR` | `data/announcements` | 运行期公告目录；相对路径按项目根目录解析，Docker 可只读挂载到 `/app/data/announcements` |
 | `POSTGRES_URL` | 未设置 | PostgreSQL 单变量连接串，推荐生产部署使用，例如 `postgres://user:password@host:5432/database?sslmode=disable` |
 | `POSTGRESQL_URL` | 未设置 | PostgreSQL 连接串别名 |
 | `PG_DATABASE_URL` | 未设置 | PostgreSQL 连接串别名 |
@@ -1166,28 +1192,17 @@ Docker Hub: liugangqiang/chatui
 
 ### 公告发布规范
 
-公告与 Release Notes 分开维护。每次发布重要公告时，只新增一个更高版本的文件，不删除历史公告：
+公告只维护一个固定文件，不展示历史列表，也不再用旧版本目录兜底：
 
 ```text
-docs/announcements/v1.0.0.md
-docs/announcements/v1.0.1.md
-docs/announcements/v1.0.2.md
+data/announcements/announcement.md
 ```
 
-公告文件可使用以下 front matter：
+1. 复制 `data/announcements/_template.md`，保存为 `announcement.md`；
+2. 填写 `published_at`、`badge`、`summary`、一级标题和正文；
+3. 保存文件后刷新页面；服务端只读取这个文件。
 
-```markdown
----
-published_at: 2026-08-05
-badge: 重要公告
-summary: 一句话摘要
----
-# 公告标题
-
-公告正文支持 Markdown。
-```
-
-最新版本未被确认阅读时，客户端会 fail-closed 地显示强制公告遮罩；确认阅读后会记录当前公告版本。新增版本会自动触发下一次强制阅读，历史文件只累计、不删除。
+修改文件内容会生成新的内容指纹并重新触发未读。其他 Markdown 文件名不会被识别。
 
 ### Release Notes 规范
 

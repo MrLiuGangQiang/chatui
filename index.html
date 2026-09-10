@@ -232,15 +232,15 @@
             <ul>
               <li>
                 <span class="announcement-tip-role">意图识别模型</span>
-                <span class="announcement-tip-value">gpt-6-astra</span>
+                <span class="announcement-tip-value" data-model-recommendation="routeModel">gpt-6-astra</span>
               </li>
               <li>
                 <span class="announcement-tip-role">聊天模型</span>
-                <span class="announcement-tip-value">gpt-6-astra</span>
+                <span class="announcement-tip-value" data-model-recommendation="chatModel">gpt-6-astra</span>
               </li>
               <li>
                 <span class="announcement-tip-role">生图模型</span>
-                <span class="announcement-tip-value">gpt-image-2</span>
+                <span class="announcement-tip-value" data-model-recommendation="imageModel">gpt-image-2</span>
               </li>
             </ul>
                         <div class="announcement-tip-note">觉得理解有偏差请在描述时<strong class="announcement-highlight">清晰的指定任务目标</strong>可以同时<strong class="announcement-highlight">更换更高级的意图识别模型</strong>；生图时如果给的内容有歧义、容易误导大模型，可以直接点击<strong class="announcement-highlight">强制生图</strong></div>
@@ -594,6 +594,7 @@
   <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.14-welcome-fonts" />
   <link rel="stylesheet" href="./styles/calm-theme.css?v=1.0.7-composer-active-state" />
   <script src="./client/runtime/module-registry.js?v=1.0.0"></script>
+  <script src="./shared/model-recommendation.js?v=1.0.0-runtime-file"></script>
   <script src="./shared/responses-output.js?v=1.0.0"></script>
   <script src="./shared/task-continuity.js?v=1.0.0"></script>
   <script src="./shared/model-capabilities.js?v=1.0.0-deepseek-intent"></script>
@@ -692,6 +693,7 @@
   <script src="./client/services/browser.js?v=1.2.65"></script>
   <script src="./client/app/state.js?v=1.2.69-reasoning-levels"></script>
   <script src="./client/app/app-context.js?v=1.1.0-workflow-registry"></script>
+  <script src="./client/ui/model-recommendation.js?v=1.0.0-runtime-file"></script>
   <script src="./client/features/clarification/presentation.js?v=1.2.0-choice-list"></script>
   <script src="./client/app/sessions.js?v=1.2.65"></script>
   <script src="./client/app/session-config.js?v=1.2.67-session-active-reset"></script>

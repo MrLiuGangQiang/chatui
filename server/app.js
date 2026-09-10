@@ -1,5 +1,5 @@
 const http = require('http');
-const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, REDIS_URL, readPublicConfig } = require('./config');
+const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, ANNOUNCEMENTS_DIR, MODEL_RECOMMENDATION_FILE, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, REDIS_URL, readPublicConfig } = require('./config');
 const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { createIdempotencyTable } = require('./validators/idempotency.validator');
 const { serveStatic } = require('./http/static');
@@ -18,6 +18,7 @@ const { createFeedbackReviewer } = require('./services/feedback-review.service')
 const { createUsageAccessValidator } = require('./services/usage-access.service');
 const { readReleaseNotes } = require('./services/release-notes.service');
 const { readAnnouncements } = require('./services/announcements.service');
+const { readModelRecommendation } = require('./services/model-recommendation.service');
 const { createLoggers } = require('./logging');
 const { createRequestPrincipalService } = require('./security/request-principal');
 
@@ -25,6 +26,7 @@ function createApp() {
   const loggers = createLoggers({ root: ROOT });
   const { accessLog, errorLog, serverLog, requestTrace, newTrace } = loggers;
   const requestPrincipal = createRequestPrincipalService();
+  const readRuntimePublicConfig = () => ({ ...readPublicConfig(), modelRecommendation: readModelRecommendation({ filePath: MODEL_RECOMMENDATION_FILE }) });
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
   const usageStats = postgresPool ? createUsageStatsRepository(postgresPool) : null;
@@ -115,7 +117,7 @@ function createApp() {
   const route = createRouter({
     appVersion: APP_VERSION,
     buildIdentity: BUILD_IDENTITY,
-    readPublicConfig,
+    readPublicConfig: readRuntimePublicConfig,
     // Logging
     accessLog,
     errorLog,
@@ -124,7 +126,7 @@ function createApp() {
     newTrace,
     requestPrincipal,
     readChangelog: () => readReleaseNotes({ root: ROOT }),
-    readAnnouncements: () => readAnnouncements({ root: ROOT }),
+    readAnnouncements: () => readAnnouncements({ runtimeDir: ANNOUNCEMENTS_DIR }),
     send,
     sendJson,
     sendMethodNotAllowed,

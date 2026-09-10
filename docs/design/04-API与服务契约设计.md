@@ -18,9 +18,9 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/version` | 返回 version、Git SHA、runtime source fingerprint |
-| GET | `/api/config/public` | 下发 `ui/features/context` 公共配置 |
+| GET | `/api/config/public` | 下发 `ui/features/context/modelRecommendation` 公共配置；运行期文件变化按 `no-store` 每次读取 |
 | GET | `/api/changelog` | 版本化更新日志 |
-| GET | `/api/announcements` | 累计公告 |
+| GET | `/api/announcements` | 固定文件 `announcement.md` 中的公告；每次请求读取，`no-store` |
 | POST | `/api/image` | 图片生成/编辑代理入口 |
 | POST | `/api/chat-stream-jobs` | 注册聊天流式任务 |
 | POST | `/api/client-execution-trace` | 客户端拒绝执行时上报受限诊断事件 |
@@ -77,7 +77,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 
 ## 8. 缓存与安全头
 
-- 入口 HTML 与可执行模块：`no-store`。
+- 入口 HTML、可执行模块与 `/api/announcements`：`no-store`，确保运行期公告文件更新后不会被共享缓存钉死。
 - 内容匹配的 bundle：`public, max-age=31536000, immutable`。
 - 字体/图片/SVG 等静态资源：短缓存。
 - 所有响应注入 `X-Content-Type-Options`、`Referrer-Policy`、CSP 与 `nosniff`。

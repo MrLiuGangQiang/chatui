@@ -331,7 +331,7 @@ GET /
 
 服务端可以依赖 `shared/`；浏览器 core/services/app/ui 可以依赖 `shared/`。高层编排可以依赖低层契约，低层契约不能反向依赖高层工作流。
 
-- `docs/announcements` 由服务端 `announcements.service.js` 读取并通过 `/api/announcements` 提供给浏览器；`announcement-center.js` 负责未读判定、强制遮罩和历史展开。
+- `CHATUI_ANNOUNCEMENTS_DIR`（默认 `data/announcements`）是唯一运行期公告目录。`server/services/announcements.service.js` 只读取固定文件 `announcement.md`，并通过 `/api/announcements` 提供；同目录的 `model-recommendation.json` 由 `server/services/model-recommendation.service.js` 读取并通过 `/api/config/public` 下发，客户端用于公告侧栏与欢迎页推荐展示。旧 `docs/announcements` 仅保留源码归档，不进入接口或镜像。
 
 ## 9. 已知演进边界
 
@@ -344,7 +344,7 @@ GET /
 - Node-only 测试辅助代码已移出 Docker 会复制的 `client/` 静态目录；
 - `shared/usage/ranges.js` 尚含 server-only SQL 字符串；
 - vendor 的来源、版本和 License 更新尚未由统一 manifest 完全自动化；
-- Docker 会复制 `docs/releases/` 与 `docs/announcements/`；公告目录参与 runtime source revision，Release Notes 仍保持文档归档语义；
+- Docker 会复制 `docs/releases/` 和运行期公告模板；旧 `docs/announcements` 不进入镜像或 runtime source revision，运行期 `data/announcements` 仅作为部署数据，不参与指纹；
 - 当前 architecture check 主要冻结 `app.js` 大小、legacy `with` 和浏览器全局增长，并不是完整的依赖图验证器。
 
 处理这些边界需要独立、可回归的重构，不应在无关功能改动中顺手改写。

@@ -28,7 +28,19 @@
 
     function writePersistedApiKey(e=""){try{const t=String(e||"").trim();t?localStorage?.setItem(API_KEY_STORAGE_KEY,t):localStorage?.removeItem(API_KEY_STORAGE_KEY)}catch{}}
 
-    async function loadPublicContext(){try{const e=await window?.fetch?.("/api/config/public");if(!e?.ok)return;const t=await e.json(),s=t?.config?.context;if(s&&"object"==typeof s&&!Array.isArray(s))state.publicContext={...s}}catch{}}
+    async function loadPublicContext(){
+      try {
+        const response=await window?.fetch?.("/api/config/public");
+        if(!response?.ok)return;
+        const payload=await response.json();
+        const context=payload?.config?.context;
+        if(context&&"object"==typeof context&&!Array.isArray(context))state.publicContext={...context};
+        const recommendation=payload?.config?.modelRecommendation;
+        if(recommendation&&"object"==typeof recommendation&&!Array.isArray(recommendation)){
+          root?.ChatUIApp?.appContext?.getWorkflowModule?.("modelRecommendationUi")?.applyModelRecommendation?.(document,recommendation);
+        }
+      } catch {}
+    }
 
     function loadConfig(){
       const stored=readJsonStorage(CONFIG_KEY,readJsonStorage("openapi-chat-image-config",{}));

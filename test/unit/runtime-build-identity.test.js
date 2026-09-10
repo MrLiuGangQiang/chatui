@@ -36,8 +36,8 @@ function testRuntimeSourceRevisionTracksExactlyDockerRuntimeCode() {
     fs.mkdirSync(path.join(root, 'docs', 'announcements'), { recursive: true });
     fs.writeFileSync(path.join(root, 'docs', 'announcements', 'v1.0.0.md'), '# Notice\n');
     const withAnnouncement = computeRuntimeSourceRevision(root);
-    assert.notStrictEqual(withAnnouncement, before, 'versioned announcements are part of the Docker runtime identity');
-    assert.strictEqual(isDockerRuntimeFile('docs/announcements/v1.0.0.md'), true);
+    assert.strictEqual(withAnnouncement, before, 'legacy announcements must not be part of the Docker runtime identity');
+    assert.strictEqual(isDockerRuntimeFile('docs/announcements/v1.0.0.md'), false);
     assert.strictEqual(isDockerRuntimeFile('docs/releases/v1.10.20.md'), false);
     assert.strictEqual(computeRuntimeSourceRevision(root), withAnnouncement, 'Docker-excluded files must not change runtime identity');
 

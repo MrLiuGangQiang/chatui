@@ -27,5 +27,8 @@ scripts/
 .gitattributes
 .nvmrc
 
-!docs/announcements/
-!docs/announcements/*.md
+!data/
+data/announcements/*
+!data/announcements/README.md
+!data/announcements/_template.md
+!data/announcements/model-recommendation.json

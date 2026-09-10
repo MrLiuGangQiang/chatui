@@ -60,32 +60,21 @@ function testAnnouncementDocumentParsesVersionedMetadata() {
   });
 }
 
-function testAnnouncementFilesAreCumulativeAndSortedByVersion() {
+function testAnnouncementFeedUsesOnlyTheFixedRuntimeFilename() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-announcements-'));
+  const runtimeDir = path.join(root, 'runtime-announcements');
   try {
-    fs.mkdirSync(path.join(root, 'docs', 'announcements'), { recursive: true });
-    for (const [version, title] of [['v1.0.0', '第一条'], ['v1.0.2', '第三条'], ['v1.0.1', '第二条']]) {
-      fs.writeFileSync(path.join(root, 'docs', 'announcements', `${version}.md`), `# ${title}\n\n正文`);
-    }
-    fs.writeFileSync(path.join(root, 'docs', 'announcements', 'README.md'), '# ignored');
-    const releases = readAnnouncements({ root });
-    assert.deepStrictEqual(releases.map(item => item.version), ['v1.0.2', 'v1.0.1', 'v1.0.0']);
-    assert.deepStrictEqual(releases.map(item => item.title), ['第三条', '第二条', '第一条']);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(path.join(runtimeDir, '2026-09-10-01.md'), '# 忽略\n\n不是固定文件名');
+    fs.writeFileSync(path.join(runtimeDir, 'announcement.md'), '# 正式公告\n\n正文');
+    const releases = readAnnouncements({ runtimeDir });
+    assert.strictEqual(releases.length, 1);
+    assert.match(releases[0].version, /^announcement-[a-f0-9]{16}$/);
+    assert.strictEqual(releases[0].title, '正式公告');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-
-  const projectRoot = path.join(__dirname, '../..');
-  const shipped = readAnnouncements({ root: projectRoot });
-  const canonicalVersion = require(path.join(projectRoot, 'version.json')).version;
-  assert.ok(shipped.length >= 1);
-  assert.strictEqual(shipped[0].version, `v${canonicalVersion}`, 'the latest announcement must use the canonical release version');
-  assert.strictEqual(shipped[0].title, '模型与能力更新');
-  assert.ok(shipped.some(item => item.version === 'v1.0.1' && item.title === 'ChatUI 意图识别协议与问题反馈功能升级'));
-  assert.ok(shipped.some(item => item.version === 'v1.0.0' && item.title === '全新公告中心上线'));
-  assert.ok(shipped.every(item => item.body && item.version));
 }
-
 async function testUnreadLatestAnnouncementLocksTheApplicationUntilAcknowledged() {
   const dom = announcementDom();
   const releases = [release('v1.1.0', '最新公告'), release('v1.0.0', '旧公告')];
@@ -271,6 +260,9 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   const root = path.join(__dirname, '../..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  const dockerignore = fs.readFileSync(path.join(root, '.dockerignore'), 'utf8');
+  const appSource = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
+  const serviceSource = fs.readFileSync(path.join(root, 'server/services/announcements.service.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
   assert.ok(index.includes('id="announcementModal"'));
   assert.ok(index.includes('id="acknowledgeAnnouncementBtn"'));
@@ -284,7 +276,17 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(!index.includes('id="sidebarAnnouncementBtn"'));
   assert.ok(index.includes('./client/ui/announcement-center.js'));
   assert.ok(index.includes('./styles/announcement.css'));
-  assert.ok(dockerfile.includes('COPY docs/announcements ./docs/announcements'));
+  assert.ok(!dockerfile.includes('COPY docs/announcements ./docs/announcements'));
+  assert.ok(dockerfile.includes('COPY data ./data'));
+  assert.ok(dockerignore.includes('data/announcements/*'));
+  assert.ok(dockerignore.includes('!data/announcements/README.md'));
+  assert.ok(dockerignore.includes('!data/announcements/_template.md'));
+  assert.ok(dockerignore.includes('!data/announcements/model-recommendation.json'));
+  assert.ok(fs.statSync(path.join(root, 'data/announcements/README.md')).isFile());
+  assert.ok(fs.statSync(path.join(root, 'data/announcements/_template.md')).isFile());
+  assert.ok(fs.statSync(path.join(root, 'data/announcements/model-recommendation.json')).isFile());
+  assert.ok(appSource.includes('runtimeDir: ANNOUNCEMENTS_DIR'));
+  assert.ok(serviceSource.includes('readRuntimeAnnouncements'));
   assert.ok(css.includes('z-index: 10000'));
   assert.ok(css.includes('body.announcement-locked'));
   assert.ok(index.includes('announcement-acknowledged-boot'));
@@ -325,7 +327,7 @@ async function testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntim
 
 module.exports = [
   testAnnouncementDocumentParsesVersionedMetadata,
-  testAnnouncementFilesAreCumulativeAndSortedByVersion,
+  testAnnouncementFeedUsesOnlyTheFixedRuntimeFilename,
   testUnreadLatestAnnouncementLocksTheApplicationUntilAcknowledged,
   testNewAnnouncementVersionResetsTheForcedGate,
   testNewAnnouncementPublishedWhileOpenResetsGate,

@@ -10,6 +10,8 @@ const DEFAULT_UPSTREAM_BASE_URL = String(process.env.DEFAULT_UPSTREAM_BASE_URL |
 const REDIS_URL = String(process.env.REDIS_URL || '').trim() || null;
 const ROOT = path.resolve(__dirname, '../..');
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
+const ANNOUNCEMENTS_DIR = path.resolve(ROOT, String(process.env.CHATUI_ANNOUNCEMENTS_DIR || '').trim() || 'data/announcements');
+const MODEL_RECOMMENDATION_FILE = path.join(ANNOUNCEMENTS_DIR, 'model-recommendation.json');
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_UPSTREAM_TIMEOUT_MS);
 const ALLOWED_PROXY_METHODS = new Set(['GET', 'POST']);
@@ -51,6 +53,8 @@ module.exports = {
   REDIS_URL,
   ROOT,
   ROOT_WITH_SEP,
+  ANNOUNCEMENTS_DIR,
+  MODEL_RECOMMENDATION_FILE,
   UPSTREAM_TIMEOUT_MS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   CONTEXT_WINDOW_TOKENS,

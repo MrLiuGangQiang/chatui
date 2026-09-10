@@ -6,6 +6,11 @@ node_modules/
 .env.*
 business/
 temp/
+# Runtime announcement content is deployment data; keep only the template and usage guide.
+data/announcements/*
+!data/announcements/README.md
+!data/announcements/_template.md
+!data/announcements/model-recommendation.json
 coverage/
 .nyc_output/
 dist/

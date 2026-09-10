@@ -40,7 +40,9 @@ function testAnnouncementLayoutKeepsMainContentCompactAndFormal() {
   const acknowledgeRule = css.match(/\.announcement-acknowledge-btn\s*\{\s*min-width:\s*220px;[^}]*\}/);
   assert.ok(acknowledgeRule, 'Missing standalone .announcement-acknowledge-btn rule');
   assert.doesNotMatch(acknowledgeRule[0], /linear-gradient/);
+  assert.match(acknowledgeRule[0], /margin-left:\s*auto/);
   assert.match(acknowledgeRule[0], /background:\s*#4f46e5/);
+  assert.match(css, /@media \(max-width: 600px\) \{[\s\S]*?\.announcement-acknowledge-btn \{ margin-left: 0; \}/);
 }
 
 module.exports = [

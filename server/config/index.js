@@ -32,6 +32,15 @@ function normalizeIntentDeadline(value, fallback) {
 const INTENT_PIPELINE_DEADLINE_MS = normalizeIntentDeadline(process.env.CHATUI_INTENT_PIPELINE_DEADLINE_MS, DEFAULT_INTENT_PIPELINE_DEADLINE_MS);
 const readPublicConfig = createPublicConfigReader({ root: ROOT, contextWindowTokens: CONTEXT_WINDOW_TOKENS, contextSummarizeOmitted: CONTEXT_SUMMARIZE_OMITTED, intentPipelineDeadlineMs: INTENT_PIPELINE_DEADLINE_MS });
 
+// Image edits default to the Image API (/images/edits). Deployments whose
+// upstream implements the Responses image_generation tool can opt into the
+// Responses transport (action=edit, input_image_mask, previous_response_id)
+// with CHATUI_IMAGE_EDIT_TRANSPORT=responses. The default keeps every
+// existing deployment on the multipart Image API path.
+const IMAGE_EDIT_TRANSPORT = String(process.env.CHATUI_IMAGE_EDIT_TRANSPORT || '').trim().toLowerCase() === 'responses'
+  ? 'responses'
+  : 'image_api';
+
 // Optional provider capability descriptor (design doc v2.7 7.1). Absent or
 // invalid JSON means "unconfigured" -> server gates treat the provider as
 // unrestricted, preserving baseline behavior for existing deployments.
@@ -60,6 +69,7 @@ module.exports = {
   CONTEXT_WINDOW_TOKENS,
   INTENT_PIPELINE_DEADLINE_MS,
   PROVIDER_CAPABILITIES,
+  IMAGE_EDIT_TRANSPORT,
   ALLOWED_PROXY_METHODS,
   ALLOWED_PROXY_PATHS,
   APP_VERSION,

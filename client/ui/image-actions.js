@@ -17,7 +17,35 @@ function imageActionButtonsHtml(href, filename, escapeAttr = value => String(val
   return downloadImageButtonHtml(href, filename, escapeAttr) + shareImageButtonHtml(href, filename, escapeAttr);
 }
 
-const api = Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml });
+// The toolbar must sit directly above the image, but the image is frequently
+// nested inside a wrapper or an actions row. Inserting against a different
+// parent throws NotFoundError, so anchor on the image's own parent instead.
+// Rendered thumbnails lose data-persisted-src whenever the source is still a
+// blob/data URL, so edits must fall back to the live image attributes.
+function imageEditSource(image) {
+  return String(
+    image?.dataset?.persistedSrc
+    || image?.dataset?.originalSrc
+    || image?.dataset?.persistedUrl
+    || image?.dataset?.objectUrl
+    || image?.currentSrc
+    || image?.src
+    || '',
+  ).trim();
+}
+
+// The toolbar belongs to the message content layer. Inserting it next to the
+// <img> puts it inside the thumbnail wrapper (a fixed-size flex cell), where it
+// collapses into an invisible sliver. Prepend it to the content container
+// instead so it renders above the image.
+function insertImageEditToolbar(container, toolbar) {
+  if (!container || !toolbar || typeof container.insertBefore !== 'function') return false;
+  if (container.firstChild) container.insertBefore(toolbar, container.firstChild);
+  else container.appendChild(toolbar);
+  return true;
+}
+
+const api = Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml, insertImageEditToolbar, imageEditSource });
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (root) root.ChatUIImageActions = api;

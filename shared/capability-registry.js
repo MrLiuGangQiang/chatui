@@ -1,12 +1,15 @@
 (function initChatUICapabilityRegistry(root, factory) {
   'use strict';
 
-  const api = factory();
+  const api = factory(root);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   const registry = root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry');
   if (registry?.register) registry.register('capabilityRegistry', api);
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function createChatUICapabilityRegistry() {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function createChatUICapabilityRegistry(root) {
   'use strict';
+
+  const imageSizePolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageSizePolicy')
+    || (typeof require === 'function' ? require('./image-size-policy') : null);
 
   const REGISTRY_VERSION = 'capability_registry.v1';
   const IMAGE_OPERATIONS = new Set(['text_to_image', 'image_reference_gen', 'edit_image']);
@@ -23,10 +26,23 @@
 
   const IMAGE_ARGUMENTS = Object.freeze({
     prompt: Object.freeze({ type: 'string', required: true, minLength: 1 }),
-    size: Object.freeze({ type: 'enum', values: IMAGE_SIZES, default: IMAGE_SIZE_DEFAULT, fixed: true }),
+    size: Object.freeze({ type: 'image_size', values: IMAGE_SIZES, default: IMAGE_SIZE_DEFAULT, fixed: true }),
     quality: Object.freeze({ type: 'enum', values: IMAGE_QUALITIES, default: 'auto' }),
     background: Object.freeze({ type: 'enum', values: IMAGE_BACKGROUNDS, default: 'auto' }),
     output_format: Object.freeze({ type: 'enum', values: IMAGE_OUTPUT_FORMATS, default: 'auto' }),
+  });
+
+  const IMAGE_EDIT_ARGUMENTS = Object.freeze({
+    ...IMAGE_ARGUMENTS,
+    size: Object.freeze({
+      type: 'image_size',
+      values: IMAGE_SIZES,
+      default: IMAGE_SIZE_DEFAULT,
+      fixed: true,
+      // The editor's resize tool is a user-authorised structured choice. The
+      // generate path keeps the settings-page size and ignores overrides.
+      allowFixedOverride: true,
+    }),
   });
 
   const CHAT_ARGUMENTS = Object.freeze({
@@ -59,7 +75,7 @@
     ocr: capability('ocr', 'chat', 'chat', CHAT_ARGUMENTS),
     text_to_image: capability('text_to_image', 'image_generation', 'image', IMAGE_ARGUMENTS, { changesFamily: 'generation' }),
     image_reference_gen: capability('image_reference_gen', 'image_edit', 'image', IMAGE_ARGUMENTS, { changesFamily: 'generation' }),
-    edit_image: capability('edit_image', 'image_edit', 'edit_image', IMAGE_ARGUMENTS, {
+    edit_image: capability('edit_image', 'image_edit', 'edit_image', IMAGE_EDIT_ARGUMENTS, {
       changesFamily: 'edit',
       equivalentAlternatives: [
         Object.freeze({
@@ -408,6 +424,14 @@
     if (spec.type === 'enum') {
       return spec.values.includes(value) ? null : argumentError(name, 'unsupported_value', value);
     }
+    if (spec.type === 'image_size') {
+      if (typeof value !== 'string') return argumentError(name, 'type', value);
+      if (spec.values.includes(value)) return null;
+      const result = typeof imageSizePolicy?.validateImageSize === 'function'
+        ? imageSizePolicy.validateImageSize(value)
+        : null;
+      return result?.valid ? null : argumentError(name, 'unsupported_value', value);
+    }
     if (spec.type === 'integer') {
       if (!Number.isInteger(value)) return argumentError(name, 'type', value);
       if (value < spec.min || value > spec.max) return argumentError(name, 'range', value);
@@ -606,9 +630,13 @@
       } else if (spec.fixed) {
         // A fixed route/plan default keeps provider auto mode at the argument
         // layer; a size chosen in the settings page is applied to the provider
-        // payload at execution time.
-        resolved[name] = spec.default;
-        evidence[name] = Object.freeze([]);
+        // payload at execution time. An explicit override (for example the
+        // image editor's resize tool) still wins because it is a user-authorised
+        // structured choice rather than a model guess.
+        const fixedOverride = spec.allowFixedOverride === true
+          && overrides && Object.prototype.hasOwnProperty.call(overrides, name);
+        resolved[name] = fixedOverride ? normalizeArgumentValue(name, overrides[name]) : spec.default;
+        evidence[name] = Object.freeze(fixedOverride ? ['explicit_override.v1'] : []);
       } else {
         const hasOverride = overrides && Object.prototype.hasOwnProperty.call(overrides, name);
         const items = byName.get(name) || [];

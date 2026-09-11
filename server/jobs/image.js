@@ -13,6 +13,7 @@ const {
 const { assertProviderCapability } = require('../validators/provider-capability.validator');
 const { assertJobOwnedBy, assertRequestPrincipal, bindJobOwner, jobOwnerScope } = require('../security/job-ownership');
 const { JOB_RESPONSE_HEADERS } = require('./http-contract');
+const { IMAGE_EDIT_TRANSPORT } = require('../config');
 const {
   failJobIfRunning,
   jobCancellationSignal,
@@ -24,6 +25,9 @@ const {
 const {
   buildImageEditMultipartBody,
   buildOpenAiImageEditPayload,
+  dataFiles,
+  imageFileToDataUrl,
+  imageFilesOnly,
   ensureImageEditPrompt,
   extractImageEditFiles,
   extractImageEditMasks,
@@ -84,6 +88,66 @@ function validateImageRoleMap(payload = {}, imageFiles = []) {
   });
 }
 
+function normalizeImageEditTransport(value = '') {
+  return String(value || '').trim().toLowerCase() === 'responses' ? 'responses' : 'image_api';
+}
+
+// Only edit_image has a Responses implementation. Generation keeps the Image
+// API path so a transport flag can never silently change generation behavior.
+function resolveImageJobTransport(mode = '', requested = '') {
+  if (String(mode || '') !== 'edit_image') return 'image_api';
+  const explicit = String(requested || '').trim();
+  return normalizeImageEditTransport(explicit || IMAGE_EDIT_TRANSPORT);
+}
+
+function buildResponsesImageEditRequest(job = {}, payload = {}) {
+  const content = [{ type: 'input_text', text: String(payload.prompt || '') }];
+  for (const file of imageFilesOnly(job.files || [])) {
+    content.push({ type: 'input_image', image_url: imageFileToDataUrl(file) });
+  }
+  const tool = {
+    type: 'image_generation',
+    model: String(payload.model || '').trim(),
+    action: 'edit',
+  };
+  const mask = dataFiles(job.masks || [])[0];
+  if (mask) tool.input_image_mask = { image_url: imageFileToDataUrl(mask) };
+  for (const field of ['size', 'quality', 'background', 'output_format', 'output_compression']) {
+    const value = payload[field];
+    if (value === undefined || value === null || value === '') continue;
+    if (value === 'auto' && field !== 'background') continue;
+    if (value === 'auto' && field === 'background') continue;
+    tool[field] = value;
+  }
+  const body = {
+    model: String(job.transportModel || payload.transport_model || '').trim() || String(payload.model || '').trim(),
+    input: [{ role: 'user', content }],
+    tools: [tool],
+  };
+  if (job.previousResponseId) body.previous_response_id = String(job.previousResponseId);
+  return body;
+}
+
+// The Responses image tool reports one base64 result per image_generation_call
+// output. Normalize it to the Image API shape the client already renders, and
+// keep the response id so a later turn can continue the same edit chain.
+function normalizeResponsesImageResult(data = {}) {
+  const output = Array.isArray(data?.output) ? data.output : [];
+  const images = output
+    .filter(item => item && item.type === 'image_generation_call' && typeof item.result === 'string' && item.result.trim())
+    .map(item => ({ b64_json: item.result }));
+  if (!images.length) {
+    const error = new Error('\u4e0a\u6e38\u672a\u8fd4\u56de\u56fe\u7247\u7ed3\u679c\uff0c\u8bf7\u91cd\u8bd5');
+    error.code = 'IMAGE_RESPONSES_RESULT_MISSING';
+    throw error;
+  }
+  return {
+    created: Number(data.created_at) || Math.floor(Date.now() / 1000),
+    data: images,
+    ...(data.id ? { response_id: String(data.id) } : {}),
+  };
+}
+
 function prepareImageJobRequest(body = {}) {
   let payload = body.payload || {};
   const files = extractImageEditFiles(body);
@@ -107,17 +171,23 @@ function prepareImageJobRequest(body = {}) {
 
 function createImageJobFromRequestBody(jobId, body = {}, { baseUrl, apiKey, extraHeaders, prepared = null } = {}) {
   const { mode, payload, files, masks } = prepared || prepareImageJobRequest(body);
+  const transport = resolveImageJobTransport(mode, body.transport || body.payload?.transport);
   return {
     id: jobId,
     status: 'running',
     mode,
+    transport,
+    transportModel: String(body.transportModel || '').trim(),
+    previousResponseId: String(body.previousResponseId || '').trim(),
     requestPurpose: body.requestPurpose || '',
     submissionId: String(body.submissionId || ''),
     dispatchContract: body.dispatchContract || null,
     bindingEvidence: Array.isArray(body.bindingEvidence) ? body.bindingEvidence.map(item => ({ ...item })) : [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    targetUrl: imageJobTargetUrl(baseUrl, mode, payload),
+    targetUrl: transport === 'responses'
+      ? joinUrl(baseUrl, '/responses')
+      : imageJobTargetUrl(baseUrl, mode, payload),
     apiKey,
     extraHeaders,
     payload,
@@ -135,6 +205,18 @@ function imageUpstreamBaseHeaders(job = {}) {
 
 function buildImageUpstreamRequest(job = {}) {
   const headers = imageUpstreamBaseHeaders(job);
+  if (job.mode === 'edit_image' && job.transport === 'responses') {
+    headers['Content-Type'] = 'application/json';
+    const editPayload = stripImageEditFileFields(job.payload);
+    const responsesBody = buildResponsesImageEditRequest(job, editPayload);
+    safeLog('[image-edit] upstream responses', {
+      model: responsesBody.model,
+      imageModel: responsesBody.tools?.[0]?.model || '',
+      images: job.files?.length || 0,
+      masks: job.masks?.length || 0,
+    });
+    return { headers, body: JSON.stringify(responsesBody) };
+  }
   if (job.mode === 'edit_image') {
     const editPayload = stripImageEditFileFields(job.payload);
     const editBody = buildImageEditMultipartBody(editPayload, job.files, { masks: job.masks });
@@ -223,7 +305,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
     const text = await upstream.text();
     if (!jobCanRun(job)) return job;
     const data = parseImageUpstreamResponse(upstream, text);
-    markImageJobDone(job, data);
+    markImageJobDone(job, job.transport === 'responses' ? normalizeResponsesImageResult(data) : data);
   } catch (err) {
     failure = err;
     if (!preserveJobCancellation(job)) {
@@ -368,6 +450,9 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
 
 module.exports = {
   buildImageUpstreamRequest,
+  buildResponsesImageEditRequest,
+  normalizeResponsesImageResult,
+  resolveImageJobTransport,
   createImageJobHandlers,
   createImageJobFromRequestBody,
   createImageJobValidationError,

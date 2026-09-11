@@ -153,7 +153,8 @@ async function testResumeImageBatchSkipsCompletedChildrenAndClearsIndex() {
   try {
     await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeImageBatch(sessionId);
     assert.strictEqual(events.includes('poll'), false, 'completed children must not poll upstream');
-    assert.deepStrictEqual(events, [['finish', 'cleanup']]);
+    assert.deepStrictEqual(events, [['finish', 'completed']],
+      'a fully recovered batch must settle the task instead of only clearing the resume marker');
     assert.strictEqual(submitHelpers.loadImageBatchIndex(storage, sessionId), null, 'a fully completed batch must clear its recovery index');
   } finally {
     delete global.localStorage;
@@ -267,6 +268,50 @@ async function testResumeImageBatchMergesChildrenIntoOneParentMessage() {
   }
 }
 
+
+async function testResumeImageBatchSettlesCommittedTaskSoComposerReturnsToSend() {
+  const sessionId = 'resume-settle-task';
+  const state = makeState(sessionId);
+  const storage = memoryStorage();
+  const parent = { id: 'display-batch-parent', role: 'assistant', pending: '1', responseIndex: '0', imageContext: '' };
+  state.sessions[0].display.push(parent);
+  const children = [
+    { jobId: 'imgjob-dog', prompt: '狗', displayItemId: parent.id, responseIndex: '0', mode: 'image', status: 'running' },
+  ];
+  saveIndex(storage, sessionId, children, 'batch-settle');
+  storage.setItem(submitHelpers.imageBatchChildKey(sessionId, 'imgjob-dog'), JSON.stringify(childSnapshot('imgjob-dog', '狗')));
+  const settleCalls = [];
+  const deps = {
+    state, window: { ChatUIApp: {} }, setSessionBusy() {}, finishSessionTask() {}, persistSessionDisplay() {},
+    settleSessionTask: (_sessionId, options = {}) => { settleCalls.push(options); },
+    getConfig: () => ({}), isMissingJobError: () => false, findImageDisplayItemByJob: () => parent,
+    getImageGenerationJob: async jobId => ({ status: 'done', data: { data: [{ url: `https://img.example/${jobId}.png` }] } }),
+    formatElapsed: () => '0s', jobDurationMs: () => 0,
+    imageResultToHtml: async () => ({
+      raw: 'dog',
+      html: '<div data-image-id="dog"></div>',
+      metaText: 'RT 0s',
+      imageContext: { schema_version: 'image_result.v1', resultId: 'dog', attachments: [{ imageId: 'dog', src: 'indexeddb://dog', persistedSrc: 'indexeddb://dog', width: 100, height: 80 }] },
+    }),
+    normalizeImageContextForStorage: value => value,
+    mergeImageResultContexts: imageResultWorkflow.mergeImageResultContexts,
+    renderImageResultContext: context => imageResultWorkflow.renderImageResultContext(context, {}, { escapeHtml: value => String(value), downloadAllImagesButtonHtml: () => '' }),
+    updateSessionDisplayItem: (_sessionId, item, _role, markup, options) => Object.assign(item, { ...options, html: markup }),
+    findMessageNodeByDisplayItem: () => null, updateMessage() {}, setImageContext() {}, reconcileSuccessfulImageResult() {},
+    saveSessionMessages: async () => {},
+  };
+  global.localStorage = storage;
+  try {
+    await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeImageBatch(sessionId);
+    assert.strictEqual(settleCalls.length, 1, 'a completed batch recovery must settle the task lifecycle');
+    assert.strictEqual(settleCalls[0].outcome, 'completed');
+    assert.strictEqual(settleCalls[0].jobId, 'batch-settle');
+    assert.strictEqual(settleCalls[0].jobKind, 'image_batch');
+    assert.strictEqual(settleCalls[0].submissionId, 'submit-test');
+  } finally {
+    delete global.localStorage;
+  }
+}
 
 async function testResumeImageBatchRestoresCompletedSiblingFromDurableIndex() {
   const sessionId = 'resume-completed-sibling';
@@ -493,6 +538,7 @@ module.exports = [
   testResumeImageBatchSkipsCompletedChildrenAndClearsIndex,
   testResumeImageBatchClearsUnrecoverableMissingSiblingState,
   testResumeImageBatchMergesChildrenIntoOneParentMessage,
+  testResumeImageBatchSettlesCommittedTaskSoComposerReturnsToSend,
   testResumeImageBatchRestoresCompletedSiblingFromDurableIndex,
   testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart,
   testResumeCompletedFiveImageBatchKeepsAllImagesAfterRefresh,

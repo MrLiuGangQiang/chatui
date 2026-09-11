@@ -158,6 +158,9 @@ function testRegenerationRefreshRendersOrderedMessagesAndPendingContent() {
       node.querySelector('.content').textContent = String(rawText || '');
       rendered.push({ via: 'update', node });
     },
+    reconcileMessageActions: (node, options = {}) => {
+      node.dataset.actionsState = String(options.state || '');
+    },
   });
 
   // Canonical render (as loadChatHistory would) then pending restore.
@@ -195,6 +198,10 @@ function testRegenerationRefreshRendersOrderedMessagesAndPendingContent() {
     'user:4:q3',
     'assistant:5:a3',
   ], 'refresh during a regeneration must keep every turn in order with the pending partial content in its slot');
+
+  const pendingNode = rendered.find(entry => entry.node?.__displayItem?.id === 'display-live')?.node;
+  assert.strictEqual(pendingNode?.dataset.actionsState, 'pending',
+    'pending history restoration must enter the shared message action lifecycle');
 }
 
 module.exports = [

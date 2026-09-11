@@ -58,6 +58,7 @@
       persistSessionDisplay,
       findMessageNodeByDisplayItem,
       updateMessage,
+      moveImageActionsToMessageActions,
       setImageContext,
       clearPendingFeedback,
       clearReasoning,
@@ -140,7 +141,12 @@
       });
       if (sessionId === state.activeSessionId) {
         const node = findMessageNodeByDisplayItem(item);
-        if (node) patchBatchCard(node, aggregate, complete);
+        if (node) {
+          patchBatchCard(node, aggregate, complete);
+          if (typeof moveImageActionsToMessageActions === 'function' && node.querySelector?.('img.generated-thumb')) {
+            moveImageActionsToMessageActions(node, { complete });
+          }
+        }
       }
       return html;
     }

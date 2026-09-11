@@ -39,7 +39,7 @@
       values: IMAGE_SIZES,
       default: IMAGE_SIZE_DEFAULT,
       fixed: true,
-      // The editor's resize tool is a user-authorised structured choice. The
+      // An explicit size override is a user-authorised structured choice. The
       // generate path keeps the settings-page size and ignores overrides.
       allowFixedOverride: true,
     }),
@@ -630,9 +630,8 @@
       } else if (spec.fixed) {
         // A fixed route/plan default keeps provider auto mode at the argument
         // layer; a size chosen in the settings page is applied to the provider
-        // payload at execution time. An explicit override (for example the
-        // image editor's resize tool) still wins because it is a user-authorised
-        // structured choice rather than a model guess.
+        // payload at execution time. An explicit override still wins because it
+        // is a user-authorised structured choice rather than a model guess.
         const fixedOverride = spec.allowFixedOverride === true
           && overrides && Object.prototype.hasOwnProperty.call(overrides, name);
         resolved[name] = fixedOverride ? normalizeArgumentValue(name, overrides[name]) : spec.default;

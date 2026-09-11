@@ -32,7 +32,8 @@ function testTerminalReconcileClearsStreamingAndTransientGuards() {
   assert.strictEqual(node.dataset.streamRunToken, undefined);
   assert.strictEqual(node.dataset.pendingFeedback, undefined);
   assert.strictEqual(node.dataset.jobId, undefined);
-  assert.strictEqual(node.dataset.persist, undefined, 'transient persist guard must be cleared so the action row becomes visible');
+  assert.strictEqual(node.dataset.persist, undefined, 'transient persist guard must be cleared on terminal completion');
+  assert.strictEqual(node.dataset.actionsState, 'ready', 'terminal cleanup must enter the canonical ready action state');
   assert.strictEqual(node.dataset.sessionId, undefined);
   assert.strictEqual(node.__displayItem.pending, '', 'stale projection ownership must be cleared');
   assert.strictEqual(node.__displayItem.jobId, '', 'stale job ownership must be cleared');
@@ -53,18 +54,34 @@ function testStopFinalizationTargetsStreamingMessagesAndClearsPersist() {
   );
   const stopped = app.slice(app.indexOf('function markMessageStopped'), app.indexOf('function removeGeneratedImageInlineActions'));
   assert.ok(
-    stopped.includes('reconcileCompletedMessageUi'),
-    'markMessageStopped must delegate terminal cleanup to the shared reconciler',
+    stopped.includes('reconcileMessageActions?.(e,{state:"ready"})'),
+    'markMessageStopped must delegate to the shared message-action lifecycle',
   );
   assert.ok(
-    stopped.includes('delete e.dataset.persist'),
-    'markMessageStopped must clear the transient persist guard so stopped messages show actions',
+    stopped.includes('actionState:"ready"'),
+    'the stopped update must explicitly keep the completed action state visible',
+  );
+  assert.ok(
+    !stopped.includes('delete e.dataset.persist'),
+    'stopped messages must not mutate visibility metadata outside the shared lifecycle',
   );
 }
 
 // CSS visibility must be a deterministic function of message state:
 // hidden while streaming or while the transient placeholder is pending, and fully
 // visible once terminal or once a user message has been sent.
+function testDisplayHistoryRestoreUsesTheSharedLifecycle() {
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const displayHistory = fs.readFileSync(path.join(__dirname, '../../client/app/display-history-workflow.js'), 'utf8');
+  assert.ok(
+    app.includes('reconcileMessageActions:(e,t={})=>getMessageWorkflow().reconcileMessageActions?.(e,t)'),
+    'display-history composition must route pending restoration through the shared message lifecycle',
+  );
+  assert.ok(
+    displayHistory.includes("deps.reconcileMessageActions?.(node, { state: 'pending' })"),
+    'restored pending messages must enter the same pending action state as live messages',
+  );
+}
 function testActionVisibilityIsDeterministicByMessageState() {
   const flatThemeCss = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8');
 
@@ -72,22 +89,19 @@ function testActionVisibilityIsDeterministicByMessageState() {
   assert.match(streaming, /visibility:hidden!important/, 'streaming action row must be hidden');
   assert.match(streaming, /opacity:0!important/, 'streaming action row must be invisible');
 
-  const pending = lastRuleBody(flatThemeCss, '.message.assistant[data-persist="0"] .msg-actions');
-  assert.match(pending, /visibility:hidden!important/, 'pending placeholder action row must be hidden');
-  assert.match(pending, /opacity:0!important/, 'pending placeholder action row must be invisible');
+  const pending = lastRuleBody(flatThemeCss, '.message[data-actions-state="pending"] .msg-actions{');
+  assert.match(pending, /visibility:hidden!important/, 'pending action row must be hidden');
+  assert.match(pending, /opacity:0!important/, 'pending action row must be invisible');
 
-  const terminal = lastRuleBody(flatThemeCss, '.message.assistant:not([data-streaming="1"]):not([data-persist="0"]) .msg-actions');
-  assert.match(terminal, /opacity:1!important/, 'terminal assistant action row must be fully visible');
-  assert.match(terminal, /pointer-events:auto!important/, 'terminal assistant actions must be interactive');
-
-  const user = lastRuleBody(flatThemeCss, '.message.user .msg-actions');
-  assert.match(user, /opacity:1!important/, 'sent user action row must be fully visible');
-  assert.match(user, /pointer-events:auto!important/, 'sent user actions must be interactive');
-  assert.doesNotMatch(user, /position:absolute!important/, 'sent user actions must not overlay the following message');
+  const terminal = lastRuleBody(flatThemeCss, '.message.user[data-actions-state="ready"] .msg-actions{');
+  assert.match(terminal, /opacity:1!important/, 'ready assistant action row must be fully visible');
+  assert.match(terminal, /visibility:visible!important/, 'ready actions must override legacy hidden guards');
+  assert.match(terminal, /pointer-events:auto!important/, 'ready actions must be interactive');
 }
 
 module.exports = [
   testTerminalReconcileClearsStreamingAndTransientGuards,
   testStopFinalizationTargetsStreamingMessagesAndClearsPersist,
   testActionVisibilityIsDeterministicByMessageState,
+  testDisplayHistoryRestoreUsesTheSharedLifecycle,
 ];

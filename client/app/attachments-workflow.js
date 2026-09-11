@@ -4,7 +4,8 @@
   const sharedFileInputs = root?.ChatUICore?.fileInputs
     || (typeof require === 'function' ? require('../../shared/file-inputs') : null);
 
-  const DEFAULT_IMAGE_UPLOAD_LIMITS = Object.freeze({ maxLongEdge: 2048, maxBytes: 20 * 1024 * 1024, minQuality: 0.72 });
+  const IMAGE_COMPRESSION_THRESHOLD_BYTES = 5 * 1024 * 1024;
+  const DEFAULT_IMAGE_UPLOAD_LIMITS = Object.freeze({ maxLongEdge: 2048, maxBytes: IMAGE_COMPRESSION_THRESHOLD_BYTES, minQuality: 0.72 });
   const MIME_BY_EXT = Object.freeze({
     txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', csv: 'text/csv', xml: 'application/xml', yaml: 'text/yaml', yml: 'text/yaml', js: 'text/javascript', ts: 'text/typescript', jsx: 'text/javascript', tsx: 'text/typescript', html: 'text/html', css: 'text/css', py: 'text/x-python', java: 'text/x-java', go: 'text/x-go', rs: 'text/x-rust', php: 'text/x-php', sql: 'text/x-sql', log: 'text/plain', conf: 'text/plain',
     pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -20,6 +21,33 @@
   function isBmpFile(file = {}) { return /image\/(bmp|x-ms-bmp)/i.test(file.type || '') || /\.bmp$/i.test(file.name || ''); }
   function replaceExt(name = 'image', ext = '') { const text = String(name || 'image'); return text.includes('.') ? text.replace(/\.[^.]*$/, ext) : `${text}${ext}`; }
   function canvasToBlob(canvas, type, quality) { return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('图片压缩失败')), type, quality)); }
+
+  function positiveBytes(value, fallback) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  }
+
+  function normalizeImageUploadLimits(currentLimits = {}) {
+    const configuredMaxBytes = positiveBytes(currentLimits.maxBytes, IMAGE_COMPRESSION_THRESHOLD_BYTES);
+    const maxBytes = Math.min(configuredMaxBytes, IMAGE_COMPRESSION_THRESHOLD_BYTES);
+    const compressAboveBytes = Math.min(
+      positiveBytes(currentLimits.compressAboveBytes, maxBytes),
+      IMAGE_COMPRESSION_THRESHOLD_BYTES,
+    );
+    return Object.freeze({
+      ...DEFAULT_IMAGE_UPLOAD_LIMITS,
+      ...currentLimits,
+      maxBytes,
+      compressAboveBytes,
+    });
+  }
+
+  function imageCompressionError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    error.statusCode = 413;
+    return error;
+  }
 
   function createAttachmentsWorkflow(deps = {}) {
     const getState = deps.getState || (() => ({}));
@@ -39,7 +67,7 @@
     const documentRef = deps.document || root.document;
     const FileReaderCtor = deps.FileReader || root.FileReader;
     const FileCtor = deps.File || root.File;
-    const limits = deps.imageUploadLimits || DEFAULT_IMAGE_UPLOAD_LIMITS;
+    const limits = normalizeImageUploadLimits(deps.imageUploadLimits || DEFAULT_IMAGE_UPLOAD_LIMITS);
     const fileInputs = deps.fileInputs || root?.ChatUICore?.fileInputs || sharedFileInputs || {};
     const input = getElement('fileInput');
     if (input && typeof fileInputs.acceptAttribute === 'function') input.accept = fileInputs.acceptAttribute({ includeImages: true });
@@ -62,6 +90,50 @@
       if (isDisposedSession(state, sessionId)) return false;
       if (!sessionId) return true;
       return !Array.isArray(state.sessions) || !state.sessions.length || state.sessions.some(session => session?.id === sessionId);
+    }
+
+    const maxFileBytes = positiveBytes(fileInputs.MAX_FILE_BYTES, 10 * 1024 * 1024);
+    const maxRequestBytes = positiveBytes(fileInputs.MAX_REQUEST_BYTES, 10 * 1024 * 1024);
+
+    function attachmentBytes(item = {}) {
+      const candidates = [item?.size, item?.bytes, item?.file?.size, item?.blob?.size];
+      for (const candidate of candidates) {
+        const size = Number(candidate);
+        if (Number.isFinite(size) && size >= 0) return size;
+      }
+      const fileData = String(item?.fileData || item?.file_data || '');
+      if (fileData) return inputFileDataSize(fileData);
+      const dataUrl = String(item?.dataUrl || item?.data_url || item?.src || item?.previewSrc || '');
+      if (/^data:/i.test(dataUrl)) return inputFileDataSize(dataUrl);
+      const text = String(item?.text || '');
+      if (text) return utf8Bytes(text).byteLength;
+      return 0;
+    }
+
+    function attachmentName(item = {}) {
+      return item?.name || item?.file?.name || item?.filename || '附件';
+    }
+
+    function fileSizeError(message, code) {
+      const error = new Error(message);
+      error.code = code;
+      error.statusCode = 413;
+      return error;
+    }
+
+    function validateAttachmentBatch(items = [], { existing = [] } = {}) {
+      let totalBytes = (Array.isArray(existing) ? existing : []).reduce((sum, item) => sum + attachmentBytes(item), 0);
+      for (const item of Array.isArray(items) ? items : []) {
+        const size = attachmentBytes(item);
+        if (size >= maxFileBytes) {
+          throw fileSizeError(`文件必须小于 10 MB：${attachmentName(item)}`, 'FILE_INPUT_TOO_LARGE');
+        }
+        totalBytes += size;
+        if (totalBytes >= maxRequestBytes) {
+          throw fileSizeError('本次上传的附件合计必须小于 10 MB', 'FILE_INPUT_REQUEST_TOO_LARGE');
+        }
+      }
+      return totalBytes;
     }
 
     function attachmentDraftFor(state, sessionId = state.activeSessionId) {
@@ -383,6 +455,7 @@
 
     async function prepareChatAttachments(list = [], options = {}) {
       const prepared = await ensureChatAttachmentImageDataUrls(list);
+      validateAttachmentBatch(prepared);
       const documents = prepared.filter(item => !isImageFile(item));
       if (!documents.length) return prepared.map(item => prepareChatImageVision(item, options));
       const resolvedDocuments = new Map();
@@ -458,10 +531,12 @@
           file = compressed.file;
           result.push({ ...source, file, name: file.name, type: file.type || inferMimeByName(file.name), size: file.size, dataUrl: await readFileAsDataURL(file), compressionNote: compressed.changed ? (source.compressionNote ? `${source.compressionNote}；${compressed.note}` : compressed.note) : (source.compressionNote || '') });
         } catch (err) {
+          if (err?.code && String(err.code).startsWith('IMAGE_COMPRESSION_')) throw err;
           console.warn('prepare chat image attachment failed', err);
           result.push({ ...source, dataUrl: '', unsupportedReason: source.unsupportedReason || '图片缓存不存在，无法发送给聊天模型' });
         }
       }
+      validateAttachmentBatch(result);
       return result;
     }
 
@@ -481,15 +556,28 @@
     }
 
     async function compressImageIfNeeded(file, currentLimits = limits) {
-      if (!isCompressibleRasterImage(file)) return { file, changed: false };
+      const effectiveLimits = normalizeImageUploadLimits(currentLimits);
+      const sourceBytes = attachmentBytes(file);
+      const mustCompress = sourceBytes > effectiveLimits.compressAboveBytes;
+      if (!isCompressibleRasterImage(file)) {
+        if (mustCompress) {
+          throw imageCompressionError(
+            '该图片超过 5 MB 且无法自动压缩，请缩小尺寸或转换为 JPEG、PNG、WebP 后重试。',
+            'IMAGE_COMPRESSION_UNSUPPORTED',
+          );
+        }
+        return { file, changed: false };
+      }
+
       let bitmap = null;
+      let needsResize = false;
       try {
         bitmap = await createImageBitmapImpl(file);
         const longEdge = Math.max(bitmap.width, bitmap.height);
-        const needsResize = longEdge > currentLimits.maxLongEdge;
-        const needsSize = file.size > currentLimits.maxBytes;
+        needsResize = longEdge > effectiveLimits.maxLongEdge;
+        const needsSize = sourceBytes > effectiveLimits.compressAboveBytes;
         if (!needsResize && !needsSize) return { file, changed: false };
-        const scale = Math.min(1, currentLimits.maxLongEdge / longEdge);
+        const scale = Math.min(1, effectiveLimits.maxLongEdge / longEdge);
         const width = Math.max(1, Math.round(bitmap.width * scale));
         const height = Math.max(1, Math.round(bitmap.height * scale));
         const canvas = documentRef.createElement('canvas');
@@ -499,16 +587,32 @@
         const sourceType = file.type || inferMimeByName(file.name);
         const type = /image\/png/i.test(sourceType) ? 'image/png' : /image\/webp/i.test(sourceType) ? 'image/webp' : 'image/jpeg';
         let blob = await canvasToBlob(canvas, type, 0.9);
-        if (blob.size > currentLimits.maxBytes && type !== 'image/png') for (const quality of [0.82, 0.76, currentLimits.minQuality]) { blob = await canvasToBlob(canvas, type, quality); if (blob.size <= currentLimits.maxBytes) break; }
-        if (blob.size > currentLimits.maxBytes && type === 'image/png') for (const quality of [0.88, 0.8, currentLimits.minQuality]) { blob = await canvasToBlob(canvas, 'image/jpeg', quality); if (blob.size <= currentLimits.maxBytes) break; }
+        if (blob.size > effectiveLimits.maxBytes && type !== 'image/png') for (const quality of [0.82, 0.76, effectiveLimits.minQuality]) { blob = await canvasToBlob(canvas, type, quality); if (blob.size <= effectiveLimits.maxBytes) break; }
+        if (blob.size > effectiveLimits.maxBytes && type === 'image/png') for (const quality of [0.88, 0.8, effectiveLimits.minQuality]) { blob = await canvasToBlob(canvas, 'image/jpeg', quality); if (blob.size <= effectiveLimits.maxBytes) break; }
+        if (blob.size > effectiveLimits.maxBytes) {
+          if (mustCompress) {
+            throw imageCompressionError(
+              '图片超过 5 MB，自动压缩后仍超过 5 MB，请缩小尺寸或转换为 JPEG/WebP 后重试。',
+              'IMAGE_COMPRESSION_TOO_LARGE',
+            );
+          }
+          return { file, changed: false };
+        }
         const outputType = blob.type || type;
         const ext = outputType.includes('webp') ? '.webp' : outputType.includes('jpeg') ? '.jpg' : '.png';
         const output = new FileCtor([blob], replaceExt(file.name, ext), { type: outputType, lastModified: Date.now() });
         const reasons = [];
         if (needsResize) reasons.push(`分辨率 ${bitmap.width}×${bitmap.height}`);
-        if (needsSize) reasons.push(`大小 ${formatBytes(file.size)}`);
+        if (needsSize) reasons.push(`大小 ${formatBytes(sourceBytes)}`);
         return { file: output, changed: true, note: `${reasons.join('、')} 较大，已自动压缩为 ${width}×${height} / ${formatBytes(output.size)}` };
       } catch (err) {
+        if (err?.code && String(err.code).startsWith('IMAGE_COMPRESSION_')) throw err;
+        if (mustCompress) {
+          throw imageCompressionError(
+            '图片压缩失败，请缩小尺寸或转换为 JPEG/WebP 后重试。',
+            'IMAGE_COMPRESSION_FAILED',
+          );
+        }
         console.warn('compress image failed', err);
         return { file, changed: false };
       } finally { bitmap?.close?.(); }
@@ -529,32 +633,45 @@
       uploadTasks.forEach(task => taskSessionIds.set(task.id, sessionId));
       renderUploadProgress();
 
+      const preflightErrors = new Map();
+      incoming.forEach((file, index) => {
+        if (attachmentBytes(file) >= maxFileBytes) {
+          preflightErrors.set(index, fileSizeError(`文件必须小于 10 MB：${attachmentName(file)}`, 'FILE_INPUT_TOO_LARGE'));
+        }
+      });
+      const existingAttachmentBytes = (attachmentDraftFor(state, sessionId) || [])
+        .reduce((sum, item) => sum + attachmentBytes(item), 0);
+      const incomingAttachmentBytes = incoming.reduce((sum, file) => sum + attachmentBytes(file), 0);
+      if (existingAttachmentBytes + incomingAttachmentBytes >= maxRequestBytes) {
+        const aggregateError = fileSizeError('本次上传的附件合计必须小于 10 MB', 'FILE_INPUT_REQUEST_TOO_LARGE');
+        incoming.forEach((_file, index) => {
+          if (!preflightErrors.has(index)) preflightErrors.set(index, aggregateError);
+        });
+      }
+      if (preflightErrors.size) {
+        for (const [index, error] of preflightErrors) {
+          Object.assign(uploadTasks[index], { percent: 100, status: error.message, phase: '检查大小', error: true, done: true });
+        }
+        renderUploadProgress();
+        toast([...preflightErrors.values()][0].message);
+      }
+
       const documentErrors = new Map();
-      const acceptedIncomingDocuments = [];
       incoming.forEach((file, index) => {
         const descriptor = { name: file.name, type: file.type || inferMimeByName(file.name), size: file.size };
         if (isImageFile(descriptor)) return;
         try {
           fileInputs.validateFile?.(descriptor);
-          acceptedIncomingDocuments.push({ index, file: descriptor });
         } catch (err) {
           documentErrors.set(index, err);
         }
       });
-      if (acceptedIncomingDocuments.length && typeof fileInputs.validateRequestFiles === 'function') {
-        const existingDocuments = (attachmentDraftFor(state, sessionId) || [])
-          .filter(item => !isImageFile(item))
-          .map(item => ({ name: item.name, type: item.type, size: item.size || item.file?.size }));
-        try {
-          fileInputs.validateRequestFiles([...existingDocuments, ...acceptedIncomingDocuments.map(item => item.file)]);
-        } catch (err) {
-          acceptedIncomingDocuments.forEach(item => documentErrors.set(item.index, err));
-        }
-      }
 
       for (let index = 0; index < incoming.length; index += 1) {
         const taskId = uploadTasks[index]?.id;
         try {
+          const preflightError = preflightErrors.get(index);
+          if (preflightError) throw preflightError;
           let file = incoming[index];
           let originalName = '';
           setUploadPhase(taskId, '准备文件', 8);
@@ -570,13 +687,27 @@
             const validationError = documentErrors.get(index);
             if (validationError) throw validationError;
             fileInputs.validateFile?.(item);
-            item.attachmentId = ensureAttachmentId(item, index);
             item.inputFile = true;
             if (fileInputs.isPdfFile?.(item)) item.pdfDetail = 'auto';
+          }
+
+          const itemBytes = attachmentBytes(item);
+          if (itemBytes >= maxFileBytes) {
+            throw fileSizeError(`文件必须小于 10 MB：${attachmentName(item)}`, 'FILE_INPUT_TOO_LARGE');
+          }
+          const currentDraft = attachmentDraftFor(state, sessionId) || [];
+          const currentBytes = currentDraft.reduce((sum, entry) => sum + attachmentBytes(entry), 0);
+          if (currentBytes + itemBytes >= maxRequestBytes) {
+            throw fileSizeError('本次上传的附件合计必须小于 10 MB', 'FILE_INPUT_REQUEST_TOO_LARGE');
+          }
+
+          if (!isImageFile(item)) {
+            item.attachmentId = ensureAttachmentId(item, index);
             setUploadPhase(taskId, '保存文件', 35);
             await persistInputFile(item, index);
             setUploadPhase(taskId, '保存文件', 100);
           }
+
           setUploadPhase(taskId, '添加到附件', 80);
           const draft = attachmentDraftFor(state, sessionId);
           if (draft && sessionCanReceiveAttachments(state, sessionId) && attachmentDraftVersion(state, sessionId) === draftVersion) {
@@ -590,8 +721,9 @@
           setUploadTask(taskId, { percent: 100, status: '已添加', phase: '添加到附件', done: true });
           if (item.compressionNote) toast(item.compressionNote);
         } catch (err) {
-          console.warn('add file failed', err);
+          if (!err?.statusCode || err.statusCode >= 500) console.warn('add file failed', err);
           setUploadTask(taskId, { percent: 100, status: err?.message || '处理失败', error: true, done: true });
+          if (!preflightErrors.has(index)) toast(err?.message || '附件处理失败');
         }
       }
       autoResize();
@@ -621,7 +753,7 @@
   }
 
   const api = Object.freeze({
-    DEFAULT_IMAGE_UPLOAD_LIMITS, inferMimeByName, isBmpFile, replaceExt, canvasToBlob, createAttachmentsWorkflow,
+    IMAGE_COMPRESSION_THRESHOLD_BYTES, DEFAULT_IMAGE_UPLOAD_LIMITS, inferMimeByName, isBmpFile, replaceExt, canvasToBlob, createAttachmentsWorkflow,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

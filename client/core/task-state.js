@@ -243,8 +243,11 @@ function reduceTaskState(currentState, event = {}) {
 
     // This event is emitted only after the assistant result has committed to
     // the canonical session snapshot; the managed job remains owner until then.
+    // HANDOFF is accepted too: a committed result proves the durable handoff
+    // happened, even when the running transition was not observed first.
+    // Without it the composer can stay in stop mode with the result rendered.
     case TASK_EVENTS.JOB_COMPLETED_COMMITTED:
-      if (![TASK_PHASES.RUNNING, TASK_PHASES.RECOVERING].includes(state.phase)) return state;
+      if (![TASK_PHASES.HANDOFF, TASK_PHASES.RUNNING, TASK_PHASES.RECOVERING].includes(state.phase)) return state;
       return transition(state, {
         phase: TASK_PHASES.COMPLETED,
         owner: TASK_OWNERS.CANONICAL_SESSION,

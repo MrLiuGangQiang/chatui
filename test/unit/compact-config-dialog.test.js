@@ -22,7 +22,7 @@ function testConfigDialogKeepsOnlyOperationalCopy() {
 
   assert.ok(index.includes('id="systemPrompt" rows="4"'));
   assert.ok(index.includes('id="imageStylePrompt" rows="4"'));
-  assert.ok(index.includes('flat-theme.css?v=2.2.14-welcome-fonts'));
+  assert.ok(index.includes('flat-theme.css?v=2.2.15-action-lifecycle'));
 }
 
 function testBackupActionsLiveInsideConnectionCard() {

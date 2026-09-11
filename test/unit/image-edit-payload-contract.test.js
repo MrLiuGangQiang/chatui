@@ -276,6 +276,20 @@ function testPromptImageDataSanitizationContract() {
   assert.strictEqual(imageEditPayload.normalizeImageEditFieldValue('size', { width: 1 }), '{"width":1}');
 }
 
+function testMultipartBodyCarriesTransparentPngRequest() {
+  const { body } = imageEditPayload.buildImageEditMultipartBody({
+    model: 'gpt-image-1',
+    prompt: 'Remove the background.',
+    background: 'transparent',
+    output_format: 'png',
+  }, [imageFile()]);
+  const text = body.toString('utf8');
+  assert.ok(text.includes('name="background"'), 'background must reach the upstream multipart body');
+  assert.ok(text.includes('\r\n\r\ntransparent\r\n'), 'background must be transparent');
+  assert.ok(text.includes('name="output_format"'), 'output_format must reach the upstream multipart body');
+  assert.ok(text.includes('\r\n\r\npng\r\n'), 'output_format must be png');
+}
+
 module.exports = [
   testImageEditTextEntriesContract,
   testImageEditTextEntryHelperContract,
@@ -283,6 +297,7 @@ module.exports = [
   testOpenAiImageEditPayloadUsesSharedTextEntries,
   testMultipartBodyUsesSharedTextEntries,
   testMultipartBodyUsesArrayFieldForMultipleImages,
+  testMultipartBodyCarriesTransparentPngRequest,
   testImageEditFileExtractionContract,
   testImageEditFileFilterHelpersContract,
   testImageEditCandidateHelpersContract,

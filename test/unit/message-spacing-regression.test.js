@@ -18,7 +18,7 @@ function ruleBody(css, selector) {
 
 function testStreamingMessageSpacingKeepsActionRowGeometryStable() {
   const streaming = ruleBody(flatThemeCss, '.message[data-streaming="1"] .msg-actions');
-  const pending = ruleBody(flatThemeCss, '.message.assistant[data-persist="0"] .msg-actions');
+  const pending = ruleBody(flatThemeCss, '.message[data-actions-state="pending"] .msg-actions');
 
   for (const [state, body] of [['pending', pending], ['streaming', streaming]]) {
     assert.match(body, /display:flex!important/, `${state} action row must stay in layout`);

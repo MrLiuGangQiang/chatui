@@ -13,13 +13,16 @@ function copyImageButtonHtml(href, filename, escapeAttr = value => String(value)
   return `<button class="image-icon-btn" type="button" data-copy-image="1" data-persisted-href="${escapeAttr(href)}" data-filename="${escapeAttr(filename)}" title="复制图片" aria-label="复制图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
 }
 
+function pngFilename(name, fallbackStem = 'generated-image') {
+  const text = String(name || '').trim() || `${fallbackStem}.png`;
+  const base = text.replace(/\.[a-z0-9]{2,5}$/i, '') || fallbackStem;
+  return `${base}.png`;
+}
+
 function imageActionButtonsHtml(href, filename, escapeAttr = value => String(value)) {
   return downloadImageButtonHtml(href, filename, escapeAttr) + shareImageButtonHtml(href, filename, escapeAttr);
 }
 
-// The toolbar must sit directly above the image, but the image is frequently
-// nested inside a wrapper or an actions row. Inserting against a different
-// parent throws NotFoundError, so anchor on the image's own parent instead.
 // Rendered thumbnails lose data-persisted-src whenever the source is still a
 // blob/data URL, so edits must fall back to the live image attributes.
 function imageEditSource(image) {
@@ -34,18 +37,8 @@ function imageEditSource(image) {
   ).trim();
 }
 
-// The toolbar belongs to the message content layer. Inserting it next to the
-// <img> puts it inside the thumbnail wrapper (a fixed-size flex cell), where it
-// collapses into an invisible sliver. Prepend it to the content container
-// instead so it renders above the image.
-function insertImageEditToolbar(container, toolbar) {
-  if (!container || !toolbar || typeof container.insertBefore !== 'function') return false;
-  if (container.firstChild) container.insertBefore(toolbar, container.firstChild);
-  else container.appendChild(toolbar);
-  return true;
-}
 
-const api = Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml, insertImageEditToolbar, imageEditSource });
+const api = Object.freeze({ downloadImageButtonHtml, shareImageButtonHtml, copyImageButtonHtml, imageActionButtonsHtml, imageEditSource, pngFilename });
 
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (root) root.ChatUIImageActions = api;

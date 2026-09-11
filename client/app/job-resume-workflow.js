@@ -559,6 +559,8 @@
         }
       }
       state.resumingJobs.add(resumeKey);
+      let batchOutcome = '';
+      let batchError = null;
       try {
         setSessionBusy(e, true);
         const parentId = String(index.children.find(child => child.displayItemId)?.displayItemId || '');
@@ -789,9 +791,12 @@
           || (typeof isMissingJobError === 'function' && isMissingJobError(result.reason))
         ));
         if (aggregate.completed >= aggregate.total && settled.every(result => result.status === 'fulfilled')) {
+          batchOutcome = 'completed';
           submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
           index.children.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId));
         } else if (terminalFailure) {
+          batchOutcome = 'failed';
+          batchError = terminalFailure.reason || null;
           submitHelpers.clearImageBatchIndex?.(root.localStorage, e);
           index.children.forEach(child => submitHelpers.clearImageBatchChild?.(root.localStorage, e, child.jobId));
           if (typeof disposeImageBatchJob === 'function') {
@@ -800,7 +805,21 @@
         }
       } finally {
         state.resumingJobs.delete(resumeKey);
-        finishSessionTask(e, { resumeKey });
+        if (batchOutcome) {
+          // A recovered image result is already committed, so the task must
+          // settle to a terminal phase; otherwise the composer stays in stop
+          // mode even though every image is visible.
+          settleSessionTask(e, {
+            resumeKey,
+            outcome: batchOutcome,
+            error: batchError,
+            submissionId: String(index.submissionId || ''),
+            jobId: String(index.batchId || ''),
+            jobKind: 'image_batch',
+          });
+        } else {
+          finishSessionTask(e, { resumeKey });
+        }
       }
     }
 

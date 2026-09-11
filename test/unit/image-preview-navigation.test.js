@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { JSDOM } = require('jsdom');
 const { createImagePreviewWorkflow } = require('../../client/app/image-preview-workflow');
 const { createImageActionsWorkflow } = require('../../client/app/image-actions-workflow');
@@ -19,6 +21,7 @@ function createEnvironment() {
     <button id="origin" type="button">origin</button>
   </body>`, { pretendToBeVisual: true });
   const revoked = [];
+  const editCalls = [];
   const workflow = createImagePreviewWorkflow({
     document: dom.window.document,
     getElement: id => dom.window.document.getElementById(id),
@@ -26,8 +29,9 @@ function createEnvironment() {
     canWriteImageClipboard: () => true,
     imageClipboardUnsupportedMessage: () => 'unsupported',
     URL: { createObjectURL: () => 'blob:preview', revokeObjectURL: value => revoked.push(value) },
+    openImageEdit: options => { editCalls.push(options); },
   });
-  return { dom, workflow, revoked };
+  return { dom, workflow, revoked, editCalls };
 }
 
 async function testImagePreviewNavigatesImagesFromTheSameCollection() {
@@ -122,9 +126,54 @@ async function testClosingPreviewClearsNavigationState() {
   assert.strictEqual(dom.window.document.getElementById('imagePreviewImg').getAttribute('src'), null);
 }
 
+async function testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor() {
+  const { dom, workflow, editCalls } = createEnvironment();
+  assert.strictEqual(dom.window.document.getElementById('imagePreviewEdit'), null,
+    'the preview edit entry is created lazily with the first image');
+  await workflow.openImagePreview('data:image/png;base64,one', 'one.png');
+  const button = dom.window.document.getElementById('imagePreviewEdit');
+  assert.ok(button, 'the preview must expose an edit entry');
+  assert.ok(button.classList.contains('image-preview-action'), 'the preview edit entry must match the download/copy/close shell');
+  assert.ok(button.classList.contains('image-preview-edit'), 'the preview entry must carry its positioning class');
+  assert.ok(!button.classList.contains('image-edit-entry'),
+    'the preview entry must not reuse the smaller transcript chip');
+  assert.strictEqual(button.hidden, false, 'the edit entry must be visible with the previewed image');
+  assert.ok(dom.window.document.getElementById('chatui-image-edit-style'),
+    'the preview edit entry must reuse the shared edit entry style module');
+  assert.strictEqual(button.querySelectorAll('path').length, 2,
+    'the preview entry must keep the pencil plus wavy line icon');
+  assert.strictEqual(button.querySelectorAll('stop').length, 0,
+    'the preview entry must use the white preview-action icon style, not the colorful chip');
+  button.click();
+  assert.strictEqual(editCalls.length, 1, 'clicking the preview edit entry must open the editor');
+  assert.strictEqual(editCalls[0].image, dom.window.document.getElementById('imagePreviewImg'));
+  assert.strictEqual(editCalls[0].button, button);
+  assert.strictEqual(dom.window.document.getElementById('imagePreview').classList.contains('show'), false,
+    'entering the editor from the preview must close the preview surface');
+  assert.strictEqual(button.hidden, true, 'closing the preview must hide the edit entry');
+  await workflow.openImagePreview('data:image/png;base64,two', 'two.png');
+  assert.strictEqual(dom.window.document.getElementById('imagePreviewEdit'), button,
+    'reopening the preview must reuse the same edit entry');
+}
+
+function testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow() {
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
+  assert.ok(!app.includes('createImageEditEntry:'),
+    'the preview workflow must resolve the shared entry module itself');
+  assert.ok(app.includes('openImageEdit:options=>getImageActionsWorkflow().openImageEditorForElement(options.image,{button:options.button})'),
+    'the preview must reuse the transcript edit open flow');
+  assert.ok(index.includes('client/ui/image-edit-entry.js?v=1.0.0-frosted-circle')
+    && index.includes('image-actions-workflow.js?v=1.2.84-action-lifecycle')
+    && index.includes('image-preview-workflow.js?v=1.2.71-shared-entry-module'),
+  'the shared edit entry must ship as its own module with refreshed asset revisions');
+}
+
 module.exports = [
   testImagePreviewNavigatesImagesFromTheSameCollection,
   testMessagePreviewPassesAllMessageImagesAndSelectedPosition,
   testClosingPreviewClearsNavigationState,
+  testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor,
+  testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow,
 ];
 

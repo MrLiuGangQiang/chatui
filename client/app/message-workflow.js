@@ -1,24 +1,55 @@
 (function initChatUIAppMessageWorkflow(root) {
   // Intentionally not strict: message rendering bodies are migrated from app.js and resolved through a deps scope.
 
-  function reconcileCompletedMessageUi(node, resetMessageActionStates = () => {}) {
-    if (!node?.dataset) return;
-    delete node.dataset.streaming;
-    delete node.dataset.streamKind;
-    delete node.dataset.streamRunToken;
-    delete node.dataset.streamTailLock;
-    delete node.dataset.pendingFeedback;
-    delete node.dataset.jobId;
-    delete node.dataset.persist;
-    delete node.dataset.sessionId;
-    if (node.__displayItem) {
-      node.__displayItem.pending = '';
-      node.__displayItem.jobId = '';
+  const MESSAGE_ACTION_STATES = Object.freeze({ PENDING: 'pending', READY: 'ready' });
+
+  function messageActionRole(node) {
+    return node?.classList?.contains('user') ? 'user' : node?.classList?.contains('error') ? 'error' : 'assistant';
+  }
+
+  function resolveMessageActionState(node, requestedState = '') {
+    const role = messageActionRole(node);
+    if (role === 'user' || role === 'error') return MESSAGE_ACTION_STATES.READY;
+    if (node?.dataset?.clarificationId) return MESSAGE_ACTION_STATES.READY;
+    if (requestedState === MESSAGE_ACTION_STATES.PENDING || requestedState === MESSAGE_ACTION_STATES.READY) return requestedState;
+    if (node?.dataset?.actionsState === MESSAGE_ACTION_STATES.READY) return MESSAGE_ACTION_STATES.READY;
+    if (node?.dataset?.streaming === '1' || node?.dataset?.persist === '0' || node?.dataset?.pendingFeedback === '1' || node?.dataset?.actionsState === MESSAGE_ACTION_STATES.PENDING) return MESSAGE_ACTION_STATES.PENDING;
+    return MESSAGE_ACTION_STATES.READY;
+  }
+
+  function applyMessageActionLifecycle(node, requestedState = '', resetMessageActionStates = () => {}, options = {}) {
+    if (!node?.dataset) return null;
+    const state = resolveMessageActionState(node, requestedState);
+    node.dataset.actionsState = state;
+    if (state === MESSAGE_ACTION_STATES.READY) {
+      delete node.dataset.streaming;
+      delete node.dataset.streamKind;
+      delete node.dataset.streamRunToken;
+      delete node.dataset.streamTailLock;
+      delete node.dataset.pendingFeedback;
+      delete node.dataset.jobId;
+      if (!options.preservePersist) delete node.dataset.persist;
+      delete node.dataset.sessionId;
+      if (node.__displayItem) {
+        node.__displayItem.pending = '';
+        node.__displayItem.jobId = '';
+      }
+    } else {
+      node.dataset.persist = '0';
     }
     const actions = node.querySelector?.('.msg-actions');
-    actions?.removeAttribute?.('aria-hidden');
-    if (actions) actions.hidden = false;
+    if (actions) {
+      actions.hidden = false;
+      if (state === MESSAGE_ACTION_STATES.PENDING) actions.setAttribute('aria-hidden', 'true');
+      else actions.removeAttribute('aria-hidden');
+    }
     resetMessageActionStates(node);
+    return state;
+  }
+
+  // Compatibility facade for callers that only need the terminal transition.
+  function reconcileCompletedMessageUi(node, resetMessageActionStates = () => {}) {
+    return applyMessageActionLifecycle(node, MESSAGE_ACTION_STATES.READY, resetMessageActionStates);
   }
 
   function copyComparableText(text = '') {
@@ -429,18 +460,15 @@
         const rawValue = String(s.rawText ?? t ?? "");
         const rawHash = chatuiContentHash(rawValue);
         const streamingFinalShouldPin = e === state.activeOutputNode && !state.userScrollLocked;
-        const clearStreamingState = () => {
-          if (s.skipSave) return;
-          // Completion is a state transition, not a paint optimization. Hidden tabs
-          // may suspend requestAnimationFrame indefinitely, so clear every action-
-          // visibility guard synchronously before any optional layout settling.
-          reconcileCompletedMessageUi(e, resetMessageActionStates);
-        };
+        const reconcileActionState = () => reconcileMessageActions(e, {
+          state: s.actionState || (s.skipSave ? MESSAGE_ACTION_STATES.PENDING : MESSAGE_ACTION_STATES.READY),
+          preservePersist: s.skipSave === true,
+        });
         const canAutoFollowNow = () => !state.userScrollLocked && shouldFollowScroll();
         if (e.dataset.rawHash === rawHash && e.dataset.renderedHash === rawHash && e.dataset.enhancedHash === rawHash && !s.html && !s.metaText) {
           syncWebPreviews(e, rawValue);
           cleanupGeneratedImageNumberArtifacts(e);
-          clearStreamingState();
+          reconcileActionState();
           return;
         }
 
@@ -489,15 +517,13 @@
         delete e.dataset.lastStreamingRaw;
         delete e.__streamCanonicalPlacement;
 
-        clearStreamingState();
         if (e === state.activeOutputNode && !s.skipSave) {
           state.streamFocusLocked = false;
           if (canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 });
         }
         e.dataset.rawText = rawValue;
         e.dataset.rawHash = rawHash;
-        if (s.skipSave) e.dataset.persist = "0";
-        else delete e.dataset.persist;
+        reconcileActionState();
         if (void 0 !== s.messageIndex && null !== s.messageIndex) setDatasetValue(e, 'messageIndex', s.messageIndex);
         if (void 0 !== s.responseIndex && null !== s.responseIndex) setDatasetValue(e, 'responseIndex', s.responseIndex);
 
@@ -525,7 +551,6 @@
         }
 
         cleanupGeneratedImageNumberArtifacts(e);
-        resetMessageActionStates(e);
         if (void 0 !== s.metaText) setMessageMetaText(e, s.metaText);
         if ("1" !== e.dataset.markdownFinalEnhanced && e.dataset.lazyMarkdown !== "1" && e.dataset.enhancedHash !== rawHash && e.dataset.progressiveRendering !== "1") {
           bindInlineCopyButtons(e);
@@ -626,7 +651,6 @@
         setDatasetValue(e, 'streaming', '1');
         if (void 0 !== s.streamKind) setDatasetValue(e, 'streamKind', s.streamKind || '');
         if (void 0 !== s.runToken) setDatasetValue(e, 'streamRunToken', s.runToken || '');
-        if (s.skipSave) setDatasetValue(e, 'persist', '0');
 
         if (chatStream && shouldProgressiveRenderMarkdown(rawValue)) {
           delete e.__markdownStreamingRenderer;
@@ -655,7 +679,6 @@
             contentNode.innerHTML = html;
             e.dataset.renderedHash = rawHash;
             delete e.dataset.enhancedHash;
-            resetMessageActionStates(e);
             cleanupGeneratedImageNumberArtifacts(e);
             if (s.streamKind !== 'chat') {
               bindInlineCopyButtons(e);
@@ -680,13 +703,8 @@
             commitStreamingOutput(e, { margin: 72, tailLock: s.tailLock === true, sessionId: streamSessionId });
           }
         } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
+        reconcileMessageActions(e, { state: MESSAGE_ACTION_STATES.PENDING });
         updateResumeStreamButton();
-      }
-    }
-
-    function addMessage(e, t, s = {}) {
-      with (deps) {
-        clearEmpty();const n=$("messageTemplate").content.firstElementChild.cloneNode(!0);n.classList.add(e),n.querySelector(".avatar").textContent="user"===e?"我":"error"===e?"!":"AI";const a=n.querySelector(".content"),i=s.rawText??t,q=quoteContextJson(s.quoteContext);n.dataset.rawText=i,n.dataset.rawHash=chatuiContentHash(i),q&&(n.dataset.quoteContext=q,n.classList.add("has-quote")),s.skipSave&&(n.dataset.persist="0"),void 0!==s.messageIndex&&null!==s.messageIndex&&(n.dataset.messageIndex=String(s.messageIndex)),void 0!==s.responseIndex&&null!==s.responseIndex&&(n.dataset.responseIndex=String(s.responseIndex)),s.attachmentContext&&(n.dataset.attachmentContext=s.attachmentContext),s.imageContext&&(n.dataset.imageContext=s.imageContext);const o=chatuiShouldLazyRender(e,i,s);s.deferEnhance&&"assistant"===e&&!s.html?a.innerHTML="":s.html?a.innerHTML=("user"===e?withSentQuotePreview(stripTransientBlobUrlsFromHtml(t),q):stripTransientBlobUrlsFromHtml(t)):o?a.innerHTML=chatuiPlainPreview(i):a.innerHTML="user"===e?withSentQuotePreview(renderUserMessageContent(String(t||"")),q):renderMarkdown(String(t||""));cleanupGeneratedImageNumberArtifacts(n);bindSentQuotePreviews(n);n.querySelector(".quote-btn")?.addEventListener("click",()=>selectQuotedMessage(n));const r=n.querySelector(".edit-btn");"user"===e?r.addEventListener("click",()=>editUserMessage(n)):r.remove();const l=n.querySelector(".refresh-btn");"assistant"===e||"error"===e?l.addEventListener("click",()=>regenerateAssistantMessage(n)):l.remove(),n.querySelector(".copy-btn")?.addEventListener("click",async()=>{await copyText(messageCopyText(n.dataset.rawText,a.innerText||a.textContent||"",a)),showCopySuccess(n.querySelector(".copy-btn"))});const d=n.querySelector(".download-answer-btn");return"assistant"===e?d?.addEventListener("click",()=>downloadAnswerFile(n,d)):d?.remove(),$("messages").appendChild(n),syncWebPreviews(n,String(i||"")),s.deferEnhance?(n.dataset.renderedHash=n.dataset.rawHash,n.dataset.deferEnhance="1",bindInlineCopyButtons(n),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave})):o?chatuiQueueLazyMessage(n,i,{force:s.forceLazy}):(n.dataset.renderedHash=n.dataset.rawHash,bindInlineCopyButtons(n),enhanceRenderedMarkdown(n,{autoRenderMermaid:!0,forceMermaid:!0,deferMermaid:!0,allowResourceLoad:!0}),cleanupGeneratedImageNumberArtifacts(n),hydrateMessageMedia(n,{save:!s.skipSave}),bindSentQuotePreviews(n),n.dataset.enhancedHash=n.dataset.rawHash),chatuiRefreshVirtualizer(),setMessageMetaText(n,s.metaText||""),n.querySelector("img.generated-thumb")&&!s.deferEnhance&&revealNodeAboveComposer(n),s.noScroll||s.deferSave||scrollToBottom(!0),s.skipSave||s.deferSave||saveDisplayHistory(),n
       }
     }
 
@@ -694,6 +712,8 @@
       const actions = node?.querySelector?.('.msg-actions');
       const more = node?.querySelector?.('.mobile-more-btn');
       if (!actions || !more) return;
+      if (actions.dataset.mobileMoreBound === '1') return;
+      actions.dataset.mobileMoreBound = '1';
       more.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
@@ -709,6 +729,76 @@
       });
     }
 
+    function resolveMessageActionHandler(name) {
+      if (typeof deps?.[name] === 'function') return deps[name];
+      if (typeof root?.[name] === 'function') return root[name];
+      return null;
+    }
+
+    function bindMessageActions(node, role = 'assistant') {
+      if (!node?.querySelector) return node;
+      bindMobileMoreActions(node);
+      const bind = (selector, handler, keep = true) => {
+        const button = node.querySelector(selector);
+        if (!button) return null;
+        if (!keep) { button.remove(); return null; }
+        if (button.dataset.messageActionBound !== '1') {
+          button.dataset.messageActionBound = '1';
+          button.addEventListener('click', handler);
+        }
+        return button;
+      };
+      const editUserMessage = resolveMessageActionHandler('editUserMessage');
+      const forceImageFromUserMessage = resolveMessageActionHandler('forceImageFromUserMessage');
+      const regenerateAssistantMessage = resolveMessageActionHandler('regenerateAssistantMessage');
+      const copyText = resolveMessageActionHandler('copyText');
+      const messageCopyText = resolveMessageActionHandler('messageCopyText');
+      const showCopySuccess = resolveMessageActionHandler('showCopySuccess');
+      const downloadAnswerFile = resolveMessageActionHandler('downloadAnswerFile');
+      bind('.quote-btn', () => selectQuotedMessage(node));
+      bind('.edit-btn', () => editUserMessage?.(node), role === 'user');
+      bind('.force-image-btn', () => forceImageFromUserMessage?.(node), role === 'user');
+      bind('.refresh-btn', () => regenerateAssistantMessage?.(node), role === 'assistant' || role === 'error');
+      bind('.copy-btn', async () => {
+        const content = node.querySelector('.content');
+        const text = messageCopyText
+          ? messageCopyText(node.dataset.rawText, content?.innerText || content?.textContent || '', content)
+          : String(node.dataset.rawText || '');
+        if (copyText) await copyText(text);
+        showCopySuccess?.(node.querySelector('.copy-btn'));
+      });
+      const download = bind('.download-answer-btn', () => downloadAnswerFile?.(node, download), role === 'assistant' || role === 'error');
+      return node;
+    }
+
+    // Every message lifecycle transition goes through this function. It repairs
+    // missing action controls, binds them once, and applies the single pending/
+    // ready visibility state. Image, chat, error, clarification and resume paths
+    // must call this instead of mutating action visibility independently.
+    function reconcileMessageActions(node, options = {}) {
+      if (!node?.querySelector) return false;
+      const role = messageActionRole(node);
+      const actions = node.querySelector('.msg-actions');
+      const template = deps.$ ? deps.$("messageTemplate") : root?.document?.getElementById?.("messageTemplate");
+      const templateActions = template?.content?.querySelector?.('.msg-actions');
+      if (actions && templateActions) {
+        for (const templateButton of [...templateActions.children]) {
+          const className = templateButton.classList?.[0];
+          if (!className) continue;
+          const button = actions.querySelector('.' + className) || templateButton.cloneNode(true);
+          actions.appendChild(button);
+        }
+      }
+      bindMessageActions(node, role);
+      applyMessageActionLifecycle(node, options.state, deps.resetMessageActionStates, options);
+      return true;
+    }
+
+    // Kept as the historical name for hydration callers; both names resolve to
+    // the same reconciliation path above.
+    function ensureMessageActions(node) {
+      return reconcileMessageActions(node);
+    }
     function addMessageProgressive(role, text, options = {}) {
       with (deps) {
         clearEmpty();
@@ -721,7 +811,6 @@
         node.dataset.rawText = rawText;
         node.dataset.rawHash = chatuiContentHash(rawText);
         if (quote) { node.dataset.quoteContext = quote; node.classList.add("has-quote"); }
-        if (options.skipSave) node.dataset.persist = "0";
         if (options.messageIndex !== undefined && options.messageIndex !== null) node.dataset.messageIndex = String(options.messageIndex);
         if (options.responseIndex !== undefined && options.responseIndex !== null) node.dataset.responseIndex = String(options.responseIndex);
         if (options.messageId) node.dataset.messageId = String(options.messageId);
@@ -740,24 +829,9 @@
 
         cleanupGeneratedImageNumberArtifacts(node);
         bindSentQuotePreviews(node);
-        bindMobileMoreActions(node);
-        node.querySelector(".quote-btn")?.addEventListener("click", () => selectQuotedMessage(node));
-        const edit = node.querySelector(".edit-btn");
-        if (role === "user") edit.addEventListener("click", () => editUserMessage(node));
-        else edit.remove();
-        const forceImage = node.querySelector(".force-image-btn");
-        if (role === "user") forceImage?.addEventListener("click", () => forceImageFromUserMessage(node));
-        else forceImage?.remove();
-        const refresh = node.querySelector(".refresh-btn");
-        if (role === "assistant" || role === "error") refresh.addEventListener("click", () => regenerateAssistantMessage(node));
-        else refresh.remove();
-        node.querySelector(".copy-btn")?.addEventListener("click", async () => {
-          await copyText(messageCopyText(node.dataset.rawText, content.innerText || content.textContent || "", content));
-          showCopySuccess(node.querySelector(".copy-btn"));
+        reconcileMessageActions(node, {
+          state: role === 'assistant' ? (options.pending === true || options.skipSave === true ? MESSAGE_ACTION_STATES.PENDING : MESSAGE_ACTION_STATES.READY) : MESSAGE_ACTION_STATES.READY,
         });
-        const download = node.querySelector(".download-answer-btn");
-        if (role === "assistant") download?.addEventListener("click", () => downloadAnswerFile(node, download));
-        else download?.remove();
 
         const messagesContainer = $("messages");
         const displayApi = root?.ChatUIAppDisplayItems || {};
@@ -802,7 +876,7 @@
       }
     }
 
-    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage: addMessageProgressive, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
+    return Object.freeze({ updateMessage, updateMessageContentLight, addMessage: addMessageProgressive, reconcileMessageActions, ensureMessageActions, getQuotedMessage, clearQuotedMessage, selectQuotedMessage, resolveQuoteContextForNode, readQuoteContext, quoteContextJson, renderSentQuotePreview, withSentQuotePreview, jumpToQuotedMessage });
   }
 
   const api = Object.freeze({ createMessageWorkflow, reconcileCompletedMessageUi });

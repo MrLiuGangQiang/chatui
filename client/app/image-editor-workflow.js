@@ -9,6 +9,9 @@
       isSessionBusy,
       sendImage,
       makeClientImageJobId,
+      ensureActiveRun,
+      dispatchTaskEvent,
+      finishSessionTask,
       addMessage,
       appendSessionDisplayMessage,
       persistSessionDisplay,
@@ -18,6 +21,9 @@
     } = deps;
     const routeUtils = root?.ChatUIRouteService
       || (typeof require === 'function' ? require('../services/route-service') : {});
+    const taskState = root?.ChatUICore?.taskState
+      || (typeof require === 'function' ? require('../core/task-state') : {});
+    const taskEvents = taskState.TASK_EVENTS || {};
     const submitHelpers = root?.ChatUISubmitWorkflowHelpers
       || (typeof require === 'function' ? require('./submit-workflow.helpers') : {});
 
@@ -42,9 +48,7 @@
       if (explicit) return explicit;
       switch (String(edit.mode || '')) {
         case 'erase': return '\u64e6\u9664\u56fe\u7247\u4e2d\u7684\u9009\u533a';
-        case 'remove_background': return '\u79fb\u9664\u56fe\u7247\u80cc\u666f';
-        case 'resize': return '\u5c06\u56fe\u7247\u8c03\u6574\u4e3a ' + (String(edit.size || '').trim() || '\u6307\u5b9a\u5c3a\u5bf8');
-        case 'annotate': return '\u6309\u6807\u6ce8\u4fee\u6539\u56fe\u7247';
+        case 'remove_background': return '移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。';
         case 'comment': return '\u6309\u8bc4\u8bba\u4fee\u6539\u56fe\u7247';
         default: return '\u7f16\u8f91\u56fe\u7247';
       }
@@ -80,7 +84,7 @@
       } else if (session) {
         session.messages = [...messages, message];
       }
-      const html = escapeText(text);
+      const html = escapeText(text).replace(/\n/g, '<br>');
       let node = null;
       if (isActive && typeof addMessage === 'function') {
         node = addMessage('user', html, {
@@ -143,11 +147,9 @@
       const stamp = Date.now().toString(36);
       const targetId = `edit-target-${stamp}`;
       const maskId = `edit-mask-${stamp}`;
-      // Annotation and comment modes dispatch the composited image (source plus
-      // drawn marks) as the edit target so the model sees the marks directly.
-      const targetBlob = (edit.mode === 'annotate' || edit.mode === 'comment') && edit.annotatedBlob
-        ? edit.annotatedBlob
-        : imageBlob;
+      // The clean original is always the target. Comments travel as a
+      // generated edit mask plus a coordinate-based numbered prompt.
+      const targetBlob = imageBlob;
       const targetSrc = await blobToDataUrl(targetBlob);
       const entries = [{
         id: targetId,
@@ -160,8 +162,8 @@
         routeSource: 'current',
       }];
       let maskEntry = null;
-      if (edit.mode === 'erase') {
-        if (!edit.maskBlob) throw new Error('\u906e\u7f69\u6570\u636e\u7f3a\u5931\uff0c\u8bf7\u91cd\u65b0\u6d82\u62b9\u8981\u64e6\u9664\u7684\u533a\u57df');
+      if (edit.mode === 'erase' || edit.mode === 'comment') {
+        if (!edit.maskBlob) throw new Error('\u906e\u7f69\u6570\u636e\u7f3a\u5931\uff0c\u8bf7\u91cd\u65b0\u6d82\u62b9\u6216\u8bc4\u8bba');
         const maskSrc = await blobToDataUrl(edit.maskBlob);
         maskEntry = {
           id: maskId,
@@ -244,18 +246,66 @@
       const executionMedia = submitHelpers.projectRouteExecutionMediaForDispatch?.(route, pools);
       if (!executionMedia) throw new Error('\u7f16\u8f91\u8d44\u6e90\u6295\u5f71\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5');
 
-      await sendImage(prompt, {
-        sessionId: targetSessionId,
-        attachments: executionMedia.imageInputs,
-        maskAttachments: executionMedia.masks,
-        executionMedia,
-        dispatchContract: route.dispatchContract,
-        originalPrompt: prompt,
-        routePrompt: prompt,
-        userAlreadyAdded: true,
-        ...(userTurn.messageId ? { userMessageId: userTurn.messageId } : {}),
-        ...(typeof makeClientImageJobId === 'function' ? { clientJobId: makeClientImageJobId() } : {}),
+      // The editor is a first-class task: it owns one managed image job so the
+      // composer shows stop mode while editing and always returns to send mode
+      // when the result commits (or the dispatch fails). Without this ownership
+      // a focus/session resume could mark the session busy forever.
+      const submissionId = `image-edit-${Date.now().toString(36)}`;
+      const editJobId = typeof makeClientImageJobId === 'function'
+        ? makeClientImageJobId()
+        : `imgjob-${Date.now().toString(36)}`;
+      const run = typeof ensureActiveRun === 'function' ? ensureActiveRun(targetSessionId) : null;
+      let taskSettled = false;
+      const settleEditorTask = () => {
+        if (taskSettled) return;
+        taskSettled = true;
+        dispatchTaskEvent?.(targetSessionId, {
+          type: taskEvents.JOB_COMPLETED_COMMITTED,
+          submissionId,
+          jobId: editJobId,
+          jobKind: 'image',
+        });
+        finishSessionTask?.(targetSessionId, { run, jobId: editJobId, followingKind: 'image' });
+      };
+      const failEditorTask = error => {
+        if (taskSettled) return;
+        taskSettled = true;
+        dispatchTaskEvent?.(targetSessionId, {
+          type: taskEvents.JOB_FAILED,
+          submissionId,
+          jobId: editJobId,
+          jobKind: 'image',
+          error,
+        });
+        finishSessionTask?.(targetSessionId, { run, jobId: editJobId, followingKind: 'image' });
+      };
+      dispatchTaskEvent?.(targetSessionId, { type: taskEvents.TASK_ACCEPTED, submissionId });
+      dispatchTaskEvent?.(targetSessionId, {
+        type: taskEvents.JOB_RECOVERY_STARTED,
+        submissionId,
+        jobId: editJobId,
+        jobKind: 'image',
       });
+      try {
+        await sendImage(prompt, {
+          sessionId: targetSessionId,
+          attachments: executionMedia.imageInputs,
+          maskAttachments: executionMedia.masks,
+          executionMedia,
+          dispatchContract: route.dispatchContract,
+          originalPrompt: prompt,
+          routePrompt: prompt,
+          userAlreadyAdded: true,
+          submissionId,
+          clientJobId: editJobId,
+          onInterfaceCompleted: settleEditorTask,
+          ...(userTurn.messageId ? { userMessageId: userTurn.messageId } : {}),
+        });
+        settleEditorTask();
+      } catch (error) {
+        failEditorTask(error);
+        throw error;
+      }
       return true;
     }
 

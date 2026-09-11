@@ -1,6 +1,68 @@
 (function (root) {
+const DATA_URL_PLACEHOLDER = '[attachment-data-omitted]';
+const MIN_BASE64_DATA_URL_LENGTH = 2048;
+
+function isDataUrlHeaderTerminator(code) {
+  return code <= 0x20
+    || code === 0x22 // "
+    || code === 0x27 // '
+    || code === 0x3c // <
+    || code === 0x3e // >
+    || code === 0x60; // `
+}
+
+function isBase64Code(code) {
+  return (code >= 0x41 && code <= 0x5a)
+    || (code >= 0x61 && code <= 0x7a)
+    || (code >= 0x30 && code <= 0x39)
+    || code === 0x2b // +
+    || code === 0x2f // /
+    || code === 0x3d; // =
+}
+
+// Large matches make the RegExp engine recurse internally and throw
+// "Maximum call stack size exceeded". Scan linearly so message persistence
+// remains bounded by the input length instead of the engine stack.
 function stripLargeDataUrlsFromText(text = '') {
-  return String(text || '').replace(/data:[^"'<>`\s]+;base64,[A-Za-z0-9+/=]{2048,}/g, '[attachment-data-omitted]');
+  const input = String(text || '');
+  const chunks = [];
+  let copiedThrough = 0;
+  let searchFrom = 0;
+
+  while (searchFrom < input.length) {
+    const start = input.indexOf('data:', searchFrom);
+    if (start < 0) break;
+
+    let marker = -1;
+    let index = start + 5;
+    for (; index < input.length; index += 1) {
+      if (isDataUrlHeaderTerminator(input.charCodeAt(index))) break;
+      if (input.startsWith(';base64,', index)) {
+        marker = index;
+        break;
+      }
+    }
+    if (marker < 0) {
+      searchFrom = Math.max(start + 5, index + 1);
+      continue;
+    }
+
+    const payloadStart = marker + 8;
+    let end = payloadStart;
+    while (end < input.length && isBase64Code(input.charCodeAt(end))) end += 1;
+    if (end - payloadStart < MIN_BASE64_DATA_URL_LENGTH) {
+      searchFrom = payloadStart;
+      continue;
+    }
+
+    chunks.push(input.slice(copiedThrough, start), DATA_URL_PLACEHOLDER);
+    copiedThrough = end;
+    searchFrom = end;
+  }
+
+  if (!chunks.length) return input;
+  chunks.push(input.slice(copiedThrough));
+  return chunks.join('');
 }
 
 const TRANSIENT_MEDIA_FIELD_RE = /^(?:url|src|image|image_url|dataUrl|data_url|previewSrc|preview_src|objectUrl|object_url)$/i;

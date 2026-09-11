@@ -136,7 +136,9 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 - `client/app/submit-workflow-policy.js`：提交工作流的纯策略，包括消息索引解析、意图管线单一绝对 60 秒截止时间、可取消且可主动 race 的请求、澄清状态迁移和澄清展示辅助；具体 DOM/UI 副作用仍留在 `submit-workflow.js`；
 - `client/app/submit-workflow.js` 与 `client/app/regenerate-workflow.js`：共享任务生命周期不变量；停止后不得持久化 assistant 澄清、发起业务 handoff 或提交完成事件，durable handoff 与 terminal event 必须按 submission/job identity 幂等。页面恢复只能重新连接已经由服务端持久化、且 submission/job identity 已验证的 handoff；`accepted`、`captured`、`routing` 或缺少匹配 durable job 的 pending submit 只保留本地恢复线索，启动时必须清除而不能自动重放，以避免刷新后重复调用路由/规划模型。重新生成与编辑重发共用 runSubmit：重新生成只把原用户消息准备成相同的 editing 状态，并以 promptOverride 原文调用 submitWorkflow.onSubmit，不再独立复制路由、资源池、执行和任务生命周期；待处理澄清重放与强制生图保持薄适配器；替换链路的意图识别上下文以被替换用户轮次为边界，只携带其之前的消息与执行证据，被替换旧回复及其后内容不进入路由模型；
+- `client/app/attachments-workflow.js`：所有用户附件先执行单文件原始大小和已有/新增附件合计校验，均须严格小于 10 MB；图片原始大小超过 5 MB 时必须先压缩到 5 MB 以内，压缩失败、格式不支持或压缩后仍超限时不得加入草稿，只显示中文可操作提示。发送前必须再次按最终附件大小复核，恢复状态和直接调用不能绕过该边界；
 - `client/app/image-batch-workflow.js`：多图计划只向 `/api/image-batches` 提交一次，由服务端 parent/child Job 编排并发；浏览器只轮询 parent job，同时保留每个 child 的 durable snapshot 供刷新恢复。批量 slot/grid 只属于执行中的临时投影；进入终态后必须按 canonical `imageContext` 顺序改用 `image-result-workflow.js` 的统一结果渲染器，使实时完成态与刷新恢复态的 DOM、布局和图片位置一致。
+- `client/app/message-workflow.js`：消息操作按钮的唯一生命周期与绑定入口。`reconcileMessageActions` 根据消息角色和终态生成唯一的 `data-actions-state`：用户消息发送后立即 `ready`，assistant 未完成统一 `pending`，成功、异常、澄清、停止及任意图片结果完成后统一 `ready`。标准按钮只从 `#messageTemplate` 克隆并由 `bindMessageActions` 绑定；`data-persist`、`data-streaming`、job 等属性只保留执行/持久化语义，不得另行决定显隐。单图、多图、聊天、历史恢复和恢复任务只能调用这一收口；图片工作流只可在同一完成后追加图片专属操作。`ensureMessageActions` 与 `reconcileCompletedMessageUi` 是兼容门面，必须委托同一实现；
 - `client/app/image-caption-workflow.js`：生成图片返回后的内部内容标签（如“一只橘色小猫”vs“一条金毛犬”）。标签由 `image_plan.v1` 任务可选的 `label` 字段提供（与生图提示词同一次规划模型调用产出），不再单独调用模型识图或总结；失败时保留提示词派生描述；标签写入图片记录（`description`/`label`/`labels`/`semantic_text`）仅用于路由候选与引用上下文，使“把那只猫改成…”这类指代可绑定到具体图片；标签不渲染到聊天界面，也不阻塞图片结果展示。
 - `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，图片规划显示“正在拆分多个图片任务”，模型 fallback 显示“正在重新确认任务意图”，等待区原位更新且不记录或展示模型隐藏推理链；
 - `client/features/clarification/presentation.js` 与 `client/app/clarification-choice-workflow.js`：图片候选整卡负责选择，独立预览按钮只打开预览且不得改变答案；卡片展示槽位角色、进度、来源与精简标签，并按 3/2/1 列响应桌面、窄屏和手机。
@@ -284,7 +286,7 @@ GET /
 
 该链路必须始终满足：原始输入不因参数分析归一化而改变；上下文故障、非法模型输出和低确定性参数失败关闭；路由本身不授权高风险业务操作；停止、超时、失败与完成保持可区分且单终态；最终执行仍需服务端鉴权、参数和 `dispatch_contract.v1` 校验。Chat/Image Job 在进入创建、复用、查询、SSE、中止或删除边界时必须存在经服务端验证的 principal；owner 在 Job 放入 store 前一次性绑定且不可变，未授权与不存在的公开响应不得泄露差异，owner 信息不得进入 `publicJob`、日志或 trace。
 
-浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。`client/app/runtime-upgrade-workflow.js` 在 runtime source fingerprint 变化时只清理旧版本的瞬时任务交接状态和 pending UI，不删除已完成历史；`client/services/session-snapshot-recovery.js` 对旧 snapshot shape 做显式迁移后再读取，迁移失败只隔离损坏快照，不阻塞整个会话列表。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。多实例部署仍需要粘性会话或一致 Job 存储，并共享显式 principal secret；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
+浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。`client/app/persistence.js` 对大 Base64 数据 URL 的清理必须采用线性扫描，禁止对整条消息 HTML 使用无界贪婪正则；否则大图预览会在持久化阶段触发 V8 栈溢出。`client/app/runtime-upgrade-workflow.js` 在 runtime source fingerprint 变化时只清理旧版本的瞬时任务交接状态和 pending UI，不删除已完成历史；`client/services/session-snapshot-recovery.js` 对旧 snapshot shape 做显式迁移后再读取，迁移失败只隔离损坏快照，不阻塞整个会话列表。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。多实例部署仍需要粘性会话或一致 Job 存储，并共享显式 principal secret；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
 
 ### 7.3 图片
 

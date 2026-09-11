@@ -8,6 +8,7 @@
       canWriteImageClipboard,
       imageClipboardUnsupportedMessage,
       URL,
+      openImageEdit,
       document = root?.document,
     } = deps;
     const MIN_PREVIEW_SCALE = 0.5;
@@ -93,6 +94,36 @@
       }
     }
 
+    function resolveImageEditEntryUi() {
+      return root?.[Symbol.for('chatui.module-registry.v1')]?.get('imageEditEntry')
+        || (typeof require === 'function' ? require('../ui/image-edit-entry') : {});
+    }
+
+    function ensurePreviewEditButton() {
+      const ui = resolveImageEditEntryUi();
+      if (typeof ui?.createImageEditEntryButton !== 'function') return null;
+      let button = getElement('imagePreviewEdit');
+      if (button) return button;
+      const preview = getElement('imagePreview');
+      if (!preview) return null;
+      button = ui.createImageEditEntryButton(document || root?.document, { variant: 'preview' });
+      if (!button) return null;
+      button.id = 'imagePreviewEdit';
+      button.hidden = true;
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const image = getElement('imagePreviewImg');
+        if (!image || typeof openImageEdit !== 'function') return;
+        // The editor is the next surface; the preview source is captured before
+        // closing so blob/data resolution is unaffected.
+        openImageEdit({ image, button });
+        closeImagePreview();
+      });
+      preview.insertBefore(button, getElement('imagePreviewClose') || null);
+      return button;
+    }
+
     async function showPreviewItem(index) {
       if (index < 0 || index >= previewItems.length) return false;
       const item = previewItems[index];
@@ -122,6 +153,8 @@
         copy.hidden = false;
         updateImagePreviewCopyAvailability();
       }
+      const editButton = ensurePreviewEditButton();
+      if (editButton) editButton.hidden = false;
       updatePreviewNavigation();
       return true;
     }
@@ -204,6 +237,8 @@
       previewIndex = -1;
       getElement('imagePreviewCopy') && (getElement('imagePreviewCopy').hidden = true);
       getElement('imagePreviewDownload') && (getElement('imagePreviewDownload').hidden = true);
+      const editButton = ensurePreviewEditButton();
+      if (editButton) editButton.hidden = true;
       updatePreviewNavigation();
       preview?.classList.remove('show');
       preview?.setAttribute('aria-hidden', 'true');

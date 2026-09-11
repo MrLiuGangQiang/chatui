@@ -26,6 +26,26 @@ async function testImageEditUploadCompressesOversizedFile() {
   delete globalThis.compressImageIfNeeded;
 }
 
+async function testImageEditUploadPropagatesCompressionFailure() {
+  const original = { name: 'large.png', type: 'image/png', size: 6 * 1024 * 1024 };
+  const failure = Object.assign(new Error('图片压缩失败，请缩小尺寸或转换为 JPEG/WebP 后重试。'), {
+    code: 'IMAGE_COMPRESSION_FAILED',
+  });
+  globalThis.compressImageIfNeeded = async () => { throw failure; };
+
+  try {
+    await assert.rejects(
+      () => imageService.imageFileToJobPayload(
+        { file: original, name: 'large.png', type: 'image/png' },
+        async () => 'data:image/png;base64,AAAA',
+      ),
+      error => error === failure,
+    );
+  } finally {
+    delete globalThis.compressImageIfNeeded;
+  }
+}
+
 async function testImageEditUploadSkipsCompressionWhenUnavailable() {
   const payload = await imageService.imageFileToJobPayload(
     { file: { name: 'small.png', type: 'image/png' } },
@@ -38,4 +58,5 @@ async function testImageEditUploadSkipsCompressionWhenUnavailable() {
 module.exports = [
   testImageEditUploadCompressesOversizedFile,
   testImageEditUploadSkipsCompressionWhenUnavailable,
+  testImageEditUploadPropagatesCompressionFailure,
 ];

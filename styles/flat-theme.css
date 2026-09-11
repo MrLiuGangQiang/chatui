@@ -1815,13 +1815,13 @@ body {
    Generated Image Grid
    ═══════════════════════════════════════════ */
 .generated-image-item {
-  border-radius: 0 !important;
+  border-radius: 2px !important;
   border: 0 !important;
   background: transparent !important;
   padding: 0 !important;
 }
 .generated-thumb {
-  border-radius: 8px !important;
+  border-radius: 2px !important;
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -3368,7 +3368,7 @@ body{
   gap:10px!important;
 }
 .generated-image-item{
-  border-radius:14px!important;
+  border-radius:2px!important;
   background:transparent!important;
 }
 /* Batch image cards reserve one stable cell per planned task. A child completion
@@ -3458,7 +3458,7 @@ body{
 }
 .user-attachment-image,
 .generated-thumb{
-  border-radius:14px!important;
+  border-radius:2px!important;
   box-shadow:0 1px 0 rgba(17,24,39,.04)!important;
   transition:transform .16s ease,filter .16s ease,box-shadow .16s ease!important;
 }
@@ -5308,14 +5308,22 @@ body{
   transition:none!important;
 }
 
-/* Image message corner-radius tune: keep image results cleaner and less rounded. */
+/* Image message corner-radius tune: keep generated results crisp with a 2px corner. */
 .generated-image-item,
 .user-attachment-image,
 .generated-thumb,
 .message.user img.user-attachment-image,
 .message.assistant img.generated-thumb,
 .message.error img.generated-thumb{
-  border-radius:4px!important;
+  border-radius:2px!important;
+}
+
+/* Keep transparent generated images readable: alpha shows through the image. */
+.generated-image-item{
+  background-color:#ffffff!important;
+  background-image:linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%)!important;
+  background-size:12px 12px!important;
+  background-position:0 0,0 6px,6px -6px,-6px 0!important;
 }
 
 .message.user .bubble:has(.user-attachment-preview-grid),
@@ -5922,31 +5930,6 @@ body.session-sidebar-collapsed{
 }
 
 
-/* Reserve the action-row height on the transient assistant placeholder before streaming starts. */
-.message.assistant[data-persist="0"] .msg-actions,
-.message.error[data-persist="0"] .msg-actions{
-  display:flex!important;
-  width:auto!important;
-  height:26px!important;
-  min-height:26px!important;
-  margin:4px 0 0!important;
-  opacity:0!important;
-  visibility:hidden!important;
-  pointer-events:none!important;
-  transition:none!important;
-}
-
-/* Message action buttons must follow a deterministic, state-based visibility rule.
-   - While streaming or while the transient placeholder is still pending, the row
-     stays hidden (see the [data-streaming] / [data-persist] rules above).
-   - Once a message is terminal (completed, manually stopped, or failed) or once a
-     user message has been sent, every action control is fully visible so the action
-     row never flickers between dim/hover states or disappears after a stop. */
-.message.assistant:not([data-streaming="1"]):not([data-persist="0"]) .msg-actions,
-.message.error:not([data-streaming="1"]):not([data-persist="0"]) .msg-actions{
-  opacity:1!important;
-  pointer-events:auto!important;
-}
 .message.user .msg-actions{
   position:static!important;
   right:auto!important;
@@ -6275,4 +6258,43 @@ body.session-sidebar-collapsed{
 .msg-actions button svg * {
   color: var(--message-action-color, #64748b) !important;
   stroke: currentColor !important;
+}
+
+/* Canonical message action lifecycle. Visibility is determined only by the
+   message-level data-actions-state written by message-workflow.js; persistence,
+   streaming and job attributes are execution metadata and must not hide buttons. */
+.message[data-actions-state="pending"] .msg-actions{
+  display:flex!important;
+  width:auto!important;
+  height:26px!important;
+  min-width:0!important;
+  min-height:26px!important;
+  margin:4px 0 0!important;
+  padding:0!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  transition:none!important;
+}
+.message[data-actions-state="pending"] .msg-actions .icon-action-btn{
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+.message.assistant[data-actions-state="ready"] .msg-actions,
+.message.error[data-actions-state="ready"] .msg-actions,
+.message.user[data-actions-state="ready"] .msg-actions{
+  display:flex!important;
+  opacity:1!important;
+  visibility:visible!important;
+  pointer-events:auto!important;
+}
+@media (min-width:841px){
+  .message.assistant[data-actions-state="ready"] .msg-actions .icon-action-btn,
+  .message.error[data-actions-state="ready"] .msg-actions .icon-action-btn,
+  .message.user[data-actions-state="ready"] .msg-actions .icon-action-btn{
+    visibility:visible!important;
+    opacity:1!important;
+    pointer-events:auto!important;
+  }
 }

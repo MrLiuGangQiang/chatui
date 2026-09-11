@@ -85,6 +85,20 @@ function testTaskStateCompletesCommittedLocalReply() {
   assert.strictEqual(deriveTaskControls(state).isBusy, false);
 }
 
+function testTaskStateCompletesCommittedJobFromHandoff() {
+  let state = createTaskState();
+  state = reduceTaskState(state, event(TASK_EVENTS.TASK_ACCEPTED));
+  state = reduceTaskState(state, event(TASK_EVENTS.ROUTING_STARTED));
+  state = reduceTaskState(state, event(TASK_EVENTS.HANDOFF_PREPARED, { jobId: 'imgjob-a', jobKind: 'image' }));
+  assert.strictEqual(state.phase, TASK_PHASES.HANDOFF);
+  assert.strictEqual(deriveTaskControls(state).sendAction, 'stop');
+
+  state = reduceTaskState(state, event(TASK_EVENTS.JOB_COMPLETED_COMMITTED, { jobId: 'imgjob-a', jobKind: 'image' }));
+  assert.strictEqual(state.phase, TASK_PHASES.COMPLETED,
+    'a committed image result must close the task even when the handoff event arrived late');
+  assert.strictEqual(deriveTaskControls(state).sendAction, 'submit');
+}
+
 function testTaskStateSupportsNoAttachmentRoute() {
   let state = createTaskState();
   state = reduceTaskState(state, event(TASK_EVENTS.TASK_ACCEPTED));
@@ -222,6 +236,7 @@ module.exports = [
   testTaskStateStartsIdleWithSubmitControls,
   testTaskStateFollowsDurableOwnershipChain,
   testTaskStateCompletesCommittedLocalReply,
+  testTaskStateCompletesCommittedJobFromHandoff,
   testTaskStateSupportsNoAttachmentRoute,
   testTaskStateIgnoresStaleCompletionFromOlderTask,
   testTaskStateMovesRunningJobIntoRecovery,

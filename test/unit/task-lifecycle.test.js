@@ -468,6 +468,54 @@ function testFinishSessionTaskPreservesNewerRunBusyState() {
 
 
 
+function testImageCompletionDuringHandoffReleasesComposer() {
+  const session = { id: 'session-a', busy: false };
+  const state = {
+    sessions: [session],
+    activeSessionId: session.id,
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    busySessions: new Set(),
+    taskStates: new Map(),
+  };
+  let busy = false;
+  let sendAction = 'submit';
+  let lifecycle = null;
+  const setSessionBusy = (sessionId, value, options = {}) => {
+    if (value && !options.canonical) {
+      const controls = lifecycle.getTaskControls(sessionId);
+      if (controls && !controls.isBusy) state.taskStates.delete(sessionId);
+    }
+    const canonicalBusy = lifecycle.getTaskControls(sessionId)?.isBusy ?? !!value;
+    session.busy = canonicalBusy;
+    if (canonicalBusy) state.busySessions.add(sessionId);
+    else state.busySessions.delete(sessionId);
+    busy = canonicalBusy;
+    sendAction = lifecycle.getTaskControls(sessionId)?.sendAction || (canonicalBusy ? 'stop' : 'submit');
+  };
+  lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    clearActiveRun: (sessionId, ownedRun) => {
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy,
+    logger: { warn() {} },
+  });
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent(session.id, { type: events.TASK_ACCEPTED, submissionId: 'submit-img' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.ROUTING_STARTED, submissionId: 'submit-img' });
+  lifecycle.dispatchTaskEvent(session.id, { type: events.HANDOFF_PREPARED, submissionId: 'submit-img', jobId: 'imgjob-a', jobKind: 'image' });
+  assert.strictEqual(sendAction, 'stop', 'a handed-off image task owns the composer');
+
+  lifecycle.dispatchTaskEvent(session.id, { type: events.JOB_COMPLETED_COMMITTED, submissionId: 'submit-img', jobId: 'imgjob-a', jobKind: 'image' });
+  assert.strictEqual(lifecycle.getTaskState(session.id).phase, taskState.TASK_PHASES.COMPLETED);
+  assert.strictEqual(busy, false, 'the committed image must release the busy state');
+  assert.strictEqual(sendAction, 'submit', 'the send button must leave the in-progress state');
+}
+
 function testTerminalTaskPrunesStaleResumeOwnerAndKeepsComposerSendable() {
   const run = { token: 'run-a', stopped: false, abortController: new AbortController(), jobIds: new Set(['chat:chatjob-a']) };
   const session = { id: 'session-a', busy: false };
@@ -713,6 +761,7 @@ function testAllTaskCompletionPathsUseSharedLifecycleFinalizer() {
 
 module.exports = [
   testTaskLifecycleDispatchesCanonicalStateAndBusyProjection,
+  testImageCompletionDuringHandoffReleasesComposer,
   testInterfaceCompletionReleasesComposerByMatchingTaskIdentity,
   testCompletedSessionWithoutTaskStateSettlesCleanly,
   testRecoveredCompletionSettlesCanonicalBusyProjection,

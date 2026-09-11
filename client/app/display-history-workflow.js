@@ -332,6 +332,7 @@
             node.dataset.streamKind = (isImagePendingDisplayItem(item) || isImageBatchPendingItem(item)) ? 'image' : 'chat';
             node.dataset.sessionId = session.id;
             if (String(item.html || '').includes('pending-feedback')) node.dataset.pendingFeedback = '1';
+            deps.reconcileMessageActions?.(node, { state: 'pending' });
           }
         }
         session.display = compactDisplayItems(session.display.filter(item => item?.pending === '1'));

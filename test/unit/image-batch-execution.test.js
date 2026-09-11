@@ -105,6 +105,8 @@ function testImageWorkflowCarriesBatchCoordinationFlags() {
     'server task results must merge in plan order instead of provider completion order');
   assert.ok(batchWorkflow.includes('clearImageBatchIndex?.(root.localStorage, sessionId)'),
     'terminal success must still clear the durable recovery records');
+  assert.ok(batchWorkflow.includes('moveImageActionsToMessageActions(node, { complete })'),
+    'completed batch cards must run the shared message completion lifecycle before hydrating image actions');
   assert.ok(imageWorkflow.includes('taskPreparation.prepareImageExecutionRequest('),
     'the single-image executor must reuse the shared image task preparation helper');
   assert.ok(!imageWorkflow.includes('batchChildKey') && !imageWorkflow.includes('batchAggregate'),

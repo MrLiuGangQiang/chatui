@@ -1,7 +1,7 @@
 const { sendJson } = require('../http/response');
 const { performance } = require('perf_hooks');
 const { normalizeExtraHeaders } = require('../proxy/headers');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404, responsesInputFileDataParts } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, readUpstreamText, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404, responsesInputFileDataParts } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
 const chatStreamParser = require('./chat-stream-parser');
 const { DEFAULT_CONTEXT_WINDOW_TOKENS, applyContextBudgetToOpenAiPayload } = require('../../shared/config/context-budget');
@@ -139,7 +139,6 @@ const traceSpan = requestTrace?.begin?.({
   headerNames: Object.keys(job.extraHeaders || {}),
   secrets: [job.apiKey],
 });
-let timer = null;
 let cleanup = null;
 let upstreamStatus = 0;
 let failure = null;
@@ -156,7 +155,6 @@ try {
     upstreamTimeoutMs,
     signal: jobCancellationSignal(job),
   });
-  timer = upstreamRequest.timer;
   cleanup = upstreamRequest.cleanup;
   releaseChatJobFileData(job);
   const upstream = await upstreamRequest.response;
@@ -164,7 +162,7 @@ try {
   upstreamStatus = Number(upstream.status) || 0;
   job.upstreamAcceptedAt = Date.now();
   job.upstreamAcceptedAtMs = performance.now();
-  const text = await upstream.text();
+  const text = await readUpstreamText(upstream, upstreamRequest.touch);
   if (!jobCanRun(job)) return job;
   let data = safeParseJson(text);
   if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
@@ -186,8 +184,7 @@ try {
     job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
   }
 } finally {
-  if (cleanup) cleanup();
-  else if (timer) clearTimeout(timer);
+  cleanup?.();
   delete job.controller;
   job.updatedAt = Date.now();
   if (job.status === 'done') {
@@ -220,7 +217,6 @@ const traceSpan = requestTrace?.begin?.({
   headerNames: Object.keys(job.extraHeaders || {}),
   secrets: [job.apiKey],
 });
-let timer = null;
 let cleanup = null;
 let upstreamStatus = 0;
 let contentType = '';
@@ -239,7 +235,6 @@ try {
     upstreamTimeoutMs,
     signal: jobCancellationSignal(job),
   });
-  timer = upstreamRequest.timer;
   cleanup = upstreamRequest.cleanup;
   releaseChatJobFileData(job);
   const upstream = await upstreamRequest.response;
@@ -249,14 +244,14 @@ try {
   job.upstreamAcceptedAtMs = performance.now();
   contentType = upstream.headers.get('content-type') || '';
   if (!upstream.ok) {
-    const text = await upstream.text();
+    const text = await readUpstreamText(upstream, upstreamRequest.touch);
     if (!jobCanRun(job)) return job;
     const data = safeParseJson(text);
     throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
   }
   if (!upstream.body) throw new Error('上游没有返回流式响应体');
   if (!contentType.toLowerCase().includes('text/event-stream')) {
-    const text = await upstream.text();
+    const text = await readUpstreamText(upstream, upstreamRequest.touch);
     if (!jobCanRun(job)) return job;
     const data = safeParseJson(text);
     const baseContent = normalizeContentText(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.text || data?.choices?.[0]?.message?.output_text || data?.output_text || data?.content || data?.text || data?.message || data?.response || data?.output || data?.raw || '');
@@ -268,6 +263,7 @@ try {
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
     for await (const chunk of upstream.body) {
+      upstreamRequest.touch();
       if (!jobCanRun(job)) return job;
       if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
@@ -289,8 +285,7 @@ try {
     job.error = normalizeWebSearchJobError(job, normalizeUpstreamErrorMessage(err, { aborted }));
   }
 } finally {
-  if (cleanup) cleanup();
-  else if (timer) clearTimeout(timer);
+  cleanup?.();
   delete job.controller;
   job.updatedAt = Date.now();
   if (job.status === 'done') {

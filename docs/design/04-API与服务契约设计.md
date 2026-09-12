@@ -58,6 +58,8 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 - `/models`、`/chat/completions`、`/responses`
 - `/images/generations`、`/images/edits`、`/openai/image_edit`
 
+`UPSTREAM_TIMEOUT_MS` 定义上游**空闲超时**，不是请求总时长：新建上游请求后开始计时，收到任意响应 body chunk 后重置；只要流式或缓冲响应持续返回数据，就没有总时长上限。只有连续 `UPSTREAM_TIMEOUT_MS` 没有收到响应数据时才中止并返回超时错误。实现使用最后活动时间戳和单个看门狗定时器，chunk 只更新时间戳，不逐 chunk 重建定时器。
+
 不在白名单内的 `/api/*` 一律 405。`/api/models` 由浏览器携带 `{baseUrl, apiKey}` 发起服务端转发。
 
 ## 7. 路由结果分类（失败关闭）

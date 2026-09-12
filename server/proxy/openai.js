@@ -1,7 +1,7 @@
 const { SECURITY_HEADERS, send, sendError } = require('../http/response');
 const { performance } = require('perf_hooks');
 const { StringDecoder } = require('string_decoder');
-const { extractProxyRequest, createUpstreamFetch } = require('../jobs/common');
+const { extractProxyRequest, createUpstreamFetch, readUpstreamText } = require('../jobs/common');
 const { limiter } = require('../concurrency');
 const { safeLog } = require('../logging/safe-log');
 const {
@@ -34,7 +34,7 @@ function validateExecutionProtocolOrReject(body = {}, { targetPath = '', method 
 
 const MAX_IMAGE_PROXY_BYTES = Math.max(1, Number(process.env.MAX_IMAGE_PROXY_BYTES || 25 * 1024 * 1024));
 
-async function readResponseBufferWithLimit(response, maxBytes = MAX_IMAGE_PROXY_BYTES) {
+async function readResponseBufferWithLimit(response, maxBytes = MAX_IMAGE_PROXY_BYTES, { touch = null } = {}) {
   const declared = Number(response.headers?.get?.('content-length') || 0);
   if (Number.isFinite(declared) && declared > maxBytes) {
     const err = new Error('Image response is too large');
@@ -45,6 +45,7 @@ async function readResponseBufferWithLimit(response, maxBytes = MAX_IMAGE_PROXY_
   const chunks = [];
   let size = 0;
   for await (const chunk of response.body || []) {
+    touch?.();
     const buffer = Buffer.from(chunk);
     size += buffer.length;
     if (size > maxBytes) {
@@ -87,7 +88,8 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     return sendError(res, 403, '不允许代理该路径', 'PROXY_PATH_FORBIDDEN');
   }
   let proxyChatJob = null;
-  let upstreamTimer = null;
+  let upstreamCleanup = null;
+  let upstreamTouch = null;
   let limiterAcquired = false;
   let traceSpan = null;
   let upstreamStatus = 0;
@@ -185,7 +187,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       secrets: [apiKey],
     });
     const upstreamStartedAt = performance.now();
-    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(targetUrl.toString(), {
+    const { response: upstreamResponse, controller, touch, cleanup } = createUpstreamFetch(targetUrl.toString(), {
       method,
       headers: {
         ...upstreamContentHeaders,
@@ -197,7 +199,8 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       upstreamTimeoutMs,
       ...(proxyChatJob ? { job: proxyChatJob, signal: jobCancellationSignal(proxyChatJob) } : {}),
     });
-    upstreamTimer = timer;
+    upstreamCleanup = cleanup;
+    upstreamTouch = touch;
     const upstream = await upstreamResponse;
     upstreamStatus = Number(upstream.status) || 0;
 
@@ -206,7 +209,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     const isEventStream = contentType.toLowerCase().includes('text/event-stream');
 
     if (['intent_recognition', 'intent_understanding'].includes(String(body?.requestPurpose || '')) && !wantsStream && isEventStream) {
-      const responseText = await upstream.text();
+      const responseText = await readUpstreamText(upstream, upstreamTouch);
       const error = new Error('Intent recognition upstream returned an unexpected streaming response');
       const traceDetails = { status: upstream.status, responseText, contentType };
       requestTrace?.fail?.(traceSpan, { ...traceDetails, error });
@@ -235,6 +238,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       res.on('close', () => { clientOpen = false; controller.abort(); });
       const decoder = new StringDecoder('utf8');
       for await (const chunk of upstream.body) {
+        upstreamTouch?.();
         if (chatJob && !jobCanRun(chatJob)) return;
         const buf = Buffer.from(chunk);
         const text = decoder.write(buf);
@@ -274,7 +278,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       return;
     }
 
-    const rawText = await upstream.text();
+    const rawText = await readUpstreamText(upstream, upstreamTouch);
     const isNonStreamingIntent = upstream.ok
       && ['intent_recognition', 'intent_understanding'].includes(String(body?.requestPurpose || ''))
       && !wantsStream;
@@ -320,13 +324,14 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       res.end();
     }
   } finally {
-    if (upstreamTimer) clearTimeout(upstreamTimer);
+    upstreamCleanup?.();
     if (limiterAcquired) limiter.release();
   }
 }
 
   async function proxyImage(req, res) {
-  let upstreamTimer = null;
+  let upstreamCleanup = null;
+  let upstreamTouch = null;
   let traceSpan = null;
   let upstreamStatus = 0;
   const extracted = await extractProxyRequest(req, res);
@@ -349,17 +354,18 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       headerNames: Object.keys(extraHeaders || {}),
       secrets: [apiKey],
     });
-    const { response: upstreamResponse, controller, timer } = createUpstreamFetch(imageUrl.toString(), {
+    const { response: upstreamResponse, controller, touch, cleanup } = createUpstreamFetch(imageUrl.toString(), {
       method: 'GET',
       headers: { ...extraHeaders, ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       upstreamTimeoutMs,
     });
-    upstreamTimer = timer;
+    upstreamCleanup = cleanup;
+    upstreamTouch = touch;
     const upstream = await upstreamResponse;
     upstreamStatus = Number(upstream.status) || 0;
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok) {
-      const text = await upstream.text();
+      const text = await readUpstreamText(upstream, upstreamTouch);
       requestTrace?.fail?.(traceSpan, { status: upstream.status, responseText: text, contentType, error: new Error(`Upstream HTTP ${upstream.status}`) });
       return sendError(res, upstream.status, text || '图片下载失败', 'IMAGE_DOWNLOAD_FAILED');
     }
@@ -367,7 +373,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
       requestTrace?.fail?.(traceSpan, { status: 415, response: { contentType }, contentType, error: new Error('UPSTREAM_NOT_IMAGE') });
       return sendError(res, 415, '上游返回的不是图片', 'UPSTREAM_NOT_IMAGE');
     }
-    const buffer = await readResponseBufferWithLimit(upstream);
+    const buffer = await readResponseBufferWithLimit(upstream, MAX_IMAGE_PROXY_BYTES, { touch: upstreamTouch });
     requestTrace?.complete?.(traceSpan, { status: 200, response: { contentType, byteLength: buffer.length }, contentType });
     send(res, 200, buffer, {
       'Content-Type': contentType,
@@ -380,7 +386,7 @@ function createOpenAiProxy({ chatJobs, makeChatJob, notifyJob, updateChatJobFrom
     requestTrace?.fail?.(traceSpan, { status: upstreamStatus || err.statusCode || (aborted ? 504 : 500), error: err });
     sendError(res, err.statusCode || (aborted ? 504 : 500), aborted ? '图片下载超时' : (err.message || String(err)), aborted ? 'IMAGE_DOWNLOAD_TIMEOUT' : 'IMAGE_PROXY_FAILED');
   } finally {
-    if (upstreamTimer) clearTimeout(upstreamTimer);
+    upstreamCleanup?.();
   }
 }
 

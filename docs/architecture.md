@@ -140,6 +140,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - `client/app/image-batch-workflow.js`：多图计划只向 `/api/image-batches` 提交一次，由服务端 parent/child Job 编排并发；浏览器只轮询 parent job，同时保留每个 child 的 durable snapshot 供刷新恢复。批量 slot/grid 只属于执行中的临时投影；进入终态后必须按 canonical `imageContext` 顺序改用 `image-result-workflow.js` 的统一结果渲染器，使实时完成态与刷新恢复态的 DOM、布局和图片位置一致。
 - `client/app/message-workflow.js`：消息操作按钮的唯一生命周期与绑定入口。`reconcileMessageActions` 根据消息角色和终态生成唯一的 `data-actions-state`：用户消息发送后立即 `ready`，assistant 未完成统一 `pending`，成功、异常、澄清、停止及任意图片结果完成后统一 `ready`。标准按钮只从 `#messageTemplate` 克隆并由 `bindMessageActions` 绑定；`data-persist`、`data-streaming`、job 等属性只保留执行/持久化语义，不得另行决定显隐。单图、多图、聊天、历史恢复和恢复任务只能调用这一收口；图片工作流只可在同一完成后追加图片专属操作。`ensureMessageActions` 与 `reconcileCompletedMessageUi` 是兼容门面，必须委托同一实现；
 - `client/app/image-caption-workflow.js`：生成图片返回后的内部内容标签（如“一只橘色小猫”vs“一条金毛犬”）。标签由 `image_plan.v1` 任务可选的 `label` 字段提供（与生图提示词同一次规划模型调用产出），不再单独调用模型识图或总结；失败时保留提示词派生描述；标签写入图片记录（`description`/`label`/`labels`/`semantic_text`）仅用于路由候选与引用上下文，使“把那只猫改成…”这类指代可绑定到具体图片；标签不渲染到聊天界面，也不阻塞图片结果展示。
+- `client/app/chat-workflow.js`：最终聊天执行拥有唯一的等待计时器；请求进入 durable handoff 后按固定间隔原位更新“正在处理 已等待 N 秒”，首个答案增量或流结算时释放，不能依赖会话切换或页面重绘推进计时；
 - `client/app/execution-status.js`：统一路由与最终执行阶段的高层状态词汇和 operation 映射；状态只由真实工作流事件推进，图片规划显示“正在拆分多个图片任务”，模型 fallback 显示“正在重新确认任务意图”，等待区原位更新且不记录或展示模型隐藏推理链；
 - `client/features/clarification/presentation.js` 与 `client/app/clarification-choice-workflow.js`：图片候选整卡负责选择，独立预览按钮只打开预览且不得改变答案；卡片展示槽位角色、进度、来源与精简标签，并按 3/2/1 列响应桌面、窄屏和手机。
 - `client/services/session-snapshot-recovery.js`：会话快照的降级存储、配额错误恢复、部分快照合并和 revision 保护；它不能替代 canonical message/session store，也不能让 pending display 覆盖已提交消息；
@@ -181,7 +182,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.3 `server/jobs/`
 
-聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。`server/jobs/cancellation.js` 是排队取消、运行中取消和终态保护的唯一事实源：Job 在 `ConcurrencyLimiter` 队列中被停止时必须立即移除 waiter，进入上游前必须再次检查可运行状态，用户停止后的迟到成功或 AbortError 不得把终态改回完成或超时。失败/停止的执行必须释放对应幂等占位；幂等索引按 principal 与 submission/job scope 隔离，并使用完整内容 fingerprint 区分短 key 碰撞。Responses 搜索流由 Job parser 收集 URL citation / sources，在完成事件后统一去重并追加来源 Markdown；Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
+聊天与图片 Job 的生命周期、内存存储、事件订阅、停止、恢复、reasoning 和流解析位于这里。`server/jobs/common.js` 把 `UPSTREAM_TIMEOUT_MS` 实现为滚动空闲超时：每次收到上游 body chunk 都重置计时并刷新活动 Job，不设请求总时长上限；只有连续无响应数据达到该时长才中止；实现使用单个看门狗定时器和最后活动时间戳，高频 chunk 不逐块重建定时器。`server/jobs/cancellation.js` 是排队取消、运行中取消和终态保护的唯一事实源：Job 在 `ConcurrencyLimiter` 队列中被停止时必须立即移除 waiter，进入上游前必须再次检查可运行状态，用户停止后的迟到成功或 AbortError 不得把终态改回完成或超时。失败/停止的执行必须释放对应幂等占位；幂等索引按 principal 与 submission/job scope 隔离，并使用完整内容 fingerprint 区分短 key 碰撞。Responses 搜索流由 Job parser 收集 URL citation / sources，在完成事件后统一去重并追加来源 Markdown；Job state 是服务端任务状态的事实来源；公开响应必须通过 compact/public snapshot 输出，不能把内部 buffer、凭据或原始大文件数据暴露给浏览器。
 
 ### 4.4 `server/http/`
 

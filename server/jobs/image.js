@@ -1,5 +1,5 @@
 const { sendJson } = require('../http/response');
-const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
+const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, readUpstreamText, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 } = require('./common');
 const { safeLog } = require('../logging/safe-log');
 const { limiter, withLimiter } = require('../concurrency');
 const executionProtocolValidator = require('../validators/dispatch-contract.validator');
@@ -282,8 +282,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
     maskCount: job.masks?.length || 0,
     secrets: [job.apiKey],
   });
-  let timer = null;
-  let cleanup = null;
+    let cleanup = null;
   let upstreamStatus = 0;
   let failure = null;
   try {
@@ -296,13 +295,12 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
       upstreamTimeoutMs,
       signal: jobCancellationSignal(job),
     });
-    timer = upstreamRequest.timer;
     cleanup = upstreamRequest.cleanup;
     job.serverStartAt = Date.now();
     const upstream = await upstreamRequest.response;
     if (!jobCanRun(job)) return job;
     upstreamStatus = Number(upstream.status) || 0;
-    const text = await upstream.text();
+    const text = await readUpstreamText(upstream, upstreamRequest.touch);
     if (!jobCanRun(job)) return job;
     const data = parseImageUpstreamResponse(upstream, text);
     markImageJobDone(job, job.transport === 'responses' ? normalizeResponsesImageResult(data) : data);
@@ -313,8 +311,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
       markImageJobFailed(job, err);
     }
   } finally {
-    if (cleanup) cleanup();
-    else if (timer) clearTimeout(timer);
+    cleanup?.();
     delete job.controller;
     job.updatedAt = Date.now();
     if (job.status === 'done') {

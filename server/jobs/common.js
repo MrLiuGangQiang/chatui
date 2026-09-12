@@ -10,6 +10,7 @@ const { getJobIdFromUrl, publicJob, createJobEvents } = require('./events');
 const fileInputs = require('../../shared/file-inputs');
 const { findOwnedJob } = require('../security/job-ownership');
 const { sendJobNotFound } = require('./http-contract');
+const { StringDecoder } = require('string_decoder');
 
 const CHAT_BODY_BYTES = 2 * 1024 * 1024;
 const CHAT_VISUAL_BODY_BYTES = 12 * 1024 * 1024;
@@ -303,15 +304,73 @@ function summarizeUpstreamRequest(url, { method, body, job } = {}) {
   };
 }
 
+function createIdleTimeoutController({ timeoutMs, onTimeout, setTimer = setTimeout, clearTimer = clearTimeout, now = Date.now } = {}) {
+  const delayMs = Number(timeoutMs);
+  const enabled = Number.isFinite(delayMs) && delayMs > 0 && typeof setTimer === 'function';
+  let timer = null;
+  let active = true;
+  let timedOut = false;
+  let lastActivityAt = Number(now());
+  const cancel = () => {
+    if (timer === null) return;
+    clearTimer(timer);
+    timer = null;
+  };
+  const schedule = () => {
+    if (!active || timedOut || !enabled || timer !== null) return false;
+    const remaining = Math.max(0, delayMs - (Number(now()) - lastActivityAt));
+    timer = setTimer(() => {
+      timer = null;
+      if (!active) return;
+      const idleFor = Number(now()) - lastActivityAt;
+      if (idleFor >= delayMs) {
+        timedOut = true;
+        onTimeout?.();
+        return;
+      }
+      schedule();
+    }, remaining);
+    return true;
+  };
+  const touch = () => {
+    if (!active || timedOut || !enabled) return false;
+    lastActivityAt = Number(now());
+    if (timer === null) schedule();
+    return true;
+  };
+  touch();
+  return {
+    touch,
+    stop() {
+      active = false;
+      cancel();
+    },
+    get active() { return active; },
+    get timer() { return timer; },
+  };
+}
+
 function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutMs, signal: parentSignal = null }) {
   const controller = new AbortController();
+  const idleTimeout = createIdleTimeoutController({
+    timeoutMs: upstreamTimeoutMs,
+    onTimeout: () => {
+      if (!controller.signal.aborted) controller.abort();
+    },
+  });
   const abortFromParent = () => {
+    idleTimeout.stop();
     if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
   };
   if (parentSignal?.aborted) abortFromParent();
   else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
   if (job) job.controller = controller;
-  const timer = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  const touch = () => {
+    const touched = idleTimeout.touch();
+    if (touched && job) job.updatedAt = Date.now();
+    return touched;
+  };
+  touch();
   const request = summarizeUpstreamRequest(url, { method, body, job });
   const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
     .catch(err => {
@@ -319,10 +378,22 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
       throw err;
     });
   const cleanup = () => {
-    clearTimeout(timer);
+    idleTimeout.stop();
     parentSignal?.removeEventListener?.('abort', abortFromParent);
   };
-  return { response, controller, timer, cleanup };
+  return { response, controller, touch, cleanup, get timer() { return idleTimeout.timer; } };
+}
+
+async function readUpstreamText(response, touch = null) {
+  const body = response?.body;
+  if (!body || typeof body[Symbol.asyncIterator] !== 'function') return response?.text?.() || '';
+  const decoder = new StringDecoder('utf8');
+  let text = '';
+  for await (const chunk of body) {
+    touch?.();
+    text += decoder.write(Buffer.from(chunk));
+  }
+  return text + decoder.end();
 }
 
 function safeParseJson(text) {
@@ -376,4 +447,4 @@ function findJobOr404(store, id, res, principal) {
   return job;
 }
 
-module.exports = { CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, CHAT_FILE_BODY_BYTES, MAX_FILE_INPUT_DECODED_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, isResponsesFileDataRequest, proxyAccessAudit, responsesInputFileDataParts, inspectFileDataUri, inspectResponsesFileData, validateChatRequestBody, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };
+module.exports = { createIdleTimeoutController, readUpstreamText, CHAT_BODY_BYTES, CHAT_VISUAL_BODY_BYTES, CHAT_FILE_BODY_BYTES, MAX_FILE_INPUT_DECODED_BYTES, IMAGE_BODY_BYTES, hasVisualChatAttachment, isResponsesFileDataRequest, proxyAccessAudit, responsesInputFileDataParts, inspectFileDataUri, inspectResponsesFileData, validateChatRequestBody, makeJobId, getJobIdFromUrl, publicJob, createJobEvents, extractProxyRequest, configuredUpstreamProxyUrl, upstreamDispatcher, fetchWithValidatedRedirects, readUpstreamErrorDetails, summarizeUpstreamRequest, createUpstreamFetch, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404 };

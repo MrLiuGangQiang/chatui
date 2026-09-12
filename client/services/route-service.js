@@ -5165,7 +5165,14 @@
         arguments: { prompt },
         bindings: [],
         constraints: [],
-      }, { input: prompt, attachments: [], context: {}, allowVagueGeneration: true });
+      }, {
+        input: prompt,
+        attachments: [],
+        context: {},
+        allowVagueGeneration: true,
+        // Explicit force-image actions must not be reinterpreted by local keyword heuristics.
+        semanticAuthority: 'route_intent.v3',
+      });
       return isRouteDispatchable(route) ? route : null;
     } catch {
       return null;

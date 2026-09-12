@@ -46,6 +46,71 @@ function testPaintMaskFillsWhiteThenErasesStrokes() {
   assert.strictEqual(ctx.globalCompositeOperation, 'source-over', 'compositing must be restored after painting');
 }
 
+function testEnhancePromptPreservesTheOriginalImage() {
+  const prompt = maskEditor.buildEnhancePrompt();
+  assert.match(prompt, /提升这张图片的清晰度/);
+  assert.match(prompt, /增强细节、纹理、边缘和局部对比度/);
+  assert.match(prompt, /保持原始构图、主体、姿态、颜色、光照、风格和文字内容不变/);
+  assert.match(prompt, /不要添加或删除任何元素/);
+}
+
+function testCompositePromptIncludesEverySupportedOperation() {
+  const prompt = maskEditor.buildCompositeEditPrompt({
+    comments: [{ x: 0.25, y: 0.5, text: '淡化左侧水面', color: '#2563eb' }],
+    eraseActions: [{
+      instruction: '去掉右上角文字',
+      strokes: [{ x: 0.75, y: 0.2, radius: 0.05 }],
+    }],
+    hasErase: true,
+    removeBackground: false,
+    enhance: true,
+  });
+  const localStep = prompt.indexOf('请先只修改编辑蒙版中的透明区域');
+  const enhanceStep = prompt.indexOf('随后，对整张图片进行清晰度提升');
+  assert.ok(localStep >= 0 && localStep < enhanceStep,
+    'mixed edits must keep local annotations before clarity enhancement');
+  assert.match(prompt, /先只修改编辑蒙版中的透明区域/);
+  assert.match(prompt, /随后，对整张图片进行清晰度提升：提升这张图片的清晰度/);
+  assert.match(prompt, /淡化左侧水面/);
+  assert.match(prompt, /选中区域位置：画面右侧上方/);
+  assert.match(prompt, /中心 \(x=0\.750, y=0\.200\)/);
+  assert.match(prompt, /修改内容：去掉右上角文字/);
+}
+
+function testRemoveBackgroundCannotBeCombinedInPromptConstruction() {
+  assert.strictEqual(maskEditor.buildCompositeEditPrompt({ enhance: true, removeBackground: true }), '',
+    'remove background must not be combined with clarity enhancement');
+  assert.strictEqual(maskEditor.buildCompositeEditPrompt({
+    comments: [{ x: 0.5, y: 0.5, text: '改一下' }],
+    removeBackground: true,
+  }), '', 'remove background must not be combined with local edits');
+}
+
+function testSelectedAreaPromptIncludesThePaintedLocation() {
+  const prompt = maskEditor.buildSelectedAreaPrompt('淡化人物脸部', [
+    { x: 0.2, y: 0.7, radius: 0.05 },
+    { x: 0.3, y: 0.8, radius: 0.05 },
+  ]);
+  assert.match(prompt, /选中区域位置：画面左侧下方/);
+  assert.match(prompt, /中心 \(x=0\.250, y=0\.750\)/);
+  assert.match(prompt, /边界 x=0\.150–0\.350、y=0\.650–0\.850/);
+  assert.match(prompt, /归一化坐标/);
+}
+
+function testSelectedAreaPromptScopesTheChangeToTheMask() {
+  const prompt = maskEditor.buildSelectedAreaPrompt('把选区改成夜景');
+  assert.strictEqual(prompt, [
+    '请只修改图片中编辑蒙版覆盖的区域。',
+    '修改内容：把选区改成夜景',
+    '蒙版外的原始内容必须保持不变，不要输出蒙版、编号或任何标记。',
+  ].join('\n'), 'custom instructions must use a clear mask-scoped prompt');
+  assert.strictEqual(
+    maskEditor.buildSelectedAreaPrompt(''),
+    'Remove the selected area and fill it naturally with the surrounding background.',
+    'an empty instruction must keep natural erase semantics',
+  );
+}
+
 function testStrokePointNormalizesToCanvasSpace() {
   const point = maskEditor.normalizeStrokePoint(
     { clientX: 150, clientY: 260 },
@@ -64,5 +129,10 @@ function testStrokePointNormalizesToCanvasSpace() {
 module.exports = [
   testMaskKeepsOpaqueOutsideTheBrushAndTransparentInside,
   testPaintMaskFillsWhiteThenErasesStrokes,
+  testEnhancePromptPreservesTheOriginalImage,
+  testCompositePromptIncludesEverySupportedOperation,
+  testRemoveBackgroundCannotBeCombinedInPromptConstruction,
+  testSelectedAreaPromptIncludesThePaintedLocation,
+  testSelectedAreaPromptScopesTheChangeToTheMask,
   testStrokePointNormalizesToCanvasSpace,
 ];

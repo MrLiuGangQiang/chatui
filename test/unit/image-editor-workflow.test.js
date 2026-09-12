@@ -106,6 +106,68 @@ async function testRemoveBackgroundEditRequestsTransparentPng() {
   }
 }
 
+async function testEnhanceEditDispatchesOnlyTheTargetWithoutMask() {
+  const restore = installFileReader();
+  try {
+    const { workflow, calls, userMessages } = makeWorkflow();
+    await workflow.applyImageEdit({
+      sessionId: 'session-1',
+      imageBlob: { type: 'image/png' },
+      filename: 'target.png',
+      edit: {
+        mode: 'enhance',
+        prompt: '提升这张图片的清晰度。增强细节、纹理、边缘和局部对比度，减少模糊、噪点与压缩伪影；保持原始构图、主体、姿态、颜色、光照、风格和文字内容不变，不要添加或删除任何元素。',
+      },
+    });
+    assert.strictEqual(calls.length, 1);
+    const { options } = calls[0];
+    assert.strictEqual(options.dispatchContract.operation, 'edit_image');
+    assert.strictEqual(options.dispatchContract.api, 'image_edit');
+    assert.strictEqual((options.maskAttachments || []).length, 0, 'clarity enhancement must not send a mask');
+    assert.strictEqual((options.attachments || []).length, 1, 'the target image is the only image input');
+    assert.strictEqual((options.executionMedia.masks || []).length, 0);
+    assert.deepStrictEqual(
+      options.dispatchContract.bindings.map(binding => `${binding.role}:${binding.type}`),
+      ['target:image'],
+    );
+    assert.match(options.dispatchContract.arguments.prompt, /提升这张图片的清晰度/);
+    assert.strictEqual(userMessages[0].options.rawText, '提升图片清晰度');
+  } finally {
+    restore();
+  }
+}
+
+async function testCompositeEditCarriesOneCombinedMaskAndGlobalParameters() {
+  const restore = installFileReader();
+  try {
+    const { workflow, calls } = makeWorkflow();
+    await workflow.applyImageEdit({
+      sessionId: 'session-1',
+      imageBlob: { type: 'image/png' },
+      edit: {
+        mode: 'composite',
+        maskBlob: { type: 'image/png', marker: 'COMBINED' },
+        background: 'transparent',
+        output_format: 'png',
+        prompt: 'combined prompt',
+        label: '提升图片清晰度\n1. 淡化左侧水面',
+      },
+    });
+    const { options } = calls[0];
+    assert.strictEqual((options.maskAttachments || []).length, 1);
+    assert.strictEqual((options.attachments || []).length, 1);
+    assert.deepStrictEqual(
+      options.dispatchContract.bindings.map(binding => `${binding.role}:${binding.type}`).sort(),
+      ['mask:image', 'target:image'],
+    );
+    assert.strictEqual(options.dispatchContract.arguments.background, 'transparent');
+    assert.strictEqual(options.dispatchContract.arguments.output_format, 'png');
+    assert.strictEqual(options.dispatchContract.arguments.prompt, 'combined prompt');
+  } finally {
+    restore();
+  }
+}
+
 async function testEraseWithoutMaskDataFailsClosed() {
   const restore = installFileReader();
   try {
@@ -252,6 +314,8 @@ async function testEditorEditReleasesTheTaskWhenDispatchFails() {
 module.exports = [
   testEraseEditDispatchesOneMaskAndTarget,
   testRemoveBackgroundEditRequestsTransparentPng,
+  testEnhanceEditDispatchesOnlyTheTargetWithoutMask,
+  testCompositeEditCarriesOneCombinedMaskAndGlobalParameters,
   testEraseWithoutMaskDataFailsClosed,
   testCommentEditSendsMaskAndCleanOriginal,
   testEraseEditAppearsAsAUserTurnBeforeDispatch,

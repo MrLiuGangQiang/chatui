@@ -113,6 +113,8 @@ function testSessionSwitchRecoveryRebindsWithoutDuplicateExecution() {
   assert.ok(submit.includes('beginPendingSubmitResume?.(deps.state, sessionId)') && submit.includes('finishPendingSubmitResume?.(deps.state, sessionId)'), 'pending-submit recovery must hold a per-session single-flight owner');
   assert.ok(submit.includes('(!assistantNode||!assistantNode.isConnected)') && submit.includes('findMessageNodeByDisplayItem(liveItem)||assistantNode'), 'dispatch must rebind the assistant node rendered after switching back');
   assert.ok(app.includes('updateLiveDisplay(e,n,"assistant",l'), 'intent-recognition stage updates must target the currently rendered display item, not a detached pre-switch node');
+  assert.ok(app.includes('isImagePendingDisplayItem,addDisplayItemNode,insertMessageNodeAtDisplayPosition,addMessage'),
+    'pending display restoration must receive the canonical DOM position reconciler');
   assertAssetVersionAtLeast(index, 'runs.js', [1, 2, 66]);
   assertAssetVersionAtLeast(index, 'submit-workflow.js', [1, 5, 4]);
   assertAssetVersionAtLeast(index, 'app.js', [2, 3, 1]);

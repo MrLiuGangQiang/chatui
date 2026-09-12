@@ -108,8 +108,26 @@
           const index = Number(value);
           return Number.isFinite(index) && index >= 0 ? index : null;
         };
-        const requestedResponseIndex = parseCanonicalResponseIndex(t.replaceAssistantIndex)
+        const explicitResponseIndex = parseCanonicalResponseIndex(t.replaceAssistantIndex)
           ?? parseCanonicalResponseIndex(t.responseIndex);
+        let inferredResponseIndex = null;
+        if (explicitResponseIndex === null && t.userAlreadyAdded) {
+          const canonicalMessages = n === state.activeSessionId ? state.messages : (i.messages || []);
+          const requestedUserMessageId = String(t.userMessageId || '').trim();
+          let userIndex = requestedUserMessageId
+            ? canonicalMessages.findIndex(message => message?.role === 'user' && String(message?.id || '') === requestedUserMessageId)
+            : -1;
+          if (userIndex < 0) {
+            for (let index = canonicalMessages.length - 1; index >= 0; index -= 1) {
+              if (canonicalMessages[index]?.role === 'user') {
+                userIndex = index;
+                break;
+              }
+            }
+          }
+          if (userIndex >= 0) inferredResponseIndex = userIndex + 1;
+        }
+        const requestedResponseIndex = explicitResponseIndex ?? inferredResponseIndex;
         const c =
           t.liveItem ||
           appendSessionDisplayMessage(
@@ -505,6 +523,20 @@
           const resultMetaText = b.metaText || `RT ${v}`;
           const resultImageContextText = JSON.stringify(resultImageContext);
           const clarificationReplay = t.clarificationReplay || null;
+          // A detached live node may belong to an old DOM projection. Do not
+          // render before the canonical completion is durably committed: the
+          // renderer would otherwise rebuild the session from the still-pending
+          // message array and leave the old loading card visible.
+          const completionRequiresCanonicalRender =
+            n === state.activeSessionId && (!d || !d.isConnected);
+          const renderCompletionAfterCommit = () => {
+            if (!completionRequiresCanonicalRender || n !== state.activeSessionId) return;
+            try {
+              forceRenderCanonicalMessages(i);
+            } catch (error) {
+              console.warn('image completion rerender failed', error);
+            }
+          };
           // Image generation can outlive a session checkpoint or switch. Build
           // the completion from the array that owns the session at completion
           // time, never from the working array captured before the upstream job.
@@ -558,8 +590,9 @@
                     metaText: b.metaText || `RT ${v}`,
                   }),
                   setImageContext(d, resultImageContext))
-                : c ||
-                  appendSessionDisplayMessage(n, "assistant", b.html, {
+                : c
+                  ? c
+                  : appendSessionDisplayMessage(n, "assistant", b.html, {
                     html: !0,
                     rawText: `${b.raw}\n耗时：${v}`,
                     pending: !1,
@@ -648,7 +681,8 @@
                   metaText: b.metaText || `RT ${v}`,
                   noScroll: !0,
                   preserveLiveMedia: !0,
-                }));
+                }),
+              renderCompletionAfterCommit());
           } else
             (t.userAlreadyAdded ||
               completionMessages.push({
@@ -697,7 +731,25 @@
           await saveSessionMessages(n, i.messages || []);
           (t.skipDurableSnapshot || clearDurableImageJob(), notifyInterfaceCompleted(), playDoneSound());
         } catch (e) {
-          if (e?.terminalJob && !t.skipDurableSnapshot) clearDurableImageJob();
+          const statusCode = Number(e?.statusCode || e?.status || 0);
+          const rejectedBeforeJob = !p && statusCode >= 400 && statusCode < 500;
+          if ((e?.terminalJob || rejectedBeforeJob) && !t.skipDurableSnapshot) clearDurableImageJob();
+          if (rejectedBeforeJob && c) {
+            const message = String(e?.message || '图片请求未通过校验，请调整后重试');
+            updateSessionDisplayItem(n, c, 'error', message, {
+              rawText: message,
+              pending: false,
+              ...(Number.isFinite(t.replaceAssistantIndex) ? { responseIndex: t.replaceAssistantIndex } : {}),
+            });
+            if (n === state.activeSessionId) {
+              updateLiveDisplay(n, c, 'error', message, {
+                rawText: message,
+                pending: false,
+                ...(Number.isFinite(t.replaceAssistantIndex) ? { responseIndex: t.replaceAssistantIndex } : {}),
+                noScroll: !shouldFollowScroll(),
+              });
+            }
+          }
           throw e;
         } finally {
           (A.forEach((e) => state.followingImageJobs.delete(e)),

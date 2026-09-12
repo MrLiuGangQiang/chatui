@@ -431,6 +431,13 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
       sendJson(res, 202, publicJob(job), JOB_RESPONSE_HEADERS);
     } catch (err) {
       traceExecution('executionRejected', { error: err });
+      errorLog?.log?.(err, {
+        source: 'image_job_rejected',
+        stage: validationStage,
+        traceId: req._traceId || '',
+        statusCode: Number(err?.statusCode) || 500,
+        code: String(err?.code || ''),
+      });
       respondJobError(res, err);
     }
   }

@@ -4,6 +4,7 @@ const assert = require('assert');
 const { JSDOM } = require('jsdom');
 const formatting = require('../../client/app/formatting');
 const displayHistoryWorkflow = require('../../client/app/display-history-workflow');
+const displayItems = require('../../client/app/display-items');
 const messageRecords = require('../../client/app/message-records');
 
 function createDisplayHistoryWorkflow(state, session, overrides = {}) {
@@ -204,9 +205,74 @@ function testRegenerationRefreshRendersOrderedMessagesAndPendingContent() {
     'pending history restoration must enter the shared message action lifecycle');
 }
 
+function testPendingImageRestoreMovesAnExistingCachedNodeToItsCanonicalIndex() {
+  const state = { activeSessionId: 'session-a', reasoningMode: false };
+  const session = {
+    id: 'session-a',
+    messages: [
+      { role: 'user', content: '画鸭子', rawText: '画鸭子', messageIndex: '0' },
+      { role: 'assistant', content: '图片结果', rawText: '图片结果', responseIndex: '1' },
+      { role: 'user', content: '移除背景', rawText: '移除背景', messageIndex: '2' },
+    ],
+    display: [{
+      id: 'display-live-image', role: 'assistant', rawText: '正在修改图片 已等待 97 秒',
+      html: '', responseIndex: '3', jobId: 'imgjob-live', pending: '1',
+    }],
+  };
+  const dom = new JSDOM('<!doctype html><html><body><section id="messages"></section></body></html>');
+  const messagesRoot = dom.window.document.getElementById('messages');
+  const makeNode = (role, index, text) => {
+    const node = dom.window.document.createElement('article');
+    node.className = `message ${role}`;
+    node.dataset.rawText = text;
+    if (role === 'user') node.dataset.messageIndex = String(index);
+    else node.dataset.responseIndex = String(index);
+    node.textContent = text;
+    return node;
+  };
+  const pendingNode = makeNode('assistant', 3, session.display[0].rawText);
+  pendingNode.dataset.displayItemId = 'display-live-image';
+  pendingNode.dataset.jobId = 'imgjob-live';
+  pendingNode.__displayItem = session.display[0];
+  // A stale cache may hold the pending card first while canonical history is
+  // already complete. Restoring must move it back to its canonical slot.
+  messagesRoot.append(
+    pendingNode,
+    makeNode('user', 0, '画鸭子'),
+    makeNode('assistant', 1, '图片结果'),
+    makeNode('user', 2, '移除背景'),
+  );
+  const workflow = createDisplayHistoryWorkflow(state, session, {
+    loadImageJob: () => ({ id: 'imgjob-live', displayItemId: 'display-live-image', responseIndex: 3 }),
+    loadLatestChatJob: () => null,
+    isSessionBusy: () => true,
+    getActiveRun: () => ({ stopped: false }),
+    isImagePendingDisplayItem: item => /正在修改图片/.test(String(item?.rawText || '')),
+    compactDisplayItems: displayItems.compactDisplayItems,
+    $: id => id === 'messages' ? messagesRoot : null,
+    insertMessageNodeAtDisplayPosition: (node, item) => (
+      displayItems.insertMessageNodeAtDisplayPosition(messagesRoot, node, item)
+    ),
+    reconcileMessageActions: (node, options = {}) => {
+      node.dataset.actionsState = String(options.state || '');
+    },
+  });
+
+  workflow.restorePendingDisplayItems(session, session.display);
+
+  assert.deepStrictEqual(
+    [...messagesRoot.querySelectorAll('.message')].map(node => (
+      node.dataset.rawText || node.textContent
+    )),
+    ['画鸭子', '图片结果', '移除背景', '正在修改图片 已等待 97 秒'],
+    'the restored pending image card must move to its canonical response index',
+  );
+}
+
 module.exports = [
   testStatusDetectionNeverClassifiesRealAnswerContent,
   testRestoreKeepsPartialStreamedContentContainingStatusWords,
   testReloadHistoryKeepsRealAnswersContainingStatusWords,
   testRegenerationRefreshRendersOrderedMessagesAndPendingContent,
+  testPendingImageRestoreMovesAnExistingCachedNodeToItsCanonicalIndex,
 ];

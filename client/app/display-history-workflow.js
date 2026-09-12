@@ -11,6 +11,9 @@
     const clarificationPresentation = deps.clarificationPresentation
       || root?.ChatUIApp?.appContext?.getWorkflowModule?.('clarificationPresentation')
       || {};
+    const insertMessageNodeAtDisplayPosition = deps.insertMessageNodeAtDisplayPosition
+      || root?.ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition
+      || null;
 
     function decodeQuoteAttr(value = '') {
       return String(value || '').replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
@@ -328,6 +331,9 @@
             if (item.reasoningText && typeof updateReasoning === 'function') updateReasoning(node, item.reasoningText, { done: false, keepReasoning: !!item.keepReasoning, keepEmpty: true, restoreHistory: true });
           }
           if (node) {
+            if (typeof insertMessageNodeAtDisplayPosition === 'function') {
+              insertMessageNodeAtDisplayPosition(node, item);
+            }
             node.dataset.streaming = '1';
             node.dataset.streamKind = (isImagePendingDisplayItem(item) || isImageBatchPendingItem(item)) ? 'image' : 'chat';
             node.dataset.sessionId = session.id;

@@ -5,10 +5,33 @@
   // Numbered comments keep one shared truth between the composited image and
   // the prompt: comment N always renders the same plain number that the
   // prompt references.
-  const DEFAULT_COLOR = '#111827';
+  const COMMENT_COLORS = Object.freeze([
+    '#2563eb',
+    '#7c3aed',
+    '#db2777',
+    '#dc2626',
+    '#ea580c',
+    '#0f766e',
+    '#0891b2',
+    '#4f46e5',
+    '#16a34a',
+  ]);
+  const DEFAULT_COLOR = COMMENT_COLORS[0];
 
   function stringValue(value = '') {
     return String(value ?? '').trim();
+  }
+
+  function normalizeCommentColor(value, fallback = DEFAULT_COLOR) {
+    const color = stringValue(value);
+    return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
+  }
+
+  function commentColorAt(index = 0, offset = 0) {
+    const position = Number.isInteger(Number(index)) ? Number(index) : 0;
+    const start = Number.isInteger(Number(offset)) ? Number(offset) : 0;
+    const paletteIndex = ((position + start) % COMMENT_COLORS.length + COMMENT_COLORS.length) % COMMENT_COLORS.length;
+    return COMMENT_COLORS[paletteIndex];
   }
 
   function clamp01(value) {
@@ -37,6 +60,7 @@
     if (lines.length) {
       parts.push([
         '图片上有一个编辑蒙版：蒙版中的透明区域是允许修改的位置，其余区域必须保持不变。',
+        '坐标为归一化坐标，左上角为 (0, 0)，右下角为 (1, 1)。',
         '请只修改以下编号位置对应的原始内容，结果中不要添加或保留任何编号标记：',
         ...lines,
       ].join('\n'));
@@ -101,14 +125,17 @@
     let painted = 0;
     const commentColor = stringValue(color) || DEFAULT_COLOR;
     (Array.isArray(comments) ? comments : []).forEach((comment, index) => {
-      ctx.fillStyle = commentColor;
+      ctx.fillStyle = normalizeCommentColor(comment?.color, commentColor);
       if (drawComment(ctx, comment, index, toPixel, canvasWidth, canvasHeight)) painted += 1;
     });
     return painted;
   }
 
   const api = Object.freeze({
+    COMMENT_COLORS,
     DEFAULT_COLOR,
+    normalizeCommentColor,
+    commentColorAt,
     commentLabel,
     buildCommentPrompt,
     paintComments,

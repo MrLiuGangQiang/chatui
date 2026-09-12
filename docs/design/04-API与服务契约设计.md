@@ -39,6 +39,8 @@
 
 任务响应注入 `server/jobs/http-contract.js` 的头；未找到与非本人任务统一 404。
 
+图片任务创建被参数、归属或执行协议校验拒绝时，服务端必须按 `trace_id + validation stage + error code` 写入脱敏诊断日志；客户端收到明确 4xx 后必须释放该次本地任务快照，不能把未创建的 job 留作刷新恢复目标。
+
 ## 4. Presence 端点
 
 | 方法 | 路径 | 说明 |

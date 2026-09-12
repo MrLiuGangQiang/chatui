@@ -67,15 +67,22 @@ function testGeneratedImageRulesNeverDeclareLargerCorners() {
   }
 }
 
-function testGeneratedImagesUseACheckerboardBehindTransparency() {
+function testGeneratedImageThumbnailsDoNotShowACheckerboard() {
   const css = buildCssBundle();
-  const rule = /\.generated-image-item\s*\{[^}]*background-image:[^}]*linear-gradient[^}]*\}/i.exec(css);
-  assert.ok(rule, 'generated images must render over a checkerboard so transparency is visible');
-  assert.match(rule[0], /background-size:\s*12px 12px/i);
+  assert.doesNotMatch(
+    css,
+    /\.generated-image-item\s*\{[^}]*background-image:[^}]*linear-gradient[^}]*\}/i,
+    'generated-image thumbnails must not paint a checkerboard behind transparent pixels',
+  );
+  assert.match(
+    css,
+    /\.generated-image-item\s*\{[^}]*background:\s*transparent!important/i,
+    'transparent generated images must reveal the message surface behind the thumbnail',
+  );
 }
 
 module.exports = [
   testGeneratedImageThumbnailUsesTightCorners,
   testGeneratedImageRulesNeverDeclareLargerCorners,
-  testGeneratedImagesUseACheckerboardBehindTransparency,
+  testGeneratedImageThumbnailsDoNotShowACheckerboard,
 ];

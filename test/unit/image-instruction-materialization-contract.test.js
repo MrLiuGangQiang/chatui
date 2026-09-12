@@ -2,7 +2,10 @@
 
 const assert = require('assert');
 const imageInstruction = require('../../shared/image-instruction');
+const dispatchContract = require('../../shared/dispatch-contract');
+const maskEditor = require('../../client/features/image-editor/mask-editor');
 const validator = require('../../server/validators/dispatch-contract.validator');
+const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 function expectCode(action, code) {
   assert.throws(action, error => error?.code === code, `expected ${code}`);
@@ -93,6 +96,47 @@ function testImageInstructionProtocolRequiresAnExecutableInstructionOrClarificat
     'an intra-instruction 之前 is not turn positioning');
 }
 
+function testCombinedEditorPromptIsStandaloneForProviderExecution() {
+  const prompt = maskEditor.buildCompositeEditPrompt({ enhance: true });
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('后一步必须基于前一步的结果'), false,
+    'an intra-instruction sequencing phrase must remain self-contained');
+  assert.doesNotMatch(prompt, /步骤|上一阶段|后一步/,
+    'combined edits must avoid numbered multi-stage wording');
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference(prompt), false,
+    'a mixed edit instruction must stay standalone for provider execution');
+
+  const fixture = makeExecutionFixture({
+    prompt,
+    operation: 'edit_image',
+    resources: [{
+      key: 'r1',
+      type: 'image',
+      source: 'current',
+      role: 'target',
+      id: 'target-1',
+      resource_id: 'res:image:target-1',
+    }],
+  });
+  const file = {
+    routeResourceKey: 'r1',
+    routeRole: 'target',
+    routeId: 'target-1',
+    routeReferenceId: '',
+    routeResourceId: 'res:image:target-1',
+    routeSource: 'current',
+  };
+  const validation = validator.validateManagedImageRequest({
+    requestPurpose: 'final_execution',
+    mode: 'edit_image',
+    dispatchContract: fixture.dispatchContract,
+    bindingEvidence: dispatchContract.bindingEvidenceFromMedia(fixture.executionResources),
+    payload: { model: 'gpt-image-1', prompt },
+    files: [file],
+    masks: [],
+  }, { files: [file] });
+  assert.strictEqual(validation.dispatchContract.arguments.prompt, prompt);
+}
+
 function testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol() {
   const valid = validator.validateProxyExecutionRequest({
     requestPurpose: 'image_instruction_materialization',
@@ -119,5 +163,6 @@ function testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol(
 
 module.exports = [
   testImageInstructionProtocolRequiresAnExecutableInstructionOrClarification,
+  testCombinedEditorPromptIsStandaloneForProviderExecution,
   testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol,
 ];

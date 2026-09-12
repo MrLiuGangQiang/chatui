@@ -49,6 +49,8 @@
       switch (String(edit.mode || '')) {
         case 'erase': return '\u64e6\u9664\u56fe\u7247\u4e2d\u7684\u9009\u533a';
         case 'remove_background': return '移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。';
+        case 'enhance': return '提升图片清晰度';
+        case 'composite': return '组合图片编辑';
         case 'comment': return '\u6309\u8bc4\u8bba\u4fee\u6539\u56fe\u7247';
         default: return '\u7f16\u8f91\u56fe\u7247';
       }
@@ -162,8 +164,10 @@
         routeSource: 'current',
       }];
       let maskEntry = null;
-      if (edit.mode === 'erase' || edit.mode === 'comment') {
-        if (!edit.maskBlob) throw new Error('\u906e\u7f69\u6570\u636e\u7f3a\u5931\uff0c\u8bf7\u91cd\u65b0\u6d82\u62b9\u6216\u8bc4\u8bba');
+      if ((edit.mode === 'erase' || edit.mode === 'comment') && !edit.maskBlob) {
+        throw new Error('遮罩数据缺失，请重新涂抹或评论');
+      }
+      if (edit.maskBlob) {
         const maskSrc = await blobToDataUrl(edit.maskBlob);
         maskEntry = {
           id: maskId,

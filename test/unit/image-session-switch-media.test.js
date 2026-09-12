@@ -34,7 +34,15 @@ function makeImage({ persistedSrc, src = '' } = {}) {
   };
 }
 
-function createWorkflow({ getImageBlob = async () => null, setTimeout, clearTimeout } = {}) {
+function createWorkflow({
+  getImageBlob = async () => null,
+  fetch,
+  AbortController,
+  imageFetchTimeoutMs,
+  imageProxyFetchTimeoutMs,
+  setTimeout,
+  clearTimeout,
+} = {}) {
   let getCalls = 0;
   let objectUrlSequence = 0;
   const stored = new Map();
@@ -46,6 +54,10 @@ function createWorkflow({ getImageBlob = async () => null, setTimeout, clearTime
       createObjectURL() { objectUrlSequence += 1; return `blob:cached-${objectUrlSequence}`; },
       revokeObjectURL() {},
     },
+    fetch,
+    AbortController,
+    imageFetchTimeoutMs,
+    imageProxyFetchTimeoutMs,
     imageStoreHelpers: {
       createImageStore: () => ({
         openImageDb: async () => null,
@@ -68,7 +80,7 @@ function createWorkflow({ getImageBlob = async () => null, setTimeout, clearTime
     setTimeout,
     clearTimeout,
   });
-  return { workflow, getCalls: () => getCalls };
+  return { workflow, getCalls: () => getCalls, stored };
 }
 
 function testClarificationImagesBypassGenericStableMediaBox() {
@@ -164,6 +176,67 @@ async function testImportedBlobHydratesRenderedHistoryImage() {
   assert.strictEqual(image.classList.contains('image-missing'), false);
 }
 
+async function testTimedOutDirectImageFetchFallsBackToServerProxy() {
+  const calls = [];
+  let directAborted = false;
+  class FakeAbortController {
+    constructor() {
+      this.listeners = new Set();
+      this.signal = {
+        aborted: false,
+        addEventListener: (_name, listener) => this.listeners.add(listener),
+      };
+    }
+
+    abort() {
+      if (this.signal.aborted) return;
+      this.signal.aborted = true;
+      for (const listener of this.listeners) listener();
+    }
+  }
+
+  const { workflow, stored } = createWorkflow({
+    AbortController: FakeAbortController,
+    imageFetchTimeoutMs: 25,
+    imageProxyFetchTimeoutMs: 25,
+    setTimeout: callback => {
+      queueMicrotask(callback);
+      return 1;
+    },
+    clearTimeout: () => {},
+    fetch: async (resource, options = {}) => {
+      const url = String(resource);
+      calls.push(url);
+      if (url === 'https://cdn.example.test/result.png') {
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => {
+            directAborted = true;
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+          });
+        });
+      }
+      if (url === '/api/image') {
+        return {
+          ok: true,
+          headers: { get: () => 'image/png' },
+          blob: async () => new Blob(['proxied image'], { type: 'image/png' }),
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    },
+  });
+
+  const result = await Promise.race([
+    workflow.persistImageSrc('https://cdn.example.test/result.png', 'result.png', { returnDisplayUrl: true }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('direct image fetch did not fall back to the proxy')), 250)),
+  ]);
+
+  assert.strictEqual(directAborted, true, 'a stalled direct image request must be aborted at its deadline');
+  assert.deepStrictEqual(calls, ['https://cdn.example.test/result.png', '/api/image']);
+  assert.match(result.persistedSrc, /^indexeddb:\/\//);
+  assert.ok(stored.size > 0, 'the proxied image bytes must be persisted to IndexedDB');
+}
+
 module.exports = [
   testMediaWorkflowUsesExplicitDependencies,
   testClarificationImagesBypassGenericStableMediaBox,
@@ -171,4 +244,5 @@ module.exports = [
   testGeneratedObjectUrlSurvivesImmediateSessionSwitch,
   testLiveBlobHydrationDoesNotHideCompletedImage,
   testImportedBlobHydratesRenderedHistoryImage,
+  testTimedOutDirectImageFetchFallsBackToServerProxy,
 ];

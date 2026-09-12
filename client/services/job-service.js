@@ -17,6 +17,19 @@ function makeClientChatJobId() {
   return makeClientJobId('chatjob');
 }
 
+function rejectedJobError(response, payload, normalizeError) {
+  const error = new Error(normalizeError(null, payload));
+  const statusCode = Number(response?.status) || 0;
+  if (statusCode) {
+    error.statusCode = statusCode;
+    error.status = statusCode;
+    error.retryable = statusCode >= 500;
+  }
+  const code = String(payload?.error?.code || payload?.code || '').trim();
+  if (code) error.code = code;
+  return error;
+}
+
 async function postJob({ fetchImpl = fetch, url, body, signal, parseResponseJson, normalizeError, onUploadProgress }) {
   if (onUploadProgress) return postJsonWithUploadProgress({ url, body, signal, onProgress: onUploadProgress, parseResponseJson, normalizeError });
   const response = await fetchImpl(url, {
@@ -26,7 +39,7 @@ async function postJob({ fetchImpl = fetch, url, body, signal, parseResponseJson
     body: JSON.stringify(body),
   });
   const payload = await parseResponseJson(response);
-  if (!response.ok) throw new Error(normalizeError(null, payload));
+  if (!response.ok) throw rejectedJobError(response, payload, normalizeError);
   return payload;
 }
 
@@ -49,7 +62,9 @@ function postJsonWithUploadProgress({ url, body, signal, onProgress, parseRespon
       signal?.removeEventListener('abort', abort);
       const responseLike = { text: async () => xhr.responseText };
       const payload = await parseResponseJson(responseLike);
-      xhr.status >= 200 && xhr.status < 300 ? resolve(payload) : reject(new Error(normalizeError(null, payload)));
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve(payload)
+        : reject(rejectedJobError({ status: xhr.status }, payload, normalizeError));
     };
     xhr.onerror = () => {
       signal?.removeEventListener('abort', abort);

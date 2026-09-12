@@ -18,6 +18,13 @@ function makeContext() {
 }
 
 function testCommentLabelsFollowPlacementOrder() {
+  assert.ok(commentLayer.COMMENT_COLORS.length >= 6, 'comment markers must use a diverse professional palette');
+  assert.strictEqual(new Set(commentLayer.COMMENT_COLORS).size, commentLayer.COMMENT_COLORS.length,
+    'comment marker colors must not repeat within one palette cycle');
+  assert.strictEqual(commentLayer.commentColorAt(2, 1), commentLayer.COMMENT_COLORS[3],
+    'the comment color offset must produce deterministic palette rotation');
+  assert.strictEqual(commentLayer.normalizeCommentColor('not-a-color'), commentLayer.DEFAULT_COLOR,
+    'invalid marker colors must fall back to the safe default');
   assert.strictEqual(commentLayer.commentLabel(0), '1');
   assert.strictEqual(commentLayer.commentLabel(1), '2');
   assert.strictEqual(commentLayer.commentLabel(2), '3');
@@ -31,6 +38,7 @@ function testCommentPromptJoinsLabelsTextAndInstruction() {
     '\u4fdd\u6301\u5176\u4ed6\u4e0d\u53d8',
   );
   assert.ok(prompt.startsWith('\u56fe\u7247\u4e0a\u6709\u4e00\u4e2a\u7f16\u8f91\u8499\u7248'));
+  assert.ok(prompt.includes('\u5750\u6807\u4e3a\u5f52\u4e00\u5316\u5750\u6807'));
   assert.ok(prompt.includes('\u8bf7\u53ea\u4fee\u6539\u4ee5\u4e0b\u7f16\u53f7\u4f4d\u7f6e\u5bf9\u5e94\u7684\u539f\u59cb\u5185\u5bb9'));
   assert.ok(prompt.includes('1. \u4f4d\u7f6e (x=0.250, y=0.250)\uff1a\u628a\u624b\u6539\u6210\u84dd\u8272'));
   assert.ok(prompt.includes('2. \u4f4d\u7f6e (x=0.600, y=0.400)\uff1a\u80cc\u666f\u6362\u6210\u6d77\u6ee9'));
@@ -112,6 +120,26 @@ function testAnnotationShapeApiStaysRemoved() {
   assert.strictEqual(commentLayer.COMMENT_LABELS, undefined, 'circled label data must stay removed');
 }
 
+function testPaintCommentsPreservesEachCommentColor() {
+  const calls = [];
+  const ctx = {
+    set fillStyle(value) { calls.push(['fillStyle', value]); },
+    beginPath() {}, arc() {}, fill() {}, stroke() {}, save() {}, restore() {},
+    fillText() {},
+  };
+  commentLayer.paintComments(ctx, {
+    width: 200,
+    height: 100,
+    comments: [
+      { x: 0.2, y: 0.2, text: '第一条', color: '#7c3aed' },
+      { x: 0.8, y: 0.8, text: '第二条', color: '#ea580c' },
+    ],
+  });
+  const colors = calls.filter(call => call[0] === 'fillStyle').map(call => call[1]);
+  assert.ok(colors.includes('#7c3aed') && colors.includes('#ea580c'),
+    'each numbered marker must use its own stable random color');
+}
+
 module.exports = [
   testCommentLabelsFollowPlacementOrder,
   testCommentPromptJoinsLabelsTextAndInstruction,
@@ -120,4 +148,5 @@ module.exports = [
   testEmptyCommentLayerPaintsNothing,
   testPaintCommentsCenterTheGlyphInk,
   testAnnotationShapeApiStaysRemoved,
+  testPaintCommentsPreservesEachCommentColor,
 ];

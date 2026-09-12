@@ -600,15 +600,27 @@ function testImageJobFactoryHelperContract() {
 }
 
 async function testImageJobInvalidBase64Contract() {
+  const rejected = [];
   const result = await invokeStart({
     baseUrl: 'https://api.example.com/v1',
     jobId: 'imgjob-invalid1',
     payload: { model: 'gpt-image-1', prompt: '改一下', images: [imageFile({ data: 'abcde' })] },
+  }, {
+    errorLog: {
+      log(error, context) {
+        rejected.push({ error, context });
+      },
+    },
   });
 
   assert.strictEqual(result.res.status, 400);
   assert.deepStrictEqual(result.json, { error: { message: '图片附件数据无效，请重新上传图片' } });
   assert.strictEqual(result.imageJobs.has('imgjob-invalid1'), false);
+  assert.strictEqual(rejected.length, 1);
+  assert.strictEqual(rejected[0].error.message, '图片附件数据无效，请重新上传图片');
+  assert.strictEqual(rejected[0].context.source, 'image_job_rejected');
+  assert.strictEqual(rejected[0].context.stage, 'prepare_request');
+  assert.strictEqual(rejected[0].context.statusCode, 400);
 }
 
 function testImageJobPublicSnapshotContract() {

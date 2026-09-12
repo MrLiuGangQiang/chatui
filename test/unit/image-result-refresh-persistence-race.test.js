@@ -48,7 +48,6 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
     id: 'display-image-refresh-race',
     role: 'assistant',
     pending: '1',
-    responseIndex: '1',
     rawText: '正在生成图片',
   };
   session.display.push(liveItem);
@@ -56,6 +55,8 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
   const run = { stopped: false, token: 'run-image-refresh-race', abortController: new AbortController() };
   let resultPreparationStarted;
   let releaseResultPreparation;
+  let renderCalls = 0;
+  let finalDisplayUpdated = false;
   const resultPreparationReached = new Promise(resolve => { resultPreparationStarted = resolve; });
   const resultPreparationGate = new Promise(resolve => { releaseResultPreparation = resolve; });
   const noop = () => {};
@@ -99,7 +100,20 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
     shouldSuppressRunUi: () => false,
     pendingFeedbackHtml: text => text,
     renderImageBatchResult: (_context, options = {}) => String(options.slotStatuses?.[0] || ''),
-    updateLiveDisplay: (sessionId, item, role, content, options) => updateSessionDisplayItem(sessionId, item, role, content, options),
+    updateLiveDisplay: (sessionId, item, role, content, options) => {
+      finalDisplayUpdated = true;
+      updateSessionDisplayItem(sessionId, item, role, content, options);
+    },
+    forceRenderCanonicalMessages: session => {
+      renderCalls += 1;
+      assert.strictEqual(finalDisplayUpdated, true,
+        'a detached live image node must not trigger a canonical render before the completed DOM projection is finalized');
+      assert.ok(session.messages.some(message => message.role === 'assistant'
+        && /indexeddb:\/\/generated-refresh-result/.test(String(message.imageContext || ''))),
+      'canonical image completion must be committed before the active session is rerendered');
+      assert.notStrictEqual(liveItem.pending, '1',
+        'the stale loading projection must be cleared before the canonical active-session render');
+    },
     shouldFollowScroll: () => false,
     setInterval: () => 1,
     clearInterval: noop,
@@ -150,6 +164,8 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
   });
 
   await resultPreparationReached;
+  assert.strictEqual(liveItem.responseIndex, '1',
+    'a pending image result created after an existing user turn must be anchored to that turn before completion');
   // A session checkpoint/switch re-projects the active canonical history to a
   // new array while the image result is still being persisted to IndexedDB.
   state.messages = copyMessages(session.messages);
@@ -160,6 +176,8 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
   assert.ok(completed, 'the completed image must be committed to the canonical session after a working-array replacement');
   assert.match(String(completed.imageContext || ''), /indexeddb:\/\/generated-refresh-result/,
     'the canonical completion must retain the durable image descriptor used after refresh');
+  assert.strictEqual(renderCalls, 1,
+    'a detached live image node must be replaced by one canonical active-session render after commit');
 }
 
 function testMarkerOnlyCompletionCannotWinCanonicalImageMerge() {
@@ -302,6 +320,7 @@ function testMarkerOnlyCompletionDoesNotDiscardRecoverablePendingImageProjection
     'a marker-only message must not remove the pending image owner needed to recover the durable job');
   assert.strictEqual(session.display[0].pending, '1');
 }
+
 
 module.exports = [
   testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionResync,

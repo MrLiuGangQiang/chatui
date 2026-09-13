@@ -133,6 +133,7 @@ function createApp() {
     serveStatic,
     root: ROOT,
     rootWithSep: ROOT_WITH_SEP,
+    announcementsDir: ANNOUNCEMENTS_DIR,
     proxy,
     proxyImage,
     imageJobs,

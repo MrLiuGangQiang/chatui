@@ -14,37 +14,41 @@ function cssRule(css, selector) {
   return match[1];
 }
 
-function testAnnouncementLayoutKeepsMainContentCompactAndFormal() {
+function testAnnouncementLayoutPreservesTheOriginalTwoColumnContent() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/announcement.css'), 'utf8');
+  const dialog = cssRule(css, '.announcement-dialog');
+  const hero = cssRule(css, '.announcement-hero');
+  const surface = cssRule(css, '.announcement-surface');
 
-  // Main content keeps a tight, formal vertical rhythm.
-  assert.match(cssRule(css, '.announcement-head'), /padding:\s*20px 30px 14px/);
-  assert.match(cssRule(css, '.announcement-scroll'), /padding:\s*0 30px 16px/);
-  assert.match(cssRule(css, '.announcement-latest'), /padding:\s*18px 22px 20px/);
-  assert.match(cssRule(css, '.announcement-footer'), /padding:\s*13px 30px 16px/);
-  assert.match(cssRule(css, '.announcement-history-panel'), /margin-top:\s*16px/);
+  // Full-screen only changes the outer frame; the original two-column content remains.
+  assert.match(cssRule(css, '.announcement-modal'), /padding:\s*0/);
+  assert.match(dialog, /display:\s*grid/);
+  assert.match(dialog, /grid-template-columns:\s*minmax\(280px, clamp\(280px, 20vw, 320px\)\) minmax\(0, 1fr\)/);
+  assert.match(dialog, /width:\s*100%/);
+  assert.match(dialog, /height:\s*100%/);
+  assert.match(hero, /display:\s*flex/);
+  assert.doesNotMatch(hero, /display:\s*none/);
+  assert.match(hero, /overflow:\s*auto/);
+  assert.match(surface, /display:\s*flex/);
+  assert.match(surface, /min-height:\s*0/);
+  assert.match(cssRule(css, '.announcement-head'), /width:\s*min\(100%, 1440px\)/);
+  assert.match(cssRule(css, '.announcement-scroll'), /overflow:\s*auto/);
+  assert.match(cssRule(css, '.announcement-footer'), /flex:\s*0 0 auto/);
+}
 
-  // Single-column responsive layout keeps the cover and content in separate rows.
-  assert.match(css, /@media \(max-width: 860px\) \{[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\);/);
-
-  // Low-height desktops get an extra density level without hiding content.
-  assert.match(css, /@media \(min-width: 861px\) and \(max-height: 760px\) \{[\s\S]*?\.announcement-head \{ padding: 16px 30px 12px; \}/);
-
-  // The notification stays formal and simple: flat surfaces, one subtle accent.
-  assert.match(cssRule(css, '.announcement-dialog'), /border-radius:\s*22px/);
-  assert.match(cssRule(css, '.announcement-hero-tips'), /box-shadow:\s*none/);
-  assert.match(cssRule(css, '.announcement-hero-explain'), /box-shadow:\s*none/);
-  assert.doesNotMatch(cssRule(css, '.announcement-backdrop'), /radial-gradient/);
-  assert.doesNotMatch(cssRule(css, '.announcement-hero'), /radial-gradient|linear-gradient/);
-  assert.doesNotMatch(cssRule(css, '.announcement-surface'), /radial-gradient|linear-gradient/);
-  const acknowledgeRule = css.match(/\.announcement-acknowledge-btn\s*\{\s*min-width:\s*220px;[^}]*\}/);
-  assert.ok(acknowledgeRule, 'Missing standalone .announcement-acknowledge-btn rule');
-  assert.doesNotMatch(acknowledgeRule[0], /linear-gradient/);
-  assert.match(acknowledgeRule[0], /margin-left:\s*auto/);
-  assert.match(acknowledgeRule[0], /background:\s*#4f46e5/);
-  assert.match(css, /@media \(max-width: 600px\) \{[\s\S]*?\.announcement-acknowledge-btn \{ margin-left: 0; \}/);
+function testAnnouncementLayoutKeepsReadableFullScreenSpacing() {
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/announcement.css'), 'utf8');
+  assert.match(cssRule(css, '.announcement-hero h2'), /font-size:\s*clamp\(28px, 2.8vw, 40px\)/);
+  assert.match(cssRule(css, '.announcement-title'), /font-size:\s*clamp\(28px, 2.6vw, 40px\)/);
+  assert.match(cssRule(css, '.announcement-body'), /font-size:\s*15.5px/);
+  assert.match(cssRule(css, '.announcement-latest'), /padding:\s*24px 28px 28px/);
+  assert.match(cssRule(css, '.announcement-footer'), /padding:\s*15px clamp\(24px, 2.5vw, 40px\) 20px/);
+  assert.ok(css.includes('@media (max-width: 860px)') && css.includes('grid-template-rows: minmax(0, 1fr) auto;'));
+  assert.ok(css.includes('.announcement-hero-copy p { display: block; }'));
+  assert.ok(css.includes('.announcement-hero-tips { display: block; }'));
 }
 
 module.exports = [
-  testAnnouncementLayoutKeepsMainContentCompactAndFormal,
+  testAnnouncementLayoutPreservesTheOriginalTwoColumnContent,
+  testAnnouncementLayoutKeepsReadableFullScreenSpacing,
 ];

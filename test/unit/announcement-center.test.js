@@ -35,6 +35,12 @@ function announcementDom() {
         <button id="acknowledgeAnnouncementBtn" type="button" disabled>我已阅读</button>
       </section>
     </div>
+    <div id="imagePreview" aria-hidden="true">
+      <button id="imagePreviewDownload" hidden></button>
+      <button id="imagePreviewCopy" hidden></button>
+      <button id="imagePreviewClose"></button>
+      <img id="imagePreviewImg" />
+    </div>
   </body>`, { url: 'https://chatui.test' });
 }
 
@@ -144,6 +150,29 @@ async function testNewAnnouncementPublishedWhileOpenResetsGate() {
   assert.strictEqual(dom.window.document.getElementById('announcementModal').classList.contains('show'), true);
   assert.strictEqual(dom.window.document.getElementById('announcementModal').classList.contains('is-forced'), true);
   assert.strictEqual(dom.window.document.getElementById('announcementTitle').textContent, '运行中的新公告');
+}
+
+async function testAnnouncementImagesOpenInTheSharedPreviewSurface() {
+  const dom = announcementDom();
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ announcements: [{ ...release('v1.0.0', '带图片的公告'), body: '# 带图片的公告\n\n![更新截图](/announcements/images/update.png)' }] }),
+    }),
+    renderMarkdown: () => '<p><img src="/announcements/images/update.png" alt="更新截图"></p>',
+  });
+  controller.bind();
+  await controller.initialize();
+
+  const image = dom.window.document.querySelector('.announcement-image-previewable');
+  image.click();
+
+  const preview = dom.window.document.getElementById('imagePreview');
+  assert.strictEqual(preview.classList.contains('show'), true, 'announcement images should use the in-page preview surface');
+  assert.strictEqual(dom.window.document.getElementById('imagePreviewImg').getAttribute('src'), 'https://chatui.test/announcements/images/update.png');
+  assert.strictEqual(dom.window.document.getElementById('imagePreviewDownload').hidden, false);
 }
 
 async function testAcknowledgedAnnouncementsOpenAsNormalHistoryModal() {
@@ -288,6 +317,7 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(appSource.includes('runtimeDir: ANNOUNCEMENTS_DIR'));
   assert.ok(serviceSource.includes('readRuntimeAnnouncements'));
   assert.ok(css.includes('z-index: 10000'));
+  assert.ok(css.includes('.image-preview.show') && css.includes('z-index: 10001'), 'the shared image preview must sit above the announcement dialog');
   assert.ok(css.includes('body.announcement-locked'));
   assert.ok(index.includes('announcement-acknowledged-boot'));
   assert.ok(css.includes('html.announcement-acknowledged-boot .announcement-modal.is-loading'));
@@ -332,6 +362,7 @@ module.exports = [
   testNewAnnouncementVersionResetsTheForcedGate,
   testNewAnnouncementPublishedWhileOpenResetsGate,
   testAcknowledgedAnnouncementsOpenAsNormalHistoryModal,
+  testAnnouncementImagesOpenInTheSharedPreviewSurface,
   testBackgroundRefreshKeepsRenderedAnnouncementVisibleWhileRequestIsPending,
   testAcknowledgedRefreshVerifiesLatestWithoutFlashingAnnouncementDialog,
   testInitialAnnouncementRequestTimesOutIntoRetryState,

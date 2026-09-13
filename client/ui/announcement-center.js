@@ -12,9 +12,7 @@
     const documentRef = options.document || root?.document;
     const fetchImpl = options.fetchImpl || root?.fetch?.bind(root);
     const storage = options.storage || root?.localStorage;
-    const openImagePreview = options.openImagePreview
-      || root?.ChatUIApp?.images?.openImagePreview
-      || root?.ChatUIAppImagePreviewWorkflow?.controller?.openImagePreview;
+    const configuredOpenImagePreview = options.openImagePreview;
     const markdownRenderer = options.renderMarkdown
       || root?.ChatUIMarkdown?.renderMarkdown
       || root?.ChatUIApp?.markdown?.renderMarkdown;
@@ -138,6 +136,38 @@
       });
     }
 
+    function resolveImagePreview() {
+      return configuredOpenImagePreview
+        || root?.ChatUIApp?.images?.openImagePreview
+        || root?.ChatUIAppImagePreviewWorkflow?.controller?.openImagePreview;
+    }
+
+    function openSharedImagePreview(source, filename = 'announcement.png') {
+      const preview = getElement('imagePreview');
+      const image = getElement('imagePreviewImg');
+      if (!preview || !image || !source) return false;
+      if (!preview.classList.contains('show')) preview._returnFocus = documentRef?.activeElement;
+      image.dataset.persistedSrc = source;
+      image.dataset.filename = filename;
+      image.alt = filename;
+      image.src = source;
+      preview.classList.add('show');
+      preview.setAttribute('aria-hidden', 'false');
+      const download = getElement('imagePreviewDownload');
+      if (download) {
+        download.dataset.persistedHref = source;
+        download.dataset.filename = filename;
+        download.hidden = false;
+      }
+      const copy = getElement('imagePreviewCopy');
+      if (copy) {
+        copy.dataset.persistedHref = source;
+        copy.dataset.filename = filename;
+        copy.hidden = false;
+      }
+      return true;
+    }
+
     function renderMarkdown(container, source = '') {
       if (!container) return;
       const markdown = announcementMarkdown(source);
@@ -148,7 +178,12 @@
         image.classList.add('announcement-image-previewable');
         image.setAttribute('tabindex', '0');
         image.setAttribute('role', 'button');
-        const preview = () => { const source = image.currentSrc || image.src; if (openImagePreview) return openImagePreview(source, image.alt || 'announcement.png'); return root?.open?.(source, '_blank', 'noopener,noreferrer'); };
+        const preview = () => {
+          const source = image.currentSrc || image.src;
+          const openImagePreview = resolveImagePreview();
+          if (typeof openImagePreview === 'function') return openImagePreview(source, image.alt || 'announcement.png');
+          return openSharedImagePreview(source, image.alt || 'announcement.png');
+        };
         image.addEventListener('click', preview);
         image.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); preview(); }

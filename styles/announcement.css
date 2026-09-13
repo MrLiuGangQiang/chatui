@@ -10,6 +10,11 @@ body.announcement-locked {
   user-select: none !important;
 }
 
+/* Announcement images open over the announcement dialog in the shared preview layer. */
+.image-preview.show {
+  z-index: 10001;
+}
+
 .announcement-modal {
   position: fixed;
   inset: 0;
@@ -17,7 +22,7 @@ body.announcement-locked {
   display: none;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 0;
   isolation: isolate;
 }
 
@@ -42,17 +47,17 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(250px, 310px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, clamp(280px, 20vw, 320px)) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  width: min(1160px, calc(100vw - 40px));
-  height: auto;
-  max-height: min(820px, calc(100dvh - 40px));
-  min-height: 520px;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 22px;
+  border: 0;
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 28px 80px rgba(15,23,42,.14), 0 2px 8px rgba(15,23,42,.04);
+  box-shadow: none;
   outline: none;
   font-family: "Inter", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif !important;
   transform-origin: center;
@@ -65,8 +70,8 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  padding: 26px 26px 24px;
+  overflow: auto;
+  padding: clamp(26px, 3vw, 40px) clamp(24px, 2.6vw, 44px) 28px;
   color: #1e293b;
   border-right: 1px solid rgba(15,23,42,.06);
   background: #f8fafc;
@@ -141,16 +146,16 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-hero h2 {
-  max-width: 240px;
+  max-width: 300px;
   margin: 0;
   color: #0f172a;
-  font-size: clamp(26px, 2.5vw, 34px);
+  font-size: clamp(28px, 2.8vw, 40px);
   line-height: 1.14;
   letter-spacing: -.03em;
 }
 
 .announcement-hero-copy p {
-  max-width: 245px;
+  max-width: 310px;
   margin: 18px 0 0;
   color: #64748b;
   font-size: 14px;
@@ -158,8 +163,8 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-hero-tips {
-  max-width: 262px;
-  margin-top: 18px;
+  max-width: 310px;
+  margin-top: 20px;
   padding: 14px 15px;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -324,7 +329,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   align-items: flex-start;
   justify-content: space-between;
   gap: 22px;
-  padding: 20px 30px 14px;
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 32px clamp(24px, 2.5vw, 40px) 18px;
 }
 
 .announcement-meta {
@@ -361,7 +368,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-title {
   margin: 0;
   color: #0f172a;
-  font-size: clamp(24px, 2.6vw, 34px);
+  font-size: clamp(28px, 2.6vw, 40px);
   line-height: 1.2;
   letter-spacing: -.025em;
 }
@@ -423,13 +430,15 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 0 30px 16px;
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 0 clamp(24px, 2.5vw, 40px) 20px;
   scrollbar-gutter: stable;
 }
 
 .announcement-latest {
   min-width: 0;
-  padding: 18px 22px 20px;
+  padding: 24px 28px 28px;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   background: #fff;
@@ -438,8 +447,8 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 
 .announcement-body {
   color: #475569;
-  font-size: 14.5px;
-  line-height: 1.78;
+  font-size: 15.5px;
+  line-height: 1.85;
 }
 
 .announcement-body > :first-child,
@@ -645,7 +654,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 13px 30px 16px;
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 15px clamp(24px, 2.5vw, 40px) 20px;
   border-top: 1px solid #eef2f7;
   background: #fff;
 }
@@ -758,30 +769,33 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 @media (max-width: 860px) {
-  .announcement-modal { padding: 12px; }
+  .announcement-modal { padding: 0; align-items: stretch; }
   .announcement-dialog {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-    width: min(760px, calc(100vw - 24px));
-    height: min(900px, calc(100dvh - 24px));
+    grid-template-rows: minmax(0, 1fr) auto;
+    width: 100%;
+    height: 100dvh;
     min-height: 0;
-    border-radius: 20px;
+    border-radius: 0;
   }
   .announcement-hero {
-    min-height: 150px;
+    grid-row: 2;
+    min-height: 0;
+    max-height: 42dvh;
+    overflow: auto;
     padding: 20px 22px;
   }
   .announcement-brand { margin-bottom: 24px; }
   .announcement-hero-copy { margin: 0; }
   .announcement-hero h2 { max-width: none; font-size: 28px; }
-  .announcement-hero-copy p { display: none; }
-  .announcement-hero-tips { display: none; }
-  .announcement-hero-explain { display: none; }
-  .announcement-hero-note { display: none; }
-  .announcement-head { padding: 20px 22px 13px; }
-  .announcement-title { font-size: 26px; }
-  .announcement-scroll { padding: 0 22px 16px; }
-  .announcement-footer { padding: 13px 22px 16px; }
+  .announcement-hero-copy p { display: block; }
+  .announcement-hero-tips { display: block; }
+  .announcement-hero-explain { display: block; }
+  .announcement-hero-note { display: flex; }
+  .announcement-surface { grid-row: 1; min-height: 0; overflow: auto; }
+  .announcement-head { width: auto; padding: 28px 22px 13px; }
+  .announcement-scroll { width: auto; padding: 0 22px 16px; }
+  .announcement-footer { width: auto; padding: 13px 22px 16px; }
 }
 
 @media (max-width: 600px) {
@@ -793,14 +807,14 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
     border-radius: 0;
   }
   .announcement-hero {
-    min-height: 118px;
+    max-height: 46dvh;
     padding: calc(18px + env(safe-area-inset-top)) 18px 18px;
   }
   .announcement-brand { margin-bottom: 16px; font-size: 11px; }
   .announcement-brand-mark { width: 36px; height: 36px; border-radius: 12px; }
-  .announcement-hero-kicker { display: none; }
+  .announcement-hero-kicker { display: inline-flex; }
   .announcement-hero h2 { font-size: 23px; }
-  .announcement-head { padding: 16px 16px 12px; }
+  .announcement-head { padding: 24px 16px 12px; }
   .announcement-meta { margin-bottom: 8px; }
   .announcement-badge,
   .announcement-version,

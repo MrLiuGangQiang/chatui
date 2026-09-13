@@ -34,6 +34,19 @@ function testStreamingWebDocumentsAreEscapedBeforeTheClosingTagArrives() {
   assert.match(safe, /<main>Streaming\n```$/, 'an unfinished page must stay inside the safe code fence');
 }
 
+function testMultipleRawWebDocumentsKeepSurroundingMarkdown() {
+  const first = '<html><head><title>First</title></head><body>One</body></html>';
+  const second = '<html><head><title>Second</title></head><body>Two</body></html>';
+  const safe = core.escapeWebDocumentsForMarkdown(`Intro\n${first}\nBetween\n${second}\nEnd`);
+  assert.strictEqual((safe.match(/```html/g) || []).length, 2, 'each raw page must get its own code fence');
+  assert.match(safe, /Intro\n```html\n<html>/i);
+  const firstClose = safe.indexOf('</html>');
+  const between = safe.indexOf('Between');
+  const secondOpen = safe.lastIndexOf('```html');
+  assert.ok(firstClose >= 0 && firstClose < between && between < secondOpen, 'text between pages must stay outside both fences');
+  assert.match(safe, /End$/, 'trailing markdown must remain visible after the final page');
+}
+
 function testMarkdownCodeFencesKeepWebSourceUntouched() {
   const raw = ['```html', '<!doctype html><html><body>Fenced</body></html>', '```'].join('\n');
   assert.strictEqual(core.escapeWebDocumentsForMarkdown(raw), raw,
@@ -278,6 +291,28 @@ function testWebPreviewCardsKeepMultiplePagesIndependent() {
   }
 }
 
+function testWebPreviewSyncReusesUnchangedCards() {
+  const { dom, controller, restore } = createDownloadTestEnvironment();
+  try {
+    const message = dom.window.document.querySelector('.message');
+    const first = '<html><head><title>Stable page</title></head><body>One</body></html>';
+    assert.strictEqual(controller.syncMessagePreviews(message, first), 1);
+    const card = message.querySelector('[data-web-preview-card="1"]');
+    assert.strictEqual(controller.syncMessagePreviews(message, first), 1);
+    assert.strictEqual(message.querySelector('[data-web-preview-card="1"]'), card,
+      'an unchanged raw message must keep the existing preview card instead of rebuilding it');
+
+    const second = '<html><head><title>Changed page</title></head><body>Two</body></html>';
+    assert.strictEqual(controller.syncMessagePreviews(message, second), 1);
+    const changed = message.querySelector('[data-web-preview-card="1"]');
+    assert.notStrictEqual(changed, card, 'changed source must replace the stale card');
+    assert.strictEqual(card.isConnected, false, 'the replaced card must be detached from the message');
+    assert.match(changed.textContent, /Changed page/);
+  } finally {
+    restore();
+  }
+}
+
 function testSvgPreviewDetectsFencedAndRawDocuments() {
   const fenced = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><title>Badge</title><rect width="100" height="60" fill="red"/></svg>';
   const fencedCandidates = core.extractWebPreviewCandidates(`Here is an icon:\n\`\`\`svg\n${fenced}\n\`\`\``);
@@ -323,8 +358,10 @@ module.exports = [
   testWebPreviewDetectsFullHtmlResponsesWithoutTreatingSnippetsAsPages,
   testFullWebDocumentsAreEscapedBeforeChatMarkdownRendering,
   testStreamingWebDocumentsAreEscapedBeforeTheClosingTagArrives,
+  testMultipleRawWebDocumentsKeepSurroundingMarkdown,
   testMarkdownCodeFencesKeepWebSourceUntouched,
   testEscapedDisplayTextStillProducesTheOriginalPreviewCandidate,
+  testWebPreviewSyncReusesUnchangedCards,
   testSvgPreviewDetectsFencedAndRawDocuments,
   testWebPreviewKeepsInteractiveDocumentContent,
   testWebPreviewDetectsEachCompletePageInOneResponse,

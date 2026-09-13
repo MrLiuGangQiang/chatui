@@ -127,7 +127,15 @@
         // closing so blob/data resolution is unaffected. Always clear the
         // transient busy state when the async open flow settles so an interrupted
         // attempt cannot leave the shared button permanently disabled.
-        Promise.resolve(openImageEdit({ image, button }))
+        let pendingEdit;
+        try {
+          pendingEdit = Promise.resolve(openImageEdit({ image, button }));
+        } catch {
+          resetPreviewEditButtonState(button);
+          closeImagePreview();
+          return;
+        }
+        pendingEdit
           .catch(() => false)
           .finally(() => resetPreviewEditButtonState(button));
         closeImagePreview();

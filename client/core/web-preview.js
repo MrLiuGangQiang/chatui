@@ -61,26 +61,41 @@
     return !!info && info.char === active.char && info.length >= active.length && !String(info.rest || '').trim();
   }
 
-  function rawWebDocumentStart(segment = '') {
-    const match = /(^|\n)[ \t]*(?=<!doctype\s+html\b|<html\b[^>]*>|<svg\b[^>]*>)/i.exec(String(segment || ''));
-    return match ? match.index + match[1].length : -1;
-  }
-
   function escapeWebDocumentsInSegment(segment = '') {
     const text = String(segment || '');
-    const start = rawWebDocumentStart(text);
-    if (start < 0) return text;
-    const prefix = text.slice(0, start);
-    const raw = normalizeSource(text.slice(start));
-    if (!raw) return text;
-    const startsHtml = /^(?:<!doctype\s+html\b|<html\b)/i.test(raw);
-    const startsSvg = /^<svg\b/i.test(raw);
-    if (!startsHtml && !startsSvg) return text;
-    if (startsSvg && !looksLikeSvgDocument(raw) && raw.length < 4096) return text;
-    const language = startsSvg ? 'svg' : 'html';
-    const separator = prefix && !prefix.endsWith('\n') ? '\n\n' : '';
-    const trailing = text.endsWith('\n') ? '\n' : '';
-    return `${prefix}${separator}${webDocumentFence(raw, language)}${trailing}`;
+    const parts = [];
+    let cursor = 0;
+    while (cursor < text.length) {
+      const rest = text.slice(cursor);
+      const match = /(^|\n)([ \t]*)(?=<!doctype\s+html\b|<html\b[^>]*>|<svg\b[^>]*>)/i.exec(rest);
+      if (!match) break;
+      const lineStart = cursor + match.index + match[1].length;
+      const start = lineStart + match[2].length;
+      const head = text.slice(start);
+      const startsSvg = /^<svg\b/i.test(head);
+      const startsHtml = /^(?:<!doctype\s+html\b|<html\b)/i.test(head);
+      if (!startsSvg && !startsHtml) {
+        cursor = start + 1;
+        continue;
+      }
+      const closeMatch = startsSvg ? /<\/svg\s*>/i.exec(head) : /<\/html\s*>/i.exec(head);
+      if (startsSvg && !closeMatch && head.length < 4096) {
+        cursor = start + 1;
+        continue;
+      }
+      const end = closeMatch ? start + closeMatch.index + closeMatch[0].length : text.length;
+      const raw = normalizeSource(text.slice(start, end));
+      if (!raw) {
+        cursor = end;
+        continue;
+      }
+      parts.push(text.slice(cursor, lineStart), webDocumentFence(raw, startsSvg ? 'svg' : 'html'));
+      cursor = end;
+      if (!closeMatch) break;
+    }
+    if (!parts.length) return text;
+    parts.push(text.slice(cursor));
+    return parts.join('');
   }
 
   // Full documents are preview payloads, not live chat DOM. Rendering a page's

@@ -176,8 +176,19 @@
       if (!messageNode?.classList?.contains('assistant')) return 0;
       const content = messageNode.querySelector?.('.content');
       if (!content) return 0;
-      content.querySelectorAll('[data-web-preview-card="1"]').forEach(node => node.remove());
-      const candidates = core.extractWebPreviewCandidates(rawText);
+      const raw = String(rawText || '');
+      const existingCards = [...content.querySelectorAll('[data-web-preview-card="1"]')];
+      const cachedCandidates = Array.isArray(messageNode.__webPreviewCandidates) ? messageNode.__webPreviewCandidates : null;
+      if (messageNode.__webPreviewRawText === raw && cachedCandidates
+        && existingCards.length === cachedCandidates.length
+        && existingCards.every((card, index) => card.dataset.webPreviewId === cachedCandidates[index].id)) {
+        return cachedCandidates.length;
+      }
+      const candidates = messageNode.__webPreviewRawText === raw && cachedCandidates
+        ? cachedCandidates
+        : core.extractWebPreviewCandidates(raw);
+      existingCards.forEach(node => node.remove());
+      messageNode.__webPreviewRawText = raw;
       messageNode.__webPreviewCandidates = candidates;
       candidates.forEach(candidate => content.append(createPreviewCard(candidate)));
       return candidates.length;

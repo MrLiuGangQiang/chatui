@@ -334,6 +334,12 @@ async function testResizeMenuAddsTheSelectedAspectRatioAndSubmitsIt() {
       '横版 4:3',
       '宽屏 16:9',
     ], 'the resize menu must expose the five canonical ratios');
+    options[0].focus();
+    options[0].dispatchEvent(new fixture.dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    assert.strictEqual(fixture.document.activeElement, options[1],
+      'the resize menu must support keyboard arrow navigation');
+    const resizeCss = fixture.document.getElementById(maskEditor.EDITOR_STYLE_ID)?.textContent || '';
+    assert.match(resizeCss, /\.image-editor-resize-option:focus-visible\{[^}]*outline:2px solid #79b4ff/, 'resize options must use the editor focus style');
 
     options.find(option => option.textContent.includes('宽屏 16:9')).click();
     assert.strictEqual(menu.hidden, true, 'selecting a ratio must close the menu');

@@ -7,7 +7,7 @@ const { JSDOM } = require('jsdom');
 const { createImagePreviewWorkflow } = require('../../client/app/image-preview-workflow');
 const { createImageActionsWorkflow } = require('../../client/app/image-actions-workflow');
 
-function createEnvironment() {
+function createEnvironment({ openImageEdit = null } = {}) {
   const dom = new JSDOM(`<!doctype html><body>
     <div id="imagePreview" aria-hidden="true"><div class="image-preview-mask"></div>
       <button id="imagePreviewPrevious" type="button" hidden></button>
@@ -29,7 +29,7 @@ function createEnvironment() {
     canWriteImageClipboard: () => true,
     imageClipboardUnsupportedMessage: () => 'unsupported',
     URL: { createObjectURL: () => 'blob:preview', revokeObjectURL: value => revoked.push(value) },
-    openImageEdit: options => { editCalls.push(options); },
+    openImageEdit: openImageEdit || (options => { editCalls.push(options); }),
   });
   return { dom, workflow, revoked, editCalls };
 }
@@ -156,6 +156,19 @@ async function testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor() {
     'reopening the preview must reuse the same edit entry');
 }
 
+async function testPreviewEditButtonRecoversWhenOpeningThrowsSynchronously() {
+  const { dom, workflow } = createEnvironment({
+    openImageEdit: () => { throw new Error('synchronous open failure'); },
+  });
+  await workflow.openImagePreview('data:image/png;base64,one', 'one.png');
+  const button = dom.window.document.getElementById('imagePreviewEdit');
+  button.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(button.disabled, false, 'a synchronous open failure must not strand the button disabled');
+  assert.strictEqual(dom.window.document.getElementById('imagePreview').classList.contains('show'), false,
+    'a failed open attempt must still close the transient preview surface');
+}
+
 async function testPreviewEditButtonRecoversFromInterruptedBusyState() {
   const { dom, workflow, editCalls } = createEnvironment();
   await workflow.openImagePreview('data:image/png;base64,one', 'one.png');
@@ -185,7 +198,7 @@ function testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow() {
     'the preview must reuse the transcript edit open flow');
   assert.ok(index.includes('client/ui/image-edit-entry.js?v=1.0.0-frosted-circle')
     && index.includes('image-actions-workflow.js?v=1.2.84-action-lifecycle')
-    && index.includes('image-preview-workflow.js?v=1.2.72-preview-edit-recovery'),
+    && index.includes('image-preview-workflow.js?v=1.2.73-preview-edit-sync-guard'),
   'the shared edit entry must ship as its own module with refreshed asset revisions');
 }
 
@@ -194,6 +207,7 @@ module.exports = [
   testMessagePreviewPassesAllMessageImagesAndSelectedPosition,
   testClosingPreviewClearsNavigationState,
   testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor,
+  testPreviewEditButtonRecoversWhenOpeningThrowsSynchronously,
   testPreviewEditButtonRecoversFromInterruptedBusyState,
   testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow,
 ];

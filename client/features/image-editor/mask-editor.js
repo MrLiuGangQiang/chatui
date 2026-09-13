@@ -43,6 +43,7 @@
 .image-editor-resize-options{display:flex;flex-direction:column;gap:2px}
 .image-editor-resize-option{display:flex;align-items:center;gap:14px;width:100%;min-height:46px;padding:0 10px;border:0;border-radius:12px;background:transparent;color:#161f2f;font-family:inherit;font-size:16px;line-height:1;text-align:left;cursor:pointer}
 .image-editor-resize-option:hover,.image-editor-resize-option[aria-checked=true]{background:#f1f3f5}
+.image-editor-resize-option:focus-visible{outline:2px solid #79b4ff;outline-offset:-2px;background:#f1f6fd}
 .image-editor-resize-ratio-icon{display:inline-block;flex:none;border:2px solid currentColor;border-radius:3px}
 .image-editor-canvas{width:760px;height:100%;flex:0 0 760px;min-width:0;min-height:0;display:flex;align-items:center;justify-content:flex-start;overflow:hidden;padding:4px;background:transparent;overscroll-behavior:contain}
 .image-editor-stage{position:relative;flex:0 0 auto;margin:auto;line-height:0;transform:translateZ(0)}
@@ -214,7 +215,7 @@
     const ratio = String(preset.ratio || '').trim();
     const size = String(preset.size || '').trim();
     if (!label || !ratio || !size) return '';
-    return `保持主体、内容、颜色、风格和细节不变，将这张图片重新生成为${label}宽高比 ${ratio}（输出尺寸 ${formatImageSize(size)} 像素）。根据目标画幅自然扩展、补全或重新构图，主体必须完整、比例正确且不变形，不要拉伸变形，不要裁掉重要内容，不要添加文字、水印、边框或无关装饰。`;
+    return `保持主体、内容、颜色、风格和细节不变，将这张图片重新生成为${label}画幅（宽高比 ${ratio}，输出尺寸 ${formatImageSize(size)} 像素）。根据目标画幅自然扩展、补全或重新构图，主体必须完整、比例正确且不变形，不要拉伸变形，不要裁掉重要内容，不要添加文字、水印、边框或无关装饰。`;
   }
 
   function strokeBoundsData(strokes = []) {
@@ -531,6 +532,24 @@
         });
         resizeMenuOptions.append(...resizeOptionButtons);
         resizeMenu.append(resizeMenuTitle, resizeMenuOptions);
+        resizeMenu.addEventListener('keydown', event => {
+          const currentIndex = resizeOptionButtons.indexOf(documentRef.activeElement);
+          if (currentIndex < 0) return;
+          let nextIndex = -1;
+          if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % resizeOptionButtons.length;
+          else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + resizeOptionButtons.length) % resizeOptionButtons.length;
+          else if (event.key === 'Home') nextIndex = 0;
+          else if (event.key === 'End') nextIndex = resizeOptionButtons.length - 1;
+          else if (event.key === 'Escape') {
+            event.preventDefault?.();
+            closeResizeMenu({ focus: true });
+            return;
+          }
+          if (nextIndex >= 0) {
+            event.preventDefault?.();
+            resizeOptionButtons[nextIndex].focus?.();
+          }
+        });
 
         const commentPopover = el('div', { className: 'image-editor-comment-popover' });
         const commentInput = el('input', { type: 'text', maxLength: IMAGE_EDITOR_TEXT_MAX_LENGTH, placeholder: '输入评论' });

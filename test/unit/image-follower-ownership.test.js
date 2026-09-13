@@ -150,7 +150,100 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
   assert.strictEqual(node.dataset.responseIndex, '1');
 }
 
+async function testBackgroundImageCompletionNeverMutatesActiveSessionNode() {
+  const activeSessionId = 'session-active';
+  const backgroundSessionId = 'session-background';
+  const jobId = 'imgjob-background';
+  const displayItem = {
+    id: 'display-background',
+    role: 'assistant',
+    pending: '1',
+    responseIndex: '1',
+    jobId,
+  };
+  const backgroundSession = {
+    id: backgroundSessionId,
+    messages: [{ role: 'user', content: 'draw', messageIndex: '0' }],
+    display: [displayItem],
+  };
+  const state = {
+    activeSessionId,
+    sessions: [{ id: activeSessionId, messages: [], display: [] }, backgroundSession],
+    activeRuns: new Map(),
+    resumingJobs: new Set(),
+    followingImageJobs: new Set(),
+  };
+  const foreignNode = { dataset: {}, parentNode: {} };
+  const placements = [];
+  const messagesUpdated = [];
+  const contextsUpdated = [];
+  const workflow = jobResumeWorkflow.createJobResumeWorkflow({
+    state,
+    loadImageJob: () => ({
+      id: jobId,
+      displayItemId: displayItem.id,
+      responseIndex: 1,
+      mode: 'image',
+      requestPurpose: 'final_execution',
+      dispatchContract: makeDispatchContract({ operation: 'text_to_image', prompt: 'draw' }),
+      bindingEvidence: [],
+      prompt: 'draw',
+      startedAt: Date.now() - 1000,
+    }),
+    clearImageJob() {},
+    hasSuccessfulImageResult: () => false,
+    isFollowingImageJob: () => false,
+    normalizeImageContextForStorage: value => value,
+    persistSessionDisplay() {},
+    setSessionBusy() {},
+    pendingFeedbackHtml: text => text,
+    updateLiveDisplay() {},
+    shouldFollowScroll: () => false,
+    setInterval: () => 17,
+    getConfig: () => ({}),
+    getImageGenerationJob: async () => ({
+      status: 'completed',
+      data: { images: [{ url: 'https://example.test/result.png' }] },
+      metrics: { durationMs: 1000 },
+    }),
+    isMissingJobError: () => false,
+    formatElapsed: () => '1.0s',
+    jobDurationMs: () => 1000,
+    imageResultToHtml: async () => ({
+      html: '<div class="generated-image-grid"></div>',
+      raw: 'image result',
+      metaText: 'RT 1.0s',
+      imageContext: { mode: 'image', attachments: [{ src: 'indexeddb://result' }] },
+    }),
+    updateSessionDisplayItem() {},
+    findMessageNodeByDisplayItem: () => foreignNode,
+    updateMessage: (...args) => messagesUpdated.push(args),
+    setImageContext: (...args) => contextsUpdated.push(args),
+    upsertImageAssistantMessage: () => 1,
+    insertMessageNodeAtDisplayPosition(target, item) { placements.push({ target, item }); },
+    reconcileSuccessfulImageResult() {},
+    saveSessionMessages: async () => {},
+    playDoneSound() {},
+    settleSessionTask(_id, options) {
+      state.resumingJobs.delete(options.resumeKey);
+      state.followingImageJobs.delete(options.jobId);
+    },
+    finishSessionTask(_id, options) {
+      state.resumingJobs.delete(options.resumeKey);
+      state.followingImageJobs.delete(options.jobId);
+    },
+  });
+
+  await workflow.resumeImageJob(backgroundSessionId);
+
+  assert.strictEqual(foreignNode.dataset.responseIndex, undefined, 'background image completion must not rewrite the active node response index');
+  assert.deepStrictEqual(placements, [], 'background image completion must not relocate an active-session node');
+  assert.deepStrictEqual(messagesUpdated, [], 'background image completion must not render into the active session DOM');
+  assert.deepStrictEqual(contextsUpdated, [], 'background image completion must not overwrite the active image context');
+}
+
 module.exports = [
   testLiveImageRunPreventsSecondRecoveryFollower,
+  testBackgroundImageCompletionNeverMutatesActiveSessionNode,
   testRecoveredImageCompletionUsesCanonicalMessagePosition,
 ];

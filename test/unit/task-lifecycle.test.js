@@ -408,6 +408,7 @@ function testSubmitButtonUsesCanonicalTaskProjection() {
 function testFinishSessionTaskReleasesAllTransientOwners() {
   const run = { token: 'run-a' };
   const state = {
+    activeSessionId: 'session-a',
     activeRuns: new Map([['session-a', run]]),
     resumingJobs: new Set(['chat:session-a']),
     followingChatJobs: new Set(['chat-job-a']),
@@ -442,6 +443,32 @@ function testFinishSessionTaskReleasesAllTransientOwners() {
     ['availability'],
     ['focus'],
   ]);
+}
+
+function testFinishSessionTaskDoesNotFocusComposerForBackgroundSession() {
+  const activeSessionId = 'session-active';
+  const backgroundSessionId = 'session-background';
+  const run = { token: 'run-background' };
+  const state = {
+    activeSessionId,
+    activeRuns: new Map([[backgroundSessionId, run]]),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+  };
+  const calls = [];
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    setSessionBusy: (sessionId, value) => calls.push(['busy', sessionId, value]),
+    updateSendAvailability: () => calls.push(['availability']),
+    getPrompt: () => ({ focus: () => calls.push(['focus']) }),
+  });
+
+  lifecycle.finishSessionTask(backgroundSessionId, { run, focusPrompt: true });
+
+  assert.strictEqual(calls.some(call => call[0] === 'focus'), false,
+    'a background task completion must not steal focus from the active session composer');
+  assert.strictEqual(state.activeRuns.has(backgroundSessionId), false);
 }
 
 function testFinishSessionTaskPreservesNewerRunBusyState() {
@@ -771,6 +798,7 @@ module.exports = [
   testStopSessionTaskOwnsTheEntireStopBoundary,
   testLateStopCompletionCannotFinalizeANewerTask,
   testSubmitButtonUsesCanonicalTaskProjection,
+  testFinishSessionTaskDoesNotFocusComposerForBackgroundSession,
   testFinishSessionTaskReleasesAllTransientOwners,
   testFinishSessionTaskPreservesNewerRunBusyState,
   testTerminalTaskPrunesStaleResumeOwnerAndKeepsComposerSendable,

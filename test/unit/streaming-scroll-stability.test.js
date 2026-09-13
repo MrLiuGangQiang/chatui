@@ -408,6 +408,14 @@ function testStreamingHoverKeepsScrollerWidthStable() {
     'the streaming message scroller must reserve its scrollbar gutter so hover-revealed scrollbars cannot rewrap live text and cause a render/scroll flicker loop');
 }
 
+function testConnectedOutputCannotBeClaimedByBackgroundSession() {
+  const { state, workflow, output } = createScrollFixture();
+  workflow.setActiveOutputForSession('session-background', output);
+  assert.strictEqual(output.dataset.sessionId, 'session-a', 'a live DOM node must keep its owning session identity');
+  assert.strictEqual(state.activeOutputSessions.has('session-background'), false, 'a background session must not claim the active DOM node');
+  assert.strictEqual(state.activeOutputNode, null, 'a rejected background claim must not replace the active output node');
+}
+
 function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
   const chatSource = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const messageSource = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
@@ -451,5 +459,6 @@ module.exports = [
   testTailStreamingStillPinsTheOutputBottom,
   testProgrammaticStreamScrollNeverRearmsTailLock,
   testStreamingHoverKeepsScrollerWidthStable,
+  testConnectedOutputCannotBeClaimedByBackgroundSession,
   testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock,
 ];

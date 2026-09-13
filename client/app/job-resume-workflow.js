@@ -49,6 +49,25 @@
     || root?.ChatUIApp?.formatting?.appendIntentStatusHtml
     || (typeof require === "function" ? require("./formatting").appendIntentStatusHtml : null);
 
+    function renderResumedChatState(sessionId, item) {
+      if (!item) return false;
+      const rawText = String(item.rawText || '');
+      const reasoning = String(item.reasoningText || '');
+      const statusText = typeof deps.isChatStatusText === 'function' ? deps.isChatStatusText : (() => false);
+      const started = !!reasoning || (!!rawText.trim() && !statusText(rawText));
+      if (!started) return false;
+      deps.updateLiveDisplay?.(sessionId, item, 'assistant', rawText, {
+        rawText,
+        pending: true,
+        reasoning,
+        keepReasoning: !!reasoning,
+        forceDisplay: true,
+        streamKind: 'chat',
+        sessionId,
+        noScroll: true,
+      });
+      return true;
+    }
     function loadImageBatch(sessionId = deps.state?.activeSessionId || '') {
       const stored = submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;
       if (stored) return stored;
@@ -455,10 +474,12 @@
               ((i.responseIndex = String(m)),
                 (i.jobId = s.id || i.jobId || ""),
                 persistSessionDisplay(e));
-              const t = findMessageNodeByDisplayItem(i);
-              t &&
-                ((t.dataset.responseIndex = String(m)),
-                placeCompletedImageNode(t, m));
+              if (e === state.activeSessionId) {
+                const t = findMessageNodeByDisplayItem(i);
+                t &&
+                  ((t.dataset.responseIndex = String(m)),
+                  placeCompletedImageNode(t, m));
+              }
             }
             reconcileSuccessfulImageResult(e, i, s, m);
             const completedSession = state.sessions.find((t) => t.id === e);
@@ -877,6 +898,7 @@
                 }),
                 updateResumeStreamButton());
             }
+            renderResumedChatState(e, a);
             return void state.resumingJobs.delete(t);
           }
           if (sessionHasCompletedAssistantForResponse(n, s.responseIndex))
@@ -932,9 +954,7 @@
               reasoningLength: s.length,
             };
           };
-          let o =
-            !!String(a?.rawText || "").trim() &&
-            !isChatStatusText(a.rawText || "");
+          let o = renderResumedChatState(e, a);
           const r = () => {
               if (o) return;
               const t = Math.max(0, Math.floor((Date.now() - i) / 1e3)),
@@ -975,12 +995,11 @@
                     pending: !0,
                     reasoning: s.reasoning || "",
                     keepReasoning: !!s.reasoning,
+                    forceDisplay: true,
                     forceScroll: n,
                     followActive: n,
                     noScroll: !n,
                   });
-                  const node = findMessageNodeByDisplayItem(a);
-                  if (node && s.reasoning) updateReasoning(node, s.reasoning, { done: false, keepEmpty: true, forceScroll: n, followActive: n, forceDisplay: true });
                 } else o || r();
               },
               l = (e) => {

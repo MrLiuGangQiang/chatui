@@ -144,6 +144,7 @@ async function testStreamingReasoningCheckpointsForRefreshRecovery() {
 }
 
 function testReasoningRendererPersistsAndRestoresMarkdown() {
+  const appSource = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const reasoningSource = fs.readFileSync(path.join(__dirname, '../../client/app/reasoning-workflow.js'), 'utf8');
   const chatSource = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const resumeSource = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
@@ -163,7 +164,10 @@ function testReasoningRendererPersistsAndRestoresMarkdown() {
   assert.ok(historySource.includes("normalized?.reasoning_content || normalized?.reasoning"), 'canonical-history rendering must restore persisted reasoning after refresh');
   assert.ok(resumeSource.includes('reasoning: s.reasoning || ""'), 'resumed live chat jobs must checkpoint received reasoning');
   assert.ok(resumeSource.includes('const t = s.content || ""'), 'resuming a reasoning-only event must not reintroduce the waiting status text');
-  assert.ok(resumeSource.includes('updateReasoning(node, s.reasoning, { done: false') && resumeSource.includes('forceDisplay: true'), 'the active resumed message must restore its live thought panel regardless of the thinking-mode setting');
+  assert.ok(resumeSource.includes('renderResumedChatState') && resumeSource.includes('forceDisplay: true'),
+    'the active resumed message must replay its live thought panel regardless of the thinking-mode setting');
+  assert.ok(appSource.includes('forceDisplay:!0===a.forceDisplay'),
+    'the session-aware live display path must forward provider reasoning visibility');
   assert.ok(historySource.includes('forceDisplay: true'), 'pending refresh restoration must restore provider reasoning regardless of the thinking-mode setting');
   assert.ok(resumeSource.includes('reasoning_content: u'), 'resumed chat completion must persist its reasoning into canonical history');
 }

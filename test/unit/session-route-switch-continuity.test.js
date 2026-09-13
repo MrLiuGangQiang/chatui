@@ -98,6 +98,25 @@ function testPendingSessionDomCacheUsesStableOwnershipIdentity() {
   assert.ok(app.includes('t&&(sessionNeedsDomContinuity(t)?captureActiveSessionDom(t.id):discardSessionDomCacheEntry(t.id))'), 'only sessions with an active durable task owner should retain detached DOM');
 }
 
+function testDisplayItemRemovalIsSessionOwned() {
+  const root = path.join(__dirname, '../..');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const start = app.indexOf('function removeDisplayItemNode(');
+  const end = app.indexOf('function takePendingLiveItem(', start);
+  assert.ok(start >= 0 && end > start, 'the display-node removal helper must exist');
+  const source = app.slice(start, end);
+  const removed = [];
+  const context = {
+    state: { activeSessionId: 'session-active' },
+    findMessageNodeByDisplayItem: () => ({ remove: () => removed.push('removed') }),
+  };
+  vm.runInNewContext(source + '; removeDisplayItemNode({ id: \'display-a\' }, \'session-background\'); removeDisplayItemNode({ id: \'display-a\' }, \'session-active\');', context);
+  assert.deepStrictEqual(removed, ['removed'], 'only the active session may remove a matching DOM node');
+  assert.ok(app.includes('o.forEach(item=>removeDisplayItemNode(item,e))'), 'pending chat cleanup must pass its owning session');
+  assert.ok(app.includes('r.forEach(item=>removeDisplayItemNode(item,e))'), 'pending chat-job cleanup must pass its owning session');
+  assert.ok(app.includes('o.removedDisplayItems?.forEach(item=>removeDisplayItemNode(item,e))'), 'image reconciliation cleanup must pass its owning session');
+}
+
 function testSessionSwitchRecoveryRebindsWithoutDuplicateExecution() {
   const root = path.join(__dirname, '../..');
   const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
@@ -128,5 +147,6 @@ module.exports = [
   testPendingSubmitRecoveryIsSingleFlightAfterReload,
   testStoppedOrAbortedRunDoesNotBlockDurableRecovery,
   testPendingSessionDomCacheUsesStableOwnershipIdentity,
+  testDisplayItemRemovalIsSessionOwned,
   testSessionSwitchRecoveryRebindsWithoutDuplicateExecution,
 ];

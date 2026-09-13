@@ -275,7 +275,7 @@
         canonicalProjection ? { canonical: true } : undefined
       ));
       runCleanup('send availability', () => deps.updateSendAvailability?.());
-      if (focusPrompt) runCleanup('prompt focus', () => deps.getPrompt?.()?.focus?.());
+      if (focusPrompt && sessionId === state.activeSessionId) runCleanup('prompt focus', () => deps.getPrompt?.()?.focus?.());
       return true;
     }
 

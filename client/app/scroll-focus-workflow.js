@@ -737,11 +737,14 @@
 
     function setActiveOutputForSession(sessionId, node) {
       with (deps) {
-        if (sessionId && node && node.dataset.sessionId !== sessionId) node.dataset.sessionId = sessionId;
-        if (sessionId) {
-          if (node) state.activeOutputSessions.set(sessionId, node);
-          else state.activeOutputSessions.delete(sessionId);
-        }
+        if (!sessionId) return;
+        if (node?.dataset?.sessionId && node.dataset.sessionId !== sessionId) return;
+        // A connected node belongs to the one active DOM. Background jobs may
+        // keep detached cached nodes, but they must never claim the live DOM.
+        if (node?.isConnected && sessionId !== state.activeSessionId) return;
+        if (node?.dataset && node.dataset.sessionId !== sessionId) node.dataset.sessionId = sessionId;
+        if (node) state.activeOutputSessions.set(sessionId, node);
+        else state.activeOutputSessions.delete(sessionId);
         if (sessionId === state.activeSessionId) state.activeOutputNode = node || null;
         updateResumeStreamButton();
       }

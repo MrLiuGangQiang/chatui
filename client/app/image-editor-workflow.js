@@ -19,12 +19,14 @@
       saveSessionMessages,
       escapeHtml,
     } = deps;
-    const routeUtils = root?.ChatUIRouteService
+    const routeUtils = deps.routeUtils
+      || root?.ChatUIRouteService
       || (typeof require === 'function' ? require('../services/route-service') : {});
     const taskState = root?.ChatUICore?.taskState
       || (typeof require === 'function' ? require('../core/task-state') : {});
     const taskEvents = taskState.TASK_EVENTS || {};
-    const submitHelpers = root?.ChatUISubmitWorkflowHelpers
+    const submitHelpers = deps.submitHelpers
+      || root?.ChatUISubmitWorkflowHelpers
       || (typeof require === 'function' ? require('./submit-workflow.helpers') : {});
 
     function isImageEntry(item = {}) {
@@ -56,7 +58,7 @@
       }
     }
 
-    async function appendUserEditMessage({ sessionId, label, edit } = {}) {
+    async function appendUserEditMessage({ sessionId, label, edit, submissionId = '' } = {}) {
       const text = String(label || '').trim() || editLabelForEdit(edit);
       const session = Array.isArray(state?.sessions)
         ? state.sessions.find(item => item?.id === sessionId)
@@ -68,7 +70,7 @@
       const generatedIdentity = typeof identityApi.createMessageTurnIdentity === 'function'
         ? identityApi.createMessageTurnIdentity({
           sessionId,
-          submissionId: 'image-edit-' + Date.now().toString(36),
+          submissionId: submissionId || ('image-edit-' + Date.now().toString(36)),
           role: 'user',
           sequence,
         }) || {}
@@ -78,6 +80,7 @@
         content: text,
         rawText: text,
         messageIndex: String(sequence),
+        ...(submissionId ? { submissionId } : {}),
         ...generatedIdentity,
       };
       if (isActive) {
@@ -95,6 +98,7 @@
           messageIndex: sequence,
           ...(generatedIdentity.id ? { messageId: generatedIdentity.id } : {}),
           ...(generatedIdentity.turnId ? { turnId: generatedIdentity.turnId } : {}),
+          ...(submissionId ? { submissionId } : {}),
         });
       }
       if (typeof appendSessionDisplayMessage === 'function') {
@@ -104,6 +108,7 @@
           messageIndex: sequence,
           ...(generatedIdentity.id ? { messageId: generatedIdentity.id } : {}),
           ...(generatedIdentity.turnId ? { turnId: generatedIdentity.turnId } : {}),
+          ...(submissionId ? { submissionId } : {}),
         });
         if (node && displayItem) {
           node.__displayItem = displayItem;
@@ -144,6 +149,13 @@
         return false;
       }
       if (!edit || !edit.mode) throw new Error('\u7f16\u8f91\u64cd\u4f5c\u65e0\u6548');
+      const editMode = String(edit.mode);
+      if (!['erase', 'comment', 'remove_background', 'enhance', 'composite'].includes(editMode)) {
+        throw new Error('图片编辑操作无效，请重新选择编辑工具');
+      }
+      if (['remove_background', 'enhance'].includes(editMode) && edit.maskBlob) {
+        throw new Error('当前全局编辑操作不支持遮罩，请重新选择局部编辑工具');
+      }
       if (typeof sendImage !== 'function') throw new Error('\u56fe\u7247\u5de5\u4f5c\u6d41\u4e0d\u53ef\u7528\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u540e\u91cd\u8bd5');
 
       const stamp = Date.now().toString(36);
@@ -164,7 +176,7 @@
         routeSource: 'current',
       }];
       let maskEntry = null;
-      if ((edit.mode === 'erase' || edit.mode === 'comment') && !edit.maskBlob) {
+      if ((editMode === 'erase' || editMode === 'comment') && !edit.maskBlob) {
         throw new Error('遮罩数据缺失，请重新涂抹或评论');
       }
       if (edit.maskBlob) {
@@ -184,11 +196,6 @@
 
       const prompt = String(edit.prompt || '').trim();
       if (!prompt) throw new Error('\u7f3a\u5c11\u7f16\u8f91\u6307\u4ee4');
-
-      // The transcript entry appears before the image job starts so users see
-      // the edit immediately; sendImage then appends the assistant result
-      // right after it instead of silently creating an orphaned image turn.
-      const userTurn = await appendUserEditMessage({ sessionId: targetSessionId, label: edit.label, edit });
 
       const candidates = entries.map((entry, index) => ({
         index: index + 1,
@@ -250,11 +257,21 @@
       const executionMedia = submitHelpers.projectRouteExecutionMediaForDispatch?.(route, pools);
       if (!executionMedia) throw new Error('\u7f16\u8f91\u8d44\u6e90\u6295\u5f71\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5');
 
+      const submissionId = `image-edit-${Date.now().toString(36)}`;
+      // Do not publish a transcript turn until route compilation and resource
+      // projection have succeeded; a rejected local plan must not leave an
+      // unsent user message in history.
+      const userTurn = await appendUserEditMessage({
+        sessionId: targetSessionId,
+        label: edit.label,
+        edit,
+        submissionId,
+      });
+
       // The editor is a first-class task: it owns one managed image job so the
       // composer shows stop mode while editing and always returns to send mode
       // when the result commits (or the dispatch fails). Without this ownership
       // a focus/session resume could mark the session busy forever.
-      const submissionId = `image-edit-${Date.now().toString(36)}`;
       const editJobId = typeof makeClientImageJobId === 'function'
         ? makeClientImageJobId()
         : `imgjob-${Date.now().toString(36)}`;

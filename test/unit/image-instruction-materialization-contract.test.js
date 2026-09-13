@@ -98,8 +98,10 @@ function testImageInstructionProtocolRequiresAnExecutableInstructionOrClarificat
 
 function testCombinedEditorPromptIsStandaloneForProviderExecution() {
   const prompt = maskEditor.buildCompositeEditPrompt({ enhance: true });
-  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('后一步必须基于前一步的结果'), false,
-    'an intra-instruction sequencing phrase must remain self-contained');
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('后一步必须基于前一步的结果'), true,
+    'undefined intra-instruction sequencing references must fail closed');
+  assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('基于上一阶段的结果，生成一张海报'), true,
+    'an undeclared previous stage must not reach the image provider');
   assert.doesNotMatch(prompt, /步骤|上一阶段|后一步/,
     'combined edits must avoid numbered multi-stage wording');
   assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference(prompt), false,

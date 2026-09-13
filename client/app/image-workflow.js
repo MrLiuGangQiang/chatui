@@ -15,6 +15,15 @@
   const imageTaskPreparation = moduleRegistry?.get('imageTaskPreparation')
     || (typeof require === 'function' ? require('./image-task-preparation') : {});
 
+  function userFacingImageDispatchError(error = {}) {
+    const status = Number(error?.statusCode || error?.status) || 0;
+    const code = String(error?.code || '').toUpperCase();
+    if (code === 'IMAGE_ROLE_MAP_MISMATCH') return '图片用途信息不一致，请重新上传图片后再试';
+    if (status === 401 || status === 403) return '图片服务未授权，请检查 Endpoint 和 API Key 配置后重试';
+    if (status === 408 || status === 425 || status === 429 || status >= 500) return '图片服务暂时不可用，请稍后重试或检查 Endpoint 配置';
+    return '图片请求未通过校验，请调整图片或编辑设置后重试';
+  }
+
   function createImageStatusPhase() {
     let phase = 'preparing';
     return Object.freeze({
@@ -734,8 +743,14 @@
           const statusCode = Number(e?.statusCode || e?.status || 0);
           const rejectedBeforeJob = !p && statusCode >= 400 && statusCode < 500;
           if ((e?.terminalJob || rejectedBeforeJob) && !t.skipDurableSnapshot) clearDurableImageJob();
-          if (rejectedBeforeJob && c) {
-            const message = String(e?.message || '图片请求未通过校验，请调整后重试');
+          if (rejectedBeforeJob) {
+            const message = userFacingImageDispatchError(e);
+            if (e && typeof e === 'object') {
+              e.rawMessage = String(e.message || '');
+              e.userMessage = message;
+              e.message = message;
+            }
+            if (!c) throw e;
             updateSessionDisplayItem(n, c, 'error', message, {
               rawText: message,
               pending: false,

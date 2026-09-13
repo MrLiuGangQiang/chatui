@@ -250,9 +250,6 @@ function testPendingImageRestoreMovesAnExistingCachedNodeToItsCanonicalIndex() {
     isImagePendingDisplayItem: item => /正在修改图片/.test(String(item?.rawText || '')),
     compactDisplayItems: displayItems.compactDisplayItems,
     $: id => id === 'messages' ? messagesRoot : null,
-    insertMessageNodeAtDisplayPosition: (node, item) => (
-      displayItems.insertMessageNodeAtDisplayPosition(messagesRoot, node, item)
-    ),
     reconcileMessageActions: (node, options = {}) => {
       node.dataset.actionsState = String(options.state || '');
     },

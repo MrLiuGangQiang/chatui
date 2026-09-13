@@ -1,5 +1,9 @@
-(function initChatUIJobService(root) {
+﻿(function initChatUIJobService(root) {
   'use strict';
+
+const http = root?.ChatUICoreHttp
+  || (typeof require === 'function' ? require('../core/http') : {});
+const retryableHttpStatus = http.retryableHttpStatus;
 
 function makeClientJobId(prefix) {
   return `${prefix}-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
@@ -23,7 +27,7 @@ function rejectedJobError(response, payload, normalizeError) {
   if (statusCode) {
     error.statusCode = statusCode;
     error.status = statusCode;
-    error.retryable = statusCode >= 500;
+    error.retryable = retryableHttpStatus(statusCode);
   }
   const code = String(payload?.error?.code || payload?.code || '').trim();
   if (code) error.code = code;

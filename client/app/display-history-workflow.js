@@ -11,9 +11,17 @@
     const clarificationPresentation = deps.clarificationPresentation
       || root?.ChatUIApp?.appContext?.getWorkflowModule?.('clarificationPresentation')
       || {};
+    const sharedInsertMessageNodeAtDisplayPosition = root?.ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition;
     const insertMessageNodeAtDisplayPosition = deps.insertMessageNodeAtDisplayPosition
-      || root?.ChatUIAppDisplayItems?.insertMessageNodeAtDisplayPosition
-      || null;
+      || (typeof sharedInsertMessageNodeAtDisplayPosition === 'function'
+        ? (node, item) => {
+          const container = typeof deps.$ === 'function'
+            ? deps.$('messages')
+            : deps.document?.getElementById?.('messages');
+          if (!container?.appendChild || !container?.querySelectorAll) return node;
+          return sharedInsertMessageNodeAtDisplayPosition(container, node, item);
+        }
+        : null);
 
     function decodeQuoteAttr(value = '') {
       return String(value || '').replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'");

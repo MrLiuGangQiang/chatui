@@ -435,8 +435,6 @@ function createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, reque
         source: 'image_job_rejected',
         stage: validationStage,
         traceId: req._traceId || '',
-        statusCode: Number(err?.statusCode) || 500,
-        code: String(err?.code || ''),
       });
       respondJobError(res, err);
     }

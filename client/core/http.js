@@ -15,6 +15,11 @@
     return text;
   }
 
+  function retryableHttpStatus(statusCode = 0) {
+    const status = Number(statusCode) || 0;
+    return status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
   function normalizeError(error, payload) {
     const message = payload?.error?.message
       ? payload.error.message
@@ -41,7 +46,7 @@
     }
   }
 
-  const api = Object.freeze({ normalizeError, normalizeUpstreamErrorMessage, toProxyUrl, parseResponseJson });
+  const api = Object.freeze({ normalizeError, normalizeUpstreamErrorMessage, retryableHttpStatus, toProxyUrl, parseResponseJson });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUICoreHttp = api;

@@ -620,7 +620,7 @@ async function testImageJobInvalidBase64Contract() {
   assert.strictEqual(rejected[0].error.message, '图片附件数据无效，请重新上传图片');
   assert.strictEqual(rejected[0].context.source, 'image_job_rejected');
   assert.strictEqual(rejected[0].context.stage, 'prepare_request');
-  assert.strictEqual(rejected[0].context.statusCode, 400);
+  assert.strictEqual(rejected[0].error.statusCode, 400);
 }
 
 function testImageJobPublicSnapshotContract() {

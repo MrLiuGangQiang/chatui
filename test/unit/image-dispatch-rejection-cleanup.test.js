@@ -80,7 +80,7 @@ async function testRejectedImageDispatchClearsDurableJobAndPendingProjection() {
     saveImageJob: (_sessionId, job) => job,
     clearImageJob: () => { clearedJobs += 1; },
     startImageGenerationJob: async () => {
-      const error = new Error('图片用途信息不一致，请重新上传图片后再试');
+      const error = new Error('internal provider validation details must not reach the UI');
       error.statusCode = 400;
       error.code = 'IMAGE_ROLE_MAP_MISMATCH';
       throw error;
@@ -110,7 +110,10 @@ async function testRejectedImageDispatchClearsDurableJobAndPendingProjection() {
       clientJobId: 'imgjob-rejected-image',
       submissionId: 'image-edit-rejected',
     }),
-    error => error?.statusCode === 400 && error?.code === 'IMAGE_ROLE_MAP_MISMATCH',
+    error => error?.statusCode === 400
+      && error?.code === 'IMAGE_ROLE_MAP_MISMATCH'
+      && error?.message === '图片用途信息不一致，请重新上传图片后再试'
+      && error?.rawMessage.includes('internal provider'),
   );
 
   assert.strictEqual(clearedJobs, 1, 'a rejected dispatch must clear its stale durable image job');

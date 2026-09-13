@@ -20,13 +20,15 @@ function installFileReader() {
   };
 }
 
-function makeWorkflow({ sendImageImpl = null } = {}) {
+function makeWorkflow({ sendImageImpl = null, routeUtils = null, submitHelpers = null } = {}) {
   const calls = [];
   const userMessages = [];
   const lifecycle = { events: [], finishes: [], run: { token: 'run-editor', stopped: false, abortController: new AbortController() } };
   const state = { activeSessionId: 'session-1', sessions: [{ id: 'session-1', messages: [] }], messages: [] };
   const workflow = createImageEditorWorkflow({
     state,
+    routeUtils: routeUtils || undefined,
+    submitHelpers: submitHelpers || undefined,
     toast: () => {},
     isSessionBusy: () => false,
     sendImage: async (prompt, options) => {
@@ -311,6 +313,101 @@ async function testEditorEditReleasesTheTaskWhenDispatchFails() {
   }
 }
 
+
+async function testRouteFailureDoesNotLeaveAnOrphanedUserTurn() {
+  const restore = installFileReader();
+  try {
+    const { workflow, state, userMessages } = makeWorkflow({
+      routeUtils: { compileLocalRoute: () => null },
+    });
+    await assert.rejects(
+      () => workflow.applyImageEdit({
+        sessionId: 'session-1',
+        imageBlob: { type: 'image/png' },
+        edit: { mode: 'enhance', prompt: '提升图片清晰度' },
+      }),
+      /图片编辑请求未能安全执行/,
+    );
+    assert.strictEqual(state.messages.length, 0,
+      'a locally rejected edit must not create a canonical user message');
+    assert.strictEqual(userMessages.length, 0,
+      'a locally rejected edit must not create a display user message');
+  } finally {
+    restore();
+  }
+}
+
+async function testImageEditUsesOneSubmissionIdentityForUserAndJob() {
+  const restore = installFileReader();
+  const previousIdentity = global.ChatUIAppSessionPersistence;
+  try {
+    global.ChatUIAppSessionPersistence = {
+      createMessageTurnIdentity: ({ submissionId, role }) => ({
+        id: `message:${submissionId}:${role}`,
+        turnId: `turn:${submissionId}`,
+      }),
+    };
+    const { workflow, state, calls } = makeWorkflow();
+    await workflow.applyImageEdit({
+      sessionId: 'session-1',
+      imageBlob: { type: 'image/png' },
+      edit: { mode: 'enhance', prompt: '提升图片清晰度' },
+    });
+    const submissionId = calls[0].options.submissionId;
+    assert.ok(submissionId, 'the managed image job must have a submission id');
+    assert.strictEqual(state.messages[0].turnId, `turn:${submissionId}`,
+      'the user turn and managed job must share one turn identity');
+    assert.strictEqual(state.messages[0].submissionId, submissionId,
+      'the canonical user turn must retain the managed submission identity');
+    assert.strictEqual(state.messages[0].id, `message:${submissionId}:user`);
+  } finally {
+    if (previousIdentity === undefined) delete global.ChatUIAppSessionPersistence;
+    else global.ChatUIAppSessionPersistence = previousIdentity;
+    restore();
+  }
+}
+
+async function testGlobalImageEditsRejectUnexpectedMasks() {
+  const restore = installFileReader();
+  try {
+    const { workflow, state, calls } = makeWorkflow();
+    await assert.rejects(
+      () => workflow.applyImageEdit({
+        sessionId: 'session-1',
+        imageBlob: { type: 'image/png' },
+        edit: { mode: 'enhance', maskBlob: { type: 'image/png' }, prompt: '提升图片清晰度' },
+      }),
+      /全局编辑操作不支持遮罩/,
+    );
+    assert.strictEqual(calls.length, 0);
+    assert.strictEqual(state.messages.length, 0);
+  } finally {
+    restore();
+  }
+}
+
+
+async function testExecutionMediaFailureDoesNotLeaveAnOrphanedUserTurn() {
+  const restore = installFileReader();
+  try {
+    const { workflow, state, userMessages } = makeWorkflow({
+      submitHelpers: { projectRouteExecutionMediaForDispatch: () => null },
+    });
+    await assert.rejects(
+      () => workflow.applyImageEdit({
+        sessionId: 'session-1',
+        imageBlob: { type: 'image/png' },
+        edit: { mode: 'enhance', prompt: '提升图片清晰度' },
+      }),
+      /编辑资源投影失败/,
+    );
+    assert.strictEqual(state.messages.length, 0);
+    assert.strictEqual(userMessages.length, 0);
+  } finally {
+    restore();
+  }
+}
+
 module.exports = [
   testEraseEditDispatchesOneMaskAndTarget,
   testRemoveBackgroundEditRequestsTransparentPng,
@@ -322,4 +419,8 @@ module.exports = [
   testRemoveBackgroundEditLabelsTheUserTurn,
   testEditorEditOwnsAndSettlesTheManagedTaskLifecycle,
   testEditorEditReleasesTheTaskWhenDispatchFails,
+  testRouteFailureDoesNotLeaveAnOrphanedUserTurn,
+  testImageEditUsesOneSubmissionIdentityForUserAndJob,
+  testGlobalImageEditsRejectUnexpectedMasks,
+  testExecutionMediaFailureDoesNotLeaveAnOrphanedUserTurn,
 ];

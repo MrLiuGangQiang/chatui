@@ -8,10 +8,12 @@ function tick() {
   return new Promise(resolve => setImmediate(resolve));
 }
 
-function createEditorFixture(imageSize = {}) {
+function createEditorFixture(imageSize = {}, viewport = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
   const { window } = dom;
   const { document } = window;
+  if (viewport.width) Object.defineProperty(window, 'innerWidth', { configurable: true, value: Number(viewport.width) });
+  if (viewport.height) Object.defineProperty(window, 'innerHeight', { configurable: true, value: Number(viewport.height) });
   const canvases = [];
   const originalCreateElement = document.createElement.bind(document);
   document.createElement = function createElement(tag, ...rest) {
@@ -143,7 +145,7 @@ async function testEditorOpensNeutralAndRequiresAToolBeforeApplying() {
     const footerControls = fixture.document.querySelector('.image-editor-footer-controls');
     assert.deepStrictEqual(
       [...footerControls.querySelectorAll('.image-editor-control')].map(button => button.textContent.trim()),
-      ['撤销', '重做'],
+      ['撤销', '重置'],
       'the footer must keep history controls only',
     );
     for (const label of ['缩小', '放大', '适应窗口', '原始尺寸', '全屏']) {
@@ -357,7 +359,7 @@ async function testRemoveBackgroundCannotMixWithOtherOperations() {
   }
 }
 
-async function testRedoClearsAllEditsAndReturnsToInitialState() {
+async function testResetClearsAllEditsAndReturnsToInitialState() {
   const fixture = createEditorFixture();
   try {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
@@ -372,8 +374,8 @@ async function testRedoClearsAllEditsAndReturnsToInitialState() {
     overlay.dispatchEvent(pointer('pointerdown', 10, 10));
     overlay.dispatchEvent(pointer('pointermove', 30, 30));
     overlay.dispatchEvent(pointer('pointerup', 30, 30));
-    assert.strictEqual(findControl(fixture.document, '重做').disabled, false,
-      'redo must be enabled when there are erase strokes');
+    assert.strictEqual(findControl(fixture.document, '重置').disabled, false,
+      'reset must be enabled when there are erase strokes');
 
     [...fixture.document.querySelectorAll('.image-editor-tool')]
       .find(button => String(button.textContent || '').trim() === '添加评论').click();
@@ -386,16 +388,16 @@ async function testRedoClearsAllEditsAndReturnsToInitialState() {
       'the modification record count must include both erase and comment entries');
 
     overlay.__context.arcCalls.length = 0;
-    findControl(fixture.document, '重做').click();
+    findControl(fixture.document, '重置').click();
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '0',
-      'redo must clear every modification record');
+      'reset must clear every modification record');
     assert.strictEqual(overlay.__context.arcCalls.length, 0,
-      'redo must clear every erase stroke from the canvas');
+      'reset must clear every erase stroke from the canvas');
     assert.strictEqual([...fixture.document.querySelectorAll('.image-editor-tool')]
       .some(button => button.getAttribute('aria-pressed') === 'true'), false,
-    'redo must return the editor to its neutral initial state');
+    'reset must return the editor to its neutral initial state');
     assert.strictEqual(findControl(fixture.document, '撤销').disabled, true);
-    assert.strictEqual(findControl(fixture.document, '重做').disabled, true);
+    assert.strictEqual(findControl(fixture.document, '重置').disabled, true);
 
     findAction(fixture.document, '取消编辑').click();
     assert.strictEqual(await pending, null);
@@ -819,10 +821,131 @@ async function testCommentEditorKeepsTheOriginalTextSizeAndSupportsMultipleLines
   }
 }
 
+
+async function testEraseInstructionRowIsVisibleOnlyForEraseMode() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
+    await tick();
+    const tool = label => [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === label);
+    const instruction = [...fixture.document.querySelectorAll('.image-editor-row')][0];
+    assert.ok(instruction, 'erase instruction row must exist');
+    assert.strictEqual(instruction.classList.contains('active'), false);
+    tool('局部擦除').click();
+    assert.strictEqual(instruction.classList.contains('active'), true,
+      'the erase instruction row must be visible while erasing');
+    tool('添加评论').click();
+    assert.strictEqual(instruction.classList.contains('active'), false,
+      'the erase instruction row must hide outside erase mode');
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testPortraitImageFitsTheNarrowCanvasViewport() {
+  const fixture = createEditorFixture({ width: 600, height: 1200 }, { width: 390, height: 844 });
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
+    await tick();
+    const canvas = fixture.document.querySelector('.image-editor-canvas');
+    const base = fixture.document.querySelector('.image-editor-base');
+    const editorStyle = fixture.document.getElementById(maskEditor.EDITOR_STYLE_ID);
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-footer-actions\{display:grid/,
+      'mobile footer actions must use a wrapping grid instead of overflowing horizontally');
+    const canvasHeight = Number.parseFloat(canvas.style.height) || 420;
+    const renderedHeight = Number.parseFloat(base.style.height) || 0;
+    assert.ok(renderedHeight <= canvasHeight - 8,
+      'a portrait image must be scaled to the mobile canvas instead of being clipped');
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testEditingCommentDraftSurvivesRerenderAndIsApplied() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
+    await tick();
+    addComment(fixture, { x: 0.3, y: 0.3, text: '原始评论' });
+    const card = modificationCardByText(fixture.document, '原始评论');
+    card.querySelector('[data-record-action="edit"]').click();
+    const editor = fixture.document.querySelector('[data-record-editor]');
+    editor.value = '草稿评论';
+    editor.dispatchEvent(new fixture.dom.window.Event('input', { bubbles: true }));
+    [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === '提升清晰度').click();
+    assert.strictEqual(fixture.document.querySelector('[data-record-editor]').value, '草稿评论',
+      'a rerender must preserve the in-progress comment draft');
+    findAction(fixture.document, '完成并应用').click();
+    const result = await pending;
+    assert.match(result.label, /草稿评论/,
+      'applying while editing must persist the visible draft instead of stale text');
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testComposingEnterDoesNotConfirmCommentOrCloseEditor() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
+    await tick();
+    const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === '添加评论');
+    commentButton.click();
+    const overlay = fixture.document.querySelector('.image-editor-overlay');
+    overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+    const input = fixture.document.querySelector('.image-editor-comment-popover input');
+    input.value = '中文输入';
+    const composingEnter = new fixture.dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    Object.defineProperty(composingEnter, 'isComposing', { value: true });
+    input.dispatchEvent(composingEnter);
+    assert.ok(fixture.document.querySelector('.image-editor-comment-popover.active'),
+      'IME composition Enter must not confirm a comment');
+    fixture.document.querySelector('.image-editor-comment-cancel').click();
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+
+async function testEditorRejectsOverlongEditTextInsteadOfSilentlyTruncating() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
+    await tick();
+    const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === '添加评论');
+    commentButton.click();
+    const overlay = fixture.document.querySelector('.image-editor-overlay');
+    overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
+    overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+    const commentInput = fixture.document.querySelector('.image-editor-comment-popover input');
+    commentInput.value = 'x'.repeat(1001);
+    fixture.document.querySelector('.image-editor-comment-confirm').click();
+    assert.strictEqual(modificationCards(fixture.document).length, 0,
+      'an overlong comment must be rejected, not truncated into a different instruction');
+    assert.ok(fixture.toasts.some(message => message.includes('不能超过')));
+    fixture.document.querySelector('.image-editor-comment-cancel').click();
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
 module.exports = [
   testEditorOpensNeutralAndRequiresAToolBeforeApplying,
   testUndoRemovesOneWholeEraseStrokeGesture,
-  testRedoClearsAllEditsAndReturnsToInitialState,
+  testResetClearsAllEditsAndReturnsToInitialState,
   testEraseToolBuildsTheSelectedAreaInstructionPrompt,
   testCommentToolCollectsNumberedCommentsAndSendsThemAsTheUserMessage,
   testCommentPanelRendersNumberedCardsAndCount,
@@ -837,4 +960,9 @@ module.exports = [
   testEraseRecordsCanBeDeleted,
   testRecordThumbnailsSampleSmallWindowAroundTheMarkerAndStrokeCenter,
   testCommentEditorKeepsTheOriginalTextSizeAndSupportsMultipleLines,
+  testEraseInstructionRowIsVisibleOnlyForEraseMode,
+  testPortraitImageFitsTheNarrowCanvasViewport,
+  testEditingCommentDraftSurvivesRerenderAndIsApplied,
+  testComposingEnterDoesNotConfirmCommentOrCloseEditor,
+  testEditorRejectsOverlongEditTextInsteadOfSilentlyTruncating,
 ];

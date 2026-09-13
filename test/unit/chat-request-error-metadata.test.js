@@ -65,8 +65,34 @@ async function testRejectedImageJobStartPreservesServerStatusCodeAndCode() {
   );
 }
 
+
+async function testImageJobRetryabilityMatchesChatHttpStatusPolicy() {
+  for (const [status, expectedRetryable] of [[408, true], [425, true], [429, true], [500, true], [400, false]]) {
+    await assert.rejects(
+      () => jobService.startImageGenerationJob({
+        payload: { model: 'gpt-image-pro', prompt: 'retryability check' },
+        config: { baseUrl: 'https://api.example.test/v1', apiKey: 'secret' },
+        jobId: `imgjob-status-${status}`,
+        mode: 'edit_image',
+        files: [{ name: 'target.png', type: 'image/png', data: 'AAAA' }],
+        masks: [{ name: 'mask.png', type: 'image/png', data: 'AAAA' }],
+        requestPurpose: 'final_execution',
+        dispatchContract: {},
+        submissionId: `image-status-${status}`,
+        fetchImpl: async () => ({ ok: false, status }),
+        parseResponseJson: async () => ({ error: { code: `HTTP_${status}`, message: 'request rejected' } }),
+        normalizeError: (_error, body) => body.error.message,
+      }),
+      error => error?.statusCode === status
+        && error?.retryable === expectedRetryable,
+      `HTTP ${status} retryability must follow the shared policy`,
+    );
+  }
+}
+
 module.exports = [
   testHttpRequestErrorsPreserveStatusCodeAndProviderCode,
   testNetworkRequestErrorsRetainMachineReadableIdentity,
   testRejectedImageJobStartPreservesServerStatusCodeAndCode,
+  testImageJobRetryabilityMatchesChatHttpStatusPolicy,
 ];

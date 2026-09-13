@@ -14,6 +14,8 @@
   const RECORD_THUMBNAIL_RATIO = 4 / 3;
   const RECORD_THUMBNAIL_WIDTH = 120;
   const RECORD_THUMBNAIL_HEIGHT = 90;
+  const IMAGE_EDITOR_TEXT_MAX_LENGTH = 1000;
+  const IMAGE_EDITOR_PROMPT_MAX_LENGTH = 4000;
 
   const EDITOR_CSS = `
 .image-editor-backdrop{--image-editor-blue:#0872f3;--image-editor-blue-deep:#0068f2;--image-editor-ink:#182642;--image-editor-muted:#5d7195;--image-editor-line:#e5edf8;position:fixed;inset:0;z-index:1200;display:flex;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(255,255,255,.98) 0,rgba(255,255,255,0) 32%),linear-gradient(180deg,#f8fbff 0,#edf3fb 100%);color:var(--image-editor-ink);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
@@ -118,8 +120,10 @@
 .image-editor-footer-actions{grid-column:1/-1;width:100%;justify-content:flex-end}
 }
 @media (max-width:700px){
-.image-editor-footer-actions{justify-content:stretch}
-.image-editor-action.primary{flex:1}
+.image-editor-footer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto;gap:8px;width:100%;justify-content:stretch}
+.image-editor-action.primary{grid-column:1/-1;grid-row:1;min-width:0;flex:none}
+.image-editor-action.danger{grid-column:1;grid-row:2;min-width:0}
+.image-editor-action:not(.primary):not(.danger){grid-column:2;grid-row:2;min-width:0}
 }
 `;
 
@@ -269,9 +273,6 @@
     if (enhance) {
       instructions.push(`随后，对整张图片进行清晰度提升：${buildEnhancePrompt()}`);
     }
-    if (removeBackground) {
-      instructions.push('最后，移除此图像的背景。保持所有前景主体、文字、姿态和边缘完整无损，边缘干净平滑，将背景设为透明。不要改变已完成的主体内容。');
-    }
     return instructions.join('\n\n');
   }
 
@@ -348,6 +349,7 @@
           recordSeq: 0,
           editingRecordId: '',
           editingRecordSize: null,
+          editingRecordDraft: '',
           commentColorOffset: Math.floor(Math.random() * COMMENT_COLOR_PALETTE.length),
           settled: false,
         };
@@ -433,7 +435,7 @@
         const brushInput = el('input', { type: 'range', min: '8', max: '80', value: String(state.brush) });
         brushRow.append(documentRef.createTextNode('画笔'), brushInput);
         const instructionRow = el('div', { className: 'image-editor-row' });
-        const instructionInput = el('input', { type: 'text', placeholder: '描述选中区域要改成什么（留空则移除并自然填充）' });
+        const instructionInput = el('input', { type: 'text', maxLength: IMAGE_EDITOR_TEXT_MAX_LENGTH, placeholder: '描述选中区域要改成什么（留空则移除并自然填充）' });
         instructionRow.appendChild(instructionInput);
         toolOptions.append(brushRow, instructionRow);
         toolbar.append(toolbarTitle, commentButton, backgroundButton, enhanceButton, eraseButton, toolOptions);
@@ -456,7 +458,7 @@
         workbench.append(toolbar, canvas, commentPanel);
 
         const commentPopover = el('div', { className: 'image-editor-comment-popover' });
-        const commentInput = el('input', { type: 'text', placeholder: '输入评论' });
+        const commentInput = el('input', { type: 'text', maxLength: IMAGE_EDITOR_TEXT_MAX_LENGTH, placeholder: '输入评论' });
         const commentConfirm = el('button', { className: 'image-editor-comment-confirm', type: 'button', 'aria-label': '确认评论' });
         commentConfirm.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
         const commentCancel = el('button', { className: 'image-editor-comment-cancel', type: 'button', 'aria-label': '取消评论' });
@@ -475,7 +477,7 @@
           return control;
         }
         const undoButton = footerControl('撤销', UNDO_ICON);
-        const redoButton = footerControl('重做', REDO_ICON);
+        const redoButton = footerControl('重置', REDO_ICON);
         footerControls.append(undoButton, redoButton);
         const hint = el('span', { className: 'image-editor-hint', textContent: '先选择工具，再在图片上操作' });
         const footerActions = el('div', { className: 'image-editor-footer-actions' });
@@ -544,7 +546,12 @@
 
         function beginRecordEdit(action) {
           if (action.type !== 'comment') return;
+          if (state.editingRecordId && state.editingRecordId !== action.id) {
+            toast?.('请先保存或取消当前正在编辑的评论');
+            return;
+          }
           state.editingRecordId = action.id;
+          state.editingRecordDraft = String(action.comment?.text || '');
           state.editingRecordSize = recordCopySize(action);
           updateModificationList();
           commentList.querySelector('[data-record-editor]')?.focus?.();
@@ -557,15 +564,23 @@
             toast?.('评论内容不能为空');
             return false;
           }
+          if (text.length > IMAGE_EDITOR_TEXT_MAX_LENGTH) {
+            toast?.(`评论内容不能超过 ${IMAGE_EDITOR_TEXT_MAX_LENGTH} 个字符`);
+            return false;
+          }
           action.comment.text = text;
           state.editingRecordId = '';
+          state.editingRecordDraft = '';
           drawOverlay();
           updateCommentStatus();
           return true;
         }
 
         function deleteRecord(action) {
-          if (state.editingRecordId === action.id) state.editingRecordId = '';
+          if (state.editingRecordId === action.id) {
+            state.editingRecordId = '';
+            state.editingRecordDraft = '';
+          }
           removeHistoryRecord(action);
           drawOverlay();
           updateCommentStatus();
@@ -578,7 +593,8 @@
             'aria-label': '编辑评论，Enter 换行，Ctrl+Enter 保存',
             'data-record-editor': action.id,
           });
-          editor.value = String(value || '');
+          editor.value = String(value ?? '');
+          editor.addEventListener('input', () => { state.editingRecordDraft = editor.value; });
           const size = state.editingRecordSize?.id === action.id ? state.editingRecordSize : null;
           if (size) {
             editor.style.width = `${size.width}px`;
@@ -607,13 +623,16 @@
             event.preventDefault?.();
             event.stopPropagation?.();
             state.editingRecordId = '';
+            state.editingRecordDraft = '';
             updateModificationList();
           });
           editor.addEventListener('keydown', event => {
             event.stopPropagation?.();
+            if (event.isComposing || event.keyCode === 229) return;
             if (event.key === 'Escape') {
               event.preventDefault?.();
               state.editingRecordId = '';
+              state.editingRecordDraft = '';
               updateModificationList();
             } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
               event.preventDefault?.();
@@ -682,7 +701,7 @@
             badge.style.backgroundColor = color;
             canDelete = true;
             if (editing) {
-              appendRecordEditor(copy, action, action.comment.text);
+              appendRecordEditor(copy, action, state.editingRecordDraft);
             } else {
               const parts = commentParts(action.comment.text);
               copy.appendChild(el('strong', { textContent: parts.title || '未命名评论' }));
@@ -740,8 +759,8 @@
           enhanceButton.setAttribute('aria-pressed', String(operationSelected('enhance')));
           undoButton.disabled = !canUndo;
           redoButton.disabled = !hasAnyEdits;
-          redoButton.title = '清除所有修改并回到初始状态';
-          redoButton.setAttribute('aria-label', '清除所有修改并回到初始状态');
+          redoButton.title = '重置所有修改并回到初始状态';
+          redoButton.setAttribute('aria-label', '重置所有修改并回到初始状态');
           clearButton.hidden = !hasItems;
           clearButton.disabled = !hasItems;
           const clearLabel = state.tool === 'erase' ? '清空选区' : '清空评论';
@@ -805,6 +824,7 @@
         function confirmComment() {
           const text = String(commentInput.value || '').trim();
           if (!text) { toast?.('请输入评论内容'); return; }
+          if (text.length > IMAGE_EDITOR_TEXT_MAX_LENGTH) { toast?.(`评论内容不能超过 ${IMAGE_EDITOR_TEXT_MAX_LENGTH} 个字符`); return; }
           const point = state.pendingComment;
           if (!point) return;
           const comment = {
@@ -854,6 +874,7 @@
           backgroundButton.setAttribute('aria-pressed', String(operationSelected('remove_background')));
           enhanceButton.setAttribute('aria-pressed', String(operationSelected('enhance')));
           brushRow.style.display = erasing ? 'flex' : 'none';
+          instructionRow.classList.toggle('active', erasing);
           toolOptions.hidden = !erasing;
           overlayCanvas.style.pointerEvents = neutral ? 'none' : '';
           overlayCanvas.style.cursor = commenting ? COMMENT_CURSOR : 'crosshair';
@@ -872,7 +893,8 @@
           const workbenchHeight = Number(workbench.getBoundingClientRect?.().height) || 0;
           const availableHeight = Math.max(160, workbenchHeight || innerHeight - 96);
           if (innerWidth <= 980) {
-            return { width: Math.max(240, bodyWidth - 24), height: availableHeight, vertical: true, bodyWidth, padding: 24 };
+            const canvasHeight = Number(canvas.getBoundingClientRect?.().height) || 420;
+            return { width: Math.max(240, bodyWidth - 24), height: Math.max(160, canvasHeight), vertical: true, bodyWidth, padding: 24 };
           }
           const metrics = innerWidth <= 1180
             ? { toolbar: 228, comments: 290, gap: 12, padding: 28 }
@@ -959,6 +981,7 @@
 
         function onKeydown(event) {
           const key = String(event.key || '').toLowerCase();
+          if (event.isComposing || event.keyCode === 229) return;
           if (key === 'escape') {
             if (commentPopover.classList.contains('active')) closeCommentPopover();
             else cleanup(null);
@@ -967,15 +990,9 @@
           const target = event.target;
           const typing = target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(String(target?.tagName || '').toUpperCase());
           if (typing) return;
-          if ((event.ctrlKey || event.metaKey) && key === 'z') {
+          if ((event.ctrlKey || event.metaKey) && key === 'z' && !event.shiftKey) {
             event.preventDefault?.();
-            if (event.shiftKey) resetAllEdits();
-            else undoLastAction();
-            return;
-          }
-          if ((event.ctrlKey || event.metaKey) && key === 'y') {
-            event.preventDefault?.();
-            resetAllEdits();
+            undoLastAction();
             return;
           }
         }
@@ -1027,11 +1044,21 @@
           painting = false;
           if (activeStroke && state.strokes.length > activeStroke.startIndex) {
             const strokes = state.strokes.slice(activeStroke.startIndex);
+            const instruction = String(instructionInput.value || '').trim();
+            if (instruction.length > IMAGE_EDITOR_TEXT_MAX_LENGTH) {
+              toast?.(`修改说明不能超过 ${IMAGE_EDITOR_TEXT_MAX_LENGTH} 个字符`);
+              const strokeIds = new Set(strokes.map(stroke => stroke.strokeId));
+              state.strokes = state.strokes.filter(stroke => !strokeIds.has(stroke.strokeId));
+              activeStroke = null;
+              drawOverlay();
+              updateCommentStatus();
+              return;
+            }
             state.history.push({
               id: nextRecordId('erase'),
               type: 'erase',
               strokes,
-              instruction: String(instructionInput.value || '').trim(),
+              instruction,
               thumbnail: captureRegionThumbnail(strokeBoundsData(strokes) || {}),
             });
           }
@@ -1060,6 +1087,7 @@
         commentCancel.addEventListener('click', closeCommentPopover);
         commentInput.addEventListener('keydown', event => {
           event.stopPropagation?.();
+          if (event.isComposing || event.keyCode === 229) return;
           if (event.key === 'Enter') { event.preventDefault(); confirmComment(); }
           else if (event.key === 'Escape') { event.preventDefault(); closeCommentPopover(); }
         });
@@ -1069,7 +1097,10 @@
         function undoLastAction() {
           const action = state.history.pop();
           if (!action) return;
-          if (state.editingRecordId === action.id) state.editingRecordId = '';
+          if (state.editingRecordId === action.id) {
+            state.editingRecordId = '';
+            state.editingRecordDraft = '';
+          }
           detachRecord(action);
           drawOverlay();
           updateCommentStatus();
@@ -1081,6 +1112,7 @@
           state.history = [];
           state.pendingComment = null;
           state.editingRecordId = '';
+          state.editingRecordDraft = '';
           state.brush = 28;
           brushInput.value = '28';
           instructionInput.value = '';
@@ -1137,6 +1169,10 @@
         async function applyHistoryEdit() {
           if (painting) finishStroke();
           if (state.pendingComment) { toast?.('请先完成当前评论'); return; }
+          if (state.editingRecordId) {
+            const editingAction = state.history.find(action => action.id === state.editingRecordId);
+            if (editingAction && !saveRecordEdit(editingAction, state.editingRecordDraft)) return;
+          }
           if (!state.history.length) { toast?.('请先添加修改记录'); return; }
 
           const actions = [...state.history];
@@ -1193,6 +1229,10 @@
             enhance,
           });
           if (!prompt) { toast?.('请先添加有效的修改记录'); return; }
+          if (prompt.length > IMAGE_EDITOR_PROMPT_MAX_LENGTH) {
+            toast?.(`修改说明过长，请控制在 ${IMAGE_EDITOR_PROMPT_MAX_LENGTH} 个字符以内`);
+            return;
+          }
 
           const single = actions.length === 1 ? actions[0] : null;
           const mode = single?.type === 'comment'
@@ -1231,6 +1271,8 @@
 
   const api = Object.freeze({
     EDITOR_STYLE_ID,
+    IMAGE_EDITOR_TEXT_MAX_LENGTH,
+    IMAGE_EDITOR_PROMPT_MAX_LENGTH,
     COMMENT_CURSOR,
     strokeContainsPoint,
     maskAlphaAtPoint,

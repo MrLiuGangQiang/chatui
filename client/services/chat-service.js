@@ -1,5 +1,9 @@
-(function initChatUIChatService(root) {
+﻿(function initChatUIChatService(root) {
   'use strict';
+
+const http = root?.ChatUICoreHttp
+  || (typeof require === 'function' ? require('../core/http') : {});
+const retryableHttpStatus = http.retryableHttpStatus;
 
 const fileInputs = root?.ChatUICore?.fileInputs
   || (typeof require === 'function' ? require('../../shared/file-inputs') : null);
@@ -252,10 +256,6 @@ function responseErrorCode(parsed, statusCode = 0) {
   return code || (statusCode ? `HTTP_${statusCode}` : 'HTTP_REQUEST_FAILED');
 }
 
-function retryableHttpStatus(statusCode = 0) {
-  const status = Number(statusCode) || 0;
-  return status === 408 || status === 425 || status === 429 || status >= 500;
-}
 
 function createRequestError(message, {
   code = 'REQUEST_FAILED',

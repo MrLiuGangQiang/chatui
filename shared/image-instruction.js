@@ -30,14 +30,10 @@
   // Turn-position provenance: a recency/turn marker plus a generation or edit
   // verb names an image by where it appeared in the conversation.
   const UNRESOLVED_PROVENANCE = '(?:最近|上次|上一次|上一轮|刚才|此前|先前)(?:一次)?(?:生成|编辑|修改|绘制|画|制作|出|做)(?:的|了)?(?:那|这)?(?:张|幅)?(?:图|图片|插画|海报|照片|版本|结果)?|(?:上一张|下一张|上一幅|下一幅)(?:的)?(?:图|图片|插画|海报|照片)?|\\b(?:the\\s+)?(?:most\\s+recently?|recently|previously|earlier)\\s+(?:generated|created|drawn|made|edited|rendered)\\b';
-  // A standalone multi-step instruction may refer to its own earlier stage
-  // ("基于前一步", "基于上一阶段"). Those references are resolved inside the
-  // instruction; they are not references to prior conversation turns.
-  const INTRA_INSTRUCTION_SEQUENCE_BOUNDARY = '(?!(?:一(?:个)?(?:步|阶段|步骤)|阶段|步骤|环节|工序|流程|序(?:步骤|环节|工序|流程)))';
   const UNRESOLVED_IMAGE_INSTRUCTION_REFERENCE_PATTERN = new RegExp(
     '(?:'
     + '\\b(?:according to|as (?:you|above)|the (?:above|previous|first|second) (?:plan|option|prompt|suggestion)|use (?:plan|option)\\s*[a-z0-9]+|continue (?:it|that|the above|the previous)|regenerate (?:it|that|the above|the previous))\\b'
-    + '|(?:按(?:照)?|依照|根据|参照|参考|沿用|套用|采用|选择|选用|照|基于)(?:你(?:刚才|上一次|上一轮)?(?:的)?|上(?:述|面|一条|一次)?' + INTRA_INSTRUCTION_SEQUENCE_BOUNDARY + '(?:的)?|前(?:面|一条|一次)?' + INTRA_INSTRUCTION_SEQUENCE_BOUNDARY + '(?:的)?|刚才(?:的)?|之(?:前)(?:的)?|这(?:个|条|份)(?:的)?|那(?:个|条|份)(?:的)?|第[一二三四五六七八九十0-9]+(?:个|条|项|种|版|份)?(?:方案|选项|版本|建议|提示词|描述)|(?:方案|选项|版本|建议|提示词|描述)\\s*[a-z0-9一二三四五六七八九十]+)'
+    + '|(?:按(?:照)?|依照|根据|参照|参考|沿用|套用|采用|选择|选用|照|基于)(?:你(?:刚才|上一次|上一轮)?(?:的)?|上(?:述|面|一条|一次)?(?:的)?|前(?:面|一条|一次)?(?:的)?|刚才(?:的)?|之(?:前)(?:的)?|这(?:个|条|份)(?:的)?|那(?:个|条|份)(?:的)?|第[一二三四五六七八九十0-9]+(?:个|条|项|种|版|份)?(?:方案|选项|版本|建议|提示词|描述)|(?:方案|选项|版本|建议|提示词|描述)\\s*[a-z0-9一二三四五六七八九十]+)'
     + '|(?:^|[\\s，。；:：])(?:上(?:述|面)|以(?:上|前)|前(?:面|一条)|刚才|之前|这(?:个|条|份)|那(?:个|条|份))(?:的)?(?:内容|方案|选项|版本|建议|提示词|描述|要求|风格|配色|色调|画风|样式|图片|图)(?:$|[\\s，。；:：])'
     + '|(?:^|[\\s，。；:：])(?:风格|配色|色调|画风|样式|插画|效果)(?:与|和|同|跟|照搬|沿用)' + UNRESOLVED_DEICTIC + '[^。；！？!?;]{0,24}' + UNRESOLVED_CONSISTENCY
     + '|(?:^|[\\s，。；:：])(?:风格|配色|色调|画风|样式|插画|效果)(?:照搬|沿用)' + UNRESOLVED_DEICTIC + '[^。；！？!?;]{0,20}'
@@ -47,6 +43,7 @@
     + '|\\b(?:keep|preserve|maintain|carry\\s+over|continue)\\s+(?:the\\s+)?(?:same|previous|earlier|prior|original)\\s+(?:style|palette|look|colors?|colours?|tones?|vibe)\\b'
     + '|\\b(?:consistent\\s+with|matching|matches?)\\s+(?:the\\s+)?(?:previous|earlier|last|above|prior)\\b'
     + '|\\b(?:style|palette|colou?rs?|tones?|vibe)\\s+(?:of|from)\\s+(?:the\\s+)?(?:previous|earlier|last|above|prior)\\b'
+    + '|(?:前一步|上一阶段|后一步|下一阶段|前一阶段|后一阶段)(?:的)?(?:结果|内容|方案|产物|输出|版本)?'
     + '|' + UNRESOLVED_PROVENANCE
     + ')',
     'i',

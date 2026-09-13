@@ -109,6 +109,7 @@ function createErrorLogger({
         timestamp: new Date(timestampMs).toISOString(),
         error: serialiseError(err),
         context: String(context.source || context.route || '').slice(0, 256),
+        stage: String(context.stage || '').slice(0, 96),
         trace_id: String(context.traceId || ''),
         timestamp_ms: timestampMs,
       });

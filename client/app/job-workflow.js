@@ -9,6 +9,9 @@
   const dispatchContract = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
     || root?.ChatUIDispatchContract
     || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
+  const jobEventMultiplex = root?.[Symbol.for('chatui.module-registry.v1')]?.get('jobEventMultiplex')
+    || (typeof require === 'function' ? require('./job-event-multiplex') : {});
+  const jobEventMultiplexers = new WeakMap();
 
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {
     if (deps.isSessionDisposed?.(sessionId)) return null;
@@ -221,12 +224,22 @@
   }
 
   function waitJobEvent(url, onUpdate = () => {}, options = {}) {
+    const chatJobId = jobEventMultiplex.jobIdFromEventUrl?.(url) || '';
+    const EventSourceRef = options.EventSource || root.EventSource;
+    if (chatJobId && options.multiplex !== false && typeof EventSourceRef === 'function'
+        && typeof jobEventMultiplex.createJobEventMultiplexer === 'function') {
+      let multiplexer = jobEventMultiplexers.get(EventSourceRef);
+      if (!multiplexer) {
+        multiplexer = jobEventMultiplex.createJobEventMultiplexer({ EventSource: EventSourceRef });
+        jobEventMultiplexers.set(EventSourceRef, multiplexer);
+      }
+      return multiplexer.subscribe(chatJobId, onUpdate, options);
+    }
     let abortListener = null;
     let retryTimer = null;
     let softTimeoutTimer = null;
     const signal = options.signal;
     const pollJob = options.pollJob;
-    const EventSourceRef = options.EventSource || root.EventSource;
     const isPageUnloading = options.isPageUnloading || (() => false);
     return new Promise((resolve, reject) => {
       let source = null;

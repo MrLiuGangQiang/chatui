@@ -30,6 +30,7 @@ function createRoutes(calls) {
     abortJob(store, id) { calls.push(['abortJob', id]); return store.get(id) || null; },
     publicJob(job) { calls.push(['publicJob', job.id]); return { id: job.id, status: job.status }; },
     subscribeJob(req, res, store) { calls.push(['subscribeJob', req.url, store.has('chatjob-ok12345') ? 'chat' : 'image']); sendJson(res, 200, { subscribed: true }); },
+    subscribeChatJobs(req, res) { calls.push(['subscribeChatJobs', req.url]); sendJson(res, 200, { grouped: true }); },
     startImageJob(req, res) { calls.push(['startImageJob', req.url]); sendJson(res, 200, { started: 'image' }); },
     getImageJob(req, res) { calls.push(['getImageJob', req.url]); sendJson(res, 200, { got: 'image' }); },
     startChatJob(req, res) { calls.push(['startChatJob', req.url]); sendJson(res, 200, { started: 'chat' }); },
@@ -45,6 +46,10 @@ async function testJobRoutesDispatchChatContracts() {
   assert.strictEqual(result.res.status, 200);
   assert.deepStrictEqual(result.json, { started: 'chat' });
 
+  result = await invoke(routes, 'routeChatJobs', '/api/chat-jobs/events?ids=chatjob-ok12345', 'GET');
+  assert.strictEqual(result.res.status, 200);
+  assert.deepStrictEqual(result.json, { grouped: true });
+
   result = await invoke(routes, 'routeChatJobs', '/api/chat-jobs/chatjob-ok12345/events?contentLength=1', 'GET');
   assert.strictEqual(result.res.status, 200);
   assert.deepStrictEqual(result.json, { subscribed: true });
@@ -57,7 +62,7 @@ async function testJobRoutesDispatchChatContracts() {
   assert.strictEqual(result.res.status, 200);
   assert.deepStrictEqual(result.json, { got: 'chat' });
 
-  assert.deepStrictEqual(calls.map(call => call[0]), ['startChatJob', 'subscribeJob', 'abortJob', 'publicJob', 'getChatJob']);
+  assert.deepStrictEqual(calls.map(call => call[0]), ['startChatJob', 'subscribeChatJobs', 'subscribeJob', 'abortJob', 'publicJob', 'getChatJob']);
 }
 
 async function testJobRoutesDispatchImageContracts() {

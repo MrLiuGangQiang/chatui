@@ -3,7 +3,7 @@ const { createChatJobHandlers } = require('./chat');
 const { createImageJobHandlers } = require('./image');
 
 function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs, contextWindowTokens, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
-  const { notifyJob, subscribeJob, abortJob, disposeJob } = createJobEvents({ jobSubscribers });
+  const { notifyJob, subscribeJob, subscribeJobGroup, abortJob, disposeJob } = createJobEvents({ jobSubscribers });
   const imageHandlers = createImageJobHandlers({ imageJobs, notifyJob, upstreamTimeoutMs, requestTrace, errorLog, idempotencyTable, providerCapabilities });
   const chatHandlers = createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens, requestTrace, errorLog, idempotencyTable, providerCapabilities });
 
@@ -15,6 +15,7 @@ function createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeou
     publicJob,
     notifyJob,
     subscribeJob,
+    subscribeChatJobs: (req, res, store) => subscribeJobGroup(req, res, store || chatJobs),
   };
 }
 

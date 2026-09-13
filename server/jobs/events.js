@@ -59,23 +59,29 @@ function compactResumeSnapshot(job, req) {
 }
 
 function createJobEvents({ jobSubscribers }) {
+  function writeJobEvent(res, eventName, payload) {
+    res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
+    res.flushHeaders?.();
+  }
+
   function notifyJob(job) {
     const subscribers = jobSubscribers.get(job.id);
     if (!subscribers) return;
-    const data = `event: update\ndata: ${JSON.stringify(publicJob(job, { live: true }))}\n\n`;
     const terminal = job.status === 'done' || job.status === 'error';
     let delivered = false;
     for (const subscriber of [...subscribers]) {
-      if (subscriber?.job !== job) continue;
+      if (subscriber?.job && subscriber.job !== job) continue;
       const res = subscriber.res;
       if (!res || !jobOwnedBy(job, subscriber.principal)) {
         subscribers.delete(subscriber);
         try { res?.end(); } catch {}
         continue;
       }
+      const livePayload = publicJob(job, { live: true });
+      const payload = subscriber.multiplexed === true ? { id: job.id, ...livePayload } : livePayload;
+      const eventName = subscriber.multiplexed === true ? 'job' : 'update';
       try {
-        res.write(data);
-        res.flushHeaders?.();
+        writeJobEvent(res, eventName, payload);
         delivered = true;
       } catch {
         subscribers.delete(subscriber);
@@ -84,14 +90,20 @@ function createJobEvents({ jobSubscribers }) {
       }
       if (terminal) {
         subscribers.delete(subscriber);
-        try { res.end(); } catch {}
+        if (subscriber.multiplexed === true) {
+          subscriber.jobIds?.delete?.(job.id);
+          if (!subscriber.jobIds?.size) {
+            try { res.end(); } catch {}
+          }
+        } else {
+          try { res.end(); } catch {}
+        }
       }
     }
     if (delivered && Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified) job.firstTokenNotified = true;
     delete job.streamDelta;
     if (!subscribers.size) jobSubscribers.delete(job.id);
   }
-
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
     const job = findOwnedJob(store, id, req.authPrincipal);
@@ -120,6 +132,55 @@ function createJobEvents({ jobSubscribers }) {
     });
   }
 
+  function subscribeJobGroup(req, res, store) {
+    const parsed = new URL(req.url, 'http://localhost');
+    const ids = [...new Set(parsed.searchParams.getAll('ids')
+      .flatMap(value => String(value || '').split(','))
+      .map(value => String(value || '').trim())
+      .filter(Boolean))].slice(0, 128);
+    if (!ids.length) {
+      res.writeHead(400, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: { message: '缺少任务 id', code: 'INVALID_JOB_GROUP' } }));
+      return;
+    }
+    const offsets = new Map();
+    for (const raw of parsed.searchParams.getAll('offset')) {
+      const [id, contentLength, reasoningLength] = String(raw || '').split(':');
+      if (!id) continue;
+      offsets.set(id, {
+        contentLength: Math.max(0, Number(contentLength) || 0),
+        reasoningLength: Math.max(0, Number(reasoningLength) || 0),
+      });
+    }
+    safeLog('[subscribeJobGroup]', { ids: ids.length, path: redactUrl(req.url) });
+    res.writeHead(200, { ...SECURITY_HEADERS, ...JOB_SSE_HEADERS });
+    const subscriber = { res, principal: req.authPrincipal, multiplexed: true, jobIds: new Set() };
+    for (const id of ids) {
+      const job = findOwnedJob(store, id, req.authPrincipal);
+      if (!job) {
+        writeJobEvent(res, 'job', { id, status: 'error', error: { message: JOB_NOT_FOUND_MESSAGE } });
+        continue;
+      }
+      const offset = offsets.get(id) || { contentLength: 0, reasoningLength: 0 };
+      const resumeUrl = `/api/chat-jobs/${encodeURIComponent(id)}/events?contentLength=${offset.contentLength}&reasoningLength=${offset.reasoningLength}`;
+      writeJobEvent(res, 'job', { id, ...publicJob(job, { resumeUrl }) });
+      if (job.status === 'done' || job.status === 'error') continue;
+      if (!jobSubscribers.has(id)) jobSubscribers.set(id, new Set());
+      jobSubscribers.get(id).add(subscriber);
+      subscriber.jobIds.add(id);
+    }
+    res.flushHeaders?.();
+    if (!subscriber.jobIds.size) return res.end();
+    req.on('close', () => {
+      for (const jobId of subscriber.jobIds) {
+        const set = jobSubscribers.get(jobId);
+        if (!set) continue;
+        set.delete(subscriber);
+        if (!set.size) jobSubscribers.delete(jobId);
+      }
+      subscriber.jobIds.clear();
+    });
+  }
   function abortJob(store, id, principal, message = '任务已停止') {
     const job = findOwnedJob(store, id, principal);
     if (!job) return null;
@@ -151,7 +212,7 @@ function createJobEvents({ jobSubscribers }) {
     return job;
   }
 
-  return { notifyJob, subscribeJob, abortJob, disposeJob };
+  return { notifyJob, subscribeJob, subscribeJobGroup, abortJob, disposeJob };
 }
 
 function closeJobSubscribers(jobSubscribers) {

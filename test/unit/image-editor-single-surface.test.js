@@ -91,7 +91,7 @@ function recordThumbnailCrops(fixture) {
 function addComment(fixture, { x, y, text }) {
   const document = fixture.document;
   const commentButton = [...document.querySelectorAll('.image-editor-tool')]
-    .find(button => String(button.textContent || '').trim() === '添加评论');
+    .find(button => String(button.textContent || '').trim() === '标记评论');
   commentButton.click();
   const overlay = document.querySelector('.image-editor-overlay');
   overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100 });
@@ -132,8 +132,9 @@ async function testEditorOpensNeutralAndRequiresAToolBeforeApplying() {
       'the image properties panel must be removed');
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-filter'), null,
       'the redundant all-comments filter must be removed');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-title').textContent, '操作历史');
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '0',
-      'the comment header must show the count without a filter row');
+      'the history header must show the count without a filter row');
     const toolbar = workbench.querySelector('.image-editor-toolbar');
     const toolButtons = [...toolbar.querySelectorAll('.image-editor-tool')];
     toolButtons.forEach(button => {
@@ -152,14 +153,20 @@ async function testEditorOpensNeutralAndRequiresAToolBeforeApplying() {
       assert.strictEqual(fixture.document.querySelector(`[aria-label="${label}"]`), null,
         `the ${label} control must be removed`);
     }
-    assert.deepStrictEqual(toolButtons.map(button => button.textContent.trim()), ['添加评论', '智能移除背景', '提升清晰度', '局部擦除'],
-      'the editor toolbar must expose the four supported tools');
+    assert.deepStrictEqual(toolButtons.map(button => button.textContent.trim()), ['标记评论', '背景移除', '画质提升', '局部擦除', '调整尺寸'],
+      'the editor toolbar must expose the five supported tools in order with resize last');
+    assert.doesNotMatch(editorCss, /\.image-editor-resize-tool\{[^}]*margin-top:auto/,
+      'resize must stay last in tool order without being pinned to the panel bottom');
     toolButtons.forEach(button => assert.ok(button.querySelector('svg'), 'every toolbar tool must carry an icon'));
-    const commentIcon = toolButtons.find(button => button.textContent.trim() === '添加评论').querySelector('svg');
-    assert.ok(commentIcon.querySelector('path[d="M12 8.5v5"]') && commentIcon.querySelector('path[d="M9.5 11h5"]'),
-      'the comment tool must use the bubble-plus icon');
-    const backgroundIcon = toolButtons.find(button => button.textContent.trim() === '智能移除背景').querySelector('svg');
-    const enhanceIcon = toolButtons.find(button => button.textContent.trim() === '提升清晰度').querySelector('svg');
+    const commentIcon = toolButtons.find(button => button.textContent.trim() === '标记评论').querySelector('svg');
+    assert.ok(commentIcon.querySelector('circle[cx="12"][cy="12"][r="6.8"]'),
+      'the comment tool must reuse the crosshair shape of its active cursor');
+    assert.ok(commentIcon.querySelector('path[d="M12 2v4M12 18v4M2 12h4M18 12h4"]'),
+      'the comment tool icon must include the same four cursor ticks');
+    assert.ok(commentIcon.querySelector('circle[fill="currentColor"]'),
+      'the comment tool icon must include the same center dot as the active cursor');
+    const backgroundIcon = toolButtons.find(button => button.textContent.trim() === '背景移除').querySelector('svg');
+    const enhanceIcon = toolButtons.find(button => button.textContent.trim() === '画质提升').querySelector('svg');
     assert.ok(backgroundIcon.querySelector('circle') && backgroundIcon.querySelectorAll('path').length >= 2,
       'the background tool must use a distinct subject-cutout icon');
     assert.notStrictEqual(backgroundIcon.innerHTML, enhanceIcon.innerHTML,
@@ -174,7 +181,7 @@ async function testEditorOpensNeutralAndRequiresAToolBeforeApplying() {
       'empty tool options must not leave a divider behind');
     assert.deepStrictEqual(
       [...footerActions.querySelectorAll('.image-editor-action')].map(button => button.textContent.trim()),
-      ['清空评论', '完成并应用', '取消编辑'],
+      ['清空评论', '提交修改', '取消编辑'],
       'the footer must order clear, apply, and cancel at the right edge',
     );
     [...footerActions.querySelectorAll('.image-editor-action')].forEach(button => {
@@ -185,9 +192,9 @@ async function testEditorOpensNeutralAndRequiresAToolBeforeApplying() {
     assert.strictEqual(pressed.length, 0, 'the editor must open without preselecting a destructive tool');
     assert.match(fixture.document.querySelector('.image-editor-hint').textContent, /组合使用多个编辑工具/);
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     await tick();
-    assert.strictEqual(fixture.toasts.at(-1), '请先添加修改记录',
+    assert.strictEqual(fixture.toasts.at(-1), '请先添加操作记录',
       'applying without any modification must explain that a record is required');
     assert.ok(fixture.document.querySelector('.image-editor-backdrop').isConnected,
       'the editor must stay open when no tool is selected');
@@ -221,7 +228,7 @@ async function testEraseToolBuildsTheSelectedAreaInstructionPrompt() {
     const thumbnail = fixture.document.querySelector('.image-editor-comment-card .image-editor-comment-thumbnail');
     assert.ok(thumbnail, 'erase records must show a local image crop');
     assert.match(thumbnail.src, /^data:image\/png/);
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
 
     assert.strictEqual(result.mode, 'erase');
@@ -244,7 +251,7 @@ async function testCommentToolCollectsNumberedCommentsAndSendsThemAsTheUserMessa
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'image.png' });
     await tick();
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     assert.ok(commentButton, 'the editor must expose the comment tool');
     commentButton.click();
     assert.strictEqual(commentButton.getAttribute('aria-pressed'), 'true');
@@ -272,7 +279,7 @@ async function testCommentToolCollectsNumberedCommentsAndSendsThemAsTheUserMessa
       'comments must use the shared apply button instead of a separate send bar');
     assert.match(fixture.document.querySelector('.image-editor-hint').textContent, /1 条评论/);
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.strictEqual(result.mode, 'comment');
     assert.ok(result.maskBlob, 'the comment edit must return the generated mask');
@@ -291,15 +298,112 @@ async function testRemoveBackgroundToolUsesTheChatGptPrompt() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'image.png' });
     await tick();
     const button = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(entry => String(entry.textContent || '').trim() === '智能移除背景');
+      .find(entry => String(entry.textContent || '').trim() === '背景移除');
     assert.ok(button, 'the editor must expose the remove-background tool');
     button.click();
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.strictEqual(result.mode, 'remove_background');
     assert.strictEqual(result.background, 'transparent');
     assert.strictEqual(result.output_format, 'png');
     assert.strictEqual(result.prompt, '移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。');
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testResizeMenuAddsTheSelectedAspectRatioAndSubmitsIt() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'image.png' });
+    await tick();
+    const resizeButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === '调整尺寸');
+    assert.ok(resizeButton, 'the editor must expose the resize tool');
+    assert.strictEqual(resizeButton.getAttribute('aria-expanded'), 'false');
+
+    resizeButton.click();
+    const menu = fixture.document.querySelector('.image-editor-resize-menu');
+    assert.ok(menu, 'clicking resize must open the ratio menu');
+    assert.strictEqual(menu.querySelector('.image-editor-resize-title').textContent, '用不同宽高比生成此图片');
+    const options = [...menu.querySelectorAll('.image-editor-resize-option')];
+    assert.deepStrictEqual(options.map(option => option.textContent.trim()), [
+      '方形 1:1',
+      '竖版 3:4',
+      '故事版 9:16',
+      '横版 4:3',
+      '宽屏 16:9',
+    ], 'the resize menu must expose the five canonical ratios');
+
+    options.find(option => option.textContent.includes('宽屏 16:9')).click();
+    assert.strictEqual(menu.hidden, true, 'selecting a ratio must close the menu');
+    assert.strictEqual(resizeButton.getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '1');
+    const card = modificationCardByText(fixture.document, '调整尺寸');
+    assert.ok(card, 'the selected ratio must appear as a resize record');
+    assert.match(card.textContent, /宽屏 16:9/);
+    assert.match(card.textContent, /1536 × 864/);
+
+    findAction(fixture.document, '提交修改').click();
+    const result = await pending;
+    assert.strictEqual(result.mode, 'resize');
+    assert.strictEqual(result.size, '1536x864');
+    assert.strictEqual(result.maskBlob, undefined, 'resize alone must not generate a mask');
+    assert.match(result.label, /宽屏 16:9/);
+    assert.match(result.prompt, /1536 × 864/);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testResizeSelectionCanBeReplacedAndDeleted() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'image.png' });
+    await tick();
+    const resizeButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === '调整尺寸');
+    const choose = label => {
+      resizeButton.click();
+      [...fixture.document.querySelectorAll('.image-editor-resize-option')]
+        .find(option => option.textContent.includes(label)).click();
+    };
+    choose('方形 1:1');
+    choose('竖版 3:4');
+    assert.strictEqual(modificationCards(fixture.document).length, 1,
+      'choosing another ratio must replace the previous resize record');
+    assert.match(modificationCardByText(fixture.document, '竖版 3:4').textContent, /1152 × 1536/);
+    assert.strictEqual(modificationCards(fixture.document).filter(card => card.textContent.includes('调整尺寸')).length, 1);
+
+    modificationCardByText(fixture.document, '调整尺寸').querySelector('[data-record-action=delete]').click();
+    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '0');
+    assert.strictEqual(resizeButton.getAttribute('aria-pressed'), 'false');
+
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
+async function testResizeCannotMixWithRemoveBackground() {
+  const fixture = createEditorFixture();
+  try {
+    const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'image.png' });
+    await tick();
+    const tool = label => [...fixture.document.querySelectorAll('.image-editor-tool')]
+      .find(button => String(button.textContent || '').trim() === label);
+    tool('调整尺寸').click();
+    [...fixture.document.querySelectorAll('.image-editor-resize-option')]
+      .find(option => option.textContent.includes('横版 4:3')).click();
+    tool('背景移除').click();
+    findAction(fixture.document, '提交修改').click();
+    await tick();
+    assert.ok(fixture.document.querySelector('.image-editor-backdrop'), 'the editor must stay open after rejecting the mixed operation');
+    assert.ok(fixture.toasts.includes('由于模型能力限制，移除背景不能和其他操作同时执行，否则可能生成黑白棋盘背景。请单独使用“移除背景”。'));
+
+    findAction(fixture.document, '取消编辑').click();
+    assert.strictEqual(await pending, null);
   } finally {
     fixture.dom.window.close();
   }
@@ -344,10 +448,10 @@ async function testRemoveBackgroundCannotMixWithOtherOperations() {
     await tick();
     const tool = label => [...fixture.document.querySelectorAll('.image-editor-tool')]
       .find(button => String(button.textContent || '').trim() === label);
-    tool('智能移除背景').click();
-    tool('提升清晰度').click();
+    tool('背景移除').click();
+    tool('画质提升').click();
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     await tick();
     assert.ok(fixture.document.querySelector('.image-editor-backdrop'), 'the editor must stay open after rejecting the mixed operation');
     assert.ok(fixture.toasts.includes('由于模型能力限制，移除背景不能和其他操作同时执行，否则可能生成黑白棋盘背景。请单独使用“移除背景”。'));
@@ -378,7 +482,7 @@ async function testResetClearsAllEditsAndReturnsToInitialState() {
       'reset must be enabled when there are erase strokes');
 
     [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论').click();
+      .find(button => String(button.textContent || '').trim() === '标记评论').click();
     overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 4, height: 4, right: 4, bottom: 4 });
     overlay.dispatchEvent(pointer('pointerdown', 2, 2));
     const input = fixture.document.querySelector('.image-editor-comment-popover input');
@@ -412,7 +516,7 @@ async function testCommentPanelRendersNumberedCardsAndCount() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), { filename: 'duck-scene.png' });
     await tick();
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     commentButton.click();
     assert.strictEqual(commentButton.getAttribute('aria-pressed'), 'true', 'the comment tool must select by click');
 
@@ -454,6 +558,10 @@ async function testDefaultCanvasUsesAFitWindowWithoutScrolling() {
     await tick();
     const canvas = fixture.document.querySelector('.image-editor-canvas');
     const footer = fixture.document.querySelector('.image-editor-footer');
+    const base = fixture.document.querySelector('.image-editor-base');
+    const workbench = fixture.document.querySelector('.image-editor-workbench');
+    const toolbar = fixture.document.querySelector('.image-editor-toolbar');
+    const historyPanel = fixture.document.querySelector('.image-editor-comment-panel');
     assert.strictEqual(canvas.style.width, '454px',
       'a small image must scale up to fill the available workbench area without changing its aspect ratio');
     assert.strictEqual(canvas.style.flexBasis, '454px',
@@ -462,6 +570,17 @@ async function testDefaultCanvasUsesAFitWindowWithoutScrolling() {
       'the default fit view must not expose image scrolling');
     assert.strictEqual(footer.style.width, '996px',
       'the footer must align to the combined width of the tool, image, and comment columns');
+    assert.strictEqual(toolbar.style.height, base.style.height,
+      'the left tool panel must match the displayed image height instead of stretching to the viewport');
+    assert.strictEqual(historyPanel.style.height, base.style.height,
+      'the operation history panel must match the displayed image height instead of stretching to the viewport');
+    assert.strictEqual(workbench.style.height, base.style.height,
+      'the workbench must collapse to the displayed image height so the footer follows the image group');
+    assert.strictEqual(workbench.style.flex, '0 0 auto',
+      'the fitted workbench must not grow back to the viewport height');
+    const editorCss = fixture.document.getElementById(maskEditor.EDITOR_STYLE_ID)?.textContent || '';
+    assert.match(editorCss, /\.image-editor-body\{[^}]*justify-content:center/, 'the fitted image group and footer must stay vertically centered');
+    assert.match(editorCss, /\.image-editor-footer\{[^}]*margin-top:12px/, 'the footer must remain attached directly beneath the fitted image group');
 
     findAction(fixture.document, '取消编辑').click();
     assert.strictEqual(await pending, null);
@@ -476,14 +595,14 @@ async function testEnhanceToolSubmitsTheClarityPromptWithoutAMask() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
     await tick();
     const enhanceButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '提升清晰度');
+      .find(button => String(button.textContent || '').trim() === '画质提升');
     assert.ok(enhanceButton, 'the editor must expose the clarity enhancement tool');
     enhanceButton.click();
     assert.strictEqual(enhanceButton.getAttribute('aria-pressed'), 'true');
     assert.strictEqual(fixture.document.querySelector('.image-editor-overlay').style.pointerEvents, 'none',
       'clarity enhancement must keep the image read-only');
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.strictEqual(result.mode, 'enhance');
     assert.strictEqual(result.prompt, maskEditor.buildEnhancePrompt());
@@ -499,7 +618,7 @@ async function testCommentColorIsChosenAtPlacementTime() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
     await tick();
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     commentButton.click();
 
     const overlay = fixture.document.querySelector('.image-editor-overlay');
@@ -530,18 +649,18 @@ async function testMixedToolsProduceOneCompositeEdit() {
     await tick();
     const findTool = label => [...fixture.document.querySelectorAll('.image-editor-tool')]
       .find(button => String(button.textContent || '').trim() === label);
-    findTool('提升清晰度').click();
+    findTool('画质提升').click();
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '1',
       'clarity enhancement must be added on the first tool click');
-    findTool('提升清晰度').click();
+    findTool('画质提升').click();
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '0',
       'clicking the selected global tool again must remove its record');
-    assert.strictEqual(findTool('提升清晰度').getAttribute('aria-pressed'), 'false');
-    findTool('提升清晰度').click();
+    assert.strictEqual(findTool('画质提升').getAttribute('aria-pressed'), 'false');
+    findTool('画质提升').click();
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '1');
 
     const overlay = fixture.document.querySelector('.image-editor-overlay');
-    findTool('添加评论').click();
+    findTool('标记评论').click();
     overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 4, height: 4, right: 4, bottom: 4 });
     overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerdown', { bubbles: true, clientX: 2, clientY: 2 }));
     const commentInput = fixture.document.querySelector('.image-editor-comment-popover input');
@@ -556,30 +675,35 @@ async function testMixedToolsProduceOneCompositeEdit() {
     overlay.setPointerCapture = () => {};
     overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerdown', { bubbles: true, clientX: 20, clientY: 20 }));
     overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerup', { bubbles: true, clientX: 20, clientY: 20 }));
-    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '3');
+    findTool('调整尺寸').click();
+    [...fixture.document.querySelectorAll('.image-editor-resize-option')]
+      .find(option => option.textContent.includes('横版 4:3')).click();
+    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '4');
     assert.deepStrictEqual(
       [...fixture.document.querySelectorAll('.image-editor-comment-card strong')].map(node => node.textContent),
-      ['淡化左侧水面', '局部擦除', '提升清晰度'],
+      ['淡化左侧水面', '局部擦除', '画质提升', '调整尺寸'],
       'modification records must follow execution order',
     );
     const globalRecords = modificationCards(fixture.document)
       .filter(card => card.dataset.modificationType === 'operation');
-    assert.strictEqual(globalRecords.length, 1);
+    assert.strictEqual(globalRecords.length, 2);
     globalRecords.forEach(card => {
       assert.ok(card.querySelector('[data-record-action="delete"]'), 'global operations must expose a delete action');
       assert.strictEqual(card.querySelector('[data-record-action="edit"]'), null,
         'global operations must not expose an edit action');
     });
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.strictEqual(result.mode, 'composite');
     assert.ok(result.maskBlob, 'local records must produce one combined mask');
     assert.strictEqual(result.background, undefined);
     assert.strictEqual(result.output_format, undefined);
+    assert.strictEqual(result.size, '1536x1152');
     const localStep = result.prompt.indexOf('请先只修改编辑蒙版中的透明区域');
     const enhanceStep = result.prompt.indexOf('随后，对整张图片进行清晰度提升');
-    assert.ok(localStep >= 0 && localStep < enhanceStep,
+    const resizeStep = result.prompt.indexOf('4:3');
+    assert.ok(localStep >= 0 && localStep < enhanceStep && enhanceStep < resizeStep,
       'the submitted prompt must follow the visible execution order');
     assert.match(result.prompt, /淡化左侧水面/);
     assert.match(result.prompt, /去掉右上角文字/);
@@ -626,7 +750,7 @@ async function testCommentRecordsCanBeEditedAndDeletedWithContinuousRenumbering(
     );
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '2');
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.match(result.prompt, /1\. 位置 \(x=0\.200, y=0\.200\)：第一条评论/);
     assert.match(result.prompt, /2\. 位置 \(x=0\.600, y=0\.600\)：第三条评论/);
@@ -644,36 +768,36 @@ async function testGlobalOperationRecordsCanBeDeleted() {
     await tick();
     const tool = label => [...fixture.document.querySelectorAll('.image-editor-tool')]
       .find(button => String(button.textContent || '').trim() === label);
-    tool('智能移除背景').click();
-    tool('提升清晰度').click();
+    tool('背景移除').click();
+    tool('画质提升').click();
     assert.strictEqual(modificationCards(fixture.document).length, 2);
 
-    tool('提升清晰度').click();
+    tool('画质提升').click();
     assert.strictEqual(modificationCards(fixture.document).length, 1);
-    assert.strictEqual(tool('提升清晰度').getAttribute('aria-pressed'), 'false');
-    tool('提升清晰度').click();
-    assert.strictEqual(tool('提升清晰度').getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(tool('画质提升').getAttribute('aria-pressed'), 'false');
+    tool('画质提升').click();
+    assert.strictEqual(tool('画质提升').getAttribute('aria-pressed'), 'true');
 
-    tool('智能移除背景').click();
+    tool('背景移除').click();
     assert.strictEqual(modificationCards(fixture.document).length, 1);
-    assert.strictEqual(tool('智能移除背景').getAttribute('aria-pressed'), 'false');
-    tool('智能移除背景').click();
-    assert.strictEqual(tool('智能移除背景').getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(tool('背景移除').getAttribute('aria-pressed'), 'false');
+    tool('背景移除').click();
+    assert.strictEqual(tool('背景移除').getAttribute('aria-pressed'), 'true');
     assert.strictEqual(modificationCards(fixture.document).length, 2);
 
     modificationCardByText(fixture.document, '移除背景').querySelector('[data-record-action="delete"]').click();
     assert.deepStrictEqual(
       modificationCards(fixture.document).map(card => card.querySelector('strong').textContent),
-      ['提升清晰度'],
+      ['画质提升'],
       'deleting remove-background must remove only that global operation',
     );
-    assert.strictEqual(tool('智能移除背景').getAttribute('aria-pressed'), 'false');
-    assert.strictEqual(tool('提升清晰度').getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(tool('背景移除').getAttribute('aria-pressed'), 'false');
+    assert.strictEqual(tool('画质提升').getAttribute('aria-pressed'), 'true');
 
-    modificationCardByText(fixture.document, '提升清晰度').querySelector('[data-record-action="delete"]').click();
+    modificationCardByText(fixture.document, '画质提升').querySelector('[data-record-action="delete"]').click();
     assert.strictEqual(modificationCards(fixture.document).length, 0);
-    assert.strictEqual(tool('智能移除背景').getAttribute('aria-pressed'), 'false');
-    assert.strictEqual(tool('提升清晰度').getAttribute('aria-pressed'), 'false');
+    assert.strictEqual(tool('背景移除').getAttribute('aria-pressed'), 'false');
+    assert.strictEqual(tool('画质提升').getAttribute('aria-pressed'), 'false');
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '0');
     assert.ok(fixture.document.querySelector('.image-editor-comment-empty'));
 
@@ -724,7 +848,7 @@ async function testEraseRecordsCanBeDeleted() {
     );
     assert.strictEqual(fixture.document.querySelector('.image-editor-comment-count').textContent, '1');
 
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.strictEqual(result.mode, 'erase');
     assert.match(result.prompt, /淡化第二处水面/);
@@ -753,7 +877,7 @@ async function testRecordThumbnailsSampleSmallWindowAroundTheMarkerAndStrokeCent
     };
 
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     commentButton.click();
     overlay.dispatchEvent(new fixture.dom.window.MouseEvent('pointerdown', { bubbles: true, clientX: 70, clientY: 40 }));
     const commentInput = fixture.document.querySelector('.image-editor-comment-popover input');
@@ -796,15 +920,27 @@ async function testCommentEditorKeepsTheOriginalTextSizeAndSupportsMultipleLines
     const editor = fixture.document.querySelector('[data-record-editor]');
     assert.strictEqual(editor.tagName, 'TEXTAREA', '编辑评论必须使用多行文本编辑框');
     assert.strictEqual(editor.style.width, '232px', '编辑框宽度必须与原文字块一致');
-    assert.strictEqual(editor.style.height, '74px', '编辑框高度必须与原文字块一致');
+    const compactHeight = Number.parseFloat(editor.style.height) || 0;
+    assert.ok(compactHeight > 0 && compactHeight <= 44,
+      '单行评论编辑框必须保持紧凑，不能继承缩略图或网格拉伸出的高度');
     assert.strictEqual(editor.value, '木牌文字需要修改', '编辑框必须带出原评论文字');
+    assert.strictEqual(editor.style.overflowY, 'auto',
+      '编辑框必须始终允许内容超出最大高度后内部滚动');
+    const editorCss = fixture.document.getElementById(maskEditor.EDITOR_STYLE_ID)?.textContent || '';
+    assert.match(editorCss, /\.image-editor-record-editor\{[^}]*resize:none/, '编辑框不得显示粗糙的手动缩放柄');
+    assert.match(editorCss, /\.image-editor-record-editor\{[^}]*max-height:160px/, '编辑框高度必须受控并随内容增长');
+    assert.match(editorCss, /\.image-editor-record-editor\{[^}]*overscroll-behavior:contain/, '编辑框滚动不得带动外层记录列表');
 
     const newlineKey = new fixture.dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
     editor.dispatchEvent(newlineKey);
     assert.strictEqual(newlineKey.defaultPrevented, false, '多行编辑时 Enter 必须换行而不是提交');
     assert.ok(fixture.document.querySelector('[data-record-editor]'), 'Enter 不能结束编辑');
 
-    editor.value = '木牌文字需要修改\n第二行补充说明';
+    editor.value = '木牌文字需要修改\n第二行补充说明\n第三行继续说明\n第四行最后说明';
+    editor.dispatchEvent(new fixture.dom.window.Event('input', { bubbles: true }));
+    const grownHeight = Number.parseFloat(editor.style.height) || 0;
+    assert.ok(grownHeight > compactHeight,
+      '多行评论编辑框必须随内容自动增长，而不是始终使用固定空白高度');
     const saveKey = new fixture.dom.window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true });
     editor.dispatchEvent(saveKey);
     assert.strictEqual(saveKey.defaultPrevented, true, 'Ctrl+Enter 必须提交保存');
@@ -835,7 +971,7 @@ async function testEraseInstructionRowIsVisibleOnlyForEraseMode() {
     tool('局部擦除').click();
     assert.strictEqual(instruction.classList.contains('active'), true,
       'the erase instruction row must be visible while erasing');
-    tool('添加评论').click();
+    tool('标记评论').click();
     assert.strictEqual(instruction.classList.contains('active'), false,
       'the erase instruction row must hide outside erase mode');
     findAction(fixture.document, '取消编辑').click();
@@ -859,6 +995,14 @@ async function testPortraitImageFitsTheNarrowCanvasViewport() {
     const renderedHeight = Number.parseFloat(base.style.height) || 0;
     assert.ok(renderedHeight <= canvasHeight - 8,
       'a portrait image must be scaled to the mobile canvas instead of being clipped');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-toolbar').style.height, '',
+      'the mobile stacked toolbar must keep its natural height');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-comment-panel').style.height, '',
+      'the mobile operation history panel must keep its natural height');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-workbench').style.height, '',
+      'the mobile workbench must keep its natural content height');
+    assert.strictEqual(fixture.document.querySelector('.image-editor-workbench').style.flex, '',
+      'the mobile workbench must restore its stylesheet flex behavior');
     findAction(fixture.document, '取消编辑').click();
     assert.strictEqual(await pending, null);
   } finally {
@@ -878,10 +1022,10 @@ async function testEditingCommentDraftSurvivesRerenderAndIsApplied() {
     editor.value = '草稿评论';
     editor.dispatchEvent(new fixture.dom.window.Event('input', { bubbles: true }));
     [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '提升清晰度').click();
+      .find(button => String(button.textContent || '').trim() === '画质提升').click();
     assert.strictEqual(fixture.document.querySelector('[data-record-editor]').value, '草稿评论',
       'a rerender must preserve the in-progress comment draft');
-    findAction(fixture.document, '完成并应用').click();
+    findAction(fixture.document, '提交修改').click();
     const result = await pending;
     assert.match(result.label, /草稿评论/,
       'applying while editing must persist the visible draft instead of stale text');
@@ -896,7 +1040,7 @@ async function testComposingEnterDoesNotConfirmCommentOrCloseEditor() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
     await tick();
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     commentButton.click();
     const overlay = fixture.document.querySelector('.image-editor-overlay');
     overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
@@ -923,7 +1067,7 @@ async function testEditorRejectsOverlongEditTextInsteadOfSilentlyTruncating() {
     const pending = fixture.editor.open(new fixture.dom.window.Blob(['x'], { type: 'image/png' }), {});
     await tick();
     const commentButton = [...fixture.document.querySelectorAll('.image-editor-tool')]
-      .find(button => String(button.textContent || '').trim() === '添加评论');
+      .find(button => String(button.textContent || '').trim() === '标记评论');
     commentButton.click();
     const overlay = fixture.document.querySelector('.image-editor-overlay');
     overlay.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 });
@@ -955,6 +1099,9 @@ module.exports = [
   testRemoveBackgroundCannotMixWithOtherOperations,
   testMixedToolsProduceOneCompositeEdit,
   testRemoveBackgroundToolUsesTheChatGptPrompt,
+  testResizeMenuAddsTheSelectedAspectRatioAndSubmitsIt,
+  testResizeSelectionCanBeReplacedAndDeleted,
+  testResizeCannotMixWithRemoveBackground,
   testCommentRecordsCanBeEditedAndDeletedWithContinuousRenumbering,
   testGlobalOperationRecordsCanBeDeleted,
   testEraseRecordsCanBeDeleted,

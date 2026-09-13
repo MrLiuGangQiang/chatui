@@ -3,6 +3,7 @@
 const assert = require('assert');
 
 const maskEditor = require('../../client/features/image-editor/mask-editor');
+const imageSizePolicy = require('../../shared/image-size-policy');
 
 function testMaskKeepsOpaqueOutsideTheBrushAndTransparentInside() {
   const strokes = [{ x: 0.5, y: 0.5, radius: 0.1 }];
@@ -54,6 +55,37 @@ function testEnhancePromptPreservesTheOriginalImage() {
   assert.match(prompt, /不要添加或删除任何元素/);
 }
 
+function testResizePresetsCoverEverySupportedAspectRatioWithinPolicyBounds() {
+  const presets = maskEditor.IMAGE_RESIZE_PRESETS;
+  assert.deepStrictEqual(
+    presets.map(preset => [preset.label, preset.ratio, preset.size]),
+    [
+      ['方形', '1:1', '1024x1024'],
+      ['竖版', '3:4', '1152x1536'],
+      ['故事版', '9:16', '864x1536'],
+      ['横版', '4:3', '1536x1152'],
+      ['宽屏', '16:9', '1536x864'],
+    ],
+    'the resize menu must expose the five canonical aspect ratios',
+  );
+  for (const preset of presets) {
+    const validation = imageSizePolicy.validateImageSize(preset.size);
+    assert.strictEqual(validation.valid, true, `${preset.label} ${preset.size} must satisfy the shared image-size policy`);
+    assert.strictEqual(validation.width, preset.width);
+    assert.strictEqual(validation.height, preset.height);
+  }
+}
+
+function testResizePromptRequestsNaturalRecompositionAtTheSelectedSize() {
+  const preset = maskEditor.IMAGE_RESIZE_PRESETS.find(item => item.ratio === '16:9');
+  const prompt = maskEditor.buildResizePrompt(preset);
+  assert.match(prompt, /16:9/);
+  assert.match(prompt, /1536 × 864/);
+  assert.match(prompt, /保持主体、内容、颜色、风格和细节/);
+  assert.match(prompt, /自然扩展、补全或重新构图/);
+  assert.match(prompt, /不要拉伸变形/);
+}
+
 function testCompositePromptIncludesEverySupportedOperation() {
   const prompt = maskEditor.buildCompositeEditPrompt({
     comments: [{ x: 0.25, y: 0.5, text: '淡化左侧水面', color: '#2563eb' }],
@@ -75,6 +107,23 @@ function testCompositePromptIncludesEverySupportedOperation() {
   assert.match(prompt, /选中区域位置：画面右侧上方/);
   assert.match(prompt, /中心 \(x=0\.750, y=0\.200\)/);
   assert.match(prompt, /修改内容：去掉右上角文字/);
+}
+
+function testCompositePromptIncludesResizeAfterLocalEditsAndEnhancement() {
+  const resize = maskEditor.IMAGE_RESIZE_PRESETS.find(item => item.ratio === '4:3');
+  const prompt = maskEditor.buildCompositeEditPrompt({
+    comments: [{ x: 0.25, y: 0.5, text: '淡化左侧水面', color: '#2563eb' }],
+    hasErase: false,
+    removeBackground: false,
+    enhance: true,
+    resize,
+  });
+  const localStep = prompt.indexOf('请先只修改编辑蒙版中的透明区域');
+  const enhanceStep = prompt.indexOf('随后，对整张图片进行清晰度提升');
+  const resizeStep = prompt.indexOf('4:3');
+  assert.ok(localStep >= 0 && localStep < enhanceStep && enhanceStep < resizeStep,
+    'mixed edits must keep local work, enhancement, and the final resize in deterministic order');
+  assert.match(prompt, /1536 × 1152/);
 }
 
 function testRemoveBackgroundCannotBeCombinedInPromptConstruction() {
@@ -130,7 +179,10 @@ module.exports = [
   testMaskKeepsOpaqueOutsideTheBrushAndTransparentInside,
   testPaintMaskFillsWhiteThenErasesStrokes,
   testEnhancePromptPreservesTheOriginalImage,
+  testResizePresetsCoverEverySupportedAspectRatioWithinPolicyBounds,
+  testResizePromptRequestsNaturalRecompositionAtTheSelectedSize,
   testCompositePromptIncludesEverySupportedOperation,
+  testCompositePromptIncludesResizeAfterLocalEditsAndEnhancement,
   testRemoveBackgroundCannotBeCombinedInPromptConstruction,
   testSelectedAreaPromptIncludesThePaintedLocation,
   testSelectedAreaPromptScopesTheChangeToTheMask,

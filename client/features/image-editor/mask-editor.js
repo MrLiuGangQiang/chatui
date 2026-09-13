@@ -16,20 +16,34 @@
   const RECORD_THUMBNAIL_HEIGHT = 90;
   const IMAGE_EDITOR_TEXT_MAX_LENGTH = 1000;
   const IMAGE_EDITOR_PROMPT_MAX_LENGTH = 4000;
+  const IMAGE_RESIZE_PRESETS = Object.freeze([
+    Object.freeze({ id: 'square', label: '方形', ratio: '1:1', width: 1024, height: 1024, size: '1024x1024' }),
+    Object.freeze({ id: 'portrait', label: '竖版', ratio: '3:4', width: 1152, height: 1536, size: '1152x1536' }),
+    Object.freeze({ id: 'story', label: '故事版', ratio: '9:16', width: 864, height: 1536, size: '864x1536' }),
+    Object.freeze({ id: 'landscape', label: '横版', ratio: '4:3', width: 1536, height: 1152, size: '1536x1152' }),
+    Object.freeze({ id: 'widescreen', label: '宽屏', ratio: '16:9', width: 1536, height: 864, size: '1536x864' }),
+  ]);
 
   const EDITOR_CSS = `
 .image-editor-backdrop{--image-editor-blue:#0872f3;--image-editor-blue-deep:#0068f2;--image-editor-ink:#182642;--image-editor-muted:#5d7195;--image-editor-line:#e5edf8;position:fixed;inset:0;z-index:1200;display:flex;overflow:hidden;background:radial-gradient(circle at 50% 18%,rgba(255,255,255,.98) 0,rgba(255,255,255,0) 32%),linear-gradient(180deg,#f8fbff 0,#edf3fb 100%);color:var(--image-editor-ink);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .image-editor-backdrop *,.image-editor-backdrop *:before,.image-editor-backdrop *:after{box-sizing:border-box}
 .image-editor-panel{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
-.image-editor-body{position:relative;display:flex;flex:1 1 auto;min-height:0;flex-direction:column;align-items:center;overflow:hidden;padding:14px 20px 12px;background:transparent}
+.image-editor-body{position:relative;display:flex;flex:1 1 auto;min-height:0;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;padding:14px 20px 12px;background:transparent}
 .image-editor-workbench{display:flex;flex:1 1 auto;width:100%;min-height:0;align-items:stretch;justify-content:center;gap:16px}
-.image-editor-toolbar,.image-editor-comment-panel{min-height:0;border:1px solid #e6eef8;border-radius:14px;background:rgba(255,255,255,.985);box-shadow:0 18px 44px rgba(34,78,132,.075);overflow:hidden;z-index:3}
-.image-editor-toolbar{display:flex;flex:0 0 292px;flex-direction:column;align-items:stretch;gap:4px;padding:4px 10px 18px}
+.image-editor-toolbar,.image-editor-comment-panel{min-height:0;border:1px solid #e6eef8;border-radius:14px;background:rgba(255,255,255,.985);box-shadow:0 18px 44px rgba(34,78,132,.075);overflow:hidden;z-index:3;align-self:center}
+.image-editor-toolbar{display:flex;flex:0 0 292px;flex-direction:column;align-items:stretch;gap:4px;padding:4px 10px 18px;overflow:auto}
 .image-editor-toolbar-title{margin:4px 20px 2px;font-size:20px;font-weight:700;line-height:1.4}
 .image-editor-tool{position:relative;display:flex;align-items:center;gap:15px;min-height:58px;padding:0 16px;border:0;border-radius:10px;background:transparent;color:#1f2d4a;font-family:inherit;font-size:16px;line-height:1;text-align:left;cursor:pointer}
 .image-editor-tool svg{width:24px;height:24px;flex:none}
 .image-editor-tool:hover{background:#f1f6fd}
 .image-editor-tool[aria-pressed=true]{background:linear-gradient(135deg,#0873f4,#006af2);color:#fff;box-shadow:0 7px 16px rgba(0,105,242,.2)}
+.image-editor-resize-menu{position:fixed;z-index:40;width:284px;max-width:calc(100vw - 16px);padding:12px;border:1px solid #e4eaf2;border-radius:18px;background:#fff;box-shadow:0 14px 40px rgba(15,23,42,.16);line-height:normal}
+.image-editor-resize-menu[hidden]{display:none}
+.image-editor-resize-title{padding:2px 6px 8px;color:#697386;font-size:14px;line-height:1.45}
+.image-editor-resize-options{display:flex;flex-direction:column;gap:2px}
+.image-editor-resize-option{display:flex;align-items:center;gap:14px;width:100%;min-height:46px;padding:0 10px;border:0;border-radius:12px;background:transparent;color:#161f2f;font-family:inherit;font-size:16px;line-height:1;text-align:left;cursor:pointer}
+.image-editor-resize-option:hover,.image-editor-resize-option[aria-checked=true]{background:#f1f3f5}
+.image-editor-resize-ratio-icon{display:inline-block;flex:none;border:2px solid currentColor;border-radius:3px}
 .image-editor-canvas{width:760px;height:100%;flex:0 0 760px;min-width:0;min-height:0;display:flex;align-items:center;justify-content:flex-start;overflow:hidden;padding:4px;background:transparent;overscroll-behavior:contain}
 .image-editor-stage{position:relative;flex:0 0 auto;margin:auto;line-height:0;transform:translateZ(0)}
 .image-editor-stage canvas{display:block;max-width:none;max-height:none;border-radius:7px}
@@ -55,11 +69,15 @@
 .image-editor-record-action.danger:hover{background:#fff1f2;color:#e11d48}
 .image-editor-record-action svg{width:14px;height:14px}
 .image-editor-comment-thumbnail{display:block;width:88px;height:66px;border:1px solid #dbe7f5;border-radius:8px;background:#f8fafc;object-fit:cover}
-.image-editor-record-editor{display:block;width:100%;height:36px;border:0;border-radius:8px;padding:0;background:#fff;box-shadow:inset 0 0 0 1px #dbe7f5;color:#263653;font:inherit;font-size:13px;line-height:1.65;outline:0;resize:vertical;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
-.image-editor-record-editor:focus{box-shadow:inset 0 0 0 1px #0872f3,0 0 0 2px rgba(8,114,243,.1)}
-.image-editor-record-editor-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:7px}
-.image-editor-record-editor-button{height:30px;padding:0 10px;border:1px solid #dbe7f5;border-radius:8px;background:#fff;color:#40536f;font:inherit;font-size:12px;cursor:pointer}
-.image-editor-record-editor-button.save{border-color:#0872f3;background:#0872f3;color:#fff}
+.image-editor-comment-card[data-editing=true]{border-color:#cfe4ff;background:#fbfdff;box-shadow:0 6px 18px rgba(37,83,139,.08)}
+.image-editor-record-editor{display:block;width:100%;min-height:36px;max-height:160px;padding:8px 10px;border:1px solid #dbe7f5;border-radius:10px;background:#f8fbff;color:#263653;font:inherit;font-size:13px;line-height:1.55;outline:0;resize:none;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:none;transition:border-color .15s,background .15s,box-shadow .15s}
+.image-editor-record-editor:hover{border-color:#c8dcf3;background:#fff}
+.image-editor-record-editor:focus{border-color:#79b4ff;background:#fff;box-shadow:0 0 0 3px rgba(8,114,243,.1)}
+.image-editor-record-editor-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}
+.image-editor-record-editor-button{height:28px;padding:0 11px;border:1px solid #dbe7f5;border-radius:999px;background:#fff;color:#526682;font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s,color .15s,box-shadow .15s}
+.image-editor-record-editor-button:hover{border-color:#c8dcf3;background:#f8fbff;color:#263653}
+.image-editor-record-editor-button.save{border-color:#0872f3;background:#0872f3;color:#fff;box-shadow:0 3px 8px rgba(8,114,243,.16)}
+.image-editor-record-editor-button.save:hover{border-color:#0068ea;background:#0068ea;color:#fff}
 .image-editor-footer{position:relative;z-index:4;flex:0 0 58px;width:100%;height:58px;margin-top:12px;display:grid;grid-template-columns:minmax(160px,1fr) auto minmax(260px,1fr);align-items:center;padding:0 14px;border:1px solid #e4edf8;border-radius:14px;background:linear-gradient(180deg,#fbfdff,#f6f9fd);box-shadow:0 10px 28px rgba(34,78,132,.055)}
 .image-editor-file-info{display:flex;align-items:center;min-width:0;color:#536b99;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .image-editor-footer-controls{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
@@ -79,7 +97,7 @@
 .image-editor-action[hidden],.image-editor-tool-options[hidden]{display:none}
 .image-editor-footer-actions{display:inline-flex;align-items:center;justify-self:end;gap:10px}
 .image-editor-hint{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.image-editor-tool-options{margin-top:auto;padding:12px 5px 0;border-top:1px solid #edf3fa}
+.image-editor-tool-options{padding:12px 5px 0;border-top:1px solid #edf3fa}
 .image-editor-brush{display:none;align-items:center;gap:8px;min-height:38px;padding:0 11px;color:#50658e;font-size:13px;white-space:nowrap}
 .image-editor-brush input{flex:1;min-width:80px;accent-color:#0872f3}
 .image-editor-row{display:none;align-items:center;gap:8px;width:100%;padding-top:8px}
@@ -109,9 +127,9 @@
 .image-editor-action.primary{min-width:140px}
 }
 @media (max-width:980px){
-.image-editor-body{overflow:auto;padding:12px}
+.image-editor-body{justify-content:flex-start;overflow:auto;padding:12px}
 .image-editor-workbench{flex:0 0 auto;width:100%;flex-direction:column;align-items:stretch}
-.image-editor-toolbar,.image-editor-comment-panel{flex:0 0 auto;width:100%}
+.image-editor-toolbar,.image-editor-comment-panel{flex:0 0 auto;width:100%;align-self:stretch;height:auto}
 .image-editor-canvas{width:100%;height:420px;flex-basis:420px}
 .image-editor-comment-panel{height:380px}
 .image-editor-footer{width:100%;height:auto;min-height:70px;grid-template-columns:1fr auto;gap:8px;padding:10px 14px}
@@ -128,10 +146,11 @@
 `;
 
   const COMMENT_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Ccircle cx='14' cy='14' r='8' stroke='%23ffffff' stroke-width='4.4'/%3E%3Ccircle cx='14' cy='14' r='8' stroke='%23111827' stroke-width='2'/%3E%3Cpath d='M14 2v5M14 21v5M2 14h5M21 14h5' stroke='%23ffffff' stroke-width='4.4'/%3E%3Cpath d='M14 2v5M14 21v5M2 14h5M21 14h5' stroke='%23111827' stroke-width='2'/%3E%3C/g%3E%3Ccircle cx='14' cy='14' r='1.7' fill='%23111827'/%3E%3C/svg%3E") 14 14, crosshair`;
-  const COMMENT_ICON = '<path d="M20.5 4.5h-17A1.5 1.5 0 0 0 2 6v10a1.5 1.5 0 0 0 1.5 1.5H7v4l5-4h8.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5Z"/><path d="M12 8.5v5"/><path d="M9.5 11h5"/>';
+  const COMMENT_ICON = '<circle cx="12" cy="12" r="6.8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>';
   const BACKGROUND_ICON = '<circle cx="12" cy="8" r="3"/><path d="M6.5 19c.6-3.8 2.4-5.7 5.5-5.7s4.9 1.9 5.5 5.7"/><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>';
   const ERASE_ICON = '<path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4L13.4 4.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>';
   const ENHANCE_ICON = '<path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3-3.3-1.2 3.3-1.2Z"/><path d="m18.5 14 .8 2.1 2.2.9-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.9Z"/><path d="m6 14 .7 1.8 1.8.7-1.8.7L6 19l-.7-1.8-1.8-.7 1.8-.7Z"/>';
+  const RESIZE_ICON = '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><rect x="8" y="8" width="8" height="8" rx="1"/>';
   const EDIT_ICON = '<path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m14.5 7.5 2 2"/>';
   const APPLY_ICON = '<path d="m5 12.5 4.5 4.5L19 7"/>';
   const CANCEL_ICON = '<path d="m7 7 10 10"/><path d="m17 7-10 10"/>';
@@ -184,6 +203,18 @@
 
   function buildEnhancePrompt() {
     return '提升这张图片的清晰度。增强细节、纹理、边缘和局部对比度，减少模糊、噪点与压缩伪影；保持原始构图、主体、姿态、颜色、光照、风格和文字内容不变，不要添加或删除任何元素。';
+  }
+
+  function formatImageSize(size = '') {
+    return String(size || '').trim().replace(/^(\d+)x(\d+)$/i, '$1 × $2');
+  }
+
+  function buildResizePrompt(preset = {}) {
+    const label = String(preset.label || '').trim();
+    const ratio = String(preset.ratio || '').trim();
+    const size = String(preset.size || '').trim();
+    if (!label || !ratio || !size) return '';
+    return `保持主体、内容、颜色、风格和细节不变，将这张图片重新生成为${label}宽高比 ${ratio}（输出尺寸 ${formatImageSize(size)} 像素）。根据目标画幅自然扩展、补全或重新构图，主体必须完整、比例正确且不变形，不要拉伸变形，不要裁掉重要内容，不要添加文字、水印、边框或无关装饰。`;
   }
 
   function strokeBoundsData(strokes = []) {
@@ -244,8 +275,11 @@
     hasErase = false,
     removeBackground = false,
     enhance = false,
+    resize = null,
   } = {}) {
     const hasLocalEdits = hasErase || comments.length > 0;
+    const resizePrompt = resize ? buildResizePrompt(resize) : '';
+    const hasResize = !!resizePrompt;
     const localPrompts = [];
     if (comments.length) localPrompts.push(commentLayer.buildCommentPrompt?.(comments, '') || '');
     if (hasErase) {
@@ -258,11 +292,12 @@
     // Transparent background is not reliable when the provider has to perform
     // multiple visual operations in one image-edit call. Keep this combination
     // out of prompt construction so no caller can dispatch it by accident.
-    if (removeBackground && (hasLocalEdits || enhance)) return '';
-    const categoryCount = Number(hasLocalEdits) + Number(enhance) + Number(removeBackground);
+    if (removeBackground && (hasLocalEdits || enhance || hasResize)) return '';
+    const categoryCount = Number(hasLocalEdits) + Number(enhance) + Number(hasResize) + Number(removeBackground);
     if (categoryCount <= 1) {
       return localPrompt
         || (enhance ? buildEnhancePrompt() : '')
+        || resizePrompt
         || (removeBackground ? '移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。' : '');
     }
 
@@ -273,6 +308,7 @@
     if (enhance) {
       instructions.push(`随后，对整张图片进行清晰度提升：${buildEnhancePrompt()}`);
     }
+    if (hasResize) instructions.push(resizePrompt);
     return instructions.join('\n\n');
   }
 
@@ -351,6 +387,7 @@
           editingRecordSize: null,
           editingRecordDraft: '',
           commentColorOffset: Math.floor(Math.random() * COMMENT_COLOR_PALETTE.length),
+          resizeMenuOpen: false,
           settled: false,
         };
 
@@ -426,9 +463,17 @@
         const workbench = el('div', { className: 'image-editor-workbench' });
         const toolbar = el('aside', { className: 'image-editor-toolbar', role: 'toolbar', 'aria-label': '编辑工具' });
         const toolbarTitle = el('div', { className: 'image-editor-toolbar-title', textContent: '编辑工具' });
-        const commentButton = toolButton('添加评论', 'comment', COMMENT_ICON);
-        const backgroundButton = toolButton('智能移除背景', 'remove_background', BACKGROUND_ICON);
-        const enhanceButton = toolButton('提升清晰度', 'enhance', ENHANCE_ICON);
+        const resizeButton = toolButton('调整尺寸', 'resize', RESIZE_ICON, event => {
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          toggleResizeMenu();
+        });
+        resizeButton.classList.add('image-editor-resize-tool');
+        resizeButton.setAttribute('aria-haspopup', 'menu');
+        resizeButton.setAttribute('aria-expanded', 'false');
+        const commentButton = toolButton('标记评论', 'comment', COMMENT_ICON);
+        const backgroundButton = toolButton('背景移除', 'remove_background', BACKGROUND_ICON);
+        const enhanceButton = toolButton('画质提升', 'enhance', ENHANCE_ICON);
         const eraseButton = toolButton('局部擦除', 'erase', ERASE_ICON);
         const toolOptions = el('div', { className: 'image-editor-tool-options' });
         const brushRow = el('label', { className: 'image-editor-brush' });
@@ -438,7 +483,7 @@
         const instructionInput = el('input', { type: 'text', maxLength: IMAGE_EDITOR_TEXT_MAX_LENGTH, placeholder: '描述选中区域要改成什么（留空则移除并自然填充）' });
         instructionRow.appendChild(instructionInput);
         toolOptions.append(brushRow, instructionRow);
-        toolbar.append(toolbarTitle, commentButton, backgroundButton, enhanceButton, eraseButton, toolOptions);
+        toolbar.append(toolbarTitle, commentButton, backgroundButton, enhanceButton, eraseButton, toolOptions, resizeButton);
 
         const canvas = el('div', { className: 'image-editor-canvas' });
         const stage = el('div', { className: 'image-editor-stage' });
@@ -449,13 +494,43 @@
 
         const commentPanel = el('aside', { className: 'image-editor-comment-panel' });
         const commentHeader = el('div', { className: 'image-editor-comment-header' });
-        const commentTitle = el('span', { className: 'image-editor-comment-title', textContent: '修改记录' });
+        const commentTitle = el('span', { className: 'image-editor-comment-title', textContent: '操作历史' });
         const commentCount = el('span', { className: 'image-editor-comment-count', textContent: '0' });
         commentHeader.append(commentTitle, commentCount);
         const commentList = el('div', { className: 'image-editor-comment-list' });
         commentPanel.append(commentHeader, commentList);
 
         workbench.append(toolbar, canvas, commentPanel);
+
+        const resizeMenu = el('div', { className: 'image-editor-resize-menu', role: 'menu', 'aria-label': '用不同宽高比生成此图片', hidden: true });
+        const resizeMenuTitle = el('div', { className: 'image-editor-resize-title', textContent: '用不同宽高比生成此图片' });
+        const resizeMenuOptions = el('div', { className: 'image-editor-resize-options' });
+        const resizeOptionButtons = IMAGE_RESIZE_PRESETS.map(preset => {
+          const option = el('button', {
+            className: 'image-editor-resize-option',
+            type: 'button',
+            role: 'menuitemradio',
+            'aria-checked': 'false',
+            'data-resize-preset': preset.id,
+          });
+          const icon = el('span', { className: 'image-editor-resize-ratio-icon' });
+          const iconMax = 22;
+          const iconMin = 14;
+          const ratio = preset.width / preset.height;
+          const width = ratio >= 1 ? iconMax : Math.max(iconMin, Math.round(iconMax * ratio));
+          const height = ratio >= 1 ? Math.max(iconMin, Math.round(iconMax / ratio)) : iconMax;
+          icon.style.width = `${width}px`;
+          icon.style.height = `${height}px`;
+          option.append(icon, el('span', { className: 'image-editor-resize-option-copy', textContent: `${preset.label} ${preset.ratio}` }));
+          option.addEventListener('click', event => {
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            selectResizePreset(preset);
+          });
+          return option;
+        });
+        resizeMenuOptions.append(...resizeOptionButtons);
+        resizeMenu.append(resizeMenuTitle, resizeMenuOptions);
 
         const commentPopover = el('div', { className: 'image-editor-comment-popover' });
         const commentInput = el('input', { type: 'text', maxLength: IMAGE_EDITOR_TEXT_MAX_LENGTH, placeholder: '输入评论' });
@@ -484,23 +559,26 @@
         const clearButton = el('button', { className: 'image-editor-action danger', type: 'button' });
         clearButton.innerHTML = toolbarIcon(CLEAR_ICON) + '<span>清空评论</span>';
         const applyButton = el('button', { className: 'image-editor-action primary', type: 'button' });
-        applyButton.innerHTML = toolbarIcon(APPLY_ICON) + '<span>完成并应用</span>';
+        applyButton.innerHTML = toolbarIcon(APPLY_ICON) + '<span>提交修改</span>';
         const cancelButton = el('button', { className: 'image-editor-action', type: 'button' });
         cancelButton.innerHTML = toolbarIcon(CANCEL_ICON) + '<span>取消编辑</span>';
         footerActions.append(clearButton, applyButton, cancelButton);
         footer.append(fileInfo, footerControls, hint, footerActions);
         body.append(workbench, footer);
-        panel.append(body);
+        panel.append(body, resizeMenu);
         backdrop.appendChild(panel);
         documentRef.body.appendChild(backdrop);
 
         const requestedTool = String(tool || '');
         selectTool(['erase', 'comment', 'remove_background', 'enhance'].includes(requestedTool) ? requestedTool : 'none');
 
-        function toolButton(label, value, icon) {
+        function toolButton(label, value, icon, activate = null) {
           const button = el('button', { className: 'image-editor-tool', type: 'button', 'aria-pressed': 'false' });
           button.innerHTML = toolbarIcon(icon) + `<span>${label}</span>`;
-          button.addEventListener('click', () => selectTool(value));
+          button.addEventListener('click', event => {
+            if (typeof activate === 'function') activate(event);
+            else selectTool(value);
+          });
           return button;
         }
 
@@ -529,19 +607,19 @@
             ...actions.filter(action => action.type === 'comment'),
             ...actions.filter(action => action.type === 'erase'),
             ...actions.filter(action => action.type === 'operation' && action.operation === 'enhance'),
+            ...actions.filter(action => action.type === 'operation' && action.operation === 'resize'),
             ...actions.filter(action => action.type === 'operation' && action.operation === 'remove_background'),
           ];
         }
 
-        // 编辑框必须和原文字块同宽同高，所以在替换成编辑框之前先量一次文字块。
+        // 编辑框沿用原文字块的宽度，但高度必须由内容决定；卡片网格会被缩略图拉伸，不能把这段高度直接继承给 textarea。
         function recordCopySize(action) {
           const card = commentList.querySelector?.(`[data-record-id="${action.id}"]`);
           const copy = card?.querySelector?.('.image-editor-comment-copy');
           if (!copy) return null;
           const rect = typeof copy.getBoundingClientRect === 'function' ? copy.getBoundingClientRect() : null;
           const width = Math.round(Number(rect?.width) || Number(copy.offsetWidth) || 0);
-          const height = Math.round(Number(rect?.height) || Number(copy.offsetHeight) || 0);
-          return width > 0 && height > 0 ? { id: action.id, width, height } : null;
+          return width > 0 ? { id: action.id, width } : null;
         }
 
         function beginRecordEdit(action) {
@@ -586,6 +664,22 @@
           updateCommentStatus();
         }
 
+        function resizeRecordEditor(editor) {
+          if (!editor) return;
+          const maxHeight = 160;
+          const minHeight = 36;
+          const lineHeight = 20;
+          const lines = String(editor.value || '').split('\n').reduce((count, line) => (
+            count + Math.max(1, Math.ceil([...line].length / 28))
+          ), 0);
+          editor.style.height = 'auto';
+          const measured = Number(editor.scrollHeight) || 0;
+          const fallback = minHeight + Math.max(0, lines - 1) * lineHeight;
+          editor.style.height = `${Math.ceil(Math.min(maxHeight, Math.max(minHeight, measured || fallback)))}px`;
+          editor.style.overflowX = 'hidden';
+          editor.style.overflowY = 'auto';
+        }
+
         function appendRecordEditor(copy, action, value) {
           const editor = el('textarea', {
             className: 'image-editor-record-editor',
@@ -594,13 +688,16 @@
             'data-record-editor': action.id,
           });
           editor.value = String(value ?? '');
-          editor.addEventListener('input', () => { state.editingRecordDraft = editor.value; });
+          editor.addEventListener('input', () => {
+            state.editingRecordDraft = editor.value;
+            resizeRecordEditor(editor);
+          });
           const size = state.editingRecordSize?.id === action.id ? state.editingRecordSize : null;
           if (size) {
             editor.style.width = `${size.width}px`;
-            editor.style.height = `${size.height}px`;
             editor.style.maxWidth = '100%';
           }
+          resizeRecordEditor(editor);
           const actions = el('div', { className: 'image-editor-record-editor-actions' });
           const save = el('button', {
             className: 'image-editor-record-editor-button save',
@@ -657,7 +754,9 @@
               ? '擦除记录'
               : action.operation === 'remove_background'
                 ? '背景记录'
-                : '清晰度记录';
+                : action.operation === 'resize'
+                  ? '尺寸记录'
+                  : '清晰度记录';
           remove.setAttribute('aria-label', `删除${label}`);
           remove.addEventListener('click', event => {
             event.preventDefault?.();
@@ -693,6 +792,7 @@
           const copy = el('div', { className: 'image-editor-comment-copy' });
           const visual = el('div', { className: 'image-editor-record-visual' });
           const editing = action.type === 'comment' && state.editingRecordId === action.id;
+          if (editing) card.setAttribute('data-editing', 'true');
           let canDelete = false;
           if (action.type === 'comment') {
             const commentIndex = Math.max(0, state.comments.indexOf(action.comment));
@@ -713,6 +813,12 @@
             canDelete = true;
             copy.appendChild(el('strong', { textContent: '局部擦除' }));
             copy.appendChild(el('p', { textContent: action.instruction || '移除涂抹区域并自然补全' }));
+          } else if (action.operation === 'resize') {
+            badge.innerHTML = toolbarIcon(RESIZE_ICON);
+            badge.style.backgroundColor = '#0284c7';
+            canDelete = true;
+            copy.appendChild(el('strong', { textContent: '调整尺寸' }));
+            copy.appendChild(el('p', { textContent: `${action.label} ${action.ratio} · ${formatImageSize(action.size)}` }));
           } else if (action.operation === 'remove_background') {
             badge.innerHTML = toolbarIcon(BACKGROUND_ICON);
             badge.style.backgroundColor = '#0f766e';
@@ -723,7 +829,7 @@
             badge.innerHTML = toolbarIcon(ENHANCE_ICON);
             badge.style.backgroundColor = '#7c3aed';
             canDelete = true;
-            copy.appendChild(el('strong', { textContent: '提升清晰度' }));
+            copy.appendChild(el('strong', { textContent: '画质提升' }));
             copy.appendChild(el('p', { textContent: '增强细节、纹理与边缘' }));
           }
           if (canDelete && !editing) appendRecordActions(visual, action);
@@ -740,6 +846,7 @@
         }
 
         function updateModificationList() {
+          updateResizeMenuSelection();
           if (!state.history.length) {
             commentList.replaceChildren(el('div', { className: 'image-editor-comment-empty', textContent: '暂无修改，选择工具添加记录' }));
             return;
@@ -757,6 +864,7 @@
           const hasAnyEdits = state.history.length > 0;
           backgroundButton.setAttribute('aria-pressed', String(operationSelected('remove_background')));
           enhanceButton.setAttribute('aria-pressed', String(operationSelected('enhance')));
+          resizeButton.setAttribute('aria-pressed', String(operationSelected('resize')));
           undoButton.disabled = !canUndo;
           redoButton.disabled = !hasAnyEdits;
           redoButton.title = '重置所有修改并回到初始状态';
@@ -770,14 +878,14 @@
 
         function updateCommentStatus() {
           commentPanel.style.display = '';
-          commentTitle.textContent = '修改记录';
+          commentTitle.textContent = '操作历史';
           commentCount.textContent = String(state.history.length);
           updateModificationList();
           updateActionAvailability();
           if (state.tool === 'comment') {
             hint.textContent = state.comments.length
-              ? `已添加 ${state.comments.length} 条评论，可继续标注或点击完成并应用`
-              : '点击图片添加评论标记';
+              ? `已添加 ${state.comments.length} 条评论，可继续标注或点击提交修改`
+              : '点击图片标记评论';
           }
         }
 
@@ -860,7 +968,96 @@
           return true;
         }
 
+        function selectedResizeAction() {
+          return state.history.find(action => action.type === 'operation' && action.operation === 'resize') || null;
+        }
+
+        function updateResizeMenuSelection() {
+          const selected = selectedResizeAction();
+          for (const option of resizeOptionButtons) {
+            option.setAttribute('aria-checked', String(!!selected && option.dataset.resizePreset === selected.presetId));
+          }
+        }
+
+        function positionResizeMenu() {
+          if (!state.resizeMenuOpen) return;
+          const viewportWidth = Math.max(320, Number(windowRef?.innerWidth) || Number(documentRef.documentElement?.clientWidth) || 1024);
+          const viewportHeight = Math.max(320, Number(windowRef?.innerHeight) || Number(documentRef.documentElement?.clientHeight) || 768);
+          const menuWidth = Math.min(284, viewportWidth - 16);
+          resizeMenu.style.width = `${menuWidth}px`;
+          const rect = resizeButton.getBoundingClientRect?.() || {};
+          let left = Number(rect.left);
+          if (!Number.isFinite(left)) left = 8;
+          left = Math.max(8, Math.min(left, Math.max(8, viewportWidth - menuWidth - 8)));
+          let top = Number(rect.bottom);
+          if (!Number.isFinite(top) || top < 8) top = 8;
+          else top += 8;
+          const menuHeight = Number(resizeMenu.offsetHeight) || 300;
+          if (top + menuHeight > viewportHeight - 8) {
+            const above = Number(rect.top) - menuHeight - 8;
+            top = Number.isFinite(above) && above >= 8 ? above : Math.max(8, viewportHeight - menuHeight - 8);
+          }
+          resizeMenu.style.left = `${Math.round(left)}px`;
+          resizeMenu.style.top = `${Math.round(top)}px`;
+        }
+
+        function closeResizeMenu({ focus = false } = {}) {
+          if (!state.resizeMenuOpen && resizeMenu.hidden) return;
+          state.resizeMenuOpen = false;
+          resizeMenu.hidden = true;
+          resizeButton.setAttribute('aria-expanded', 'false');
+          if (focus) resizeButton.focus?.();
+        }
+
+        function openResizeMenu() {
+          if (state.resizeMenuOpen) return;
+          if (state.tool === 'comment') closeCommentPopover();
+          state.tool = 'none';
+          commentButton.setAttribute('aria-pressed', 'false');
+          eraseButton.setAttribute('aria-pressed', 'false');
+          brushRow.style.display = 'none';
+          instructionRow.classList.remove('active');
+          toolOptions.hidden = true;
+          overlayCanvas.style.pointerEvents = 'none';
+          overlayCanvas.style.cursor = 'crosshair';
+          state.resizeMenuOpen = true;
+          resizeMenu.hidden = false;
+          resizeButton.setAttribute('aria-expanded', 'true');
+          updateResizeMenuSelection();
+          positionResizeMenu();
+          hint.textContent = '选择宽高比，生成一张不同尺寸的图片';
+          updateActionAvailability();
+          const selected = resizeOptionButtons.find(option => option.getAttribute('aria-checked') === 'true');
+          (selected || resizeOptionButtons[0])?.focus?.();
+        }
+
+        function toggleResizeMenu() {
+          if (state.resizeMenuOpen) closeResizeMenu();
+          else openResizeMenu();
+        }
+
+        function selectResizePreset(preset) {
+          const existing = selectedResizeAction();
+          if (existing) removeHistoryRecord(existing);
+          state.history.push({
+            id: nextRecordId('operation'),
+            type: 'operation',
+            operation: 'resize',
+            presetId: preset.id,
+            label: preset.label,
+            ratio: preset.ratio,
+            width: preset.width,
+            height: preset.height,
+            size: preset.size,
+          });
+          closeResizeMenu();
+          hint.textContent = `已选择${preset.label} ${preset.ratio}，可继续使用其他工具`;
+          drawOverlay();
+          updateCommentStatus();
+        }
+
         function selectTool(tool) {
+          closeResizeMenu();
           const globalOperation = tool === 'remove_background' || tool === 'enhance';
           const previousTool = state.tool;
           if (globalOperation) toggleOperation(tool);
@@ -890,8 +1087,9 @@
           const innerWidth = Number(windowRef?.innerWidth) || 1400;
           const innerHeight = Number(windowRef?.innerHeight) || 900;
           const bodyWidth = Math.max(320, Number(body.getBoundingClientRect?.().width) || innerWidth);
-          const workbenchHeight = Number(workbench.getBoundingClientRect?.().height) || 0;
-          const availableHeight = Math.max(160, workbenchHeight || innerHeight - 96);
+          const bodyHeight = Number(body.getBoundingClientRect?.().height) || 0;
+          const footerHeight = Number(footer.getBoundingClientRect?.().height) || 70;
+          const availableHeight = Math.max(160, bodyHeight ? bodyHeight - footerHeight - 12 : innerHeight - 96);
           if (innerWidth <= 980) {
             const canvasHeight = Number(canvas.getBoundingClientRect?.().height) || 420;
             return { width: Math.max(240, bodyWidth - 24), height: Math.max(160, canvasHeight), vertical: true, bodyWidth, padding: 24 };
@@ -940,6 +1138,23 @@
           ));
         }
 
+        function syncSidebarHeights(displayHeight) {
+          const viewport = canvasViewport();
+          if (viewport.vertical) {
+            toolbar.style.removeProperty('height');
+            commentPanel.style.removeProperty('height');
+            workbench.style.removeProperty('height');
+            workbench.style.removeProperty('flex');
+            return;
+          }
+          const imageHeight = Math.max(1, Math.round(Number(displayHeight) || 0));
+          const height = Math.min(Math.max(1, Number(viewport.height) || imageHeight), imageHeight);
+          toolbar.style.height = `${height}px`;
+          commentPanel.style.height = `${height}px`;
+          workbench.style.height = `${height}px`;
+          workbench.style.flex = '0 0 auto';
+        }
+
         function renderImageCanvas() {
           const naturalWidth = Math.max(1, Number(image.naturalWidth || image.width) || 860);
           const naturalHeight = Math.max(1, Number(image.naturalHeight || image.height) || 600);
@@ -955,13 +1170,18 @@
             element.style.height = `${displayHeight}px`;
           }
           updateCanvasFrame(displayWidth);
+          syncSidebarHeights(displayHeight);
           baseCanvas.getContext('2d')?.drawImage(image, 0, 0, naturalWidth, naturalHeight);
           drawOverlay();
         }
 
         function onResize() {
           if (resizeFrame && typeof windowRef?.cancelAnimationFrame === 'function') windowRef.cancelAnimationFrame(resizeFrame);
-          const redraw = () => { resizeFrame = 0; renderImageCanvas(); };
+          const redraw = () => {
+            resizeFrame = 0;
+            renderImageCanvas();
+            if (state.resizeMenuOpen) positionResizeMenu();
+          };
           if (typeof windowRef?.requestAnimationFrame === 'function') resizeFrame = windowRef.requestAnimationFrame(redraw);
           else redraw();
         }
@@ -972,6 +1192,7 @@
           if (state.settled) return;
           state.settled = true;
           documentRef.removeEventListener('keydown', onKeydown);
+          documentRef.removeEventListener('click', onDocumentClick);
           windowRef?.removeEventListener?.('resize', onResize);
           if (resizeFrame && typeof windowRef?.cancelAnimationFrame === 'function') windowRef.cancelAnimationFrame(resizeFrame);
           try { URLImpl.revokeObjectURL(sourceUrl); } catch {}
@@ -979,10 +1200,17 @@
           resolve(result);
         }
 
+        function onDocumentClick(event) {
+          if (!state.resizeMenuOpen) return;
+          if (resizeMenu.contains?.(event.target) || resizeButton.contains?.(event.target)) return;
+          closeResizeMenu();
+        }
+
         function onKeydown(event) {
           const key = String(event.key || '').toLowerCase();
           if (event.isComposing || event.keyCode === 229) return;
           if (key === 'escape') {
+            if (state.resizeMenuOpen) { closeResizeMenu({ focus: true }); return; }
             if (commentPopover.classList.contains('active')) closeCommentPopover();
             else cleanup(null);
             return;
@@ -1121,6 +1349,7 @@
           commentPopover.classList.remove('active');
           commentInput.value = '';
           commentConfirm.style.removeProperty('background-color');
+          closeResizeMenu();
           drawOverlay();
           updateCommentStatus();
           selectTool('none');
@@ -1144,6 +1373,7 @@
         cancelButton.addEventListener('click', () => cleanup(null));
         backdrop.addEventListener('click', event => { if (event.target === backdrop) cleanup(null); });
         documentRef.addEventListener('keydown', onKeydown);
+        documentRef.addEventListener('click', onDocumentClick);
 
         function combinedEditLabel(actions, comments) {
           if (actions.length === 1) {
@@ -1152,6 +1382,7 @@
               return comments.map((comment, index) => `${index + 1}. ${comment.text}`).join('\n');
             }
             if (action.type === 'erase') return action.instruction || '';
+            if (action.operation === 'resize') return `调整图片尺寸为${action.label} ${action.ratio}（${formatImageSize(action.size)}）`;
             return '';
           }
           return actions.map(action => {
@@ -1160,6 +1391,7 @@
               return `${index + 1}. ${action.comment.text}`;
             }
             if (action.type === 'erase') return action.instruction ? `局部擦除：${action.instruction}` : '局部擦除';
+            if (action.operation === 'resize') return `调整尺寸：${action.label} ${action.ratio}（${formatImageSize(action.size)}）`;
             if (action.operation === 'remove_background') return '移除图片背景';
             if (action.operation === 'enhance') return '提升图片清晰度';
             return '';
@@ -1173,7 +1405,7 @@
             const editingAction = state.history.find(action => action.id === state.editingRecordId);
             if (editingAction && !saveRecordEdit(editingAction, state.editingRecordDraft)) return;
           }
-          if (!state.history.length) { toast?.('请先添加修改记录'); return; }
+          if (!state.history.length) { toast?.('请先添加操作记录'); return; }
 
           const actions = [...state.history];
           const commentActions = actions.filter(action => action.type === 'comment');
@@ -1182,8 +1414,10 @@
           const hasErase = eraseActions.length > 0;
           const removeBackground = operationSelected('remove_background');
           const enhance = operationSelected('enhance');
+          const resizeAction = selectedResizeAction();
+          const hasResize = !!resizeAction;
           const hasLocalEdits = comments.length > 0 || hasErase;
-          if (removeBackground && (hasLocalEdits || enhance)) {
+          if (removeBackground && (hasLocalEdits || enhance || hasResize)) {
             toast?.('由于模型能力限制，移除背景不能和其他操作同时执行，否则可能生成黑白棋盘背景。请单独使用“移除背景”。');
             return;
           }
@@ -1227,8 +1461,9 @@
             hasErase,
             removeBackground,
             enhance,
+            resize: resizeAction,
           });
-          if (!prompt) { toast?.('请先添加有效的修改记录'); return; }
+          if (!prompt) { toast?.('请先添加有效的操作记录'); return; }
           if (prompt.length > IMAGE_EDITOR_PROMPT_MAX_LENGTH) {
             toast?.(`修改说明过长，请控制在 ${IMAGE_EDITOR_PROMPT_MAX_LENGTH} 个字符以内`);
             return;
@@ -1243,13 +1478,16 @@
                 ? 'remove_background'
                 : single?.type === 'operation' && single.operation === 'enhance'
                   ? 'enhance'
-                  : 'composite';
+                  : single?.type === 'operation' && single.operation === 'resize'
+                    ? 'resize'
+                    : 'composite';
           const label = combinedEditLabel(orderedModificationActions(actions), comments);
           cleanup({
             mode,
             ...(maskBlob ? { maskBlob, width: maskWidth, height: maskHeight } : {}),
             prompt,
             ...(label ? { label } : {}),
+            ...(resizeAction ? { size: resizeAction.size, ratio: resizeAction.ratio } : {}),
             ...(removeBackground ? { background: 'transparent', output_format: 'png' } : {}),
           });
         }
@@ -1273,11 +1511,13 @@
     EDITOR_STYLE_ID,
     IMAGE_EDITOR_TEXT_MAX_LENGTH,
     IMAGE_EDITOR_PROMPT_MAX_LENGTH,
+    IMAGE_RESIZE_PRESETS,
     COMMENT_CURSOR,
     strokeContainsPoint,
     maskAlphaAtPoint,
     normalizeStrokePoint,
     buildEnhancePrompt,
+    buildResizePrompt,
     buildCompositeEditPrompt,
     buildSelectedAreaPrompt,
     paintMask,

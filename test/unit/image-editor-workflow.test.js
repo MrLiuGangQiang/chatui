@@ -139,6 +139,59 @@ async function testEnhanceEditDispatchesOnlyTheTargetWithoutMask() {
   }
 }
 
+async function testResizeEditDispatchesTheSelectedSizeWithoutAMask() {
+  const restore = installFileReader();
+  try {
+    const { workflow, calls, userMessages } = makeWorkflow();
+    await workflow.applyImageEdit({
+      sessionId: 'session-1',
+      imageBlob: { type: 'image/png' },
+      filename: 'target.png',
+      edit: {
+        mode: 'resize',
+        size: '1536x864',
+        prompt: '保持主体、内容、颜色、风格和细节，将图片自然重构图到宽屏 16:9（1536 × 864）。',
+        label: '调整图片尺寸为宽屏 16:9（1536 × 864）',
+      },
+    });
+    assert.strictEqual(calls.length, 1);
+    const { options } = calls[0];
+    assert.strictEqual(options.dispatchContract.arguments.size, '1536x864');
+    assert.strictEqual((options.maskAttachments || []).length, 0, 'resize alone must not send a mask');
+    assert.strictEqual((options.attachments || []).length, 1, 'resize must use the original image as the only target');
+    assert.deepStrictEqual(
+      options.dispatchContract.bindings.map(binding => `${binding.role}:${binding.type}`),
+      ['target:image'],
+    );
+    assert.strictEqual(userMessages[0].options.rawText, '调整图片尺寸为宽屏 16:9（1536 × 864）');
+  } finally {
+    restore();
+  }
+}
+
+async function testResizeEditRejectsUnexpectedMasks() {
+  const restore = installFileReader();
+  try {
+    const { workflow, calls } = makeWorkflow();
+    await assert.rejects(
+      () => workflow.applyImageEdit({
+        sessionId: 'session-1',
+        imageBlob: { type: 'image/png' },
+        edit: {
+          mode: 'resize',
+          maskBlob: { type: 'image/png' },
+          size: '1536x864',
+          prompt: '保持主体，将图片自然重构图到宽屏 16:9。',
+        },
+      }),
+      /全局编辑操作不支持遮罩/,
+    );
+    assert.strictEqual(calls.length, 0, 'a standalone resize must not dispatch with an unexpected mask');
+  } finally {
+    restore();
+  }
+}
+
 async function testCompositeEditCarriesOneCombinedMaskAndGlobalParameters() {
   const restore = installFileReader();
   try {
@@ -412,6 +465,8 @@ module.exports = [
   testEraseEditDispatchesOneMaskAndTarget,
   testRemoveBackgroundEditRequestsTransparentPng,
   testEnhanceEditDispatchesOnlyTheTargetWithoutMask,
+  testResizeEditDispatchesTheSelectedSizeWithoutAMask,
+  testResizeEditRejectsUnexpectedMasks,
   testCompositeEditCarriesOneCombinedMaskAndGlobalParameters,
   testEraseWithoutMaskDataFailsClosed,
   testCommentEditSendsMaskAndCleanOriginal,

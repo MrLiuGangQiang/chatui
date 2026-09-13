@@ -52,6 +52,7 @@
         case 'erase': return '\u64e6\u9664\u56fe\u7247\u4e2d\u7684\u9009\u533a';
         case 'remove_background': return '移除此图像的背景。保持所有前景主体不变且完整无损，边缘干净平滑。将背景设为透明。';
         case 'enhance': return '提升图片清晰度';
+        case 'resize': return '调整图片尺寸';
         case 'composite': return '组合图片编辑';
         case 'comment': return '\u6309\u8bc4\u8bba\u4fee\u6539\u56fe\u7247';
         default: return '\u7f16\u8f91\u56fe\u7247';
@@ -150,10 +151,10 @@
       }
       if (!edit || !edit.mode) throw new Error('\u7f16\u8f91\u64cd\u4f5c\u65e0\u6548');
       const editMode = String(edit.mode);
-      if (!['erase', 'comment', 'remove_background', 'enhance', 'composite'].includes(editMode)) {
+      if (!['erase', 'comment', 'remove_background', 'enhance', 'resize', 'composite'].includes(editMode)) {
         throw new Error('图片编辑操作无效，请重新选择编辑工具');
       }
-      if (['remove_background', 'enhance'].includes(editMode) && edit.maskBlob) {
+      if (['remove_background', 'enhance', 'resize'].includes(editMode) && edit.maskBlob) {
         throw new Error('当前全局编辑操作不支持遮罩，请重新选择局部编辑工具');
       }
       if (typeof sendImage !== 'function') throw new Error('\u56fe\u7247\u5de5\u4f5c\u6d41\u4e0d\u53ef\u7528\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u540e\u91cd\u8bd5');

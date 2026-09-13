@@ -1,5 +1,6 @@
 const { sendJson } = require('../http/response');
 const { performance } = require('perf_hooks');
+const { StringDecoder } = require('string_decoder');
 const { normalizeExtraHeaders } = require('../proxy/headers');
 const { makeJobId, getJobIdFromUrl, publicJob, extractProxyRequest, createUpstreamFetch, readUpstreamText, safeParseJson, respondJobError, normalizeUpstreamErrorMessage, findJobOr404, responsesInputFileDataParts } = require('./common');
 const { normalizeContentText, normalizeReasoningText } = require('./reasoning');
@@ -262,11 +263,15 @@ try {
     if (content || reasoning) markFirstToken(job);
     job.data = { choices: [{ message: { content, reasoning_content: reasoning } }] };
   } else {
+    const decoder = new StringDecoder('utf8');
     for await (const chunk of upstream.body) {
       upstreamRequest.touch();
       if (!jobCanRun(job)) return job;
-      if (updateChatJobFromStreamChunk(job, Buffer.from(chunk).toString('utf8'), { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
+      const decoded = decoder.write(Buffer.from(chunk));
+      if (updateChatJobFromStreamChunk(job, decoded, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }
+    const decodedTail = decoder.end();
+    if (decodedTail && updateChatJobFromStreamChunk(job, decodedTail, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     if (job.buffer) {
       if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
     }

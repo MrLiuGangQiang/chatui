@@ -147,7 +147,12 @@ function createResponsesCompactStreamNormalizer({ now = () => performance.now(),
         continue;
       }
       let event;
-      try { event = JSON.parse(parsed.data); } catch { continue; }
+      try { event = JSON.parse(parsed.data); } catch (cause) {
+        const error = new Error('上游流事件无效，已停止生成');
+        error.code = 'RESPONSES_STREAM_INVALID_EVENT';
+        error.cause = cause;
+        throw error;
+      }
       if (parsed.event && !event.type) event.type = parsed.event;
       const delta = extractResponsesStreamDelta(event);
       for (const source of delta.sources || []) {

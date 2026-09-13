@@ -53,6 +53,13 @@ function testResponsesCompactStreamAppendsUniqueWebSearchSourcesBeforeDone() {
   assert.strictEqual(updates.at(-1).rt, 75);
 }
 
+
+function testResponsesCompactStreamRejectsMalformedJsonInsteadOfEmittingDone() {
+  const normalizer = createResponsesCompactStreamNormalizer({ startedAt: 0, now: () => 1 });
+  assert.throws(() => normalizer.push('data: {bad json}\n\n'), error => error.code === 'RESPONSES_STREAM_INVALID_EVENT');
+}
+
 module.exports = [
+  testResponsesCompactStreamRejectsMalformedJsonInsteadOfEmittingDone,
   testResponsesCompactStreamAppendsUniqueWebSearchSourcesBeforeDone,
 ];

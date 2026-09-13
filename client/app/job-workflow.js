@@ -229,8 +229,22 @@
     if (chatJobId && options.multiplex !== false && typeof EventSourceRef === 'function'
         && typeof jobEventMultiplex.createJobEventMultiplexer === 'function') {
       let multiplexer = jobEventMultiplexers.get(EventSourceRef);
+      if (multiplexer?.isClosed?.()) {
+        jobEventMultiplexers.delete(EventSourceRef);
+        multiplexer = null;
+      }
       if (!multiplexer) {
-        multiplexer = jobEventMultiplex.createJobEventMultiplexer({ EventSource: EventSourceRef });
+        multiplexer = jobEventMultiplex.createJobEventMultiplexer({
+          EventSource: EventSourceRef,
+          endpoint: options.endpoint,
+          fetchImpl: options.fetchImpl,
+          parseResponseJson: options.parseResponseJson,
+          normalizeError: options.normalizeError,
+          pollJob: options.pollJob,
+          pageUnloading: options.isPageUnloading || options.pageUnloading,
+          pageEventTarget: options.pageEventTarget,
+          listenPageUnload: options.listenPageUnload,
+        });
         jobEventMultiplexers.set(EventSourceRef, multiplexer);
       }
       return multiplexer.subscribe(chatJobId, onUpdate, options);

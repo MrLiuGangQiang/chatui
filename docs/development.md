@@ -379,3 +379,7 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 ### 公告图片
 
 公告目录下可创建 `images/` 子目录，图片通过 `/announcements/images/<文件名>` 访问。Docker 部署时需挂载整个公告目录，例如 `-v /srv/chatui/announcements:/app/data/announcements:ro`。
+
+## 流式并发专项门禁
+
+本次 Chat Job SSE 改造的专项入口是 `npm run test:streaming`，它通过项目自定义 runner 执行 unit/smoke 回归；实现前不得把该命令当作已存在的验证证据。生产拓扑固定单实例，端口仍为 8765。

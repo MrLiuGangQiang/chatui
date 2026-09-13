@@ -1,6 +1,9 @@
 ﻿(function initChatUISessionResources(root) {
   'use strict';
 
+  const batchHelpers = root?.ChatUISubmitWorkflowHelpers
+    || (typeof require === 'function' ? require('./submit-workflow.helpers') : {});
+
   function createSessionResourceLifecycle(deps = {}) {
     const getState = deps.getState || (() => ({}));
     const documentRef = deps.document || root.document;
@@ -53,6 +56,7 @@
         sessionChatJobKey?.(sessionId),
         sessionImageJobKey?.(sessionId),
         pendingSubmitKey?.(sessionId),
+        batchHelpers.imageBatchIndexKey?.(sessionId),
       ].filter(Boolean);
     }
 
@@ -70,20 +74,43 @@
       const managedJobs = new Map();
       addManagedJob(managedJobs, 'chat', chatJob?.id);
       addManagedJob(managedJobs, 'image', imageJob?.id);
+      const batch = parseStoredJson(safeStorageGet(batchHelpers.imageBatchIndexKey?.(sessionId)));
+      addManagedJob(managedJobs, 'image_batch', batch?.parentJobId || batch?.batchId);
+      for (const child of Array.isArray(batch?.children) ? batch.children : []) {
+        addManagedJob(managedJobs, 'image', child?.jobId);
+        const key = batchHelpers.imageBatchChildKey?.(sessionId, child?.jobId);
+        if (key) localStorageKeys.push(key);
+      }
+      // A damaged/missing index must not orphan that session's child snapshots.
+      const childPrefix = batchHelpers.imageBatchChildKey?.(sessionId, '');
+      if (childPrefix && typeof localStorageRef?.key === 'function') {
+        try {
+          for (let index = 0; index < localStorageRef.length; index += 1) {
+            const key = localStorageRef.key(index);
+            if (!key?.startsWith(childPrefix)) continue;
+            localStorageKeys.push(key);
+            addManagedJob(managedJobs, 'image', key.slice(childPrefix.length));
+            const snapshot = parseStoredJson(safeStorageGet(key));
+            addManagedJob(managedJobs, 'image_batch', snapshot?.parentJobId);
+          }
+        } catch {}
+      }
       for (const item of session?.display || []) {
         if (!item?.jobId) continue;
-        addManagedJob(managedJobs, isImagePendingDisplayItem(item) ? 'image' : 'chat', item.jobId);
+        const batchId = item.batchJobId || (/^imgbatch-/.test(item.jobId) ? item.jobId : '');
+        if (batchId) addManagedJob(managedJobs, 'image_batch', batchId);
+        else addManagedJob(managedJobs, isImagePendingDisplayItem(item) ? 'image' : 'chat', item.jobId);
       }
       const activeRun = state.activeRuns?.get?.(sessionId);
       for (const value of activeRun?.jobIds || []) {
         const [kind, ...parts] = String(value || '').split(':');
-        if (kind === 'chat' || kind === 'image') addManagedJob(managedJobs, kind, parts.join(':'));
+        if (kind === 'chat' || kind === 'image' || kind === 'image_batch') addManagedJob(managedJobs, kind, parts.join(':'));
       }
       const imageKeys = new Set(collectSessionImageKeys(session));
       return Object.freeze({
         sessionId,
         session,
-        localStorageKeys,
+        localStorageKeys: [...new Set(localStorageKeys)],
         imageKeys,
         managedJobs: [...managedJobs.values()],
       });
@@ -143,6 +170,7 @@
       }
       state.resumingJobs?.delete?.(`chat:${sessionId}`);
       state.resumingJobs?.delete?.(`image:${sessionId}`);
+      state.resumingJobs?.delete?.(`image_batch:${sessionId}`);
       for (const job of manifest.managedJobs) {
         state.followingChatJobs?.delete?.(job.jobId);
         state.followingImageJobs?.delete?.(job.jobId);

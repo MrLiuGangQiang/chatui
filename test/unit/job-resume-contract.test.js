@@ -126,7 +126,8 @@ async function testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode() 
     isChatStatusText: () => false,
     getChatJob: async () => { events.push('get-chat-job'); return null; },
     registerChatStreamJob: async () => { events.push('register-chat-job'); return null; },
-    waitChatJob: async (_jobId, onEvent) => {
+    waitChatJob: async (_jobId, onEvent, options) => {
+      events.push(['wait-chat-job-options', options]);
       events.push('wait-chat-job');
       onEvent({ status: 'running', data: { reasoning: 'background reasoning' } });
       return { status: 'done', data: { content: 'background answer', reasoning: 'background reasoning' } };
@@ -149,6 +150,7 @@ async function testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode() 
   await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeChatJob(backgroundSessionId);
 
   assert.ok(events.includes('wait-chat-job'), `the test must reach chat recovery polling: ${JSON.stringify(events)}`);
+  assert.strictEqual(events.find(event => Array.isArray(event) && event[0] === 'wait-chat-job-options')?.[1]?.sessionId, backgroundSessionId, 'chat recovery must bind the waiter to its target session');
   assert.strictEqual(liveUpdates.length >= 1, true, 'the background job must update its own session projection');
   assert.strictEqual(liveUpdates.every(args => args[0] === backgroundSessionId), true, 'background resume updates must remain session-scoped');
   assert.strictEqual(liveUpdates.some(args => args[4]?.reasoning === 'background reasoning'), true, 'the test must observe the background reasoning delta before asserting DOM isolation');

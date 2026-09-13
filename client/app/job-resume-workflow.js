@@ -1055,7 +1055,7 @@
             if (!d && c && isMissingJobError(c)) throw c;
             if (!d) {
               const resumeOffsets = R();
-              d = await waitChatJob(s.id, i, { resumeOffsets });
+              d = await waitChatJob(s.id, i, { resumeOffsets, sessionId: e });
             }
             let m = extractChatJobText(d);
             if (!m.content && !m.reasoning) {

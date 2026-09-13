@@ -34,7 +34,7 @@
 | POST | 基础路径 | 创建任务，返回公开任务视图 |
 | GET | `/{id}` | 查询任务（本人） |
 | GET | `/{id}/events` | SSE 事件流，支持断点续传 offset |
-| GET | `/events?ids=...` | chat Job 多路 SSE；每个 `job` 事件包含所属 `id`，offset 按 Job 传入 |
+| GET | `/events?ids=...` | chat Job SSE shard；每个 shard 按完整 request-target 字节预算承载一组 Job，每个 Job 稳定态只属于一个 shard，事件包含所属 `id`，offset 按 Job 传入 |
 | POST | `/{id}/abort` | 停止任务 |
 | DELETE | `/{id}` | 释放任务 |
 
@@ -99,7 +99,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 
 `data:` JSON 事件 + 注释帧 keepalive；服务端关闭前先结束 SSE 再退出。客户端断线重连复用 job event offset，避免重复处理。
 
-浏览器必须为 chat Job 使用一条多路 SSE，而不是按会话或按 Job 建立多条长连接。`GET /api/chat-jobs/events?ids=...` 在同一条响应中先回放每个 Job 的 offset 快照，后续 `event: job` 数据以 `id` 标识归属；客户端按 `id` 分发给对应 `sessionId + jobId` 的 follower。某个 Job 终态只从多路连接中移除该 Job，其他会话继续接收。
+浏览器运行时可以建立多个 Chat Job SSE shard，而不是按会话或按 Job 建立独立长连接。每个 shard 使用 `GET /api/chat-jobs/events?ids=...`，先回放该 shard 的 offset 快照，后续 `event: job` 数据按 `id` 分发；每个 Job 稳定态只属于一个 shard，同一 Job 的 waiter 共享 canonical aggregate。某个 Job 终态只从所属 shard 移除，不关闭或污染其它 Job。
 
 ## 10. 内部路由修复契约（2026-08-30）
 

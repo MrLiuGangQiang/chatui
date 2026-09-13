@@ -288,9 +288,9 @@ GET /
 
 该链路必须始终满足：原始输入不因参数分析归一化而改变；上下文故障、非法模型输出和低确定性参数失败关闭；路由本身不授权高风险业务操作；停止、超时、失败与完成保持可区分且单终态；最终执行仍需服务端鉴权、参数和 `dispatch_contract.v1` 校验。Chat/Image Job 在进入创建、复用、查询、SSE、中止或删除边界时必须存在经服务端验证的 principal；owner 在 Job 放入 store 前一次性绑定且不可变，未授权与不存在的公开响应不得泄露差异，owner 信息不得进入 `publicJob`、日志或 trace。
 
-浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。`client/app/persistence.js` 对大 Base64 数据 URL 的清理必须采用线性扫描，禁止对整条消息 HTML 使用无界贪婪正则；否则大图预览会在持久化阶段触发 V8 栈溢出。`client/app/runtime-upgrade-workflow.js` 在 runtime source fingerprint 变化时记录新身份，但不先删任务交接状态和 pending UI；恢复流程必须先连接并校验原 Job 与执行合同，只有服务端明确返回不存在或合同不兼容时才清理，已完成历史始终不受影响；`client/services/session-snapshot-recovery.js` 对旧 snapshot shape 做显式迁移后再读取，迁移失败只隔离损坏快照，不阻塞整个会话列表。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。多实例部署仍需要粘性会话或一致 Job 存储，并共享显式 principal secret；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
+浏览器保存会话、草稿、配置和持久化媒体引用；大媒体使用 IndexedDB。`client/app/persistence.js` 对大 Base64 数据 URL 的清理必须采用线性扫描，禁止对整条消息 HTML 使用无界贪婪正则；否则大图预览会在持久化阶段触发 V8 栈溢出。`client/app/runtime-upgrade-workflow.js` 在 runtime source fingerprint 变化时记录新身份，但不先删任务交接状态和 pending UI；恢复流程必须先连接并校验原 Job 与执行合同，只有服务端明确返回不存在或合同不兼容时才清理，已完成历史始终不受影响；`client/services/session-snapshot-recovery.js` 对旧 snapshot shape 做显式迁移后再读取，迁移失败只隔离损坏快照，不阻塞整个会话列表。API Key 等敏感配置不得进入备份、Release Notes、日志或模型上下文。服务端 Job 当前以进程内存为主，进程重启后不能假定任务仍存在。默认 principal 也是匿名浏览器身份而非账号登录：同源浏览器自动携带 `HttpOnly` Cookie；独立 API 客户端必须保留 Cookie。本次生产仅支持单实例；sticky session 和共享 Job 存储属于后续独立设计，不得将本次实现部署为无共享 JobStore 的多实例系统；真实用户/组织多租户必须由可验证 JWT/OIDC 等受信任身份适配器提供，不能信任客户端自报 ID。
 
-chat Job 实时恢复必须复用单条多路 SSE：客户端把全部活跃 `jobId` 和各自 offset 放入 `GET /api/chat-jobs/events`，服务端在同一响应中按 `id` 回放并推送各 Job 事件，客户端再按 `sessionId + jobId` 隔离分发。不得为每个会话建立独立长连接，也不得因连接池饱和让部分会话静默停在 pending。
+chat Job 实时恢复由 ShardManager 按完整 request-target UTF-8 字节预算建立一个或多个 `GET /api/chat-jobs/events?ids=...` EventSource shard；每个 Job 稳定态只属于一个 shard，服务端按 `id` 推送，客户端以 Job canonical aggregate 分发到目标 session。不得为每个会话/Job 建立独立长连接，也不得静默丢失或 pending。
 
 ### 7.3 图片
 

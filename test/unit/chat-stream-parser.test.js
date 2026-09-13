@@ -68,19 +68,11 @@ function testChatStreamChunkParserHandlesMultipleEventsAndDone() {
   assert.ok(Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 1);
 }
 
-function testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents() {
+function testChatStreamChunkParserRejectsInvalidJsonInsteadOfSilentlyTruncating() {
   const { handlers } = createHandlers();
   const job = makeJob(handlers);
-  const chunk = [
-    'event: ping\n\n',
-    'data: {bad json}\n\n',
-    sse({ output_text: 'fallback content', reasoning_content: 'fallback reasoning' }),
-  ].join('');
-
-  assert.strictEqual(handlers.updateChatJobFromStreamChunk(job, chunk, { notify: false }), true);
-  assert.strictEqual(job.data.choices[0].message.content, 'fallback content');
-  assert.strictEqual(job.data.choices[0].message.reasoning_content, 'fallback reasoning');
-  assert.deepStrictEqual(job.streamDelta, { content: 'fallback content', reasoning: 'fallback reasoning' });
+  const chunk = ['event: ping\n\n', 'data: {bad json}\n\n'].join('');
+  assert.throws(() => handlers.updateChatJobFromStreamChunk(job, chunk, { notify: false }), error => error.code === 'CHAT_STREAM_INVALID_EVENT');
 }
 
 function testResponsesManagedStreamUsesResponsesParserAndEndpoint() {
@@ -127,7 +119,7 @@ function testResponsesManagedStreamAppendsUniqueWebSearchSources() {
   assert.strictEqual((job.data.choices[0].message.content.match(/example\.com\/news/g) || []).length, 1);
 }
 
-function testChatStreamChunkParserNotifiesPerEventWhenEnabled() {
+function testChatStreamChunkParserNotifiesAfterChunkWhenEnabled() {
   const { handlers, notifications } = createHandlers();
   const job = makeJob(handlers);
   const chunk = [
@@ -136,7 +128,8 @@ function testChatStreamChunkParserNotifiesPerEventWhenEnabled() {
   ].join('');
 
   assert.strictEqual(handlers.updateChatJobFromStreamChunk(job, chunk), true);
-  assert.strictEqual(notifications.length, 2);
+  assert.strictEqual(notifications.length, 1);
+  assert.deepStrictEqual(notifications[0], { content: 'A', reasoning: 'B', status: 'running' });
   assert.strictEqual(job.data.choices[0].message.content, 'A');
   assert.strictEqual(job.data.choices[0].message.reasoning_content, 'B');
   assert.deepStrictEqual(job.streamDelta, { content: 'A', reasoning: 'B' });
@@ -146,8 +139,8 @@ module.exports = [
   testChatStreamParserHelpersArePure,
   testChatStreamChunkParserBuffersPartialEvents,
   testChatStreamChunkParserHandlesMultipleEventsAndDone,
-  testChatStreamChunkParserSkipsInvalidJsonAndEmptyEvents,
-  testChatStreamChunkParserNotifiesPerEventWhenEnabled,
+  testChatStreamChunkParserRejectsInvalidJsonInsteadOfSilentlyTruncating,
+  testChatStreamChunkParserNotifiesAfterChunkWhenEnabled,
   testResponsesManagedStreamUsesResponsesParserAndEndpoint,
   testResponsesManagedStreamAppendsUniqueWebSearchSources,
 ];

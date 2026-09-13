@@ -1,4 +1,4 @@
-﻿(function initChatUIJobService(root) {
+(function initChatUIJobService(root) {
   'use strict';
 
 const http = root?.ChatUICoreHttp
@@ -109,23 +109,42 @@ async function registerChatStreamJob({ payload, config, jobId, api = 'chat', sta
   });
 }
 
-async function getJob({ fetchImpl = fetch, url, parseResponseJson, normalizeError }) {
-  const response = await fetchImpl(url);
-  const payload = await parseResponseJson(response);
-  if (!response.ok) throw new Error(normalizeError(null, payload));
+async function getJob({ fetchImpl = fetch, url, signal, parseResponseJson, normalizeError }) {
+  const response = await fetchImpl(url, { method: 'GET', signal });
+  const parser = parseResponseJson || (async responseLike => {
+    if (typeof responseLike?.json === 'function') return responseLike.json();
+    const text = await responseLike?.text?.();
+    try { return text ? JSON.parse(text) : null; } catch { return { raw: text }; }
+  });
+  const payload = await parser(response);
+  if (!response.ok) {
+    const error = rejectedJobError(response, payload, normalizeError || ((_, body) => body?.error?.message || body?.message || '请求失败'));
+    throw error;
+  }
   return payload;
+}
+
+async function getChatJob({ jobId, fetchImpl = fetch, signal, parseResponseJson, normalizeError }) {
+  if (!jobId) throw new TypeError('jobId is required');
+  return getJob({
+    fetchImpl,
+    signal,
+    parseResponseJson,
+    normalizeError,
+    url: `/api/chat-jobs/${encodeURIComponent(jobId)}`,
+  });
 }
 
 async function abortManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {}) {
   if (!jobId) return null;
-  const collection = kind === 'image' ? 'image-jobs' : 'chat-jobs';
+  const collection = kind === 'image_batch' ? 'image-batches' : kind === 'image' ? 'image-jobs' : 'chat-jobs';
   const response = await fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
   return response;
 }
 
 async function disposeManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {}) {
   if (!jobId) return null;
-  const collection = kind === 'image' ? 'image-jobs' : 'chat-jobs';
+  const collection = kind === 'image_batch' ? 'image-batches' : kind === 'image' ? 'image-jobs' : 'chat-jobs';
   return fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
 }
 
@@ -314,6 +333,7 @@ const api = Object.freeze({
   startChatJob,
   registerChatStreamJob,
   getJob,
+  getChatJob,
   abortManagedJob,
   disposeManagedJob,
   makeTerminalJobError,

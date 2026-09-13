@@ -86,12 +86,12 @@
 .image-editor-control svg{width:19px;height:19px;flex:none}
 .image-editor-control:hover{background:#eef5fd}
 .image-editor-control:disabled{color:#aab7ca;background:transparent;cursor:default}
-.image-editor-action{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:42px;padding:0 15px;border:1px solid #dfe8f3;border-radius:9px;background:#fff;color:#1d2d4b;font-family:inherit;font-size:14px;line-height:1;white-space:nowrap;cursor:pointer}
+.image-editor-action{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:96px;height:42px;padding:0 16px;border:1px solid #dfe8f3;border-radius:9px;background:#fff;color:#1d2d4b;font-family:inherit;font-size:14px;line-height:1;white-space:nowrap;cursor:pointer}
 .image-editor-action svg{width:19px;height:19px;flex:none}
 .image-editor-action:hover{background:#f8fbff}
-.image-editor-action.primary{min-width:150px;border-color:#0872f3;background:#0872f3;color:#fff;box-shadow:0 5px 12px rgba(8,114,243,.14)}
+.image-editor-action.primary{border-color:#0872f3;background:#0872f3;color:#fff;box-shadow:0 5px 12px rgba(8,114,243,.14)}
 .image-editor-action.primary:hover{background:#0068ea}
-.image-editor-action.danger{min-width:112px;border-color:#ffd9dc;background:#fff;color:#f35c64}
+.image-editor-action.danger{border-color:#ffd9dc;background:#fff;color:#f35c64}
 .image-editor-action.danger svg{color:#f35c64}
 .image-editor-action.danger:hover{background:#fff7f8}
 .image-editor-action:disabled{border-color:#e8eef6;background:#f8fafc;color:#b2bece;box-shadow:none;cursor:default}
@@ -125,7 +125,7 @@
 .image-editor-comment-panel{flex-basis:290px}
 .image-editor-control span{display:none}
 .image-editor-file-info{font-size:12px}
-.image-editor-action.primary{min-width:140px}
+.image-editor-action.primary{min-width:96px}
 }
 @media (max-width:980px){
 .image-editor-body{justify-content:flex-start;overflow:auto;padding:12px;scroll-padding-bottom:16px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
@@ -621,9 +621,9 @@
         const clearButton = el('button', { className: 'image-editor-action danger', type: 'button' });
         clearButton.innerHTML = toolbarIcon(CLEAR_ICON) + '<span>清空评论</span>';
         const applyButton = el('button', { className: 'image-editor-action primary', type: 'button' });
-        applyButton.innerHTML = toolbarIcon(APPLY_ICON) + '<span>提交修改</span>';
+        applyButton.innerHTML = toolbarIcon(APPLY_ICON) + '<span>应用</span>';
         const cancelButton = el('button', { className: 'image-editor-action', type: 'button' });
-        cancelButton.innerHTML = toolbarIcon(CANCEL_ICON) + '<span>取消编辑</span>';
+        cancelButton.innerHTML = toolbarIcon(CANCEL_ICON) + '<span>取消</span>';
         footerActions.append(clearButton, applyButton, cancelButton);
         footer.append(fileInfo, footerControls, hint, footerActions);
         body.append(workbench, footer);
@@ -946,7 +946,7 @@
           updateActionAvailability();
           if (state.tool === 'comment') {
             hint.textContent = state.comments.length
-              ? `已添加 ${state.comments.length} 条评论，可继续标注或点击提交修改`
+              ? `已添加 ${state.comments.length} 条评论，可继续标注或点击应用`
               : '点击图片标记评论';
           }
         }

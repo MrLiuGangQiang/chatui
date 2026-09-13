@@ -12,6 +12,9 @@
     const documentRef = options.document || root?.document;
     const fetchImpl = options.fetchImpl || root?.fetch?.bind(root);
     const storage = options.storage || root?.localStorage;
+    const openImagePreview = options.openImagePreview
+      || root?.ChatUIApp?.images?.openImagePreview
+      || root?.ChatUIAppImagePreviewWorkflow?.controller?.openImagePreview;
     const markdownRenderer = options.renderMarkdown
       || root?.ChatUIMarkdown?.renderMarkdown
       || root?.ChatUIApp?.markdown?.renderMarkdown;
@@ -141,6 +144,16 @@
       if (typeof markdownRenderer === 'function') container.innerHTML = markdownRenderer(markdown);
       else container.textContent = markdown;
       wrapTables(container);
+      container.querySelectorAll?.('img')?.forEach(image => {
+        image.classList.add('announcement-image-previewable');
+        image.setAttribute('tabindex', '0');
+        image.setAttribute('role', 'button');
+        const preview = () => { const source = image.currentSrc || image.src; if (openImagePreview) return openImagePreview(source, image.alt || 'announcement.png'); return root?.open?.(source, '_blank', 'noopener,noreferrer'); };
+        image.addEventListener('click', preview);
+        image.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); preview(); }
+        });
+      });
     }
 
     function createHistoryEntry(announcement, index) {

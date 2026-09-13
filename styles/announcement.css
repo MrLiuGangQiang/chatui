@@ -783,7 +783,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
     min-height: 0;
     max-height: 42dvh;
     overflow: auto;
-    padding: 20px 22px;
+    padding: 20px 22px calc(20px + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
   .announcement-brand { margin-bottom: 24px; }
   .announcement-hero-copy { margin: 0; }
@@ -792,29 +794,64 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   .announcement-hero-tips { display: block; }
   .announcement-hero-explain { display: block; }
   .announcement-hero-note { display: flex; }
-  .announcement-surface { grid-row: 1; min-height: 0; overflow: auto; }
-  .announcement-head { width: auto; padding: 28px 22px 13px; }
-  .announcement-scroll { width: auto; padding: 0 22px 16px; }
-  .announcement-footer { width: auto; padding: 13px 22px 16px; }
+  .announcement-surface {
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+  .announcement-head {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 28px 22px 13px;
+  }
+  .announcement-scroll {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 22px 16px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .announcement-footer {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 13px 22px 16px;
+  }
+  .announcement-latest,
+  .announcement-body {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 600px) {
   .announcement-modal { padding: 0; align-items: stretch; }
   .announcement-dialog {
+    grid-template-rows: minmax(0, 1fr);
     width: 100%;
     height: 100dvh;
     border: 0;
     border-radius: 0;
   }
   .announcement-hero {
-    max-height: 46dvh;
-    padding: calc(18px + env(safe-area-inset-top)) 18px 18px;
+    display: none;
   }
   .announcement-brand { margin-bottom: 16px; font-size: 11px; }
   .announcement-brand-mark { width: 36px; height: 36px; border-radius: 12px; }
   .announcement-hero-kicker { display: inline-flex; }
   .announcement-hero h2 { font-size: 23px; }
-  .announcement-head { padding: 24px 16px 12px; }
+  .announcement-head {
+    padding: calc(20px + env(safe-area-inset-top)) 16px 12px;
+  }
+  .announcement-overlay-close:not([hidden]) + .announcement-dialog .announcement-head {
+    padding-top: calc(68px + env(safe-area-inset-top));
+  }
   .announcement-meta { margin-bottom: 8px; }
   .announcement-badge,
   .announcement-version,
@@ -823,7 +860,21 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   .announcement-summary { margin-top: 7px; font-size: 13px; line-height: 1.6; }
   .announcement-scroll { padding: 0 14px 14px; }
   .announcement-latest { padding: 16px 16px 18px; border-radius: 14px; }
-  .announcement-body { font-size: 14px; line-height: 1.78; }
+  .announcement-body {
+    font-size: 14px;
+    line-height: 1.78;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .announcement-body h2 { font-size: 17px; }
+  .announcement-body h3 { font-size: 15px; }
+  .announcement-table-wrap {
+    margin: 14px -4px;
+    border-radius: 12px;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .announcement-table-wrap table { min-width: 460px; }
   .announcement-history-panel { padding: 13px; border-radius: 14px; }
   .announcement-history-summary { grid-template-columns: minmax(0,1fr) 16px; }
   .announcement-history-summary time { display: none; }
@@ -834,8 +885,28 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
     padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
   }
   .announcement-history-btn,
-  .announcement-acknowledge-btn { width: 100%; min-width: 0; min-height: 46px; }
+  .announcement-acknowledge-btn { width: 100%; min-width: 0; min-height: 48px; }
   .announcement-acknowledge-btn { margin-left: 0; }
+  .announcement-overlay-close {
+    top: max(8px, calc(env(safe-area-inset-top) + 8px));
+    right: max(8px, calc(env(safe-area-inset-right) + 8px));
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .announcement-overlay-close span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -995,8 +995,32 @@ async function testPortraitImageFitsTheNarrowCanvasViewport() {
     const canvas = fixture.document.querySelector('.image-editor-canvas');
     const base = fixture.document.querySelector('.image-editor-base');
     const editorStyle = fixture.document.getElementById(maskEditor.EDITOR_STYLE_ID);
-    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-footer-actions\{display:grid/,
-      'mobile footer actions must use a wrapping grid instead of overflowing horizontally');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-footer-actions\{[^}]*display:flex[^}]*flex-direction:row/,
+      'mobile footer actions must stay on one horizontal row');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-footer\{[^}]*display:flex[^}]*overflow-x:auto/,
+      'mobile footer actions must use the same horizontally scrollable toolbar pattern as the top tools');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-action\{[^}]*flex:0 0 76px[^}]*min-height:56px[^}]*flex-direction:column[^}]*text-align:center/,
+      'mobile footer buttons must use compact icon-over-label toolbar items');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*\.image-editor-control\{[^}]*flex:0 0 76px[^}]*min-height:56px[^}]*flex-direction:column/,
+      'mobile undo and reset controls must match the footer toolbar items');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-toolbar\{[^}]*position:sticky[^}]*flex-direction:row[^}]*overflow-x:auto/,
+      'mobile tools must collapse into a sticky horizontal strip so the canvas stays reachable');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-canvas\{[^}]*flex:1 1 auto[^}]*min-height:180px/,
+      'the mobile canvas must consume the remaining viewport height');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-comment-panel\{[^}]*flex:0 1 clamp\(132px,21dvh,200px\)/,
+      'mobile operation history must stay compact and scroll internally');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-comment-panel:has\(\.image-editor-comment-empty\)\{[^}]*flex-basis:50px/,
+      'empty mobile operation history must collapse to leave more room for the image');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-footer\{[^}]*position:relative[^}]*margin-top:6px/,
+      'mobile edit actions must sit directly at the bottom of the viewport');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-action\.danger\[hidden\]\{display:inline-flex\}/,
+      'mobile clear action must remain visible and rely on disabled styling');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-action\{[^}]*min-height:56px/,
+      'mobile edit actions must expose touch-sized targets');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-resize-menu\{[^}]*left:8px!important[^}]*right:8px!important[^}]*bottom:calc\(8px \+ env\(safe-area-inset-bottom\)\)/,
+      'the resize chooser must become a safe-area-aware bottom sheet on phones');
+    assert.match(editorStyle.textContent, /@media \(max-width:700px\)\{[\s\S]*?\.image-editor-comment-popover\{[^}]*max-width:calc\(100% - 16px\)/,
+      'the inline comment editor must stay inside a narrow image stage');
     const canvasHeight = Number.parseFloat(canvas.style.height) || 420;
     const renderedHeight = Number.parseFloat(base.style.height) || 0;
     assert.ok(renderedHeight <= canvasHeight - 8,

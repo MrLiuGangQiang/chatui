@@ -128,21 +128,64 @@
 .image-editor-action.primary{min-width:140px}
 }
 @media (max-width:980px){
-.image-editor-body{justify-content:flex-start;overflow:auto;padding:12px}
-.image-editor-workbench{flex:0 0 auto;width:100%;flex-direction:column;align-items:stretch}
+.image-editor-body{justify-content:flex-start;overflow:auto;padding:12px;scroll-padding-bottom:16px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.image-editor-workbench{flex:0 0 auto;width:100%;flex-direction:column;align-items:stretch;gap:10px}
 .image-editor-toolbar,.image-editor-comment-panel{flex:0 0 auto;width:100%;align-self:stretch;height:auto}
-.image-editor-canvas{width:100%;height:420px;flex-basis:420px}
-.image-editor-comment-panel{height:380px}
-.image-editor-footer{width:100%;height:auto;min-height:70px;grid-template-columns:1fr auto;gap:8px;padding:10px 14px}
+.image-editor-canvas{width:100%;height:clamp(240px,52dvh,420px);min-height:0;flex-basis:auto}
+.image-editor-comment-panel{height:min(38dvh,320px);min-height:220px}
+.image-editor-footer{flex:0 0 auto;width:100%;height:auto;min-height:70px;grid-template-columns:1fr auto;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
 .image-editor-file-info{grid-column:1/-1;justify-content:center}
 .image-editor-footer-controls{justify-self:start}
 .image-editor-footer-actions{grid-column:1/-1;width:100%;justify-content:flex-end}
 }
 @media (max-width:700px){
-.image-editor-footer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto;gap:8px;width:100%;justify-content:stretch}
-.image-editor-action.primary{grid-column:1/-1;grid-row:1;min-width:0;flex:none}
-.image-editor-action.danger{grid-column:1;grid-row:2;min-width:0}
-.image-editor-action:not(.primary):not(.danger){grid-column:2;grid-row:2;min-width:0}
+.image-editor-body{display:flex;flex-direction:column;padding:calc(6px + env(safe-area-inset-top)) calc(6px + env(safe-area-inset-right)) 6px calc(6px + env(safe-area-inset-left));overflow:hidden;scroll-padding-top:0;scroll-padding-bottom:0}
+.image-editor-workbench{flex:1 1 auto;min-height:0;gap:6px;overflow:hidden}
+.image-editor-toolbar{position:sticky;top:env(safe-area-inset-top);z-index:8;display:flex;flex-direction:row;align-items:center;gap:4px;width:100%;max-width:100%;padding:6px;overflow-x:auto;overflow-y:hidden;white-space:nowrap;border-radius:14px;background:rgba(255,255,255,.97);box-shadow:0 8px 24px rgba(34,78,132,.1);backdrop-filter:blur(14px) saturate(1.12);-webkit-backdrop-filter:blur(14px) saturate(1.12);overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.image-editor-toolbar::-webkit-scrollbar{display:none}
+.image-editor-toolbar-title{display:none}
+.image-editor-tool{flex:0 0 76px;flex-direction:column;justify-content:center;gap:5px;min-height:56px;padding:5px 4px;border-radius:12px;font-size:11px;line-height:1.15;text-align:center;white-space:normal}
+.image-editor-tool svg{width:22px;height:22px}
+.image-editor-tool-options{display:flex;flex:0 0 auto;align-items:center;gap:6px;padding:0 2px 0 8px;border-top:0;border-left:1px solid #edf3fa}
+.image-editor-tool-options[hidden]{display:none}
+.image-editor-brush{flex:0 0 auto;min-height:48px;padding:0 6px}
+.image-editor-brush input{min-width:90px}
+.image-editor-row{flex:0 0 200px;padding-top:0}
+.image-editor-row input{height:44px}
+.image-editor-canvas{flex:1 1 auto;height:auto;min-height:180px;border-radius:14px;background:rgba(255,255,255,.52);box-shadow:inset 0 0 0 1px rgba(255,255,255,.7)}
+.image-editor-comment-panel{flex:0 1 clamp(132px,21dvh,200px);height:auto;min-height:132px}
+.image-editor-comment-panel:has(.image-editor-comment-empty){flex-basis:50px;min-height:50px}
+.image-editor-comment-panel:has(.image-editor-comment-empty) .image-editor-comment-list{display:none}
+.image-editor-comment-header{flex-basis:50px;height:50px;padding:0 14px}
+.image-editor-comment-list{padding:8px 8px 12px}
+.image-editor-comment-empty{padding:24px 16px}
+.image-editor-comment-card{grid-template-columns:34px minmax(0,1fr) auto;gap:8px;padding:10px}
+.image-editor-comment-index{width:28px;height:28px}
+.image-editor-comment-thumbnail{width:72px;height:54px}
+.image-editor-record-action{width:40px;height:40px;border-radius:10px}
+.image-editor-record-action svg{width:17px;height:17px}
+.image-editor-record-editor-button{min-height:40px;padding:0 14px}
+.image-editor-comment-popover{max-width:calc(100% - 16px);padding:7px 8px}
+.image-editor-comment-popover input{flex:1 1 auto;width:auto;min-width:0;font-size:16px}
+.image-editor-comment-confirm,.image-editor-comment-cancel{flex:0 0 34px;width:34px;height:34px}
+.image-editor-resize-menu{left:8px!important;right:8px!important;top:auto!important;bottom:calc(8px + env(safe-area-inset-bottom));width:auto!important;max-width:none;max-height:min(72dvh,520px);overflow-y:auto;padding:10px;border-radius:16px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.image-editor-resize-option{min-height:50px}
+.image-editor-footer{position:relative;bottom:auto;z-index:9;margin-top:6px;display:flex;flex-direction:row;align-items:center;gap:4px;width:100%;height:auto;min-height:0;padding:6px calc(6px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-left));overflow-x:auto;overflow-y:hidden;border:1px solid #e4edf8;border-radius:14px;background:rgba(248,251,255,.98);box-shadow:0 -8px 24px rgba(34,78,132,.1);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1);scrollbar-width:none;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.image-editor-footer::-webkit-scrollbar{display:none}
+.image-editor-file-info{display:none}
+.image-editor-footer-controls{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;gap:4px;width:auto}
+.image-editor-control{display:inline-flex;flex:0 0 76px;width:76px;min-width:76px;height:56px;min-height:56px;flex-direction:column;justify-content:center;gap:5px;padding:5px 4px;border-radius:12px;font-size:11px;line-height:1.15;text-align:center;white-space:normal}
+.image-editor-control span{display:inline}
+.image-editor-control svg{width:22px;height:22px}
+.image-editor-footer-actions{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;gap:4px;width:auto;justify-content:flex-start}
+.image-editor-action{display:inline-flex;flex:0 0 76px;width:76px;min-width:76px;height:56px;min-height:56px;flex-direction:column;justify-content:center;gap:5px;padding:5px 4px;border:0;border-radius:12px;background:transparent;color:#1f2d4a;font-size:11px;line-height:1.15;text-align:center;white-space:normal;box-shadow:none}
+.image-editor-action.primary,.image-editor-action.danger{min-width:76px}
+.image-editor-action svg{width:22px;height:22px}
+.image-editor-action.primary{background:linear-gradient(135deg,#0873f4,#006af2);color:#fff;box-shadow:0 7px 16px rgba(0,105,242,.2)}
+.image-editor-action.danger{background:transparent;border:0;color:#e5484d}
+.image-editor-action.danger svg{color:currentColor}
+.image-editor-action:disabled{background:transparent;color:#aab7ca}
+.image-editor-action.danger[hidden]{display:inline-flex}
 }
 `;
 
@@ -1110,8 +1153,10 @@
           const footerHeight = Number(footer.getBoundingClientRect?.().height) || 70;
           const availableHeight = Math.max(160, bodyHeight ? bodyHeight - footerHeight - 12 : innerHeight - 96);
           if (innerWidth <= 980) {
-            const canvasHeight = Number(canvas.getBoundingClientRect?.().height) || 420;
-            return { width: Math.max(240, bodyWidth - 24), height: Math.max(160, canvasHeight), vertical: true, bodyWidth, padding: 24 };
+            const canvasRect = canvas.getBoundingClientRect?.() || {};
+            const canvasHeight = Number(canvasRect.height) || 420;
+            const canvasWidth = Number(canvasRect.width) || Math.max(240, bodyWidth - 24);
+            return { width: Math.max(240, canvasWidth), height: Math.max(160, canvasHeight), vertical: true, bodyWidth, padding: 0 };
           }
           const metrics = innerWidth <= 1180
             ? { toolbar: 228, comments: 290, gap: 12, padding: 28 }

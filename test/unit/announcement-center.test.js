@@ -285,6 +285,22 @@ async function testInitialAnnouncementRequestTimesOutIntoRetryState() {
   assert.ok(status.querySelector('.announcement-retry-btn'));
 }
 
+function extractCssMedia(css, header) {
+  const start = css.indexOf(header);
+  if (start < 0) return '';
+  const open = css.indexOf('{', start);
+  if (open < 0) return '';
+  let depth = 0;
+  for (let index = open; index < css.length; index += 1) {
+    if (css[index] === '{') depth += 1;
+    else if (css[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(open + 1, index);
+    }
+  }
+  return '';
+}
+
 function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   const root = path.join(__dirname, '../..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -354,6 +370,27 @@ async function testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntim
   assert.strictEqual(version.textContent, 'v1.10.85', 'without a runtime identity the header falls back to the announcement version');
 }
 
+function testAnnouncementMobileLayoutUsesFullWidthSingleScrollSurface() {
+  const root = path.join(__dirname, '../..');
+  const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
+  const narrowTablet = extractCssMedia(css, '@media (max-width: 860px)');
+  const phone = extractCssMedia(css, '@media (max-width: 600px)');
+  assert.ok(narrowTablet, 'announcement CSS must keep a narrow-tablet breakpoint');
+  assert.ok(phone, 'announcement CSS must keep a phone breakpoint');
+  assert.match(narrowTablet, /\.announcement-dialog\s*\{[^}]*height: 100dvh/, 'the mobile announcement dialog must use the dynamic viewport height');
+  assert.match(narrowTablet, /\.announcement-surface\s*\{[^}]*overflow: hidden/, 'only the announcement body should scroll on mobile, not the whole surface');
+  assert.match(narrowTablet, /\.announcement-head\s*\{[^}]*width: 100%/, 'the mobile announcement header must span the viewport');
+  assert.match(narrowTablet, /\.announcement-scroll\s*\{[^}]*width: 100%[^}]*overflow-x: hidden/, 'the mobile announcement body must occupy full width without horizontal page overflow');
+  assert.match(narrowTablet, /\.announcement-footer\s*\{[^}]*width: 100%/, 'the mobile announcement actions must span the viewport');
+  assert.match(phone, /\.announcement-head\s*\{[^}]*env\(safe-area-inset-top\)/, 'phone announcement headers must respect the top safe area');
+  assert.match(phone, /\.announcement-dialog\s*\{[^}]*grid-template-rows: minmax\(0, 1fr\)/, 'the phone announcement dialog must collapse to a single content row');
+  assert.match(phone, /\.announcement-hero\s*\{[^}]*display: none/, 'the phone announcement view must show only the announcement body');
+  assert.match(phone, /\.announcement-footer\s*\{[^}]*env\(safe-area-inset-bottom\)/, 'the phone announcement footer must respect the bottom safe area');
+  assert.match(phone, /\.announcement-overlay-close:not\(\[hidden\]\) \+ \.announcement-dialog \.announcement-head/, 'an open close button must reserve space above the mobile announcement header');
+  assert.match(phone, /\.announcement-history-btn,\s*\.announcement-acknowledge-btn\s*\{[^}]*min-height: 48px/, 'mobile announcement actions must expose touch-sized targets');
+  assert.match(phone, /\.announcement-overlay-close\s*\{[^}]*width: 44px[^}]*min-height: 44px/, 'the mobile close button must be a 44px touch target');
+}
+
 
 module.exports = [
   testAnnouncementDocumentParsesVersionedMetadata,
@@ -367,6 +404,7 @@ module.exports = [
   testAcknowledgedRefreshVerifiesLatestWithoutFlashingAnnouncementDialog,
   testInitialAnnouncementRequestTimesOutIntoRetryState,
   testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime,
+  testAnnouncementMobileLayoutUsesFullWidthSingleScrollSurface,
   testAnnouncementHeaderShowsRuntimeVersionOverAnnouncementVersion,
   testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntimeIdentity,
 ];

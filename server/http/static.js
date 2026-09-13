@@ -38,6 +38,14 @@ const encodedBodyCache = new Map();
 const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
 const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/', '/pages/'];
 
+function announcementImagePath(urlPath, announcementsDir) {
+  let pathname;
+  try { pathname = decodeURIComponent(String(urlPath || '').split('?')[0]); } catch { return null; }
+  if (!/^\/announcements\/images\//i.test(pathname) || pathname.includes('\\') || pathname.split('/').includes('..')) return null;
+  const relative = pathname.slice('/announcements/'.length);
+  return safeJoin(path.resolve(announcementsDir || ''), path.resolve(announcementsDir || '').endsWith(path.sep) ? path.resolve(announcementsDir || '') : `${path.resolve(announcementsDir || '')}${path.sep}`, relative);
+}
+
 function isPublicStaticPath(urlPath) {
   let pathname;
   try {
@@ -262,7 +270,18 @@ function staticEtag(filePath, stat, encoding = '') {
   return `W/"${sha1(`${filePath}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${encoding}`).slice(0, 24)}"`;
 }
 
-function serveStatic(req, res, { root, rootWithSep, buildIdentity = null }) {
+
+function serveFile(req, res, filePath, url) {
+  fs.stat(filePath, (statErr, stat) => {
+    if (statErr || !stat.isFile()) return send(res, 404, 'Not Found');
+    const headers = { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': SHORT_CACHE, ETag: staticEtag(filePath, stat) };
+    if (isFresh(req, headers.ETag)) return send(res, 304, '', headers);
+    if (req.method === 'HEAD') return send(res, 200, '', headers);
+    fs.readFile(filePath, (err, data) => err ? send(res, 404, 'Not Found') : send(res, 200, data, headers));
+  });
+}
+
+function serveStatic(req, res, { root, rootWithSep, buildIdentity = null, announcementsDir = null }) {
   const url = parseRequestUrl(req);
   if (!url) return send(res, 400, 'Bad Request');
   const bundleKind = BUNDLE_PATHS[url.pathname];
@@ -274,6 +293,8 @@ function serveStatic(req, res, { root, rootWithSep, buildIdentity = null }) {
     return serveIndex(req, res, { root, rootWithSep, buildIdentity });
   }
   if (url.pathname === '/' || url.pathname === '/index.html') return serveIndex(req, res, { root, rootWithSep, buildIdentity });
+  const announcementFile = announcementImagePath(url.pathname, announcementsDir);
+  if (announcementFile) return serveFile(req, res, announcementFile, url);
   if (!isPublicStaticPath(url.pathname)) return send(res, 404, 'Not Found');
 
   const filePath = safeJoin(root, rootWithSep, url.pathname);

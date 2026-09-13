@@ -1355,3 +1355,5 @@ ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过�
 - [Development, checks, and release workflow](docs/development.md)
 - [Manual acceptance suite](docs/manual-acceptance-test.md)
 - [Contribution guide](CONTRIBUTING.md)
+
+公告图片可放在 `data/announcements/images/`，正文使用 `/announcements/images/<文件名>` 引用；Docker 需要只读挂载整个公告目录。

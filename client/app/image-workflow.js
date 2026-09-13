@@ -267,8 +267,7 @@
           g = prepared.styledPrompt,
           u = prepared.payload,
           materializedDispatchContract = prepared.dispatchContract;
-        const planArguments = executionContract.arguments || {},
-          q = {};
+        const q = {};
         let p = "",
           completionJobId = "",
           A = new Set(),

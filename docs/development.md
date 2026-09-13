@@ -375,3 +375,7 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 - 根静态入口变化已经同步静态服务器、Docker、测试和文档；
 - 新测试位于 `test/unit/` 或 `test/smoke/`；
 - `npm run check` 在最终候选状态重新执行并记录结果。
+
+### 公告图片
+
+公告目录下可创建 `images/` 子目录，图片通过 `/announcements/images/<文件名>` 访问。Docker 部署时需挂载整个公告目录，例如 `-v /srv/chatui/announcements:/app/data/announcements:ro`。

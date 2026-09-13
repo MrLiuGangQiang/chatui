@@ -20,6 +20,7 @@ function createRouter(deps) {
     serveStatic,
     root,
     rootWithSep,
+    announcementsDir,
     proxy,
     proxyImage,
     imageJobs,
@@ -202,7 +203,7 @@ function createRouter(deps) {
       // the same canonical index handler, whose body carries the current build
       // identity and content-addressed bundle URLs.
       if (/^\/__chatui\/[a-z0-9:_-]{8,160}\/?$/i.test(pathname)) req.url = '/';
-      return await serveStatic(req, res, { root, rootWithSep, buildIdentity });
+      return await serveStatic(req, res, { root, rootWithSep, buildIdentity, announcementsDir });
     } catch (error) {
       routeError = error;
       throw error;

@@ -531,14 +531,21 @@
           const resultMetaText = b.metaText || `RT ${v}`;
           const resultImageContextText = JSON.stringify(resultImageContext);
           const clarificationReplay = t.clarificationReplay || null;
-          // A detached live node may belong to an old DOM projection. Do not
-          // render before the canonical completion is durably committed: the
-          // renderer would otherwise rebuild the session from the still-pending
-          // message array and leave the old loading card visible.
-          const completionRequiresCanonicalRender =
-            n === state.activeSessionId && (!d || !d.isConnected);
+          // A live node may detach or reject rich media while IndexedDB
+          // persistence and the canonical save are in flight. Check the final
+          // DOM at commit time instead of trusting the pre-save connectivity
+          // snapshot, otherwise the image exists in storage but stays invisible
+          // until a manual refresh.
+          const liveCompletionShowsImage = () => {
+            const imageSelector = 'img.generated-thumb';
+            if (d?.isConnected && d.querySelector?.(imageSelector)) return true;
+            if (typeof findMessageNodeByDisplayItem !== 'function') return false;
+            const committedNode = findMessageNodeByDisplayItem(c);
+            return !!committedNode?.isConnected && !!committedNode.querySelector?.(imageSelector);
+          };
           const renderCompletionAfterCommit = () => {
-            if (!completionRequiresCanonicalRender || n !== state.activeSessionId) return;
+            if (n !== state.activeSessionId || liveCompletionShowsImage()) return;
+            if (typeof forceRenderCanonicalMessages !== 'function') return;
             try {
               forceRenderCanonicalMessages(i);
             } catch (error) {

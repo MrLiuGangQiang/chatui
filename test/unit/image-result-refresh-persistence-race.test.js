@@ -145,6 +145,10 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
         ...copyMessages(incoming),
       ]);
       state.messages = copyMessages(session.messages);
+      // Simulate a focus/pageshow session resync that rebuilds the active DOM
+      // while the canonical image save is in flight. The pre-save connectivity
+      // snapshot was true, but the original live node is now detached.
+      loadingNode.isConnected = false;
     },
     reconcileSuccessfulImageResult: noop,
     playDoneSound: noop,
@@ -178,6 +182,142 @@ async function testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionRes
     'the canonical completion must retain the durable image descriptor used after refresh');
   assert.strictEqual(renderCalls, 1,
     'a detached live image node must be replaced by one canonical active-session render after commit');
+}
+
+async function testLiveNodeDetachedDuringCanonicalSaveFallsBackToCanonicalRender() {
+  const session = {
+    id: 'session-image-connected-fallback',
+    messages: [{ role: 'user', content: 'draw a blue lighthouse', rawText: 'draw a blue lighthouse', messageIndex: '0' }],
+    display: [],
+  };
+  const state = {
+    activeSessionId: session.id,
+    sessions: [session],
+    messages: copyMessages(session.messages),
+    followingImageJobs: new Set(),
+    lastGeneratedImage: null,
+  };
+  const liveItem = {
+    id: 'display-image-connected-fallback',
+    role: 'assistant',
+    pending: '1',
+    rawText: '正在生成图片',
+  };
+  session.display.push(liveItem);
+  const loadingNode = {
+    dataset: {},
+    isConnected: true,
+    // The temporary node is attached but does not own a .content subtree that
+    // can accept the final rich image HTML.
+    querySelector: () => null,
+  };
+  const run = { stopped: false, token: 'run-image-connected-fallback', abortController: new AbortController() };
+  let renderCalls = 0;
+  let finalDisplayUpdated = false;
+  const noop = () => {};
+
+  function updateSessionDisplayItem(_sessionId, item, role, content, options = {}) {
+    if (!item) return;
+    item.role = role;
+    item.html = options.html ? String(content || '') : '';
+    item.rawText = options.rawText ?? String(content || '');
+    if (options.pending !== undefined) item.pending = options.pending ? '1' : '';
+    if (options.responseIndex !== undefined && options.responseIndex !== null) item.responseIndex = String(options.responseIndex);
+    if (options.imageContext !== undefined) item.imageContext = options.imageContext;
+  }
+
+  const route = routeService.createExplicitTextToImageRoute('draw a blue lighthouse');
+  const workflow = imageWorkflow.createImageWorkflow({
+    state,
+    window: {
+      ChatUIServices: {
+        images: {
+          buildImageRequestPayload: ({ model, prompt }) => ({ model, prompt }),
+          createImageContext: imageGenerationService.createImageContext,
+          buildImageCompletionMessage: () => '[图片生成完成] draw a blue lighthouse',
+        },
+      },
+    },
+    getConfig: () => ({ baseUrl: 'https://api.example.test/v1', imageModel: 'image-model', imageSize: 'auto' }),
+    ensureActiveRun: () => run,
+    setActiveOutputForSession: noop,
+    persistSessionDisplay: noop,
+    clearReasoning: noop,
+    clearPendingFeedback: noop,
+    buildImagePromptWithStylePrompt: prompt => prompt,
+    getEffectiveImageStylePrompt: () => '',
+    persistImageAttachmentRefs: async attachments => attachments,
+    imageFilesToJobPayload: async () => [],
+    restoreImageAttachmentsFromContext: async () => [],
+    normalizeImageContextForStorage: value => value,
+    makeImageItemId: (_referenceId, ordinal) => 'image-' + ordinal,
+    makeClientImageJobId: () => 'imgjob-connected-fallback',
+    shouldSuppressRunUi: () => false,
+    pendingFeedbackHtml: text => text,
+    renderImageBatchResult: (_context, options = {}) => String(options.slotStatuses?.[0] || ''),
+    updateLiveDisplay: (sessionId, item, role, content, options) => {
+      finalDisplayUpdated = true;
+      updateSessionDisplayItem(sessionId, item, role, content, options);
+    },
+    forceRenderCanonicalMessages: targetSession => {
+      renderCalls += 1;
+      assert.strictEqual(finalDisplayUpdated, true,
+        'the canonical fallback must run only after the final display projection is committed');
+      assert.ok(targetSession.messages.some(message => message.role === 'assistant'
+        && /indexeddb:\/\/generated-connected-fallback/.test(String(message.imageContext || ''))),
+      'the canonical fallback must see the durable image completion');
+      assert.notStrictEqual(liveItem.pending, '1',
+        'the stale loading projection must be cleared before canonical rendering');
+    },
+    shouldFollowScroll: () => false,
+    setInterval: () => 1,
+    clearInterval: noop,
+    performance: { now: () => 100 },
+    addActiveRunJob: noop,
+    saveImageJob: (_sessionId, job) => job,
+    clearImageJob: noop,
+    startImageGenerationJob: async () => ({ id: 'imgjob-connected-fallback', createdAt: 1 }),
+    waitImageGenerationJob: async () => ({ status: 'completed' }),
+    formatElapsed: () => '1.0s',
+    jobDurationMs: () => 1000,
+    imageResultToHtml: async () => ({
+      html: '<div class="generated-image-grid"><img class="generated-thumb" data-persisted-src="indexeddb://generated-connected-fallback"></div>',
+      raw: 'image result',
+      metaText: 'RT 1.0s',
+      imageContext: JSON.parse(durableImageContext('indexeddb://generated-connected-fallback')),
+    }),
+    updateSessionDisplayItem,
+    updateMessage: () => false,
+    findMessageNodeByDisplayItem: () => null,
+    setImageContext: noop,
+    cloneMessageList: copyMessages,
+    saveSessionMessages: async (_sessionId, incoming) => {
+      session.messages = sessionPersistence.compactAdjacentDuplicateMessages([
+        ...copyMessages(session.messages),
+        ...copyMessages(incoming),
+      ]);
+      state.messages = copyMessages(session.messages);
+    },
+    reconcileSuccessfulImageResult: noop,
+    playDoneSound: noop,
+    mergeSelectedGeneratedImages: noop,
+    normalizeLastGeneratedImage: value => value,
+  });
+
+  await workflow.sendImage('draw a blue lighthouse', {
+    loadingNode,
+    liveItem,
+    sessionId: session.id,
+    userAlreadyAdded: true,
+    replaceAssistantIndex: 1,
+    dispatchContract: route.dispatchContract,
+    executionMedia: route.executionResources,
+    originalPrompt: 'draw a blue lighthouse',
+    clientJobId: 'imgjob-connected-fallback',
+  });
+
+  assert.strictEqual(renderCalls, 1,
+    'a live node detached during the canonical save must be replaced by one canonical render');
 }
 
 function testMarkerOnlyCompletionCannotWinCanonicalImageMerge() {
@@ -324,6 +464,7 @@ function testMarkerOnlyCompletionDoesNotDiscardRecoverablePendingImageProjection
 
 module.exports = [
   testImageCompletionCommitsIntoLatestCanonicalArrayAfterSessionResync,
+  testLiveNodeDetachedDuringCanonicalSaveFallsBackToCanonicalRender,
   testMarkerOnlyCompletionCannotWinCanonicalImageMerge,
   testReconciliationRequiresCanonicalDurableImageAndKeepsRichWinner,
   testMarkerOnlyCompletionDoesNotDiscardRecoverablePendingImageProjection,

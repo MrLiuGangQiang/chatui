@@ -55,8 +55,24 @@
       const reasoning = String(item.reasoningText || '');
       const statusText = typeof deps.isChatStatusText === 'function' ? deps.isChatStatusText : (() => false);
       const started = !!reasoning || (!!rawText.trim() && !statusText(rawText));
-      if (!started) return false;
-      deps.updateLiveDisplay?.(sessionId, item, 'assistant', rawText, {
+      if (started) {
+        deps.updateLiveDisplay?.(sessionId, item, 'assistant', rawText, {
+          rawText,
+          pending: true,
+          reasoning,
+          keepReasoning: !!reasoning,
+          forceDisplay: true,
+          streamKind: 'chat',
+          sessionId,
+          noScroll: true,
+        });
+        return true;
+      }
+      const statusHtml = String(item.html || '')
+        || (typeof deps.pendingFeedbackHtml === 'function' ? deps.pendingFeedbackHtml(rawText) : rawText);
+      if (!statusHtml) return false;
+      deps.updateLiveDisplay?.(sessionId, item, 'assistant', statusHtml, {
+        html: true,
         rawText,
         pending: true,
         reasoning,
@@ -66,7 +82,7 @@
         sessionId,
         noScroll: true,
       });
-      return true;
+      return false;
     }
     function loadImageBatch(sessionId = deps.state?.activeSessionId || '') {
       const stored = submitHelpers.loadImageBatchIndex?.(root.localStorage, sessionId) || null;

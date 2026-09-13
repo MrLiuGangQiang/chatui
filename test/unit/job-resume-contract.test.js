@@ -273,6 +273,52 @@ async function testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch() {
   assert.strictEqual(resumeOptions.forceDisplay, true);
 }
 
+async function testLiveChatResumeReplaysWaitingStatusBeforeFirstDelta() {
+  const sessionId = 'resume-chat-live-status';
+  const statusText = '正在处理 已等待 2 秒';
+  const item = {
+    id: 'display-live-status',
+    role: 'assistant',
+    rawText: statusText,
+    html: `<div class="pending-feedback">${statusText}</div>`,
+    reasoningText: '',
+    pending: '1',
+    jobId: 'chatjob-live-status',
+    responseIndex: '1',
+  };
+  const state = makeState(sessionId);
+  state.sessions[0].display = [item];
+  state.activeRuns.set(sessionId, {
+    stopped: false,
+    abortController: { signal: { aborted: false } },
+    jobIds: new Set(['chat:chatjob-live-status']),
+  });
+  state.followingChatJobs.add(item.jobId);
+  const events = [];
+  const liveUpdates = [];
+  const deps = {
+    ...commonResumeDeps(state, events),
+    loadLatestChatJob: () => ({ id: item.jobId, displayItemId: item.id, responseIndex: 1 }),
+    takeChatJobLiveItem: () => item,
+    updateLiveDisplay: (...args) => liveUpdates.push(args),
+    findMessageNodeByDisplayItem: () => ({ dataset: {}, isConnected: true }),
+    armStreamingOutputFocus() {},
+    updateResumeStreamButton() {},
+    addActiveRunJob() {},
+    isChatStatusText: value => String(value || '').startsWith('正在处理'),
+    pendingFeedbackHtml: value => `<div class="pending-feedback">${value}</div>`,
+  };
+
+  await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeChatJob(sessionId);
+
+  assert.strictEqual(liveUpdates.length, 1, 'switching back must restore the waiting status before the next SSE delta');
+  const [, resumeItem, , resumeContent, resumeOptions] = liveUpdates[0];
+  assert.strictEqual(resumeItem, item);
+  assert.strictEqual(resumeContent, item.html);
+  assert.strictEqual(resumeOptions.html, true);
+  assert.strictEqual(resumeOptions.rawText, statusText);
+}
+
 async function testImageResumeRejectsMissingExecutionContractBeforeNetwork() {
   const sessionId = 'resume-image-invalid';
   const state = makeState(sessionId);
@@ -315,5 +361,6 @@ module.exports = [
   testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode,
   testActiveChatResumeReplaysAccumulatedStateBeforeNextDelta,
   testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch,
+  testLiveChatResumeReplaysWaitingStatusBeforeFirstDelta,
   testImageResumeRejectsMissingExecutionContractBeforeNetwork,
 ];

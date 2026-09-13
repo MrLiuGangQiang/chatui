@@ -10,6 +10,7 @@
     normalizeBlockquoteFencedCodeContent,
     decodeHtmlEntities,
     highlightedTextMatchesSource,
+    shouldHighlightCode,
     registerCompactEmphasisFix,
   } = enginePrimitives;
   const sourceNormalizer = global.ChatUIMarkdownSourceNormalizer || {};
@@ -18,6 +19,13 @@
   const isSafeMarkdownLink = linkPolicy.isSafeMarkdownLink || (() => true);
 
   function escapeHtml(value = '') { return String(value).replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])); }
+
+  let webPreviewCore = null;
+  function getWebPreviewCore() {
+    if (webPreviewCore) return webPreviewCore;
+    webPreviewCore = global.ChatUICoreWebPreview || (typeof require === 'function' ? require('../../core/web-preview') : {});
+    return webPreviewCore;
+  }
 
   const sanitizer = global.ChatUIMarkdownSanitizer || {};
   const sanitizeHtml = sanitizer.sanitizeHtml || (() => { throw new Error('DOMPurify sanitizer unavailable'); });
@@ -30,7 +38,7 @@
   function createMarkdownEngine() {
     const MarkdownIt = global.markdownit || global.markdownIt || global.MarkdownIt;
     if (!MarkdownIt) return null;
-    const md = MarkdownIt({ html: true, breaks: true, linkify: true, typographer: false, highlight(code, lang) { const language = String(lang || '').trim().split(/\s+/)[0]; const raw = String(code || ''); const rawHtml = escapeHtml(raw); try { if (global.hljs && language && global.hljs.getLanguage?.(language)) { const highlighted = global.hljs.highlight(raw, { language, ignoreIllegals: true }).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs language-${escapeHtml(language)}">${body}</code></pre>`; } if (global.hljs && global.hljs.highlightAuto && raw.length <= 6000) { const highlighted = global.hljs.highlightAuto(raw).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs">${body}</code></pre>`; } } catch (err) { console.warn('[markdown] highlight failed:', err); } return `<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${rawHtml}</code></pre>`; } }).enable(['table', 'strikethrough']);
+    const md = MarkdownIt({ html: true, breaks: true, linkify: true, typographer: false, highlight(code, lang) { const language = String(lang || '').trim().split(/\s+/)[0]; const raw = String(code || ''); const rawHtml = escapeHtml(raw); try { if (global.hljs && language && global.hljs.getLanguage?.(language) && shouldHighlightCode(raw)) { const highlighted = global.hljs.highlight(raw, { language, ignoreIllegals: true }).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs language-${escapeHtml(language)}">${body}</code></pre>`; } if (global.hljs && global.hljs.highlightAuto && shouldHighlightCode(raw, { auto: true })) { const highlighted = global.hljs.highlightAuto(raw).value; const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml; return `<pre><code class="hljs">${body}</code></pre>`; } } catch (err) { console.warn('[markdown] highlight failed:', err); } return `<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${rawHtml}</code></pre>`; } }).enable(['table', 'strikethrough']);
     md.validateLink = isSafeMarkdownLink;
     applyMathPlugin(md);
     const tablePlugin = pluginExport(pluginGlobal('markdownitMultimdTable'));
@@ -42,7 +50,7 @@
     const defaultLinkOpen = md.renderer.rules.link_open || ((tokens, idx, opts, env, slf) => slf.renderToken(tokens, idx, opts));
     md.renderer.rules.link_open = (tokens, idx, opts, env, slf) => { const href = tokens[idx].attrGet('href') || ''; if (/^https?:/i.test(href)) { tokens[idx].attrSet('target', '_blank'); tokens[idx].attrSet('rel', 'noopener noreferrer'); } return defaultLinkOpen(tokens, idx, opts, env, slf); };
     ['th_open', 'td_open'].forEach((rule) => { const defaultRule = md.renderer.rules[rule] || ((tokens, idx, opts, env, slf) => slf.renderToken(tokens, idx, opts)); md.renderer.rules[rule] = (tokens, idx, opts, env, slf) => { normalizeTableAlignToken(tokens[idx]); return defaultRule(tokens, idx, opts, env, slf); }; });
-    return { md, render(markdown = '') { const source = normalizeMarkdownSource(markdown); let html = ''; try { html = md.render(source); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; } return applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html))); } };
+    return { md, render(markdown = '') { const escapeWebDocuments = getWebPreviewCore().escapeWebDocumentsForMarkdown; const safeMarkdown = typeof escapeWebDocuments === 'function' ? escapeWebDocuments(markdown) : markdown; const source = normalizeMarkdownSource(safeMarkdown); let html = ''; try { html = md.render(source); } catch (err) { console.warn('[markdown] render failed:', err); html = `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`; } return applyTaskListFallback(sanitizeHtml(applyTaskListFallback(html))); } };
   }
 
   let engine = null;
@@ -58,6 +66,7 @@
     normalizeBlockquoteFencedCodeContent,
     decodeHtmlEntities,
     highlightedTextMatchesSource,
+    shouldHighlightCode,
     hasCriticalMarkdownPlugins,
     createMarkdownEngine,
     resetMarkdownEngine,

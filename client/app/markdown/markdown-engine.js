@@ -17,6 +17,7 @@ const {
   registerCompactEmphasisFix,
   decodeHtmlEntities,
   highlightedTextMatchesSource,
+  shouldHighlightCode,
 } = require('./engine-primitives');
 
 const PLUGINS = Object.freeze([
@@ -64,12 +65,12 @@ function createMarkdownEngine(options = {}) {
       const raw = String(code || '');
       const rawHtml = escapeHtml(raw);
       try {
-        if (hljs && language && hljs.getLanguage?.(language)) {
+        if (hljs && language && hljs.getLanguage?.(language) && shouldHighlightCode(raw)) {
           const highlighted = hljs.highlight(raw, { language, ignoreIllegals: true }).value;
           const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml;
           return `<pre><code class="hljs language-${escapeHtml(language)}">${body}</code></pre>`;
         }
-        if (hljs) {
+        if (hljs && shouldHighlightCode(raw, { auto: true })) {
           const highlighted = hljs.highlightAuto(raw).value;
           const body = highlightedTextMatchesSource(highlighted, raw) ? highlighted : rawHtml;
           return `<pre><code class="hljs">${body}</code></pre>`;

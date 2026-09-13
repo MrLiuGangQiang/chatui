@@ -6,6 +6,10 @@
   const escapeHtml = browserEngine.escapeHtml || (value => String(value || '').replace(/[&<>"'`]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch])));
   const renderMarkdown = browserEngine.renderMarkdown || (markdown => `<p>${escapeHtml(markdown).replace(/\n/g, '<br>')}</p>`);
   const enhanceRenderedMarkdown = browserEnhancer.enhanceRenderedMarkdown || (() => Promise.resolve([]));
+  const shouldHighlightCode = browserEngine.shouldHighlightCode || ((source = '', { auto = false } = {}) => {
+    const length = String(source || '').length;
+    return length > 0 && length <= (auto ? 6000 : 12000);
+  });
   const TPX = global.ChatUIApp?.imageStore?.TRANSPARENT_PIXEL || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
   function shouldDeferStreamingResourceUrl(url = '') { const value = String(url || '').trim(); return !!value && !value.startsWith('data:') && !value.startsWith('blob:') && !value.startsWith('#') && value !== TPX && value !== 'about:blank'; }
@@ -416,8 +420,8 @@
       const language = code.dataset.streamingCodeLanguage || '';
       let result = null;
       try {
-        if (language && highlighter.getLanguage?.(language)) result = highlighter.highlight(source, { language, ignoreIllegals: true });
-        else if (source.length <= 6000 && typeof highlighter.highlightAuto === 'function') result = highlighter.highlightAuto(source);
+        if (language && highlighter.getLanguage?.(language) && shouldHighlightCode(source)) result = highlighter.highlight(source, { language, ignoreIllegals: true });
+        else if (typeof highlighter.highlightAuto === 'function' && shouldHighlightCode(source, { auto: true })) result = highlighter.highlightAuto(source);
       } catch (err) {
         console.warn('[markdown] streaming code highlight failed:', err);
         return false;

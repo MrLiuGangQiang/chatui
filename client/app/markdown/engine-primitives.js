@@ -11,6 +11,8 @@
   // Markdown-it/CommonMark treat Unicode punctuation and symbols as punctuation
   // while only a fixed set of characters counts as whitespace. Keep the same
   // definitions so the compact-emphasis repair below mirrors the parser.
+  const MAX_EXPLICIT_HIGHLIGHT_LENGTH = 12000;
+  const MAX_AUTO_HIGHLIGHT_LENGTH = 6000;
   const MD_WHITESPACE_RE = /[\u0009\u000A\u000B\u000C\u000D\u0020\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/u;
   const MD_PUNCT_OR_SYMBOL_RE = /[\p{P}\p{S}]/u;
 
@@ -75,6 +77,14 @@
         '&#96;': '`',
       })[all.toLowerCase()] || all;
     });
+  }
+
+  function shouldHighlightCode(source = '', { auto = false, limit = 0 } = {}) {
+    const length = String(source || '').length;
+    const maxLength = Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Number(limit)
+      : auto ? MAX_AUTO_HIGHLIGHT_LENGTH : MAX_EXPLICIT_HIGHLIGHT_LENGTH;
+    return length > 0 && length <= maxLength;
   }
 
   function highlightedTextMatchesSource(highlighted = '', source = '') {
@@ -220,6 +230,9 @@
 
   const api = Object.freeze({
     MERMAID_LANGS,
+    MAX_EXPLICIT_HIGHLIGHT_LENGTH,
+    MAX_AUTO_HIGHLIGHT_LENGTH,
+    shouldHighlightCode,
     isMarkdownWhitespaceChar,
     isMarkdownPunctOrSymbolChar,
     splitUnparsedCompactEmphasisText,

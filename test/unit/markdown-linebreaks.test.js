@@ -144,6 +144,22 @@ function testBlankLinesListsAndTablesKeepTheirBlockSemantics() {
   }
 }
 
+function testBrowserMarkdownEngineEscapesWebDocumentsBeforeMarkdownParsing() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/browser-engine.js'), 'utf8');
+  const escapeIndex = source.indexOf('escapeWebDocumentsForMarkdown');
+  const parseIndex = source.indexOf('md.render(source)');
+  assert.ok(escapeIndex >= 0, 'the browser markdown engine must use the web-document isolation helper');
+  assert.ok(parseIndex > escapeIndex, 'web documents must be escaped before the Markdown parser runs');
+  assert.match(source, /shouldHighlightCode\(raw\)/, 'explicit highlighting must honor the code-size policy');
+  assert.match(source, /shouldHighlightCode\(raw, \{ auto: true \}\)/, 'auto highlighting must honor its smaller size policy');
+}
+
+function testBrowserStreamingRendererUsesTheSameHighlightSizePolicy() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/browser-streaming-renderer.js'), 'utf8');
+  assert.match(source, /shouldHighlightCode\(source\)/, 'streaming explicit highlighting must honor the shared size policy');
+  assert.match(source, /shouldHighlightCode\(source, \{ auto: true \}\)/, 'streaming auto highlighting must honor the shared size policy');
+}
+
 function testBrowserMarkdownEngineUsesTheSameBreakPolicy() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/markdown/browser-engine.js'), 'utf8');
   assert.match(source, /MarkdownIt\(\{ html: true, breaks: true,/);
@@ -156,5 +172,7 @@ module.exports = [
   testUnfinishedStreamingTailKeepsNewlinesVisibleBeforeFinalMarkdownRender,
   testLineBreakSupportDoesNotInsertBreakTagsInsideCodeBlocks,
   testBlankLinesListsAndTablesKeepTheirBlockSemantics,
+  testBrowserMarkdownEngineEscapesWebDocumentsBeforeMarkdownParsing,
+  testBrowserStreamingRendererUsesTheSameHighlightSizePolicy,
   testBrowserMarkdownEngineUsesTheSameBreakPolicy,
 ];

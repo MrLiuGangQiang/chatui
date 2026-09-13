@@ -99,6 +99,14 @@
         || (typeof require === 'function' ? require('../ui/image-edit-entry') : {});
     }
 
+    function resetPreviewEditButtonState(button = null) {
+      const editButton = button || getElement('imagePreviewEdit');
+      if (!editButton) return;
+      editButton.disabled = false;
+      editButton.removeAttribute('aria-disabled');
+      editButton.classList.remove('busy', 'downloading', 'refreshing', 'is-disabled');
+    }
+
     function ensurePreviewEditButton() {
       const ui = resolveImageEditEntryUi();
       if (typeof ui?.createImageEditEntryButton !== 'function') return null;
@@ -116,8 +124,12 @@
         const image = getElement('imagePreviewImg');
         if (!image || typeof openImageEdit !== 'function') return;
         // The editor is the next surface; the preview source is captured before
-        // closing so blob/data resolution is unaffected.
-        openImageEdit({ image, button });
+        // closing so blob/data resolution is unaffected. Always clear the
+        // transient busy state when the async open flow settles so an interrupted
+        // attempt cannot leave the shared button permanently disabled.
+        Promise.resolve(openImageEdit({ image, button }))
+          .catch(() => false)
+          .finally(() => resetPreviewEditButtonState(button));
         closeImagePreview();
       });
       preview.insertBefore(button, getElement('imagePreviewClose') || null);
@@ -154,7 +166,10 @@
         updateImagePreviewCopyAvailability();
       }
       const editButton = ensurePreviewEditButton();
-      if (editButton) editButton.hidden = false;
+      if (editButton) {
+        resetPreviewEditButtonState(editButton);
+        editButton.hidden = false;
+      }
       updatePreviewNavigation();
       return true;
     }

@@ -4,6 +4,7 @@ const assert = require('assert');
 const linkPolicy = require('../../client/app/markdown/link-policy');
 const mathRenderer = require('../../client/app/markdown/math-renderer');
 const mermaidNormalizer = require('../../client/app/markdown/mermaid-normalizer');
+const enginePrimitives = require('../../client/app/markdown/engine-primitives');
 
 function testMarkdownLinkPolicyAcceptsOrdinaryAndStrictRasterUrls() {
   assert.strictEqual(Object.isFrozen(linkPolicy), true, 'the browser-facing link policy facade must be immutable');
@@ -320,6 +321,15 @@ function testRadarBetaNormalizationExpandsPlainAxesAndCurves() {
   assert.strictEqual(mermaidNormalizer.normalizeBetaMermaidSource(source), expected, 'the beta dispatcher must apply radar normalization');
 }
 
+function testLargeCodeBlocksSkipExpensiveSyntaxHighlighting() {
+  assert.strictEqual(enginePrimitives.shouldHighlightCode('const value = 1;'), true);
+  assert.strictEqual(enginePrimitives.shouldHighlightCode('x'.repeat(enginePrimitives.MAX_EXPLICIT_HIGHLIGHT_LENGTH)), true);
+  assert.strictEqual(enginePrimitives.shouldHighlightCode('x'.repeat(enginePrimitives.MAX_EXPLICIT_HIGHLIGHT_LENGTH + 1)), false,
+    'large explicitly tagged code blocks must stay as plain escaped text');
+  assert.strictEqual(enginePrimitives.shouldHighlightCode('x'.repeat(enginePrimitives.MAX_AUTO_HIGHLIGHT_LENGTH + 1), { auto: true }), false,
+    'large auto-detected code blocks must skip highlight.js');
+}
+
 function testMermaidNormalizersLeaveNonBetaDiagramsUnchanged() {
   const source = '  flowchart TD\r\n    A[\u7528\u6237] --> B[\u8ba2\u5355]\r\n';
 
@@ -344,5 +354,6 @@ module.exports = [
   testSankeyBetaNormalizationUsesStableIdsWithoutMutatingSource,
   testSankeySvgRestorationReplacesGeneratedIdsInTextNodes,
   testRadarBetaNormalizationExpandsPlainAxesAndCurves,
+  testLargeCodeBlocksSkipExpensiveSyntaxHighlighting,
   testMermaidNormalizersLeaveNonBetaDiagramsUnchanged,
 ];

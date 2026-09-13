@@ -156,6 +156,26 @@ async function testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor() {
     'reopening the preview must reuse the same edit entry');
 }
 
+async function testPreviewEditButtonRecoversFromInterruptedBusyState() {
+  const { dom, workflow, editCalls } = createEnvironment();
+  await workflow.openImagePreview('data:image/png;base64,one', 'one.png');
+  const button = dom.window.document.getElementById('imagePreviewEdit');
+  button.disabled = true;
+  button.classList.add('downloading', 'is-disabled');
+  await workflow.navigateImagePreview(0);
+  assert.strictEqual(button.disabled, false,
+    'showing the preview again must clear a stale disabled state left by an interrupted edit');
+  assert.strictEqual(button.classList.contains('downloading'), false);
+  assert.strictEqual(button.classList.contains('is-disabled'), false);
+
+  button.classList.add('busy');
+  button.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(editCalls.length, 1, 'the recovered button must still open the editor');
+  assert.strictEqual(button.disabled, false, 'the button must be restored after the edit open flow settles');
+  assert.strictEqual(button.classList.contains('busy'), false);
+}
+
 function testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
@@ -165,7 +185,7 @@ function testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow() {
     'the preview must reuse the transcript edit open flow');
   assert.ok(index.includes('client/ui/image-edit-entry.js?v=1.0.0-frosted-circle')
     && index.includes('image-actions-workflow.js?v=1.2.84-action-lifecycle')
-    && index.includes('image-preview-workflow.js?v=1.2.71-shared-entry-module'),
+    && index.includes('image-preview-workflow.js?v=1.2.72-preview-edit-recovery'),
   'the shared edit entry must ship as its own module with refreshed asset revisions');
 }
 
@@ -174,6 +194,7 @@ module.exports = [
   testMessagePreviewPassesAllMessageImagesAndSelectedPosition,
   testClosingPreviewClearsNavigationState,
   testPreviewEditEntryReusesTheImageEditButtonAndOpensEditor,
+  testPreviewEditButtonRecoversFromInterruptedBusyState,
   testPreviewEditWiringReusesTheSharedEntryAndActionsWorkflow,
 ];
 

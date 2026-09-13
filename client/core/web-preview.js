@@ -32,6 +32,97 @@
     return title.slice(0, 120) || fallback;
   }
 
+  function longestBacktickRun(value = '') {
+    let longest = 0;
+    let current = 0;
+    for (const char of String(value || '')) {
+      if (char === '`') {
+        current += 1;
+        longest = Math.max(longest, current);
+      } else current = 0;
+    }
+    return longest;
+  }
+
+  function webDocumentFence(source = '', language = 'html') {
+    const value = normalizeSource(source);
+    const fence = '`'.repeat(Math.max(3, longestBacktickRun(value) + 1));
+    return `${fence}${String(language || '').toLowerCase()}\n${value}\n${fence}`;
+  }
+
+  function markdownFenceLine(line = '') {
+    const match = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(String(line || ''));
+    if (!match) return null;
+    return { marker: match[1], char: match[1][0], length: match[1].length, rest: match[2] };
+  }
+
+  function isClosingFenceLine(line = '', active = {}) {
+    const info = markdownFenceLine(line);
+    return !!info && info.char === active.char && info.length >= active.length && !String(info.rest || '').trim();
+  }
+
+  function rawWebDocumentStart(segment = '') {
+    const match = /(^|\n)[ \t]*(?=<!doctype\s+html\b|<html\b[^>]*>|<svg\b[^>]*>)/i.exec(String(segment || ''));
+    return match ? match.index + match[1].length : -1;
+  }
+
+  function escapeWebDocumentsInSegment(segment = '') {
+    const text = String(segment || '');
+    const start = rawWebDocumentStart(text);
+    if (start < 0) return text;
+    const prefix = text.slice(0, start);
+    const raw = normalizeSource(text.slice(start));
+    if (!raw) return text;
+    const startsHtml = /^(?:<!doctype\s+html\b|<html\b)/i.test(raw);
+    const startsSvg = /^<svg\b/i.test(raw);
+    if (!startsHtml && !startsSvg) return text;
+    if (startsSvg && !looksLikeSvgDocument(raw) && raw.length < 4096) return text;
+    const language = startsSvg ? 'svg' : 'html';
+    const separator = prefix && !prefix.endsWith('\n') ? '\n\n' : '';
+    const trailing = text.endsWith('\n') ? '\n' : '';
+    return `${prefix}${separator}${webDocumentFence(raw, language)}${trailing}`;
+  }
+
+  // Full documents are preview payloads, not live chat DOM. Rendering a page's
+  // internal nodes inside the main document made large outputs dominate layout,
+  // scrolling, sanitization, and persistence. Convert every non-fenced document
+  // start to a code fence while preserving the original source for extraction.
+  function escapeWebDocumentsForMarkdown(markdown = '') {
+    const source = normalizeSource(markdown);
+    if (!source) return '';
+    const parts = [];
+    let cursor = 0;
+    let segmentStart = 0;
+    let activeFence = null;
+    let fenceStart = 0;
+    while (cursor < source.length) {
+      const newline = source.indexOf('\n', cursor);
+      const lineEnd = newline >= 0 ? newline : source.length;
+      const line = source.slice(cursor, lineEnd);
+      if (!activeFence) {
+        const info = markdownFenceLine(line);
+        if (info) {
+          if (segmentStart < cursor) parts.push(escapeWebDocumentsInSegment(source.slice(segmentStart, cursor)));
+          activeFence = info;
+          fenceStart = cursor;
+        }
+      } else if (isClosingFenceLine(line, activeFence)) {
+        const nextStart = newline >= 0 ? newline + 1 : lineEnd;
+        parts.push(source.slice(fenceStart, nextStart));
+        activeFence = null;
+        segmentStart = nextStart;
+      }
+      if (newline < 0) break;
+      cursor = newline + 1;
+    }
+    if (activeFence) {
+      parts.push(source.slice(fenceStart));
+      segmentStart = source.length;
+    }
+    if (segmentStart < source.length) parts.push(escapeWebDocumentsInSegment(source.slice(segmentStart)));
+    return parts.join('');
+  }
+
   function uniqueCandidates(candidates = []) {
     const seen = new Set();
     return candidates.filter(candidate => {
@@ -88,6 +179,7 @@
     looksLikeWebDocument,
     looksLikeSvgDocument,
     previewTitle,
+    escapeWebDocumentsForMarkdown,
     extractWebPreviewCandidates,
     buildPreviewDocument,
   });

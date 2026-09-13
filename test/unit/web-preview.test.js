@@ -20,6 +20,36 @@ function testWebPreviewDetectsFullHtmlResponsesWithoutTreatingSnippetsAsPages() 
   assert.deepStrictEqual(core.extractWebPreviewCandidates('```html\n<div>a snippet</div>\n```'), []);
 }
 
+function testFullWebDocumentsAreEscapedBeforeChatMarkdownRendering() {
+  const raw = '<!doctype html><html><head><title>Safe display</title><style>body{display:none}</style></head><body><main>Page</main></body></html>';
+  const safe = core.escapeWebDocumentsForMarkdown(raw);
+  assert.match(safe, /^```html\n<!doctype html>/i, 'a full page must become a fenced code block before markdown parsing');
+  assert.match(safe, /<\/html>\n```$/, 'the safe fence must close after the complete page source');
+}
+
+function testStreamingWebDocumentsAreEscapedBeforeTheClosingTagArrives() {
+  const raw = 'Here is the page:\n<!doctype html><html><head><style>body{position:fixed;inset:0}</style></head><body><main>Streaming';
+  const safe = core.escapeWebDocumentsForMarkdown(raw);
+  assert.match(safe, /Here is the page:\n```html\n<!doctype html>/i);
+  assert.match(safe, /<main>Streaming\n```$/, 'an unfinished page must stay inside the safe code fence');
+}
+
+function testMarkdownCodeFencesKeepWebSourceUntouched() {
+  const raw = ['```html', '<!doctype html><html><body>Fenced</body></html>', '```'].join('\n');
+  assert.strictEqual(core.escapeWebDocumentsForMarkdown(raw), raw,
+    'source already inside a markdown fence must not be wrapped a second time');
+}
+
+function testEscapedDisplayTextStillProducesTheOriginalPreviewCandidate() {
+  const raw = '<!doctype html><html><head><title>Preview source</title></head><body>Original</body></html>';
+  const safe = core.escapeWebDocumentsForMarkdown(raw);
+  const candidates = core.extractWebPreviewCandidates(raw);
+  assert.strictEqual(candidates.length, 1);
+  assert.strictEqual(candidates[0].title, 'Preview source');
+  assert.strictEqual(candidates[0].source, raw, 'the preview must continue using the original source, not the display fence');
+  assert.match(safe, /Preview source/);
+}
+
 function testWebPreviewKeepsInteractiveDocumentContent() {
   const source = '<!doctype html><html><head><title>Portfolio</title><script src="/app.js"></script></head><body onload="boot()"><form action="/submit"><button>Go</button></form><script>function boot(){}</script></body></html>';
   const document = core.buildPreviewDocument(source);
@@ -291,6 +321,10 @@ function testSvgPreviewRendersAndDownloadsAsSvg() {
 
 module.exports = [
   testWebPreviewDetectsFullHtmlResponsesWithoutTreatingSnippetsAsPages,
+  testFullWebDocumentsAreEscapedBeforeChatMarkdownRendering,
+  testStreamingWebDocumentsAreEscapedBeforeTheClosingTagArrives,
+  testMarkdownCodeFencesKeepWebSourceUntouched,
+  testEscapedDisplayTextStillProducesTheOriginalPreviewCandidate,
   testSvgPreviewDetectsFencedAndRawDocuments,
   testWebPreviewKeepsInteractiveDocumentContent,
   testWebPreviewDetectsEachCompletePageInOneResponse,

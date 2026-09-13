@@ -352,8 +352,8 @@ function testPendingOwnerYieldsOnlyToItsMatchingDurableHandoff() {
   const resumeEnd = app.indexOf('function resumeBackgroundSessionJobs', resumeStart);
   const resumeSource = app.slice(resumeStart, resumeEnd);
   assert.ok(app.includes('findPendingSubmitHandoffJob?.(pendingSubmit,{chatJob,imageJob})'));
-  assert.ok(resumeSource.includes('if(pendingSubmit&&!handoffOwner){getSubmitWorkflow().discardUndeliveredPendingSubmit?.(e);return void finishSessionTask(e)}'),
-    'a pending submit without a verified durable handoff must be cleared instead of replaying its uncertain route/planning request');
+  assert.ok(resumeSource.includes('if(pendingSubmit&&!handoffOwner){if(!chatJob?.id&&!imageJob?.id){getSubmitWorkflow().discardUndeliveredPendingSubmit?.(e);return void finishSessionTask(e)}getSubmitWorkflow().clearPendingSubmit?.(e)}'),
+    'a stale pending submit must be discarded only when no durable job exists; an available job must continue recovery');
   assert.ok(!resumeSource.includes('resumePendingSubmit'),
     'refresh recovery must never replay a pre-handoff pending submit; only a durable chat/image/batch job may be resumed');
 }

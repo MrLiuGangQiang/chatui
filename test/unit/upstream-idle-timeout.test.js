@@ -45,6 +45,30 @@ function createStreamingResponse(chunks, intervalMs) {
   };
 }
 
+function createDelayedStreamingResponse(chunks, delays) {
+  const body = new Readable({ read() {} });
+  const timers = [];
+  let elapsed = 0;
+  chunks.forEach((chunk, index) => {
+    elapsed += Number(delays[index] || 0);
+    timers.push(setTimeout(() => body.push(chunk), elapsed));
+  });
+  timers.push(setTimeout(() => body.push(null), elapsed + 1));
+  return {
+    body,
+    stop() {
+      timers.forEach(timer => clearTimeout(timer));
+      body.destroy();
+    },
+    response: {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      body,
+    },
+  };
+}
+
 function testRapidChunksReuseOneIdleTimer() {
   let now = 0;
   let nextTimerId = 1;
@@ -82,9 +106,10 @@ function testRapidChunksReuseOneIdleTimer() {
   assert.strictEqual(cleared, 1, 'stopping the request must clear the single idle timer');
 }
 
-async function testChunkActivityExtendsUpstreamIdleDeadline() {
-  const stream = createStreamingResponse(['one', 'two', 'three', 'four'], 40);
+async function testFirstUpstreamContentStopsTimeoutPermanently() {
+  const stream = createDelayedStreamingResponse(['one', 'two'], [0, 120]);
   let aborted = false;
+  let timerAfterResponse = 'not-read';
   const result = await withPrivateFetch(async (_url, options = {}) => {
     options.signal?.addEventListener('abort', () => {
       aborted = true;
@@ -94,18 +119,21 @@ async function testChunkActivityExtendsUpstreamIdleDeadline() {
   }, async () => {
     const upstreamRequest = createUpstreamFetch('http://127.0.0.1:65534/v1/chat/completions', {
       method: 'POST',
-      upstreamTimeoutMs: 60,
+      upstreamTimeoutMs: 40,
     });
     const response = await upstreamRequest.response;
     try {
-      return await readUpstreamText(response, upstreamRequest.touch);
+      const text = await readUpstreamText(response, upstreamRequest.touch);
+      timerAfterResponse = upstreamRequest.timer;
+      return text;
     } finally {
       upstreamRequest.cleanup();
     }
   });
 
-  assert.strictEqual(result, 'onetwothreefour');
-  assert.strictEqual(aborted, false, 'continuous response chunks must keep resetting the idle timeout');
+  assert.strictEqual(result, 'onetwo');
+  assert.strictEqual(aborted, false, 'the first response chunk must permanently disable the upstream timeout');
+  assert.strictEqual(timerAfterResponse, null, 'no timeout timer may remain after response content starts');
 }
 
 async function testSilentUpstreamStillTimesOut() {
@@ -143,6 +171,6 @@ async function testSilentUpstreamStillTimesOut() {
 
 module.exports = [
   testRapidChunksReuseOneIdleTimer,
-  testChunkActivityExtendsUpstreamIdleDeadline,
+  testFirstUpstreamContentStopsTimeoutPermanently,
   testSilentUpstreamStillTimesOut,
 ];

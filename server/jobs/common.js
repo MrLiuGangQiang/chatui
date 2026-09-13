@@ -365,12 +365,16 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
   if (parentSignal?.aborted) abortFromParent();
   else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
   if (job) job.controller = controller;
+  let responseContentStarted = false;
   const touch = () => {
-    const touched = idleTimeout.touch();
-    if (touched && job) job.updatedAt = Date.now();
-    return touched;
+    if (!responseContentStarted) {
+      responseContentStarted = true;
+      idleTimeout.stop();
+    }
+    if (job) job.updatedAt = Date.now();
+    return true;
   };
-  touch();
+  idleTimeout.touch();
   const request = summarizeUpstreamRequest(url, { method, body, job });
   const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
     .catch(err => {
@@ -386,7 +390,10 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
 
 async function readUpstreamText(response, touch = null) {
   const body = response?.body;
-  if (!body || typeof body[Symbol.asyncIterator] !== 'function') return response?.text?.() || '';
+  if (!body || typeof body[Symbol.asyncIterator] !== 'function') {
+    touch?.();
+    return response?.text?.() || '';
+  }
   const decoder = new StringDecoder('utf8');
   let text = '';
   for await (const chunk of body) {

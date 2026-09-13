@@ -61,6 +61,47 @@ function createBootstrapDependencies() {
   };
 }
 
+function createReasoningMenuItem(reasoningType) {
+  let clickHandler = null;
+  return {
+    dataset: { reasoningType },
+    addEventListener(event, handler) {
+      if (event === 'click') clickHandler = handler;
+    },
+    click() {
+      clickHandler?.({ stopPropagation() {} });
+    },
+  };
+}
+
+async function testEveryReasoningChoiceClosesTheMenuAfterSelection() {
+  const { deps } = createBootstrapDependencies();
+  const items = [createReasoningMenuItem('none'), createReasoningMenuItem('low')];
+  deps.document.querySelectorAll = selector => selector === '[data-reasoning-type]' ? items : [];
+  const selected = [];
+  let closeCount = 0;
+  deps.setReasoningType = value => {
+    selected.push(value);
+    deps.state.reasoningMode = value !== 'none';
+  };
+  deps.closeReasoningMenu = () => { closeCount += 1; };
+  const previousApp = globalThis.ChatUIApp;
+  globalThis.ChatUIApp = { appContext: { getWorkflowModule: () => null } };
+  try {
+    await createBootstrapWorkflow(deps).start();
+  } finally {
+    if (previousApp === undefined) delete globalThis.ChatUIApp;
+    else globalThis.ChatUIApp = previousApp;
+  }
+
+  closeCount = 0;
+  items[0].click();
+  items[1].click();
+
+  assert.deepStrictEqual(selected, ['none', 'low']);
+  assert.strictEqual(closeCount, 2, 'every reasoning choice must close the menu after applying that choice');
+}
+
 async function testBootstrapWorkflowUsesExplicitDependenciesAndStartsWithBrowserTimers() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'client', 'app', 'bootstrap-workflow.js'), 'utf8');
   assert.ok(!/\bwith\s*\(/.test(source), 'bootstrap workflow should not use a dynamic with-scope');
@@ -126,6 +167,7 @@ async function testBootstrapBindsClarificationChoiceWorkflowFromModuleRegistry()
 }
 
 module.exports = [
+  testEveryReasoningChoiceClosesTheMenuAfterSelection,
   testBootstrapWorkflowUsesExplicitDependenciesAndStartsWithBrowserTimers,
   testBootstrapBindsClarificationChoiceWorkflowFromModuleRegistry,
 ];

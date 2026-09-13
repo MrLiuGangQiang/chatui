@@ -96,6 +96,13 @@
     return true;
   }
 
+  function dismissIntentReasoningTrace(node) {
+    const traces = node?.querySelectorAll?.('.intent-reasoning-trace');
+    if (!traces?.length) return false;
+    traces.forEach(trace => trace.remove());
+    return true;
+  }
+
   function isChatStatusText(value = '') {
     if (executionStatus.isExecutionStatusText?.(value)) return true;
     const text = String(value || '').trim();
@@ -153,6 +160,7 @@
     pendingFeedbackRowHtml,
     intentReasoningHtml,
     attachIntentReasoningTrace,
+    dismissIntentReasoningTrace,
     isChatStatusText,
   });
 

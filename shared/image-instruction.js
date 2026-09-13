@@ -117,6 +117,20 @@
     return !instruction && !!clarification;
   }
 
+  // JSON-mode providers commonly omit the companion string that the status
+  // already requires to be empty. Normalize only that transport-level absence:
+  // ready may omit clarification, and needs_clarification may omit instruction.
+  // Missing semantic fields and all other protocol violations still fail closed.
+  function normalizeImageInstruction(value = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const normalized = { ...value };
+    const status = stringValue(normalized.status);
+    const hasField = field => Object.prototype.hasOwnProperty.call(normalized, field);
+    if (status === 'ready' && !hasField('clarification')) normalized.clarification = '';
+    if (status === 'needs_clarification' && !hasField('instruction')) normalized.instruction = '';
+    return hasExactImageInstruction(normalized) ? normalized : null;
+  }
+
   function assertImageInstruction(value = {}) {
     if (hasExactImageInstruction(value)) return true;
     const error = new TypeError('Invalid image_instruction.v1');
@@ -134,6 +148,7 @@
     IMAGE_INSTRUCTION_RESPONSE_FORMAT,
     hasUnresolvedImageInstructionReference,
     hasExactImageInstruction,
+    normalizeImageInstruction,
     assertImageInstruction,
   });
 });

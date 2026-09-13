@@ -290,15 +290,26 @@
       const state = getState();
       const panel = $('sessionModelPanel');
       const button = $('sessionModelBtn');
+      const label = $('sessionModelLabel');
       if (!panel || !button) return;
       const session = getActiveSession();
+      const config = getConfig();
       const value = sessionConfig.sessionChatModelValue ? sessionConfig.sessionChatModelValue(session, state.models) : state.models.includes(session?.chatModel) ? session.chatModel : '';
-      const globalChatModel = getConfig().chatModel;
+      const globalChatModel = config.chatModel;
+      const effectiveModel = sessionConfig.getSessionChatModel
+        ? sessionConfig.getSessionChatModel({ session, config, models: state.models })
+        : value || globalChatModel;
       const options = sessionConfig.sessionModelOptions ? sessionConfig.sessionModelOptions({ models: state.models, globalChatModel, isAllowed: isModelAllowedFor }) : [{ value: '', label: `跟随全局${globalChatModel ? ` · ${globalChatModel}` : ''}` }].concat([...new Set(state.models)].filter(model => isModelAllowedFor(model, 'chat')).map(model => ({ value: model, label: model })));
       panel.innerHTML = options.map(option => `<button class="session-model-menu-item${option.value === value ? ' active' : ''}" type="button" role="menuitemradio" aria-checked="${option.value === value ? 'true' : 'false'}" data-model="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span>${option.value === value ? '<b>✓</b>' : ''}</button>`).join('');
       panel.querySelectorAll('.session-model-menu-item').forEach(node => node.addEventListener('click', () => setSessionChatModel(node.dataset.model || '')));
       button.classList.toggle('has-session-model', !!value);
-      button.title = value ? `会话模型：${value}` : `跟随全局聊天模型${globalChatModel ? `：${globalChatModel}` : ''}`;
+      button.dataset.modelSource = value ? 'session' : 'global';
+      const modelText = String(effectiveModel || '').trim() || '未选择模型';
+      if (label) label.textContent = modelText;
+      button.title = value
+        ? `会话模型：${modelText}`
+        : `默认模型：${modelText}${globalChatModel ? '（跟随全局）' : ''}`;
+      button.setAttribute('aria-label', button.title);
     }
     function setSessionChatModel(model = '') {
       const state = getState();

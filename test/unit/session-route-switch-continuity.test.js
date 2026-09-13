@@ -111,6 +111,8 @@ function testSessionSwitchRecoveryRebindsWithoutDuplicateExecution() {
   assert.ok(resumeStart >= 0 && activeRunGuard > resumeStart && durableJobLookup > activeRunGuard && pendingSubmitLookup > durableJobLookup, 'a live run may inspect its own durable job only to rebind UI, but must return before pending-submit or recovery replay');
   assert.ok(app.includes('liveRun.jobIds?.has(`image:${liveImageJob.id}`)') && app.includes('liveRun.jobIds?.has(`chat:${liveChatJob.id}`)'), 'live-run rebinding must be restricted to job ids already owned by that run');
   assert.ok(submit.includes('beginPendingSubmitResume?.(deps.state, sessionId)') && submit.includes('finishPendingSubmitResume?.(deps.state, sessionId)'), 'pending-submit recovery must hold a per-session single-flight owner');
+  assert.ok(app.includes('if(pendingSubmit&&!handoffOwner){if(!chatJob?.id&&!imageJob?.id)'), 'a stale pending-submit record must not discard an available durable chat or image job');
+  assert.ok(app.includes('getSubmitWorkflow().clearPendingSubmit?.(e)}handoffOwner&&'), 'an available durable job must clear the stale pending-submit record and continue recovery');
   assert.ok(submit.includes('(!assistantNode||!assistantNode.isConnected)') && submit.includes('findMessageNodeByDisplayItem(liveItem)||assistantNode'), 'dispatch must rebind the assistant node rendered after switching back');
   assert.ok(app.includes('updateLiveDisplay(e,n,"assistant",l'), 'intent-recognition stage updates must target the currently rendered display item, not a detached pre-switch node');
   assert.ok(app.includes('isImagePendingDisplayItem,addDisplayItemNode,insertMessageNodeAtDisplayPosition,addMessage'),

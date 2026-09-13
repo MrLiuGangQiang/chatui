@@ -17,7 +17,7 @@ function createStorage(initial = {}) {
 
 const identity = sourceRevision => ({ version: '1.10.68', gitSha: 'new-sha', sourceRevision });
 
-function testRuntimeChangeInvalidatesOnlyTransientExecutionState() {
+function testRuntimeChangeDefersTransientStateCleanupToRecoveryValidation() {
   const storage = createStorage({
     'chatui:runtime-state': JSON.stringify({
       schema_version: 'runtime_state.v1',
@@ -46,15 +46,15 @@ function testRuntimeChangeInvalidatesOnlyTransientExecutionState() {
     now: () => 100,
   }).then(result => {
     assert.strictEqual(result.changed, true);
-    assert.strictEqual(storage.has('openapi-chat-image-job-v1:session-a'), false);
-    assert.strictEqual(storage.has('openapi-chat-image-chat-job-v1:session-a'), false);
-    assert.strictEqual(storage.has('openapi-chat-image-pending-submit-v1:session-a'), false);
+    assert.strictEqual(result.invalidated, 0);
+    assert.strictEqual(storage.has('openapi-chat-image-job-v1:session-a'), true);
+    assert.strictEqual(storage.has('openapi-chat-image-chat-job-v1:session-a'), true);
+    assert.strictEqual(storage.has('openapi-chat-image-pending-submit-v1:session-a'), true);
     assert.strictEqual(storage.has('openapi-chat-image-sessions-v1'), true);
     assert.strictEqual(storage.has('openapi-chat-image-config-v2'), true);
-    assert.deepStrictEqual(sessions[0].display.map(item => item.id), ['done']);
-    assert.deepStrictEqual(persisted, ['session-a']);
-    assert.deepStrictEqual(savedMessages, ['session-a']);
-    assert.match(sessions[0].messages.at(-1).content, /应用已更新/);
+    assert.deepStrictEqual(sessions[0].display.map(item => item.id), ['pending', 'done']);
+    assert.deepStrictEqual(persisted, []);
+    assert.deepStrictEqual(savedMessages, []);
     assert.deepStrictEqual(upgrade.readRuntimeState(storage), {
       version: '1.10.68', gitSha: 'new-sha', sourceRevision: 'sha256:new',
     });
@@ -83,7 +83,7 @@ async function testSameRuntimeDoesNotTouchHistoricalSessionsOrTasks() {
 }
 
 
-async function testMissingRuntimeMarkerQuarantinesLegacyTransientTasksOnce() {
+async function testMissingRuntimeMarkerStillAllowsRecoveryValidation() {
   const storage = createStorage({
     'openapi-chat-image-job-v1:session-a': '{}',
     'openapi-chat-image-sessions-v1': 'completed history stays',
@@ -95,9 +95,10 @@ async function testMissingRuntimeMarkerQuarantinesLegacyTransientTasksOnce() {
   });
   assert.strictEqual(result.changed, true);
   assert.strictEqual(result.reason, 'legacy-runtime-state');
-  assert.strictEqual(storage.has('openapi-chat-image-job-v1:session-a'), false);
+  assert.strictEqual(result.invalidated, 0);
+  assert.strictEqual(storage.has('openapi-chat-image-job-v1:session-a'), true);
   assert.strictEqual(storage.has('openapi-chat-image-sessions-v1'), true);
-  assert.deepStrictEqual(sessions[0].display, []);
+  assert.deepStrictEqual(sessions[0].display.map(item => item.id), ['pending']);
 }
 
-module.exports = [testRuntimeChangeInvalidatesOnlyTransientExecutionState, testSameRuntimeDoesNotTouchHistoricalSessionsOrTasks, testMissingRuntimeMarkerQuarantinesLegacyTransientTasksOnce];
+module.exports = [testRuntimeChangeDefersTransientStateCleanupToRecoveryValidation, testSameRuntimeDoesNotTouchHistoricalSessionsOrTasks, testMissingRuntimeMarkerStillAllowsRecoveryValidation];

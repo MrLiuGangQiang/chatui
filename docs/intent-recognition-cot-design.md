@@ -156,6 +156,7 @@ goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解�
 - chat 系操作（`plain_chat` / `file_qa` 等）保留原文输入；任务选择回合用计划 task goal 作为 provider prompt。`web_search` 例外：`executionPromptForIntent` 对 followup 或短输入（≤24 字符）发送路由 goal 作为归一化检索词，避免省略式追问丢失继承主题，仅对自足的较长新请求保留原文输入。
 - `text_to_image` 使用 `task_continuity` 渲染后的完整任务状态；其中自足直接生成（`new + replace + 无绑定`且 `current_input` 已完整可执行）以用户原文建立该状态，route goal 仅作 `userGoal` 路由元数据，禁止用浓缩转写替代原文丢细节；`edit_image` 只发送当前编辑指令（目标图承载视觉基线）；`image_reference_gen` 建立 replacement 状态；
 - `image_instruction` 自足快路径（完整 goal 不再二次物化）保留；
+- JSON-mode 供应商对 `image_instruction.v1` 省略由 `status` 唯一要求为空的伴生字段时，协议解析边界只补空字符串（`ready.clarification` / `needs_clarification.instruction`）；`instruction`、`clarification` 的语义必需值仍按原规则严格校验，不触发执行授权放宽；
 
 ## 6. 统一错误分类与自我修复协议
 

@@ -60,7 +60,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 - `/models`、`/chat/completions`、`/responses`
 - `/images/generations`、`/images/edits`、`/openai/image_edit`
 
-`UPSTREAM_TIMEOUT_MS` 定义上游**空闲超时**，不是请求总时长：新建上游请求后开始计时，收到任意响应 body chunk 后重置；只要流式或缓冲响应持续返回数据，就没有总时长上限。只有连续 `UPSTREAM_TIMEOUT_MS` 没有收到响应数据时才中止并返回超时错误。实现使用最后活动时间戳和单个看门狗定时器，chunk 只更新时间戳，不逐 chunk 重建定时器。
+`UPSTREAM_TIMEOUT_MS` 定义上游**首内容超时**：新建上游请求后开始计时，只有始终没有收到第一段响应 body 内容时才在阈值到达后中止。第一段响应内容到达即永久取消超时计时，之后无论后续内容间隔多久或持续多久都不再触发超时；用户停止、连接错误和上游 HTTP 错误仍按原有取消/错误路径处理。
 
 不在白名单内的 `/api/*` 一律 405。`/api/models` 由浏览器携带 `{baseUrl, apiKey}` 发起服务端转发。
 
@@ -80,6 +80,12 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 托管 Job 的 HTTP 拒绝错误同时保留 `statusCode` / `status` / `code` / `retryable` 机器字段；`408`、`425`、`429` 和 `5xx` 可重试，其余 `4xx` 不可重试。原始诊断只用于日志，用户气泡必须使用平实、可操作的归一化文案。
 
 意图控制请求可以使用 `intent_understanding`、`intent_recognition`、`intent_critic`、`route_repair`、`route_fallback`、`multi_task_planning` 和 `image_planning` 等独立 `requestPurpose`；它们均禁止携带执行合同，且最终执行仍必须通过 `dispatch_contract.v1`。
+
+### 7.1 `image_instruction.v1` 空伴生字段归一化（2026-09-13）
+
+- `ready` 的语义必需字段是 `instruction`；`needs_clarification` 的语义必需字段是 `clarification`。当 JSON-mode 供应商省略由 `status` 唯一要求为空的伴生字段时，客户端协议边界可补为 `''`：即 `ready` 可省略 `clarification`，`needs_clarification` 可省略 `instruction`。
+- 该归一化只发生在 `shared/image-instruction.js` 的传输解析边界；缺失语义必需字段、错误版本、未知/额外字段、两个字段同时有值或同时为空仍返回 `image_instruction_invalid`，不得授权执行。
+- `dispatch_contract.v1` 仍是唯一执行授权；只有归一化后的 `image_instruction.v1` 才能进入 `applyMaterializedImageInstruction`。
 
 ## 8. 缓存与安全头
 

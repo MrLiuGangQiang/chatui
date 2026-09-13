@@ -23,7 +23,7 @@ function testIntentCriticPromptEnumeratesEveryAllowedReasonCode() {
 function testImageInstructionPromptDeclaresTheStatusEnumeration() {
   const prompt = prompts.IMAGE_INSTRUCTION_SYSTEM_PROMPT;
   assert.match(prompt, /status只能是ready或needs_clarification/);
-  assert.match(prompt, /needs_clarification时只给简短追问、不输出instruction/);
+  assert.match(prompt, /needs_clarification时输出clarification、instruction必须为空字符串/);
 }
 
 function testImagePlanPromptSeparatesStructuralCeilingFromExecutionBatchLimit() {

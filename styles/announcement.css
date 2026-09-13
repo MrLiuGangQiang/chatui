@@ -26,8 +26,7 @@ body.announcement-locked {
   isolation: isolate;
 }
 
-.announcement-modal.show,
-body.announcement-pending .announcement-modal {
+.announcement-modal.show {
   display: flex;
 }
 

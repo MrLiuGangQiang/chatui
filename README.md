@@ -556,6 +556,9 @@ Thinking mode is limited to OpenAI GPT-5 models. When enabled, requests only use
 - The brain icon toggles reasoning mode.
 - The effort menu is disabled while reasoning mode is off.
 - The toggle and effort selector are locked while a response is streaming.
+- Reasoning is shown in a distinct tinted panel above the final answer whenever the provider returns it.
+- The waiting timer stops as soon as the first reasoning or answer chunk arrives.
+- Completed reasoning collapses automatically and can be reopened without losing content.
 - No Claude, Google, Qwen, or generic-provider reasoning compatibility parameters are sent.
 - The selected effort is never silently downgraded after an upstream error.
 
@@ -921,7 +924,7 @@ GET, POST
 - `baseUrl` 规范化。
 - `apiKey` 注入 Authorization。
 - 自定义 Header 透传。
-- 上游在空闲超时内未返回数据。
+- 上游在超时时间内没有返回第一段响应内容。
 - SSE 转发。
 - 图片上游路径规则：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart。前端/本地缓存里的 base64 会在服务端转成文件 Blob，按 `image[]` 数组字段上传；多图会重复追加多个 `image[]` 字段。
 - 流式聊天 Job 同步更新。
@@ -947,7 +950,7 @@ GET, POST
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `8765` | HTTP 监听端口 |
-| `UPSTREAM_TIMEOUT_MS` | `600000` | 上游空闲超时；连续无响应数据达到该时长才中止，持续收到数据会续期，默认 10 分钟 |
+| `UPSTREAM_TIMEOUT_MS` | `600000` | 上游首内容超时；第一段响应内容到达后永久停止计时，只保护始终没有返回内容的请求，默认 10 分钟 |
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |

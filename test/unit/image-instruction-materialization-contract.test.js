@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const imageInstruction = require('../../shared/image-instruction');
+const routeService = require('../../client/services/route-service');
 const dispatchContract = require('../../shared/dispatch-contract');
 const maskEditor = require('../../client/features/image-editor/mask-editor');
 const validator = require('../../server/validators/dispatch-contract.validator');
@@ -96,6 +97,43 @@ function testImageInstructionProtocolRequiresAnExecutableInstructionOrClarificat
     'an intra-instruction 之前 is not turn positioning');
 }
 
+function testImageInstructionNormalizationOnlyFillsTheStatusOwnedEmptyCompanionField() {
+  const instruction = '设计一个好看的企业门户网站效果图，宽屏 16:9，输出尺寸 1536 × 864 像素。不要拉伸变形，不要裁掉重要内容，不要添加水印或无关装饰。';
+  const transportReady = {
+    schema_version: 'image_instruction.v1',
+    status: 'ready',
+    instruction,
+  };
+  assert.strictEqual(imageInstruction.hasExactImageInstruction(transportReady), false,
+    'the canonical protocol still requires all four fields');
+  const normalizedReady = imageInstruction.normalizeImageInstruction(transportReady);
+  assert.deepStrictEqual(normalizedReady, { ...transportReady, clarification: '' });
+  assert.strictEqual(imageInstruction.hasExactImageInstruction(normalizedReady), true);
+
+  const inspected = routeService.inspectImageInstructionResult(JSON.stringify(transportReady));
+  assert.strictEqual(inspected.reason, '');
+  assert.deepStrictEqual(inspected.materialization, normalizedReady);
+
+  const transportClarification = {
+    schema_version: 'image_instruction.v1',
+    status: 'needs_clarification',
+    clarification: '请确认要采用的方案。',
+  };
+  assert.deepStrictEqual(
+    imageInstruction.normalizeImageInstruction(transportClarification),
+    { ...transportClarification, instruction: '' },
+  );
+
+  assert.strictEqual(imageInstruction.normalizeImageInstruction({
+    ...transportReady,
+    status: 'needs_clarification',
+  }), null, 'a status-owned required semantic field must not be silently swapped or filled');
+  assert.strictEqual(imageInstruction.normalizeImageInstruction({ ...normalizedReady, extra: true }), null);
+  assert.strictEqual(imageInstruction.normalizeImageInstruction({ ...normalizedReady, clarification: '不得同时存在' }), null);
+  assert.strictEqual(imageInstruction.normalizeImageInstruction({ ...transportReady, status: ' ready ' }), null,
+    'transport normalization must not loosen the status enum');
+}
+
 function testCombinedEditorPromptIsStandaloneForProviderExecution() {
   const prompt = maskEditor.buildCompositeEditPrompt({ enhance: true });
   assert.strictEqual(imageInstruction.hasUnresolvedImageInstructionReference('后一步必须基于前一步的结果'), true,
@@ -165,6 +203,7 @@ function testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol(
 
 module.exports = [
   testImageInstructionProtocolRequiresAnExecutableInstructionOrClarification,
+  testImageInstructionNormalizationOnlyFillsTheStatusOwnedEmptyCompanionField,
   testCombinedEditorPromptIsStandaloneForProviderExecution,
   testImageInstructionMaterializationUsesOnlyTheNonExecutionChatProtocol,
 ];

@@ -13,6 +13,13 @@
   function createReasoningWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
 
+    const configuredReasoningModeKey = typeof REASONING_MODE_KEY === "string" ? REASONING_MODE_KEY : "";
+    const configuredReasoningTypeKey = typeof REASONING_TYPE_KEY === "string" ? REASONING_TYPE_KEY : "";
+    const configuredReasoningPersistKey = typeof REASONING_PERSIST_KEY === "string" ? REASONING_PERSIST_KEY : "";
+    const reasoningModeKey = configuredReasoningModeKey || deps.reasoningModeKey || "openapi-chat-reasoning-mode-v1";
+    const reasoningTypeKey = configuredReasoningTypeKey || deps.reasoningTypeKey || "openapi-chat-reasoning-type-v1";
+    const reasoningPersistKey = configuredReasoningPersistKey || deps.reasoningPersistKey || "openapi-chat-reasoning-persist-v1";
+
     function reasoningStreamingRendererFor(o) {
       if (!o) return null;
       let renderer = o.__reasoningStreamingRenderer;
@@ -59,7 +66,7 @@
     function updateReasoning(e,t,s={}) {
       { 
         if(!e)return;
-        if(!deps.state.reasoningMode&&!s.restoreHistory){forceRemoveReasoning(e); return;}
+        if(!deps.state.reasoningMode&&!s.restoreHistory&&!s.forceDisplay){forceRemoveReasoning(e); return;}
         const n=String(t||"");
         e.querySelectorAll(".reasoning-live").forEach(live=>live.remove());
         const content=e.querySelector(".content");
@@ -100,7 +107,8 @@
           if(label) label.textContent=completed?"思考完成":"正在思考";
           const dots=panel.querySelector(".reasoning-dots");
           if(dots) dots.hidden=completed;
-          setReasoningPanelExpanded(panel,!1!==s.expanded);
+          // Completed reasoning defaults closed; callers may explicitly request expansion.
+          setReasoningPanelExpanded(panel,completed?s.expanded===!0:s.expanded!==!1);
         }
         const ownsLiveOutput = e?.dataset?.streaming === "1" && (deps.state.activeOutputNode === e || s.followActive === !0);
         if (ownsLiveOutput) {
@@ -190,9 +198,18 @@
        }
     }
 
+    const REASONING_EFFORT_LABELS = Object.freeze({
+      none: "不思考",
+      low: "低",
+      medium: "中",
+      high: "高",
+      xhigh: "超高",
+      max: "最高",
+    });
+
     function selectedReasoningEffortText(value = "none") {
       const effort = normalizeReasoningType(value);
-      return REASONING_EFFORTS.includes(effort) ? effort : "low";
+      return REASONING_EFFORT_LABELS[effort] || REASONING_EFFORT_LABELS.none;
     }
 
     function updateReasoningControls() {
@@ -201,31 +218,37 @@
         const menuButton = deps.$("reasoningMenuBtn");
         const locked = isReasoningControlLocked();
         const enabled = !!deps.state.reasoningMode;
+        const selectedType = enabled ? normalizeReasoningType(deps.state.reasoningType) : "none";
+        const selectedLabel = selectedReasoningEffortText(selectedType);
         if (toggle) {
           toggle.classList.toggle("active", enabled);
           toggle.classList.toggle("locked", locked);
           toggle.disabled = locked;
           toggle.setAttribute("aria-disabled", String(locked));
           toggle.setAttribute("aria-pressed", String(enabled));
-          toggle.title = locked ? "Reasoning settings cannot be changed while output is streaming" : enabled ? "Disable reasoning" : "Enable reasoning";
+          toggle.title = locked ? "输出过程中不能修改思考设置" : enabled ? "关闭思考" : "开启思考";
           toggle.setAttribute("aria-label", toggle.title);
         }
         if (menuButton) {
-          menuButton.classList.toggle("show", enabled);
-          menuButton.classList.toggle("disabled", !enabled || locked);
-          menuButton.disabled = !enabled || locked;
-          menuButton.setAttribute("aria-disabled", String(!enabled || locked));
-          menuButton.title = locked ? "\u8f93\u51fa\u8fc7\u7a0b\u4e2d\u4e0d\u80fd\u4fee\u6539\u601d\u8003\u8bbe\u7f6e" : "\u601d\u8003\u5f3a\u5ea6";
+          menuButton.classList.toggle("show", true);
+          menuButton.classList.toggle("active", enabled);
+          menuButton.classList.toggle("disabled", locked);
+          menuButton.disabled = locked;
+          menuButton.setAttribute("aria-disabled", String(locked));
+          menuButton.title = locked
+            ? "输出过程中不能修改思考设置"
+            : `思考强度：${selectedLabel}${selectedType === "none" ? "" : ` (${selectedType})`}`;
+          menuButton.setAttribute("aria-label", menuButton.title);
         }
-        if (!enabled || locked) closeReasoningMenu();
+        if (locked) closeReasoningMenu();
         const typeLabel = deps.$("reasoningTypeLabel");
-        if (typeLabel) typeLabel.textContent = selectedReasoningEffortText(deps.state.reasoningType);
+        if (typeLabel) typeLabel.textContent = selectedLabel;
         deps.document.querySelectorAll("[data-reasoning-type]")?.forEach(item => {
-          const selected = item.dataset.reasoningType === deps.state.reasoningType;
+          const selected = item.dataset.reasoningType === selectedType;
           item.classList.toggle("selected", selected);
-          item.disabled = !enabled || locked;
-          item.classList.toggle("disabled", !enabled || locked);
-          item.setAttribute("aria-disabled", String(!enabled || locked));
+          item.disabled = locked;
+          item.classList.toggle("disabled", locked);
+          item.setAttribute("aria-disabled", String(locked));
           item.setAttribute("aria-checked", String(selected));
         });
        }
@@ -241,12 +264,12 @@
       { 
         const session = typeof deps.getActiveSession === "function" ? deps.getActiveSession() : null;
         const hasSessionMode = session && session.reasoningMode !== undefined && session.reasoningMode !== null;
-        const savedType = session?.reasoningType ?? deps.localStorage.getItem(REASONING_TYPE_KEY) ?? deps.state.reasoningType;
-        const savedMode = hasSessionMode ? !!session.reasoningMode : deps.localStorage.getItem(REASONING_MODE_KEY) === "1";
+        const savedType = session?.reasoningType ?? deps.localStorage.getItem(reasoningTypeKey) ?? deps.state.reasoningType;
+        const savedMode = hasSessionMode ? !!session.reasoningMode : deps.localStorage.getItem(reasoningModeKey) === "1";
         const normalizedType = normalizeReasoningType(savedType);
         deps.state.reasoningMode = savedMode && REASONING_EFFORTS.includes(normalizedType);
         deps.state.reasoningType = deps.state.reasoningMode ? normalizedType : "none";
-        deps.state.reasoningPersist = "0" !== deps.localStorage.getItem(REASONING_PERSIST_KEY);
+        deps.state.reasoningPersist = "0" !== deps.localStorage.getItem(reasoningPersistKey);
         if (session) {
           session.reasoningMode = deps.state.reasoningMode;
           session.reasoningType = deps.state.reasoningType;
@@ -267,14 +290,14 @@
           session.reasoningType = deps.state.reasoningType;
           typeof deps.saveSessionsMeta === "function" && deps.saveSessionsMeta();
         }
-        deps.localStorage.setItem(REASONING_MODE_KEY, deps.state.reasoningMode ? "1" : "0");
-        deps.localStorage.setItem(REASONING_TYPE_KEY, deps.state.reasoningType);
+        deps.localStorage.setItem(reasoningModeKey, deps.state.reasoningMode ? "1" : "0");
+        deps.localStorage.setItem(reasoningTypeKey, deps.state.reasoningType);
        }
     }
 
     function setReasoningMode(enabled) {
       { 
-        if (isReasoningControlLocked()) return deps.toast("Reasoning settings cannot be changed while output is streaming");
+        if (isReasoningControlLocked()) return deps.toast("输出过程中不能修改思考设置，请在当前回答结束后再试");
         deps.state.reasoningMode = !!enabled;
         deps.state.reasoningType = deps.state.reasoningMode && REASONING_EFFORTS.includes(normalizeReasoningType(deps.state.reasoningType))
           ? normalizeReasoningType(deps.state.reasoningType)
@@ -288,7 +311,7 @@
 
     function setReasoningType(value = "none") {
       { 
-        if (isReasoningControlLocked()) return deps.toast("Reasoning settings cannot be changed while output is streaming");
+        if (isReasoningControlLocked()) return deps.toast("输出过程中不能修改思考设置，请在当前回答结束后再试");
         deps.state.reasoningType = normalizeReasoningType(value);
         deps.state.reasoningMode = REASONING_EFFORTS.includes(deps.state.reasoningType);
         saveActiveReasoningPreference();
@@ -300,8 +323,7 @@
 
     function openReasoningMenu() {
       { 
-        if (isReasoningControlLocked()) return deps.toast("Reasoning settings cannot be changed while output is streaming");
-        if (!deps.state.reasoningMode) return;
+        if (isReasoningControlLocked()) return deps.toast("输出过程中不能修改思考设置，请在当前回答结束后再试");
         const menu = deps.$("reasoningMenu");
         const menuButton = deps.$("reasoningMenuBtn");
         if (menu) {

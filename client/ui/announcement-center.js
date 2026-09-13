@@ -70,10 +70,6 @@
       return documentRef?.querySelector?.('[data-announcement-app]') || documentRef?.querySelector?.('.shell-app');
     }
 
-    function acknowledgedBootIsActive() {
-      return !!documentRef?.documentElement?.classList?.contains('announcement-acknowledged-boot');
-    }
-
     function clearAcknowledgedBoot() {
       documentRef?.documentElement?.classList?.remove('announcement-acknowledged-boot');
     }
@@ -306,6 +302,7 @@
 
     function showLoadFailure() {
       clearAcknowledgedBoot();
+      setOpen(true, { force: true, focus: false });
       const modal = getElement('announcementModal');
       const status = getElement('announcementStatus');
       modal?.classList.remove('is-loading');
@@ -388,18 +385,14 @@
     }
 
     async function initialize() {
-      if (acknowledgedBootIsActive()) {
-        // The synchronous head bootstrap already knows this browser has read at
-        // least one announcement. Keep the app inert while the API verifies the
-        // latest version, but do not flash the full announcement dialog again.
-        active = false;
-        forced = false;
-        const modal = getElement('announcementModal');
-        modal?.classList.remove('show');
-        modal?.setAttribute('aria-hidden', 'true');
-      } else {
-        setOpen(true, { force: true, focus: false });
-      }
+      // Keep the dialog closed until the API confirms an unread announcement.
+      // Opening before the check makes an empty feed open and immediately close
+      // the dialog, which appears as a startup flash.
+      active = false;
+      forced = false;
+      const modal = getElement('announcementModal');
+      modal?.classList.remove('show');
+      modal?.setAttribute('aria-hidden', 'true');
       return load({ initial: true });
     }
 

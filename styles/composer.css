@@ -327,3 +327,217 @@ body.app-booting .composer.compact-composer *{
   outline:2px solid rgba(37,99,235,.28);
   outline-offset:1px;
 }
+
+/* ── Runtime model + reasoning switch beside send ── */
+.composer-actions .composer-action-right{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  min-width:0!important;
+  flex:0 1 auto!important;
+}
+.composer-actions .composer-runtime-switch{
+  display:inline-flex!important;
+  align-items:stretch!important;
+  min-width:0!important;
+  max-width:min(360px,calc(100vw - 156px))!important;
+  height:42px!important;
+  border:1px solid rgba(148,163,184,.34)!important;
+  border-radius:13px!important;
+  background:rgba(255,255,255,.82)!important;
+  box-shadow:0 8px 20px rgba(15,23,42,.06),inset 0 1px 0 rgba(255,255,255,.88)!important;
+  overflow:visible!important;
+}
+.composer-actions .composer-runtime-switch .session-model-control,
+.composer-actions .composer-runtime-switch .reasoning-control{
+  position:relative!important;
+  display:flex!important;
+  align-items:stretch!important;
+  min-width:0!important;
+  height:100%!important;
+}
+.composer-actions .composer-runtime-switch .session-model-control{
+  flex:1 1 auto!important;
+  max-width:230px!important;
+  border-radius:12px 0 0 12px!important;
+}
+.composer-actions .composer-runtime-switch .reasoning-control{
+  flex:0 0 auto!important;
+  border-left:1px solid rgba(148,163,184,.28)!important;
+  border-radius:0 12px 12px 0!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:6px!important;
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+  height:40px!important;
+  min-height:40px!important;
+  padding:0 9px!important;
+  border:0!important;
+  border-radius:inherit!important;
+  background:transparent!important;
+  color:#475569!important;
+  box-shadow:none!important;
+  line-height:1!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn{
+  flex:1 1 auto!important;
+  overflow:hidden!important;
+}
+.composer-actions .composer-runtime-switch .reasoning-menu-btn{
+  flex:0 0 auto!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn:hover,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn:hover,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn.active,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn[aria-expanded="true"]{
+  background:rgba(241,245,249,.94)!important;
+  color:#0f766e!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn.has-session-model .runtime-control-value{
+  color:#2563eb!important;
+}
+.composer-actions .composer-runtime-switch .reasoning-menu-btn.active .runtime-control-value{
+  color:#0f766e!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn:focus-visible,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn:focus-visible{
+  outline:2px solid rgba(37,99,235,.28)!important;
+  outline-offset:-2px!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn > svg:not(.runtime-control-chevron),
+.composer-actions .composer-runtime-switch .reasoning-menu-btn > svg:not(.runtime-control-chevron){
+  width:15px!important;
+  height:15px!important;
+  flex:0 0 auto!important;
+}
+.composer-actions .runtime-control-kind{
+  flex:0 0 auto!important;
+  color:#94a3b8!important;
+  font-size:11px!important;
+  font-weight:700!important;
+}
+.composer-actions .runtime-control-value{
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  color:#334155!important;
+  font-size:12px!important;
+  font-weight:800!important;
+}
+.composer-actions .session-model-label{
+  flex:1 1 auto!important;
+  max-width:170px!important;
+}
+.composer-actions .runtime-control-chevron{
+  width:12px!important;
+  height:12px!important;
+  flex:0 0 auto!important;
+  color:#94a3b8!important;
+}
+.composer-actions .runtime-control-chevron path{
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:2!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+.composer-actions .composer-runtime-switch .session-model-menu{
+  left:0!important;
+  right:auto!important;
+}
+.composer-actions .composer-runtime-switch .reasoning-menu{
+  left:auto!important;
+  right:0!important;
+  min-width:172px!important;
+  max-width:min(220px,calc(100vw - 24px))!important;
+  grid-template-columns:minmax(0,1fr)!important;
+}
+.composer-actions .reasoning-menu-item{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+}
+.composer-actions .reasoning-menu-item small{
+  color:#94a3b8!important;
+  font-size:10px!important;
+  font-weight:700!important;
+}
+.composer-actions .composer-runtime-switch .session-model-btn:disabled,
+.composer-actions .composer-runtime-switch .reasoning-menu-btn:disabled{
+  opacity:.5!important;
+}
+@media (max-width:640px){
+  .composer-actions{gap:4px!important;}
+  .composer-action-left{gap:4px!important;flex:0 0 auto!important;}
+  .composer-actions .composer-action-right{
+    gap:6px!important;
+    min-width:0!important;
+    flex:1 1 auto!important;
+    justify-content:flex-end!important;
+  }
+  .composer-actions .composer-action-left .attach-btn,
+  .composer-actions .composer-action-left .session-prompt-btn{
+    width:34px!important;
+    min-width:34px!important;
+    height:34px!important;
+    min-height:34px!important;
+    border-radius:10px!important;
+  }
+  .composer-actions .composer-runtime-switch{
+    max-width:min(236px,45vw)!important;
+    height:40px!important;
+    border-radius:12px!important;
+  }
+  .composer-actions .composer-runtime-switch .session-model-btn,
+  .composer-actions .composer-runtime-switch .reasoning-menu-btn{
+    height:38px!important;
+    min-height:38px!important;
+    padding:0 7px!important;
+    gap:4px!important;
+  }
+  .composer-actions .runtime-control-kind{
+    display:none!important;
+  }
+  .composer-actions .session-model-label{
+    max-width:82px!important;
+  }
+  .composer-actions .composer-runtime-switch .session-model-menu{
+    left:0!important;
+    min-width:min(272px,calc(100vw - 24px))!important;
+  }
+}
+@media (max-width:420px){
+  .input-stack{
+    padding-bottom:100px!important;
+  }
+  .composer-actions{
+    flex-wrap:wrap!important;
+    align-content:center!important;
+    height:auto!important;
+    row-gap:6px!important;
+  }
+  .composer-actions .composer-action-left{
+    flex:0 0 100%!important;
+    width:100%!important;
+  }
+  .composer-actions .composer-action-right{
+    flex:0 0 100%!important;
+    width:100%!important;
+    justify-content:flex-end!important;
+  }
+  .composer-actions .composer-runtime-switch{
+    flex:1 1 auto!important;
+    max-width:calc(100% - 46px)!important;
+  }
+  .composer-actions .session-model-label{
+    max-width:none!important;
+  }
+}

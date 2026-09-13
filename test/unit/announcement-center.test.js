@@ -285,6 +285,32 @@ async function testInitialAnnouncementRequestTimesOutIntoRetryState() {
   assert.ok(status.querySelector('.announcement-retry-btn'));
 }
 
+async function testEmptyAnnouncementResponseDoesNotFlashAnnouncementDialog() {
+  const dom = announcementDom();
+  let finishRequest;
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => new Promise(resolve => { finishRequest = resolve; }),
+  });
+  controller.bind();
+  const modal = dom.window.document.getElementById('announcementModal');
+  const shell = dom.window.document.querySelector('[data-announcement-app]');
+  modal.classList.remove('show', 'is-forced');
+  modal.setAttribute('aria-hidden', 'true');
+
+  const initializePromise = controller.initialize();
+  const openedBeforeResponse = modal.classList.contains('show');
+  finishRequest({ ok: true, json: async () => ({ announcements: [] }) });
+  await initializePromise;
+
+  assert.strictEqual(openedBeforeResponse, false, 'startup must not open the dialog before announcement data is known');
+  assert.strictEqual(modal.classList.contains('show'), false, 'an empty announcement feed must leave the dialog closed');
+  assert.strictEqual(modal.classList.contains('is-forced'), false, 'an empty announcement feed must not leave a forced gate behind');
+  assert.strictEqual(shell.hasAttribute('inert'), false, 'the app must be released after an empty announcement response');
+  assert.strictEqual(dom.window.document.body.classList.contains('announcement-pending'), false, 'the startup gate must be cleared for an empty announcement feed');
+}
+
 function extractCssMedia(css, header) {
   const start = css.indexOf(header);
   if (start < 0) return '';
@@ -309,7 +335,7 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   const appSource = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
   const serviceSource = fs.readFileSync(path.join(root, 'server/services/announcements.service.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
-  assert.ok(index.includes('id="announcementModal"'));
+  assert.match(index, /id="announcementModal"[^>]*class="announcement-modal is-loading"[^>]*aria-hidden="true"/);
   assert.ok(index.includes('id="acknowledgeAnnouncementBtn"'));
   assert.ok(index.includes('id="topbarUtilityActions"'));
   assert.ok(index.includes('id="announcementToolbarBtn"'));
@@ -337,6 +363,8 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(css.includes('body.announcement-locked'));
   assert.ok(index.includes('announcement-acknowledged-boot'));
   assert.ok(css.includes('html.announcement-acknowledged-boot .announcement-modal.is-loading'));
+  assert.ok(!css.includes('body.announcement-pending .announcement-modal'),
+    'the boot markup must not force the announcement dialog visible before acknowledgement is known');
   assert.ok(css.includes('.announcement-toolbar-button:hover .announcement-entry-body'));
   assert.ok(css.includes('.announcement-overlay-close'));
 }
@@ -402,6 +430,7 @@ module.exports = [
   testAnnouncementImagesOpenInTheSharedPreviewSurface,
   testBackgroundRefreshKeepsRenderedAnnouncementVisibleWhileRequestIsPending,
   testAcknowledgedRefreshVerifiesLatestWithoutFlashingAnnouncementDialog,
+  testEmptyAnnouncementResponseDoesNotFlashAnnouncementDialog,
   testInitialAnnouncementRequestTimesOutIntoRetryState,
   testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime,
   testAnnouncementMobileLayoutUsesFullWidthSingleScrollSurface,

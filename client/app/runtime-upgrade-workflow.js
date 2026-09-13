@@ -92,51 +92,27 @@
     const hasPendingDisplay = (Array.isArray(sessions) ? sessions : []).some(session => (
       Array.isArray(session?.display) && session.display.some(isPendingDisplay)
     ));
-    // The first rollout that introduces this marker may encounter snapshots
-    // written by an older browser bundle. They have no provenance and must not
-    // be replayed under a new execution contract. Completed history remains
-    // untouched; only the resumable handoff state is retired.
+    // A runtime marker change or missing marker is not sufficient evidence that
+    // the server-side task is gone. Preserve the handoff snapshot for the normal
+    // recovery path, which validates the job and execution contract before use.
     const legacyTransientState = !previous && (keys.length > 0 || hasPendingDisplay);
-    if (!legacyTransientState && !runtimeChanged(previous, current)) {
+    const changed = legacyTransientState || runtimeChanged(previous, current);
+    if (!changed) {
       writeRuntimeState(storage, current, { key: stateKey, now });
       return Object.freeze({ changed: false, invalidated: 0, reason: previous ? 'same-runtime' : 'initial-runtime-state' });
     }
 
-    for (const key of keys) {
-      try { storage?.removeItem?.(key); } catch (error) { logger?.warn?.('failed to remove stale runtime task snapshot', key, error); }
-    }
-
-    const affectedSessions = [];
-    const restartNotice = '应用已更新，上一项未完成任务未自动恢复。请重新发送原指令。';
-    for (const session of Array.isArray(sessions) ? sessions : []) {
-      if (!session || !session.id || !Array.isArray(session.display)) continue;
-      const retained = session.display.filter(item => !isPendingDisplay(item));
-      if (retained.length === session.display.length) continue;
-      session.display = retained;
-      const messages = Array.isArray(session.messages) ? session.messages : (session.messages = []);
-      const noticeId = `runtime-upgrade:${current.sourceRevision}:${session.id}`;
-      if (!messages.some(message => message?.id === noticeId)) {
-        messages.push({
-          id: noticeId,
-          role: 'assistant',
-          content: restartNotice,
-          rawText: restartNotice,
-          responseIndex: String(messages.length),
-        });
-      }
-      affectedSessions.push(String(session.id));
-    }
-    await Promise.allSettled(affectedSessions.flatMap(sessionId => [
-      Promise.resolve(persistSessionDisplay(sessionId)),
-      Promise.resolve(saveSessionMessages(sessionId)),
-    ]));
+    // Runtime revisions may change while a server-managed task is still alive
+    // (for example during a same-process asset update). Do not blind-delete the
+    // handoff snapshot here: resumeSessionJobs must first reconnect and validate
+    // the execution contract. A missing or incompatible job is cleared by the
+    // recovery path after that check.
     writeRuntimeState(storage, current, { key: stateKey, now });
-
     return Object.freeze({
       changed: true,
-      invalidated: keys.length + affectedSessions.length,
-      clearedKeys: Object.freeze(keys),
-      affectedSessions: Object.freeze(affectedSessions),
+      invalidated: 0,
+      clearedKeys: Object.freeze([]),
+      affectedSessions: Object.freeze([]),
       previous,
       current,
       reason: previous ? 'runtime-changed' : 'legacy-runtime-state',

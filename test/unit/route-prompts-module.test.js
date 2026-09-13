@@ -19,6 +19,8 @@ function testRoutePromptModuleOwnsPromptTextAndPreservesServiceCompatibility() {
     'intent recognition must classify current-file reads as file_qa with an attachment binding');
   assert.match(prompts.IMAGE_PLAN_SYSTEM_PROMPT, /image_plan\.v1/);
   assert.match(prompts.IMAGE_INSTRUCTION_SYSTEM_PROMPT, /image_instruction\.v1/);
+  assert.match(prompts.IMAGE_INSTRUCTION_SYSTEM_PROMPT, /JSON必须恰好包含schema_version、status、instruction、clarification四个字段/,
+    'the image-instruction prompt must require both empty companion fields');
 }
 
 function testRoutePromptModuleParameterizesImagePlanTaskLimitWithoutChangingNodePrompts() {

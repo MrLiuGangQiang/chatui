@@ -68,6 +68,54 @@
       || !!String(context?.resultId || context?.result_id || '').trim();
   }
 
+  function appendAssistantText(value, output = []) {
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (text) output.push(text);
+      return output;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(item => appendAssistantText(item, output));
+      return output;
+    }
+    if (value && typeof value === 'object') {
+      appendAssistantText(value.text, output);
+      appendAssistantText(value.output_text, output);
+      appendAssistantText(value.content, output);
+    }
+    return output;
+  }
+
+  function hasCompletedAssistantOutput(record = {}, options = {}) {
+    if (record?.role !== 'assistant') return false;
+    if (record?.pending === true || String(record?.pending || '') === '1') return false;
+    const isStatusText = typeof options.isStatusText === 'function' ? options.isStatusText : (() => false);
+    const hasRichMedia = typeof options.hasRichMedia === 'function' ? options.hasRichMedia : (() => false);
+    const texts = [];
+    appendAssistantText(record.content, texts);
+    appendAssistantText(record.rawText, texts);
+    appendAssistantText(record.presentation?.displayText, texts);
+    const hasText = texts.some(text => {
+      try { return !isStatusText(text); } catch { return true; }
+    });
+    if (hasText) return true;
+    try { if (hasRichMedia(record) === true) return true; } catch {}
+    return hasPersistedImageResult(record);
+  }
+
+  function countCompletedAssistantMessages(messages = [], options = {}) {
+    return (Array.isArray(messages) ? messages : []).filter(message => hasCompletedAssistantOutput(message, options)).length;
+  }
+
+  function hasCompletedAssistantForResponse(session = {}, responseIndex = null, options = {}) {
+    if (responseIndex === null || responseIndex === undefined || String(responseIndex).trim() === '') return false;
+    const expected = String(responseIndex);
+    return [...(Array.isArray(session?.messages) ? session.messages : []), ...(Array.isArray(session?.display) ? session.display : [])]
+      .some(record => record?.role === 'assistant'
+        && String(record?.responseIndex ?? '') === expected
+        && hasCompletedAssistantOutput(record, options));
+  }
+
   function stableMessageId(message = {}) {
     return String(message.id || message.messageId || '').trim();
   }
@@ -96,7 +144,7 @@
       .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
-  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText });
+  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, hasCompletedAssistantOutput, hasCompletedAssistantForResponse, countCompletedAssistantMessages, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('messagePrimitives', api);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

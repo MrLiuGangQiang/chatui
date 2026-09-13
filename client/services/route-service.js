@@ -154,6 +154,7 @@
     IMAGE_INSTRUCTION_VERSION = 'image_instruction.v1',
     IMAGE_INSTRUCTION_RESPONSE_FORMAT,
     hasExactImageInstruction,
+    normalizeImageInstruction,
     hasUnresolvedImageInstructionReference,
   } = imageInstructionModule;
   const {
@@ -1460,7 +1461,9 @@
   function inspectImageInstructionResult(text = '', { userRequestEvidence = '', resolvedTask = '' } = {}) {
     const parsedResult = parseRouteJson(text);
     if (!parsedResult.parsed) return { materialization: null, reason: parsedResult.reason, parseError: parsedResult.parseError || '' };
-    const materialization = parsedResult.parsed;
+    const materialization = typeof normalizeImageInstruction === 'function'
+      ? normalizeImageInstruction(parsedResult.parsed)
+      : parsedResult.parsed;
     if (typeof hasExactImageInstruction !== 'function' || !hasExactImageInstruction(materialization)) {
       return { materialization: null, reason: 'image_instruction_invalid' };
     }

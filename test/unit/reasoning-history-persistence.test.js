@@ -49,6 +49,7 @@ function createPersistentReasoningWorkflow(options = {}) {
     persistSessionDisplay: () => Promise.resolve(),
     armStreamingOutputFocus: () => {},
     buildChatPayload: (model, messages, buildOptions) => ({ model, messages, ...buildOptions }),
+    buildResponsesPayload: (model, messages, buildOptions) => ({ model, input: messages, ...buildOptions }),
     shouldUseResponsesReasoning: () => false,
     makeClientChatJobId: () => '',
     addActiveRunJob: () => {},
@@ -161,7 +162,9 @@ function testReasoningRendererPersistsAndRestoresMarkdown() {
   assert.ok(chatSource.includes('R&&updateReasoning(g,R,{done:!0,restoreHistory:!0'), 'the completed live message must preserve its thought panel');
   assert.ok(historySource.includes("normalized?.reasoning_content || normalized?.reasoning"), 'canonical-history rendering must restore persisted reasoning after refresh');
   assert.ok(resumeSource.includes('reasoning: s.reasoning || ""'), 'resumed live chat jobs must checkpoint received reasoning');
-  assert.ok(resumeSource.includes('updateReasoning(node, s.reasoning, { done: false'), 'the active resumed message must restore its live thought panel after the response projection updates');
+  assert.ok(resumeSource.includes('const t = s.content || ""'), 'resuming a reasoning-only event must not reintroduce the waiting status text');
+  assert.ok(resumeSource.includes('updateReasoning(node, s.reasoning, { done: false') && resumeSource.includes('forceDisplay: true'), 'the active resumed message must restore its live thought panel regardless of the thinking-mode setting');
+  assert.ok(historySource.includes('forceDisplay: true'), 'pending refresh restoration must restore provider reasoning regardless of the thinking-mode setting');
   assert.ok(resumeSource.includes('reasoning_content: u'), 'resumed chat completion must persist its reasoning into canonical history');
 }
 

@@ -5,7 +5,7 @@
   const defaults = Object.freeze({ baseUrl: DEFAULT_BASE_URL, apiKey: '', chatModel: '', routeModel: '', imageModel: '', imageSize: 'auto', systemPrompt: '', imageStylePrompt: '', models: [], context: {}, editingIndex: null, editingNode: null, attachments: [] });
 
   function createConfigWorkflow(deps = {}) {
-    const { state, getElement, localStorage, document, window, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, saveSessionsMeta, toast } = deps;
+    const { state, getElement, localStorage, document, window, setTimeout, renderModelOptions, updateCustomSelect, enhanceConfigSelects, closeAllCustomSelects, saveSessionsMeta, toast, renderSessionModelArea = () => {} } = deps;
     const CONFIG_KEY = deps.CONFIG_KEY;
     const API_KEY_STORAGE_KEY = `${CONFIG_KEY}:api-key`;
     const sessionStorage = deps.sessionStorage || window?.sessionStorage;
@@ -106,6 +106,7 @@
         models:Array.isArray(state.models)?state.models:[],
         modelMeta:state.modelMeta||{},
       }));
+      if (typeof renderSessionModelArea === 'function') renderSessionModelArea();
       if(!e)closeConfigModal();
       return!0
     }

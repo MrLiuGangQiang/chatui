@@ -968,7 +968,7 @@
                 const s = extractChatJobText(t.data);
                 if (s.content || s.reasoning) {
                   o = !(!s.content && !s.reasoning) || o;
-                  const t = s.content || "正在等待响应",
+                  const t = s.content || "",
                     n = shouldFollowScroll();
                   updateLiveDisplay(e, a, "assistant", t, {
                     rawText: t,
@@ -980,7 +980,7 @@
                     noScroll: !n,
                   });
                   const node = findMessageNodeByDisplayItem(a);
-                  if (node && s.reasoning) updateReasoning(node, s.reasoning, { done: false, keepEmpty: true, forceScroll: n, followActive: n });
+                  if (node && s.reasoning) updateReasoning(node, s.reasoning, { done: false, keepEmpty: true, forceScroll: n, followActive: n, forceDisplay: true });
                 } else o || r();
               },
               l = (e) => {

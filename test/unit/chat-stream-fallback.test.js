@@ -36,8 +36,12 @@ function testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput() {
     'the initial placeholder must use the canonical operation status instead of a fixed execution map'
   );
   assert.ok(
-    source.includes('g?.isConnected&&canShowChatWaiting(answerStarted)&&setPendingFeedback(g,pendingStatus'),
-    'reasoning-enabled streams must keep the pending placeholder until thinking or answer text actually arrives'
+    source.includes('g?.isConnected&&canShowChatWaiting(responseStarted)&&setPendingFeedback(g,pendingStatus'),
+    'reasoning-enabled streams must keep the pending placeholder only until any upstream response text arrives'
+  );
+  assert.ok(
+    source.includes('if(t||e.reasoning)markResponseStarted();'),
+    'the first reasoning or answer chunk must end the waiting state'
   );
   assert.ok(
     !source.includes('reasoningEnabled?(clearPendingFeedback(g),updateMessageContentLight(g,""'),
@@ -48,8 +52,8 @@ function testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput() {
 
 function testReasoningFinishesWhenAnswerStarts() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
-  assert.ok(source.includes('let answerStarted=!1,reasoningCompleted=!1,streamRequestAccepted=!1'), 'the stream should track reasoning completion separately from answer completion');
-  assert.ok(source.includes('if(!reasoningCompleted){reasoningCompleted=!0;if(reasoningEnabled&&reasoningText&&g?.isConnected)updateReasoning(g,reasoningText,{done:!0'), 'the reasoning panel must switch to completed as soon as answer output starts');
+  assert.ok(source.includes('let responseStarted=!1,answerStarted=!1,reasoningCompleted=!1,streamRequestAccepted=!1'), 'the stream should track upstream response start, reasoning completion, and answer completion separately');
+  assert.ok(source.includes('if(!reasoningCompleted){reasoningCompleted=!0;if(reasoningText&&g?.isConnected)updateReasoning(g,reasoningText,{done:!0'), 'the reasoning panel must switch to completed as soon as answer output starts regardless of the request-time thinking toggle');
 }
 
 module.exports = [

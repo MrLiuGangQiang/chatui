@@ -336,7 +336,9 @@
               if (item.html && typeof updateMessage === 'function') updateMessage(node, item.html, { html: true, rawText, skipSave: true, noScroll: true, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
               else if (typeof updateMessageContentLight === 'function') updateMessageContentLight(node, rawText, { rawText, pending: true, skipSave: true, noScroll: true, streamKind: 'chat', sessionId: session.id, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
             }
-            if (item.reasoningText && typeof updateReasoning === 'function') updateReasoning(node, item.reasoningText, { done: false, keepReasoning: !!item.keepReasoning, keepEmpty: true, restoreHistory: true });
+          }
+          if (item.reasoningText && typeof updateReasoning === 'function') {
+            updateReasoning(node, item.reasoningText, { done: false, keepReasoning: !!item.keepReasoning, keepEmpty: true, restoreHistory: true, forceDisplay: true });
           }
           if (node) {
             if (typeof insertMessageNodeAtDisplayPosition === 'function') {

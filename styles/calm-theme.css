@@ -296,6 +296,28 @@ body,
   color: var(--chatui-muted-strong) !important;
   box-shadow: none !important;
 }
+.reasoning-panel.reasoning-live-panel {
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: #eceef1 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.reasoning-live-panel .reasoning-head {
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+}
+.reasoning-panel.reasoning-live-panel.reasoning-done {
+  border: 0 !important;
+  background: #f1f2f4 !important;
+}
+.message.assistant .reasoning-live-panel.reasoning-panel {
+  background: #eceef1 !important;
+}
+.message.assistant .reasoning-live-panel .reasoning-content {
+  color: #555b64 !important;
+}
 .reasoning-title { color: var(--chatui-accent) !important; }
 .content img,
 .markdown-body img { border-color: var(--chatui-border) !important; background: var(--chatui-surface) !important; }

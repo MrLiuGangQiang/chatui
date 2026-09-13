@@ -66,7 +66,7 @@ function testGpt5ReasoningUsesResponsesReasoningEnvelope() {
   );
 }
 
-function testReasoningControlDisplaysRawEffortIdentifiers() {
+function testReasoningControlDisplaysReadableEffortLabels() {
   const createClassList = () => ({ toggle() {} });
   const toggle = { classList: createClassList(), setAttribute() {} };
   const menuButton = { classList: createClassList(), setAttribute() {} };
@@ -88,7 +88,8 @@ function testReasoningControlDisplaysRawEffortIdentifiers() {
 
   workflow.updateReasoningControls();
 
-  assert.strictEqual(label.textContent, 'max', 'the selected effort control must always display the raw Responses effort identifier');
+  assert.strictEqual(label.textContent, '最高', 'the selected effort control must display an intuitive Chinese label');
+  assert.match(menuButton.title, /max/, 'the precise Responses effort identifier must remain available in the control title');
 }
 
 function testLegacyThinkingFieldsAreIgnoredByBrowserParser() {
@@ -121,7 +122,7 @@ function testIsReasoningControlLockedFallsBackWhenDepsLacksSessionBusy() {
 
 module.exports = [
   testGpt5ReasoningUsesResponsesReasoningEnvelope,
-  testReasoningControlDisplaysRawEffortIdentifiers,
+  testReasoningControlDisplaysReadableEffortLabels,
   testIsReasoningControlLockedFallsBackWhenDepsLacksSessionBusy,
   testLegacyThinkingFieldsAreIgnoredByBrowserParser,
 ];

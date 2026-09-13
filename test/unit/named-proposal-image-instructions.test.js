@@ -270,6 +270,23 @@ function testPipelineRepromptsMaterializerForTurnPositionedEditTarget() {
   });
 }
 
+function testPipelineAcceptsReadyMaterializationThatOmitsTheEmptyClarificationField() {
+  return runPipeline({
+    input: '按照方案A重新生成',
+    materialization: {
+      schema_version: 'image_instruction.v1',
+      status: 'ready',
+      instruction: SELECTED_OPTION,
+    },
+  }).then(({ result, requests }) => {
+    assert.deepStrictEqual(requests, ['intent_recognition', 'image_instruction_materialization'],
+      'a status-owned omitted empty field must not require a repair call');
+    assert.strictEqual(result.dispatchAuthorized, true);
+    assert.strictEqual(result.dispatchContract.arguments.prompt, SELECTED_OPTION);
+    assert.strictEqual(result.instructionMaterialization.status, 'ready');
+  });
+}
+
 function testPipelineStopsWhenInstructionMaterializerNeedsClarification() {
   return runPipeline({
     input: '按照方案C重新生成',
@@ -295,5 +312,6 @@ module.exports = [
   testPipelineStopsWhenReadyMaterializationStillContainsAConversationReference,
   testPipelineRepromptsMaterializerForCrossTurnStyleReference,
   testPipelineRepromptsMaterializerForTurnPositionedEditTarget,
+  testPipelineAcceptsReadyMaterializationThatOmitsTheEmptyClarificationField,
   testPipelineStopsWhenInstructionMaterializerNeedsClarification,
 ];

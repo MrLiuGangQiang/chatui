@@ -78,6 +78,11 @@
       return renderer;
     }
 
+    function isPendingDisplayItemNode(node) {
+      const item = node?.__displayItem;
+      return item?.pending === '1' || item?.pending === true;
+    }
+
     function setReasoningPanelExpanded(panel, expanded) {
       if (!panel) return;
       panel.dataset.collapsed = expanded ? '0' : '1';
@@ -90,7 +95,8 @@
         if(!e)return;
         if(!deps.state.reasoningMode&&!s.restoreHistory&&!s.forceDisplay){forceRemoveReasoning(e); return;}
         const n=String(t||"");
-        if(!s.done&&!s.forceDisplay&&getReasoningText(e)===n&&e.querySelector(".reasoning-panel"))return;
+        const done=s.done===!0&&!isPendingDisplayItemNode(e);
+        if(!done&&!s.forceDisplay&&getReasoningText(e)===n&&e.querySelector(".reasoning-panel"))return;
         e.querySelectorAll(".reasoning-live").forEach(live=>live.remove());
         const content=e.querySelector(".content");
         const panelHost=e.querySelector(".bubble")||content;
@@ -103,7 +109,7 @@
           return;
         }
         if(n){
-          setReasoningText(e,n,{persistDataset:!!s.done});
+          setReasoningText(e,n,{persistDataset:done});
           e.dataset.keepReasoning="1";
         }
         if(panelHost){
@@ -120,13 +126,13 @@
           if(body){
             const renderer=reasoningStreamingRendererFor(body);
             if(n){
-              if(s.done){renderer.final(body,n);try{typeof deps.bindInlineCopyButtons==="function"&&deps.bindInlineCopyButtons(panel)}catch(err){}}
+              if(done){renderer.final(body,n);try{typeof deps.bindInlineCopyButtons==="function"&&deps.bindInlineCopyButtons(panel)}catch(err){}}
               else renderer.set(n,body);
             }else{
               try{renderer.reset(body)}catch(err){}
             }
           }
-          const completed=!0===s.done;
+          const completed=done;
           panel.classList.toggle("reasoning-done",completed);
           const label=panel.querySelector(".reasoning-label");
           if(label) label.textContent=completed?"思考完成":"正在思考";

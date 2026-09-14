@@ -144,6 +144,65 @@ function testEmptyReasoningUpdateDoesNotCreateAPanel() {
   fixture.dom.window.close();
 }
 
+function testPendingHydratedReasoningKeepsStreamingAfterInitialText() {
+  const previousChatUIApp = global.ChatUIApp;
+  let rendererClosed = false;
+  global.ChatUIApp = {
+    markdown: {
+      createStreamingRenderer() {
+        let raw = '';
+        return {
+          set(value, container) {
+            if (rendererClosed) return { raw, closed: true };
+            raw = String(value || '');
+            if (container) container.textContent = raw;
+            return { raw, closed: false };
+          },
+          final(container, value) {
+            rendererClosed = true;
+            raw = String(value || '');
+            if (container) container.textContent = raw;
+            return { raw, closed: true };
+          },
+          reset(container) {
+            rendererClosed = false;
+            raw = '';
+            if (container) container.textContent = '';
+          },
+          getRaw() { return raw; },
+        };
+      },
+    },
+  };
+  const fixture = createReasoningFixture();
+  fixture.message.dataset.streaming = '1';
+  fixture.message.__displayItem = { id: 'live-reasoning', pending: '1' };
+
+  try {
+    // Node hydration historically announces hydrated reasoning as completed.
+    // A pending live item must keep its renderer open so later SSE deltas append.
+    fixture.workflow.updateReasoning(fixture.message, 'first-chunk', {
+      done: true,
+      keepReasoning: true,
+      forceDisplay: true,
+    });
+    fixture.workflow.updateReasoning(fixture.message, 'first-chunk-second-chunk', {
+      done: false,
+      keepReasoning: true,
+      forceDisplay: true,
+    });
+
+    const panel = fixture.message.querySelector('.reasoning-panel');
+    assert.match(panel.querySelector('.reasoning-content').textContent, /first-chunk-second-chunk/,
+      'a pending reasoning stream must continue rendering after hydrated initial text');
+    assert.strictEqual(panel.dataset.collapsed, '0', 'pending reasoning must remain expanded while the stream is active');
+    assert.strictEqual(fixture.message.dataset.reasoningText, undefined,
+      'pending hydration must not publish a completed reasoning attribute');
+  } finally {
+    global.ChatUIApp = previousChatUIApp;
+    fixture.dom.window.close();
+  }
+}
 module.exports = [
   testLiveReasoningPanelUsesADistinctTintedSurface,
   testCompletedReasoningCollapsesAndCanBeReopened,
@@ -151,5 +210,6 @@ module.exports = [
   testEmptyReasoningUpdateDoesNotCreateAPanel,
   testStreamingReasoningKeepsFullTextOffDomAttributesUntilDone,
   testUnchangedStreamingReasoningDoesNotRerender,
+  testPendingHydratedReasoningKeepsStreamingAfterInitialText,
   testEmptyReasoningUpdateRemovesAnExistingPanel,
 ];

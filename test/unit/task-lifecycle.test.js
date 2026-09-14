@@ -262,6 +262,63 @@ function testCompletionWithoutSubmissionCannotSettleAMismatchedCurrentJob() {
   assert.strictEqual(state.followingChatJobs.has('chatjob-old'), false);
 }
 
+async function testRejectedRemoteAbortKeepsDurableJobForRetry() {
+  const run = {
+    token: 'run-stop-failed',
+    stopped: false,
+    abortController: new AbortController(),
+    jobIds: new Set(['chat:chatjob-stop-failed']),
+  };
+  const state = {
+    activeRuns: new Map([['session-stop-failed', run]]),
+    stoppedSessions: new Map(),
+    resumingJobs: new Set(),
+    followingChatJobs: new Set(),
+    followingImageJobs: new Set(),
+    taskStates: new Map(),
+  };
+  const calls = [];
+  const failures = [];
+  const lifecycle = taskLifecycle.createTaskLifecycle({
+    state,
+    taskState,
+    stopAbortWaitMs: 50,
+    clearActiveRun: (sessionId, ownedRun) => {
+      if (state.activeRuns.get(sessionId) === ownedRun) state.activeRuns.delete(sessionId);
+    },
+    setSessionBusy: () => {},
+    stop: {
+      getActiveRun: sessionId => state.activeRuns.get(sessionId),
+      ensureActiveRun: () => run,
+      clearPendingSubmit: () => {},
+      loadChatJob: () => ({ id: 'chatjob-stop-failed' }),
+      abortManagedJob: async (kind, jobId) => {
+        calls.push(['abort', kind, jobId]);
+        throw new Error('network down');
+      },
+      clearChatJob: (sessionId, jobId) => calls.push(['clear-chat', sessionId, jobId]),
+      onAbortFailed: (target, error) => failures.push({ target, message: error.message }),
+      markStopping: () => {},
+      finalizeStopped: () => calls.push(['finalize-stopped']),
+    },
+  });
+
+  const events = taskState.TASK_EVENTS;
+  lifecycle.dispatchTaskEvent('session-stop-failed', { type: events.TASK_ACCEPTED, submissionId: 'submit-stop-failed' });
+  lifecycle.dispatchTaskEvent('session-stop-failed', { type: events.ROUTING_STARTED, submissionId: 'submit-stop-failed' });
+  await lifecycle.stopSessionTask('session-stop-failed');
+
+  assert.deepStrictEqual(calls, [
+    ['abort', 'chat', 'chatjob-stop-failed'],
+    ['finalize-stopped'],
+  ], 'a rejected server stop must not erase the durable job owner');
+  assert.deepStrictEqual(failures, [{
+    target: { kind: 'chat', jobId: 'chatjob-stop-failed' },
+    message: 'network down',
+  }]);
+  assert.strictEqual(state.activeRuns.has('session-stop-failed'), false);
+  assert.strictEqual(lifecycle.getTaskState('session-stop-failed').phase, taskState.TASK_PHASES.STOPPED);
+}
 async function testStopSessionTaskOwnsTheEntireStopBoundary() {
   const run = {
     token: 'run-a',
@@ -795,6 +852,7 @@ module.exports = [
   testRecoveredCompletionUsesCanonicalIdentityButCleansActualFollowerJob,
   testStopSessionTaskReleasesLocallyWhenRemoteAbortNeverSettles,
   testCompletionWithoutSubmissionCannotSettleAMismatchedCurrentJob,
+  testRejectedRemoteAbortKeepsDurableJobForRetry,
   testStopSessionTaskOwnsTheEntireStopBoundary,
   testLateStopCompletionCannotFinalizeANewerTask,
   testSubmitButtonUsesCanonicalTaskProjection,

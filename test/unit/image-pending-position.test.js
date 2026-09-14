@@ -123,6 +123,7 @@ function testPendingDisplayItemsRemainInCanonicalOrderWhenCreatedOutOfOrder() {
   const session = { id: 'session-display-order', title: 'Order', messages: [], display: [] };
   const state = { sessions: [session], activeSessionId: session.id, messages: [], models: [] };
   const storage = createStorage();
+  const streamCheckpoints = [];
   const workflow = sessionDisplay.createSessionDisplayWorkflow({
     getState: () => state,
     getActiveSession: () => session,
@@ -145,6 +146,17 @@ function testPendingDisplayItemsRemainInCanonicalOrderWhenCreatedOutOfOrder() {
       }),
     },
     snapshotStore: { supported: false },
+    streamCheckpointStore: {
+      supported: true,
+      schedulePut: async (sessionId, items) => {
+        streamCheckpoints.push({ sessionId, items: items.map(item => ({ ...item })) });
+        return { sessionId };
+      },
+      get: async () => null,
+      delete: async () => true,
+      flush: async () => true,
+      clear: async () => true,
+    },
     constants: { SESSIONS_KEY: 'sessions', ACTIVE_SESSION_KEY: 'active' },
   });
 
@@ -161,9 +173,9 @@ function testPendingDisplayItemsRemainInCanonicalOrderWhenCreatedOutOfOrder() {
 
   assert.deepStrictEqual(session.display.map(item => item.id), ['earlier', 'later']);
   assert.deepStrictEqual(
-    JSON.parse(storage.getItem('sessions:snapshot-fallback:session-display-order')).pendingDisplay.map(item => item.id),
+    streamCheckpoints.at(-1).items.map(item => item.id),
     ['earlier', 'later'],
-    'the persisted pending display must retain canonical order as well',
+    'the latest stream cursor must retain canonical pending order without writing a full snapshot',
   );
 }
 
@@ -294,11 +306,11 @@ function testImageWorkflowCreatesInitialWaitingNodeWithCanonicalResponseIndex() 
 function testCanonicalWaitingPositionBundleIsCacheBusted() {
   const index = require('fs').readFileSync(require('path').join(__dirname, '../../index.html'), 'utf8');
   for (const asset of [
-    'client/app/session-display.js?v=2.1.15-multi-task-plan-persistence',
+    'client/app/session-display.js?v=2.1.16-stream-resume-cursor',
     'client/app/chat-workflow.js?v=1.6.4-full-context-history',
     'client/app/image-workflow.js?v=1.6.7-stable-turn-identity',
     'client/app/message-workflow.js?v=1.3.46-action-lifecycle',
-    'app.js?v=2.4.0-assistant-completion-recovery',
+    'app.js?v=2.4.2-ghost-job-cleanup',
   ]) {
     assert.ok(index.includes(asset), `the browser must load the cache-busted ${asset} implementation`);
   }

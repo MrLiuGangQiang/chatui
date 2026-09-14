@@ -365,14 +365,10 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
   if (parentSignal?.aborted) abortFromParent();
   else parentSignal?.addEventListener?.('abort', abortFromParent, { once: true });
   if (job) job.controller = controller;
-  let responseContentStarted = false;
   const touch = () => {
-    if (!responseContentStarted) {
-      responseContentStarted = true;
-      idleTimeout.stop();
-    }
-    if (job) job.updatedAt = Date.now();
-    return true;
+    const touched = idleTimeout.touch();
+    if (touched && job) job.updatedAt = Date.now();
+    return touched;
   };
   idleTimeout.touch();
   const request = summarizeUpstreamRequest(url, { method, body, job });

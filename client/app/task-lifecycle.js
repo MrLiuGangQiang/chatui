@@ -91,18 +91,24 @@
       runCleanup('pending submission', () => stop.clearPendingSubmit?.(sessionId));
       const chatJob = readStopJob('chat job', () => stop.loadChatJob?.(sessionId));
       const imageJob = readStopJob('image job', () => stop.loadImageJob?.(sessionId));
-      const chatJobId = addStopJob(run, 'chat', chatJob);
-      const imageJobId = addStopJob(run, 'image', imageJob);
+      let chatJobId = addStopJob(run, 'chat', chatJob);
+      let imageJobId = addStopJob(run, 'image', imageJob);
       runCleanup('stopping projection', () => stop.markStopping?.(sessionId));
       if (!hasCanonicalTask) runCleanup('legacy busy state', () => deps.setSessionBusy?.(sessionId, false));
 
-      const aborts = [...(run?.jobIds || [])].map(value => {
+      const abortTargets = [...(run?.jobIds || [])].map(value => {
         const [kind, ...parts] = String(value).split(':');
-        return Promise.resolve().then(() => stop.abortManagedJob?.(kind, parts.join(':')));
+        return { kind, jobId: parts.join(':') };
       });
+      const aborts = abortTargets.map(({ kind, jobId }) => Promise.resolve()
+        .then(() => stop.abortManagedJob?.(kind, jobId)));
+      let abortSettled = false;
       const abortWaitMs = Math.max(0, Number(deps.stopAbortWaitMs ?? 1200) || 0);
       if (aborts.length) {
-        const settled = Promise.allSettled(aborts);
+        const settled = Promise.allSettled(aborts).then(results => {
+          abortSettled = true;
+          return results;
+        });
         if (abortWaitMs > 0) {
           let abortTimer = null;
           try {
@@ -113,6 +119,16 @@
           } finally {
             if (abortTimer !== null) (deps.clearTimeout || clearTimeout)(abortTimer);
           }
+        }
+        if (abortSettled) {
+          const results = await settled;
+          results.forEach((result, index) => {
+            if (result.status !== 'rejected') return;
+            const target = abortTargets[index];
+            if (target.kind === 'chat') chatJobId = '';
+            if (target.kind === 'image') imageJobId = '';
+            try { stop.onAbortFailed?.(target, result.reason); } catch {}
+          });
         }
       }
 

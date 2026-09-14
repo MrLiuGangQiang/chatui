@@ -55,6 +55,32 @@ function release(version, title = version) {
   };
 }
 
+function makeFakeEventSourceClass(instances = []) {
+  return class FakeEventSource {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      this.closed = false;
+      this.listeners = new Map();
+      instances.push(this);
+    }
+
+    addEventListener(type, listener) {
+      if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+      this.listeners.get(type).add(listener);
+    }
+
+    close() {
+      this.readyState = 2;
+      this.closed = true;
+    }
+
+    emit(type, event = {}) {
+      for (const listener of this.listeners.get(type) || []) listener(event);
+    }
+  };
+}
+
 function testAnnouncementDocumentParsesVersionedMetadata() {
   const parsed = parseAnnouncementDocument(`---\npublished_at: 2026-08-05\nbadge: 重要公告\nsummary: 一条重要通知\n---\n# 新公告\n\n正文`);
   assert.deepStrictEqual(parsed, {
@@ -311,6 +337,31 @@ async function testEmptyAnnouncementResponseDoesNotFlashAnnouncementDialog() {
   assert.strictEqual(dom.window.document.body.classList.contains('announcement-pending'), false, 'the startup gate must be cleared for an empty announcement feed');
 }
 
+async function testBackgroundRefreshFailureDoesNotReopenAnEmptyAnnouncementDialog() {
+  const dom = announcementDom();
+  let shouldFail = false;
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    fetchImpl: async () => {
+      if (shouldFail) throw new TypeError('Failed to fetch');
+      return { ok: true, json: async () => ({ announcements: [] }) };
+    },
+  });
+  controller.bind();
+  await controller.initialize();
+
+  const modal = dom.window.document.getElementById('announcementModal');
+  shouldFail = true;
+  await assert.rejects(controller.refresh(), /Failed to fetch/);
+
+  assert.strictEqual(modal.classList.contains('show'), false,
+    'a transient background refresh failure must not open an empty announcement dialog');
+  assert.strictEqual(modal.classList.contains('is-forced'), false,
+    'a transient background refresh failure must not lock the app');
+  dom.window.close();
+}
+
 function extractCssMedia(css, header) {
   const start = css.indexOf(header);
   if (start < 0) return '';
@@ -332,8 +383,11 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   const dockerignore = fs.readFileSync(path.join(root, '.dockerignore'), 'utf8');
+  const clientSource = fs.readFileSync(path.join(root, 'client/ui/announcement-center.js'), 'utf8');
   const appSource = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
   const serviceSource = fs.readFileSync(path.join(root, 'server/services/announcements.service.js'), 'utf8');
+  const eventServiceSource = fs.readFileSync(path.join(root, 'server/services/announcement-events.service.js'), 'utf8');
+  const coreRouteSource = fs.readFileSync(path.join(root, 'server/api/routes/core.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
   assert.match(index, /id="announcementModal"[^>]*class="announcement-modal is-loading"[^>]*aria-hidden="true"/);
   assert.ok(index.includes('id="acknowledgeAnnouncementBtn"'));
@@ -357,7 +411,14 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(fs.statSync(path.join(root, 'data/announcements/_template.md')).isFile());
   assert.ok(fs.statSync(path.join(root, 'data/announcements/model-recommendation.json')).isFile());
   assert.ok(appSource.includes('runtimeDir: ANNOUNCEMENTS_DIR'));
+  assert.ok(appSource.includes('createAnnouncementEvents'));
+  assert.ok(appSource.includes('subscribeAnnouncements: announcementEvents.subscribe'));
   assert.ok(serviceSource.includes('readRuntimeAnnouncements'));
+  assert.ok(eventServiceSource.includes('event: announcement'));
+  assert.ok(coreRouteSource.includes("path: '/api/announcements/events'"));
+  assert.ok(clientSource.includes('new EventSourceImpl(announcementEventsPath)'));
+  assert.ok(!clientSource.includes('setInterval'),
+    'announcement updates must use SSE and activation refreshes, not a client polling timer');
   assert.ok(css.includes('z-index: 10000'));
   assert.ok(css.includes('.image-preview.show') && css.includes('z-index: 10001'), 'the shared image preview must sit above the announcement dialog');
   assert.ok(css.includes('body.announcement-locked'));
@@ -367,6 +428,57 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
     'the boot markup must not force the announcement dialog visible before acknowledgement is known');
   assert.ok(css.includes('.announcement-toolbar-button:hover .announcement-entry-body'));
   assert.ok(css.includes('.announcement-overlay-close'));
+}
+
+async function testAnnouncementEventSourcePushesNewUnreadAnnouncement() {
+  const dom = announcementDom();
+  dom.window.localStorage.setItem(READ_ANNOUNCEMENTS_KEY, JSON.stringify(['v1.0.0']));
+  const instances = [];
+  const FakeEventSource = makeFakeEventSourceClass(instances);
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    EventSource: FakeEventSource,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ announcements: [release('v1.0.0', '旧公告')] }) }),
+    renderMarkdown: markdown => '<p>' + markdown + '</p>',
+  });
+  controller.bind();
+  await controller.initialize();
+  assert.strictEqual(controller.connectEvents(), true);
+  assert.strictEqual(instances.length, 1);
+  assert.strictEqual(instances[0].url, '/api/announcements/events');
+
+  instances[0].emit('announcement', {
+    data: JSON.stringify({ announcements: [release('v2.0.0', '服务端推送公告')] }),
+  });
+
+  const modal = dom.window.document.getElementById('announcementModal');
+  assert.strictEqual(dom.window.document.getElementById('announcementTitle').textContent, '服务端推送公告');
+  assert.strictEqual(modal.classList.contains('show'), true);
+  assert.strictEqual(modal.classList.contains('is-forced'), true, 'a pushed unread announcement must immediately gate the app');
+  controller.disconnectEvents();
+  assert.strictEqual(instances[0].closed, true);
+}
+
+async function testAnnouncementEventSourceIgnoresMalformedPush() {
+  const dom = announcementDom();
+  const instances = [];
+  const FakeEventSource = makeFakeEventSourceClass(instances);
+  const controller = createAnnouncementCenterController({
+    document: dom.window.document,
+    storage: dom.window.localStorage,
+    EventSource: FakeEventSource,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ announcements: [release('v1.0.0', '保留公告')] }) }),
+    renderMarkdown: markdown => '<p>' + markdown + '</p>',
+  });
+  controller.bind();
+  await controller.initialize();
+  controller.acknowledge();
+  controller.connectEvents();
+
+  instances[0].emit('announcement', { data: '{not-json' });
+  assert.strictEqual(dom.window.document.getElementById('announcementTitle').textContent, '保留公告',
+    'a malformed push must not erase the last valid announcement');
 }
 
 async function testAnnouncementHeaderShowsRuntimeVersionOverAnnouncementVersion() {
@@ -431,7 +543,10 @@ module.exports = [
   testBackgroundRefreshKeepsRenderedAnnouncementVisibleWhileRequestIsPending,
   testAcknowledgedRefreshVerifiesLatestWithoutFlashingAnnouncementDialog,
   testEmptyAnnouncementResponseDoesNotFlashAnnouncementDialog,
+  testBackgroundRefreshFailureDoesNotReopenAnEmptyAnnouncementDialog,
   testInitialAnnouncementRequestTimesOutIntoRetryState,
+  testAnnouncementEventSourcePushesNewUnreadAnnouncement,
+  testAnnouncementEventSourceIgnoresMalformedPush,
   testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime,
   testAnnouncementMobileLayoutUsesFullWidthSingleScrollSurface,
   testAnnouncementHeaderShowsRuntimeVersionOverAnnouncementVersion,

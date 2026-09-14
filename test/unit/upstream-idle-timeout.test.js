@@ -3,6 +3,7 @@
 const assert = require('assert');
 const { Readable } = require('stream');
 const { createIdleTimeoutController, createUpstreamFetch, readUpstreamText } = require('../../server/jobs/common');
+const { createChatJobHandlers } = require('../../server/jobs/chat');
 
 async function withPrivateFetch(fetchImpl, run) {
   const previousFetch = global.fetch;
@@ -106,36 +107,27 @@ function testRapidChunksReuseOneIdleTimer() {
   assert.strictEqual(cleared, 1, 'stopping the request must clear the single idle timer');
 }
 
-async function testFirstUpstreamContentStopsTimeoutPermanently() {
-  const stream = createDelayedStreamingResponse(['one', 'two'], [0, 120]);
-  let aborted = false;
-  let timerAfterResponse = 'not-read';
-  const result = await withPrivateFetch(async (_url, options = {}) => {
-    options.signal?.addEventListener('abort', () => {
-      aborted = true;
-      stream.stop();
-    }, { once: true });
-    return stream.response;
-  }, async () => {
+async function testFirstUpstreamContentKeepsIdleTimeoutActive() {
+  await withPrivateFetch(() => new Promise((_resolve, reject) => {
+    // Keep the request pending; this test observes only its idle timer.
+  }), async () => {
     const upstreamRequest = createUpstreamFetch('http://127.0.0.1:65534/v1/chat/completions', {
       method: 'POST',
       upstreamTimeoutMs: 40,
     });
-    const response = await upstreamRequest.response;
+    upstreamRequest.response.catch(() => {});
     try {
-      const text = await readUpstreamText(response, upstreamRequest.touch);
-      timerAfterResponse = upstreamRequest.timer;
-      return text;
+      upstreamRequest.touch();
+      assert.notStrictEqual(
+        upstreamRequest.timer,
+        null,
+        'response content must reset, not permanently disable, the upstream idle timer',
+      );
     } finally {
       upstreamRequest.cleanup();
     }
   });
-
-  assert.strictEqual(result, 'onetwo');
-  assert.strictEqual(aborted, false, 'the first response chunk must permanently disable the upstream timeout');
-  assert.strictEqual(timerAfterResponse, null, 'no timeout timer may remain after response content starts');
 }
-
 async function testSilentUpstreamStillTimesOut() {
   const body = new Readable({ read() {} });
   let aborted = false;
@@ -169,8 +161,70 @@ async function testSilentUpstreamStillTimesOut() {
   assert.ok(Date.now() - startedAt < 1000, 'the idle timeout must not wait for a total request deadline');
 }
 
+async function testResponseHeartbeatsDoNotExtendContentIdleTimeout() {
+  const body = new Readable({ read() {} });
+  let aborted = false;
+  let heartbeatTimer = null;
+  const startedAt = Date.now();
+  const handlers = createChatJobHandlers({
+    chatJobs: new Map(),
+    notifyJob() {},
+    upstreamTimeoutMs: 50,
+    contextWindowTokens: 128000,
+    requestTrace: null,
+    errorLog: null,
+    idempotencyTable: null,
+    providerCapabilities: null,
+  });
+  const job = {
+    id: 'chatjob-heartbeat-idle',
+    status: 'running',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    api: 'chat',
+    targetPath: '/chat/completions',
+    targetUrl: 'http://127.0.0.1:65534/v1/chat/completions',
+    apiKey: 'test-key',
+    extraHeaders: {},
+    payload: { model: 'mock-model', stream: true, messages: [{ role: 'user', content: 'hello' }] },
+    data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
+    error: '',
+  };
+
+  await withPrivateFetch(async (_url, options = {}) => {
+    options.signal?.addEventListener('abort', () => {
+      aborted = true;
+      body.destroy(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+    body.once('close', () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    });
+    body.push('data: {"choices":[{"delta":{"content":"first"}}]}\n\n');
+    heartbeatTimer = setInterval(() => {
+      if (!aborted && !body.destroyed) body.push(': keepalive\n\n');
+    }, 10);
+    setTimeout(() => {
+      if (!aborted && !body.destroyed) body.push(null);
+    }, 180).unref?.();
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body,
+    };
+  }, async () => {
+    await handlers.runChatStreamJob(job);
+  });
+
+  assert.strictEqual(aborted, true, 'heartbeat-only chunks must not keep an already-started answer alive forever');
+  assert.strictEqual(job.status, 'error');
+  assert.match(job.error, /超时/, 'the idle watchdog must terminate the stalled content stream');
+  assert.ok(Date.now() - startedAt < 160, 'the content idle timeout must fire before heartbeat-only streaming ends');
+}
+
 module.exports = [
   testRapidChunksReuseOneIdleTimer,
-  testFirstUpstreamContentStopsTimeoutPermanently,
+  testFirstUpstreamContentKeepsIdleTimeoutActive,
+  testResponseHeartbeatsDoNotExtendContentIdleTimeout,
   testSilentUpstreamStillTimesOut,
 ];

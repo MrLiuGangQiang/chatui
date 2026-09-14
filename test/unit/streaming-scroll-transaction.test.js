@@ -90,6 +90,15 @@ function createWorkflowFixture(html) {
     shouldFollowScroll: () => true,
     updateResumeStreamButton: () => {},
     renderMarkdown: value => String(value || ''),
+    chatuiContentHash: value => 'hash:' + String(value || '').length,
+    chatuiLogLongTask: () => {},
+    requestAnimationFrame: () => {},
+    cancelScrollTimer: () => {},
+    chatuiShouldLazyRender: () => false,
+    chatuiIsNearViewport: () => true,
+    setMessageMetaText: () => {},
+    reconcileMessageActions: () => {},
+    moveImageActionsToMessageActions: () => {},
     bindInlineCopyButtons: () => {},
     enhanceRenderedMarkdown: () => {},
     hydrateMessageMedia: () => {},
@@ -246,6 +255,72 @@ function testReasoningStreamingUsesTheSameLiveOutputCommitPath() {
   });
 }
 
+function testStreamingTokensKeepFullRawTextOffDomAttributesUntilFinalization() {
+  const fixture = createWorkflowFixture(`
+    <section id="messages">
+      <article id="live-output" class="message assistant" data-session-id="session-a" data-streaming="1" data-response-index="1">
+        <div class="content"></div>
+      </article>
+    </section>
+  `);
+
+  withBrowserGlobals(fixture.dom, () => {
+    global.ChatUIApp.__workflowModules = { markdownLiveStream };
+    let raw = '';
+    for (let index = 0; index < 80; index += 1) {
+      raw += 'token-' + index + '\n';
+      fixture.workflow.updateMessageContentLight(fixture.output, raw, {
+        streamKind: 'chat',
+        sessionId: 'session-a',
+        chunk: true,
+      });
+    }
+
+    assert.strictEqual(fixture.output.dataset.rawText, undefined,
+      'live tokens must not rewrite the complete raw text into a DOM attribute');
+    assert.strictEqual(fixture.output.__chatuiRawText, raw,
+      'the live message must still expose the complete raw text in memory');
+
+    fixture.workflow.updateMessage(fixture.output, raw, {
+      rawText: raw,
+      responseIndex: 1,
+    });
+    assert.strictEqual(fixture.output.dataset.rawText, raw,
+      'finalization must publish the complete text once for durability and user actions');
+  });
+}
+
+function testReasoningOnlyTokenIsNotBlockedByUnchangedEmptyContent() {
+  const fixture = createWorkflowFixture(`
+    <section id="messages">
+      <article id="live-output" class="message assistant" data-session-id="session-a" data-streaming="1" data-response-index="1">
+        <div class="content"></div>
+      </article>
+    </section>
+  `);
+
+  withBrowserGlobals(fixture.dom, () => {
+    fixture.workflow.updateMessageContentLight(fixture.output, '', {
+      rawText: '',
+      streamKind: 'chat',
+      sessionId: 'session-a',
+      reasoning: 'thinking-one',
+    });
+    fixture.state.activeOutputNode = null;
+    fixture.state.activeOutputSessions.clear();
+
+    fixture.workflow.updateMessageContentLight(fixture.output, '', {
+      rawText: '',
+      streamKind: 'chat',
+      sessionId: 'session-a',
+      reasoning: 'thinking-two',
+    });
+
+    assert.strictEqual(fixture.state.activeOutputNode, fixture.output,
+      'an unchanged empty content frame must not return before the reasoning update can run');
+  });
+}
+
 function testAllChatStreamingEntryPointsConvergeOnOneCommitPath() {
   const fs = require('fs');
   const path = require('path');
@@ -260,6 +335,11 @@ function testAllChatStreamingEntryPointsConvergeOnOneCommitPath() {
     assert.ok(regenerate.includes('submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})'),
     'regeneration must delegate to the same sendChat stream owned by submit');  assert.match(submit, /await sendChat\(chatPrompt,[\s\S]{0,700}replaceAssistantIndex:replacementResponseIndex/,
     'edit/resend must enter the same sendChat stream rather than write a separate token renderer');
+  assert.ok(app.includes('const displayItemNodeCache=new WeakMap')
+    && app.includes('const cachedNode=displayItemNodeCache.get(e)'),
+    'live display-item lookup must reuse its connected node instead of scanning the complete message list for every token');
+  assert.ok(app.includes('return displayItemNodeCache.set(e,n),n}'),
+    'a successful live-node lookup must populate a cache outside the serializable display item');
   assert.strictEqual(app.includes('setTimeout(()=>{armStreamingOutputFocus'), false,
     'preparation paths must not schedule a second stream-focus lifecycle after sendChat owns the stream');
 }
@@ -269,5 +349,7 @@ module.exports = [
   testLargeChatStreamingReusesTheLayoutAnchorCommit,
   testStreamingTokenOnlyMutatesTheLiveMessage,
   testReasoningStreamingUsesTheSameLiveOutputCommitPath,
+  testReasoningOnlyTokenIsNotBlockedByUnchangedEmptyContent,
+  testStreamingTokensKeepFullRawTextOffDomAttributesUntilFinalization,
   testAllChatStreamingEntryPointsConvergeOnOneCommitPath,
 ];

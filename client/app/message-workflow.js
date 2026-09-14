@@ -60,6 +60,17 @@
       .trim();
   }
 
+  function getNodeRawText(node) {
+    return String(node?.__chatuiRawText ?? node?.dataset?.rawText ?? '');
+  }
+
+  function setNodeRawText(node, value, { persistDataset = true } = {}) {
+    if (!node) return;
+    const rawText = String(value ?? '');
+    node.__chatuiRawText = rawText;
+    if (persistDataset && node.dataset && node.dataset.rawText !== rawText) node.dataset.rawText = rawText;
+  }
+
   function selectedUserMessageRawText(selection) {
     if (!selection?.rangeCount || !String(selection.toString?.() || '').trim()) return '';
     const range = selection.getRangeAt(0);
@@ -69,7 +80,7 @@
     if (!start || start !== end) return '';
     const message = start.closest?.('.message.user');
     if (!message || message.querySelector('.user-attachment-preview-grid,.sent-quote-preview')) return '';
-    const rawText = String(message.dataset?.rawText || '');
+    const rawText = getNodeRawText(message);
     return rawText && copyComparableText(selection.toString()) === copyComparableText(rawText)
       ? rawText.replace(/\r\n?/g, '\n')
       : '';
@@ -160,7 +171,7 @@
         const byMessage = nodes.find(node => node.classList.contains('user') && String(node.dataset.messageIndex || '') === String(ctx.messageIndex));
         if (byMessage) return byMessage;
       }
-      return nodes.find(node => messageRoleFromNode(node) === ctx.role && normalizeQuoteText(node.dataset.rawText || node.textContent || '', 1200) === ctx.content) || null;
+      return nodes.find(node => messageRoleFromNode(node) === ctx.role && normalizeQuoteText(getNodeRawText(node) || node.textContent || '', 1200) === ctx.content) || null;
     }
 
     function scrollQuotedMessageToStart(target, margin = 18) {
@@ -305,7 +316,7 @@
     });
 
     function quoteContentTextFromNode(node, displayItem, canonical) {
-      const raw = node?.dataset?.rawText || displayItem?.rawText || canonical?.rawText || canonical?.content || '';
+      const raw = getNodeRawText(node) || displayItem?.rawText || canonical?.rawText || canonical?.content || '';
       if (String(raw || '').trim()) return raw;
       const contentNode = node?.querySelector?.('.content');
       if (contentNode) return contentNode.innerText || contentNode.textContent || '';
@@ -529,7 +540,7 @@
           state.streamFocusLocked = false;
           if (canAutoFollowNow()) pinActiveOutputToAnchor(e, { margin: 72 });
         }
-        e.dataset.rawText = rawValue;
+        setNodeRawText(e, rawValue);
         e.dataset.rawHash = rawHash;
         reconcileActionState();
         if (void 0 !== s.messageIndex && null !== s.messageIndex) setDatasetValue(e, 'messageIndex', s.messageIndex);
@@ -624,11 +635,11 @@
           return;
         }
 
-        e.dataset.rawText = rawValue;
+        setNodeRawText(e, rawValue, { persistDataset: !chatStream });
         if (chatStream) {
           e.__streamingRawLength = rawValue.length;
           if (!e.dataset.rawHash) e.dataset.rawHash = 'streaming';
-          if (e.__lastStreamingRaw === rawValue) {
+          if (e.__lastStreamingRaw === rawValue && s.reasoning === undefined) {
             updateResumeStreamButton();
             return;
           }
@@ -776,8 +787,8 @@
       bind('.copy-btn', async () => {
         const content = node.querySelector('.content');
         const text = messageCopyText
-          ? messageCopyText(node.dataset.rawText, content?.innerText || content?.textContent || '', content)
-          : String(node.dataset.rawText || '');
+          ? messageCopyText(getNodeRawText(node), content?.innerText || content?.textContent || '', content)
+          : getNodeRawText(node);
         if (copyText) await copyText(text);
         showCopySuccess?.(node.querySelector('.copy-btn'));
       });
@@ -790,6 +801,10 @@
     // ready visibility state. Image, chat, error, clarification and resume paths
     // must call this instead of mutating action visibility independently.
     function reconcileMessageActions(node, options = {}) {
+      if (!node?.dataset) return false;
+      const requestedState = options.state || '';
+      const resolvedState = resolveMessageActionState(node, requestedState);
+      if (!options.force && node.dataset.actionsState === resolvedState) return true;
       if (!node?.querySelector) return false;
       const role = messageActionRole(node);
       const actions = node.querySelector('.msg-actions');
@@ -811,7 +826,7 @@
     // Kept as the historical name for hydration callers; both names resolve to
     // the same reconciliation path above.
     function ensureMessageActions(node) {
-      return reconcileMessageActions(node);
+      return reconcileMessageActions(node, { force: true });
     }
     function addMessageProgressive(role, text, options = {}) {
       with (deps) {
@@ -822,7 +837,7 @@
         const content = node.querySelector(".content");
         const rawText = options.rawText ?? text;
         const quote = quoteContextJson(options.quoteContext);
-        node.dataset.rawText = rawText;
+        setNodeRawText(node, rawText);
         node.dataset.rawHash = chatuiContentHash(rawText);
         if (quote) { node.dataset.quoteContext = quote; node.classList.add("has-quote"); }
         if (options.messageIndex !== undefined && options.messageIndex !== null) node.dataset.messageIndex = String(options.messageIndex);

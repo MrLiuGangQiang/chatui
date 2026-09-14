@@ -145,7 +145,7 @@
       chatuiLazyRenderQueue.delete(node);
       chatuiLazyObserver?.unobserve?.(node);
       const content = node.querySelector('.content');
-      const raw = node.dataset.rawText || '';
+      const raw = (node.__chatuiRawText ?? node.dataset.rawText) || '';
       const hash = node.dataset.rawHash || chatuiContentHash(raw);
       if (!content || (node.dataset.renderedHash === hash && node.dataset.enhancedHash === hash)) return;
       if (!chatuiIsNearViewport(node) && !options.force && !queued?.force) {

@@ -324,7 +324,7 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
 }
 
 
-function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "", restoredAttachments = [], onSubmitImpl = null } = {}) {
+function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "", restoredAttachments = [], onSubmitImpl = null, isSessionBusy = () => false, taskStates = new Map(), toasts = [] } = {}) {
   const onSubmitCalls = [];
   const run = { stopped: false, abortController: new AbortController(), jobIds: new Set() };
   const userNode = {
@@ -359,15 +359,16 @@ function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "
     editingNode: null,
     editingQuoteContext: "",
     mode: "chat",
+    taskStates,
   };
   session.messages = state.messages.slice();
   const workflow = regenerateWorkflow.createRegenerateWorkflow({
     state,
     taskEvents: taskState.TASK_EVENTS,
     messageReplacement: sessionPersistence,
-    isSessionBusy: () => false,
+    isSessionBusy,
     findPreviousUserMessageNode: () => userNode,
-    toast: () => {},
+    toast: value => toasts.push(value),
     resetMessageActionStates: () => {},
     getUserAttachmentContextFromNode: () => attachmentContext,
     restoreUserAttachmentsFromContext: async () => restoredAttachments,
@@ -377,8 +378,10 @@ function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "
         if (typeof onSubmitImpl === "function") await onSubmitImpl({ event, options });
       },
     }),
+    regenerateStopWaitMs: 200,
+    regenerateWaitPollMs: 5,
   });
-  return { workflow, state, session, userNode, assistantNode, onSubmitCalls, run };
+  return { workflow, state, session, userNode, assistantNode, onSubmitCalls, run, toasts };
 }
 
 async function testRegeneratePreparesEditStateAndDelegatesOriginalText() {
@@ -392,6 +395,38 @@ async function testRegeneratePreparesEditStateAndDelegatesOriginalText() {
   assert.strictEqual(fixture.state.editingNode, fixture.userNode, "regeneration must reuse the edit message node");
   assert.strictEqual(fixture.state.editingQuoteContext, "", "regeneration must prepare the edit quote context");
   assert.strictEqual(fixture.state.attachments.length, 0, "regeneration must restore an empty original attachment set");
+}
+
+async function testRegenerateWaitsForStoppingTaskThenContinues() {
+  const taskStates = new Map([["session-unified", { phase: "stopping" }]]);
+  let busy = true;
+  const fixture = createUnifiedRegenerateFixture({
+    isSessionBusy: () => busy,
+    taskStates,
+  });
+  setTimeout(() => {
+    busy = false;
+    taskStates.set("session-unified", { phase: "stopped" });
+  }, 10);
+
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+
+  assert.strictEqual(fixture.onSubmitCalls.length, 1,
+    "clicking regenerate while the previous task is stopping must continue automatically after the stop settles");
+  assert.deepStrictEqual(fixture.toasts, []);
+}
+
+async function testRegenerateExplainsWhenAnotherTaskStillOwnsTheSession() {
+  const taskStates = new Map([["session-unified", { phase: "running" }]]);
+  const fixture = createUnifiedRegenerateFixture({
+    isSessionBusy: () => true,
+    taskStates,
+  });
+
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+
+  assert.strictEqual(fixture.onSubmitCalls.length, 0);
+  assert.match(fixture.toasts[0] || "", /当前任务仍在运行/);
 }
 
 async function testRegenerateRestoresOriginalAttachmentsForUnifiedEditSubmit() {
@@ -417,6 +452,8 @@ module.exports = [
   testRegenerateDelegatesToUnifiedSubmitPipeline,
   testRegeneratePreservesConversationBeforeUnifiedSubmit,
   testRegeneratePreparesEditStateAndDelegatesOriginalText,
+  testRegenerateWaitsForStoppingTaskThenContinues,
+  testRegenerateExplainsWhenAnotherTaskStillOwnsTheSession,
   testRegenerateRestoresOriginalAttachmentsForUnifiedEditSubmit,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
 ];

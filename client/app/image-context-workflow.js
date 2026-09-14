@@ -569,7 +569,7 @@
       }
       let prev = node?.previousElementSibling || null;
       while (prev) {
-        if (prev.classList?.contains('user')) return cleanAssistantImagePromptText(prev.dataset.rawText || prev.innerText || prev.textContent || '');
+        if (prev.classList?.contains('user')) return cleanAssistantImagePromptText((prev.__chatuiRawText ?? prev.dataset.rawText) || prev.innerText || prev.textContent || '');
         if (prev.classList?.contains('assistant')) break;
         prev = prev.previousElementSibling;
       }
@@ -619,7 +619,7 @@
         .filter(Boolean);
       if (images.length) {
         const referenceId = images[0].referenceId || makeImageReferenceId(displayItemId || 'quote');
-        const contextPrompt = cleanAssistantImagePromptText(node.dataset.rawText || node.querySelector?.('.content')?.innerText || '') || previousUserPromptForAssistantNode(node);
+        const contextPrompt = cleanAssistantImagePromptText((node.__chatuiRawText ?? node.dataset.rawText) || node.querySelector?.('.content')?.innerText || '') || previousUserPromptForAssistantNode(node);
         return normalizeImageContextForStorage({
           prompt: contextPrompt,
           mode: 'image',

@@ -18,6 +18,7 @@ const { createFeedbackReviewer } = require('./services/feedback-review.service')
 const { createUsageAccessValidator } = require('./services/usage-access.service');
 const { readReleaseNotes } = require('./services/release-notes.service');
 const { readAnnouncements } = require('./services/announcements.service');
+const { createAnnouncementEvents } = require('./services/announcement-events.service');
 const { readModelRecommendation } = require('./services/model-recommendation.service');
 const { createLoggers } = require('./logging');
 const { createRequestPrincipalService } = require('./security/request-principal');
@@ -26,6 +27,7 @@ function createApp() {
   const loggers = createLoggers({ root: ROOT });
   const { accessLog, errorLog, serverLog, requestTrace, newTrace } = loggers;
   const requestPrincipal = createRequestPrincipalService();
+  const announcementEvents = createAnnouncementEvents({ runtimeDir: ANNOUNCEMENTS_DIR });
   const readRuntimePublicConfig = () => ({ ...readPublicConfig(), modelRecommendation: readModelRecommendation({ filePath: MODEL_RECOMMENDATION_FILE }) });
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
@@ -127,6 +129,7 @@ function createApp() {
     requestPrincipal,
     readChangelog: () => readReleaseNotes({ root: ROOT }),
     readAnnouncements: () => readAnnouncements({ runtimeDir: ANNOUNCEMENTS_DIR }),
+    subscribeAnnouncements: announcementEvents.subscribe,
     send,
     sendJson,
     sendMethodNotAllowed,
@@ -172,6 +175,7 @@ function createApp() {
     return closeLogsPromise;
   }
   server.close = function closeServer(callback) {
+    announcementEvents.close();
     closeJobSubscribers(jobSubscribers);
     return Promise.resolve().then(() => presence.closeAll())
       .catch(() => {})
@@ -191,6 +195,7 @@ function createApp() {
   serverLog.started({ host: '0.0.0.0', port: 8765 });
 
   server.on('close', () => {
+    announcementEvents.close();
     serverLog.stopped({ reason: 'server.close' });
     clearInterval(sweeper);
     clearInterval(presenceSweeper);

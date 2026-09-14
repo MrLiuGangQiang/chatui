@@ -163,7 +163,7 @@ function testReasoningRendererPersistsAndRestoresMarkdown() {
   assert.ok(chatSource.includes('R&&updateReasoning(finalNode,R,{done:!0,restoreHistory:!0'), 'the completed live message must preserve its thought panel');
   assert.ok(historySource.includes("normalized?.reasoning_content || normalized?.reasoning"), 'canonical-history rendering must restore persisted reasoning after refresh');
   assert.ok(resumeSource.includes('reasoning: s.reasoning || ""'), 'resumed live chat jobs must checkpoint received reasoning');
-  assert.ok(resumeSource.includes('const t = s.content || ""'), 'resuming a reasoning-only event must not reintroduce the waiting status text');
+  assert.ok(resumeSource.includes('const contentText = s.content || ""'), 'resuming a reasoning-only event must not reintroduce the waiting status text');
   assert.ok(resumeSource.includes('renderResumedChatState') && resumeSource.includes('forceDisplay: true'),
     'the active resumed message must replay its live thought panel regardless of the thinking-mode setting');
   assert.ok(appSource.includes('forceDisplay:!0===a.forceDisplay'),

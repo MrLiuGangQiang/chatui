@@ -75,9 +75,9 @@
       const item = {
         id: node.dataset.displayItemId || node.__displayItem?.id || deps.makeDisplayItemId(),
         role: node.classList.contains('user') ? 'user' : node.classList.contains('error') ? 'error' : 'assistant',
-        rawText: node.dataset.rawText || node.__displayItem?.rawText || '',
+        rawText: (node.__chatuiRawText ?? node.dataset.rawText) || node.__displayItem?.rawText || '',
         html: lazy ? node.__displayItem?.html || '' : content?.innerHTML || node.__displayItem?.html || '',
-        reasoningText: node.dataset.keepReasoning === '1' ? node.dataset.reasoningText || '' : '',
+        reasoningText: node.dataset.keepReasoning === '1' ? (node.__chatuiReasoningText ?? node.dataset.reasoningText) || '' : '',
         keepReasoning: node.dataset.keepReasoning === '1',
         messageIndex: node.dataset.messageIndex || node.__displayItem?.messageIndex || '',
         responseIndex: node.dataset.responseIndex || node.__displayItem?.responseIndex || '',
@@ -167,6 +167,35 @@
       return `\u6b63\u5728\u5904\u7406 \u5df2\u7b49\u5f85 ${elapsed} \u79d2`;
     }
 
+    function pendingChatOutputStarted(item) {
+      if (!item || deps.isImagePendingDisplayItem?.(item)) return !!item?.outputStarted;
+      const reasoning = String(item.reasoningText || '').trim();
+      const rawText = String(item.rawText || '').trim();
+      const rawOutputStarted = typeof deps.isChatStatusText === 'function'
+        && !!rawText
+        && !deps.isChatStatusText(rawText);
+      return !!item.outputStarted || !!reasoning || rawOutputStarted;
+    }
+
+    function clearPendingChatWaitProjection(item) {
+      if (!item) return false;
+      let changed = false;
+      if (!item.outputStarted) {
+        item.outputStarted = true;
+        changed = true;
+      }
+      if (deps.isChatStatusText?.(item.rawText)) {
+        item.rawText = '';
+        changed = true;
+      }
+      const html = String(item.html || '');
+      if (html.includes('pending-feedback') || html.includes('intent-reasoning-trace')) {
+        item.html = '';
+        changed = true;
+      }
+      return changed;
+    }
+
     function ensurePendingTaskProjection(session, pendingItems, pendingSubmit, activeImageJob, activeChatJob) {
       const owner = pendingTaskProjectionOwner(pendingSubmit, activeImageJob, activeChatJob);
       if (!owner) return Array.isArray(pendingItems) ? pendingItems : [];
@@ -210,9 +239,11 @@
         if (!item.jobId && jobId) { item.jobId = jobId; changed = true; }
         if ((item.responseIndex === '' || item.responseIndex === null || item.responseIndex === undefined) && responseIndex !== '' && responseIndex !== null && responseIndex !== undefined) { item.responseIndex = String(responseIndex); changed = true; }
         if (item.pending !== '1') { item.pending = '1'; changed = true; }
+        const outputStarted = pendingChatOutputStarted(item);
+        if (outputStarted && clearPendingChatWaitProjection(item)) changed = true;
         const currentText = String(item.rawText || '').trim();
         const currentIsStatus = !currentText || deps.isChatStatusText?.(currentText);
-        if (currentIsStatus && currentText !== statusText) {
+        if (!outputStarted && currentIsStatus && currentText !== statusText) {
           // The projection is a durable-job recovery hint, never the live
           // source of truth: a running UI timer keeps the item's status
           // fresher than any recomputed snapshot. Switching sessions must not
@@ -320,6 +351,8 @@
           const stored = session.display.find(candidate => candidate.id === item.id);
           if (stored) Object.assign(stored, item);
           else session.display.push(item);
+          const outputStarted = pendingChatOutputStarted(item);
+          if (outputStarted) clearPendingChatWaitProjection(stored || item);
           if (session.id !== state.activeSessionId) continue;
           let node = null;
           const nodes = [...$('messages').querySelectorAll('.message')];
@@ -340,12 +373,14 @@
             if (item.jobId) node.dataset.jobId = item.jobId;
             if (Number.isFinite(responseIndex) && responseIndex >= 0) node.dataset.responseIndex = String(responseIndex);
             const rawText = String(item.rawText || '');
-            if (rawText && String(node.dataset.rawText || '') !== rawText) {
+            if (rawText && String((node.__chatuiRawText ?? node.dataset.rawText) || '') !== rawText) {
               if (item.html && typeof updateMessage === 'function') updateMessage(node, item.html, { html: true, rawText, skipSave: true, noScroll: true, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
               else if (typeof updateMessageContentLight === 'function') updateMessageContentLight(node, rawText, { rawText, pending: true, skipSave: true, noScroll: true, streamKind: 'chat', sessionId: session.id, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
             }
           }
-          if (node && item.outputStarted) {
+          if (node && outputStarted) {
+            node.querySelector?.('.pending-feedback')?.remove();
+            delete node.dataset.pendingFeedback;
             node.dataset.outputStarted = '1';
             root?.ChatUIApp?.formatting?.dismissIntentReasoningTrace?.(node);
           } else if (node) {
@@ -361,7 +396,7 @@
             node.dataset.streaming = '1';
             node.dataset.streamKind = (isImagePendingDisplayItem(item) || isImageBatchPendingItem(item)) ? 'image' : 'chat';
             node.dataset.sessionId = session.id;
-            if (String(item.html || '').includes('pending-feedback')) node.dataset.pendingFeedback = '1';
+            if (!outputStarted && String(item.html || '').includes('pending-feedback')) node.dataset.pendingFeedback = '1';
             deps.reconcileMessageActions?.(node, { state: 'pending' });
           }
         }

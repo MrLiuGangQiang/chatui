@@ -140,7 +140,19 @@ async function getChatJob({ jobId, fetchImpl = fetch, signal, parseResponseJson,
 async function abortManagedJob({ kind = 'chat', jobId, fetchImpl = fetch } = {}) {
   if (!jobId) return null;
   const collection = kind === 'image_batch' ? 'image-batches' : kind === 'image' ? 'image-jobs' : 'chat-jobs';
-  const response = await fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}/abort`, { method: 'POST' });
+  const response = await fetchImpl(`/api/${collection}/${encodeURIComponent(jobId)}/abort`, {
+    method: 'POST',
+    keepalive: true,
+  });
+  if (!response.ok) {
+    let payload = null;
+    try { payload = await response.json(); } catch {}
+    throw rejectedJobError(
+      response,
+      payload,
+      (_value, body) => body?.error?.message || body?.message || '停止任务失败，请重试',
+    );
+  }
   return response;
 }
 

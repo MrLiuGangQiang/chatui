@@ -3,6 +3,8 @@
 
   const snapshotRecoveryModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('sessionSnapshotRecovery')
     || (typeof require === 'function' ? require('../services/session-snapshot-recovery') : {});
+  const streamCheckpointModule = root?.[Symbol.for('chatui.module-registry.v1')]?.get('streamCheckpointStore')
+    || (typeof require === 'function' ? require('../services/stream-checkpoint-store') : {});
   const clarificationService = root?.[Symbol.for('chatui.module-registry.v1')]?.get('clarificationAnswer')
     || root?.ChatUIClarificationService
     || (typeof require === 'function' ? require('../../shared/clarification-answer') : {});
@@ -45,6 +47,9 @@
     const pendingDisplayCheckpointMs = Math.max(0, Number(deps.pendingDisplayCheckpointMs ?? 500) || 0);
     const pendingDisplayCheckpointTimers = new Map();
     const pendingDisplayCheckpointDirty = new Set();
+    const streamCheckpointStore = deps.streamCheckpointStore
+      || streamCheckpointModule.createStreamCheckpointStore?.({ indexedDBImpl: deps.indexedDB || root.indexedDB, logger })
+      || { supported: false, schedulePut: async () => null, get: async () => null, delete: async () => false, flush: async () => true, clear: async () => {} };
 
     const snapshotRecovery = snapshotRecoveryModule.createSessionSnapshotRecovery({
       getState,
@@ -72,6 +77,7 @@
       nextPersistenceRevision,
       isCurrentSnapshot,
       isQuotaError,
+      hasStoredSessionMetadata,
       readSnapshotFallback,
       writeSnapshotFallback,
       clearSnapshotFallback,
@@ -254,6 +260,28 @@
       pendingDisplayCheckpointDirty.delete(id);
     }
 
+    function pendingCheckpointItems(session) {
+      return (session?.display || []).filter(item => item?.pending === '1');
+    }
+
+    function checkpointIntervalMs() {
+      if (!pendingDisplayCheckpointMs) return 0;
+      const activeCount = Math.max(1, Number(getState().busySessions?.size || 0));
+      if (activeCount >= 8) return Math.max(pendingDisplayCheckpointMs, 2000);
+      if (activeCount >= 4) return Math.max(pendingDisplayCheckpointMs, 1000);
+      return pendingDisplayCheckpointMs;
+    }
+
+    function scheduleSessionStreamCheckpoint(sessionId) {
+      const id = String(sessionId || '');
+      const state = getState();
+      const session = state.sessions.find(item => item.id === id);
+      if (!session) return Promise.resolve(null);
+      const items = pendingCheckpointItems(session);
+      if (!items.length) return streamCheckpointStore.delete?.(id) || Promise.resolve(true);
+      return streamCheckpointStore.schedulePut?.(id, items) || Promise.resolve(null);
+    }
+
     function persistSessionDisplay(sessionId) {
       clearPendingDisplayCheckpoint(sessionId);
       const state = getState();
@@ -261,7 +289,9 @@
       if (!session) return Promise.resolve();
       session.updatedAt = Date.now();
       session.display = pendingDisplayItems(session.display);
-      return commitSession(session);
+      return Promise.resolve()
+        .then(() => commitSession(session))
+        .finally(() => scheduleSessionStreamCheckpoint(sessionId));
     }
 
     function normalizeMessageForStorage(message, sequence = 0, sessionId = '') {
@@ -364,7 +394,7 @@
       // Completed messages are canonical records. display contains only resumable/transient jobs.
       if (item.pending === '1') {
         ensurePendingItem(session, item);
-        persistSessionDisplay(sessionId);
+        scheduleSessionStreamCheckpoint(sessionId);
       }
       return item;
     }
@@ -392,7 +422,10 @@
       if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning && !!item.reasoningText; }
       if (options.pending === false) { clearPendingDisplayCheckpoint(sessionId); item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }
       ensurePendingItem(session, item);
-      if (options.deferPersist !== true) persistSessionDisplay(sessionId);
+      if (options.deferPersist !== true) {
+        if (options.pending === false || item.pending !== '1') persistSessionDisplay(sessionId);
+        else scheduleSessionStreamCheckpoint(sessionId);
+      }
     }
 
     function checkpointSessionDisplayItem(sessionId, item, role, content, options = {}) {
@@ -408,15 +441,15 @@
       item.html = options.html === true ? String(content || '') : '';
       pendingDisplayCheckpointDirty.add(id);
       if (options.forcePersist === true || !pendingDisplayCheckpointMs || typeof setTimeoutRef !== 'function') {
-        persistSessionDisplay(id);
+        scheduleSessionStreamCheckpoint(id);
         return item;
       }
       if (!pendingDisplayCheckpointTimers.has(id)) {
         const timer = setTimeoutRef(() => {
           pendingDisplayCheckpointTimers.delete(id);
           if (!pendingDisplayCheckpointDirty.has(id)) return;
-          persistSessionDisplay(id);
-        }, pendingDisplayCheckpointMs);
+          scheduleSessionStreamCheckpoint(id);
+        }, checkpointIntervalMs());
         pendingDisplayCheckpointTimers.set(id, timer);
       }
       return item;
@@ -432,7 +465,7 @@
         if (timer !== undefined && typeof clearTimeoutRef === 'function') clearTimeoutRef(timer);
         pendingDisplayCheckpointTimers.delete(id);
         pendingDisplayCheckpointDirty.delete(id);
-        writes.push(Promise.resolve(persistSessionDisplay(id)));
+        writes.push(Promise.resolve(scheduleSessionStreamCheckpoint(id)).then(() => streamCheckpointStore.flush?.(id)));
       }
       return Promise.allSettled(writes);
     }
@@ -503,14 +536,19 @@
     }
 
     async function loadSessionPayload(item) {
-      const snapshot = await readLatestSnapshot(item.id);
+      const [snapshot, checkpoint] = await Promise.all([
+        readLatestSnapshot(item.id),
+        streamCheckpointStore.get?.(item.id) || Promise.resolve(null),
+      ]);
+      const durablePending = isCurrentSnapshot(snapshot) ? snapshot.pendingDisplay || [] : [];
+      const pendingDisplay = pendingDisplayItems(streamCheckpointModule.mergeStreamCheckpointItems?.(durablePending, checkpoint) || durablePending);
 
       if (isCurrentSnapshot(snapshot)) {
         const snapshotRevision = Number(snapshot.updatedAt || 0);
         const durableRevision = Math.max(0, Number(snapshot.durableUpdatedAt || 0));
         return {
           messages: normalizeMessageList(snapshot.messages, item.id),
-          pendingDisplay: pendingDisplayItems(snapshot.pendingDisplay || []),
+          pendingDisplay,
           lastGeneratedImage: snapshot.lastGeneratedImage || null,
           updatedAt: Math.max(Number(item.updatedAt || 0), snapshotRevision),
           snapshotUpdatedAt: durableRevision,
@@ -525,13 +563,14 @@
 
       return {
         messages: [],
-        pendingDisplay: [],
+        pendingDisplay,
         lastGeneratedImage: null,
-        updatedAt: item.updatedAt,
+        updatedAt: Math.max(Number(item.updatedAt || 0), Number(checkpoint?.updatedAt || 0)),
         snapshotUpdatedAt: 0,
         persistenceUpdatedAt: Math.max(
           Number(item.persistenceUpdatedAt || 0),
-          Number(item.snapshotUpdatedAt || 0)
+          Number(item.snapshotUpdatedAt || 0),
+          Number(checkpoint?.updatedAt || 0)
         ),
       };
     }
@@ -563,7 +602,10 @@
       const state = getState();
       const session = state.sessions.find(item => item.id === sessionId);
       if (!session || !snapshotStore?.getSnapshot) return false;
-      const snapshot = await readLatestSnapshot(sessionId);
+      const [snapshot, checkpoint] = await Promise.all([
+        readLatestSnapshot(sessionId),
+        streamCheckpointStore.get?.(sessionId) || Promise.resolve(null),
+      ]);
       if (!isCurrentSnapshot(snapshot)) return false;
       const snapshotRevision = Number(snapshot.updatedAt || 0);
       const durableRevision = Math.max(0, Number(snapshot.durableUpdatedAt || 0));
@@ -576,7 +618,7 @@
       if (snapshotRevision > previousPersistenceRevision || durableRevision > previousSnapshotUpdatedAt) {
         session.messages = normalizeMessageList(snapshot.messages, sessionId);
         if (sessionId === state.activeSessionId) state.messages = (session.messages || []).map(message => ({ ...message }));
-        session.display = pendingDisplayItems(snapshot.pendingDisplay || []);
+        session.display = pendingDisplayItems(streamCheckpointModule.mergeStreamCheckpointItems?.(snapshot.pendingDisplay || [], checkpoint) || snapshot.pendingDisplay || []);
         session.lastGeneratedImage = snapshot.lastGeneratedImage || session.lastGeneratedImage || null;
         session.updatedAt = Math.max(Number(session.updatedAt || 0), snapshotRevision);
         changed = true;
@@ -592,7 +634,10 @@
     function deleteSessionSnapshot(sessionId) {
       clearPendingDisplayCheckpoint(sessionId);
       clearSnapshotFallback(sessionId);
-      return snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve();
+      return Promise.all([
+        snapshotStore?.deleteSnapshot?.(sessionId) || Promise.resolve(),
+        streamCheckpointStore.delete?.(sessionId) || Promise.resolve(),
+      ]).then(() => undefined);
     }
     function clearSessionSnapshots() {
       [...pendingDisplayCheckpointTimers.keys()].forEach(clearPendingDisplayCheckpoint);
@@ -605,9 +650,17 @@
         }
         staleKeys.forEach(key => localStorageRef.removeItem(key));
       } catch {}
-      return snapshotStore?.clear?.() || Promise.resolve();
+      return Promise.all([
+        snapshotStore?.clear?.() || Promise.resolve(),
+        streamCheckpointStore.clear?.() || Promise.resolve(),
+      ]).then(() => undefined);
     }
-    function flushSessionSnapshots(sessionId = '') { return snapshotStore?.flush?.(sessionId) || Promise.resolve(); }
+    function flushSessionSnapshots(sessionId = '') {
+      return Promise.all([
+        snapshotStore?.flush?.(sessionId) || Promise.resolve(),
+        streamCheckpointStore.flush?.(sessionId) || Promise.resolve(),
+      ]).then(() => undefined);
+    }
 
     function sessionTitleHtml(session) {
       return String(deriveSessionTitle(session)).replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]));

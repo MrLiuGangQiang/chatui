@@ -141,7 +141,15 @@ function reconcileCanonicalMessageNode(container, node, { role = '', index = nul
 function insertMessageNodeAtDisplayPosition(container, node, item = {}) {
   const role = item?.role || messageNodeRole(node);
   const index = role === 'user' ? item?.messageIndex : item?.responseIndex;
-  return reconcileCanonicalMessageNode(container, node, { role, index });
+  const parsedIndex = parseDisplayMessageIndex(index);
+  const placementKey = role && Number.isFinite(parsedIndex) ? role + ':' + parsedIndex : '';
+  if (item?.pending === '1' && placementKey && node?.__displayItem === item
+      && item.__streamPlacementKey === placementKey && node.isConnected && node.parentNode === container) {
+    return node;
+  }
+  const result = reconcileCanonicalMessageNode(container, node, { role, index });
+  if (item?.pending === '1' && placementKey) item.__streamPlacementKey = placementKey;
+  return result;
 }
 
 function isPendingMessageNode(node) {

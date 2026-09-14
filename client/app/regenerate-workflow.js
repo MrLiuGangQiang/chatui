@@ -29,6 +29,19 @@
     const emitTaskEvent = (sessionId, type, details = {}) => type
       ? dispatchTaskEvent?.(sessionId, { type, ...details })
       : null;
+    const stopWaitMs = Math.max(0, Number(deps.regenerateStopWaitMs ?? 2500) || 0);
+    const stopWaitPollMs = Math.max(1, Number(deps.regenerateWaitPollMs ?? 50) || 50);
+    const setTimeoutRef = deps.setTimeout || root?.setTimeout || setTimeout;
+
+    async function waitForStoppingTask(sessionId) {
+      const deadline = Date.now() + stopWaitMs;
+      while (isSessionBusy(sessionId) && Date.now() < deadline) {
+        const phase = state.taskStates?.get?.(sessionId)?.phase || '';
+        if (phase !== 'stopping') return false;
+        await new Promise(resolve => setTimeoutRef(resolve, stopWaitPollMs));
+      }
+      return !isSessionBusy(sessionId);
+    }
 
     function createRegenerateTask({ sessionId, run, readPending }) {
       const submissionId = jobLifecycle.makeSubmissionId?.()
@@ -143,7 +156,7 @@
 
     async function forceImageFromUserMessage(e){
       if(isSessionBusy(state.activeSessionId))return;
-      const t=(e?.dataset.rawText||"").trim();
+      const t=((e?.__chatuiRawText??e?.dataset.rawText)||"").trim();
       if(!t)return void toast("找不到这条消息内容，无法强制生图");
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,e?.dataset?.messageIndex,{rawText:t})||null,s=turn?.userIndex;
       if(!Number.isInteger(s)||s<0)return void toast("找不到这条消息上下文，无法强制生图");
@@ -221,8 +234,16 @@
     }
 
     async function regenerateAssistantMessage(e){
-      if(isSessionBusy(state.activeSessionId))return;
-      const t=findPreviousUserMessageNode(e),s=(t?.dataset.rawText||"").trim();
+      const activeSessionId=state.activeSessionId;
+      if(isSessionBusy(activeSessionId)){
+        const phase=state.taskStates?.get?.(activeSessionId)?.phase||"";
+        if(phase==="stopping")await waitForStoppingTask(activeSessionId);
+        if(isSessionBusy(activeSessionId)){
+          toast?.("当前任务仍在运行，请先停止并等待状态结束后再重新生成");
+          return
+        }
+      }
+      const t=findPreviousUserMessageNode(e),s=((t?.__chatuiRawText??t?.dataset.rawText)||"").trim();
       if(!s)return void toast("找不到上一条提示词，无法重新生成");
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");
       const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};

@@ -269,7 +269,7 @@ data/announcements/
 3. 保存文件；服务端只读取 `announcement.md`，不需要重启或发版；
 4. Docker 部署使用 `-v /宿主机目录:/app/data/announcements:ro` 只读挂载。
 
-修改 `announcement.md` 内容会自动改变阅读标识并重新触发未读。其他 Markdown 文件名不会被读取。
+保存 `announcement.md` 后，在线页面通过 `/api/announcements/events` SSE 接收新快照；内容会自动改变阅读标识并重新触发未读。其他 Markdown 文件名不会被读取。浏览器不再执行 5 分钟轮询，页面激活时仍会刷新一次快照作为兜底。多实例共享卷如不能传播 `fs.watch` 通知，页面激活兜底仍可收敛到最新内容。
 
 运行目录只读取固定文件 `announcement.md`；旧文件和 `docs/announcements` 不进入接口、Docker 镜像或 runtime source revision。
 
@@ -383,3 +383,5 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 ## 流式并发专项门禁
 
 本次 Chat Job SSE 改造的专项入口是 `npm run test:streaming`，它通过项目自定义 runner 执行 unit/smoke 回归；实现前不得把该命令当作已存在的验证证据。专项回归必须覆盖每会话独立 EventSource、同会话/Job waiter 聚合、最小帧无 `id/status`、断线 offset 续传和旧连接迟到回调隔离。生产拓扑固定单实例，端口仍为 8765。
+
+流式持久化专项门禁由 `test/unit/stream-checkpoint-store.test.js`、`test/unit/streaming-session-checkpoint.test.js`、`test/unit/chat-resume-cursor-offset.test.js` 和 `test/unit/resume-live-display-coalescing.test.js` 覆盖：pending checkpoint 不写完整 snapshot、三会话长输出保持有界 latest-wins cursor、tail-only 恢复从 offset 0 重放、终态 canonical commit 后清理 cursor；重放帧按 session latest-wins 合并，busy 刷新/离开不得追加完整 canonical snapshot。详细契约见 `docs/design/26-流式恢复游标与持久化调度设计.md`。

@@ -129,6 +129,7 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   const routeSemanticNormalizerIndex = paths.indexOf('/client/services/route-semantic-normalizer.js');
   const routeResourceBindingIndex = paths.indexOf('/client/services/route-resource-binding.js');
   const routeImagePlanCompilerIndex = paths.indexOf('/client/services/route-image-plan-compiler.js');
+  const streamCheckpointIndex = paths.indexOf('/client/services/stream-checkpoint-store.js');
   const sessionRecoveryIndex = paths.indexOf('/client/services/session-snapshot-recovery.js');
   const sessionDisplayIndex = paths.indexOf('/client/app/session-display.js');
   const submitPolicyIndex = paths.indexOf('/client/app/submit-workflow-policy.js');
@@ -167,6 +168,7 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   assert.ok(routeResourceBindingIndex >= 0 && routeResourceBindingIndex < routeServiceIndex, 'route resource binding must load before route service composition');
   assert.ok(routeImagePlanCompilerIndex >= 0 && routeResourceBindingIndex < routeImagePlanCompilerIndex && routeImagePlanCompilerIndex < routeServiceIndex,
     'route image-plan compiler must load after resource binding and before route service composition');
+  assert.ok(streamCheckpointIndex >= 0 && streamCheckpointIndex < sessionDisplayIndex, 'stream checkpoint storage must load before session display composition');
   assert.ok(sessionRecoveryIndex >= 0 && sessionRecoveryIndex < sessionDisplayIndex, 'session snapshot recovery must load before session display composition');
   assert.ok(submitPolicyIndex >= 0 && submitPolicyIndex < submitWorkflowIndex, 'submit policy must load before submit workflow composition');
   assert.ok(executionStatusIndex >= 0 && executionStatusIndex < formattingIndex, 'execution status policy must load before pending status formatting');

@@ -20,7 +20,8 @@
 | GET | `/api/version` | 返回 version、Git SHA、runtime source fingerprint |
 | GET | `/api/config/public` | 下发 `ui/features/context/modelRecommendation` 公共配置；运行期文件变化按 `no-store` 每次读取 |
 | GET | `/api/changelog` | 版本化更新日志 |
-| GET | `/api/announcements` | 固定文件 `announcement.md` 中的公告；每次请求读取，`no-store` |
+| GET | `/api/announcements` | 固定文件 `announcement.md` 中的公告快照；每次请求读取，`no-store` |
+| GET | `/api/announcements/events` | 公开只读公告 SSE；连接即发送当前快照，内容指纹变化时推送同一结构 |
 | POST | `/api/image` | 图片生成/编辑代理入口 |
 | POST | `/api/chat-stream-jobs` | 注册聊天流式任务 |
 | POST | `/api/client-execution-trace` | 客户端拒绝执行时上报受限诊断事件 |
@@ -60,7 +61,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 - `/models`、`/chat/completions`、`/responses`
 - `/images/generations`、`/images/edits`、`/openai/image_edit`
 
-`UPSTREAM_TIMEOUT_MS` 定义上游**首内容超时**：新建上游请求后开始计时，只有始终没有收到第一段响应 body 内容时才在阈值到达后中止。第一段响应内容到达即永久取消超时计时，之后无论后续内容间隔多久或持续多久都不再触发超时；用户停止、连接错误和上游 HTTP 错误仍按原有取消/错误路径处理。
+`UPSTREAM_TIMEOUT_MS` 定义上游**有效输出空闲超时**：从新建上游请求开始，并在每次解析到可见正文或思考增量后重新计算空闲间隔；连续 `UPSTREAM_TIMEOUT_MS` 没有有效输出即中止。SSE 注释、keepalive、空事件和其他不产生正文/思考的协议帧不得续期。持续产生有效输出的长流不受总时长截断；用户停止、连接错误和上游 HTTP 错误仍按原有取消/错误路径处理。
 
 不在白名单内的 `/api/*` 一律 405。`/api/models` 由浏览器携带 `{baseUrl, apiKey}` 发起服务端转发。
 
@@ -97,6 +98,8 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 ## 9. SSE 事件契约
 
 `data:` JSON 事件 + 注释帧 keepalive；服务端关闭前先结束 SSE 再退出。客户端断线重连复用 job event offset，避免重复处理。
+
+公告 SSE 默认每 5 分钟发送注释 keepalive，固定使用 `event: announcement`，`data` 与 `GET /api/announcements` 相同。每次连接先发送当前快照；`announcement.md` 内容指纹变化时向全部订阅者广播，重复事件和其他文件变化不广播。服务端以目录 watcher 驱动，客户端不再实施 5 分钟轮询；EventSource 重连和页面 focus/pageshow/visibility/online 事件以当前快照收敛。
 
 浏览器运行时按会话建立 `GET /api/chat-jobs/:jobId/events?contentLength=&reasoningLength=`：一个会话同一时刻最多一条 Chat Job EventSource，不同会话绝不共用连接。服务端只发送当前 Job 的最小帧，compact chat 使用默认 SSE message；正文/思考为 `d/r`，首 Token 耗时只发一次 `ft`，终态才发 `done/e/rt`，offset 越界才发 `z`，不发送任务 id、`status` 或重复 `error`。同一会话/Job 的多个 waiter 共享 canonical aggregate；终态只关闭本会话连接。
 

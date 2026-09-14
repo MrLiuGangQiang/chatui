@@ -265,15 +265,28 @@ try {
   } else {
     const decoder = new StringDecoder('utf8');
     for await (const chunk of upstream.body) {
-      upstreamRequest.touch();
       if (!jobCanRun(job)) return job;
       const decoded = decoder.write(Buffer.from(chunk));
-      if (updateChatJobFromStreamChunk(job, decoded, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
+      const progressed = updateChatJobFromStreamChunk(job, decoded, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) });
+      if (progressed) {
+        upstreamRequest.touch();
+        notifyChatStreamJob(job);
+      }
     }
     const decodedTail = decoder.end();
-    if (decodedTail && updateChatJobFromStreamChunk(job, decodedTail, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
+    if (decodedTail) {
+      const progressed = updateChatJobFromStreamChunk(job, decodedTail, { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) });
+      if (progressed) {
+        upstreamRequest.touch();
+        notifyChatStreamJob(job);
+      }
+    }
     if (job.buffer) {
-      if (updateChatJobFromStreamChunk(job, '\n\n', { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) })) notifyChatStreamJob(job);
+      const progressed = updateChatJobFromStreamChunk(job, '\n\n', { notify: false, ...(job.api === 'responses' ? { extractDelta: extractResponsesStreamDelta } : {}) });
+      if (progressed) {
+        upstreamRequest.touch();
+        notifyChatStreamJob(job);
+      }
     }
   }
   if (!jobCanRun(job)) return job;
@@ -510,6 +523,7 @@ function updateChatJobFromStreamChunk(job, text, options = {}) {
     startChatJob,
     getChatJob,
     updateChatJobFromStreamChunk,
+    runChatStreamJob,
   };
 }
 

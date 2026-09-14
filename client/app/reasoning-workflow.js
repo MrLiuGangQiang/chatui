@@ -5,6 +5,17 @@
   const REASONING_TYPES = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
   const REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
+  function getReasoningText(node) {
+    return String(node?.__chatuiReasoningText ?? node?.dataset?.reasoningText ?? '');
+  }
+
+  function setReasoningText(node, value, { persistDataset = false } = {}) {
+    if (!node) return;
+    const reasoning = String(value || '');
+    node.__chatuiReasoningText = reasoning;
+    if (persistDataset && node.dataset && node.dataset.reasoningText !== reasoning) node.dataset.reasoningText = reasoning;
+  }
+
   function normalizeReasoningType(value = 'none') {
     const type = String(value || '').trim().toLowerCase();
     return REASONING_TYPES.includes(type) ? type : 'none';
@@ -79,6 +90,7 @@
         if(!e)return;
         if(!deps.state.reasoningMode&&!s.restoreHistory&&!s.forceDisplay){forceRemoveReasoning(e); return;}
         const n=String(t||"");
+        if(!s.done&&!s.forceDisplay&&getReasoningText(e)===n&&e.querySelector(".reasoning-panel"))return;
         e.querySelectorAll(".reasoning-live").forEach(live=>live.remove());
         const content=e.querySelector(".content");
         const panelHost=e.querySelector(".bubble")||content;
@@ -91,7 +103,7 @@
           return;
         }
         if(n){
-          e.dataset.reasoningText=n;
+          setReasoningText(e,n,{persistDataset:!!s.done});
           e.dataset.keepReasoning="1";
         }
         if(panelHost){
@@ -108,9 +120,8 @@
           if(body){
             const renderer=reasoningStreamingRendererFor(body);
             if(n){
-              if(s.done) renderer.final(body,n);
+              if(s.done){renderer.final(body,n);try{typeof deps.bindInlineCopyButtons==="function"&&deps.bindInlineCopyButtons(panel)}catch(err){}}
               else renderer.set(n,body);
-              try{typeof deps.bindInlineCopyButtons==="function"&&deps.bindInlineCopyButtons(panel)}catch(err){}
             }else{
               try{renderer.reset(body)}catch(err){}
             }
@@ -133,7 +144,7 @@
 
     function finishReasoning(e,t,s={}) {
       { 
-        const reasoning=String(t||e?.dataset.reasoningText||"");
+        const reasoning=String(t||getReasoningText(e)||"");
         if(reasoning) updateReasoning(e,reasoning,{done:!0,restoreHistory:!0,expanded:s.expanded});
         else forceRemoveReasoning(e);
        }
@@ -159,7 +170,7 @@
 
     function forceRemoveReasoning(e) {
       { 
-        e&&(e.querySelectorAll(".reasoning-panel,.reasoning-live").forEach(e=>e.remove()),delete e.dataset.reasoningText,delete e.dataset.keepReasoning)
+        e&&(e.querySelectorAll(".reasoning-panel,.reasoning-live").forEach(e=>e.remove()),delete e.__chatuiReasoningText,delete e.dataset.reasoningText,delete e.dataset.keepReasoning)
        }
     }
 

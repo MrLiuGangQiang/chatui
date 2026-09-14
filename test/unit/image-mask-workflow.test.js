@@ -334,14 +334,15 @@ function testResumedImageResultPersistsReturnedImageInsteadOfJobInput() {
   assert.ok(source.includes('setImageContext(e, resultImageContext)'), 'the live node must use the same returned image context as persistence');
 }
 
-async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
+async function testMissingImageJobIsTerminalWithoutRestoringOrRepostingMasks() {
   const context = {
     mode: 'edit_image',
     attachments: [{ id: 'target-1', src: 'indexeddb://target-1' }],
     masks: [{ id: 'mask-1', src: 'indexeddb://mask-1', routeRole: 'mask' }],
   };
   const missing = new Error('missing managed job');
-  const stopAfterRestart = new Error('stop after restart capture');
+  let cleaned = 0;
+  const shown = [];
   const restoredRoles = [];
   const restarts = [];
   const resumePlan = makeDispatchContract({
@@ -404,9 +405,9 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
     })),
     startImageGenerationJob: async (payload, config, jobId, options) => {
       restarts.push({ payload, config, jobId, options });
-      throw stopAfterRestart;
     },
-    showRunError() {},
+    showRunError: (_sessionId, error) => { shown.push(error); },
+    cleanupStalePendingDisplay: () => { cleaned += 1; },
     findMessageNodeByDisplayItem: () => null,
     addMessage() {},
     finishSessionTask: (sessionId, options = {}) => {
@@ -416,10 +417,10 @@ async function testImageResumeRestoresMasksIntoTheirDedicatedSlot() {
   });
 
   await workflow.resumeImageJob('session-mask');
-  assert.deepStrictEqual(restoredRoles, ['target', 'mask']);
-  assert.strictEqual(restarts.length, 1);
-  assert.deepStrictEqual(restarts[0].options.files.map(item => item.data), ['target-1']);
-  assert.deepStrictEqual(restarts[0].options.masks.map(item => item.data), ['mask-1']);
+  assert.deepStrictEqual(restoredRoles, [], 'a missing server job must not restore attachments for a new POST');
+  assert.strictEqual(restarts.length, 0, 'a missing server job must never be re-posted');
+  assert.strictEqual(shown.length, 1, 'a missing server job must surface one actionable interruption message');
+  assert.match(shown[0]?.message || '', /任务不存在|已停止恢复/);
 }
 
 
@@ -551,7 +552,8 @@ async function testResumeClearsStaleJobWithMultipleMasks() {
   await workflow.resumeImageJob('session-stale');
   assert.strictEqual(restarts, 0, 'the invalid stale job must never be re-posted');
   assert.ok(cleared >= 1, 'the stuck stale job must be cleared so the retry loop stops');
-  assert.strictEqual(shown.length, 0, 'invalid stale state must be discarded silently, not surfaced as a user error');
+  assert.strictEqual(shown.length, 1, 'a missing server job must surface one actionable interruption message');
+  assert.match(shown[0]?.message || '', /任务不存在|已停止恢复/);
   assert.strictEqual(cleanedMessages.length, 0, 'invalid stale state must be discarded without persisting an error placeholder');
 }
 
@@ -567,7 +569,7 @@ module.exports = [
   testReferenceRolesReachTheImageRequestBoundary,
   testTargetReferenceEditGuideMakesTheFinalImagePromptUnambiguous,
   testResumedImageResultPersistsReturnedImageInsteadOfJobInput,
-  testImageResumeRestoresMasksIntoTheirDedicatedSlot,
+  testMissingImageJobIsTerminalWithoutRestoringOrRepostingMasks,
 ];
 
 

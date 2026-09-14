@@ -173,6 +173,30 @@ async function testActiveImageCompletionKeepsInsertedCanonicalReplyBeforeTheShif
   assert.strictEqual(shiftedAssistant.dataset.responseIndex, '3');
 }
 
+function testPendingStreamPlacementDoesNotRescanWholeMessageList() {
+  const dom = new JSDOM('<main id="messages"></main>');
+  const document = dom.window.document;
+  const container = document.getElementById('messages');
+  const firstUser = createMessageNode(document, { id: 'first-user', role: 'user', index: 0 });
+  const live = createMessageNode(document, { id: 'live-answer', role: 'assistant', index: 1 });
+  const laterUser = createMessageNode(document, { id: 'later-user', role: 'user', index: 2 });
+  container.append(firstUser, live, laterUser);
+  const item = { id: 'display-live', role: 'assistant', pending: '1', responseIndex: '1' };
+  live.__displayItem = item;
+  live.dataset.displayItemId = item.id;
+  const originalQuerySelectorAll = container.querySelectorAll.bind(container);
+  let scans = 0;
+  container.querySelectorAll = (...args) => { scans += 1; return originalQuerySelectorAll(...args); };
+
+  displayItems.insertMessageNodeAtDisplayPosition(container, live, item);
+  const firstPlacementScans = scans;
+  displayItems.insertMessageNodeAtDisplayPosition(container, live, item);
+  assert.ok(firstPlacementScans > 0, "the first placement must still reconcile canonical order");
+  assert.strictEqual(scans, firstPlacementScans,
+    "subsequent tokens in the same pending stream placement must not rescan the complete message list");
+  dom.window.close();
+}
+
 function testCanonicalInsertionOrderingIsCacheBusted() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
   assert.ok(
@@ -183,5 +207,6 @@ function testCanonicalInsertionOrderingIsCacheBusted() {
 
 module.exports = [
   testActiveImageCompletionKeepsInsertedCanonicalReplyBeforeTheShiftedNextTurn,
+  testPendingStreamPlacementDoesNotRescanWholeMessageList,
   testCanonicalInsertionOrderingIsCacheBusted,
 ];

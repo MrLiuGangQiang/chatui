@@ -157,7 +157,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 复制 `data/announcements/_template.md`，保存为固定文件名 `announcement.md` 并填写 Markdown 即可发布；
 - Docker 建议将宿主机公告目录只读挂载到 `/app/data/announcements`：`-v /宿主机目录:/app/data/announcements:ro`；
 - 接口只读取固定文件 `announcement.md`；其他文件名不上前台，不展示历史公告；
-- 最新公告未读时会以强制遮罩展示；修改固定文件内容会重新触发未读。
+- 最新公告未读时会以强制遮罩展示；修改固定文件内容会通过 `/api/announcements/events` SSE 推送到在线页面并重新触发未读。
 
 ### 运行时推荐模型配置
 
@@ -526,8 +526,10 @@ GET /models
 
 ### 停止输出
 
-- 输出中点击发送按钮会执行停止。
-- 停止会 abort 当前 run 关联的聊天/图片 Job；仍在并发队列中等待的 Job 会立即退出队列，不会在稍后取得槽位后继续调用上游。
+- 输出中点击发送按钮会执行停止；首次页面恢复和后台续接都必须先绑定 active run，停止信号才能取消对应 Job 订阅。
+- 停止会向精确 Job abort endpoint 发送 keepalive POST，并 abort 当前 run 关联的聊天/图片 Job；仍在并发队列中等待的 Job 会立即退出队列，不会在稍后取得槽位后继续调用上游。
+- 服务端明确拒绝停止请求时会提示重试，并保留本地 Job 指针；恢复后的 SSE 同样绑定当前 run，点击停止会立即取消本地订阅并抑制迟到更新，避免停止后继续渲染旧任务输出。
+- 恢复时若服务端 Job 已不存在，会同时清除 localStorage 指针和 display 幽灵 pending 项，避免每次刷新重复请求同一个 404 Job。
 - Job 一旦进入用户停止终态，迟到的成功响应或 AbortError 不会把它改回完成或“上游超时”。
 - 如果已有有效内容，会保留已有输出。
 - 如果只有占位内容，会显示“用户停止”。
@@ -924,7 +926,7 @@ GET, POST
 - `baseUrl` 规范化。
 - `apiKey` 注入 Authorization。
 - 自定义 Header 透传。
-- 上游在超时时间内没有返回第一段响应内容。
+- 上游在超时时间内没有返回新的响应 body 内容（含流式输出中途静默）。
 - SSE 转发。
 - 图片上游路径规则：纯文本生图走 `/images/generations` JSON；图片编辑/参考图生成走 `/images/edits` multipart。前端/本地缓存里的 base64 会在服务端转成文件 Blob，按 `image[]` 数组字段上传；多图会重复追加多个 `image[]` 字段。
 - 流式聊天 Job 同步更新。
@@ -950,7 +952,7 @@ GET, POST
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `8765` | HTTP 监听端口 |
-| `UPSTREAM_TIMEOUT_MS` | `600000` | 上游首内容超时；第一段响应内容到达后永久停止计时，只保护始终没有返回内容的请求，默认 10 分钟 |
+| `UPSTREAM_TIMEOUT_MS` | `600000` | 上游有效输出空闲超时；请求开始或每收到一段可见正文/思考后重新计时，注释、空事件和 heartbeat 不续期，持续超过 10 分钟没有有效输出即中止 |
 | `CHATUI_UPSTREAM_PROXY` | `not set` | HTTP/HTTPS outbound proxy for public Endpoint requests from the container; takes precedence over `HTTPS_PROXY` / `HTTP_PROXY`, for example `http://host.docker.internal:7890`. Private upstreams bypass this proxy. |
 | `HTTPS_PROXY` / `HTTP_PROXY` | `not set` | Fallback outbound proxy settings when `CHATUI_UPSTREAM_PROXY` is empty. On a Linux Docker host, do not use `127.0.0.1` unless the proxy runs inside this container; use a container-reachable host or gateway address. |
 | `CHATUI_VERBOSE_LOGS` | `not set` | Set to `1` to emit redacted upstream diagnostics; API keys and image/file Base64 payloads are never logged. |

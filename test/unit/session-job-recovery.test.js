@@ -10,6 +10,8 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 
   assert.ok(app.includes('function resumeBackgroundSessionJobs()'), 'app should coordinate resume work for non-active sessions after a restore');
+  assert.ok(app.includes('function clearChatJob(e=state.activeSessionId){const stored=loadChatJob(e,{skipCleanup:!0}),display=loadDisplayChatJob(e),refs=[stored,display]'),
+    'missing-job cleanup must remove both localStorage and display-only fallback pointers so refresh cannot repeat a 404');
   assert.ok(app.includes('a=getSubmitWorkflow().loadPendingSubmit?.(e.id),i=loadImageBatch(e.id);if(!s?.id&&!n?.id&&!a&&!i)return;setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id),e.id===t&&resumeSessionJobs(e.id)'),
     'startup recovery must treat a durable multi-image batch as first-class work and resume the active session too');
   assert.ok(app.includes('resumeBackgroundSessionJobs();if(!e)return;'), 'returning to the page should also retry background-session recovery');
@@ -21,6 +23,10 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   const regenerate = fs.readFileSync(path.join(__dirname, '../../client/app/regenerate-workflow.js'), 'utf8');
   assert.ok(app.includes('resumePendingSubmit:e=>getSubmitWorkflow().resumePendingSubmit?.(e),loadPendingSubmit:e=>getSubmitWorkflow().loadPendingSubmit?.(e)'),
     'the app must wire batch resume back to pending-submit recovery for the pre-snapshot refresh window');
+  assert.ok(app.includes('ensureActiveRun,loadImageJob'),
+    'background recovery must pass ensureActiveRun so every resumed session owns a cancellable run');
+  assert.ok(jobResume.includes('signal: resumeRun?.abortController?.signal') && jobResume.includes("runToken: resumeRun?.token"),
+    'resumed SSE and live updates must bind the active run signal and token');
   assert.ok(jobResume.includes('missingDurableChild') && jobResume.includes('return await resumePendingSubmit(e)'),
     'an incomplete child durable set must delegate to pending-submit recovery instead of querying an unowned child');
   assert.strictEqual((jobResume.match(/appendIntentStatusHtml\(currentHtml, status\) \|\| pendingFeedbackHtml\(status\)/g) || []).length, 2,
@@ -31,11 +37,11 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   assert.ok(regenerate.includes('onInterfaceCompleted:completion=>task.interfaceCompleted(completion)'),
     'regenerated batches must complete through the single parent batch identity');
   assert.ok(index.includes('bootstrap-workflow.js?v=2.1.2-ime-platform-guard')
-    && index.includes('job-resume-workflow.js?v=1.3.7-batch-task-settle')
+    && index.includes('job-resume-workflow.js?v=1.3.11-unified-reasoning-resume')
     && index.includes('image-batch-workflow.js?v=1.0.6-action-lifecycle')
     && index.includes('submit-workflow.helpers.js?v=1.5.2-batch-dispatch-projection')
     && index.includes('image-task-preparation.js?v=1.0.0-shared-image-prep')
-    && index.includes('app.js?v=2.4.0-assistant-completion-recovery'),
+    && index.includes('app.js?v=2.4.2-ghost-job-cleanup'),
   'runtime entry assets should receive cache-version updates with the recovery fix');
 }
 

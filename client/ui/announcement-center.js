@@ -3,6 +3,7 @@
 
   const READ_ANNOUNCEMENTS_KEY = 'chatui-announcements-read-v1';
   const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+  const ANNOUNCEMENT_EVENTS_PATH = '/api/announcements/events';
 
   function announcementMarkdown(body = '') {
     return String(body || '').replace(/^#\s+.*(?:\r?\n|$)/, '').trim();
@@ -22,6 +23,10 @@
     const AbortControllerImpl = options.AbortController
       || root?.AbortController
       || (typeof AbortController !== 'undefined' ? AbortController : null);
+    const EventSourceImpl = options.EventSource
+      || root?.EventSource
+      || (typeof EventSource !== 'undefined' ? EventSource : null);
+    const announcementEventsPath = String(options.announcementEventsPath || ANNOUNCEMENT_EVENTS_PATH);
     const getElement = id => documentRef?.getElementById(id);
     let announcements = [];
     let active = true;
@@ -29,6 +34,8 @@
     let initialized = false;
     let previousFocus = null;
     let loadingPromise = null;
+    let announcementEventSource = null;
+    let announcementSignature = null;
 
     function readAcknowledgedVersions() {
       try {
@@ -48,6 +55,27 @@
 
     function latestAnnouncement() {
       return announcements[0] || null;
+    }
+
+    function announcementListSignature(items = []) {
+      return items.map(item => String(item?.version || '').trim()).filter(Boolean).join('\n');
+    }
+
+    function applyAnnouncementPayload(payload, { initial = false, fromPush = false } = {}) {
+      if (fromPush && !Array.isArray(payload?.announcements)) return false;
+      const next = Array.isArray(payload?.announcements) ? payload.announcements : [];
+      const nextSignature = announcementListSignature(next);
+      if (fromPush && initialized && nextSignature === announcementSignature) return false;
+      announcements = next;
+      announcementSignature = nextSignature;
+      clearAcknowledgedBoot();
+      getElement('announcementModal')?.classList.remove('is-loading');
+      renderLatest();
+      initialized = true;
+      if (latestIsUnread()) setOpen(true, { force: true });
+      else if (initial) setOpen(false, { force: false, focus: false });
+      else if (forced) setOpen(false, { force: false });
+      return true;
     }
 
     function resolveCurrentVersion() {
@@ -362,17 +390,13 @@
           const response = await fetchAnnouncements();
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const payload = await response.json();
-          announcements = Array.isArray(payload?.announcements) ? payload.announcements : [];
-          clearAcknowledgedBoot();
-          getElement('announcementModal')?.classList.remove('is-loading');
-          renderLatest();
-          initialized = true;
-          if (latestIsUnread()) setOpen(true, { force: true });
-          else if (initial) setOpen(false, { force: false, focus: false });
+          applyAnnouncementPayload(payload, { initial });
           return announcements;
         } catch (error) {
-          if (!hasRenderedAnnouncements) {
-            initialized = false;
+          // A focus/pageshow refresh is best-effort. Once the startup snapshot
+          // has initialized, even an empty snapshot is valid rendered state;
+          // a transient refresh failure must not re-open a forced empty dialog.
+          if (!initialized) {
             showLoadFailure();
           }
           throw error;
@@ -398,6 +422,37 @@
 
     function refresh() {
       return load({ forceReload: true });
+    }
+
+    function connectEvents() {
+      if (!EventSourceImpl || !documentRef) return false;
+      if (announcementEventSource && announcementEventSource.readyState !== 2) return true;
+      disconnectEvents();
+      let source;
+      try {
+        source = new EventSourceImpl(announcementEventsPath);
+      } catch {
+        return false;
+      }
+      announcementEventSource = source;
+      source.addEventListener('announcement', event => {
+        try {
+          const payload = JSON.parse(event.data);
+          applyAnnouncementPayload(payload, { fromPush: true });
+        } catch {}
+      });
+      source.addEventListener('error', () => {
+        if (source.readyState !== 2) return;
+        if (announcementEventSource === source) announcementEventSource = null;
+        try { source.close?.(); } catch {}
+      });
+      return true;
+    }
+
+    function disconnectEvents() {
+      const source = announcementEventSource;
+      announcementEventSource = null;
+      try { source?.close?.(); } catch {}
     }
 
     function open(trigger = null) {
@@ -485,6 +540,8 @@
       acknowledge,
       bind,
       close,
+      connectEvents,
+      disconnectEvents,
       initialize,
       load,
       open,
@@ -505,15 +562,19 @@
     const controller = createAnnouncementCenterController();
     root.ChatUIAnnouncementCenter = Object.freeze({ ...api, controller });
     controller.bind();
-    void controller.initialize();
-    const refresh = () => {
+    const refreshOnActivation = () => {
       if (root.document?.visibilityState === 'hidden') return;
+      controller.connectEvents();
       void controller.refresh().catch(() => {});
     };
-    root.addEventListener?.('focus', refresh);
-    root.addEventListener?.('pageshow', refresh);
-    root.document?.addEventListener?.('visibilitychange', refresh);
-    const refreshTimer = root.setInterval?.(refresh, 5 * 60 * 1000);
-    refreshTimer?.unref?.();
+    void controller.initialize().catch(() => {}).finally(() => controller.connectEvents());
+    root.addEventListener?.('focus', refreshOnActivation);
+    root.addEventListener?.('pageshow', refreshOnActivation);
+    root.addEventListener?.('online', refreshOnActivation);
+    root.addEventListener?.('pagehide', () => controller.disconnectEvents());
+    root.document?.addEventListener?.('visibilitychange', () => {
+      if (root.document?.visibilityState === 'hidden') return;
+      refreshOnActivation();
+    });
   }
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

@@ -80,10 +80,21 @@
           return /quota|exceed/i.test(String(error?.name || error?.message || error || ''));
         }
 
-        function compactFallbackMessage(message, minimal = false) {
+        function boundedFallbackText(value, limit = 0) {
+          const text = String(value ?? '');
+          if (!Number.isFinite(limit) || limit <= 0 || text.length <= limit) return text;
+          return text.slice(-Math.floor(limit));
+        }
+
+        function compactFallbackMessage(message, minimal = false, textLimit = 0) {
           const clean = sanitizeStoredMessage(message || {});
           const compact = { ...clean };
           delete compact.html;
+          if (textLimit > 0) {
+            if (typeof compact.content === 'string') compact.content = boundedFallbackText(compact.content, textLimit);
+            if (typeof compact.rawText === 'string') compact.rawText = boundedFallbackText(compact.rawText, textLimit);
+            if (typeof compact.reasoning_content === 'string') compact.reasoning_content = boundedFallbackText(compact.reasoning_content, textLimit);
+          }
           if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
             compact.presentation = { ...compact.presentation };
             delete compact.presentation.html;
@@ -102,10 +113,15 @@
           return essential;
         }
 
-        function compactFallbackDisplayItem(item, minimal = false) {
+        function compactFallbackDisplayItem(item, minimal = false, textLimit = 0) {
           const clean = sanitizeStoredDisplayItem(item || {});
           const compact = { ...clean };
           delete compact.html;
+          if (textLimit > 0) {
+            if (typeof compact.rawText === 'string') compact.rawText = boundedFallbackText(compact.rawText, textLimit);
+            if (typeof compact.reasoningText === 'string') compact.reasoningText = boundedFallbackText(compact.reasoningText, textLimit);
+            if (typeof compact.metaText === 'string') compact.metaText = boundedFallbackText(compact.metaText, Math.min(textLimit, 512));
+          }
           if (compact.presentation && typeof compact.presentation === 'object' && !Array.isArray(compact.presentation)) {
             compact.presentation = { ...compact.presentation };
             delete compact.presentation.html;
@@ -118,7 +134,7 @@
           return essential;
         }
 
-        function buildFallbackCandidate(snapshot, { partial = false, tailCount = snapshotFallbackTailCount, minimal = false, baseUpdatedAt = 0 } = {}) {
+        function buildFallbackCandidate(snapshot, { partial = false, tailCount = snapshotFallbackTailCount, minimal = false, baseUpdatedAt = 0, textLimit = 0 } = {}) {
           const messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
           const selectedMessages = partial ? messages.slice(-Math.max(1, tailCount)) : messages;
           return {
@@ -128,8 +144,8 @@
             partial: !!partial,
             baseUpdatedAt: Number(baseUpdatedAt || 0),
             updatedAt: Number(snapshot.updatedAt || 0),
-            messages: selectedMessages.map(message => compactFallbackMessage(message, minimal)),
-            pendingDisplay: (snapshot.pendingDisplay || []).map(item => compactFallbackDisplayItem(item, minimal)),
+            messages: selectedMessages.map(message => compactFallbackMessage(message, minimal, textLimit)),
+            pendingDisplay: (snapshot.pendingDisplay || []).map(item => compactFallbackDisplayItem(item, minimal, textLimit)),
             lastGeneratedImage: snapshot.lastGeneratedImage || null,
           };
         }
@@ -149,17 +165,33 @@
           }
         }
 
+        function clearAllSnapshotFallbacks() {
+          try {
+            const keys = [];
+            for (let index = 0; index < Number(localStorageRef?.length || 0); index += 1) {
+              const key = localStorageRef.key(index);
+              if (String(key || '').startsWith(SNAPSHOT_FALLBACK_PREFIX)) keys.push(String(key));
+            }
+            for (let index = keys.length - 1; index >= 0; index -= 1) {
+              try { localStorageRef.removeItem(keys[index]); } catch {}
+            }
+          } catch {}
+        }
+
         function writeSnapshotFallback(snapshot, baseUpdatedAt = 0) {
           if (!isCurrentSnapshot(snapshot) || !snapshot.id) return false;
           const previous = readSnapshotFallback(snapshot.id);
           if (Number(previous?.updatedAt || 0) > Number(snapshot.updatedAt || 0)) return true;
 
           const partialTailCount = Math.min(snapshotFallbackTailCount, Math.max(1, snapshot.messages.length));
+          // localStorage is only a bounded compatibility backup. The durable
+          // snapshot store and stream cursor are authoritative; writing the
+          // complete conversation here made quota exhaustion systemic once a
+          // few long sessions were open at the same time.
           const candidateFactories = [
-            () => buildFallbackCandidate(snapshot, { baseUpdatedAt }),
-            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: partialTailCount, baseUpdatedAt }),
-            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(6, partialTailCount), minimal: true, baseUpdatedAt }),
-            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(2, partialTailCount), minimal: true, baseUpdatedAt }),
+            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(6, partialTailCount), baseUpdatedAt, textLimit: 4096 }),
+            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: Math.min(2, partialTailCount), minimal: true, baseUpdatedAt, textLimit: 2048 }),
+            () => buildFallbackCandidate(snapshot, { partial: true, tailCount: 1, minimal: true, baseUpdatedAt, textLimit: 512 }),
           ];
 
           let quotaError = null;
@@ -174,6 +206,10 @@
                 return false;
               }
               quotaError = error;
+              // Old full-history compatibility backups can exhaust the entire
+              // origin quota. They are disposable once the durable store and
+              // stream cursor exist, so free every fallback slot and retry.
+              clearAllSnapshotFallbacks();
             }
           }
           logger?.warn?.('save session snapshot fallback quota exceeded; retaining the previous recoverable revision', quotaError);
@@ -202,13 +238,17 @@
         }
 
         function retainRecoverableSnapshot(snapshot, baseUpdatedAt = 0, reason = '') {
-          // Metadata is written before the fallback so a quota boundary cannot leave
-          // a brand-new snapshot without a session index entry. Both writes are
-          // synchronous, which makes a completed in-memory reply refresh-safe while
-          // its IndexedDB transaction is still pending.
-          const metadataSaved = saveSessionsMeta();
+          // Write the small bounded fallback first. Legacy fallback records can
+          // consume the origin quota, and freeing them also gives the session
+          // metadata write enough room to succeed.
+          let fallbackRetained = writeSnapshotFallback(snapshot, baseUpdatedAt);
+          let metadataSaved = saveSessionsMeta();
+          if (!metadataSaved) {
+            clearAllSnapshotFallbacks();
+            metadataSaved = saveSessionsMeta();
+            fallbackRetained = writeSnapshotFallback(snapshot, baseUpdatedAt);
+          }
           const metadataAvailable = metadataSaved || hasStoredSessionMetadata(snapshot?.id);
-          const fallbackRetained = writeSnapshotFallback(snapshot, baseUpdatedAt);
           return {
             recoverable: !!fallbackRetained && !!metadataAvailable,
             fallbackRetained: !!fallbackRetained,
@@ -329,6 +369,7 @@
       nextPersistenceRevision,
       isCurrentSnapshot,
       isQuotaError,
+      hasStoredSessionMetadata,
       readSnapshotFallback,
       writeSnapshotFallback,
       clearSnapshotFallback,

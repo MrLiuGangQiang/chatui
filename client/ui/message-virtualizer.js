@@ -60,7 +60,7 @@
       node.style.minHeight = `${height}px`;
       content.style.minHeight = `${Math.max(48, height - 8)}px`;
       callbacks.cancel?.(node);
-      content.innerHTML = plainPreview(node.dataset.rawText || '', cfg.placeholderPreviewChars);
+      content.innerHTML = plainPreview((node.__chatuiRawText ?? node.dataset.rawText) || '', cfg.placeholderPreviewChars);
       node.dataset.virtualized = '1';
       node.dataset.lazyMarkdown = '1';
       delete node.dataset.renderedHash;

@@ -82,6 +82,40 @@ function testDismissingIntentTraceRemovesTheWaitingSurfaceState() {
   fixture.dom.window.close();
 }
 
+function testStreamingReasoningKeepsFullTextOffDomAttributesUntilDone() {
+  const fixture = createReasoningFixture();
+  const partial = 'reasoning '.repeat(20000);
+
+  fixture.workflow.updateReasoning(fixture.message, partial, { done: false });
+  assert.strictEqual(fixture.message.dataset.reasoningText, undefined,
+    'streaming reasoning must not rewrite the complete text into a DOM attribute for every token');
+  assert.strictEqual(fixture.message.__chatuiReasoningText, partial,
+    'the full live reasoning must remain available in memory');
+
+  fixture.workflow.updateReasoning(fixture.message, partial, { done: true });
+  assert.strictEqual(fixture.message.dataset.reasoningText, partial,
+    'completed reasoning must publish the final text for durability consumers');
+  fixture.dom.window.close();
+}
+
+function testUnchangedStreamingReasoningDoesNotRerender() {
+  const fixture = createReasoningFixture();
+  fixture.workflow.updateReasoning(fixture.message, 'thinking', { done: false });
+  const body = fixture.message.querySelector('.reasoning-content');
+  const renderer = body.__reasoningStreamingRenderer;
+  assert.ok(renderer?.set, "streaming reasoning must retain its renderer");
+  let renders = 0;
+  const originalSet = renderer.set.bind(renderer);
+  renderer.set = (...args) => { renders += 1; return originalSet(...args); };
+
+  fixture.workflow.updateReasoning(fixture.message, 'thinking', { done: false });
+  assert.strictEqual(renders, 0,
+    "unchanged reasoning must not rerender on every unrelated content token");
+  fixture.workflow.updateReasoning(fixture.message, 'thinking more', { done: false });
+  assert.strictEqual(renders, 1, "changed reasoning must still render");
+  fixture.dom.window.close();
+}
+
 function testEmptyReasoningUpdateRemovesAnExistingPanel() {
   const fixture = createReasoningFixture();
   fixture.workflow.updateReasoning(fixture.message, 'thinking', { done: false });
@@ -115,5 +149,7 @@ module.exports = [
   testCompletedReasoningCollapsesAndCanBeReopened,
   testDismissingIntentTraceRemovesTheWaitingSurfaceState,
   testEmptyReasoningUpdateDoesNotCreateAPanel,
+  testStreamingReasoningKeepsFullTextOffDomAttributesUntilDone,
+  testUnchangedStreamingReasoningDoesNotRerender,
   testEmptyReasoningUpdateRemovesAnExistingPanel,
 ];

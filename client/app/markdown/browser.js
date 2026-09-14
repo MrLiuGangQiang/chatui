@@ -34,7 +34,7 @@
     root.querySelectorAll('.message.assistant,.message.error').forEach(message => {
       if (message.dataset.streaming === '1') return;
       const content = message.querySelector?.('.content');
-      const raw = message.dataset.rawText || '';
+      const raw = (message.__chatuiRawText ?? message.dataset.rawText) || '';
       if (!content || !raw || !content.querySelector?.('[data-markdown-fallback="1"]')) return;
       content.innerHTML = browserEngine.renderMarkdown ? browserEngine.renderMarkdown(raw) : renderMarkdownFallback(raw);
       message.dataset.renderedHash = message.dataset.rawHash || message.dataset.renderedHash || '';

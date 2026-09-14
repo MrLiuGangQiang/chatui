@@ -11,7 +11,7 @@ function createReportedError(value = {}) {
   return error;
 }
 
-function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readChangelog = () => [], readAnnouncements = () => [], sendJson, sendMethodNotAllowed, proxyImage, registerChatStreamJob, requestTrace }) {
+function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readChangelog = () => [], readAnnouncements = () => [], subscribeAnnouncements = null, sendJson, sendMethodNotAllowed, proxyImage, registerChatStreamJob, requestTrace }) {
   async function recordClientExecutionTrace(req, res) {
     try {
       const body = parseJson(await readBody(req, { maxBytes: CLIENT_EXECUTION_TRACE_MAX_BYTES }));
@@ -72,6 +72,13 @@ function createCoreRoutes({ appVersion, buildIdentity, readPublicConfig, readCha
       path: '/api/announcements',
       method: 'GET',
       handler: (req, res) => sendJson(res, 200, { announcements: readAnnouncements() }, { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate, proxy-revalidate' }),
+    },
+    {
+      path: '/api/announcements/events',
+      method: 'GET',
+      handler: (req, res) => typeof subscribeAnnouncements === 'function'
+        ? subscribeAnnouncements(req, res)
+        : sendJson(res, 503, { error: { code: 'ANNOUNCEMENT_EVENTS_UNAVAILABLE', message: 'Announcement events unavailable' } }),
     },
     {
       path: '/api/image',

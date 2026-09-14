@@ -1,6 +1,26 @@
 (function initChatUIAppJobResumeWorkflow(root) {
   // Intentionally not strict: resume bodies are migrated from app.js and resolved through a deps scope.
 
+  function buildChatResumeOffsets(item = {}, isStatusText = () => false) {
+    if (item?.streamCheckpointRecovered) {
+      return {
+        baseContent: '',
+        baseReasoning: '',
+        contentLength: 0,
+        reasoningLength: 0,
+      };
+    }
+    const rawText = String(item?.rawText || '');
+    const content = isStatusText(rawText) ? '' : rawText;
+    const reasoning = String(item?.reasoningText || '');
+    return {
+      baseContent: content,
+      baseReasoning: reasoning,
+      contentLength: content.length,
+      reasoningLength: reasoning.length,
+    };
+  }
+
   function createJobResumeWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
     const finishSessionTask =
@@ -20,6 +40,42 @@
     const settleSessionTask =
       deps.settleSessionTask ||
       ((sessionId, options = {}) => finishSessionTask(sessionId, options));
+
+    const liveDisplayDrainMs = Math.max(0, Number(deps.liveDisplayDrainMs ?? 32) || 0);
+    const pendingLiveDisplayUpdates = new Map();
+    let liveDisplayDrainTimer = null;
+    const scheduleLiveDisplayDrain =
+      deps.scheduleLiveDisplayDrain ||
+      (callback => (root?.setTimeout || setTimeout)(callback, liveDisplayDrainMs));
+    const cancelLiveDisplayDrain =
+      deps.cancelLiveDisplayDrain ||
+      (handle => (root?.clearTimeout || clearTimeout)(handle));
+
+    function flushLiveDisplayUpdates(sessionId = '') {
+      if (sessionId) {
+        const apply = pendingLiveDisplayUpdates.get(sessionId);
+        pendingLiveDisplayUpdates.delete(sessionId);
+        try { apply?.(); } catch (error) { console.warn('chat live display update failed', error); }
+        if (!pendingLiveDisplayUpdates.size && liveDisplayDrainTimer != null) {
+          cancelLiveDisplayDrain(liveDisplayDrainTimer);
+          liveDisplayDrainTimer = null;
+        }
+        return;
+      }
+      for (const apply of [...pendingLiveDisplayUpdates.values()]) {
+        try { apply(); } catch (error) { console.warn('chat live display update failed', error); }
+      }
+      pendingLiveDisplayUpdates.clear();
+    }
+
+    function queueLiveDisplayUpdate(sessionId, apply) {
+      pendingLiveDisplayUpdates.set(String(sessionId || ''), apply);
+      if (liveDisplayDrainTimer != null) return;
+      liveDisplayDrainTimer = scheduleLiveDisplayDrain(() => {
+        liveDisplayDrainTimer = null;
+        flushLiveDisplayUpdates();
+      });
+    }
 
     // A persisted job that cannot be reconciled with its dispatch contract is
     // internal stale state, not a user error. Silently discard it and remove the
@@ -60,25 +116,30 @@
       if (!item) return;
       item.outputStarted = true;
       item.metaText = '';
-      if (String(item.html || '').includes('pending-feedback')) item.html = '';
+      if (typeof deps.isChatStatusText === 'function' && deps.isChatStatusText(item.rawText)) item.rawText = '';
+      const staleWaitingHtml = String(item.html || '');
+      if (staleWaitingHtml.includes('pending-feedback') || staleWaitingHtml.includes('intent-reasoning-trace')) item.html = '';
       if (sessionId !== deps.state.activeSessionId) return;
       const node = deps.findMessageNodeByDisplayItem?.(item);
       if (!node) return;
+      node.querySelector?.('.pending-feedback')?.remove();
+      if (node.dataset) delete node.dataset.pendingFeedback;
       clearPendingFeedback?.(node);
       dismissIntentReasoningTrace?.(node);
       if (node.dataset) node.dataset.outputStarted = '1';
     }
 
-    function renderResumedChatState(sessionId, item) {
+    function renderResumedChatState(sessionId, item, options = {}) {
       if (!item) return false;
       const rawText = String(item.rawText || '');
       const reasoning = String(item.reasoningText || '');
       const statusText = typeof deps.isChatStatusText === 'function' ? deps.isChatStatusText : (() => false);
-      const started = !!reasoning || (!!rawText.trim() && !statusText(rawText));
+      const started = !!item.outputStarted || !!reasoning || (!!rawText.trim() && !statusText(rawText));
       if (started) {
         markResumedOutputStarted(sessionId, item);
-        deps.updateLiveDisplay?.(sessionId, item, 'assistant', rawText, {
-          rawText,
+        const visibleRawText = String(item.rawText || '');
+        deps.updateLiveDisplay?.(sessionId, item, 'assistant', visibleRawText, {
+          rawText: visibleRawText,
           pending: true,
           reasoning,
           keepReasoning: !!reasoning,
@@ -86,6 +147,7 @@
           streamKind: 'chat',
           sessionId,
           noScroll: true,
+          runToken: options.runToken || '',
         });
         return true;
       }
@@ -102,6 +164,7 @@
         streamKind: 'chat',
         sessionId,
         noScroll: true,
+        runToken: options.runToken || '',
       });
       return false;
     }
@@ -308,7 +371,7 @@
                 null !== s.responseIndex &&
                 (i.responseIndex = String(s.responseIndex)),
               persistSessionDisplay(e)),
-            setSessionBusy(e, !0));
+              setSessionBusy(e, !0));
           const o = s.startedAt || Date.now(),
             r = a ? "正在修改图片" : "正在生成图片",
             l = () => {
@@ -351,66 +414,8 @@
                 if (isMissingJobError(e)) missingImageJob = true;
                 else throw e;
               }
-              if (!n && missingImageJob) {
-                const restoredFiles = await restoreImageAttachmentsFromContext(
-                  s.imageContext || {},
-                );
-                if (!restoredFiles.length)
-                  throw new Error(
-                    "恢复图片修改任务失败：附件信息已丢失，请重新上传图片",
-                  );
-                const uploadFiles = await imageFilesToJobPayload(restoredFiles);
-                const restoredMasks = await restoreImageAttachmentsFromContext(
-                  s.imageContext || {},
-                  { role: "mask" },
-                );
-                const uploadMasks = await imageFilesToJobPayload(restoredMasks);
-                if (
-                  uploadFiles.length !== restoredFiles.length ||
-                  uploadMasks.length !== restoredMasks.length
-                )
-                  throw new Error(
-                    "恢复图片编辑任务失败：额外附件数据已丢失，请重新上传图片",
-                  );
-                // A stale or duplicated persisted job can restore an invalid
-                // request (multiple masks, or files whose binding metadata no
-                // longer matches the contract). Validate before re-posting; on
-                // mismatch clear the stuck job and fail terminally so the user
-                // can re-issue a fresh request instead of looping on 400s.
-                if (uploadMasks.length > 1) {
-                  discardInvalidImageJob(e);
-                  return;
-                }
-                if (typeof dispatchContractContract?.assertPayloadMatchesDispatchContract === "function") {
-                  try {
-                    dispatchContractContract.assertPayloadMatchesDispatchContract(
-                      s.dispatchContract,
-                      {
-                        payload: s.payload || {},
-                        mode: "edit_image",
-                        files: uploadFiles,
-                        masks: uploadMasks,
-                        bindingEvidence: s.bindingEvidence || [],
-                      },
-                    );
-                  } catch (contractError) {
-                    discardInvalidImageJob(e);
-                    return;
-                  }
-                }
-                (await startImageGenerationJob(s.payload, t, s.id, {
-                  mode: "edit_image",
-                  requestPurpose: s.requestPurpose || "final_execution",
-                  dispatchContract: s.dispatchContract,
-                  bindingEvidence: s.bindingEvidence || [],
-                  submissionId: s.submissionId || "",
-                  files: uploadFiles,
-                  masks: uploadMasks,
-                  headers: {},
-                  sessionId: e,
-                }),
-                  (n = await waitImageGenerationJob(s.id, l)));
-              }
+              if (!n && missingImageJob)
+                throw makeTerminalJobError("恢复任务不存在或已失效，已停止恢复，请重新发送");
             } else {
               let missingImageJob = false;
               try {
@@ -423,20 +428,8 @@
                 if (isMissingJobError(e)) missingImageJob = true;
                 else throw e;
               }
-              if (!n && missingImageJob) {
-                if (!s.payload || !t.baseUrl)
-                  throw makeTerminalJobError("恢复任务不存在或已失效，已停止恢复，请重新发送");
-                await startImageGenerationJob(s.payload, t, s.id, {
-                  mode: "image",
-                  requestPurpose: s.requestPurpose || "final_execution",
-                  dispatchContract: s.dispatchContract,
-                  bindingEvidence: s.bindingEvidence || [],
-                  submissionId: s.submissionId || "",
-                  headers: {},
-                  sessionId: e,
-                });
-                n = await waitImageGenerationJob(s.id, l);
-              }
+              if (!n && missingImageJob)
+                throw makeTerminalJobError("恢复任务不存在或已失效，已停止恢复，请重新发送");
             }
             const r = formatElapsed(
                 jobDurationMs({ metrics: n?.metrics, ...n }) ?? Date.now() - o,
@@ -584,7 +577,7 @@
         resumePendingSubmit = deps.resumePendingSubmit,
         loadPendingSubmit = deps.loadPendingSubmit,
         findImageDisplayItemByJob, takePendingLiveItem, persistSessionDisplay,
-        getImageGenerationJob, isMissingJobError, disposeImageBatchJob, startImageGenerationJob, waitImageGenerationJob, getConfig,
+        getImageGenerationJob, isMissingJobError, disposeImageBatchJob, waitImageGenerationJob, getConfig,
         imageResultToHtml, normalizeImageContextForStorage, mergeImageResultContexts, renderImageResultContext,
         renderImageBatchResult, patchImageBatchDisplayNode, pendingFeedbackHtml,
         updateSessionDisplayItem, findMessageNodeByDisplayItem, updateMessage, setImageContext,
@@ -769,14 +762,6 @@
               if (isMissingJobError(error)) missingImageJob = true;
               else throw error;
             }
-            if (!data && missingImageJob && snapshot.payload && snapshot.mode !== 'edit_image') {
-              await startImageGenerationJob(snapshot.payload, getConfig(), snapshot.id, {
-                mode: 'image', requestPurpose: snapshot.requestPurpose || 'final_execution',
-                dispatchContract: snapshot.dispatchContract, bindingEvidence: snapshot.bindingEvidence || [],
-                submissionId: snapshot.submissionId || '', headers: {}, sessionId: e,
-              });
-              data = await waitImageGenerationJob(snapshot.id, () => {});
-            }
             if (!data) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
             const elapsed = formatElapsed(jobDurationMs({ metrics: data?.metrics, ...data }) ?? Date.now() - (Number(snapshot.startedAt) || Date.now()));
             const rendered = await imageResultToHtml(data, elapsed, { prompt: snapshot.prompt || child.prompt || '', label: child.label || '', sessionId: e });
@@ -918,8 +903,7 @@
               void 0 !== s.responseIndex &&
                 null !== s.responseIndex &&
                 "" === a.responseIndex &&
-                (a.responseIndex = String(s.responseIndex)),
-              persistSessionDisplay(e)),
+                (a.responseIndex = String(s.responseIndex))),
               setSessionBusy(e, !0));
             if (e === state.activeSessionId) {
               const t = findMessageNodeByDisplayItem(a);
@@ -935,7 +919,7 @@
                 }),
                 updateResumeStreamButton());
             }
-            renderResumedChatState(e, a);
+            renderResumedChatState(e, a, { runToken: activeRun?.token || "" });
             return void state.resumingJobs.delete(t);
           }
           if (sessionHasCompletedAssistantForResponse(n, s.responseIndex))
@@ -949,6 +933,13 @@
                 resumeKey: t,
               })
             );
+          let resumeRun = root?.ChatUIApp?.runs?.bindFollowingRun
+            ? root.ChatUIApp.runs.bindFollowingRun(state, e, s.id, "chat")
+            : null;
+          if (!resumeRun && typeof ensureActiveRun === "function") {
+            resumeRun = ensureActiveRun(e);
+            addActiveRunJob(e, "chat", s.id);
+          }
           let a = takeChatJobLiveItem(
             e,
             s,
@@ -960,8 +951,7 @@
             void 0 !== s.responseIndex &&
               null !== s.responseIndex &&
               "" === a.responseIndex &&
-              (a.responseIndex = String(s.responseIndex)),
-            persistSessionDisplay(e)),
+              (a.responseIndex = String(s.responseIndex))),
             setSessionBusy(e, !0));
           if (e === state.activeSessionId) {
             const t = findMessageNodeByDisplayItem(a);
@@ -980,20 +970,10 @@
           const i = s.startedAt || Date.now();
           let taskOutcome = "",
             taskError = null;
-          const R = () => {
-            const e = String(a?.rawText || ""),
-              t = isChatStatusText(e) ? "" : e,
-              s = String(a?.reasoningText || "");
-            return {
-              baseContent: t,
-              baseReasoning: s,
-              contentLength: t.length,
-              reasoningLength: s.length,
-            };
-          };
-          let o = renderResumedChatState(e, a);
+          const R = () => buildChatResumeOffsets(a, isChatStatusText);
+          let o = renderResumedChatState(e, a, { runToken: resumeRun?.token || '' });
           const r = () => {
-              if (o) return;
+              if (o || a?.outputStarted) return;
               const t = Math.max(0, Math.floor((Date.now() - i) / 1e3)),
                 s = shouldFollowScroll();
               const status = `正在处理 已等待 ${t} 秒`;
@@ -1013,23 +993,32 @@
                   noScroll: !s,
                   forceScroll: s,
                   followActive: s,
+                  runToken: resumeRun?.token || '',
                 },
               );
             },
             l = setInterval(r, 1e3);
           r();
           try {
-            assertResumableExecutionContract(s, "chat");
+            // A display-only refresh pointer has no local dispatch payload, but
+            // it can still safely follow the server-owned Job. Contract validation
+            // remains mandatory before any local snapshot can restart execution.
+            if (s?.payload || s?.dispatchContract || s?.requestPurpose || s?.bindingEvidence)
+              assertResumableExecutionContract(s, "chat");
             const t = getConfig(),
               i = (t) => {
                 const s = extractChatJobText(t.data);
                 if (s.content || s.reasoning) {
                   o = !(!s.content && !s.reasoning) || o;
+                  if (a?.streamCheckpointRecovered) {
+                    delete a.streamCheckpointRecovered;
+                    delete a.streamCheckpointTailOnly;
+                  }
                   markResumedOutputStarted(e, a);
-                  const t = s.content || "",
+                  const contentText = s.content || "",
                     n = shouldFollowScroll();
-                  updateLiveDisplay(e, a, "assistant", t, {
-                    rawText: t,
+                  const applyLiveDisplayUpdate = () => deps.updateLiveDisplay?.(e, a, "assistant", contentText, {
+                    rawText: contentText,
                     pending: !0,
                     reasoning: s.reasoning || "",
                     keepReasoning: !!s.reasoning,
@@ -1037,7 +1026,16 @@
                     forceScroll: n,
                     followActive: n,
                     noScroll: !n,
+                    streamKind: 'chat',
+                    sessionId: e,
+                    runToken: resumeRun?.token || '',
                   });
+                  const terminalFrame = t?.status === "done" || t?.status === "error" || !!t?.done || t?.e !== undefined;
+                  if (terminalFrame) {
+                    const hadQueuedLiveDisplay = pendingLiveDisplayUpdates.has(String(e || ''));
+                    flushLiveDisplayUpdates(e);
+                    if (!hadQueuedLiveDisplay) applyLiveDisplayUpdate();
+                  } else queueLiveDisplayUpdate(e, applyLiveDisplayUpdate);
                 } else o || r();
               },
               l = (e) => {
@@ -1060,30 +1058,20 @@
             } catch (e) {
               c = e;
             }
-            let h = s.payload || null;
-            if (!h && typeof buildResumeChatPayload === "function")
-              h = buildResumeChatPayload(e, s, n, t);
-            if (!d && !existingJobFound && h && t.baseUrl) {
-              const restoredPayload = await restoreJobPayloadMedia(h);
-              ((d = l(
-                await registerChatStreamJob(restoredPayload, t, s.id, {
-                  start: !0,
-                  api: s.api || "chat",
-                  requestPurpose: s.requestPurpose || "final_execution",
-                  dispatchContract: s.dispatchContract,
-                  bindingEvidence: s.bindingEvidence || [],
-                  submissionId: s.submissionId || "",
-                  headers: {},
-                  sessionId: e,
-                }),
-              )),
-                (c = null));
-            }
             if (!d && c && isMissingJobError(c)) throw c;
             if (!d) {
+              // Apply the first GET snapshot before deriving SSE offsets. A
+              // tail-only checkpoint must never become the resume prefix.
+              flushLiveDisplayUpdates(e);
               const resumeOffsets = R();
-              d = await waitChatJob(s.id, i, { resumeOffsets, sessionId: e });
+              d = await waitChatJob(s.id, i, {
+                resumeOffsets,
+                sessionId: e,
+                signal: resumeRun?.abortController?.signal,
+                runToken: resumeRun?.token || '',
+              });
             }
+            flushLiveDisplayUpdates(e);
             let m = extractChatJobText(d);
             if (!m.content && !m.reasoning) {
               try {
@@ -1149,6 +1137,7 @@
             }
             (clearChatJob(e), playDoneSound(), (taskOutcome = "completed"));
           } catch (t) {
+            flushLiveDisplayUpdates(e);
             const terminal = isMissingJobError(t) || t?.terminalJob;
             terminal &&
               (clearChatJob(e), (taskOutcome = "failed"), (taskError = t));
@@ -1168,6 +1157,7 @@
                 addMessage("error", s, { rawText: s }));
           } finally {
             const options = {
+              run: resumeRun,
               resumeKey: t,
               followingKind: "chat",
               jobId: s?.id || "",
@@ -1197,7 +1187,7 @@
     return Object.freeze({ resumeImageJob, resumeImageBatch, resumeChatJob, loadImageBatch });
   }
 
-  const api = Object.freeze({ createJobResumeWorkflow });
+  const api = Object.freeze({ createJobResumeWorkflow, buildChatResumeOffsets });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobResumeWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobResumeWorkflow = api;

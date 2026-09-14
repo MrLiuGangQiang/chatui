@@ -294,8 +294,8 @@ async function testQuotaFallbackCompactsToIncrementalTailAndMergesDurableHistory
   assert.strictEqual(fallback.messages.length, 6, 'the fallback should progressively shrink until it fits');
   assert.ok(fallback.messages.every(message => !Object.prototype.hasOwnProperty.call(message, 'html')),
     'regenerable rendered HTML must not consume emergency fallback capacity');
-  assert.ok(fallbackAttempts.length >= 3 && fallbackAttempts[0].partial === false && fallbackAttempts[1].messages.length === 12,
-    'the writer should try compact full history before progressively smaller incremental candidates');
+  assert.ok(fallbackAttempts.length >= 2 && fallbackAttempts[0].partial === true && fallbackAttempts[0].messages.length === 6,
+    'the writer must start with a bounded incremental fallback instead of serializing complete history');
 
   const durableMessages = messages.slice(0, 16).map((message, index) => ({
     ...message,
@@ -448,6 +448,56 @@ async function testSkippedDurableWriteReturnsRecoverableFallback() {
   assert.deepStrictEqual(fallback.messages.map(message => message.content), ['question', 'answer retained outside IndexedDB']);
 }
 
+async function testDurableCommitToleratesMetadataWriteFailureWhenSessionIndexExists() {
+  const sessionId = 'metadata-write-fails';
+  const baseStorage = createStorage({
+    sessions: [{ id: sessionId, title: 'Metadata write fails', updatedAt: 20 }],
+    active: sessionId,
+  });
+  const storage = {
+    getItem: key => baseStorage.getItem(key),
+    removeItem: key => baseStorage.removeItem(key),
+    setItem(key, value) {
+      if (key === 'sessions') {
+        const error = new Error('session index quota exceeded');
+        error.name = 'QuotaExceededError';
+        throw error;
+      }
+      baseStorage.setItem(key, value);
+    },
+  };
+  const session = {
+    id: sessionId,
+    title: 'Metadata write fails',
+    messages: [],
+    display: [],
+    updatedAt: 20,
+    snapshotUpdatedAt: 0,
+    persistenceUpdatedAt: 0,
+  };
+  const state = { ...createState(), sessions: [session], activeSessionId: sessionId, messages: [] };
+  const workflow = createWorkflow({
+    storage,
+    state,
+    snapshotCommitWaitMs: 0,
+    snapshotStore: {
+      supported: true,
+      getSnapshot: async () => null,
+      schedulePut: async () => ({}),
+    },
+  });
+
+  const result = await workflow.saveSessionMessages(sessionId, [
+    { role: 'user', content: 'question', messageIndex: '0' },
+    { role: 'assistant', content: 'answer', responseIndex: '1' },
+  ]);
+
+  assert.notStrictEqual(result?.fallback, true, 'a successful durable write must not be downgraded to fallback');
+  assert.ok(session.snapshotUpdatedAt > 0, 'the durable revision must still be recorded');
+  assert.ok(JSON.parse(baseStorage.getItem('sessions')).some(item => item.id === sessionId),
+    'the previously stored session index remains available when a metadata rewrite hits quota');
+}
+
 async function testPersistenceRejectsWhenDurableAndFallbackWritesBothFail() {
   const sessionId = 'all-writes-fail';
   const fallbackKey = `sessions:snapshot-fallback:${sessionId}`;
@@ -556,6 +606,7 @@ module.exports = [
   testQuotaFallbackCompactsToIncrementalTailAndMergesDurableHistory,
   testImmediateRefreshBeforeDurableCommitLoadsAssistantFallback,
   testSkippedDurableWriteReturnsRecoverableFallback,
+  testDurableCommitToleratesMetadataWriteFailureWhenSessionIndexExists,
   testPersistenceRejectsWhenDurableAndFallbackWritesBothFail,
   testUnsupportedIndexedDbUsesImmediateRecoverableFallback,
 ];

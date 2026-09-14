@@ -1,8 +1,10 @@
 'use strict';
 
 const assert = require('assert');
+const { Readable } = require('stream');
 const { ConcurrencyLimiter, limiter, withLimiter } = require('../../server/concurrency');
 const { createImageJobHandlers, runImageJob } = require('../../server/jobs/image');
+const { createChatJobHandlers } = require('../../server/jobs/chat');
 const { createJobEvents } = require('../../server/jobs/events');
 const { createIdempotencyTable } = require('../../server/validators/idempotency.validator');
 const { bindJobOwner } = require('../../server/security/job-ownership');
@@ -202,6 +204,67 @@ async function testRunningImageAbortPreservesUserStopTerminalState() {
   assert.strictEqual(job.data, null);
 }
 
+async function testRunningChatStreamAbortCancelsUpstreamBody() {
+  const principal = makeTestPrincipal();
+  const chatJobs = new Map();
+  const events = createJobEvents({ jobSubscribers: new Map() });
+  const handlers = createChatJobHandlers({
+    chatJobs,
+    notifyJob: () => {},
+    upstreamTimeoutMs: 1000,
+    requestTrace: null,
+    errorLog: null,
+    idempotencyTable: null,
+  });
+  const jobId = 'chatjob-running-stop-stream';
+  const body = new Readable({ read() {} });
+  let upstreamAborted = false;
+  let upstreamStarted = false;
+  const request = {
+    jobId,
+    baseUrl: 'http://127.0.0.1:65534/v1',
+    apiKey: 'test-key',
+    api: 'chat',
+    start: true,
+    requestPurpose: 'final_execution',
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: '停止流式回答' }),
+    bindingEvidence: [],
+    submissionId: 'submit-chat-stop-stream',
+    payload: {
+      model: 'chat-model',
+      stream: true,
+      messages: [{ role: 'user', content: '停止流式回答' }],
+    },
+  };
+
+  await withPrivateFetch((_url, upstream = {}) => {
+    upstreamStarted = true;
+    upstream.signal?.addEventListener('abort', () => {
+      upstreamAborted = true;
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      body.destroy(error);
+    }, { once: true });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body,
+    };
+  }, async () => {
+    const response = createMockResponse();
+    await handlers.registerChatStreamJob(createJsonRequest(request, principal), response);
+    assert.strictEqual(response.statusCode, 202);
+    await waitFor(() => upstreamStarted && !!chatJobs.get(jobId)?.controller);
+    events.abortJob(chatJobs, jobId, principal);
+    await waitFor(() => chatJobs.get(jobId)?.status === 'error');
+  });
+
+  const job = chatJobs.get(jobId);
+  assert.strictEqual(upstreamAborted, true, 'the managed chat stop route must abort the upstream response body');
+  assert.strictEqual(job.status, 'error');
+  assert.strictEqual(job.error, '任务已停止');
+}
 async function testFailedImageExecutionCanBeRetriedWithTheSamePlan() {
   const imageJobs = new Map();
   const idempotencyTable = createIdempotencyTable();
@@ -285,6 +348,7 @@ module.exports = [
   testQueuedImageJobStopNeverDispatchesUpstream,
   testLateSuccessfulImageResponseCannotReverseUserStop,
   testRunningImageAbortPreservesUserStopTerminalState,
+  testRunningChatStreamAbortCancelsUpstreamBody,
   testFailedImageExecutionCanBeRetriedWithTheSamePlan,
   testIdempotencyScopesPlansByPrincipalAndRejectsKeyCollisions,
 ];

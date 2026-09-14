@@ -68,6 +68,21 @@
       || !!String(context?.resultId || context?.result_id || '').trim();
   }
 
+  function isBlankReplacementMessage(record = {}) {
+    if (record?.role !== 'assistant' || record?.replacing !== true) return false;
+    const texts = [];
+    appendAssistantText(record.content, texts);
+    appendAssistantText(record.rawText, texts);
+    appendAssistantText(record.presentation?.displayText, texts);
+    const html = String(record.html || record.presentation?.html || '').trim();
+    const reasoning = String(record.reasoning_content || record.reasoning || '').trim();
+    const presentation = record.presentation || {};
+    const attachments = Array.isArray(presentation.attachments) ? presentation.attachments : [];
+    const images = Array.isArray(presentation.images) ? presentation.images : [];
+    const hasClarification = !!(record.clarificationId || record.clarification_id || presentation.clarification);
+    return texts.length === 0 && !html && !reasoning && !attachments.length && !images.length && !hasClarification && !hasPersistedImageResult(record);
+  }
+
   function appendAssistantText(value, output = []) {
     if (typeof value === 'string') {
       const text = value.trim();
@@ -144,7 +159,7 @@
       .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
-  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, hasCompletedAssistantOutput, hasCompletedAssistantForResponse, countCompletedAssistantMessages, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText });
+  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, hasCompletedAssistantOutput, hasCompletedAssistantForResponse, countCompletedAssistantMessages, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText, isBlankReplacementMessage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('messagePrimitives', api);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

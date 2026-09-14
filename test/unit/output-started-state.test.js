@@ -131,6 +131,21 @@ function testRestoreWithoutDomNodeDoesNotCrashOnOutputStartedItem() {
   }
 }
 
+function testRestoreDropsBlankPendingItemWithoutAResolvableJob() {
+  const item = { id: 'display-empty', role: 'assistant', rawText: '', html: '', pending: '1', responseIndex: '1' };
+  const fixture = createDisplayHistoryFixture({
+    item,
+    node: null,
+    addDisplayItemNode: () => { throw new Error('a blank pending item must not be rendered'); },
+  });
+  try {
+    fixture.workflow.restorePendingDisplayItems(fixture.session, [item]);
+    assert.strictEqual(fixture.session.display.length, 0, 'a blank pending item without a job must be discarded');
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
 function testSaveDisplayHistoryCapturesOutputStartedFromDom() {
   const dom = new JSDOM('<!doctype html><main id="messages"><article class="message assistant"><div class="content">partial answer</div></article></main>');
   const node = dom.window.document.querySelector('.message');
@@ -202,6 +217,7 @@ module.exports = [
   testRestoreWithoutDomNodeDoesNotCrashOnOutputStartedItem,
   testCompactDisplayItemsPreservesOutputStartedAcrossDuplicates,
   testRestoreClearsStaleOutputStartedOnReusedNode,
+  testRestoreDropsBlankPendingItemWithoutAResolvableJob,
   testSaveDisplayHistoryCapturesOutputStartedFromDom,
   testSaveDisplayHistoryPersistsOutputStartedOnlyStateChanges,
 ];

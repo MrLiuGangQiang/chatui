@@ -6,6 +6,7 @@ const path = require('path');
 const formatting = require('../../client/app/formatting');
 const displayItems = require('../../client/app/display-items');
 const messagePrimitives = require('../../client/core/message-primitives');
+const displayHistoryWorkflow = require('../../client/app/display-history-workflow');
 
 const completionOptions = {
   isStatusText: formatting.isChatStatusText,
@@ -42,6 +43,22 @@ function testBlankReplacementAssistantDoesNotCountAsCompleted() {
     0,
     'the resume fallback count must ignore the blank replacement slot as well',
   );
+}
+
+function testBlankReplacementSlotIsNeverRenderedAsAnEmptyMessage() {
+  const blank = { role: 'assistant', content: '', rawText: '', html: '', responseIndex: '1', replacing: true };
+  assert.strictEqual(messagePrimitives.isBlankReplacementMessage(blank), true);
+  assert.strictEqual(messagePrimitives.isBlankReplacementMessage(completedAssistant({ replacing: true })), false);
+
+  const rendered = [];
+  const workflow = displayHistoryWorkflow.createDisplayHistoryWorkflow({
+    state: { activeSessionId: 'session-a', sessions: [{ id: 'session-a', messages: [] }] },
+    messageRecords: { normalizeCanonicalMessage: message => message },
+    addMessage: (...args) => { rendered.push(args); return { dataset: {} }; },
+  });
+  const node = workflow.renderMessageFromCanonical({ id: 'session-a' }, blank, 1);
+  assert.strictEqual(node, null, 'a blank replacement slot must not create an empty DOM message');
+  assert.strictEqual(rendered.length, 0, 'rendering must stop before creating the empty assistant node');
 }
 
 function testCompletedAssistantAndRichMediaStillCountAsCompleted() {
@@ -115,6 +132,7 @@ function testRecoveryCompletionCheckUsesSharedMessagePrimitives() {
 
 module.exports = [
   testBlankReplacementAssistantDoesNotCountAsCompleted,
+  testBlankReplacementSlotIsNeverRenderedAsAnEmptyMessage,
   testCompletedAssistantAndRichMediaStillCountAsCompleted,
   testPendingAndStatusOnlyAssistantDoesNotCountAsCompleted,
   testRecoveryCompletionCheckUsesSharedMessagePrimitives,

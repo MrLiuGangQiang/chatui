@@ -3,7 +3,7 @@
 
   const messagePrimitives = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
     || (typeof require === 'function' ? require('../core/message-primitives') : {});
-  const { isDurableImageCompletionMessage } = messagePrimitives;
+  const { isDurableImageCompletionMessage, isBlankReplacementMessage } = messagePrimitives;
 
   function createDisplayHistoryWorkflow(deps = {}) {
     if (!deps.state) throw new Error('state is required');
@@ -296,12 +296,15 @@
         (pendingItems || []).forEach(item => {
           if (item?.pending === '1' && matchesActiveChatJob(item)) item.jobId = activeChatJob.id;
         });
-        const hasMeaningfulText = item => !!String(item.rawText || '').trim() && !isChatStatusText(item.rawText || '');
+        const hasMeaningfulProjection = item => !!String(item.rawText || '').trim()
+          || !!String(item.reasoningText || '').trim()
+          || !!String(item.html || '').trim()
+          || item.outputStarted === true;
         const shouldKeepPending = item => isImageBatchPendingItem(item)
           ? !hasCompletedImage(item) && String(item.jobId || '').trim() !== ''
           : isImagePendingDisplayItem(item)
             ? !hasCompletedImage(item) && item.jobId && activeJobIds.has(item.jobId)
-            : !hasCompletedChat(item) && (matchesActiveChatJob(item) || (item.jobId && activeJobIds.has(item.jobId)) || (!item.jobId && sessionActive) || hasMeaningfulText(item));
+            : !hasCompletedChat(item) && (matchesActiveChatJob(item) || (item.jobId && activeJobIds.has(item.jobId)) || hasMeaningfulProjection(item));
         const keptPending = pendingItems.filter(item => item?.pending === '1' && shouldKeepPending(item));
         if (session.display?.length) {
           const before = session.display.length;
@@ -309,6 +312,10 @@
           if (session.display.length !== before) persistSessionDisplay(session.id);
         }
         for (const item of keptPending) {
+          if (!String(item.rawText || '').trim() && !String(item.reasoningText || '').trim() && !String(item.html || '').trim()) {
+            item.rawText = isImagePendingDisplayItem(item) || isImageBatchPendingItem(item) ? '正在恢复图片任务' : '正在恢复聊天任务…';
+            item.html = typeof pendingFeedbackHtml === 'function' ? pendingFeedbackHtml(item.rawText) : '';
+          }
           item.id ||= makeDisplayItemId();
           const stored = session.display.find(candidate => candidate.id === item.id);
           if (stored) Object.assign(stored, item);
@@ -442,6 +449,7 @@
         const normalized = messageRecords.normalizeCanonicalMessage
           ? messageRecords.normalizeCanonicalMessage(message, { sessionId: session?.id || state.activeSessionId || 'session', sequence: fallbackIndex })
           : message;
+        if (isBlankReplacementMessage?.(normalized)) return null;
         const presentation = normalized?.presentation || {};
         const canonicalIndex = normalized?.role === 'user' && normalized?.messageIndex !== undefined && normalized.messageIndex !== ''
           ? Number(normalized.messageIndex)

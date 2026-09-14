@@ -205,6 +205,17 @@ function responsesTextFormat(format = null) {
   }, schema);
 }
 
+function explicitReasoningDisabledPayload(model = '') {
+  const normalized = String(model || '').trim().toLowerCase();
+  const family = normalized.split('/').pop() || normalized;
+  const payload = { reasoning: { effort: 'none' } };
+  if (/^(?:qwen|qwq|tongyi)\d*(?:[-_.]|$)/.test(family)) {
+    payload.enable_thinking = false;
+  } else if (/^(?:glm|chatglm|deepseek|kimi|moonshot)\d*(?:[-_.]|$)/.test(family)) {
+    payload.thinking = { type: 'disabled' };
+  }
+  return payload;
+}
 function buildResponsesPayload(model, messages, options = {}) {
   const payload = { model, input: responsesInputFromChatMessages(messages) };
   // Native file extraction is an evidence-retrieval operation. Responses
@@ -221,8 +232,8 @@ function buildResponsesPayload(model, messages, options = {}) {
   // user-facing chat streaming, so an omitted reasoning field there keeps
   // its existing meaning. Gateways that reject the parameter are handled by
   // the reasoning compatibility fallback, which strips it and retries.
-  if (options.noReasoning === true) {
-    payload.reasoning = { effort: 'none' };
+  if (options.noReasoning === true || options.reasoningEnabled === false) {
+    Object.assign(payload, explicitReasoningDisabledPayload(model));
   } else if (options.reasoning && typeof options.reasoning === 'object' && !Array.isArray(options.reasoning)) {
     const effort = String(options.reasoning.effort || 'medium').trim();
     if (effort && effort !== 'none') {

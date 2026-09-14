@@ -59,6 +59,75 @@ function testReplacementTargetPrefersAdjacentReplyAfterCanonicalReindex() {
   assert.ok(app.includes('const adjacentResponse=n?.nextElementSibling&&(n.nextElementSibling.classList?.contains("assistant")||n.nextElementSibling.classList?.contains("error"))?n.nextElementSibling:null;const m=adjacentResponse||'), 'replacement resolution must prefer the reply immediately following the edited message after suffix reindexing');
 }
 
+function testPreparingReplacementClearsPreviousTransientAssistantState() {
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const prepareReplacementResponse = extractFunction(app, 'prepareReplacementResponse');
+  const dom = new JSDOM(`<!doctype html><div id="messages">
+    <article class="message user" data-message-index="0"><div class="content">q</div></article>
+    <article class="message assistant" data-response-index="1" data-output-started="1">
+      <div class="avatar">AI</div>
+      <div class="message-meta">TTFT 1m 12s · RT 1m 24s</div>
+      <div class="bubble"><section class="reasoning-panel">old reasoning</section><div class="content">
+        <div class="pending-feedback">old waiting</div>
+        <details class="intent-reasoning-trace"><summary>old trace</summary></details>
+      </div></div>
+    </article>
+  </div>`);
+  const { document } = dom.window;
+  const assistant = document.querySelector('.message.assistant');
+  assistant.__displayItem = {
+    id: 'display-reset', role: 'assistant', pending: '1', responseIndex: '1',
+    reasoningText: 'old reasoning', keepReasoning: true, metaText: 'old metrics', outputStarted: true,
+  };
+  const sandbox = {
+    document,
+    window: {
+      ChatUIAppFormatting: {
+        dismissIntentReasoningTrace: node => {
+          const trace = node.querySelector('.intent-reasoning-trace');
+          trace?.remove();
+          return !!trace;
+        },
+      },
+    },
+    clearReasoning: node => {
+      node.querySelectorAll('.reasoning-panel').forEach(panel => panel.remove());
+      delete node.dataset.reasoningText;
+      delete node.dataset.keepReasoning;
+    },
+    clearPendingFeedback: node => node.querySelector('.pending-feedback')?.remove(),
+    setMessageMetaText: (node, value) => {
+      const meta = node.querySelector('.message-meta');
+      if (String(value || '').trim()) return;
+      meta?.remove();
+    },
+    pendingFeedbackHtml: value => '<div class="pending-feedback">' + value + '</div>',
+    updateMessage: (node, html) => { node.querySelector('.content').innerHTML = html; },
+    armStreamingOutputFocus: () => {},
+    updateSessionDisplayItem: (_sessionId, item, _role, content, options = {}) => {
+      item.rawText = options.rawText ?? content;
+      item.reasoningText = options.reasoning ?? item.reasoningText;
+      item.keepReasoning = options.keepReasoning ?? item.keepReasoning;
+      item.metaText = options.metaText ?? item.metaText;
+    },
+  };
+  vm.createContext(sandbox);
+  const prepared = vm.runInContext(
+    '(' + prepareReplacementResponse + ')({ responseIndex: 1, responseNode: document.querySelector(".message.assistant") }, "session-a", "new waiting")',
+    sandbox,
+  );
+
+  assert.strictEqual(assistant.querySelector('.reasoning-panel'), null, 'old reasoning must be removed before regenerating');
+  assert.strictEqual(assistant.querySelector('.intent-reasoning-trace'), null, 'old intent trace must be removed before regenerating');
+  assert.strictEqual(assistant.querySelector('.message-meta'), null, 'old response metrics must not survive a replacement');
+  assert.match(assistant.querySelector('.pending-feedback')?.textContent || '', /new waiting/);
+  assert.strictEqual(prepared.liveItem.reasoningText, '', 'the live item must not restore the previous reasoning');
+  assert.strictEqual(prepared.liveItem.keepReasoning, false);
+  assert.strictEqual(prepared.liveItem.metaText, '', 'the live item must not restore previous metrics');
+  assert.strictEqual(prepared.liveItem.outputStarted, false);
+  dom.window.close();
+}
+
 function testEditedMessageDoesNotReuseDistantStaleAssistantNode() {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const applyPendingEdit = extractFunction(app, 'applyPendingEdit');
@@ -168,6 +237,7 @@ module.exports = [
   testEditResendKeepsPendingResponseIndexFromReplacement,
   testRoutePreparationKeepsEditedResponseAtItsCanonicalSlot,
   testReplacementTargetPrefersAdjacentReplyAfterCanonicalReindex,
+  testPreparingReplacementClearsPreviousTransientAssistantState,
   testEditedMessageDoesNotReuseDistantStaleAssistantNode,
   testEditResendPendingNodeStaysAtReplacementPosition,
 ];

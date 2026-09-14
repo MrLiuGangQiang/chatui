@@ -3,7 +3,7 @@ const { createSseWriter } = require('../http/sse-writer');
 const { safeLog, redactUrl } = require('../logging/safe-log');
 const { getJobIdFromUrl } = require('./job-url');
 const { findOwnedJob, jobOwnedBy } = require('../security/job-ownership');
-const { JOB_NOT_FOUND_MESSAGE, JOB_SSE_HEADERS, validateJobGroupUrl, sendJobGroupError } = require('./http-contract');
+const { JOB_NOT_FOUND_MESSAGE, JOB_SSE_HEADERS } = require('./http-contract');
 const { requestJobCancellation } = require('./cancellation');
 
 const COMPACT_FRAME_UNITS = 8192;
@@ -24,6 +24,37 @@ function jobText(job) {
   };
 }
 
+function compactJobFrame(job, options = {}) {
+  const text = jobText(job);
+  const contentOffset = Math.max(0, Number(options.contentOffset || 0) || 0);
+  const reasoningOffset = Math.max(0, Number(options.reasoningOffset || 0) || 0);
+  const reset = options.snapshot === true || contentOffset > text.content.length || reasoningOffset > text.reasoning.length;
+  const contentStart = reset ? 0 : contentOffset;
+  const reasoningStart = reset ? 0 : reasoningOffset;
+  const d = text.content.slice(contentStart, contentStart + COMPACT_FRAME_UNITS);
+  const r = text.reasoning.slice(reasoningStart, reasoningStart + COMPACT_FRAME_UNITS - d.length);
+  const nextContentOffset = contentStart + d.length;
+  const nextReasoningOffset = reasoningStart + r.length;
+  const remaining = nextContentOffset < text.content.length || nextReasoningOffset < text.reasoning.length;
+  const terminal = isTerminal(job) && !remaining;
+  const payload = {};
+  if (reset && (text.content || text.reasoning)) payload.z = 1;
+  if (d) payload.d = d;
+  if (r) payload.r = r;
+  if (options.sendFirstToken === true && Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0) payload.ft = job.firstTokenMs;
+  if (terminal) {
+    if (job.status === 'done') payload.done = 1;
+    else payload.e = job.error || '任务失败';
+    if (Number.isFinite(job.durationMs) && job.durationMs >= 0) payload.rt = job.durationMs;
+  }
+  return {
+    payload: Object.keys(payload).length ? payload : null,
+    contentOffset: nextContentOffset,
+    reasoningOffset: nextReasoningOffset,
+    terminal,
+    reset,
+  };
+}
 function publicJob(job, options = {}) {
   const metrics = {
     firstTokenMs: Number.isFinite(job.firstTokenMs) ? job.firstTokenMs : null,
@@ -31,31 +62,19 @@ function publicJob(job, options = {}) {
   };
   const minimalCompact = (options.live === true || options.resumeUrl) && job.compactStream === true;
   if (minimalCompact) {
-    const payload = {};
+    let contentOffset = 0;
+    let reasoningOffset = 0;
     if (options.resumeUrl) {
       const url = new URL(options.resumeUrl, 'http://localhost');
-      const contentLength = Math.max(0, Number(url.searchParams.get('contentLength') || 0) || 0);
-      const reasoningLength = Math.max(0, Number(url.searchParams.get('reasoningLength') || 0) || 0);
-      const { content, reasoning } = jobText(job);
-      if (contentLength > content.length || reasoningLength > reasoning.length) return publicJob(job);
-      if (content.length > contentLength) payload.d = content.slice(contentLength);
-      if (reasoning.length > reasoningLength) payload.r = reasoning.slice(reasoningLength);
-    } else if (job.status === 'running') {
-      const delta = job.streamDelta || {};
-      if (delta.content) payload.d = delta.content;
-      if (delta.reasoning) payload.r = delta.reasoning;
+      contentOffset = Math.max(0, Number(url.searchParams.get('contentLength') || 0) || 0);
+      reasoningOffset = Math.max(0, Number(url.searchParams.get('reasoningLength') || 0) || 0);
     }
-    const shouldSendFt = Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !job.firstTokenNotified && !options.resumeUrl;
-    if (shouldSendFt) payload.ft = job.firstTokenMs;
-    if (Number.isFinite(job.durationMs) && job.durationMs >= 0) payload.rt = job.durationMs;
-    payload.status = job.status === 'done' ? 'done' : job.status === 'error' ? 'error' : 'running';
-    if (job.status === 'done') payload.done = 1;
-    if (job.status === 'error') {
-      const message = job.error || '任务失败';
-      payload.e = message;
-      payload.error = { message };
-    }
-    return payload;
+    const frame = compactJobFrame(job, {
+      contentOffset,
+      reasoningOffset,
+      sendFirstToken: !options.resumeUrl && !job.firstTokenNotified,
+    });
+    return frame.payload || {};
   }
   return {
     id: job.id,
@@ -115,12 +134,11 @@ function createJobEvents({
     if (!subscriber.closed && !subscriber.bindings.size && !subscriber.initial.length) subscriber.writer.finish();
   }
 
-  function createSubscriber(req, res, multiplexed) {
+  function createSubscriber(req, res) {
     const subscriber = {
       req,
       res,
       principal: req.authPrincipal,
-      multiplexed,
       bindings: new Map(),
       dirty: new Set(),
       initial: [],
@@ -166,8 +184,7 @@ function createJobEvents({
   function frameForBinding(binding) {
     const job = binding.job;
     const text = jobText(job);
-    const reset = text.authoritative && (binding.contentOffset > text.content.length || binding.reasoningOffset > text.reasoning.length);
-    if (job.compactStream !== true || reset) {
+    if (job.compactStream !== true) {
       return {
         payload: publicJob(job),
         contentOffset: text.content.length,
@@ -179,28 +196,16 @@ function createJobEvents({
     // Old metadata-only job objects retain their public delta contract. Managed
     // chat jobs always have an aggregate and never read streamDelta here.
     const legacy = !text.authoritative && !binding.initial ? binding.legacyDelta || {} : {};
-    const content = text.authoritative ? text.content : String(legacy.content || '');
-    const reasoning = text.authoritative ? text.reasoning : String(legacy.reasoning || '');
-    const contentStart = text.authoritative ? binding.contentOffset : 0;
-    const reasoningStart = text.authoritative ? binding.reasoningOffset : 0;
-    const d = content.slice(contentStart, contentStart + COMPACT_FRAME_UNITS);
-    const r = reasoning.slice(reasoningStart, reasoningStart + COMPACT_FRAME_UNITS - d.length);
-    const contentOffset = contentStart + d.length;
-    const reasoningOffset = reasoningStart + r.length;
-    const remaining = contentOffset < content.length || reasoningOffset < reasoning.length;
-    const terminal = isTerminal(job) && !remaining;
-    const payload = {};
-    if (d) payload.d = d;
-    if (r) payload.r = r;
-    if (!binding.initial && Number.isFinite(job.firstTokenMs) && job.firstTokenMs >= 0 && !binding.firstTokenSent) payload.ft = job.firstTokenMs;
-    if (Number.isFinite(job.durationMs) && job.durationMs >= 0) payload.rt = job.durationMs;
-    payload.status = terminal ? job.status : 'running';
-    if (terminal && job.status === 'done') payload.done = 1;
-    if (terminal && job.status === 'error') {
-      payload.e = job.error || '任务失败';
-      payload.error = { message: payload.e };
-    }
-    return { payload, contentOffset, reasoningOffset, terminal, legacy: !text.authoritative, legacySent: !text.authoritative ? { content: d, reasoning: r } : null };
+    const sourceJob = text.authoritative ? job : {
+      ...job,
+      data: { choices: [{ message: { content: String(legacy.content || ''), reasoning_content: String(legacy.reasoning || '') } }] },
+    };
+    const frame = compactJobFrame(sourceJob, {
+      contentOffset: text.authoritative ? binding.contentOffset : 0,
+      reasoningOffset: text.authoritative ? binding.reasoningOffset : 0,
+      sendFirstToken: !binding.firstTokenSent,
+    });
+    return { ...frame, legacy: !text.authoritative, legacySent: !text.authoritative ? { content: frame.payload?.d || '', reasoning: frame.payload?.r || '' } : null };
   }
 
   function hasRemaining(binding) {
@@ -224,7 +229,7 @@ function createJobEvents({
         reasoning: String(current.reasoning || '').startsWith(sentReasoning) ? String(current.reasoning || '').slice(sentReasoning.length) : '',
       };
     }
-    if (frame.payload.ft !== undefined) {
+    if (frame.payload?.ft !== undefined) {
       binding.firstTokenSent = true;
       binding.job.firstTokenNotified = true;
     }
@@ -261,11 +266,16 @@ function createJobEvents({
           detachBinding(subscriber, binding);
           continue;
         }
-        const frame = binding ? frameForBinding(binding) : { payload: { status: 'error', error: { message: JOB_NOT_FOUND_MESSAGE } } };
-        const payload = subscriber.multiplexed ? { id: item.id, ...frame.payload } : frame.payload;
-        const eventName = subscriber.multiplexed ? 'job' : 'update';
+        const frame = binding ? frameForBinding(binding) : { payload: { e: JOB_NOT_FOUND_MESSAGE }, contentOffset: 0, reasoningOffset: 0, terminal: true };
+        if (!frame.payload) {
+          if (binding) acceptFrame(subscriber, binding, frame);
+          continue;
+        }
+        const compact = !!binding && binding.job.compactStream === true;
+        const payload = binding ? frame.payload : { e: JOB_NOT_FOUND_MESSAGE };
+        const body = compact ? `data: ${JSON.stringify(payload)}\n\n` : `event: update\ndata: ${JSON.stringify(payload)}\n\n`;
         frames += 1;
-        subscriber.writer.enqueue(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`, () => {
+        subscriber.writer.enqueue(body, () => {
           if (binding) acceptFrame(subscriber, binding, frame);
           else if (!subscriber.pumping) pumpSubscriber(subscriber);
         });
@@ -287,7 +297,7 @@ function createJobEvents({
   function adoptLegacySubscriber(legacy, job, subscribers) {
     if (!legacy || legacy.bindings || legacy.job !== job) return null;
     const req = { authPrincipal: legacy.principal, on() {}, removeListener() {} };
-    const adopted = createSubscriber(req, legacy.res, legacy.multiplexed === true);
+    const adopted = createSubscriber(req, legacy.res);
     if (adopted === legacy) return adopted;
     subscribers.delete(legacy);
     subscribers.add(adopted);
@@ -339,18 +349,18 @@ function createJobEvents({
     delete job.streamDelta;
   }
 
-  function openSubscriber(req, res, multiplexed) {
+  function openSubscriber(req, res) {
     if (responseSubscribers.has(res)) return responseSubscribers.get(res);
     res.writeHead(200, { ...SECURITY_HEADERS, ...JOB_SSE_HEADERS });
     res.flushHeaders?.();
-    return createSubscriber(req, res, multiplexed);
+    return createSubscriber(req, res);
   }
 
   function subscribeJob(req, res, store) {
     const id = getJobIdFromUrl(req);
     const job = findOwnedJob(store, id, req.authPrincipal);
     safeLog('[subscribeJob]', { id, found: !!job, path: redactUrl(req.url) });
-    const subscriber = openSubscriber(req, res, false);
+    const subscriber = openSubscriber(req, res);
     if (job) {
       const parsed = new URL(req.url, 'http://localhost');
       bindInitialJob(subscriber, job, {
@@ -358,19 +368,6 @@ function createJobEvents({
         reasoningLength: Math.max(0, Number(parsed.searchParams.get('reasoningLength') || 0) || 0),
       });
     } else subscriber.initial.push({ id });
-    pumpSubscriber(subscriber);
-  }
-
-  function subscribeJobGroup(req, res, store) {
-    const { ids, offsets, error } = validateJobGroupUrl(req.url);
-    if (error) return sendJobGroupError(res, error);
-    safeLog('[subscribeJobGroup]', { ids: ids.length, path: redactUrl(req.url) });
-    const subscriber = openSubscriber(req, res, true);
-    for (const id of ids) {
-      const job = findOwnedJob(store, id, req.authPrincipal);
-      if (job) bindInitialJob(subscriber, job, offsets.get(id) || { contentLength: 0, reasoningLength: 0 });
-      else subscriber.initial.push({ id });
-    }
     pumpSubscriber(subscriber);
   }
 
@@ -402,7 +399,7 @@ function createJobEvents({
     return job;
   }
 
-  return { notifyJob, subscribeJob, subscribeJobGroup, abortJob, disposeJob };
+  return { notifyJob, subscribeJob, abortJob, disposeJob };
 }
 
 function closeJobSubscribers(jobSubscribers) {

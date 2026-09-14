@@ -5,6 +5,7 @@ const { JSDOM } = require('jsdom');
 const displayItems = require('../../client/app/display-items');
 const messageWorkflow = require('../../client/app/message-workflow');
 const reasoningWorkflow = require('../../client/app/reasoning-workflow');
+const markdownLiveStream = require('../../client/features/messages/markdown-live-stream');
 
 function withBrowserGlobals(dom, callback) {
   const previous = {
@@ -12,13 +13,16 @@ function withBrowserGlobals(dom, callback) {
     ChatUIAppDisplayItems: global.ChatUIAppDisplayItems,
     window: global.window,
     document: global.document,
+    chatuiPerfNow: global.chatuiPerfNow,
   };
   global.ChatUIAppDisplayItems = displayItems;
   global.window = dom.window;
   global.document = dom.window.document;
+  global.chatuiPerfNow = () => 0;
   global.ChatUIApp = {
     markdown: {
-      createStreamingRenderer() {
+      createStreamingRenderer(options) {
+        global.ChatUIApp.__lastStreamingRendererOptions = options;
         return {
           set(rawValue, contentNode) {
             contentNode.textContent = rawValue;
@@ -27,7 +31,7 @@ function withBrowserGlobals(dom, callback) {
         };
       },
     },
-    appContext: { getWorkflowModule: () => null },
+    appContext: { getWorkflowModule: name => global.ChatUIApp?.__workflowModules?.[name] || null },
   };
   dom.window.ChatUIApp = global.ChatUIApp;
   try {
@@ -41,6 +45,8 @@ function withBrowserGlobals(dom, callback) {
     else global.window = previous.window;
     if (previous.document === undefined) delete global.document;
     else global.document = previous.document;
+    if (previous.chatuiPerfNow === undefined) delete global.chatuiPerfNow;
+    else global.chatuiPerfNow = previous.chatuiPerfNow;
     dom.window.close();
   }
 }
@@ -74,7 +80,11 @@ function createWorkflowFixture(html) {
       state.streamFocusLocked = true;
       state.activeOutputNode = node;
     },
-    commitStreamingOutput: () => sequence.push('commit'),
+    commitStreamingOutput: (_node, options = {}) => {
+      if (options.requireActive && state.activeOutputNode !== _node) return;
+      if (options.requireFollow && (state.userScrollLocked || !state.streamFocusLocked)) return;
+      sequence.push('commit');
+    },
     pinActiveOutputToAnchor: () => sequence.push('final-pin'),
     scrollToActiveOutput: () => sequence.push('queued-scroll'),
     shouldFollowScroll: () => true,
@@ -112,6 +122,46 @@ function testStreamingRenderAndOutputPinCommitInOneTask() {
       'commit',
     ],
       'stream output must acquire focus, render, and commit the new message end synchronously; it must not queue a second scroll writer');
+
+    fixture.sequence.length = 0;
+    global.ChatUIApp.__lastStreamingRendererOptions.onLayoutChange();
+    assert.deepStrictEqual(fixture.sequence, ['commit'],
+      'async code or table layout changes must recommit the latest live anchor');
+
+    fixture.state.userScrollLocked = true;
+    fixture.sequence.length = 0;
+    global.ChatUIApp.__lastStreamingRendererOptions.onLayoutChange();
+    assert.deepStrictEqual(fixture.sequence, [],
+      'async code layout changes must not override manual scrolling');
+  });
+}
+
+function testLargeChatStreamingReusesTheLayoutAnchorCommit() {
+  const fixture = createWorkflowFixture(`
+    <section id="messages">
+      <article id="live-output" class="message assistant" data-session-id="session-a" data-streaming="1" data-response-index="1">
+        <div class="content"></div>
+      </article>
+    </section>
+  `);
+
+  withBrowserGlobals(fixture.dom, () => {
+    global.ChatUIApp.__workflowModules = { markdownLiveStream };
+    const longCode = Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n');
+    fixture.workflow.updateMessageContentLight(fixture.output, '```js\n' + longCode, {
+      streamKind: 'chat',
+      sessionId: 'session-a',
+      chunk: true,
+      tailLock: false,
+    });
+
+    const rendererOptions = global.ChatUIApp.__lastStreamingRendererOptions;
+    assert.strictEqual(typeof rendererOptions.onLayoutChange, 'function',
+      'the large live Markdown path must receive the same layout callback as the regular stream renderer');
+    fixture.sequence.length = 0;
+    rendererOptions.onLayoutChange();
+    assert.deepStrictEqual(fixture.sequence, ['commit'],
+      'large live Markdown layout changes must commit the latest output through the shared anchor path');
   });
 }
 
@@ -181,6 +231,18 @@ function testReasoningStreamingUsesTheSameLiveOutputCommitPath() {
       'reasoning growth must commit through the same live-message-end anchor as answer tokens');
     assert.strictEqual(commits[0].node, fixture.output);
     assert.strictEqual(commits[0].options.sessionId, 'session-a');
+
+    const rendererOptions = global.ChatUIApp.__lastStreamingRendererOptions;
+    assert.strictEqual(typeof rendererOptions.onLayoutChange, 'function',
+      'reasoning code and table layout changes must notify the shared live-output anchor');
+    commits.length = 0;
+    rendererOptions.onLayoutChange();
+    assert.strictEqual(commits.length, 1, 'reasoning layout changes must recommit the output anchor');
+
+    fixture.state.userScrollLocked = true;
+    reasoning.updateReasoning(fixture.output, 'more reasoning', { followActive: false });
+    assert.strictEqual(commits.at(-1).options.force, false,
+      'reasoning streaming must not force scroll while the user owns the viewport');
   });
 }
 
@@ -193,7 +255,7 @@ function testAllChatStreamingEntryPointsConvergeOnOneCommitPath() {
   const submit = read('client/app/submit-workflow.js');
   const app = read('app.js');
 
-  assert.match(chat, /updateMessageContentLight\(g,z,\{[\s\S]{0,500}streamKind:"chat"[\s\S]{0,500}tailLock:streamTailLock/,
+  assert.match(chat, /updateMessageContentLight\(outputNode,z,\{[\s\S]{0,500}streamKind:"chat"[\s\S]{0,500}tailLock:streamTailLock/,
     'the chat sender must route every text token through the shared live-message renderer');
     assert.ok(regenerate.includes('submitWorkflow.onSubmit({preventDefault(){}},{promptOverride:s})'),
     'regeneration must delegate to the same sendChat stream owned by submit');  assert.match(submit, /await sendChat\(chatPrompt,[\s\S]{0,700}replaceAssistantIndex:replacementResponseIndex/,
@@ -204,6 +266,7 @@ function testAllChatStreamingEntryPointsConvergeOnOneCommitPath() {
 
 module.exports = [
   testStreamingRenderAndOutputPinCommitInOneTask,
+  testLargeChatStreamingReusesTheLayoutAnchorCommit,
   testStreamingTokenOnlyMutatesTheLiveMessage,
   testReasoningStreamingUsesTheSameLiveOutputCommitPath,
   testAllChatStreamingEntryPointsConvergeOnOneCommitPath,

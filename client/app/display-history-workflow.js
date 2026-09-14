@@ -88,6 +88,7 @@
         imageContext: node.dataset.imageContext || node.__displayItem?.imageContext || '',
         attachmentContext: node.dataset.attachmentContext || node.__displayItem?.attachmentContext || '',
         quoteContext: node.dataset.quoteContext || content?.querySelector?.('.sent-quote-preview')?.dataset?.quoteContext || node.__displayItem?.quoteContext || '',
+        outputStarted: node.dataset.outputStarted === '1' || !!node.__displayItem?.outputStarted,
         metaText: deps.readMessageMetaText(node),
         pending: '1',
       };
@@ -118,7 +119,7 @@
         currentPending.forEach(item => byId.set(item.id || item.jobId || `legacy:${byId.size}`, item));
         fromDom.forEach(item => byId.set(item.id || item.jobId || `dom:${byId.size}`, item));
         session.display = compactDisplayItems([...byId.values()].filter(item => item?.pending === '1'));
-        const snapshotKey = `${session.id}|${JSON.stringify(session.display.map(item => ({ id: item.id || '', jobId: item.jobId || '', rawText: item.rawText || '', html: item.html || '', reasoningText: item.reasoningText || '', responseIndex: item.responseIndex || '', messageIndex: item.messageIndex || '', imageContext: item.imageContext || '', attachmentContext: item.attachmentContext || '' })))}`;
+        const snapshotKey = `${session.id}|${JSON.stringify(session.display.map(item => ({ id: item.id || '', jobId: item.jobId || '', rawText: item.rawText || '', html: item.html || '', reasoningText: item.reasoningText || '', outputStarted: !!item.outputStarted, responseIndex: item.responseIndex || '', messageIndex: item.messageIndex || '', imageContext: item.imageContext || '', attachmentContext: item.attachmentContext || '' })))}`;
         if (snapshotKey === lastPendingSnapshotKey) return;
         session.updatedAt = Date.now();
         persistSessionDisplay(session.id);
@@ -336,6 +337,12 @@
               if (item.html && typeof updateMessage === 'function') updateMessage(node, item.html, { html: true, rawText, skipSave: true, noScroll: true, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
               else if (typeof updateMessageContentLight === 'function') updateMessageContentLight(node, rawText, { rawText, pending: true, skipSave: true, noScroll: true, streamKind: 'chat', sessionId: session.id, responseIndex: Number.isFinite(responseIndex) ? responseIndex : undefined });
             }
+          }
+          if (node && item.outputStarted) {
+            node.dataset.outputStarted = '1';
+            root?.ChatUIApp?.formatting?.dismissIntentReasoningTrace?.(node);
+          } else if (node) {
+            delete node.dataset.outputStarted;
           }
           if (item.reasoningText && typeof updateReasoning === 'function') {
             updateReasoning(node, item.reasoningText, { done: false, keepReasoning: !!item.keepReasoning, keepEmpty: true, restoreHistory: true, forceDisplay: true });

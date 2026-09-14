@@ -36,8 +36,9 @@ COPY server.js index.html app.js styles.css favicon.svg ./
 COPY pages ./pages
 COPY config ./config
 COPY styles ./styles
-# The no-build runtime copies the manifest-driven client and shared intent
-# contracts directly; static.js composes their current bundle at request time.
+# The no-build runtime copies the manifest-driven client (including the
+# chat-job aggregate/transport modules) and shared intent contracts directly;
+# static.js composes their current bundle at request time.
 COPY client ./client
 COPY server ./server
 COPY shared ./shared

@@ -77,15 +77,27 @@ function testImagePlanPayloadDisablesReasoning() {
   assert.strictEqual(payload.stream, false);
 }
 
-function testNoReasoningDoesNotAlterChatReasoningGate() {
+function testUserFacingReasoningDisabledPayloadsExplicitlyDisableThinking() {
   const messages = [{ role: 'user', content: 'hello' }];
   const disabled = chatService.buildResponsesPayload('m', messages, { noReasoning: true, stream: false });
   assert.deepStrictEqual(disabled.reasoning, { effort: 'none' }, 'noReasoning must emit the none directive without a summary field');
 
-  // The user-facing chat gate keeps its existing meaning: no reasoning field
-  // unless reasoningEnabled, even when an effort value is present.
+  // An explicit user-facing off selection must beat any stale effort value so
+  // providers cannot fall back to their default thinking behavior.
   const gated = chatService.buildResponsesPayload('m', messages, { reasoningEnabled: false, reasoningEffort: 'high', stream: false });
-  assert.strictEqual(Object.hasOwn(gated, 'reasoning'), false, 'chat reasoning gate must stay unchanged');
+  assert.deepStrictEqual(gated.reasoning, { effort: 'none' }, 'user-facing off must explicitly disable thinking');
+  const overridden = chatService.buildResponsesPayload('m', messages, { reasoningEnabled: false, reasoning: { effort: 'high' }, stream: false });
+  assert.deepStrictEqual(overridden.reasoning, { effort: 'none' }, 'explicit off must override stale reasoning options');
+
+  const glm = chatService.buildResponsesPayload('glm-flash', messages, { reasoningEnabled: false, stream: true });
+  assert.deepStrictEqual(glm.thinking, { type: 'disabled' }, 'GLM-family models must receive their explicit thinking-off field');
+  const deepseek = chatService.buildResponsesPayload('deepseek-flash', messages, { reasoningEnabled: false, stream: true });
+  assert.deepStrictEqual(deepseek.thinking, { type: 'disabled' }, 'DeepSeek-family models must receive their explicit thinking-off field');
+  const kimi = chatService.buildResponsesPayload('kimi-k2', messages, { reasoningEnabled: false, stream: true });
+  assert.deepStrictEqual(kimi.thinking, { type: 'disabled' }, 'Kimi-family models must receive their explicit thinking-off field');
+  const qwen = chatService.buildResponsesPayload('qwen3-max', messages, { reasoningEnabled: false, stream: true });
+  assert.strictEqual(qwen.enable_thinking, false, 'Qwen-family models must receive enable_thinking=false');
+  assert.strictEqual(Object.hasOwn(qwen, 'thinking'), false, 'Qwen must not receive the GLM/Kimi thinking object');
 
   const enabled = chatService.buildResponsesPayload('m', messages, { reasoningEnabled: true, stream: true });
   assert.deepStrictEqual(enabled.reasoning, { effort: 'medium', summary: 'auto' }, 'chat reasoning default must stay unchanged');
@@ -134,7 +146,7 @@ module.exports = [
   testRouteIntentPayloadDisablesReasoning,
   testImageInstructionPayloadDisablesReasoning,
   testImagePlanPayloadDisablesReasoning,
-  testNoReasoningDoesNotAlterChatReasoningGate,
+  testUserFacingReasoningDisabledPayloadsExplicitlyDisableThinking,
   testNoThinkDirectiveSurvivesChatCompletionsFallback,
   testNoThinkDirectiveIsStrippedWhenGatewayRejectsIt,
   testHighRiskRouteIntentPayloadEnablesBoundedReasoning,

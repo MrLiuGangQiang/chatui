@@ -179,6 +179,7 @@ async function testIncompleteChatSnapshotPreventsUpstreamHandoff() {
     persistSessionDisplay: () => Promise.resolve(),
     armStreamingOutputFocus: () => {},
     buildChatPayload: (model, messages) => ({ model, messages, stream: true }),
+    buildResponsesPayload: (model, messages) => ({ model, input: messages, stream: true }),
     shouldUseResponsesReasoning: () => false,
     makeClientChatJobId: () => 'chatjob-incomplete',
     addActiveRunJob: () => {},

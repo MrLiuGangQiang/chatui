@@ -159,7 +159,7 @@ function testOcrExecutionAddsLiteralReadingGuard() {
   assert.match(prompt, /media_map/);
 }
 
-function testResponsesPayloadOmitsReasoningWhenDisabled() {
+function testResponsesPayloadEmitsNoThinkDirectiveWhenDisabled() {
   const messages = [{
     role: 'user',
     content: [
@@ -184,9 +184,10 @@ function testResponsesPayloadOmitsReasoningWhenDisabled() {
       ],
     }],
     temperature: 0,
+    reasoning: { effort: 'none' },
     stream: false,
   });
-  assert.strictEqual(Object.hasOwn(payload, 'reasoning'), false);
+  assert.deepStrictEqual(payload.reasoning, { effort: 'none' });
   assert.strictEqual(chatService.messagesHaveInputFiles(messages), true);
 }
 
@@ -358,7 +359,7 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
     assert.strictEqual(savedJob.api, 'responses');
     assert.strictEqual(streamedRequest.options.api, 'responses');
     assert.strictEqual(streamedRequest.jobId, 'chatjob-file-input');
-    assert.strictEqual(Object.hasOwn(streamedRequest.payload, 'reasoning'), false);
+    assert.deepStrictEqual(streamedRequest.payload.reasoning, { effort: 'none' });
     assert.deepStrictEqual(streamedRequest.payload, {
       model: 'gpt-4.1-mini',
       input: [{
@@ -369,6 +370,7 @@ async function testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithou
         ],
       }],
       temperature: 0,
+      reasoning: { effort: 'none' },
       stream: true,
     });
     assert.ok(events.indexOf('prepare-attachments') < events.indexOf('build-messages'));
@@ -386,7 +388,7 @@ module.exports = [
   testOcrImageDetailSurvivesBothChatTransports,
   testExecutionImagesUseSelectedAttachmentOrderWithoutPromptAnnotations,
   testOcrExecutionAddsLiteralReadingGuard,
-  testResponsesPayloadOmitsReasoningWhenDisabled,
+  testResponsesPayloadEmitsNoThinkDirectiveWhenDisabled,
   testNativeFileHistoryNeverProjectsLegacyInlineText,
   testChatWorkflowPreparesPdfBeforeBuildingAndForcesResponsesWithoutReasoning,
 ];

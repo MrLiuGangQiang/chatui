@@ -309,17 +309,31 @@
       || /data-persisted-src=(['"])indexeddb:\/\//i.test(html)
       || /indexeddb:\/\//i.test(String(item?.imageContext || ''));
   }
+  function preserveOutputStarted(current, next, preferred) {
+    if (current?.outputStarted || next?.outputStarted) preferred.outputStarted = true;
+    return preferred;
+  }
   function preferDisplayItem(current, next) {
     const currentIsImageResult = isDurableImageDisplayItem(current);
     const nextIsImageResult = isDurableImageDisplayItem(next);
     // Plain assistant HTML is not rich media. Preserve the IndexedDB-backed image
     // card rather than whichever colliding response happens to have more text.
-    if (currentIsImageResult !== nextIsImageResult) return nextIsImageResult ? next : current;
+    if (currentIsImageResult !== nextIsImageResult) {
+      return preserveOutputStarted(current, next, nextIsImageResult ? next : current);
+    }
     const currentRich = !!(current?.html || current?.imageContext || current?.attachmentContext);
     const nextRich = !!(next?.html || next?.imageContext || next?.attachmentContext);
-    if (currentRich !== nextRich) return nextRich ? next : current;
-    if (!!current?.pending !== !!next?.pending) return current?.pending ? next : current;
-    return String(next?.rawText || '').length > String(current?.rawText || '').length ? next : current;
+    if (currentRich !== nextRich) {
+      return preserveOutputStarted(current, next, nextRich ? next : current);
+    }
+    if (!!current?.pending !== !!next?.pending) {
+      return preserveOutputStarted(current, next, current?.pending ? next : current);
+    }
+    return preserveOutputStarted(
+      current,
+      next,
+      String(next?.rawText || '').length > String(current?.rawText || '').length ? next : current,
+    );
   }
   function compactDisplayItems(items = []) {
     const result = [];
@@ -336,6 +350,7 @@
       const key = [item.role || '', item.rawText || '', item.html || '', item.pending || '', item.jobId || '', item.responseIndex || '', item.messageIndex || '', item.quoteContext || ''].join('');
       const prevKey = previous ? [previous.role || '', previous.rawText || '', previous.html || '', previous.pending || '', previous.jobId || '', previous.responseIndex || '', previous.messageIndex || '', previous.quoteContext || ''].join('') : '';
       if (previous && key === prevKey) {
+        if (item.outputStarted && !previous.outputStarted) previous.outputStarted = true;
         if (item.metaText && !previous.metaText) previous.metaText = item.metaText;
         if (item.reasoningText && !previous.reasoningText) previous.reasoningText = item.reasoningText;
         if (item.keepReasoning && !previous.keepReasoning) previous.keepReasoning = item.keepReasoning;

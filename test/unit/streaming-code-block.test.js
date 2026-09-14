@@ -23,6 +23,7 @@ function assertAssetVersionAtLeast(index, assetPath, minimum) {
 const vm = require('vm');
 const { JSDOM } = require('jsdom');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
+const markdownEnhancer = require('../../client/app/markdown/enhancer');
 const streaming = require('../../client/app/markdown/browser-streaming-renderer');
 
 function withDom(run) {
@@ -54,6 +55,24 @@ function testOpenFenceRendersAsLiveCodeBlock() {
   });
 }
 
+function testFinalCollapsedCodeBlockKeepsTheLatestLineVisible() {
+  withDom(container => {
+    const win = container.ownerDocument.defaultView;
+    const previousEnhancer = global.ChatUIMarkdownEnhancer;
+    global.ChatUIMarkdownEnhancer = { enhanceCodeExpansion: markdownEnhancer.enhanceCodeExpansion };
+    Object.defineProperty(win.HTMLPreElement.prototype, 'scrollHeight', { configurable: true, get: () => 1000 });
+    const renderer = streaming.createStreamingRenderer({ renderMarkdown: markdownEngine.renderMarkdown, enhance: () => {} });
+    const code = Array.from({ length: 40 }, (_, index) => 'line ' + index).join('\n');
+    renderer.append('```js\n' + code, container);
+    renderer.final(container, '```js\n' + code + '\n```');
+    const pre = container.querySelector('.code-block pre');
+    assert.ok(container.querySelector('.code-block-collapsed'));
+    assert.strictEqual(pre.scrollTop, 1000,
+      'canonical final rendering must keep a collapsed code block at its newest line');
+    if (previousEnhancer === undefined) delete global.ChatUIMarkdownEnhancer;
+    else global.ChatUIMarkdownEnhancer = previousEnhancer;
+  });
+}
 function testLiveCodeBlockAppendsTextWithoutReplacingCodeNode() {
   withDom(container => {
     const renderer = streaming.createStreamingRenderer({ renderMarkdown: markdownEngine.renderMarkdown, enhance: () => {} });
@@ -99,6 +118,7 @@ function testStreamingCodeKeywordsHighlightOnThrottle() {
     const scheduled = new Map();
     const cleared = [];
     let timerId = 0;
+    let layoutChanges = 0;
     const escapeHtml = value => String(value).replace(/[&<>]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[character]));
     const highlighter = {
       getLanguage: language => language === 'js',
@@ -111,6 +131,7 @@ function testStreamingCodeKeywordsHighlightOnThrottle() {
       setTimer: callback => { timerId += 1; scheduled.set(timerId, callback); return timerId; },
       clearTimer: id => { cleared.push(id); scheduled.delete(id); },
       highlightIntervalMs: 180,
+      onLayoutChange: () => { layoutChanges += 1; },
     });
 
     renderer.append('```js\nconst html = "<img onerror=alert(1)>";', container);
@@ -121,6 +142,7 @@ function testStreamingCodeKeywordsHighlightOnThrottle() {
     const firstTimer = [...scheduled.entries()][0];
     scheduled.delete(firstTimer[0]);
     firstTimer[1]();
+    assert.strictEqual(layoutChanges, 1, 'async highlighting must notify the live scroll anchor after changing code layout');
     assert.strictEqual(code.querySelector('.hljs-keyword')?.textContent, 'const');
     assert.strictEqual(code.querySelectorAll('img').length, 0, 'highlighted code must not turn source HTML into DOM');
     assert.strictEqual(code.textContent, 'const html = "<img onerror=alert(1)>";');
@@ -132,6 +154,7 @@ function testStreamingCodeKeywordsHighlightOnThrottle() {
     const secondTimer = [...scheduled.entries()][0];
     scheduled.delete(secondTimer[0]);
     secondTimer[1]();
+    assert.strictEqual(layoutChanges, 2, 'every async highlight pass must refresh the live anchor');
     assert.deepStrictEqual([...code.querySelectorAll('.hljs-keyword')].map(node => node.textContent), ['const', 'return']);
 
     renderer.append('\nconst done = true;', container);
@@ -139,6 +162,76 @@ function testStreamingCodeKeywordsHighlightOnThrottle() {
     renderer.append('\n```\n', container);
     assert.ok(cleared.includes(pendingTimerId), 'closing the fence should cancel any pending live highlight timer');
     assert.ok(!container.querySelector('[data-markdown-streaming-code]'));
+  });
+}
+
+function testCollapsedStreamingCodeBlockKeepsTheLatestLineVisible() {
+  withDom(container => {
+    const previousEnhancer = global.ChatUIMarkdownEnhancer;
+    global.ChatUIMarkdownEnhancer = { enhanceCodeExpansion: markdownEnhancer.enhanceCodeExpansion };
+    const scheduled = new Map();
+    let timerId = 0;
+    const renderer = streaming.createStreamingRenderer({
+      renderMarkdown: markdownEngine.renderMarkdown,
+      enhance: () => {},
+      highlighter: { getLanguage: () => true, highlight: source => ({ value: source }) },
+      setTimer: callback => { timerId += 1; scheduled.set(timerId, callback); return timerId; },
+      clearTimer: id => scheduled.delete(id),
+    });
+    const longCode = Array.from({ length: 40 }, (_, index) => `line ${index}`).join('\n');
+    renderer.append('```html\n' + longCode, container);
+    const block = container.querySelector('[data-markdown-streaming-code="1"]');
+    const pre = block.querySelector('pre');
+    Object.defineProperty(pre, 'scrollHeight', { configurable: true, get: () => 1000 });
+    Object.defineProperty(pre, 'clientHeight', { configurable: true, get: () => 100 });
+    pre.scrollTop = 0;
+    container.appendChild(container.ownerDocument.createElement('div'));
+    const appendChild = container.appendChild.bind(container);
+    container.appendChild = node => {
+      const appended = appendChild(node);
+      if (node === block) pre.scrollTop = 0;
+      return appended;
+    };
+
+    renderer.append('\nline 40', container);
+
+    assert.ok(block.classList.contains('code-block-collapsed'));
+    assert.strictEqual(pre.scrollTop, 1000,
+      'moving the collapsed code block must not reset it to the first line');
+
+    const highlight = [...scheduled.values()][0];
+    // A delayed highlighter must not send a collapsed live preview back to the first line.
+    pre.scrollTop = 0;
+    highlight();
+    assert.strictEqual(pre.scrollTop, 1000,
+      'async highlighting must keep a bottom-following collapsed code block at the latest line');
+    if (previousEnhancer === undefined) delete global.ChatUIMarkdownEnhancer;
+    else global.ChatUIMarkdownEnhancer = previousEnhancer;
+  });
+}
+
+function testCodeExpansionNotifiesTheOuterLayoutAnchor() {
+  withDom(container => {
+    const previousEnhancer = global.ChatUIMarkdownEnhancer;
+    global.ChatUIMarkdownEnhancer = { enhanceCodeExpansion: markdownEnhancer.enhanceCodeExpansion };
+    let layoutChanges = 0;
+    const renderer = streaming.createStreamingRenderer({
+      renderMarkdown: markdownEngine.renderMarkdown,
+      enhance: () => {},
+      onLayoutChange: () => { layoutChanges += 1; },
+    });
+    const longCode = Array.from({ length: 40 }, (_, index) => `line ${index}`).join('\n');
+    renderer.append('```js\n' + longCode, container);
+    const block = container.querySelector('.code-block-collapsed');
+    const changesBeforeToggle = layoutChanges;
+
+    block.querySelector('.code-expand-toggle').click();
+
+    assert.ok(block.classList.contains('code-block-expanded'));
+    assert.strictEqual(layoutChanges, changesBeforeToggle + 1,
+      'expanding or collapsing a code block must refresh the outer live-output anchor after the layout changes');
+    if (previousEnhancer === undefined) delete global.ChatUIMarkdownEnhancer;
+    else global.ChatUIMarkdownEnhancer = previousEnhancer;
   });
 }
 
@@ -273,8 +366,11 @@ function testMarkdownActionHoverUsesStableAnimatedSurface() {
 module.exports = [
   testOpenFenceRendersAsLiveCodeBlock,
   testLiveCodeBlockAppendsTextWithoutReplacingCodeNode,
+  testFinalCollapsedCodeBlockKeepsTheLatestLineVisible,
   testClosingFenceFinalizesThroughMarkdownRenderer,
   testStreamingCodeKeywordsHighlightOnThrottle,
+  testCollapsedStreamingCodeBlockKeepsTheLatestLineVisible,
+  testCodeExpansionNotifiesTheOuterLayoutAnchor,
   testBundledHighlighterSupportsJavaSyntax,
   testDisposingLiveCodePreviewCancelsWorkWithoutClearingVisibleContent,
   testFencedCodeUsesBalancedContrastTheme,

@@ -49,6 +49,26 @@
     || root?.ChatUIApp?.formatting?.appendIntentStatusHtml
     || (typeof require === "function" ? require("./formatting").appendIntentStatusHtml : null);
 
+    const clearPendingFeedback = typeof deps.clearPendingFeedback === 'function'
+      ? deps.clearPendingFeedback
+      : node => root?.clearPendingFeedback?.(node);
+    const dismissIntentReasoningTrace = typeof deps.dismissIntentReasoningTrace === 'function'
+      ? deps.dismissIntentReasoningTrace
+      : node => root?.ChatUIAppFormatting?.dismissIntentReasoningTrace?.(node);
+
+    function markResumedOutputStarted(sessionId, item) {
+      if (!item) return;
+      item.outputStarted = true;
+      item.metaText = '';
+      if (String(item.html || '').includes('pending-feedback')) item.html = '';
+      if (sessionId !== deps.state.activeSessionId) return;
+      const node = deps.findMessageNodeByDisplayItem?.(item);
+      if (!node) return;
+      clearPendingFeedback?.(node);
+      dismissIntentReasoningTrace?.(node);
+      if (node.dataset) node.dataset.outputStarted = '1';
+    }
+
     function renderResumedChatState(sessionId, item) {
       if (!item) return false;
       const rawText = String(item.rawText || '');
@@ -56,6 +76,7 @@
       const statusText = typeof deps.isChatStatusText === 'function' ? deps.isChatStatusText : (() => false);
       const started = !!reasoning || (!!rawText.trim() && !statusText(rawText));
       if (started) {
+        markResumedOutputStarted(sessionId, item);
         deps.updateLiveDisplay?.(sessionId, item, 'assistant', rawText, {
           rawText,
           pending: true,
@@ -1004,6 +1025,7 @@
                 const s = extractChatJobText(t.data);
                 if (s.content || s.reasoning) {
                   o = !(!s.content && !s.reasoning) || o;
+                  markResumedOutputStarted(e, a);
                   const t = s.content || "",
                     n = shouldFollowScroll();
                   updateLiveDisplay(e, a, "assistant", t, {
@@ -1023,10 +1045,15 @@
                 if ((i(e), "done" === e.status)) return e.data;
                 if ("error" === e.status)
                   throw makeTerminalJobError(e.error?.message);
+                // GET already found the managed job in a non-terminal state.
+                // Follow that exact job; do not POST the same client job id
+                // again merely because the snapshot has not reached a terminal state.
+                existingJobFound = true;
                 return null;
               };
             let d = null,
-              c = null;
+              c = null,
+              existingJobFound = false;
             try {
               const resumeOffsets = R();
               d = l(await getChatJob(s.id, { resumeOffsets }));
@@ -1036,7 +1063,7 @@
             let h = s.payload || null;
             if (!h && typeof buildResumeChatPayload === "function")
               h = buildResumeChatPayload(e, s, n, t);
-            if (!d && h && t.baseUrl) {
+            if (!d && !existingJobFound && h && t.baseUrl) {
               const restoredPayload = await restoreJobPayloadMedia(h);
               ((d = l(
                 await registerChatStreamJob(restoredPayload, t, s.id, {

@@ -382,4 +382,4 @@ Docker Hub 同步是 tag 发布的最后一个独立节点：它在 ACR 标签�
 
 ## 流式并发专项门禁
 
-本次 Chat Job SSE 改造的专项入口是 `npm run test:streaming`，它通过项目自定义 runner 执行 unit/smoke 回归；实现前不得把该命令当作已存在的验证证据。生产拓扑固定单实例，端口仍为 8765。
+本次 Chat Job SSE 改造的专项入口是 `npm run test:streaming`，它通过项目自定义 runner 执行 unit/smoke 回归；实现前不得把该命令当作已存在的验证证据。专项回归必须覆盖每会话独立 EventSource、同会话/Job waiter 聚合、最小帧无 `id/status`、断线 offset 续传和旧连接迟到回调隔离。生产拓扑固定单实例，端口仍为 8765。

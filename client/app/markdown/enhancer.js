@@ -29,6 +29,8 @@ const MERMAID_LOADING_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><p
 const MERMAID_ERROR_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5"></path><path d="M12 16.5h.01"></path><path d="M10.3 4.9 3.8 16.2A2 2 0 0 0 5.5 19h13a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0z"></path></svg>';
 const COLLAPSIBLE_CODE_MIN_LINES = 24;
 
+const codeExpansionLayoutListeners = new WeakMap();
+
 let mermaidRenderSequence = 0;
 let mermaidRenderQueue = Promise.resolve();
 
@@ -102,19 +104,26 @@ function bindCopyButton(button, text, copyText) {
   });
 }
 
-function enhanceCodeExpansion(wrap, code) {
+function enhanceCodeExpansion(wrap, code, options = {}) {
   if (!wrap || !code) return;
+  if (typeof options.onLayoutChange === 'function') codeExpansionLayoutListeners.set(wrap, options.onLayoutChange);
+  const notifyLayoutChange = expanded => {
+    const listener = codeExpansionLayoutListeners.get(wrap);
+    if (!listener) return;
+    try { listener({ reason: 'code-expansion', expanded, wrap }); } catch {}
+  };
   const lineCount = (code.textContent || '').split('\n').length;
   let toggle = wrap.querySelector(':scope > .code-expand-toggle');
   let headerToggle = wrap.querySelector(':scope > .code-expand-header-toggle');
   if (lineCount < COLLAPSIBLE_CODE_MIN_LINES) {
     wrap.classList.remove('code-block-collapsed', 'code-block-expanded');
     delete wrap.dataset.codeExpansionState;
+    codeExpansionLayoutListeners.delete(wrap);
     toggle?.remove();
     headerToggle?.remove();
     return;
   }
-  const sync = (expanded) => {
+  const sync = (expanded, reason = 'initialize') => {
     const state = expanded ? 'expanded' : 'collapsed';
     const stateChanged = wrap.dataset.codeExpansionState !== state;
     if (wrap.classList.contains('code-block-expanded') !== expanded) wrap.classList.toggle('code-block-expanded', expanded);
@@ -132,20 +141,25 @@ function enhanceCodeExpansion(wrap, code) {
     if (headerToggle.getAttribute('aria-label') !== headerLabel) headerToggle.setAttribute('aria-label', headerLabel);
     if (headerToggle.getAttribute('aria-expanded') !== ariaExpanded) headerToggle.setAttribute('aria-expanded', ariaExpanded);
     wrap.dataset.codeExpansionState = state;
+    if (!expanded) {
+      const pre = code.closest?.('pre') || code.parentElement;
+      if (pre) pre.scrollTop = pre.scrollHeight;
+    }
+    if (stateChanged && reason === 'interactive') notifyLayoutChange(expanded);
   };
   if (!toggle) {
     toggle = document.createElement('button');
     toggle.className = 'code-expand-toggle';
     toggle.type = 'button';
     wrap.appendChild(toggle);
-    toggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded')));
+    toggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded'), 'interactive'));
   }
   if (!headerToggle) {
     headerToggle = document.createElement('button');
     headerToggle.className = 'inline-copy code-action-icon code-expand-header-toggle';
     headerToggle.type = 'button';
     wrap.insertBefore(headerToggle, wrap.firstChild);
-    headerToggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded')));
+    headerToggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded'), 'interactive'));
   }
   sync(wrap.classList.contains('code-block-expanded'));
 }

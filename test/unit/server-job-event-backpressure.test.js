@@ -70,7 +70,7 @@ function makeJob(principal, id = 'chatjob-backpressure') {
 }
 
 function parseEvents(chunks) {
-  return chunks.join('').split('\n\n').filter(block => block.startsWith('event: ')).map(block => {
+  return chunks.join('').split('\n\n').filter(block => block.includes('data: ')).map(block => {
     const data = block.split('\n').find(line => line.startsWith('data: '));
     return JSON.parse(data.slice(6));
   });
@@ -81,10 +81,10 @@ function testBackpressureWaitsForDrainAndMergesDirtyNotifications() {
   const job = makeJob(principal);
   const store = new Map([[job.id, job]]);
   const subscribers = new Map();
-  const { subscribeJobGroup, notifyJob } = createJobEvents({ jobSubscribers: subscribers });
+  const { subscribeJob, notifyJob } = createJobEvents({ jobSubscribers: subscribers });
   const response = new BackpressureResponse();
   response.blockNextWrite = true;
-  subscribeJobGroup(makeRequest(`/api/chat-jobs/events?ids=${job.id}`, principal), response, store);
+  subscribeJob(makeRequest(`/api/chat-jobs/${encodeURIComponent(job.id)}/events?contentLength=0&reasoningLength=0`, principal), response, store);
 
   assert.strictEqual(response.ended, false, 'a false write must not close the response');
   const writesWhileBlocked = response.chunks.length;
@@ -163,7 +163,7 @@ function testDrainTimeoutDestroysOnlyTheBlockedSubscriberAndCleansState() {
     clearImmediateImpl: clock.clearImmediateImpl,
     writerOptions: { setTimeoutImpl: clock.setTimeoutImpl, clearTimeoutImpl: clock.clearTimeoutImpl, setIntervalImpl: clock.setIntervalImpl, clearIntervalImpl: clock.clearIntervalImpl },
   });
-  events.subscribeJobGroup({ url: '/api/chat-jobs/events?ids=' + job.id, authPrincipal: principal, on() {} }, response, new Map([[job.id, job]]));
+  events.subscribeJob({ url: '/api/chat-jobs/' + encodeURIComponent(job.id) + '/events?contentLength=0&reasoningLength=0', authPrincipal: principal, on() {} }, response, new Map([[job.id, job]]));
   clock.advance(9_999);
   assert.strictEqual(response.destroyed, false);
   clock.advance(1);
@@ -188,7 +188,7 @@ function testKeepaliveIsFifteenSecondsAndResponseCloseCleansIt() {
     clearTimeoutImpl: clock.clearTimeoutImpl,
     writerOptions: { setTimeoutImpl: clock.setTimeoutImpl, clearTimeoutImpl: clock.clearTimeoutImpl, setIntervalImpl: clock.setIntervalImpl, clearIntervalImpl: clock.clearIntervalImpl },
   });
-  events.subscribeJobGroup({ url: '/api/chat-jobs/events?ids=' + job.id, authPrincipal: principal, on(type, handler) { if (type === 'close') requestClose = handler; } }, response, new Map([[job.id, job]]));
+  events.subscribeJob({ url: '/api/chat-jobs/' + encodeURIComponent(job.id) + '/events?contentLength=0&reasoningLength=0', authPrincipal: principal, on(type, handler) { if (type === 'close') requestClose = handler; } }, response, new Map([[job.id, job]]));
   const before = response.chunks.length;
   const updatedAt = job.updatedAt;
   clock.advance(14_999);
@@ -242,8 +242,8 @@ async function testLegacyCompactDeltasSurviveABlockedWriter() {
   const store = new Map([[job.id, job]]); const subscribers = new Map();
   const events = createJobEvents({ jobSubscribers: subscribers });
   const res = { status:0, chunks:[], endCalls:0, blocked:true, listeners:{}, writeHead(s){this.status=s}, flushHeaders(){}, write(chunk){this.chunks.push(String(chunk)); return !this.blocked}, once(k,f){this.listeners[k]=f}, removeListener(k){delete this.listeners[k]}, end(){this.endCalls++} };
-  const req = { url:'/api/chat-jobs/events?ids='+job.id, authPrincipal:owner, listeners:{}, on(k,f){this.listeners[k]=f}, removeListener(k){delete this.listeners[k]} };
-  events.subscribeJobGroup(req,res,store);
+  const req = { url:'/api/chat-jobs/'+encodeURIComponent(job.id)+'/events?contentLength=0&reasoningLength=0', authPrincipal:owner, listeners:{}, on(k,f){this.listeners[k]=f}, removeListener(k){delete this.listeners[k]} };
+  events.subscribeJob(req,res,store);
   job.streamDelta={content:'A',reasoning:''}; events.notifyJob(job);
   job.streamDelta={content:'B',reasoning:''}; events.notifyJob(job);
   res.blocked=false; res.listeners.drain?.();

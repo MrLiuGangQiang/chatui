@@ -82,8 +82,38 @@ function testDismissingIntentTraceRemovesTheWaitingSurfaceState() {
   fixture.dom.window.close();
 }
 
+function testEmptyReasoningUpdateRemovesAnExistingPanel() {
+  const fixture = createReasoningFixture();
+  fixture.workflow.updateReasoning(fixture.message, 'thinking', { done: false });
+  assert.ok(fixture.message.querySelector('.reasoning-panel'));
+
+  fixture.workflow.updateReasoning(fixture.message, '', {
+    forceDisplay: true,
+    keepEmpty: true,
+  });
+
+  assert.strictEqual(fixture.message.querySelector('.reasoning-panel'), null,
+    'an empty reasoning update must remove an already rendered thinking panel');
+  assert.strictEqual(fixture.message.dataset.reasoningText, undefined,
+    'empty reasoning must clear the stale reasoning text marker');
+  fixture.dom.window.close();
+}
+
+function testEmptyReasoningUpdateDoesNotCreateAPanel() {
+  const fixture = createReasoningFixture();
+  fixture.workflow.updateReasoning(fixture.message, '', {
+    forceDisplay: true,
+    keepEmpty: true,
+  });
+  assert.strictEqual(fixture.message.querySelector('.reasoning-panel'), null,
+    'an empty reasoning update must not synthesize a thinking panel');
+  fixture.dom.window.close();
+}
+
 module.exports = [
   testLiveReasoningPanelUsesADistinctTintedSurface,
   testCompletedReasoningCollapsesAndCanBeReopened,
   testDismissingIntentTraceRemovesTheWaitingSurfaceState,
+  testEmptyReasoningUpdateDoesNotCreateAPanel,
+  testEmptyReasoningUpdateRemovesAnExistingPanel,
 ];

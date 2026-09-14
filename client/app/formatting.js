@@ -85,7 +85,7 @@
   }
   function attachIntentReasoningTrace(node, trace = {}) {
     if (!node || typeof node.querySelector !== 'function') return false;
-    const rendered = intentReasoningHtml(trace);
+    if (node.dataset?.outputStarted === '1') return false;
     const current = node.querySelector('.intent-reasoning-trace');
     if (current) { const currentStatus = String(current.querySelector('.intent-reasoning-title')?.textContent || '').trim(); current.outerHTML = intentReasoningHtml(trace, { currentStatus }).html; return true; }
     const pending = node.matches?.('.pending-feedback') ? node : node.querySelector('.pending-feedback');

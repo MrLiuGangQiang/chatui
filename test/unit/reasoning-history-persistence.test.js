@@ -159,8 +159,8 @@ function testReasoningRendererPersistsAndRestoresMarkdown() {
   assert.ok(reasoningSource.includes('panelHost.prepend(panel)'), 'the thought panel must remain above the answer content when Markdown output updates');
   assert.ok(reasoningSource.includes('function finishReasoning') && reasoningSource.includes('updateReasoning(e,reasoning,{done:!0,restoreHistory:!0'), 'completed thought panels must remain renderable rather than being removed');
   assert.ok(chatSource.includes('reasoning_content:R'), 'chat completion must persist reasoning in canonical assistant messages');
-  assert.ok(chatSource.includes('reasoning:a,keepReasoning:!!a'), 'live reasoning updates must checkpoint pending display state for refresh recovery');
-  assert.ok(chatSource.includes('R&&updateReasoning(g,R,{done:!0,restoreHistory:!0'), 'the completed live message must preserve its thought panel');
+  assert.ok(chatSource.includes('...(a?{reasoning:a,keepReasoning:!0}:{})'), 'non-empty live reasoning updates must checkpoint pending display state for refresh recovery');
+  assert.ok(chatSource.includes('R&&updateReasoning(finalNode,R,{done:!0,restoreHistory:!0'), 'the completed live message must preserve its thought panel');
   assert.ok(historySource.includes("normalized?.reasoning_content || normalized?.reasoning"), 'canonical-history rendering must restore persisted reasoning after refresh');
   assert.ok(resumeSource.includes('reasoning: s.reasoning || ""'), 'resumed live chat jobs must checkpoint received reasoning');
   assert.ok(resumeSource.includes('const t = s.content || ""'), 'resuming a reasoning-only event must not reintroduce the waiting status text');

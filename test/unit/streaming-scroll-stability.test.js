@@ -416,6 +416,32 @@ function testConnectedOutputCannotBeClaimedByBackgroundSession() {
   assert.strictEqual(state.activeOutputNode, null, 'a rejected background claim must not replace the active output node');
 }
 
+function testStaleAsyncLayoutCannotClaimAnotherLiveOutput() {
+  const { document, state, workflow, messages, output } = createScrollFixture();
+  const active = document.createElement('article');
+  active.className = 'message assistant';
+  active.dataset.streaming = '1';
+  active.dataset.sessionId = 'session-a';
+  active.innerHTML = '<div class="content"></div>';
+  messages.appendChild(active);
+  active.getBoundingClientRect = () => ({ top: 320, bottom: 460, left: 80, right: 820, width: 740, height: 140 });
+  workflow.setActiveOutputForSession('session-a', active);
+  state.streamFocusLocked = true;
+  messages.scrollTop = 250;
+  const scrollTopBeforeStaleLayout = messages.scrollTop;
+
+  const pinned = workflow.commitStreamingOutput(output, {
+    margin: 72,
+    sessionId: 'session-a',
+    requireActive: true,
+    requireFollow: true,
+  });
+
+  assert.strictEqual(pinned, false, 'a stale renderer layout callback must not write the active output anchor');
+  assert.strictEqual(state.activeOutputNode, active, 'a stale callback must not replace the current live output owner');
+  assert.strictEqual(messages.scrollTop, scrollTopBeforeStaleLayout, 'a stale callback must not move the viewport');
+}
+
 function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
   const chatSource = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   const messageSource = fs.readFileSync(path.join(__dirname, '../../client/app/message-workflow.js'), 'utf8');
@@ -425,10 +451,16 @@ function testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock() {
     'chat streams must opt out of the competing session-tail lock from their first frame');
   assert.ok(chatSource.includes('tailLock:streamTailLock'),
     'the chat workflow must pass the live-output scroll policy into the shared scroll focus workflow');
-  assert.ok(messageSource.includes('tailLock: s.tailLock === true'),
+  assert.ok(messageSource.includes('const commitLiveOutput = (node, options = {}) => commitStreamingOutput(node, {'),
+    'every chat streaming path must converge on the shared live-output commit helper');
+  assert.ok(messageSource.includes('tailLock: options.tailLock === true'),
     'stream updates without an explicit tail-lock opt-in must keep the live output as the only scroll writer');
-  assert.ok(messageSource.includes('commitStreamingOutput(e, { margin: 72, tailLock: s.tailLock === true, sessionId: streamSessionId })'),
+  assert.ok(messageSource.includes('requireActive: options.requireActive === true') && messageSource.includes('requireFollow: options.requireFollow === true'),
+    'async layout commits must retain the current output owner and respect manual scrolling');
+  assert.ok(messageSource.includes('commitLiveOutput(e, { tailLock: s.tailLock === true, sessionId: streamSessionId })'),
     'new, regenerated, and edited chat streams must commit the same live-message-end anchor after local rendering');
+  assert.ok(messageSource.includes('!state.streamFocusLocked || s.forceStreamFocus'),
+    'regenerated and edited streams must reacquire the output anchor even when the same node was already marked active before rendering');
   assert.ok(messageSource.includes('e.__streamCanonicalPlacement'),
     'canonical message placement must be private stream state rather than a per-token list mutation');
   assert.strictEqual((messageSource.match(/pinActiveOutputToAnchor\(e, \{ margin: 72 \}\)/g) || []).length, 4,
@@ -460,5 +492,6 @@ module.exports = [
   testProgrammaticStreamScrollNeverRearmsTailLock,
   testStreamingHoverKeepsScrollerWidthStable,
   testConnectedOutputCannotBeClaimedByBackgroundSession,
+  testStaleAsyncLayoutCannotClaimAnotherLiveOutput,
   testChatStreamingUsesTheLiveOutputAnchorInsteadOfTailLock,
 ];

@@ -33,8 +33,7 @@
 | --- | --- | --- |
 | POST | 基础路径 | 创建任务，返回公开任务视图 |
 | GET | `/{id}` | 查询任务（本人） |
-| GET | `/{id}/events` | SSE 事件流，支持断点续传 offset |
-| GET | `/events?ids=...` | chat Job SSE shard；每个 shard 按完整 request-target 字节预算承载一组 Job，每个 Job 稳定态只属于一个 shard，事件包含所属 `id`，offset 按 Job 传入 |
+| GET | `/{id}/events?contentLength=&reasoningLength=` | 单 Job SSE；每个会话只订阅自己的当前 Job，帧内不重复任务 ID，支持正文/思考 offset 续传 |
 | POST | `/{id}/abort` | 停止任务 |
 | DELETE | `/{id}` | 释放任务 |
 
@@ -99,7 +98,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 
 `data:` JSON 事件 + 注释帧 keepalive；服务端关闭前先结束 SSE 再退出。客户端断线重连复用 job event offset，避免重复处理。
 
-浏览器运行时可以建立多个 Chat Job SSE shard，而不是按会话或按 Job 建立独立长连接。每个 shard 使用 `GET /api/chat-jobs/events?ids=...`，先回放该 shard 的 offset 快照，后续 `event: job` 数据按 `id` 分发；每个 Job 稳定态只属于一个 shard，同一 Job 的 waiter 共享 canonical aggregate。某个 Job 终态只从所属 shard 移除，不关闭或污染其它 Job。
+浏览器运行时按会话建立 `GET /api/chat-jobs/:jobId/events?contentLength=&reasoningLength=`：一个会话同一时刻最多一条 Chat Job EventSource，不同会话绝不共用连接。服务端只发送当前 Job 的最小帧，compact chat 使用默认 SSE message；正文/思考为 `d/r`，首 Token 耗时只发一次 `ft`，终态才发 `done/e/rt`，offset 越界才发 `z`，不发送任务 id、`status` 或重复 `error`。同一会话/Job 的多个 waiter 共享 canonical aggregate；终态只关闭本会话连接。
 
 ## 10. 内部路由修复契约（2026-08-30）
 

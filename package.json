@@ -19,7 +19,7 @@
     "preview:release": "npm run check && node scripts/preview-release.js",
     "check:architecture": "node scripts/check-architecture.js",
     "eval:intent:models": "node scripts/evaluate-intent-models.js",
-    "test:streaming": "node test/run-tests.js chat-job-event-multiplex chat-stream-integrity chat-stream-parser responses-web-search-stream server-job-event-multiplex server-job-event-backpressure session-image-batch-cleanup chat-job-sse-capacity"
+    "test:streaming": "node test/run-tests.js chat-job-event-stream chat-stream-integrity chat-stream-parser responses-web-search-stream server-job-event-stream server-job-event-backpressure session-image-batch-cleanup chat-job-sse-capacity"
   },
   "repository": {
     "type": "git",

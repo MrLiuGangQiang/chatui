@@ -83,6 +83,13 @@
     // cannot reintroduce a second, conflicting scroll position.
     const pinActiveOutputToAnchor = deps.pinActiveOutputToAnchor || deps.pinNodeBottomToTarget || (() => {});
     const commitStreamingOutput = deps.commitStreamingOutput || pinActiveOutputToAnchor;
+    const commitLiveOutput = (node, options = {}) => commitStreamingOutput(node, {
+      margin: 72,
+      tailLock: options.tailLock === true,
+      sessionId: options.sessionId || node?.dataset?.sessionId || state.activeSessionId,
+      requireActive: options.requireActive === true,
+      requireFollow: options.requireFollow === true,
+    });
     const setDatasetValue = (node, key, value) => {
       if (!node?.dataset) return;
       const normalized = String(value ?? '');
@@ -398,7 +405,7 @@
       }
     }
 
-    function createLiveMarkdownStream() {
+    function createLiveMarkdownStream(messageNode, options = {}) {
       const factory = getWorkflowModule('markdownLiveStream')?.createMarkdownLiveStream;
       if (factory) return factory({
         renderMarkdown: deps.renderMarkdown,
@@ -406,6 +413,7 @@
         bindInlineCopyButtons: deps.bindInlineCopyButtons,
         enhanceRenderedMarkdown: deps.enhanceRenderedMarkdown,
         now: () => chatuiPerfNow(),
+        onLayoutChange: () => commitLiveOutput(messageNode, { ...options, requireActive: true, requireFollow: true }),
       });
       return null;
     }
@@ -427,11 +435,11 @@
       return !!doc;
     }
 
-    function updateLiveMarkdownStream(messageNode, contentNode, rawValue = '', incoming = '') {
+    function updateLiveMarkdownStream(messageNode, contentNode, rawValue = '', incoming = '', options = {}) {
       if (!messageNode || !contentNode) return false;
       let liveStream = messageNode.__markdownLiveStream;
       if (!liveStream) {
-        liveStream = createLiveMarkdownStream();
+        liveStream = createLiveMarkdownStream(messageNode, options);
         messageNode.__markdownLiveStream = liveStream;
       }
       const next = String(rawValue || '');
@@ -634,7 +642,7 @@
         const managesStreamingOutput = !!(chatStream && streamSessionId);
         if (managesStreamingOutput) {
           if (e.dataset.sessionId !== streamSessionId || state.activeOutputNode !== e) setActiveOutputForSession(streamSessionId, e);
-          if (streamSessionId === state.activeSessionId && e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked || state.activeOutputNode !== e || s.forceStreamFocus)) {
+          if (streamSessionId === state.activeSessionId && e.isConnected && !state.userScrollLocked && (!state.streamFocusLocked || s.forceStreamFocus)) {
             // Acquire stream-follow state now, but do not pin yet. The renderer
             // changes this message's height immediately below; pinning its old
             // geometry first and its new geometry in a RAF produces two visible
@@ -655,7 +663,7 @@
         if (chatStream && shouldProgressiveRenderMarkdown(rawValue)) {
           delete e.__markdownStreamingRenderer;
           delete e.dataset.enhancedHash;
-          updateLiveMarkdownStream(e, contentNode, rawValue, t);
+          updateLiveMarkdownStream(e, contentNode, rawValue, t, { sessionId: streamSessionId, tailLock: s.tailLock === true });
         } else if (chatStream) {
           delete e.dataset.enhancedHash;
           let streamRenderer = e.__markdownStreamingRenderer;
@@ -666,6 +674,12 @@
                 bindInlineCopyButtons(scopeRoot);
                 enhanceRenderedMarkdown(scopeRoot, { streaming: !!phase.streaming, deferMermaid: true, allowResourceLoad: !!phase.final, autoRenderMermaid: !!phase.final, forceMermaid: !!phase.final });
               },
+              onLayoutChange: () => commitLiveOutput(e, {
+                tailLock: s.tailLock === true,
+                sessionId: streamSessionId,
+                requireActive: true,
+                requireFollow: true,
+              }),
             });
             e.__markdownStreamingRenderer = streamRenderer;
             contentNode.innerHTML = '';
@@ -700,7 +714,7 @@
             // frame. One post-render end-anchor write keeps the lower history
             // visually stationary and is also the exact geometry used by the
             // “continue viewing output” action.
-            commitStreamingOutput(e, { margin: 72, tailLock: s.tailLock === true, sessionId: streamSessionId });
+            commitLiveOutput(e, { tailLock: s.tailLock === true, sessionId: streamSessionId });
           }
         } else if (!s.noScroll && (s.forceScroll || shouldFollowScroll())) scrollToActiveOutput(e, { force: true, active: true, settle: false, margin: 72 });
         reconcileMessageActions(e, { state: MESSAGE_ACTION_STATES.PENDING });

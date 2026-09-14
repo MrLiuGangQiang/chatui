@@ -80,7 +80,10 @@ async function testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode() 
     id: 'display-background',
     role: 'assistant',
     rawText: '',
+    html: '<div class="pending-feedback">正在处理 已等待 2 秒</div>',
+    metaText: 'TTFT 2s',
     reasoningText: '',
+    outputStarted: false,
     pending: '1',
     jobId: 'chatjob-background',
     responseIndex: '1',
@@ -156,6 +159,9 @@ async function testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode() 
   assert.strictEqual(liveUpdates.some(args => args[4]?.reasoning === 'background reasoning'), true, 'the test must observe the background reasoning delta before asserting DOM isolation');
   assert.deepStrictEqual(reasoningUpdates, [], 'background reasoning must never mutate the active session DOM node');
   assert.strictEqual(activeSessionNode.reasoningText, undefined, 'the active session node must remain untouched');
+  assert.strictEqual(backgroundItem.outputStarted, true, 'background resume must persist that real output has started');
+  assert.strictEqual(backgroundItem.metaText, '', 'background resume must clear stale waiting metrics');
+  assert.strictEqual(backgroundItem.html, '', 'background resume must clear stale waiting HTML');
 }
 
 async function testActiveChatResumeReplaysAccumulatedStateBeforeNextDelta() {
@@ -226,6 +232,78 @@ async function testActiveChatResumeReplaysAccumulatedStateBeforeNextDelta() {
   assert.strictEqual(resumeOptions.forceDisplay, true, 'provider reasoning must remain visible even when the thinking control is off');
 }
 
+async function testChatResumeFollowsAnExistingRunningJobWithoutReRegistering() {
+  const sessionId = 'resume-chat-running-existing';
+  const item = {
+    id: 'display-chat-running-existing',
+    role: 'assistant',
+    rawText: '',
+    reasoningText: '',
+    pending: '1',
+    jobId: 'chatjob-running-existing',
+    responseIndex: '1',
+  };
+  const state = makeState(sessionId);
+  state.sessions[0].display = [item];
+  const events = [];
+  const snapshot = {
+    id: item.jobId,
+    submissionId: 'submission-running-existing',
+    requestPurpose: 'final_execution',
+    responseIndex: 1,
+    startedAt: Date.now(),
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'question' }),
+    bindingEvidence: [],
+    payload: { model: 'chat-model', messages: [{ role: 'user', content: 'question' }] },
+  };
+  const deps = {
+    ...commonResumeDeps(state, events),
+    loadLatestChatJob: () => snapshot,
+    clearChatJob: () => events.push('clear-chat'),
+    sessionHasCompletedAssistantForResponse: () => false,
+    takeChatJobLiveItem: () => item,
+    isChatStatusText: () => false,
+    getConfig: () => ({ baseUrl: 'https://example.invalid/v1' }),
+    getChatJob: async () => {
+      events.push('get-running');
+      return {
+        id: snapshot.id,
+        status: 'running',
+        data: { choices: [{ message: { content: '已有前缀', reasoning_content: '' } }] },
+      };
+    },
+    restoreJobPayloadMedia: async payload => payload,
+    registerChatStreamJob: async () => { events.push('register'); return null; },
+    waitChatJob: async (_jobId, _onEvent, options) => {
+      events.push(['wait', options.sessionId]);
+      return {
+        status: 'done',
+        data: { choices: [{ message: { content: '最终答案', reasoning_content: '' } }] },
+      };
+    },
+    extractChatJobText: value => {
+      const message = value?.data?.choices?.[0]?.message || {};
+      return {
+        content: String(message.content || ''),
+        reasoning: String(message.reasoning_content || ''),
+      };
+    },
+    updateSessionDisplayItem() {},
+    replaceAssistantMessageAt: () => true,
+    saveSessionMessages: async () => {},
+    compactAdjacentDuplicateMessages: messages => messages,
+    playDoneSound() {},
+    firstTokenTimeText: () => '',
+  };
+
+  await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeChatJob(sessionId);
+
+  assert.strictEqual(events.includes('get-running'), true);
+  assert.strictEqual(events.includes('register'), false,
+    'refresh recovery must not POST the same client job again when GET confirms it is running');
+  assert.deepStrictEqual(events.find(event => Array.isArray(event) && event[0] === 'wait'), ['wait', sessionId]);
+}
+
 async function testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch() {
   const sessionId = 'resume-chat-live-switch';
   const item = {
@@ -248,6 +326,9 @@ async function testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch() {
   state.followingChatJobs.add(item.jobId);
   const events = [];
   const liveUpdates = [];
+  const outputNode = { dataset: {}, isConnected: true };
+  let pendingClears = 0;
+  let traceDismissals = 0;
   const deps = {
     ...commonResumeDeps(state, events),
     loadLatestChatJob: () => ({
@@ -257,7 +338,9 @@ async function testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch() {
     }),
     takeChatJobLiveItem: () => item,
     updateLiveDisplay: (...args) => liveUpdates.push(args),
-    findMessageNodeByDisplayItem: () => ({ dataset: {}, isConnected: true }),
+    findMessageNodeByDisplayItem: () => outputNode,
+    clearPendingFeedback: node => { assert.strictEqual(node, outputNode); pendingClears += 1; },
+    dismissIntentReasoningTrace: node => { assert.strictEqual(node, outputNode); traceDismissals += 1; },
     armStreamingOutputFocus() {},
     updateResumeStreamButton() {},
     addActiveRunJob() {},
@@ -273,6 +356,10 @@ async function testLiveChatResumeReplaysAccumulatedStateAfterSessionSwitch() {
   assert.strictEqual(resumeContent, 'cached prefix');
   assert.strictEqual(resumeOptions.reasoning, 'cached reasoning');
   assert.strictEqual(resumeOptions.forceDisplay, true);
+  assert.strictEqual(item.outputStarted, true, 'resumed content must mark the output phase');
+  assert.strictEqual(outputNode.dataset.outputStarted, '1');
+  assert.strictEqual(pendingClears, 1, 'resumed output must clear the waiting feedback immediately');
+  assert.strictEqual(traceDismissals, 1, 'resumed output must dismiss the intent waiting trace immediately');
 }
 
 async function testLiveChatResumeReplaysWaitingStatusBeforeFirstDelta() {
@@ -359,6 +446,7 @@ async function testImageResumeRejectsMissingExecutionContractBeforeNetwork() {
 }
 
 module.exports = [
+  testChatResumeFollowsAnExistingRunningJobWithoutReRegistering,
   testChatResumeRejectsMissingExecutionContractBeforeNetwork,
   testBackgroundChatResumeNeverUpdatesActiveSessionReasoningNode,
   testActiveChatResumeReplaysAccumulatedStateBeforeNextDelta,

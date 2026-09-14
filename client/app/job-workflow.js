@@ -9,9 +9,11 @@
   const dispatchContract = root?.[Symbol.for('chatui.module-registry.v1')]?.get('dispatchContract')
     || root?.ChatUIDispatchContract
     || (typeof require === 'function' ? require('../../shared/dispatch-contract') : {});
-  const jobEventMultiplex = root?.[Symbol.for('chatui.module-registry.v1')]?.get('jobEventMultiplex')
-    || (typeof require === 'function' ? require('./job-event-multiplex') : {});
-  const jobEventMultiplexers = new WeakMap();
+  const jobEventStream = root?.[Symbol.for('chatui.module-registry.v1')]?.get('jobEventStream')
+    || (typeof require === 'function' ? require('./job-event-stream') : {});
+  const jobEventAggregate = root?.[Symbol.for('chatui.module-registry.v1')]?.get('jobEventAggregate')
+    || (typeof require === 'function' ? require('../core/job-event-aggregate') : {});
+  const jobEventStreams = new WeakMap();
 
   function saveJob(sessionId, job, deps = {}, kind = 'chat') {
     if (deps.isSessionDisposed?.(sessionId)) return null;
@@ -224,17 +226,17 @@
   }
 
   function waitJobEvent(url, onUpdate = () => {}, options = {}) {
-    const chatJobId = jobEventMultiplex.jobIdFromEventUrl?.(url) || '';
+    const chatJobId = jobEventStream.jobIdFromEventUrl?.(url) || '';
     const EventSourceRef = options.EventSource || root.EventSource;
-    if (chatJobId && options.multiplex !== false && typeof EventSourceRef === 'function'
-        && typeof jobEventMultiplex.createJobEventMultiplexer === 'function') {
-      let multiplexer = jobEventMultiplexers.get(EventSourceRef);
-      if (multiplexer?.isClosed?.()) {
-        jobEventMultiplexers.delete(EventSourceRef);
-        multiplexer = null;
+    if (chatJobId && typeof EventSourceRef === 'function'
+        && typeof jobEventStream.createJobEventStream === 'function') {
+      let streamManager = jobEventStreams.get(EventSourceRef);
+      if (streamManager?.isClosed?.()) {
+        jobEventStreams.delete(EventSourceRef);
+        streamManager = null;
       }
-      if (!multiplexer) {
-        multiplexer = jobEventMultiplex.createJobEventMultiplexer({
+      if (!streamManager) {
+        streamManager = jobEventStream.createJobEventStream({
           EventSource: EventSourceRef,
           endpoint: options.endpoint,
           fetchImpl: options.fetchImpl,
@@ -245,9 +247,9 @@
           pageEventTarget: options.pageEventTarget,
           listenPageUnload: options.listenPageUnload,
         });
-        jobEventMultiplexers.set(EventSourceRef, multiplexer);
+        jobEventStreams.set(EventSourceRef, streamManager);
       }
-      return multiplexer.subscribe(chatJobId, onUpdate, options);
+      return streamManager.subscribe(chatJobId, onUpdate, options);
     }
     let abortListener = null;
     let retryTimer = null;
@@ -255,50 +257,44 @@
     const signal = options.signal;
     const pollJob = options.pollJob;
     const isPageUnloading = options.isPageUnloading || (() => false);
+    const setTimeoutRef = options.setTimeout || root.setTimeout || setTimeout;
+    const clearTimeoutRef = options.clearTimeout || root.clearTimeout || clearTimeout;
+    const pollTarget = options.pageEventTarget || root;
+    const pollWakeTypes = ['visibilitychange', 'pageshow', 'focus'];
+    let wakePoll = null;
     return new Promise((resolve, reject) => {
       let source = null;
       let done = false;
       let retries = 0;
       let opened = false;
+      let pollInFlight = false;
       const initialOffsets = options.resumeOffsets || {};
       let aggregateEvent = initialOffsets.baseContent || initialOffsets.baseReasoning ? {
         status: 'running',
         data: { choices: [{ message: { content: String(initialOffsets.baseContent || ''), reasoning_content: String(initialOffsets.baseReasoning || '') } }] },
         metrics: {},
       } : null;
-      const normalizeCompactUpdate = event => {
+        const normalizeCompactUpdate = event => {
         if (!event || typeof event !== 'object') return event;
-        const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || Object.prototype.hasOwnProperty.call(event, 'ft');
+        const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || event.z || Object.prototype.hasOwnProperty.call(event, 'ft');
         if (!isMinimal || event.data) {
           aggregateEvent = event;
           return event;
         }
-        const base = aggregateEvent && typeof aggregateEvent === 'object' ? aggregateEvent : {
-          status: 'running',
-          data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
-          metrics: {},
-        };
-        const message = { ...(base.data?.choices?.[0]?.message || {}) };
-        if (event.d) message.content = String(message.content || '') + String(event.d || '');
-        if (event.r) message.reasoning_content = String(message.reasoning_content || '') + String(event.r || '');
-        aggregateEvent = {
-          ...base,
-          status: event.e ? 'error' : event.done ? 'done' : 'running',
-          data: { choices: [{ message }] },
-          metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}), ...(Number.isFinite(event.rt) ? { durationMs: event.rt } : {}) },
-          error: event.e ? { message: event.e } : base.error || null,
-        };
+        const record = { aggregate: aggregateEvent };
+        const result = jobEventAggregate.applyEvent(record, event);
+        if (result?.valid) aggregateEvent = result.aggregate;
         return aggregateEvent;
       };
       const finish = (handler, value) => {
         if (done) return;
         done = true;
-        clearTimeout(retryTimer);
-        clearTimeout(softTimeoutTimer);
+        clearTimeoutRef(retryTimer);
+        clearTimeoutRef(softTimeoutTimer);
         try { source?.close(); } catch {}
         handler(value);
       };
-      const handleUpdate = rawEvent => {
+    const handleUpdate = rawEvent => {
         const event = normalizeCompactUpdate(rawEvent);
         onUpdate(event);
         if (event.status === 'done') {
@@ -307,16 +303,32 @@
         } else if (event.status === 'error') finish(reject, makeTerminalJobError(event.error?.message));
       };
       const poll = async () => {
-        if (done || !pollJob || isPageUnloading()) return;
-        try { handleUpdate(await pollJob()); } catch {}
-        if (!done) retryTimer = setTimeout(poll, 2500);
+        if (done || !pollJob || pollInFlight) return;
+        pollInFlight = true;
+        try { handleUpdate(await pollJob()); }
+        catch {}
+        finally {
+          pollInFlight = false;
+          if (!done) retryTimer = setTimeoutRef(poll, 2500);
+        }
       };
       abortListener = () => { if (!done) finish(reject, new DOMException('已停止', 'AbortError')); };
       if (signal?.aborted) return abortListener();
       signal?.addEventListener('abort', abortListener, { once: true });
+      wakePoll = () => {
+        if (done || !pollJob || pollInFlight) return;
+        const visibility = (options.document || root.document)?.visibilityState;
+        if (visibility && visibility !== 'visible') return;
+        clearTimeoutRef(retryTimer);
+        retryTimer = null;
+        poll();
+      };
+      if (pollJob && pollTarget?.addEventListener) {
+        for (const type of pollWakeTypes) pollTarget.addEventListener(type, wakePoll);
+      }
       const softTimeoutMs = Math.max(0, Number(options.softTimeoutMs || 0) || 0);
       if (softTimeoutMs > 0) {
-        softTimeoutTimer = setTimeout(() => {
+        softTimeoutTimer = setTimeoutRef(() => {
           const err = new Error(options.softTimeoutMessage || '任务仍在后台处理中，可稍后刷新或切换会话恢复查看');
           err.name = 'JobSoftTimeoutError';
           finish(reject, err);
@@ -327,24 +339,29 @@
         if (done) return;
         source = new EventSourceRef(appendResumeOffsets(url, aggregateEvent, options));
         source.onopen = () => { opened = true; retries = 0; };
-        source.addEventListener('update', event => {
+        const handleSourceEvent = event => {
           opened = true;
-          handleUpdate(JSON.parse(event.data || '{}'));
-        });
+          try { handleUpdate(JSON.parse(event.data || '{}')); } catch {}
+        };
+        source.onmessage = handleSourceEvent;
+        source.addEventListener('update', handleSourceEvent);
         source.onerror = () => {
           source.close();
           if (done || isPageUnloading()) return;
           if (!opened && !pollJob) return finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
           retries += 1;
           if (retries > 60 && !pollJob) return finish(reject, new Error('任务事件连接中断，请刷新页面恢复任务；如果仍失败，请重新发送'));
-          setTimeout(connect, Math.min(1000 + 250 * retries, 5000));
+          setTimeoutRef(connect, Math.min(1000 + 250 * retries, 5000));
         };
       };
       connect();
     }).finally(() => {
-      clearTimeout(retryTimer);
-      clearTimeout(softTimeoutTimer);
+      clearTimeoutRef(retryTimer);
+      clearTimeoutRef(softTimeoutTimer);
       if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+      if (wakePoll && pollJob && pollTarget?.removeEventListener) {
+        for (const type of pollWakeTypes) pollTarget.removeEventListener(type, wakePoll);
+      }
     });
   }
 

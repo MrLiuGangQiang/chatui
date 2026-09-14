@@ -16,7 +16,7 @@ async function testTwoHundredSyntheticChatJobsReachIndependentTerminalStates() {
   const principal = makeTestPrincipal();
   const store = new Map();
   const subscribers = new Map();
-  const { subscribeJobGroup } = createJobEvents({ jobSubscribers: subscribers });
+  const { subscribeJob } = createJobEvents({ jobSubscribers: subscribers });
   const responses = [];
   for (let index = 0; index < 200; index += 1) {
     const id = `chatjob-capacity${String(index).padStart(4, '0')}`;
@@ -24,7 +24,7 @@ async function testTwoHundredSyntheticChatJobsReachIndependentTerminalStates() {
     bindJobOwner(job, principal);
     store.set(id, job);
     const response = fakeResponse();
-    subscribeJobGroup(fakeRequest(`/api/chat-jobs/events?ids=${id}&offset=${id}%3A0%3A0`, principal), response, store);
+    subscribeJob(fakeRequest(`/api/chat-jobs/${id}/events?contentLength=0&reasoningLength=0`, principal), response, store);
     responses.push(response);
   }
   assert.strictEqual(responses.length, 200);

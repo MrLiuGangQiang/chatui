@@ -98,6 +98,25 @@ function testLargeUnclosedStreamingTailUsesBoundedPreview() {
   });
 }
 
+function testLargeLiveStreamMountKeepsCollapsedCodeAtTheLatestLine() {
+  withDom(container => {
+    const previousEnhancer = global.ChatUIMarkdownEnhancer;
+    global.ChatUIMarkdownEnhancer = { enhanceCodeExpansion: require('../../client/app/markdown/enhancer').enhanceCodeExpansion };
+    Object.defineProperty(container.ownerDocument.defaultView.HTMLPreElement.prototype, 'scrollHeight', { configurable: true, get() { return this.isConnected ? 1000 : 0; } });
+    const live = liveStreaming.createMarkdownLiveStream({
+      renderMarkdown: markdownEngine.renderMarkdown,
+      createStreamingRenderer: streaming.createStreamingRenderer,
+    });
+    const code = Array.from({ length: 40 }, (_, index) => 'line ' + index).join('\n');
+    live.append(container, '```js\n' + code, { force: true });
+    const pre = container.querySelector('.code-block pre');
+    assert.ok(container.querySelector('.code-block-collapsed'));
+    assert.strictEqual(pre.scrollTop, 1000,
+      'mounting a large live stream must preserve the collapsed code tail after staging DOM is attached');
+    if (previousEnhancer === undefined) delete global.ChatUIMarkdownEnhancer;
+    else global.ChatUIMarkdownEnhancer = previousEnhancer;
+  });
+}
 function testDocumentSizedLiveStreamUsesAdaptiveRenderBudget() {
   let now = 0;
   let setCount = 0;
@@ -144,5 +163,6 @@ module.exports = [
   testCanonicalFinalAvoidsUnneededDomReplacement,
   testLargeUnclosedStreamingTailUsesBoundedPreview,
   testDocumentSizedLiveStreamUsesAdaptiveRenderBudget,
+  testLargeLiveStreamMountKeepsCollapsedCodeAtTheLatestLine,
   testStreamingFinalFallsBackWhenReplaceChildrenIsUnavailable,
 ];

@@ -179,6 +179,18 @@ function testFileInputContractLoadsBeforeItsBrowserConsumers() {
   assert.ok(!paths.includes('/client/services/attachment-service.js'), 'the removed local extraction service must not be bundled');
 }
 
+function testChatJobEventModulesLoadBeforeJobWorkflow() {
+  const index = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+  const aggregateIndex = index.indexOf('client/core/job-event-aggregate.js');
+  const transportIndex = index.indexOf('client/app/job-event-transport.js');
+  const streamIndex = index.indexOf('client/app/job-event-stream.js');
+  assert.ok(aggregateIndex >= 0, 'job event aggregate module must be in the browser manifest');
+  assert.ok(transportIndex >= 0, 'job event transport module must be in the browser manifest');
+  assert.ok(streamIndex >= 0, 'job event stream module must be in the browser manifest');
+  assert.ok(aggregateIndex < transportIndex && transportIndex < streamIndex,
+    'job event dependencies must load before the session stream facade');
+}
+
 function testIntentContractsAreIncludedInTheManifestDrivenRuntime() {
   const root = path.join(__dirname, '..', '..');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -192,6 +204,7 @@ function testIntentContractsAreIncludedInTheManifestDrivenRuntime() {
 }
 
 module.exports = [
+  testChatJobEventModulesLoadBeforeJobWorkflow,
   testIntentContractsAreIncludedInTheManifestDrivenRuntime,
   testStaticPathUtilitiesPreserveTraversalAndHashingGuards,
   testStaticBundleManifestParsesLocalEntriesOnly,

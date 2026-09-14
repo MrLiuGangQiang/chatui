@@ -4,6 +4,8 @@
 const http = root?.ChatUICoreHttp
   || (typeof require === 'function' ? require('../core/http') : {});
 const retryableHttpStatus = http.retryableHttpStatus;
+const jobEventAggregate = root?.[Symbol.for('chatui.module-registry.v1')]?.get('jobEventAggregate')
+  || (typeof require === 'function' ? require('../core/job-event-aggregate') : {});
 
 function makeClientJobId(prefix) {
   return `${prefix}-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
@@ -174,26 +176,14 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
     let aggregateEvent = null;
     const normalizeCompactUpdate = event => {
       if (!event || typeof event !== 'object') return event;
-      const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || Object.prototype.hasOwnProperty.call(event, 'ft');
+      const isMinimal = Object.prototype.hasOwnProperty.call(event, 'd') || Object.prototype.hasOwnProperty.call(event, 'r') || event.done || event.e || event.z || Object.prototype.hasOwnProperty.call(event, 'ft');
       if (!isMinimal || event.data) {
         aggregateEvent = event;
         return event;
       }
-      const base = aggregateEvent && typeof aggregateEvent === 'object' ? aggregateEvent : {
-        status: 'running',
-        data: { choices: [{ message: { content: '', reasoning_content: '' } }] },
-        metrics: {},
-      };
-      const message = { ...(base.data?.choices?.[0]?.message || {}) };
-      if (event.d) message.content = String(message.content || '') + String(event.d || '');
-      if (event.r) message.reasoning_content = String(message.reasoning_content || '') + String(event.r || '');
-      aggregateEvent = {
-        ...base,
-        status: event.e ? 'error' : event.done ? 'done' : 'running',
-        data: { choices: [{ message }] },
-        metrics: { ...(base.metrics || {}), ...(Number.isFinite(event.ft) ? { firstTokenMs: event.ft } : {}), ...(Number.isFinite(event.rt) ? { durationMs: event.rt } : {}) },
-        error: event.e ? { message: event.e } : base.error || null,
-      };
+      const record = { aggregate: aggregateEvent };
+      const result = jobEventAggregate.applyEvent(record, event);
+      if (result?.valid) aggregateEvent = result.aggregate;
       return aggregateEvent;
     };
     const handleJob = rawEvent => {

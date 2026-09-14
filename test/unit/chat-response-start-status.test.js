@@ -31,7 +31,7 @@ function createTimerHarness() {
   };
 }
 
-function createHarness(firstChunk, { reasoningMode = true } = {}) {
+function createHarness(firstChunk, { reasoningMode = true, assistantConnected = true, resolvedNode = null, extraSessions = [] } = {}) {
   let now = 0;
   const timers = createTimerHarness();
   const streamStarted = deferred();
@@ -39,7 +39,7 @@ function createHarness(firstChunk, { reasoningMode = true } = {}) {
   const releaseStream = deferred();
   const session = { id: 'session-response-start', messages: [], display: [], reasoningMode, reasoningType: reasoningMode ? 'high' : 'none' };
   const state = {
-    sessions: [session],
+    sessions: [session, ...extraSessions],
     activeSessionId: session.id,
     messages: session.messages,
     reasoningMode,
@@ -49,15 +49,23 @@ function createHarness(firstChunk, { reasoningMode = true } = {}) {
   };
   const run = { token: 'run-response-start', stopped: false, abortController: new AbortController() };
   const assistantNode = {
-    isConnected: true,
+    isConnected: assistantConnected,
     dataset: { pendingFeedback: '1' },
     querySelector: () => null,
   };
   const liveItem = { id: 'display-response-start', role: 'assistant', pending: '1', responseIndex: '1' };
+  assistantNode.__displayItem = liveItem;
+  assistantNode.dataset.displayItemId = liveItem.id;
+  if (resolvedNode) {
+    resolvedNode.__displayItem = liveItem;
+    resolvedNode.dataset.displayItemId = liveItem.id;
+  }
   const displayUpdates = [];
   const clearPendingFeedbackCalls = [];
   const dismissIntentTraceCalls = [];
   const reasoningUpdates = [];
+  const contentLightCalls = [];
+  const updateMessageCalls = [];
 
   const workflow = chatWorkflow.createChatWorkflow({
     state,
@@ -90,6 +98,7 @@ function createHarness(firstChunk, { reasoningMode = true } = {}) {
     saveChatJobWithMedia: async (sessionId, job) => ({ ...job }),
     createRealtimeRenderer: callback => ({ set: callback, final: callback }),
     shouldSuppressRunUi: () => false,
+    findMessageNodeByDisplayItem: () => resolvedNode || assistantNode,
     updateLiveDisplay: (sessionId, item, role, content, options = {}) => {
       displayUpdates.push({ content, options: { ...options } });
       if (options.rawText !== undefined) item.rawText = options.rawText;
@@ -122,8 +131,8 @@ function createHarness(firstChunk, { reasoningMode = true } = {}) {
     updateReasoning: (node, content, options = {}) => reasoningUpdates.push({ content, ...options }),
     showReasoningUnavailable: () => {},
     setPendingFeedback: () => {},
-    updateMessageContentLight: () => {},
-    updateMessage: () => {},
+    updateMessageContentLight: (node, content, options = {}) => contentLightCalls.push({ node, content, options }),
+    updateMessage: (node, content, options = {}) => updateMessageCalls.push({ node, content, options }),
     settleActiveOutput: () => {},
     finishReasoning: () => {},
     firstTokenTimeText: () => '',
@@ -147,6 +156,8 @@ function createHarness(firstChunk, { reasoningMode = true } = {}) {
     clearPendingFeedbackCalls,
     dismissIntentTraceCalls,
     reasoningUpdates,
+    contentLightCalls,
+    updateMessageCalls,
     setNow(value) { now = value; },
   };
 }
@@ -180,6 +191,86 @@ async function testFirstReasoningChunkImmediatelyEndsWaitingStatus() {
   await sendPromise;
 }
 
+async function testContentChunkCleansWaitingTraceFromResolvedReplacementNode() {
+  const resolvedNode = { isConnected: true, dataset: {}, querySelector: () => null };
+  const harness = createHarness(
+    { content: 'answer', reasoning: '', firstTokenMs: 1 },
+    { reasoningMode: false, assistantConnected: true, resolvedNode },
+  );
+  const sendPromise = harness.workflow.sendChat('Question', [], null, {
+    sessionId: harness.session.id,
+    requestPurpose: 'final_execution',
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'Question' }),
+    bindingEvidence: [],
+  });
+
+  await harness.streamStarted.promise;
+  await harness.chunkApplied.promise;
+
+  assert.strictEqual(harness.clearPendingFeedbackCalls.at(-1), resolvedNode,
+    'the resolved replacement node must own the waiting-state cleanup');
+  assert.strictEqual(harness.dismissIntentTraceCalls.at(-1), resolvedNode,
+    'the intent trace must be dismissed on the node that is actually rendered');
+  assert.strictEqual(harness.reasoningUpdates.length, 0,
+    'an empty reasoning update must not create a synthetic thinking panel');
+  assert.ok(harness.displayUpdates.every(update => !Object.prototype.hasOwnProperty.call(update.options, 'reasoning')),
+    'empty reasoning must not be forwarded as a live-display reasoning update');
+
+  harness.releaseStream.resolve();
+  await sendPromise;
+}
+
+async function testCompletionFinalizesTheResolvedReplacementNode() {
+  const resolvedNode = { isConnected: true, dataset: {}, querySelector: () => null };
+  const harness = createHarness(
+    { content: 'answer', reasoning: '', firstTokenMs: 1 },
+    { reasoningMode: false, assistantConnected: false, resolvedNode },
+  );
+  const sendPromise = harness.workflow.sendChat('Question', [], null, {
+    sessionId: harness.session.id,
+    replaceAssistantIndex: 1,
+    requestPurpose: 'final_execution',
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'Question' }),
+    bindingEvidence: [],
+  });
+
+  await harness.streamStarted.promise;
+  await harness.chunkApplied.promise;
+  harness.releaseStream.resolve();
+  await sendPromise;
+
+  assert.strictEqual(harness.updateMessageCalls.at(-1)?.node, resolvedNode,
+    'completion must finalize the currently resolved replacement node, not the disconnected startup node');
+}
+
+async function testBackgroundStreamNeverWritesIntoActiveSessionNode() {
+  const activeNode = { isConnected: true, dataset: { responseIndex: '1', sessionId: 'session-response-start' }, querySelector: () => null };
+  const backgroundSession = { id: 'session-background', messages: [], display: [], reasoningMode: false, reasoningType: 'none' };
+  const backgroundItem = { id: 'display-background', role: 'assistant', pending: '1', responseIndex: '1' };
+  const harness = createHarness(
+    { content: 'background output', reasoning: '', firstTokenMs: 1 },
+    { reasoningMode: false, resolvedNode: activeNode, extraSessions: [backgroundSession] },
+  );
+  const sendPromise = harness.workflow.sendChat('Question', [], null, {
+    sessionId: backgroundSession.id,
+    liveItem: backgroundItem,
+    requestPurpose: 'final_execution',
+    dispatchContract: makeDispatchContract({ operation: 'plain_chat', prompt: 'Question' }),
+    bindingEvidence: [],
+  });
+
+  await harness.streamStarted.promise;
+  await harness.chunkApplied.promise;
+
+  assert.strictEqual(harness.contentLightCalls.length, 0,
+    'a background session must never write its stream into an active-session DOM node');
+  assert.strictEqual(backgroundItem.rawText, 'background output',
+    'background output must still update its own display item state');
+
+  harness.releaseStream.resolve();
+  await sendPromise;
+}
+
 async function testReturnedReasoningDisplaysEvenWhenThinkingControlWasOff() {
   const harness = createHarness({ reasoning: 'provider reasoning', content: '', firstTokenMs: 1 }, { reasoningMode: false });
   const sendPromise = harness.workflow.sendChat('Question', [], null, {
@@ -205,5 +296,8 @@ async function testReturnedReasoningDisplaysEvenWhenThinkingControlWasOff() {
 
 module.exports = [
   testFirstReasoningChunkImmediatelyEndsWaitingStatus,
+  testContentChunkCleansWaitingTraceFromResolvedReplacementNode,
+  testCompletionFinalizesTheResolvedReplacementNode,
+  testBackgroundStreamNeverWritesIntoActiveSessionNode,
   testReturnedReasoningDisplaysEvenWhenThinkingControlWasOff,
 ];

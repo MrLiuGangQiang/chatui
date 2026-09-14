@@ -11,6 +11,7 @@
     const bindInlineCopyButtons = options.bindInlineCopyButtons || (() => {});
     const enhanceRenderedMarkdown = options.enhanceRenderedMarkdown || (() => {});
     const getNow = options.now || (() => Date.now());
+    const onLayoutChange = typeof options.onLayoutChange === 'function' ? options.onLayoutChange : null;
     const minIntervalMs = Number.isFinite(options.minIntervalMs) ? options.minIntervalMs : 90;
     // Updating a very large unfinished Markdown tail requires scanning its text
     // to build a readable preview.  Do not repeat that work for every token.
@@ -31,6 +32,7 @@
 
     const makeRenderer = () => createStreamingRenderer?.({
       renderMarkdown,
+      onLayoutChange,
       enhance: (scopeRoot, phase = {}) => {
         if (phase.final || phase.reset) {
           bindInlineCopyButtons(scopeRoot);
@@ -69,8 +71,16 @@
         if (!container || renderer.__chatuiMounted) return callback(container);
         const staging = container.cloneNode?.(false) || container.ownerDocument?.createElement?.('div');
         const result = callback(staging || container);
-        if (staging && staging !== container) container.replaceChildren(...staging.childNodes);
-        renderer.__chatuiMounted = true;
+        if (staging && staging !== container) {
+          container.replaceChildren(...staging.childNodes);
+          renderer.__chatuiMounted = true;
+          // The detached staging tree has no layout metrics. Re-run the
+          // renderer's tail synchronization after mounting so collapsed code
+          // previews and streaming tables anchor against the real container.
+          try { callback(container); } catch {}
+        } else {
+          renderer.__chatuiMounted = true;
+        }
         return result;
       };
       if (!force && !meta.final) {

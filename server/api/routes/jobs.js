@@ -1,7 +1,7 @@
 const { getJobIdFromUrl, isAbortJobUrl, isJobEventsUrl } = require('../../jobs/job-url');
 const { JOB_RESPONSE_HEADERS, sendJobNotFound } = require('../../jobs/http-contract');
 
-function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed, abortJob, disposeJob, publicJob, subscribeJob, subscribeJobGroup, startJob, getJob }) {
+function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed, abortJob, disposeJob, publicJob, subscribeJob, startJob, getJob }) {
   function abortJobByUrl(req, res) {
     const id = getJobIdFromUrl(req);
     const job = abortJob(store, id, req.authPrincipal);
@@ -22,7 +22,7 @@ function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed
     }
     const pathname = String(req.pathname || req.url || '').split('?')[0];
     if (!pathname.startsWith(`${basePath}/`)) return false;
-    if (req.method === 'GET' && pathname === `${basePath}/events` && typeof subscribeJobGroup === 'function') return subscribeJobGroup(req, res, store);
+    if (pathname === `${basePath}/events`) return sendJobNotFound(res);
     if (req.method === 'POST' && isAbortJobUrl(req.url)) return abortJobByUrl(req, res);
     if (req.method === 'DELETE' && !isAbortJobUrl(req.url) && !isJobEventsUrl(req.url)) return disposeJobByUrl(req, res);
     if (req.method !== 'GET') return sendMethodNotAllowed(res);
@@ -31,7 +31,7 @@ function createJobRouteHandler({ basePath, store, sendJson, sendMethodNotAllowed
   };
 }
 
-function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, disposeJob, publicJob, subscribeJob, subscribeChatJobs, startImageJob, getImageJob, startChatJob, getChatJob, imageBatchJobs, startImageBatchJob, getImageBatchJob, publicImageBatchJob, subscribeImageBatchJob, abortImageBatchJob, disposeImageBatchJob }) {
+function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, abortJob, disposeJob, publicJob, subscribeJob, startImageJob, getImageJob, startChatJob, getChatJob, imageBatchJobs, startImageBatchJob, getImageBatchJob, publicImageBatchJob, subscribeImageBatchJob, abortImageBatchJob, disposeImageBatchJob }) {
   const routeChatJobs = createJobRouteHandler({
     basePath: '/api/chat-jobs',
     store: chatJobs,
@@ -41,7 +41,6 @@ function createJobRoutes({ sendJson, sendMethodNotAllowed, imageJobs, chatJobs, 
     disposeJob,
     publicJob,
     subscribeJob,
-    subscribeJobGroup: subscribeChatJobs,
     startJob: startChatJob,
     getJob: getChatJob,
   });

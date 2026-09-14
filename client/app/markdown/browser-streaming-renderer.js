@@ -282,6 +282,7 @@
     setTimer = global.setTimeout?.bind?.(global) || setTimeout,
     clearTimer = global.clearTimeout?.bind?.(global) || clearTimeout,
     highlightIntervalMs = 180,
+    onLayoutChange = null,
   } = {}) {
     let raw = '', consumed = 0, tailText = '', closed = false;
     let scanOffset = 0, scanStable = 0, scanInFence = false, scanFenceChar = '', scanFenceLen = 0, scanInMath = false, scanDetailsDepth = 0, scanDetailsContainerDepth = 0;
@@ -305,9 +306,22 @@
     const prepareCompletedCodeBlocks = root => {
       wrapCompletedStreamingCodeBlocks(root);
       root?.querySelectorAll?.('pre').forEach(pre => {
-        try { global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(pre.closest?.('.code-block'), pre.querySelector('code') || pre); } catch {}
+        try {
+          const wrap = pre.closest?.('.code-block');
+          enhanceCodeExpansion(wrap, pre.querySelector('code') || pre);
+        } catch {}
       });
       return root;
+    };
+    const notifyLayoutChange = change => {
+      try { onLayoutChange?.(change || {}); } catch {}
+    };
+    const enhanceCodeExpansion = (wrap, code) => {
+      try {
+        global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(wrap, code, {
+          onLayoutChange: change => notifyLayoutChange(change),
+        });
+      } catch {}
     };
     const removeTailNode = () => {
       try { tailNode?.remove?.(); } catch {}
@@ -436,7 +450,15 @@
       code.classList.add('hljs');
       code.dataset.streamingHighlighted = '1';
       streamingCodeAppendTextNode = null;
-      if (pre) { pre.scrollTop = scrollTop; pre.scrollLeft = scrollLeft; }
+      if (pre) {
+        const collapsed = code.closest?.('.code-block')?.classList.contains('code-block-collapsed');
+        // A collapsed live preview is a tail window: async highlighting must
+        // keep its newest line visible even if the browser briefly reports an
+        // outdated scrollHeight while replacing the highlighted fragment.
+        pre.scrollTop = collapsed ? pre.scrollHeight : scrollTop;
+        pre.scrollLeft = scrollLeft;
+      }
+      notifyLayoutChange({ reason: 'code-highlight' });
       return true;
     };
     const scheduleStreamingCodeHighlight = () => {
@@ -469,10 +491,8 @@
         streamingCodeRaw = next;
         scheduleStreamingCodeHighlight();
       }
-      try { global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(node, code); } catch {}
-      const pre = code.parentElement;
-      if (node.classList.contains('code-block-collapsed') && pre) pre.scrollTop = pre.scrollHeight;
       if (node.parentNode === container && node !== container.lastChild) container.appendChild(node);
+      enhanceCodeExpansion(node, code);
     };
     const patchTableRow = (row, values, cellName, alignments = []) => {
       const doc = row.ownerDocument || document;
@@ -622,6 +642,7 @@
       streamingTableSource = source;
       if (streamingTableNode !== container.lastChild) container.appendChild(streamingTableNode);
       streamingTableLastRenderAt = Date.now();
+      notifyLayoutChange({ reason: 'streaming-table' });
     };
     const queueStreamingTableRender = (immediate = false) => {
       if (immediate) {

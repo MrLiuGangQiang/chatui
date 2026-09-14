@@ -658,11 +658,19 @@
       if (!sessionId || sessionId !== deps.state.activeSessionId) return false;
       if (node.dataset?.streaming !== '1') return false;
       const tailLock = streamTailLockFor(node, options);
-      setActiveOutputForSession(sessionId, node);
+      if (options.requireActive === true && deps.state.activeOutputNode !== node) {
+        updateResumeStreamButton();
+        return false;
+      }
+      if (options.requireFollow === true && !shouldFollowScroll()) {
+        updateResumeStreamButton();
+        return false;
+      }
       if (deps.state.userScrollLocked && options.force !== true) {
         updateResumeStreamButton();
         return false;
       }
+      setActiveOutputForSession(sessionId, node);
       // Keep the anchor state alive across every local streaming render. In
       // particular, a resume-button click must not only move once; the next
       // chunk must continue from the same output-end anchor.

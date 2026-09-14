@@ -53,7 +53,7 @@ function testWaitingStatusBridgesTheGapBeforeThinkingOrAnswerOutput() {
 function testReasoningFinishesWhenAnswerStarts() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/chat-workflow.js'), 'utf8');
   assert.ok(source.includes('let responseStarted=!1,answerStarted=!1,reasoningCompleted=!1,streamRequestAccepted=!1'), 'the stream should track upstream response start, reasoning completion, and answer completion separately');
-  assert.ok(source.includes('if(!reasoningCompleted){reasoningCompleted=!0;if(reasoningText&&g?.isConnected)updateReasoning(g,reasoningText,{done:!0'), 'the reasoning panel must switch to completed as soon as answer output starts regardless of the request-time thinking toggle');
+  assert.ok(source.includes('if(!reasoningCompleted){reasoningCompleted=!0;if(reasoningText&&outputNode?.isConnected)updateReasoning(outputNode,reasoningText,{done:!0'), 'the reasoning panel must switch to completed as soon as answer output starts regardless of the request-time thinking toggle');
 }
 
 module.exports = [

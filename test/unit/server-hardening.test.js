@@ -67,14 +67,14 @@ function testJobEventsPreserveCompactPublicContract() {
     createdAt: 1,
     updatedAt: 2,
     compactStream: true,
-    streamDelta: { content: '增量', reasoning: '推理' },
+    data: { choices: [{ message: { content: '增量', reasoning_content: '推理' } }] },
     firstTokenMs: 12,
     durationMs: 34,
   };
-  assert.deepStrictEqual(jobEvents.publicJob(job, { live: true }), { d: '增量', r: '推理', ft: 12, rt: 34, status: 'running' });
+  assert.deepStrictEqual(jobEvents.publicJob(job, { live: true }), { d: '增量', r: '推理', ft: 12 });
   job.status = 'done';
   job.data = { choices: [{ message: { content: 'abcdef', reasoning_content: 'uvwxyz' } }] };
-  assert.deepStrictEqual(jobEvents.publicJob(job, { resumeUrl: '/api/chat-jobs/chatjob-abc12345/events?contentLength=2&reasoningLength=3' }), { d: 'cdef', r: 'xyz', rt: 34, done: 1, status: 'done' });
+  assert.deepStrictEqual(jobEvents.publicJob(job, { resumeUrl: '/api/chat-jobs/chatjob-abc12345/events?contentLength=2&reasoningLength=3' }), { d: 'cdef', r: 'xyz', done: 1, rt: 34 });
 }
 
 function testJobEventsSubscribeAndAbortContracts() {
@@ -89,7 +89,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   assert.strictEqual(missingRes.headers['Content-Type'], 'text/event-stream; charset=utf-8');
   assert.strictEqual(missingRes.headers['Access-Control-Allow-Origin'], '*');
   assert.strictEqual(missingRes.ended, true);
-  assert.deepStrictEqual(parseSseJson(missingRes.body), { status: 'error', error: { message: '任务不存在或服务已重启' } });
+  assert.deepStrictEqual(parseSseJson(missingRes.body), { e: '任务不存在或服务已重启' });
 
   const doneJob = {
     id: 'chatjob-done12345',
@@ -106,7 +106,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   subscribeJob(doneReq, doneRes, doneStore);
   assert.strictEqual(doneRes.status, 200);
   assert.strictEqual(doneRes.ended, true);
-  assert.deepStrictEqual(parseSseJson(doneRes.body), { d: 'world', r: 'hink', done: 1, status: 'done' });
+  assert.deepStrictEqual(parseSseJson(doneRes.body), { d: 'world', r: 'hink', done: 1 });
   assert.strictEqual(subscribers.has('chatjob-done12345'), false);
 
   let aborted = false;
@@ -128,7 +128,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   assert.strictEqual(aborted, true);
   assert.strictEqual(abortedJob.status, 'error');
   assert.strictEqual(runningRes.ended, true);
-  assert.deepStrictEqual(parseLastSseJson(runningRes.body), { e: '任务已停止', error: { message: '任务已停止' }, status: 'error' });
+  assert.deepStrictEqual(parseLastSseJson(runningRes.body), { e: '任务已停止' });
   assert.strictEqual(subscribers.has('chatjob-run12345'), false);
 
   const firstTokenJob = { id: 'chatjob-ft12345', status: 'running', compactStream: true, firstTokenMs: 0, streamDelta: { content: 'a' } };
@@ -138,7 +138,7 @@ function testJobEventsSubscribeAndAbortContracts() {
   notifyJob(firstTokenJob);
   assert.strictEqual(firstTokenJob.firstTokenNotified, true);
   assert.strictEqual(firstTokenJob.streamDelta, undefined);
-  assert.deepStrictEqual(parseSseJson(ftRes.body), { d: 'a', ft: 0, status: 'running' });
+  assert.deepStrictEqual(parseSseJson(ftRes.body), { d: 'a', ft: 0 });
 }
 
 async function testServerHardeningHelpers() {

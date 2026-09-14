@@ -5,7 +5,8 @@ const { safeJoin, sha1 } = require('../http/static-path-utils');
 const ASSET_MANIFEST_ID = 'chatuiAssetManifest';
 // Kept as a bundle namespace for compatibility metadata. Browser URLs use the
 // content-addressed revision from bundleMetadata(), so source changes never
-// depend on manually bumping this value.
+// depend on manually bumping this value. The manifest remains the browser
+// load-order contract for split application modules.
 const BUNDLE_VERSION = '1.3.160-code-action-motion';
 const BUNDLE_PATHS = Object.freeze({
   '/assets/chatui.bundle.css': 'css',

@@ -29,9 +29,20 @@
         : (value => window.ChatUIApp?.markdown?.renderMarkdown?.(value) || '');
       const createRenderer = window.ChatUIApp?.markdown?.createStreamingRenderer;
       const bindCopy = typeof deps.bindInlineCopyButtons === 'function' ? deps.bindInlineCopyButtons : () => {};
+      const onLayoutChange = () => {
+        const messageNode = o.closest?.('.message') || o;
+        const sessionId = messageNode?.dataset?.sessionId || deps.state.activeSessionId;
+        deps.commitStreamingOutput?.(messageNode, {
+          margin: 72,
+          sessionId,
+          requireActive: true,
+          requireFollow: true,
+        });
+      };
       if (typeof createRenderer === 'function') {
         renderer = createRenderer({
           renderMarkdown: renderMarkdownFn,
+          onLayoutChange,
           enhance(scopeRoot, phase = {}) {
             try { bindCopy(scopeRoot); } catch (e) {}
             try {
@@ -72,7 +83,10 @@
         const content=e.querySelector(".content");
         const panelHost=e.querySelector(".bubble")||content;
         content?.querySelector?.(".pending-feedback")?.remove();
-        if(!n&&!s.keepEmpty){
+        if(!n){
+          // Empty reasoning is not a display phase. Remove both a synthetic
+          // panel and any previously rendered panel instead of leaving an
+          // empty “正在思考” surface behind.
           forceRemoveReasoning(e);
           return;
         }
@@ -112,7 +126,7 @@
         }
         const ownsLiveOutput = e?.dataset?.streaming === "1" && (deps.state.activeOutputNode === e || s.followActive === !0);
         if (ownsLiveOutput) {
-          (deps.commitStreamingOutput || deps.scrollToActiveOutput)(e,{force:!0,active:!0,margin:72,tailLock:s.tailLock===!0,sessionId:e.dataset.sessionId||deps.state.activeSessionId});
+          (deps.commitStreamingOutput || deps.scrollToActiveOutput)(e,{force:s.followActive===!0,active:!0,margin:72,tailLock:s.tailLock===!0,sessionId:e.dataset.sessionId||deps.state.activeSessionId});
         } else deps.scrollToActiveOutput(e,{force:s.forceScroll??!1,active:!0===s.followActive});
        }
     }

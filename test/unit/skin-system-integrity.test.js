@@ -364,6 +364,52 @@ function testSnowSkinShipsItsAlpineBackground() {
   assert.ok(bundle.includes('url("/styles/skins/snow/scenery.jpg?v=1")'), 'bundle must rewrite the snow background to its public path');
 }
 
+function testSnowSkinKeepsAnnouncementFeedbackAndStatsOnTheGlacierPalette() {
+  // Regression: the announcement, feedback and usage-stats features ship their
+  // own default palettes (indigo hero chips, saturated-blue tiles and buttons).
+  // Every interior surface must stay on the snow glacier frosted-glass contract,
+  // so the default feature colors must never leak into the snow skin.
+  const snow = read('styles/skins/snow/skin.css');
+  for (const selector of [
+    'html[data-skin="snow"] .announcement-backdrop {',
+    'html[data-skin="snow"] .announcement-surface {',
+    'html[data-skin="snow"] .announcement-hero {',
+    'html[data-skin="snow"] .announcement-brand-mark,',
+    'html[data-skin="snow"] .announcement-body blockquote,',
+    'html[data-skin="snow"] .announcement-acknowledge-btn {',
+    'html[data-skin="snow"] .announcement-history-panel {',
+    'html[data-skin="snow"] .usage-stats-panel {',
+    'html[data-skin="snow"] .usage-feedback-panel {',
+    'html[data-skin="snow"] .usage-feedback-head {',
+    'html[data-skin="snow"] .usage-feedback-foot #usageFeedbackSubmit {',
+    'html[data-skin="snow"] .usage-tabs button.active::before {',
+    'html[data-skin="snow"] .usage-ranking {',
+    'html[data-skin="snow"] .usage-personal-total {',
+    'html[data-skin="snow"] .usage-personal-metric-1,',
+    'html[data-skin="snow"] .usage-token-badge-2 {',
+    'html[data-skin="snow"] .usage-token-badge-4 {',
+    'html[data-skin="snow"] .usage-empty {',
+  ]) {
+    assert.ok(snow.includes(selector), `snow skin must cover ${selector}`);
+  }
+  for (const staleColor of [
+    '#4f46e5', '#4338ca', '#6366f1', '#eef2ff', '#e0e7ff', '#f5f3ff', '#5b21b6',
+    '#2563eb', '#1d4ed8', '#eff6ff', '#bfdbfe', '#93c5fd',
+    '#7e22ce', '#e9d5ff', '#faf5ff',
+  ]) {
+    assert.ok(!snow.includes(staleColor), `snow skin must not reuse the default feature color ${staleColor}`);
+  }
+  // Cascade order guard: the generic frosted badge base must precede the tint
+  // ramp group, otherwise .usage-token-badge (equal specificity, later rule)
+  // would erase every per-index glacier tint.
+  const genericBadge = snow.indexOf('html[data-skin=\"snow\"] .usage-token-badge {');
+  const rampBadge = snow.indexOf('html[data-skin=\"snow\"] .usage-token-badge-0 {');
+  assert.ok(genericBadge >= 0 && rampBadge > genericBadge,
+    'the generic usage-token-badge base rule must come before the per-index tint ramp');
+  const accents = (snow.match(/var\(--skin-accent[a-z-]*\)/g) || []).length;
+  assert.ok(accents >= 25, `the feature pass must drive accents from skin tokens, found ${accents} var usages`);
+}
+
 function testSkinSwitcherTriggerUsesAColourfulPaletteIcon() {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://chatui.local/' });
   const document = dom.window.document;
@@ -432,6 +478,7 @@ module.exports = [
   testDefaultSidebarStaysTranslucent,
   testDefaultActiveSessionUsesProminentAccentSelection,
   testSnowSkinShipsItsAlpineBackground,
+  testSnowSkinKeepsAnnouncementFeedbackAndStatsOnTheGlacierPalette,
   testSkinSwitcherTriggerUsesAColourfulPaletteIcon,
   testSkinSwitcherAppliesPersistsAndShowsActiveOption,
 ];

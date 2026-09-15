@@ -259,3 +259,546 @@ html[data-skin="snow"] .session-rail {
   backdrop-filter: blur(12px) saturate(1.05) !important;
   -webkit-backdrop-filter: blur(12px) saturate(1.05) !important;
 }
+
+/* Feature surfaces: announcement centre, feedback dialog and usage stats.
+   These features ship their own default palettes (indigo announcements,
+   saturated-blue stats with purple/amber/rose tiles). On the snow canvas they
+   must read as one glacier frosted-glass family: token-driven accents, frosted
+   paper surfaces, hairline borders and a single calm tint ramp. */
+
+html[data-skin="snow"] .announcement-backdrop {
+  background-color: rgba(240, 247, 253, .82) !important;
+}
+
+html[data-skin="snow"] .announcement-surface {
+  background-color: rgba(255, 255, 255, .94) !important;
+  background-image: var(--snow-frost) !important;
+}
+
+html[data-skin="snow"] .announcement-hero {
+  background-color: rgba(255, 255, 255, .55) !important;
+  background-image: var(--snow-chrome) !important;
+  border-right-color: var(--snow-hairline) !important;
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .announcement-hero h2,
+html[data-skin="snow"] .announcement-title,
+html[data-skin="snow"] .announcement-status strong,
+html[data-skin="snow"] .announcement-history-heading h4,
+html[data-skin="snow"] .announcement-body h2,
+html[data-skin="snow"] .announcement-history-body h2,
+html[data-skin="snow"] .announcement-hero-tips h3 {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .announcement-hero-copy p,
+html[data-skin="snow"] .announcement-hero-note,
+html[data-skin="snow"] .announcement-summary,
+html[data-skin="snow"] .announcement-history-body h3,
+html[data-skin="snow"] .announcement-body h3,
+html[data-skin="snow"] .announcement-status,
+html[data-skin="snow"] .announcement-history-chevron {
+  color: var(--skin-muted) !important;
+}
+
+/* Indigo identity marks, chips and hints become glacier blue. */
+html[data-skin="snow"] .announcement-brand,
+html[data-skin="snow"] .announcement-hero-kicker,
+html[data-skin="snow"] .announcement-hero-explain-label,
+html[data-skin="snow"] .announcement-hero-explain strong,
+html[data-skin="snow"] .announcement-history-copy strong,
+html[data-skin="snow"] .announcement-tip-note strong,
+html[data-skin="snow"] .announcement-retry-btn {
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .announcement-brand-mark,
+html[data-skin="snow"] .announcement-hero-kicker,
+html[data-skin="snow"] .announcement-badge,
+html[data-skin="snow"] .announcement-retry-btn {
+  background-color: var(--skin-accent-soft) !important;
+  background-image: none !important;
+  border-color: var(--skin-accent-border) !important;
+}
+
+html[data-skin="snow"] .announcement-hero-kicker::before {
+  background-color: var(--skin-accent) !important;
+}
+
+html[data-skin="snow"] .announcement-tips-icon {
+  stroke: var(--skin-accent) !important;
+}
+
+html[data-skin="snow"] .announcement-hero-tips,
+html[data-skin="snow"] .announcement-latest,
+html[data-skin="snow"] .announcement-history-entry,
+html[data-skin="snow"] .announcement-table-wrap {
+  background-color: rgba(255, 255, 255, .95) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .announcement-tip-role,
+html[data-skin="snow"] .announcement-tip-note,
+html[data-skin="snow"] .announcement-history-summary time,
+html[data-skin="snow"] .announcement-history-heading span,
+html[data-skin="snow"] .announcement-published-at,
+html[data-skin="snow"] .announcement-version {
+  color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .announcement-published-at,
+html[data-skin="snow"] .announcement-version {
+  background-color: var(--skin-surface-subtle) !important;
+}
+
+html[data-skin="snow"] .announcement-tip-value,
+html[data-skin="snow"] .announcement-history-copy span {
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .announcement-tip-note {
+  border-top-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .announcement-tip-note .announcement-highlight {
+  color: var(--skin-danger) !important;
+}
+
+html[data-skin="snow"] .announcement-hero-explain {
+  background-color: rgba(246, 250, 253, .95) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .announcement-body,
+html[data-skin="snow"] .announcement-history-body {
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .announcement-body li::marker,
+html[data-skin="snow"] .announcement-history-body li::marker {
+  color: var(--skin-accent) !important;
+}
+
+html[data-skin="snow"] .announcement-body blockquote,
+html[data-skin="snow"] .announcement-history-body blockquote {
+  border-left-color: var(--skin-accent) !important;
+  background-color: var(--skin-accent-soft) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .announcement-table-wrap td,
+html[data-skin="snow"] .announcement-table-wrap th {
+  border-right-color: var(--snow-hairline) !important;
+  border-bottom-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .announcement-table-wrap th {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .announcement-history-panel {
+  background-color: rgba(246, 250, 253, .95) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .announcement-footer {
+  border-top-color: var(--snow-hairline) !important;
+  background-color: rgba(255, 255, 255, .94) !important;
+  background-image: none !important;
+}
+
+html[data-skin="snow"] .announcement-overlay-close {
+  background-color: rgba(255, 255, 255, .92) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+  box-shadow: var(--snow-shadow) !important;
+}
+
+html[data-skin="snow"] .announcement-overlay-close:hover,
+html[data-skin="snow"] .announcement-overlay-close:focus-visible {
+  border-color: var(--skin-accent-border) !important;
+  background-color: #ffffff !important;
+  color: var(--skin-accent-hover) !important;
+  box-shadow: var(--snow-shadow-raised) !important;
+}
+
+html[data-skin="snow"] .announcement-history-btn {
+  background-color: rgba(255, 255, 255, .95) !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .announcement-history-btn:hover,
+html[data-skin="snow"] .announcement-history-btn:focus-visible {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .announcement-acknowledge-btn {
+  background-color: var(--skin-accent) !important;
+  background-image: none !important;
+  color: var(--skin-accent-contrast) !important;
+  box-shadow: 0 8px 18px rgba(47, 127, 196, .22) !important;
+}
+
+html[data-skin="snow"] .announcement-acknowledge-btn:hover:not(:disabled),
+html[data-skin="snow"] .announcement-acknowledge-btn:focus-visible {
+  background-color: var(--skin-accent-hover) !important;
+  box-shadow: 0 10px 22px rgba(47, 127, 196, .26) !important;
+}
+
+html[data-skin="snow"] .announcement-loading-mark {
+  border-color: var(--skin-accent-soft) !important;
+  border-top-color: var(--skin-accent) !important;
+}
+
+html[data-skin="snow"] .usage-stats-panel {
+  background-color: rgba(31, 63, 96, .28) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-panel {
+  background-color: rgba(31, 63, 96, .34) !important;
+}
+
+html[data-skin="snow"] .usage-stats-head,
+html[data-skin="snow"] .usage-feedback-head,
+html[data-skin="snow"] .usage-feedback-foot {
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .usage-stats-head strong {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-stats-head > div:first-child > span,
+html[data-skin="snow"] .usage-feedback-heading > span,
+html[data-skin="snow"] .usage-feedback-intro {
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-head {
+  background-color: rgba(246, 250, 253, .95) !important;
+  background-image: none !important;
+}
+
+html[data-skin="snow"] .usage-feedback-head button {
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-head button:hover {
+  background-color: var(--skin-surface-hover) !important;
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-stats-status.is-warning {
+  border-color: rgba(189, 135, 60, .45) !important;
+  background-color: #f7efe0 !important;
+  color: #8a6128 !important;
+}
+
+html[data-skin="snow"] .usage-stats-actions button {
+  background-color: rgba(255, 255, 255, .92) !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .usage-stats-actions button:hover {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-tabs {
+  background-color: rgba(246, 250, 253, .95) !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .usage-tabs button {
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-tabs button:hover {
+  color: var(--skin-accent-hover) !important;
+  background-color: var(--skin-accent-soft) !important;
+}
+
+html[data-skin="snow"] .usage-tabs button.active {
+  color: var(--skin-text) !important;
+  background-color: rgba(255, 255, 255, .98) !important;
+  border-color: var(--skin-border) !important;
+}
+
+html[data-skin="snow"] .usage-tabs button.active::before {
+  background-color: var(--skin-accent) !important;
+}
+
+html[data-skin="snow"] .usage-metrics div {
+  background-color: rgba(255, 255, 255, .92) !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .usage-metrics span,
+html[data-skin="snow"] .usage-token-badge em {
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-metrics strong,
+html[data-skin="snow"] .usage-token-badge strong {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-personal-total {
+  background-color: var(--skin-accent) !important;
+  background-image: linear-gradient(135deg, #3f93d7 0%, var(--skin-accent) 55%, var(--skin-accent-hover) 100%) !important;
+}
+
+html[data-skin="snow"] .usage-token-badge {
+  background-color: rgba(255, 255, 255, .92) !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+/* One calm glacier tint ramp replaces the indigo/saturated-blue tiles. */
+html[data-skin="snow"] .usage-personal-metric-0 {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-0 span,
+html[data-skin="snow"] .usage-personal-metric-0 strong {
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-1,
+html[data-skin="snow"] .usage-token-badge-2 {
+  background-color: #edf1f7 !important;
+  border-color: #d6e0ec !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-1 span,
+html[data-skin="snow"] .usage-personal-metric-1 strong,
+html[data-skin="snow"] .usage-token-badge-2 em,
+html[data-skin="snow"] .usage-token-badge-2 strong {
+  color: #5d7186 !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-2,
+html[data-skin="snow"] .usage-token-badge-3 {
+  background-color: #f7efe0 !important;
+  border-color: #e8d6b4 !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-2 span,
+html[data-skin="snow"] .usage-personal-metric-2 strong,
+html[data-skin="snow"] .usage-token-badge-3 em,
+html[data-skin="snow"] .usage-token-badge-3 strong {
+  color: #8a6128 !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-3,
+html[data-skin="snow"] .usage-token-badge-4 {
+  background-color: var(--skin-danger-soft) !important;
+  border-color: #eacfc9 !important;
+}
+
+html[data-skin="snow"] .usage-personal-metric-3 span,
+html[data-skin="snow"] .usage-personal-metric-3 strong,
+html[data-skin="snow"] .usage-token-badge-4 em,
+html[data-skin="snow"] .usage-token-badge-4 strong {
+  color: #a1403b !important;
+}
+
+html[data-skin="snow"] .usage-token-badge-0 {
+  background-color: #e9f4f0 !important;
+  border-color: #cfe5db !important;
+}
+
+html[data-skin="snow"] .usage-token-badge-0 em,
+html[data-skin="snow"] .usage-token-badge-0 strong {
+  color: #2f6f57 !important;
+}
+
+html[data-skin="snow"] .usage-token-badge-1 {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+}
+
+html[data-skin="snow"] .usage-token-badge-1 em,
+html[data-skin="snow"] .usage-token-badge-1 strong {
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-personal-ranges button {
+  background-color: rgba(255, 255, 255, .92) !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-personal-ranges button:hover {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-personal-ranges button.active {
+  background-color: var(--skin-accent) !important;
+  border-color: var(--skin-accent) !important;
+  color: var(--skin-accent-contrast) !important;
+}
+
+html[data-skin="snow"] .usage-ranking {
+  background-color: rgba(255, 255, 255, .92) !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .usage-ranking-title {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-ranking-title::before {
+  background-color: var(--skin-accent-soft) !important;
+}
+
+html[data-skin="snow"] .usage-ranking-row,
+html[data-skin="snow"] .usage-department-row {
+  background-color: rgba(255, 255, 255, .90) !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+html[data-skin="snow"] .usage-ranking-row:hover,
+html[data-skin="snow"] .usage-department-row:focus {
+  border-color: var(--skin-accent-border) !important;
+  background-color: rgba(232, 242, 251, .85) !important;
+}
+
+html[data-skin="snow"] .usage-department-row:focus {
+  outline-color: rgba(47, 127, 196, .45) !important;
+}
+
+html[data-skin="snow"] .usage-ranking-user {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-rank-index {
+  background-color: var(--skin-accent-soft) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+/* Medals keep their ranking meaning, muted to the alpine light. */
+html[data-skin="snow"] .usage-rank-medal-1 { background-color: #c9a154 !important; }
+html[data-skin="snow"] .usage-rank-medal-2 { background-color: #9aa9b8 !important; }
+html[data-skin="snow"] .usage-rank-medal-3 { background-color: #b08040 !important; }
+
+html[data-skin="snow"] .usage-drill-title button {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-empty {
+  border-color: var(--skin-border-strong) !important;
+  background-color: rgba(246, 250, 253, .85) !important;
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-body textarea,
+html[data-skin="snow"] .usage-feedback-field textarea {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-body textarea::placeholder {
+  color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-field:focus-within {
+  border-color: var(--skin-accent-border) !important;
+  background-color: rgba(252, 253, 255, .97) !important;
+  box-shadow: 0 0 0 3px rgba(47, 127, 196, .13) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-step {
+  background-color: var(--skin-accent-soft) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-field em {
+  color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-field textarea.is-invalid {
+  box-shadow: inset 0 -2px var(--skin-danger) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-models-title {
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-models-title span {
+  background-color: var(--skin-surface-subtle) !important;
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-model-values span {
+  color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-model-values code {
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-notice {
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-notice > #usageFeedbackCount {
+  color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-status {
+  color: var(--skin-success) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-status.is-error {
+  color: var(--skin-danger) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-foot {
+  background-color: rgba(246, 250, 253, .95) !important;
+  background-image: none !important;
+}
+
+html[data-skin="snow"] .usage-feedback-foot button {
+  background-color: rgba(255, 255, 255, .95) !important;
+  border-color: var(--skin-border-strong) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-foot button:hover {
+  background-color: var(--skin-surface-hover) !important;
+  border-color: var(--skin-faint) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-foot #usageFeedbackSubmit {
+  background-color: var(--skin-accent) !important;
+  border-color: var(--skin-accent) !important;
+  color: var(--skin-accent-contrast) !important;
+  box-shadow: 0 1px 2px rgba(47, 127, 196, .22) !important;
+}
+
+html[data-skin="snow"] .usage-feedback-foot #usageFeedbackSubmit:hover {
+  background-color: var(--skin-accent-hover) !important;
+  border-color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="snow"] .usage-stats-button:hover,
+html[data-skin="snow"] .announcement-toolbar-button:hover {
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}

@@ -317,6 +317,8 @@
           dispatchContract: route.dispatchContract,
           originalPrompt: prompt,
           routePrompt: prompt,
+          resolvedGoal: route.resolvedImageGoal || prompt,
+          taskState: route.imageTaskState || null,
           userAlreadyAdded: true,
           submissionId,
           clientJobId: editJobId,

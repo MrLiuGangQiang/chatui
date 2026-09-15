@@ -1,0 +1,169 @@
+/* Skin switcher chrome. Layout and generic colors only; each skin can
+ * restyle these surfaces by overriding the same `--skin-*` tokens or the
+ * scoped cyber selectors below. Keep this file free of page layout rules. */
+
+.skin-switcher {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.skin-switcher-trigger,
+.skin-switcher-menu {
+  pointer-events: auto;
+}
+
+.skin-switcher-trigger {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--chatui-border-strong, #d9dee8);
+  border-radius: 14px;
+  padding: 0;
+  background: var(--chatui-surface, #ffffff);
+  color: var(--chatui-muted-strong, #68717f);
+  box-shadow: 0 8px 22px rgba(31, 35, 41, .14), inset 0 1px 0 rgba(255, 255, 255, .72);
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+.skin-switcher-trigger:hover,
+.skin-switcher-trigger:focus-visible,
+.skin-switcher-trigger[aria-expanded="true"] {
+  border-color: var(--chatui-accent-border, #d9dffe);
+  color: var(--chatui-accent, #4d6bfe);
+  background: var(--chatui-accent-soft, #edf1ff);
+  box-shadow: 0 10px 24px rgba(77, 107, 254, .16), inset 0 1px 0 rgba(255, 255, 255, .7);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+/* The palette icon carries its own paint colours; never recolour it with
+ * currentColor or the palette flattens back into a single-colour glyph. */
+.skin-switcher-trigger svg {
+  width: 21px;
+  height: 21px;
+  display: block;
+}
+
+.skin-switcher-menu {
+  width: min(232px, calc(100vw - 28px));
+  padding: 8px;
+  border: 1px solid var(--chatui-border, #e6e9ef);
+  border-radius: 16px;
+  background: var(--chatui-surface, #ffffff);
+  box-shadow: var(--chatui-shadow-lg, 0 18px 50px rgba(31, 35, 41, .12));
+  overflow: hidden;
+}
+
+.skin-switcher-menu[hidden] {
+  display: none;
+}
+
+.skin-switcher-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--chatui-text, #202329);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease, color .14s ease;
+}
+
+.skin-switcher-option + .skin-switcher-option {
+  margin-top: 4px;
+}
+
+.skin-switcher-option:hover,
+.skin-switcher-option:focus-visible {
+  border-color: var(--chatui-accent-border, #d9dffe);
+  background: var(--chatui-accent-soft, #edf1ff);
+  color: var(--chatui-accent, #4d6bfe);
+  outline: none;
+}
+
+.skin-switcher-option.is-active {
+  border-color: var(--chatui-accent-border, #d9dffe);
+  background: var(--chatui-accent-soft, #edf1ff);
+  color: var(--chatui-accent, #4d6bfe);
+}
+
+.skin-swatch {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 1px solid var(--chatui-border, #e6e9ef);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .34);
+}
+
+.skin-swatch-default {
+  background: linear-gradient(135deg, #f7f8fb 50%, #4d6bfe 50%);
+}
+
+.skin-swatch-ink {
+  background:
+    radial-gradient(circle at 68% 30%, rgba(166, 63, 42, .92), transparent 38%),
+    linear-gradient(135deg, #f6f1e6 52%, #a63f2a 52%);
+}
+
+.skin-swatch-snow {
+  background:
+    radial-gradient(circle at 70% 26%, rgba(255, 255, 255, .96), transparent 42%),
+    linear-gradient(135deg, #eaf2f9 52%, #2f7fc4 52%);
+}
+
+.skin-option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skin-option-copy strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skin-option-copy small {
+  overflow: hidden;
+  color: var(--chatui-muted, #7b8190);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 840px) {
+  .skin-switcher {
+    right: 12px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 132px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skin-switcher-trigger,
+  .skin-switcher-option {
+    transition: none !important;
+  }
+}

@@ -13,6 +13,8 @@
   const SEGMENT_KINDS = new Set(['base', 'amendment']);
   const TASK_CONTINUITY_MAX_SEGMENTS = 16;
   const TASK_CONTINUITY_MAX_RENDERED_LENGTH = 16000;
+  const TASK_CONTINUITY_BASE_LABEL = '任务基础要求：';
+  const TASK_CONTINUITY_AMENDMENT_LABEL = '修订要求（按顺序应用，后者优先）：';
   const IMAGE_TASK_LINEAGE_VERSION = 'image_task_lineage.v1';
   const IMAGE_TASK_LINEAGE_MAX_ENTRIES = 50;
   const STATE_FIELDS = Object.freeze(['schema_version', 'goal_mode', 'segments']);
@@ -47,8 +49,8 @@
     const [base, ...amendments] = state.segments;
     if (!amendments.length) return base.text;
     return [
-      `任务基础要求：\n${base.text}`,
-      `修订要求（按顺序应用，后者优先）：\n${amendments.map((segment, index) => `${index + 1}. ${segment.text}`).join('\n')}`,
+      `${TASK_CONTINUITY_BASE_LABEL}\n${base.text}`,
+      `${TASK_CONTINUITY_AMENDMENT_LABEL}\n${amendments.map((segment, index) => `${index + 1}. ${segment.text}`).join('\n')}`,
     ].join('\n\n');
   }
 
@@ -63,10 +65,86 @@
     const rendered = state.segments.length === 1
       ? stringValue(state.segments[0].text)
       : [
-          `任务基础要求：\n${stringValue(state.segments[0].text)}`,
-          `修订要求（按顺序应用，后者优先）：\n${state.segments.slice(1).map((segment, index) => `${index + 1}. ${stringValue(segment.text)}`).join('\n')}`,
+          `${TASK_CONTINUITY_BASE_LABEL}\n${stringValue(state.segments[0].text)}`,
+          `${TASK_CONTINUITY_AMENDMENT_LABEL}\n${state.segments.slice(1).map((segment, index) => `${index + 1}. ${stringValue(segment.text)}`).join('\n')}`,
         ].join('\n\n');
     return rendered.length <= TASK_CONTINUITY_MAX_RENDERED_LENGTH;
+  }
+
+  function parseRenderedAmendments(value = '') {
+    const lines = String(value || '').split('\n');
+    const amendments = [];
+    let current = '';
+    let expected = 1;
+    for (const line of lines) {
+      const match = /^([1-9]\d*)\.(?:\s|$)(.*)$/.exec(line);
+      if (match && Number(match[1]) === expected) {
+        if (current) amendments.push(current.trim());
+        current = match[2];
+        expected += 1;
+      } else if (!current) {
+        return null;
+      } else {
+        current += `\n${line}`;
+      }
+    }
+    if (current) amendments.push(current.trim());
+    return amendments.length === expected - 1 && amendments.every(Boolean) ? amendments : null;
+  }
+
+  function parsedRenderedSegments(value = '', depth = 0) {
+    const text = stringValue(value);
+    if (!text || depth > TASK_CONTINUITY_MAX_SEGMENTS) return null;
+    const basePrefix = `${TASK_CONTINUITY_BASE_LABEL}\n`;
+    const amendmentMarker = `\n\n${TASK_CONTINUITY_AMENDMENT_LABEL}\n`;
+    if (!text.startsWith(basePrefix)) return null;
+    // Prefer the outermost valid amendment block. For a legacy nested envelope
+    // this is the last marker; its base recursively contains the earlier one.
+    const markerIndex = text.lastIndexOf(amendmentMarker);
+    if (markerIndex < basePrefix.length) return null;
+    const baseText = text.slice(basePrefix.length, markerIndex).trim();
+    const amendmentTexts = parseRenderedAmendments(text.slice(markerIndex + amendmentMarker.length));
+    if (!baseText || !amendmentTexts) return null;
+
+    const parsedBase = parsedRenderedSegments(baseText, depth + 1);
+    const baseSegments = parsedBase?.segments || [{ kind: 'base', text: baseText }];
+    const amendmentSegments = amendmentTexts.flatMap(amendment => {
+      const parsedAmendment = parsedRenderedSegments(amendment, depth + 1);
+      return (parsedAmendment?.segments || [{ kind: 'amendment', text: amendment }])
+        .map(segment => ({ kind: 'amendment', text: segment.text }));
+    });
+    return { segments: [...baseSegments, ...amendmentSegments] };
+  }
+
+  function taskContinuityFromRenderedGoal(value = '') {
+    const parsed = parsedRenderedSegments(value);
+    const state = parsed && {
+      schema_version: TASK_CONTINUITY_VERSION,
+      goal_mode: 'amend',
+      segments: parsed.segments,
+    };
+    return state && hasExactTaskContinuity(state) ? freezeTaskContinuity(state) : null;
+  }
+
+  function normalizeNestedTaskContinuity(state = {}) {
+    assertTaskContinuity(state);
+    let changed = false;
+    const segments = state.segments.map((segment, segmentIndex) => {
+      const parsed = parsedRenderedSegments(segment.text);
+      if (!parsed) return { ...segment };
+      changed = true;
+      return parsed.segments.map((nestedSegment, nestedIndex) => ({
+        kind: segmentIndex === 0 && nestedIndex === 0 ? 'base' : 'amendment',
+        text: nestedSegment.text,
+      }));
+    }).flat();
+    if (!changed) return freezeTaskContinuity(state);
+    const candidate = {
+      schema_version: TASK_CONTINUITY_VERSION,
+      goal_mode: segments.length > 1 ? 'amend' : state.goal_mode,
+      segments,
+    };
+    return hasExactTaskContinuity(candidate) ? freezeTaskContinuity(candidate) : freezeTaskContinuity(state);
   }
 
   function freezeTaskContinuity(state = {}) {
@@ -89,8 +167,7 @@
 
   function normalizeOptionalTaskContinuity(state = null) {
     if (state === null || state === undefined) return null;
-    assertTaskContinuity(state);
-    return freezeTaskContinuity(state);
+    return normalizeNestedTaskContinuity(state);
   }
 
   function hasExactImageTaskLineage(lineage = {}) {
@@ -202,7 +279,7 @@
   function adaptLegacyResolvedGoal(resolvedGoal = '') {
     const text = stringValue(resolvedGoal);
     if (!text) return null;
-    return createReplacementTaskContinuity(text);
+    return taskContinuityFromRenderedGoal(text) || createReplacementTaskContinuity(text);
   }
 
   function taskContinuityFromExecution(execution = {}) {
@@ -210,8 +287,7 @@
       || Object.prototype.hasOwnProperty.call(execution || {}, 'taskState');
     const candidate = execution?.task_state ?? execution?.taskState;
     if (hasTaskState && candidate !== null && candidate !== undefined) {
-      assertTaskContinuity(candidate);
-      return freezeTaskContinuity(candidate);
+      return normalizeNestedTaskContinuity(candidate);
     }
     return adaptLegacyResolvedGoal(execution?.resolved_goal || execution?.resolvedGoal || execution?.input);
   }
@@ -233,7 +309,7 @@
 
     const hasExplicitPreviousState = previousState !== null && previousState !== undefined;
     const previous = hasExplicitPreviousState
-      ? (assertTaskContinuity(previousState), freezeTaskContinuity(previousState))
+      ? normalizeNestedTaskContinuity(previousState)
       : taskContinuityFromExecution(previousExecution || {});
     if (!previous) {
       const error = new TypeError('Amending a task requires a previous task state');

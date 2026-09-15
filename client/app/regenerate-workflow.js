@@ -200,7 +200,7 @@
         const imagePrompt=String(routeInfo.contextualImagePrompt||replayPrompt).trim();
         updateModeUi(routeInfo.mode,state.autoMode);
         const jobId=task.prepareHandoff("image",makeClientImageJobId?.());
-        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
+        await sendImage(imagePrompt,{loadingNode:l.node,attachments:executionMedia.imageInputs,maskAttachments:executionMedia.masks,executionMedia,dispatchContract:routeInfo.dispatchContract,routePrompt:imagePrompt,originalPrompt:replayPrompt,resolvedGoal:routeInfo.resolvedImageGoal||imagePrompt,taskState:routeInfo.imageTaskState||null,clarificationReplay:replay,sessionId:a,userAlreadyAdded:!0,liveItem:l.liveItem,replaceAssistantIndex:n,submissionId:task.submissionId,clientJobId:jobId,onDurableHandoff:()=>task.commitHandoff(),onInterfaceCompleted:completion=>task.interfaceCompleted(completion)});
         task.complete()
       }catch(t){const failure=task.fail(t);failure.preserve||failure.terminalBeforeError||failure.cancelled||i.stopped||"AbortError"===t?.name||showRunError(a,t,l.liveItem,l.node)}finally{task.stopped(),resetActionButtonState(r),finishSessionTask(a,{run:i}),updateResumeStreamButton()}
     }

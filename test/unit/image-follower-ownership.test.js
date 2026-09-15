@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const taskContinuity = require('../../shared/task-continuity');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
 const { makeDispatchContract } = require('../helpers/dispatch-contract-fixture');
 
@@ -84,6 +85,13 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
   };
   const node = { dataset: {}, parentNode: {} };
   const placements = [];
+  const taskState = taskContinuity.transitionTaskContinuity({
+    goalMode: 'amend',
+    goal: '加入雪山。',
+    previousState: taskContinuity.createReplacementTaskContinuity('生成一张网页背景图。'),
+  });
+  const resolvedGoal = taskContinuity.renderTaskContinuity(taskState);
+  let renderOptions = null;
   const workflow = jobResumeWorkflow.createJobResumeWorkflow({
     state,
     loadImageJob: () => ({
@@ -94,7 +102,13 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
       requestPurpose: 'final_execution',
       dispatchContract: makeDispatchContract({ operation: 'text_to_image', prompt: 'draw' }),
       bindingEvidence: [],
-      prompt: 'draw',
+      prompt: 'styled provider prompt',
+      imageContext: {
+        prompt: 'canonical provider prompt',
+        routePrompt: 'draw',
+        resolvedGoal,
+        taskState,
+      },
       startedAt: Date.now() - 1000,
     }),
     clearImageJob() {},
@@ -116,12 +130,15 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
     isMissingJobError: () => false,
     formatElapsed: () => '1.0s',
     jobDurationMs: () => 1000,
-    imageResultToHtml: async () => ({
-      html: '<div class="generated-image-grid"></div>',
-      raw: 'image result',
-      metaText: 'RT 1.0s',
-      imageContext: { mode: 'image', attachments: [{ src: 'indexeddb://result' }] },
-    }),
+    imageResultToHtml: async (_result, _elapsed, options) => {
+      renderOptions = options;
+      return {
+        html: '<div class="generated-image-grid"></div>',
+        raw: 'image result',
+        metaText: 'RT 1.0s',
+        imageContext: { mode: 'image', attachments: [{ src: 'indexeddb://result' }] },
+      };
+    },
     updateSessionDisplayItem() {},
     findMessageNodeByDisplayItem: () => node,
     updateMessage() {},
@@ -148,6 +165,11 @@ async function testRecoveredImageCompletionUsesCanonicalMessagePosition() {
     item: { role: 'assistant', responseIndex: 1 },
   }], 'the live result should be placed at the same canonical index used after refresh');
   assert.strictEqual(node.dataset.responseIndex, '1');
+  assert.strictEqual(renderOptions.prompt, 'canonical provider prompt');
+  assert.strictEqual(renderOptions.resolvedGoal, resolvedGoal,
+    'a recovered image result must retain the complete resolved goal');
+  assert.deepStrictEqual(renderOptions.taskState, taskState,
+    'a recovered image result must retain structured task state');
 }
 
 async function testBackgroundImageCompletionNeverMutatesActiveSessionNode() {

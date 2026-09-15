@@ -19,6 +19,11 @@
         document.documentElement.classList.add('announcement-acknowledged-boot');
       }
     } catch {}
+    try {
+      const skinIds = ['default', 'ink', 'snow'];
+      const storedSkin = localStorage.getItem('openapi-chat-image-skin-v1');
+      document.documentElement.setAttribute('data-skin', skinIds.includes(storedSkin) ? storedSkin : 'default');
+    } catch {}
   </script>
 </head>
 <body class="app-booting announcement-pending">
@@ -541,6 +546,10 @@
   <link rel="stylesheet" href="./styles/announcement.css?v=2.0.7-formal-compact" />
   <link rel="stylesheet" href="./styles/flat-theme.css?v=2.2.15-action-lifecycle" />
   <link rel="stylesheet" href="./styles/calm-theme.css?v=1.0.7-composer-active-state" />
+  <link rel="stylesheet" href="./styles/skins/default/skin.css?v=1.1.1-active-session-emphasis" />
+  <link rel="stylesheet" href="./styles/skin-system.css?v=1.0.0" />
+  <link rel="stylesheet" href="./styles/skins/snow/skin.css?v=1.0.0" />
+  <link rel="stylesheet" href="./styles/skins/ink/skin.css?v=1.1.0-per-skin-folder" />
   <script src="./client/runtime/module-registry.js?v=1.0.0"></script>
   <script src="./shared/model-recommendation.js?v=1.0.0-runtime-file"></script>
   <script src="./shared/responses-output.js?v=1.0.0"></script>
@@ -600,6 +609,7 @@
   <script src="./shared/usage/ranges.js?v=1.0.2"></script>
   <script src="./client/core/context-budget.js?v=1.3.6"></script>
   <script src="./client/core/storage.js?v=1.2.65"></script>
+  <script src="./client/core/skin.js?v=1.0.0"></script>
   <script src="./client/core/browser.js?v=1.4.1-file-inputs"></script>
   <script src="./client/core/message-primitives.js?v=1.2.0-assistant-completion"></script>
   <script src="./shared/file-inputs.js?v=1.0.1-base64-mime"></script>
@@ -726,6 +736,7 @@
   <script src="./client/app/media-workflow.js?v=1.2.70-clarification-media-isolation"></script>
   <script src="./client/app/session-resources.js?v=1.1.1-session-draft-cleanup"></script>
   <script src="./client/app/session-panel-workflow.js?v=1.2.67"></script>
+  <script src="./client/features/skin-system/skin-switcher.js?v=1.0.0"></script>
   <script src="./client/app/bootstrap-workflow.js?v=2.1.2-ime-platform-guard"></script>
   <script src="./client/app/image-result-reconciliation.js?v=1.1.0-durable-canonical-result"></script>
   <script src="./app.js?v=2.4.2-ghost-job-cleanup"></script>

@@ -139,6 +139,59 @@ function testSegmentCapacityCompactsWithoutLosingAnyRequirement() {
   assert.match(rendered, /最后修订/);
 }
 
+function testLegacyRenderedTaskStateIsFlattenedBeforeNextAmendment() {
+  const base = '生成一张网页背景图。';
+  const firstRevision = '加入雪山。';
+  const secondRevision = '主体改为雪山，主色调为白色。';
+  const thirdRevision = '底部加入草地。';
+  const first = continuity.transitionTaskContinuity({
+    goalMode: 'amend',
+    goal: firstRevision,
+    previousState: continuity.createReplacementTaskContinuity(base),
+  });
+  const renderedFirst = continuity.renderTaskContinuity(first);
+
+  const migrated = continuity.transitionTaskContinuity({
+    goalMode: 'amend',
+    goal: secondRevision,
+    previousExecution: { resolved_goal: renderedFirst },
+  });
+  assert.deepStrictEqual(migrated.segments, [
+    { kind: 'base', text: base },
+    { kind: 'amendment', text: firstRevision },
+    { kind: 'amendment', text: secondRevision },
+  ]);
+  const migratedRendered = continuity.renderTaskContinuity(migrated);
+  assert.strictEqual((migratedRendered.match(/任务基础要求：/g) || []).length, 1);
+  assert.strictEqual((migratedRendered.match(/修订要求（按顺序应用，后者优先）：/g) || []).length, 1);
+
+  const alreadyNested = {
+    schema_version: 'task_continuity.v1',
+    goal_mode: 'amend',
+    segments: [
+      { kind: 'base', text: renderedFirst },
+      { kind: 'amendment', text: secondRevision },
+    ],
+  };
+  assert.deepStrictEqual(
+    continuity.taskContinuityFromExecution({ task_state: alreadyNested }),
+    migrated,
+    'an already persisted nested state must be flattened when it is read',
+  );
+
+  const next = continuity.transitionTaskContinuity({
+    goalMode: 'amend',
+    goal: thirdRevision,
+    previousState: alreadyNested,
+  });
+  assert.deepStrictEqual(next.segments, [
+    { kind: 'base', text: base },
+    { kind: 'amendment', text: firstRevision },
+    { kind: 'amendment', text: secondRevision },
+    { kind: 'amendment', text: thirdRevision },
+  ]);
+}
+
 function testRepeatedUserAmendmentsRemainSeparateOrderedEvents() {
   const base = continuity.transitionTaskContinuity({ goalMode: 'replace', goal: '基础要求' });
   const first = continuity.transitionTaskContinuity({ goalMode: 'amend', goal: '入口不得遮挡', previousState: base });
@@ -160,4 +213,5 @@ module.exports = [
   testInvalidExplicitPreviousStateCannotFallBackToAnotherExecutionState,
   testSegmentCapacityCompactsWithoutLosingAnyRequirement,
   testRepeatedUserAmendmentsRemainSeparateOrderedEvents,
+  testLegacyRenderedTaskStateIsFlattenedBeforeNextAmendment,
 ];

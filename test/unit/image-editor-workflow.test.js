@@ -76,6 +76,9 @@ async function testEraseEditDispatchesOneMaskAndTarget() {
     assert.strictEqual((options.maskAttachments || []).length, 1, 'exactly one mask attachment must travel');
     assert.strictEqual((options.attachments || []).length, 1, 'the target image is the only image input');
     assert.strictEqual((options.executionMedia.masks || []).length, 1);
+    assert.ok(options.taskState, 'editor dispatch must retain structured task state');
+    assert.strictEqual(options.resolvedGoal, options.dispatchContract.arguments.prompt,
+      'editor dispatch must retain the resolved goal');
     assert.deepStrictEqual(
       options.dispatchContract.bindings.map(binding => `${binding.role}:${binding.type}`).sort(),
       ['mask:image', 'target:image'],

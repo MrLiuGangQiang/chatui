@@ -1,0 +1,167 @@
+/* ChatUI skin tokens — default skin extraction.
+ * The current ChatUI look (flat + calm light theme) is frozen as the default
+ * skin. Existing stylesheets keep owning layout and component rules; this file
+ * extracts their effective palette into one canonical `--skin-*` contract and
+ * aliases the legacy variable names back to it. Each skin lives in its own
+ * `styles/skins/<id>/` folder and overrides only `--skin-*`, so token-driven
+ * components follow automatically.
+ */
+
+:root {
+  --skin-id: "default";
+  --skin-canvas: #f7f8fb;
+  --skin-surface: #ffffff;
+  --skin-surface-soft: #fbfcfe;
+  --skin-surface-subtle: #f2f4f7;
+  --skin-surface-hover: #eef1f6;
+  --skin-text: #202329;
+  --skin-muted: #7b8190;
+  --skin-muted-strong: #68717f;
+  --skin-faint: #a5acb8;
+  --skin-border: #e6e9ef;
+  --skin-border-strong: #d9dee8;
+  --skin-accent: #4d6bfe;
+  --skin-accent-hover: #3f5bea;
+  --skin-accent-soft: #edf1ff;
+  --skin-accent-border: #d9dffe;
+  --skin-accent-contrast: #ffffff;
+  --skin-danger: #ef4444;
+  --skin-success: #10b981;
+  --skin-warning: #f59e0b;
+  --skin-danger-soft: #fff2f2;
+  --skin-user-bubble: #eef3ff;
+  --skin-user-bubble-border: #dfe7ff;
+  --skin-thought: #f6f7f9;
+  --skin-code: #f6f8fa;
+  --skin-shadow: 0 8px 24px rgba(31, 35, 41, .06);
+  --skin-shadow-lg: 0 18px 50px rgba(31, 35, 41, .12);
+  --skin-radius: 18px;
+}
+
+:root {
+  --bg: var(--skin-canvas) !important;
+  --surface: var(--skin-surface) !important;
+  --text: var(--skin-text) !important;
+  --muted: var(--skin-muted) !important;
+  --border: var(--skin-border) !important;
+  --accent: var(--skin-accent) !important;
+  --accent-hover: var(--skin-accent-hover) !important;
+  --accent-light: var(--skin-accent-soft) !important;
+  --danger: var(--skin-danger) !important;
+  --success: var(--skin-success) !important;
+  --warning: var(--skin-warning) !important;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, .05) !important;
+  --shadow: 0 1px 3px rgba(15, 23, 42, .08) !important;
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, .08) !important;
+
+  --ds-page: var(--skin-canvas) !important;
+  --ds-surface: var(--skin-surface) !important;
+  --ds-surface-soft: #f3f5f8 !important;
+  --ds-surface-hover: var(--skin-surface-hover) !important;
+  --ds-text: var(--skin-text) !important;
+  --ds-muted: var(--skin-muted) !important;
+  --ds-faint: var(--skin-faint) !important;
+  --ds-line: var(--skin-border) !important;
+  --ds-line-strong: var(--skin-border-strong) !important;
+  --ds-accent: var(--skin-accent) !important;
+  --ds-accent-soft: var(--skin-accent-soft) !important;
+  --ds-user: var(--skin-user-bubble) !important;
+  --ds-user-border: var(--skin-user-bubble-border) !important;
+  --ds-thought: var(--skin-thought) !important;
+  --ds-code: var(--skin-code) !important;
+  --ds-shadow: var(--skin-shadow-lg) !important;
+  --ds-radius: var(--skin-radius) !important;
+
+  --chatui-canvas: var(--skin-canvas) !important;
+  --chatui-surface: var(--skin-surface) !important;
+  --chatui-surface-soft: var(--skin-surface-soft) !important;
+  --chatui-surface-subtle: var(--skin-surface-subtle) !important;
+  --chatui-text: var(--skin-text) !important;
+  --chatui-muted: var(--skin-muted) !important;
+  --chatui-muted-strong: var(--skin-muted-strong) !important;
+  --chatui-border: var(--skin-border) !important;
+  --chatui-border-strong: var(--skin-border-strong) !important;
+  --chatui-accent: var(--skin-accent) !important;
+  --chatui-accent-hover: var(--skin-accent-hover) !important;
+  --chatui-accent-soft: var(--skin-accent-soft) !important;
+  --chatui-accent-border: var(--skin-accent-border) !important;
+  --chatui-danger-soft: var(--skin-danger-soft) !important;
+  --chatui-shadow: var(--skin-shadow) !important;
+  --chatui-shadow-lg: var(--skin-shadow-lg) !important;
+}
+/* Default scenic canvas.
+ * The user-approved silk wave photograph is the default skin background.
+ * A near-opaque white veil keeps the original light look and text
+ * contrast; the waves stay visible as a soft grey undercurrent. */
+
+html[data-skin="default"] body,
+body {
+  background-color: var(--skin-canvas) !important;
+  background-image:
+    linear-gradient(180deg, rgba(247, 248, 251, .70) 0%, rgba(247, 248, 251, .58) 50%, rgba(243, 245, 249, .74) 100%),
+    url("./scenery.jpg?v=1") !important;
+  background-position: center, center 58% !important;
+  background-size: cover, cover !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-attachment: scroll, scroll !important;
+}
+
+/* The chat column must not repaint an opaque canvas over the artwork.
+ * Welcome hero and feature cards stay as white surfaces on top. */
+html[data-skin="default"] .shell-app.app,
+html[data-skin="default"] .main,
+html[data-skin="default"] .messages {
+  background: transparent !important;
+}
+
+/* The composition intentionally sits above any per-layer decorative
+ * pseudo backgrounds from the base theme so the artwork stays visible. */
+html[data-skin="default"] body::before,
+html[data-skin="default"] body::after {
+  background-image: none !important;
+}
+/* Current session emphasis.
+ * The glass sidebar needs a stronger state than a neutral chip: the active
+ * session keeps the default accent family but uses a denser wash, visible
+ * blue border, darker title and stronger metadata colour. */
+html[data-skin="default"] .session-tab.active,
+html[data-skin="default"] .session-tab.active:hover {
+  background: rgba(77, 107, 254, .18) !important;
+  border-color: rgba(77, 107, 254, .42) !important;
+  color: #2f4ce4 !important;
+}
+
+html[data-skin="default"] .session-tab.active:hover {
+  background: rgba(77, 107, 254, .24) !important;
+  border-color: rgba(77, 107, 254, .52) !important;
+}
+
+html[data-skin="default"] .session-tab.active .session-title {
+  color: #2f4ce4 !important;
+  font-weight: 750 !important;
+}
+
+html[data-skin="default"] .session-tab.active small {
+  color: var(--skin-accent) !important;
+  font-weight: 650 !important;
+}
+
+html[data-skin="default"] .session-tab.active .session-delete-btn,
+html[data-skin="default"] .session-tab.active .session-rename-btn {
+  color: #5a75f3 !important;
+}
+
+/* Translucent default sidebar.
+ * The side rails clear their opaque canvas so the silk waves read
+ * through a light white veil with a soft glass blur. The selected
+ * session keeps its emphasised accent selection; no left colour bar. */
+
+html[data-skin="default"] .session-sidebar,
+html[data-skin="default"] .session-rail {
+  background: transparent !important;
+  background-color: rgba(255, 255, 255, .20) !important;
+  background-image: linear-gradient(180deg, rgba(240, 244, 248, .30), rgba(228, 235, 242, .24)) !important;
+  border-color: rgba(214, 224, 235, .55) !important;
+  backdrop-filter: blur(12px) saturate(1.04) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.04) !important;
+}

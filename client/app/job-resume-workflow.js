@@ -21,6 +21,34 @@
     };
   }
 
+  function imageJobResumeString(value = '') {
+    return String(value ?? '').trim();
+  }
+
+  function buildImageJobResumeRenderOptions(snapshot = {}, { sessionId = '', prompt = '', label = '' } = {}) {
+    let imageContext = snapshot?.imageContext;
+    if (typeof imageContext === 'string') {
+      try { imageContext = JSON.parse(imageContext); } catch { imageContext = {}; }
+    }
+    if (!imageContext || typeof imageContext !== 'object' || Array.isArray(imageContext)) imageContext = {};
+    const contractPrompt = imageJobResumeString(snapshot?.dispatchContract?.arguments?.prompt);
+    const requestedPrompt = imageJobResumeString(prompt) || imageJobResumeString(snapshot?.prompt);
+    const resolvedPrompt = imageJobResumeString(imageContext.prompt) || requestedPrompt || contractPrompt;
+    return {
+      prompt: resolvedPrompt,
+      routePrompt: imageJobResumeString(imageContext.routePrompt || imageContext.route_prompt),
+      resolvedGoal: imageJobResumeString(
+        imageContext.resolvedGoal
+        || imageContext.resolved_goal
+        || snapshot?.resolvedGoal
+        || snapshot?.resolved_goal
+      ) || resolvedPrompt,
+      taskState: imageContext.taskState ?? imageContext.task_state ?? snapshot?.taskState ?? null,
+      label: imageJobResumeString(label),
+      sessionId: imageJobResumeString(sessionId),
+    };
+  }
+
   function createJobResumeWorkflow(deps = {}) {
     if (!deps.state) throw new Error("state is required");
     const finishSessionTask =
@@ -459,10 +487,11 @@
             const r = formatElapsed(
                 jobDurationMs({ metrics: n?.metrics, ...n }) ?? Date.now() - o,
               ),
-              d = await imageResultToHtml(n, r, {
-                prompt: s.prompt || "",
-                sessionId: e,
-              });
+              d = await imageResultToHtml(
+                n,
+                r,
+                buildImageJobResumeRenderOptions(s, { sessionId: e }),
+              );
             // The managed-job context describes the image submitted to the
             // provider (A1).  Once the provider returns, the completed
             // message must instead own the newly persisted result (A2).
@@ -789,7 +818,15 @@
             }
             if (!data) throw makeTerminalJobError('恢复任务不存在或已失效，已停止恢复，请重新发送');
             const elapsed = formatElapsed(jobDurationMs({ metrics: data?.metrics, ...data }) ?? Date.now() - (Number(snapshot.startedAt) || Date.now()));
-            const rendered = await imageResultToHtml(data, elapsed, { prompt: snapshot.prompt || child.prompt || '', label: child.label || '', sessionId: e });
+            const rendered = await imageResultToHtml(
+              data,
+              elapsed,
+              buildImageJobResumeRenderOptions(snapshot, {
+                sessionId: e,
+                prompt: snapshot.prompt || child.prompt || '',
+                label: child.label || '',
+              }),
+            );
             const completedMode = snapshot.mode === 'edit_image' ? 'edit_image' : 'image';
             const childContext = rendered.imageContext
               ? normalizeImageContextForStorage({ ...rendered.imageContext, mode: completedMode, target: 'previous', usePreviousImage: true })
@@ -1234,7 +1271,7 @@
     return Object.freeze({ resumeImageJob, resumeImageBatch, resumeChatJob, loadImageBatch });
   }
 
-  const api = Object.freeze({ createJobResumeWorkflow, buildChatResumeOffsets });
+  const api = Object.freeze({ createJobResumeWorkflow, buildChatResumeOffsets, buildImageJobResumeRenderOptions });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobResumeWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobResumeWorkflow = api;

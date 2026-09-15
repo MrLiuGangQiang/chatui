@@ -61,6 +61,10 @@
       n.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>';
       n.addEventListener("click", () => downloadAllImagesFromMessage(e, n));
       s ? t.insertBefore(n, s) : t.appendChild(n);
+      // The result renderer still emits a legacy in-bubble download row. The
+      // message action bar owns image downloads now, so remove that leftover
+      // instead of leaving a hidden duplicate in the transcript.
+      e.querySelectorAll?.(".content .image-download-row").forEach(row => row.remove());
       ensureImageEditEntry(e);
     }
 

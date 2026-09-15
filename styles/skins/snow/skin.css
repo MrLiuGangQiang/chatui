@@ -1,0 +1,261 @@
+/* ?? snow skin ? scoped entirely under html[data-skin="snow"].
+ * Alpine photograph as the canvas, frosted glass chrome and a glacier-blue
+ * accent. Tokens drive the shared component contract; the material pass below
+ * keeps cards readable on top of the photo. No layout or interaction changes. */
+
+:root[data-skin="snow"] {
+  color-scheme: light;
+
+  --skin-canvas: #eaf2f9;
+  --skin-surface: #ffffff;
+  --skin-surface-soft: #f6fafd;
+  --skin-surface-subtle: #e8f0f8;
+  --skin-surface-hover: #dfeaf4;
+  --skin-text: #1e2a36;
+  --skin-muted: #66788b;
+  --skin-muted-strong: #506275;
+  --skin-faint: #93a5b6;
+  --skin-border: #d8e4ef;
+  --skin-border-strong: #bed2e3;
+  --skin-accent: #2f7fc4;
+  --skin-accent-hover: #2668a3;
+  --skin-accent-soft: #e5f1fb;
+  --skin-accent-border: #c6ddf2;
+  --skin-accent-contrast: #ffffff;
+  --skin-danger: #c0504a;
+  --skin-success: #3d8a67;
+  --skin-warning: #bd873c;
+  --skin-danger-soft: #f8eae8;
+  --skin-user-bubble: #e8f2fb;
+  --skin-user-bubble-border: #cfe1f1;
+  --skin-thought: #eef5fa;
+  --skin-code: #eff5fa;
+  --skin-shadow: 0 8px 24px rgba(31, 63, 96, .08);
+  --skin-shadow-lg: 0 18px 46px rgba(31, 63, 96, .14);
+  --skin-radius: 16px;
+
+  --snow-frost: linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(243, 249, 253, .90));
+  --snow-chrome: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(238, 246, 252, .74));
+  --snow-hairline: rgba(172, 198, 222, .60);
+  --snow-shadow: 0 10px 28px rgba(31, 63, 96, .08);
+  --snow-shadow-raised: 0 18px 44px rgba(31, 63, 96, .13);
+}
+
+/* Alpine photograph, softened by a frost veil so ink stays legible. */
+html[data-skin="snow"] body {
+  background-color: var(--skin-canvas) !important;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, .62) 0%, rgba(246, 251, 255, .50) 46%, rgba(232, 242, 251, .64) 100%),
+    url("./scenery.jpg?v=1") !important;
+  background-position: center, center 42% !important;
+  background-size: cover, cover !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-attachment: scroll, scroll !important;
+}
+
+html[data-skin="snow"] body::before,
+html[data-skin="snow"] body::after {
+  content: none !important;
+  display: none !important;
+  background-image: none !important;
+}
+
+html[data-skin="snow"] .shell-app.app,
+html[data-skin="snow"] .main,
+html[data-skin="snow"] .messages {
+  background: transparent !important;
+}
+html[data-skin="snow"] .messages {
+  background-image:
+    radial-gradient(64rem 44rem at 50% 38%,
+      rgba(255, 255, 255, .55) 0%,
+      rgba(255, 255, 255, .30) 58%,
+      rgba(255, 255, 255, 0) 100%) !important;
+}
+
+/* Frosted chrome for navigation and floating controls. */
+html[data-skin="snow"] .session-sidebar,
+html[data-skin="snow"] .session-rail,
+html[data-skin="snow"] .topbar-utility-button,
+html[data-skin="snow"] .usage-stats-button,
+html[data-skin="snow"] .announcement-toolbar-button,
+html[data-skin="snow"] .topbar-presence-indicator,
+html[data-skin="snow"] .mobile-session-float,
+html[data-skin="snow"] .skin-switcher-trigger {
+  background-color: rgba(255, 255, 255, .76) !important;
+  background-image: var(--snow-chrome) !important;
+  border-color: var(--snow-hairline) !important;
+  box-shadow: 0 8px 22px rgba(31, 63, 96, .08), inset 0 1px 0 rgba(255, 255, 255, .92) !important;
+  backdrop-filter: blur(12px) saturate(1.04) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.04) !important;
+}
+
+/* Primary work surfaces share one frosted-paper material. */
+html[data-skin="snow"] .input-stack,
+html[data-skin="snow"] .input-stack:focus,
+html[data-skin="snow"] .input-stack:focus-within,
+html[data-skin="snow"] .config-dialog,
+html[data-skin="snow"] .confirm-dialog-card,
+html[data-skin="snow"] .web-preview-dialog,
+html[data-skin="snow"] .changelog-dialog,
+html[data-skin="snow"] .usage-stats-card,
+html[data-skin="snow"] .usage-feedback-card,
+html[data-skin="snow"] .welcome-hero,
+html[data-skin="snow"] .welcome-feature-card,
+html[data-skin="snow"] .config-card,
+html[data-skin="snow"] .changelog-entry,
+html[data-skin="snow"] .session-prompt-panel {
+  background-color: rgba(255, 255, 255, .94) !important;
+  background-image: var(--snow-frost) !important;
+  border-color: var(--snow-hairline) !important;
+  box-shadow: var(--snow-shadow-raised), inset 0 1px 0 rgba(255, 255, 255, .95) !important;
+}
+
+/* Secondary panels stay one step quieter. */
+html[data-skin="snow"] .reasoning-panel,
+html[data-skin="snow"] .intent-reasoning-trace,
+html[data-skin="snow"] .intent-waiting-surface,
+html[data-skin="snow"] .attachment-chip,
+html[data-skin="snow"] .quote-preview,
+html[data-skin="snow"] .usage-feedback-field,
+html[data-skin="snow"] .usage-feedback-models,
+html[data-skin="snow"] .usage-feedback-notice {
+  background-color: rgba(246, 250, 253, .92) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+  box-shadow: var(--snow-shadow) !important;
+}
+
+/* Controls, menus and code blocks follow the same family. */
+html[data-skin="snow"] .copy-btn,
+html[data-skin="snow"] .download-btn,
+html[data-skin="snow"] .edit-btn,
+html[data-skin="snow"] .refresh-btn,
+html[data-skin="snow"] .icon-action-btn,
+html[data-skin="snow"] .reasoning-copy-btn,
+html[data-skin="snow"] .image-icon-btn,
+html[data-skin="snow"] .composer-actions .attach-btn,
+html[data-skin="snow"] .composer-actions .session-prompt-btn,
+html[data-skin="snow"] .composer-actions .session-model-btn,
+html[data-skin="snow"] .composer-actions .reasoning-toggle,
+html[data-skin="snow"] .composer-actions .reasoning-menu-btn {
+  background-color: rgba(255, 255, 255, .90) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+  box-shadow: 0 3px 10px rgba(31, 63, 96, .06) !important;
+}
+
+html[data-skin="snow"] .composer-actions .reasoning-menu,
+html[data-skin="snow"] .skin-switcher-menu,
+html[data-skin="snow"] .custom-select-menu {
+  background-color: rgba(255, 255, 255, .97) !important;
+  background-image: none !important;
+  border-color: var(--skin-border-strong) !important;
+  box-shadow: var(--snow-shadow-raised) !important;
+}
+
+html[data-skin="snow"] .markdown-body .code-block,
+html[data-skin="snow"] .markdown-body pre,
+html[data-skin="snow"] .markdown-body th,
+html[data-skin="snow"] .announcement-table-wrap th {
+  background-color: rgba(239, 245, 250, .95) !important;
+  background-image: none !important;
+  border-color: var(--snow-hairline) !important;
+}
+
+/* Conversation surfaces: a glacier-blue strip for the user, frosted white for
+   the assistant, both readable against the photograph. */
+html[data-skin="snow"] .message.user .bubble {
+  background-color: rgba(232, 242, 251, .94) !important;
+  background-image: none !important;
+  border: 1px solid var(--skin-user-bubble-border) !important;
+  border-radius: 15px !important;
+  color: var(--skin-text) !important;
+  box-shadow: 0 6px 18px rgba(31, 63, 96, .07) !important;
+}
+html[data-skin="snow"] .message.assistant .bubble,
+html[data-skin="snow"] .message.error .bubble {
+  background-color: rgba(255, 255, 255, .88) !important;
+  background-image: none !important;
+  border: 1px solid var(--snow-hairline) !important;
+  border-radius: 15px !important;
+  color: var(--skin-text) !important;
+  box-shadow: var(--snow-shadow) !important;
+}
+
+/* Selected session reads at a glance: accent wash, bold title, no colour bar. */
+html[data-skin="snow"] .session-tab.active,
+html[data-skin="snow"] .session-tab.active:hover {
+  background: linear-gradient(90deg, rgba(47, 127, 196, .22), rgba(47, 127, 196, .10)) !important;
+  border-color: rgba(47, 127, 196, .50) !important;
+  box-shadow: 0 3px 12px rgba(31, 63, 96, .10) !important;
+  color: var(--skin-text) !important;
+}
+html[data-skin="snow"] .session-tab.active .session-title {
+  font-weight: 700 !important;
+}
+html[data-skin="snow"] .session-tab.active small {
+  color: var(--skin-accent) !important;
+  font-weight: 600 !important;
+}
+
+html[data-skin="snow"] .input-stack:focus-within {
+  border-color: var(--skin-accent-border) !important;
+  box-shadow: var(--snow-shadow-raised), 0 0 0 3px rgba(47, 127, 196, .13) !important;
+}
+
+html[data-skin="snow"] .messages,
+html[data-skin="snow"] .session-list,
+html[data-skin="snow"] .changelog-content {
+  scrollbar-color: rgba(47, 127, 196, .30) transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Quiet conversation surfaces.
+   The conversation carries no card on the snow canvas: user and
+   assistant bubbles become fully transparent, with text shadowed
+   softly for contrast. The left navigation keeps a light frost
+   veil with a glass blur; the selected session reads through its
+   deeper wash alone - never a left colour bar.
+   ═══════════════════════════════════════════════════════════════ */
+
+html[data-skin="snow"] .message .bubble,
+html[data-skin="snow"] .message.user .bubble,
+html[data-skin="snow"] .message.assistant .bubble,
+html[data-skin="snow"] .message.error .bubble {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-skin="snow"] .message .content,
+html[data-skin="snow"] .message .content p,
+html[data-skin="snow"] .message .content li {
+  text-shadow: 0 1px 10px rgba(255, 255, 255, .92), 0 0 22px rgba(255, 255, 255, .78) !important;
+}
+
+html[data-skin="snow"] .message .reasoning-panel,
+html[data-skin="snow"] .message[data-streaming="1"] .reasoning-panel,
+html[data-skin="snow"] .message .reasoning-live-panel,
+html[data-skin="snow"] .intent-reasoning-trace,
+html[data-skin="snow"] .intent-waiting-surface {
+  background: rgba(255, 255, 255, .52) !important;
+  background-image: none !important;
+  border-color: rgba(255, 255, 255, .55) !important;
+  box-shadow: none !important;
+}
+
+/* Half-transparent frost glass for the left navigation chrome. */
+html[data-skin="snow"] .session-sidebar,
+html[data-skin="snow"] .session-rail {
+  background-color: rgba(255, 255, 255, .46) !important;
+  background-image:
+    linear-gradient(180deg, rgba(232, 242, 251, .34), rgba(214, 231, 244, .26)) !important;
+  backdrop-filter: blur(12px) saturate(1.05) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.05) !important;
+}

@@ -7,6 +7,7 @@ const clarification = require('../../shared/clarification-answer');
 require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
 const routeService = require('../../client/services/route-service');
+const taskContinuity = require('../../shared/task-continuity');
 const sessionPersistence = require('../../client/app/session-persistence');
 const messagePrimitives = require('../../client/core/message-primitives');
 const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
@@ -108,6 +109,10 @@ async function testForceImageRegenerateUsesCanonicalDurableTaskChain() {
   assert.strictEqual(options.dispatchContract.operation, 'text_to_image');
   assert.strictEqual(options.dispatchContract.arguments.prompt, 'draw a fox');
   assert.deepStrictEqual(options.dispatchContract.bindings, []);
+  assert.deepStrictEqual(options.taskState, taskContinuity.createReplacementTaskContinuity('draw a fox'),
+    'forced image dispatch must retain its route task state for durable recovery');
+  assert.strictEqual(options.resolvedGoal, 'draw a fox',
+    'forced image dispatch must retain its resolved goal for durable recovery');
   assert.deepStrictEqual(options.attachments, []);
   assert.ok(fixture.calls.some(call => call[0] === 'finish' && call[2] === fixture.run));
 }

@@ -15,6 +15,7 @@
     IMAGE_JOB_KEY: 'openapi-chat-image-job-v1',
     CHAT_JOB_KEY: 'openapi-chat-image-chat-job-v1',
     IMAGE_BATCH_JOB_KEY: 'openapi-chat-image-batch-v1',
+    SKIN_KEY: 'openapi-chat-image-skin-v1',
     IMAGE_DB: 'openapi-chat-image-db-v1',
     IMAGE_STORE: 'images',
   });

@@ -166,6 +166,47 @@ function testCompletedImageActionsReuseMessageCompletionLifecycle() {
     fixture.dom.window.close();
   }
 }
+function testCompletedImageActionsDropTheLegacyInlineDownloadRow() {
+  const fixture = createFixture();
+  try {
+    const node = fixture.workflow.addMessage('assistant', '<p>正在生成图片</p>', {
+      html: true, rawText: '正在生成图片', responseIndex: 1, skipSave: true,
+    });
+    node.querySelector('.content').innerHTML = '<div class="generated-image-grid"><div class="generated-image-item"><img class="generated-thumb" data-persisted-src="indexeddb://image-1" data-filename="image-1.png" src="blob:live" /></div></div><div class="image-download-row"><button class="image-icon-btn" data-download-all-images="1" title="下载全部图片"></button></div>';
+
+    const actionsWorkflow = imageActionsWorkflow.createImageActionsWorkflow({
+      document: fixture.document,
+      window: fixture.dom.window,
+      navigator: fixture.dom.window.navigator,
+      File: fixture.dom.window.File,
+      Image: fixture.dom.window.Image,
+      URL: fixture.dom.window.URL,
+      fetch: async () => { throw new Error('unexpected fetch'); },
+      getImageBlob: async () => null,
+      toast: () => {},
+      resetActionButtonState: () => {},
+      markActionButtonBusy: () => {},
+      restoreActionButtonSoon: () => {},
+      openImagePreview: () => {},
+      escapeAttr: value => String(value),
+      getImageEditor: () => ({ open: async () => null }),
+      applyImageEdit: async () => {},
+      reconcileMessageActions: completedNode => fixture.workflow.reconcileMessageActions(completedNode, { state: 'ready' }),
+    });
+
+    actionsWorkflow.moveImageActionsToMessageActions(node, { complete: true });
+
+    assert.strictEqual(node.querySelectorAll('.content .image-download-row').length, 0,
+      'the legacy in-bubble download row must be removed once the action moves into the message bar');
+    assert.strictEqual(node.querySelectorAll('[data-download-all-images]').length, 1,
+      'an image message must expose exactly one download-all entry');
+    assert.ok(node.querySelector('.msg-actions [data-download-all-images]'),
+      'the remaining download entry must live in the message action bar');
+  } finally {
+    fixture.dom.window.close();
+  }
+}
+
 function testEnsureMessageActionsRestoresDroppedImageMessageActions() {
   const fixture = createFixture();
   try {
@@ -228,5 +269,6 @@ module.exports = [
   testLiveImageCompletionHydratesImageActionsSynchronously,
   testEnsureMessageActionsRestoresDroppedImageMessageActions,
   testCompletedImageActionsReuseMessageCompletionLifecycle,
+  testCompletedImageActionsDropTheLegacyInlineDownloadRow,
   testMessageActionLifecycleCoversUserPendingTerminalErrorAndClarification,
 ];

@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const taskContinuity = require('../../shared/task-continuity');
 const jobResumeWorkflow = require('../../client/app/job-resume-workflow');
 const submitHelpers = require('../../client/app/submit-workflow.helpers');
 const imageResultWorkflow = require('../../client/app/image-result-workflow');
@@ -373,15 +374,27 @@ async function testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart() 
     jobId: `imgjob-${imageId}`, prompt: imageId, displayItemId: parent.id,
     responseIndex: '0', mode: 'image', status: 'running',
   }));
+  const taskState = taskContinuity.transitionTaskContinuity({
+    goalMode: 'amend',
+    goal: '加入雪山。',
+    previousState: taskContinuity.createReplacementTaskContinuity('生成一张网页背景图。'),
+  });
+  const resolvedGoal = taskContinuity.renderTaskContinuity(taskState);
   saveIndex(storage, sessionId, children, batchId);
   children.forEach(child => storage.setItem(
     submitHelpers.imageBatchChildKey(sessionId, child.jobId),
-    JSON.stringify({ ...childSnapshot(child.jobId, child.prompt), displayItemId: parent.id, batchId }),
+    JSON.stringify({
+      ...childSnapshot(child.jobId, child.prompt),
+      displayItemId: parent.id,
+      batchId,
+      imageContext: { prompt: child.prompt, routePrompt: child.prompt, resolvedGoal, taskState },
+    }),
   ));
   // Simulate the production failure: the parent pointer disappears during a
   // refresh while the durable children and the persisted parent card survive.
   submitHelpers.clearImageBatchIndex(storage, sessionId);
   const waited = [];
+  const renderOptions = [];
   let starts = 0;
   const deps = {
     state, window: { ChatUIApp: {} }, setSessionBusy() {}, finishSessionTask() {}, persistSessionDisplay() {},
@@ -394,6 +407,7 @@ async function testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart() 
     startImageGenerationJob: async () => { starts += 1; },
     formatElapsed: () => '0s', jobDurationMs: () => 0,
     imageResultToHtml: async (_data, _elapsed, options) => {
+      renderOptions.push(options);
       const imageId = options.prompt;
       return {
         raw: imageId, html: `<div data-image-id="${imageId}"></div>`, metaText: 'RT 0s',
@@ -420,6 +434,13 @@ async function testResumeRunningBatchChildrenFollowExistingJobsWithoutRestart() 
     const message = state.sessions[0].messages.find(item => item.role === 'assistant');
     assert.deepStrictEqual(JSON.parse(message.imageContext).attachments.map(item => item.imageId), ['cat', 'dog', 'bird'],
       'all reattached children must survive the final canonical batch message');
+    assert.strictEqual(renderOptions.length, children.length);
+    renderOptions.forEach(options => {
+      assert.strictEqual(options.resolvedGoal, resolvedGoal,
+        'every recovered batch child must retain the complete resolved goal');
+      assert.deepStrictEqual(options.taskState, taskState,
+        'every recovered batch child must retain structured task state');
+    });
     assert.strictEqual(submitHelpers.loadImageBatchIndex(storage, sessionId), null,
       'the batch recovery record is cleared only after all reattached jobs complete');
   } finally {

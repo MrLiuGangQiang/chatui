@@ -47,10 +47,12 @@ function testRoutePromptDoesNotInventHistoricalDependencyForSelfContainedInputs(
   assert.match(prompt, /edit_image仅有多个history候选且未选定→followup\+ambiguous，省略target/);
 }
 
-function testRoutePromptDoesNotLetFixedImageModeForceEditForMerge() {
-  const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /auto_mode=false\/current_mode=image/);
-  assert.match(prompt, /不得把“合并\/融合多张图生成一张新图”强行改成 edit_image/);
+function testRoutePromptDoesNotLetFixedModeDecideOperation() {
+  for (const prompt of [routeService.ROUTE_SYSTEM_PROMPT, routeService.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE]) {
+    assert.match(prompt, /operation只按本轮交付物决定/);
+    assert.match(prompt, /auto_mode\/current_mode只筛选可执行operation，不参与分类/);
+    assert.match(prompt, /写\/做\/生成\/创建不等于生图/);
+  }
 }
 
 module.exports = [
@@ -59,5 +61,5 @@ module.exports = [
   testRoutePromptSeparatesHistoricalFollowupFromContinuationAmendment,
   testRoutePromptPreservesVisualTaskContextAfterUndeliveredDesign,
   testRoutePromptDoesNotInventHistoricalDependencyForSelfContainedInputs,
-  testRoutePromptDoesNotLetFixedImageModeForceEditForMerge,
+  testRoutePromptDoesNotLetFixedModeDecideOperation,
 ];

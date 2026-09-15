@@ -79,7 +79,7 @@ function testBuildStreamCheckpointBoundsTextAndOmitsHistory() {
   assert.ok(record.items[0].rawText.includes('[inline-media-omitted]'));
 }
 
-function testMergeStreamCheckpointOverridesOlderPendingProjection() {
+function testMergeStreamCheckpointRestoresCursorIdentityAndTailMarker() {
   const older = [{ id: 'display-session-a', role: 'assistant', rawText: 'older', responseIndex: '1', pending: '1' }];
   const checkpoint = storeApi.buildStreamCheckpoint('session-a', [longItem('session-a', 'latest')], { now: 50 });
   const merged = storeApi.mergeStreamCheckpointItems(older, checkpoint);
@@ -89,6 +89,34 @@ function testMergeStreamCheckpointOverridesOlderPendingProjection() {
   assert.strictEqual(merged[0].streamCheckpointRecovered, true);
   assert.strictEqual(merged[0].streamCheckpointTailOnly, true);
   assert.strictEqual(merged[0].html, '');
+}
+
+// A long generated artifact used to come back as only the last 64K: the bounded
+// cursor overwrote the durable projection, so the head was gone before the
+// durable job could be followed from its real offset.
+function testMergeStreamCheckpointNeverShrinksADurablePendingProjection() {
+  const fullText = '<!DOCTYPE html><body>' + 'A'.repeat(storeApi.DEFAULT_CONTENT_TAIL_LIMIT + 10000) + '</body></html>';
+  const durable = [{
+    id: 'display-webpage',
+    role: 'assistant',
+    rawText: fullText,
+    reasoningText: 'reasoning-head ' + 'r'.repeat(storeApi.DEFAULT_REASONING_TAIL_LIMIT + 500),
+    responseIndex: '1',
+    jobId: 'chatjob-webpage',
+    outputStarted: true,
+    pending: '1',
+  }];
+  const checkpoint = storeApi.buildStreamCheckpoint('session-webpage', durable, { now: 90 });
+  assert.strictEqual(checkpoint.items[0].streamCheckpoint.tailOnly, true, 'the cursor itself must stay bounded');
+  assert.strictEqual(checkpoint.items[0].rawText.length, storeApi.DEFAULT_CONTENT_TAIL_LIMIT);
+
+  const merged = storeApi.mergeStreamCheckpointItems(durable, checkpoint);
+  assert.strictEqual(merged.length, 1);
+  assert.strictEqual(merged[0].rawText.length, fullText.length, 'the durable text must not shrink to the bounded cursor tail');
+  assert.strictEqual(merged[0].rawText.startsWith('<!DOCTYPE html><body>'), true);
+  assert.strictEqual(merged[0].reasoningText.startsWith('reasoning-head'), true);
+  assert.strictEqual(merged[0].streamCheckpointTailOnly, true, 'the tail marker must survive so UI stays in the recovery state');
+  assert.strictEqual(merged[0].jobId, 'chatjob-webpage');
 }
 
 async function testStoreCoalescesLatestCursorPerSession() {
@@ -127,7 +155,8 @@ async function testStoreDeletesCursorAndAllowsSameSessionIdAgain() {
 
 module.exports = [
   testBuildStreamCheckpointBoundsTextAndOmitsHistory,
-  testMergeStreamCheckpointOverridesOlderPendingProjection,
+  testMergeStreamCheckpointRestoresCursorIdentityAndTailMarker,
+  testMergeStreamCheckpointNeverShrinksADurablePendingProjection,
   testStoreCoalescesLatestCursorPerSession,
   testStoreDeletesCursorAndAllowsSameSessionIdAgain,
 ];

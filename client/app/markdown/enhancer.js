@@ -125,6 +125,7 @@ function enhanceCodeExpansion(wrap, code, options = {}) {
   }
   const sync = (expanded, reason = 'initialize') => {
     const state = expanded ? 'expanded' : 'collapsed';
+    const interactive = reason === 'interactive';
     const stateChanged = wrap.dataset.codeExpansionState !== state;
     if (wrap.classList.contains('code-block-expanded') !== expanded) wrap.classList.toggle('code-block-expanded', expanded);
     if (wrap.classList.contains('code-block-collapsed') === expanded) wrap.classList.toggle('code-block-collapsed', !expanded);
@@ -141,9 +142,16 @@ function enhanceCodeExpansion(wrap, code, options = {}) {
     if (headerToggle.getAttribute('aria-label') !== headerLabel) headerToggle.setAttribute('aria-label', headerLabel);
     if (headerToggle.getAttribute('aria-expanded') !== ariaExpanded) headerToggle.setAttribute('aria-expanded', ariaExpanded);
     wrap.dataset.codeExpansionState = state;
-    if (!expanded) {
-      const pre = code.closest?.('pre') || code.parentElement;
-      if (pre) pre.scrollTop = pre.scrollHeight;
+    // A collapsed block shows one window of a long artifact. Live rendering
+    // (streaming, or a render session right after it finishes) follows the
+    // newest line; a message rebuilt from history - refresh, session switch, or
+    // a canonical re-render marked as static - must show the head of the block,
+    // otherwise a restored webpage reads as if it lost its beginning.
+    const pre = code.closest?.('pre') || code.parentElement;
+    if (pre) {
+      if (expanded) pre.scrollTop = 0;
+      else if (reason === 'static') pre.scrollTop = 0;
+      else pre.scrollTop = pre.scrollHeight;
     }
     if (stateChanged && reason === 'interactive') notifyLayoutChange(expanded);
   };
@@ -161,10 +169,10 @@ function enhanceCodeExpansion(wrap, code, options = {}) {
     wrap.insertBefore(headerToggle, wrap.firstChild);
     headerToggle.addEventListener('click', () => sync(!wrap.classList.contains('code-block-expanded'), 'interactive'));
   }
-  sync(wrap.classList.contains('code-block-expanded'));
+  sync(wrap.classList.contains('code-block-expanded'), options.reason || 'initialize');
 }
 
-function enhanceCodeCopy(root, copyText) {
+function enhanceCodeCopy(root, copyText, options = {}) {
   if (!root?.querySelectorAll) return;
   root.querySelectorAll('pre').forEach((pre) => {
     const code = pre.querySelector('code');
@@ -196,7 +204,7 @@ function enhanceCodeCopy(root, copyText) {
       wrap.insertBefore(btn, wrap.firstChild);
     }
     bindCopyButton(btn, text, copyText);
-    enhanceCodeExpansion(wrap, code || pre);
+    enhanceCodeExpansion(wrap, code || pre, { reason: options.reason });
   });
 }
 
@@ -578,7 +586,7 @@ async function renderMermaidBlocks(root, loader = defaultLoadMermaid, options = 
 
 function enhanceRenderedMarkdown(root, options = {}) {
   if (!root?.querySelectorAll) return Promise.resolve([]);
-  try { enhanceCodeCopy(root, options.copyText); } catch (err) { console.warn('[markdown] code copy enhance failed:', err); }
+  try { enhanceCodeCopy(root, options.copyText, { reason: options.streaming === true ? 'streaming' : 'static' }); } catch (err) { console.warn('[markdown] code copy enhance failed:', err); }
   try {
     if (options.allowResourceLoad === true && !options.streaming) globalThis.ChatUIMarkdownBrowserStreamingRenderer?.restoreMarkdownResources?.(root, { once: options.onceResourceLoad !== false });
     else globalThis.ChatUIMarkdownBrowserStreamingRenderer?.deferMarkdownResources?.(root);
@@ -597,7 +605,7 @@ function enhanceRenderedMarkdown(root, options = {}) {
     measureStage('markdown.wrapTables', () => wrapTables(root));
     if (signal.cancelled) return;
     const pres = [...root.querySelectorAll('pre')];
-    await idleBatch(pres, (pre) => enhanceCodeCopy(pre.parentElement || pre, options.copyText), { signal, batchSize: 4, budgetMs: 12 });
+    await idleBatch(pres, (pre) => enhanceCodeCopy(pre.parentElement || pre, options.copyText, { reason: options.streaming === true ? 'streaming' : 'static' }), { signal, batchSize: 4, budgetMs: 12 });
     if (signal.cancelled) return;
     measureStage('markdown.initMermaidToggleUI', () => initMermaidToggleUI(root, options));
   };

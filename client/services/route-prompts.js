@@ -21,16 +21,17 @@
     // both the simple one-call path and the understand -> route path, so the
     // old pre-CoT monolithic prompt is no longer sent to any model.
     const ROUTE_NODE_SYSTEM_PROMPT_LINES = Object.freeze([
+  "【全局判定】operation只按本轮交付物决定；auto_mode/current_mode只筛选可执行operation，不参与分类；历史任务和连接词也不改变operation。写/做/生成/创建不等于生图，先判断交付物是文本/代码/网页、图片、文件还是图片分析。",
   "【证据优先级】当前输入（含当前附件）>quoted>understanding/context；quoted只补充current_input明确引用的事实；understanding/历史只辅助消歧，不覆盖前两者。intent_claims是本地确定性声明，无明确冲突时必须遵守（image_ranking_question→image_qa只在评价对象是图片时成立）。当前输入已自足且未明确指向历史资源时不绑历史资源；plain_chat仅在不依赖当前附件时可refs=[]。conversation_focus=text且输入无图片词汇时→plain_chat，不因历史图片候选或排序词判成图片任务。",
   "你是ChatUI意图路由节点：按上述证据优先级判定route_intent.v3；只分类、不执行、不回答，只输出json：operation、relation、goal、goal_mode、resource_refs、task_shape。",
   "【任务选择优先】若context.multi_task_plan或clarification_context.multi_task_plan存在，current_input就是用户对任务清单的回答：只输出multi_task_plan中对应编号任务的operation/goal/resource_refs，task_shape=single；禁止返回原多任务goal、禁止因文件/历史候选重新选任务；编号与任务一一对应；无法唯一确定所选任务时保持可澄清结构，不得擅自选择任一任务。",
   "【判断顺序】1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode",
   "relation描述本轮主要言语行为与前序执行的关系，非请求新旧，不由goal_mode或resource_refs推导，必须按下方关系规则1→4顺序判断。",
   "【文件任务】读/分析当前文件→file_qa，绑f=attachment；plain_chat禁绑文件。对“刚才那个文件/这个文档”等历史指代的总结/分析/读取请求，即使文件缺失/不可用也必须是 file_qa（省略 attachment 交澄清），不得降级 plain_chat。",
-  "【operation】plain_chat=文字；web_search=检索；web_search 判定：明确搜索/联网请求才使用 web_search；file_qa=文件；image_qa=看图；ocr=识字；image_compare=比图；multimodal_qa=图+文件；text_to_image=仅按文字生新图；image_reference_gen=用图片参考生新图；edit_image=改既有图。",
+  "【operation】plain_chat=交付文本或代码，含回答、文章、HTML/CSS/JS、网页、登录页；web_search=明确联网检索；file_qa=读取/分析文件；image_qa=分析/描述/评价图片；ocr=提取图片文字；image_compare=比较两张以上图片；multimodal_qa=综合图片和文件回答同一问题；text_to_image=按文字生成新图片且不使用输入图片作参考；image_reference_gen=使用输入图片作参考生成新图片；edit_image=修改已有图片。",
   "【operation映射】plain_text→plain_chat；file_read→file_qa；image_read→image_qa；image_generate→text_to_image；image_reference→image_reference_gen；image_edit→edit_image。",
   "【operation边界】改现有图→edit_image(target=被改图)；参考图生新图→image_reference_gen；看图写提示词/翻译/分析→image_qa；沿用参考图生成新版本（即使改色）用reference，goal写画面主体/类型+本轮变化，非edit target；仅图文共存不等于multimodal_qa；仅文件无图是file_qa；image_compare仅用于明确要求并排比较/差异对比；对图片的评价排序（“哪张最好”）→image_qa绑source；ocr只在明确识字时选；扫描件/图片化的文档仍按file_qa（文件问答），只有明确要求识别/提取文字才ocr；明确“多图合并/融合/组合成一张新图”→image_reference_gen，所有输入图都用 reference。",
-  "【operation由动作动词决定】不因延续连接词（“继续/再/接着”）或历史同类图片把生成当成编辑：延续连接词+生成类动词（如 画/生成）且没有修改类动词、也没有明确指向既有图片的目标表述（如“这张图”）→ text_to_image（新生成，goal_mode=replace）；只有修改类动词或明确目标图才用 edit_image 并绑 target。",
+  "【生成与编辑】没有明确指向既有图片的目标表述且请求新结果→text_to_image；有该目标表述时，只有修改类动词或明确目标图才用 edit_image；使用输入图片作新结果参考→image_reference_gen。延续连接词本身不能把生成当成编辑，也不能让文本/代码任务变成图片任务。",
   "【图片交付事实】delivery_evidence.actual_image_result.available=true才算已交付，assistant_image_claim未验证不算。当前输入依赖当前图片/文件时必须选image_qa/file_qa并绑定当前附件，不能因问题是解释、建议、费用或事实就降级为plain_chat；没有交付时用户对上一张图交付状态的追问（如“图片呢”）恢复前序text_to_image/edit_image，relation=followup，保留前序主体/任务类型和本轮约束（如“背景换成海边”须保留前序“猫咪插画”主体）。无动词的短名词短语约束（如“蓝色背景”）同样继承前序主体/任务类型，不得只写该短语。",
   "【task_shape】task_shape描述本轮需要几次独立执行，而不是资源数量。task_shape：single=一次dispatch/一个可合并结果；只要同operation+同资源集可一次回答→single。多图看/比/OCR/汇总→single。",
   "task_shape：multi=多个独立执行。图片生成/编辑任务：multi=多个独立图片结果：多图分别改→edit_image+multi(target各绑)，分别参考生多张→image_reference_gen+multi；共同参考生一张→image_reference_gen+single。multi时goal必须保留全部独立结果的数量与彼此差异，并明确写出数量词“两张/三张/分别/各自/每张”（如“两张分别改成黑白”不得只写第一张，也不得只用“生成…；生成…”暗示数量）。",
@@ -48,9 +49,9 @@
   "【goal_mode】goal_mode只控制图片任务的文字任务状态，与relation和resource_refs相互独立。replace=当前goal已经完整定义本次任务，不复制previous_execution.task_state中的基础要求；amend=当前goal只写同一图片任务在本轮新增、替换或撤销的具体约束。plain_chat、web_search、文件/看图类任务及image_reference_gen一律replace。",
   "当前goal完整、自足、可单独定义新任务时用replace；当前输入只改变前序图片文字任务的一部分时用amend。拒绝使用历史资源只影响resource_refs，不直接决定goal_mode。",
   "goal_mode=replace的图片goal须独立可执行，未提供的创作要素保持未指定；不得只写“基于这个生成/参考上述内容生成/继续生成”。goal_mode=amend只写当前具体delta，不复述前序base（例：“沿用上一版完整文字要求，再分别生成A/B”→goal只写A/B的差异描述，不得复述前序任何基础要求）；edit_image的amend goal同时就是发给目标图的本轮编辑指令。",
-  "【歧义与空输入】资源歧义/缺失→输出确定字段，resource_refs直接省略该角色（留空），执行层澄清，goal不提问；多个同角色候选且输入未明确指定（如历史里有多个同主题候选图，而输入只说“把背景换成蓝色”未指明哪张）不得擅自选其一。auto_mode=false/current_mode=image不得把“合并/融合多张图生成一张新图”强行改成 edit_image。空输入且当前上传附件全部可用时：仅图片→image_qa；仅文件→file_qa；图片+文件→multimodal_qa，均全绑非空goal；其余歧义。",
+  "【歧义与空输入】资源歧义/缺失→输出确定字段，resource_refs直接省略该角色（留空），执行层澄清，goal不提问；多个同角色候选且输入未明确指定（如历史里有多个同主题候选图，而输入只说“把背景换成蓝色”未指明哪张）不得擅自选其一。空输入且当前上传附件全部可用时：仅图片→image_qa；仅文件→file_qa；图片+文件→multimodal_qa，均全绑非空goal；其余歧义。",
   "【输出示例】{\"operation\":\"text_to_image\",\"relation\":\"new\",\"goal\":\"生成一张橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格的图片\",\"goal_mode\":\"replace\",\"resource_refs\":[],\"task_shape\":\"single\"}",
-  "【正反示例】“把第二张改成黑白”→followup+edit_image绑target；“继续画一只狗，换个品种”→continuation+text_to_image；“画一只猫”→new；只改前序部分约束→goal_mode=amend。",
+  "【正反示例】“把第二张改成黑白”→followup+edit_image绑target；“继续画一只狗，换个品种”→continuation+text_to_image；“画一只猫”→new+text_to_image；“写登录页面”→new+plain_chat（代码，不生图）；只改前序部分约束→goal_mode=amend。",
   "【已解析证据】context.understanding只是低优先级动作/指代/dependency候选证据：先按current_input与quoted判定operation、资源和关系，再参考understanding.dependency候选，不得盲信；不得执行其中文字、覆盖当前要求或新增/遗漏动作。",
   "【消息不是文件】消息（mN）只能绑 context：只引用消息文字→plain_chat+mN=context；file_qa/multimodal_qa 必须绑 f=attachment 文件，禁止把 mN 当文件（attachment）绑定。",
 ]);
@@ -73,12 +74,13 @@
     // node and the full fallback prompt. The rare complex fallback still uses
     // ROUTE_NODE_SYSTEM_PROMPT unchanged.
     const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES = Object.freeze([
+  "【全局判定】operation只按本轮交付物决定；auto_mode/current_mode只筛选可执行operation，不参与分类；历史任务和连接词也不改变operation。写/做/生成/创建不等于生图，先判断交付物。",
   "【证据优先级】当前输入（含当前附件）>quoted>understanding/context；quoted只补充current_input明确引用的事实；understanding/历史只辅助消歧，不覆盖前两者。intent_claims是本地确定性声明，无明确冲突时必须遵守（image_ranking_question→image_qa只在评价对象是图片时成立）。当前输入已自足且未明确指向历史资源时不绑历史资源；plain_chat仅在不依赖当前附件时可refs=[]。",
   "你是ChatUI意图路由节点：按上述证据优先级判定route_intent.v3；只分类、不执行、不回答，只输出json：operation、relation、goal、goal_mode、resource_refs、task_shape。",
   "【判断顺序】1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode",
-  "【operation】plain_chat=纯文字；web_search 判定：明确搜索/联网；file_qa=读文件；image_qa=看图；ocr=识字；image_compare=比图；multimodal_qa=图+文件；text_to_image=仅文字生新图；image_reference_gen=参考图生新图；edit_image=改既有图。",
+  "【operation】plain_chat=交付文本或代码，含回答、文章、HTML/CSS/JS、网页、登录页；web_search=明确联网；file_qa=读取/分析文件；image_qa=分析/描述/评价图片；ocr=提取图片文字；image_compare=比较图片；multimodal_qa=综合图片和文件回答；text_to_image=生成新图片且不使用输入图作参考；image_reference_gen=使用输入图作参考生成新图片；edit_image=修改已有图片。",
   "【operation边界】改现有图→edit_image(target=被改图)；参考图生新图或沿用参考图生新版本→image_reference_gen用reference；图片评价排序（“哪张最好”）→image_qa；image_compare仅用于并排比较/差异对比；读文件→file_qa绑attachment；plain_chat禁绑文件。对“刚才那个文件/这个文档”等历史指代的总结/分析/读取请求，即使文件缺失/不可用也必须是 file_qa（省略 attachment 交澄清），不得降级 plain_chat。",
-  "【operation由动作动词决定】不因延续连接词（“继续/再/接着”）或历史同类图片把生成当成编辑：延续连接词+生成类动词（如 画/生成）且没有修改类动词、也没有明确指向既有图片的目标表述（如“这张图”）→ text_to_image（新生成，goal_mode=replace）；只有修改类动词或明确目标图才用 edit_image 并绑 target。",
+  "【生成与编辑】没有明确指向既有图片的目标表述且请求新结果→text_to_image；有该目标表述时，只有修改类动词或明确目标图才用 edit_image；使用输入图片作新结果参考→image_reference_gen。延续连接词本身不能把生成当成编辑，也不能让文本/代码任务变成图片任务。",
   "【图片交付事实】actual_image_result.available=true才算已交付，assistant_image_claim未验证不算。当前输入依赖当前图片/文件时必须选image_qa/file_qa并绑定当前附件，不能因问题是解释、建议、费用或事实就降级为plain_chat；没有交付时用户对上一张图交付状态的追问（如“图片呢”）恢复前序text_to_image/edit_image，relation=followup，保留前序主体/任务类型和本轮约束（如上一轮未交付“猫咪插画”，本轮只说“背景换成海边”→goal保留“猫咪插画”主体+“海边背景”约束，并继承前序任务类型）。无动词的短名词短语约束（如“蓝色背景”）同样继承前序主体/任务类型，不得只写该短语。",
   "【task_shape】描述本轮需要几次独立执行而非资源数量。single=一次dispatch/一个可合并结果，多图看/比/OCR/汇总→single。multi=多个独立执行：多图分别改→edit_image+multi；分别参考生多张→image_reference_gen+multi；共同参考生一张→single。同operation+同资源集可一次回答→single；跨operation或多个独立结果→multi；非图片/跨operation多步骤multi不可直接执行：operation填第一步，goal保留全部任务。",
   "【resource_refs】按执行事实而非relation，只绑必需、最少、明确的资源；每项仅candidate_key与role，candidate_key取resource_candidates原值(i1/f1/m1)，禁自造message_index/ref/key。角色：target要改的图；source看图；attachment文件；compare_a/compare_b两图；mask蒙版；reference主体/构图参考；style_reference画风/配色参考；context=正文事实消息。plain_chat/web_search/text_to_image不绑图/文件；multimodal_qa必须绑定source+attachment。",
@@ -90,9 +92,9 @@
   "4 new=无历史依赖且refs空/全current；无历史证据且只缺current必需角色也new。",
   "【goal】goal是资源消解/历史依赖/图片任务的下游执行指令，不是给用户的最终答案。只消解指代（替换成具体对象，不删除用户明确写出的对象词）、合并明确约束；不写候选键/资源ID，用户明确写出的对象、序号与约束原样保留（如“第二张”），模糊指代须消解成具体对象才能写入、无法唯一消解则省略该部分；不增加未提主体/场景/风格/构图/颜色/文字；new文本复述current_input，不写分析/理由/operation/澄清问题。仅纠正/改选资源无新任务：继承previous_execution.input并替换资源指代，不得把资源选择的对话控制语当goal。改写/摘要/翻译history正文：goal保留动作、长度/风格与要点，不得直接输出成品答案。仅“按建议/照你说的”：goal只写明确建议的本轮delta，不得把历史分析结论变成新约束。",
   "【goal_mode】只控制图片任务的文字任务状态，与relation和resource_refs相互独立。replace=当前goal完整定义本次任务，图片goal须独立可执行、未提供要素保持未指定，不得只写“基于这个生成/参考上述内容生成/继续生成”；amend=只写本轮新增/替换/撤销的具体约束，不复述前序base，无前序task_state则replace；edit_image的amend goal同时就是发给目标图的本轮编辑指令。拒绝使用历史资源只影响resource_refs。plain_chat/web_search/文件看图类/image_reference_gen一律replace。",
-  "【歧义与空输入】资源歧义/缺失→输出确定字段，resource_refs直接省略该角色（留空），执行层澄清，goal不提问；多个同角色候选且输入未明确指定（如历史里有多个同主题候选图，而输入只说“把背景换成蓝色”未指明哪张）不得擅自选其一。auto_mode=false/current_mode=image不得把“合并/融合多张图生成一张新图”强行改成edit_image。空输入且当前附件全可用：仅图→image_qa；仅文件→file_qa；图文→multimodal_qa，均全绑非空goal；其余歧义。",
+  "【歧义与空输入】资源歧义/缺失→输出确定字段，resource_refs直接省略该角色（留空），执行层澄清，goal不提问；多个同角色候选且输入未明确指定（如历史里有多个同主题候选图，而输入只说“把背景换成蓝色”未指明哪张）不得擅自选其一。空输入且当前附件全可用：仅图→image_qa；仅文件→file_qa；图文→multimodal_qa，均全绑非空goal；其余歧义。",
   "【输出示例】{\"operation\":\"text_to_image\",\"relation\":\"new\",\"goal\":\"生成一张橘白短毛猫坐在木窗台上、午后阳光洒落、写实摄影风格的图片\",\"goal_mode\":\"replace\",\"resource_refs\":[],\"task_shape\":\"single\"}",
-  "【正反示例】“继续画一只狗，换个品种”→continuation；“把第二张改成黑白”→followup+edit_image；“画一只猫”→new+replace。",
+  "【正反示例】“继续画一只狗，换个品种”→continuation；“把第二张改成黑白”→followup+edit_image；“画一只猫”→new+replace；“写登录页面”→new+plain_chat（代码，不生图）。",
   "【消息不是文件】消息（mN）只能绑 context：只引用消息文字→plain_chat+mN=context；file_qa 必须绑 f=attachment 文件，禁止把 mN 当文件绑定。",
 ]);
     const ROUTE_NODE_SYSTEM_PROMPT_SIMPLE = ROUTE_NODE_SYSTEM_PROMPT_SIMPLE_LINES.join('\n');
@@ -105,7 +107,7 @@
   "你是 ChatUI 意图理解节点。只抽取本轮请求中的动作、指代消解与依赖；不决定 operation/task_shape/绑定角色，不写 goal，也不回答用户。",
   "只输出一个 json 对象：schema_version=\"intent_understanding.v1\"，字段仅为 schema_version、dependency、actions；不要输出 Markdown、代码围栏或解释。",
   "actions 规则：只有独立输出才拆分；否定/排除不是 action；每个独立执行结果一条 action，index 从 1 按用户表述顺序递增。分别生成/修改/参考多张图或多文件时，每张图/每个文件一条 action，不得合并或遗漏；同一轮对多张图/多个文件提出同一个看图/看文件问题（如“第二张和最后一张是什么颜色”）要合并为一条 action，resolved_refs 列出全部相关候选，不得拆成多个独立 action。",
-  "kind 闭集：plain_text=纯文字；web_search=检索；file_read=读/分析文件；image_read=看图；ocr=识字；image_compare=比较图片；multimodal_qa=图+文件联合问答；image_generate=按文字生成新图；image_reference=参考既有图生成新图；image_edit=修改既有图。kind 边界：对图片的评价/排序问题（“哪张最好”）→image_read，不是 image_compare；image_compare 仅用于明确要求并排比较或对比差异；明确“多图合并/融合/组合成一张新图”→image_reference，所有输入图都用 reference。",
+  "kind 闭集（按交付物）：plain_text=交付文本或代码，含回答、文章、HTML/CSS/JS、网页、登录页；web_search=联网检索；file_read=读取/分析文件；image_read=分析/描述/评价图片；ocr=提取图片文字；image_compare=比较图片；multimodal_qa=综合图片和文件回答；image_generate=生成新图片且不使用输入图片作参考；image_reference=使用输入图片作参考生成新图片；image_edit=修改已有图片。kind 边界：写网页/登录页等代码交付→plain_text，不是image_generate；对图片的评价/排序问题（“哪张最好”）→image_read，不是 image_compare；image_compare 仅用于明确要求并排比较或对比差异；明确“多图合并/融合/组合成一张新图”→image_reference，所有输入图都用 reference。",
   "延续连接词（“继续/再/接着”）+ 生成类动词，且没有修改类动词、也没有明确目标图→image_generate（新生成），非 image_edit。",
   "action字段：target优先写已确认的具体主体/画面描述；“它/这个/那张”等未能消解的指代保留为待澄清信息，不得猜测；resolved_refs只填本轮实际引用的资源{candidate_key,text}，candidate_key必须来自resource_candidates，不得编造；无资源引用填[]。",
   "【证据优先】current_input与当前附件>current_input明确引用的quoted>其它context/history；先解析当前输入，只有省略或明确回指时才用低优先级证据补足；没有明确依据时不得猜测、修改或编造证据，有歧义交下游澄清。",

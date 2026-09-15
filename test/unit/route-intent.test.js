@@ -212,7 +212,7 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.match(prompt, /1 operation→2 task_shape→3 resource_refs→4 relation→5 goal→6 goal_mode/);
   assert.match(prompt, /goal是资源消解[、\/]历史依赖[、\/]图片任务的下游执行指令/);
   assert.match(prompt, /plain_chat.*image_qa.*ocr.*image_compare/s);
-  assert.match(prompt, /multimodal_qa.*图\+文件/);
+  assert.match(prompt, /multimodal_qa.*综合图片和文件/);
   assert.match(prompt, /text_to_image.*image_reference_gen.*edit_image/s);
   assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系/);
   assert.match(prompt, /4 new=仅?无历史依赖.*refs空\/全current/);
@@ -238,7 +238,7 @@ function testRoutePromptDefinesTheDecisionBoundaryInProtocolTerms() {
   assert.doesNotMatch(prompt, /respond|change_value missing/);
   assert.doesNotMatch(prompt, /选错了|换个颜色|上一张产品图/,
     'production prompt must define general rules instead of scenario patches');
-  assert.ok(prompt.length <= 7400, `route prompt must remain bounded, got ${prompt.length} chars`);
+  assert.ok(prompt.length <= 7600, `route prompt must remain bounded, got ${prompt.length} chars`);
 }
 module.exports = [
   testRouteIntentV3SeparatesGoalModeAndKeepsLegacyAdaptationExplicit,

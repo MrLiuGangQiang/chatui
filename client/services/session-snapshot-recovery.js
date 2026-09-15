@@ -285,13 +285,41 @@
           return identities;
         }
 
+        function contentLengthOf(message = {}) {
+          const value = message?.content;
+          if (typeof value === 'string') return value.length;
+          if (Array.isArray(value)) {
+            return value.reduce((total, part) => total + (typeof part?.text === 'string' ? part.text.length : JSON.stringify(part || '').length), 0);
+          }
+          return JSON.stringify(value ?? '').length;
+        }
+
         function mergePartialFallbackMessages(durableMessages = [], fallbackMessages = []) {
           const replacementIds = new Set(fallbackMessages.flatMap(message => [...messageMergeIdentities(message)]));
           const retainedDurable = durableMessages.filter(message => {
             const identities = messageMergeIdentities(message);
             return ![...identities].some(identity => replacementIds.has(identity));
           });
-          return compactAdjacentDuplicateMessages([...retainedDurable, ...fallbackMessages]);
+          // A fallback is a bounded compatibility copy whose long messages are
+          // deliberately truncated to a 4096-char tail. It may have a newer
+          // revision than the durable snapshot, but it must never shrink an
+          // already durable same-turn message: the full text is the only copy
+          // that can survive a refresh without turning a generated webpage into
+          // a headless code fragment.
+          const mergedFallback = fallbackMessages.map(fallback => {
+            const matching = durableMessages.find(message => (
+              message.role === fallback.role &&
+              [...messageMergeIdentities(message)].some(identity => messageMergeIdentities(fallback).has(identity))
+            ));
+            if (!matching || contentLengthOf(matching) < contentLengthOf(fallback)) return fallback;
+            return {
+              ...matching,
+              content: matching.content,
+              ...(matching.rawText ? { rawText: matching.rawText } : {}),
+              ...(fallback.metaText ? { metaText: fallback.metaText } : {}),
+            };
+          });
+          return compactAdjacentDuplicateMessages([...retainedDurable, ...mergedFallback]);
         }
 
         function withSnapshotSource(snapshot, durableUpdatedAt = 0) {

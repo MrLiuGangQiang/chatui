@@ -135,6 +135,31 @@
       const reasoning = String(item.reasoningText || '');
       const statusText = typeof deps.isChatStatusText === 'function' ? deps.isChatStatusText : (() => false);
       const started = !!item.outputStarted || !!reasoning || (!!rawText.trim() && !statusText(rawText));
+      if (item.streamCheckpointTailOnly) {
+        // A bounded tail cannot reconstruct a long artifact such as a webpage.
+        // The tail stays the authoritative cursor projection so the durable job
+        // can still be followed; only the rendered message falls back to a
+        // status placeholder until the server replays the full text.
+        const recoveryText = '正在恢复完整内容…';
+        const recoveryHtml = typeof deps.pendingFeedbackHtml === 'function'
+          ? deps.pendingFeedbackHtml(recoveryText)
+          : recoveryText;
+        deps.updateLiveDisplay?.(sessionId, item, 'assistant', recoveryHtml, {
+          html: true,
+          // Keep the bounded tail as the raw projection so the cursor still
+          // reports tailOnly and the durable job can replay from offset zero.
+          rawText,
+          pending: true,
+          reasoning,
+          keepReasoning: !!reasoning,
+          forceDisplay: true,
+          streamKind: 'chat',
+          sessionId,
+          noScroll: true,
+          runToken: options.runToken || '',
+        });
+        return true;
+      }
       if (started) {
         markResumedOutputStarted(sessionId, item);
         const visibleRawText = String(item.rawText || '');
@@ -873,15 +898,31 @@
         if (state.resumingJobs.has(t)) return;
         state.resumingJobs.add(t);
         let outerJob = null;
+        // Keep the session reference in the outer scope: the missing-job
+        // cleanup below must resolve the ghost projection by job identity.
+        const n = state.sessions.find((t) => t.id === e);
         try {
-          const s = (outerJob = loadLatestChatJob(e));
-          if (!s?.id) return void finishSessionTask(e, { resumeKey: t });
-          const n = state.sessions.find((t) => t.id === e);
           if (!n)
             return (
               clearChatJob(e),
               void finishSessionTask(e, { resumeKey: t })
             );
+          const storedJob = (outerJob = loadLatestChatJob(e));
+          const checkpointItem = !storedJob?.id
+            ? (n.display || []).find(item => item?.pending === '1' && /^chatjob-/.test(String(item.jobId || '')))
+            : null;
+          const s = storedJob?.id
+            ? storedJob
+            : checkpointItem?.jobId
+              ? {
+                  id: checkpointItem.jobId,
+                  displayItemId: checkpointItem.id || '',
+                  responseIndex: checkpointItem.responseIndex ?? null,
+                  startedAt: Number(checkpointItem.updatedAt) || Date.now(),
+                }
+              : null;
+          if (!s?.id) return void finishSessionTask(e, { resumeKey: t });
+          if (!storedJob?.id) outerJob = s;
           const activeRun = state.activeRuns?.get(e),
             hasLiveRun = !!(
               activeRun &&
@@ -1144,17 +1185,23 @@
             const s = isMissingJobError(t)
               ? "恢复任务不存在或已失效，已停止恢复，请重新发送"
               : t?.message || String(t);
-            (isMissingJobError(t)
-              ? cleanupStalePendingDisplay(
-                  e,
-                  /正在处理|正在思考|正在恢复聊天任务|已收到/,
-                  s,
-                )
-              : showRunError(e, t, a, findMessageNodeByDisplayItem(a)),
-              isMissingJobError(t) &&
-                e === state.activeSessionId &&
-                !findMessageNodeByDisplayItem(a) &&
-                addMessage("error", s, { rawText: s }));
+            // A missing durable job must clear the ghost projection by job
+            // identity. Matching the placeholder status text is unreliable now
+            // that a tail-only cursor renders an explicit recovery message.
+            const staleItem = isMissingJobError(t)
+              ? (n.display || []).find((item) => (
+                  String(item?.pending || '') === '1' &&
+                  !!s?.id &&
+                  String(item?.jobId || '') === String(s.id)
+                )) || a
+              : null;
+            const staleNode = staleItem ? findMessageNodeByDisplayItem(staleItem) : null;
+            if (isMissingJobError(t)) {
+              if (staleItem) showRunError(e, t, staleItem, staleNode);
+              else if (e === state.activeSessionId) addMessage("error", s, { rawText: s });
+              if (staleItem && !staleNode) deps.removeDisplayItemNode?.(staleItem, e);
+              cleanupStalePendingDisplay(e, /正在处理|正在思考|正在恢复聊天任务|已收到/, s);
+            } else showRunError(e, t, a, findMessageNodeByDisplayItem(a));
           } finally {
             const options = {
               run: resumeRun,

@@ -131,16 +131,32 @@
     });
     for (const item of checkpoint.items) {
       if (!item || (item.pending !== undefined && String(item.pending) !== '1')) continue;
+      const key = checkpointItemKey(item);
+      const tailOnly = !!item.streamCheckpoint?.tailOnly;
+      const existing = key && indexes.has(key) ? merged[indexes.get(key)] : null;
       const restored = {
         ...item,
         html: '',
         pending: '1',
         streamCheckpointRecovered: true,
-        streamCheckpointTailOnly: !!item.streamCheckpoint?.tailOnly,
+        streamCheckpointTailOnly: tailOnly,
         streamCheckpointUpdatedAt: Number(checkpoint.updatedAt || 0),
       };
       delete restored.streamCheckpoint;
-      const key = checkpointItemKey(item);
+      // A cursor only stores a bounded window, so its text can be shorter than
+      // the durable projection for the same item. The longer of the two is the
+      // only text that cannot silently drop the head of a long artifact (for
+      // example a generated webpage); the cursor still contributes identity,
+      // job binding, and the tail-only marker. Resume offsets are derived from
+      // whichever text survives here, never from the shorter one.
+      if (existing) {
+        const cursorContent = String(item.rawText || '');
+        const cursorReasoning = String(item.reasoningText || '');
+        const durableContent = String(existing.rawText || '');
+        const durableReasoning = String(existing.reasoningText || '');
+        if (durableContent.length >= cursorContent.length) restored.rawText = durableContent;
+        if (durableReasoning.length >= cursorReasoning.length) restored.reasoningText = durableReasoning;
+      }
       if (key && indexes.has(key)) merged[indexes.get(key)] = restored;
       else {
         if (key) indexes.set(key, merged.length);

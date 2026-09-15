@@ -6,6 +6,7 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 const { enhanceCodeCopy, COLLAPSIBLE_CODE_MIN_LINES } = require('../../client/app/markdown/enhancer');
 const markdownEngine = require('../../client/app/markdown/markdown-engine');
+const markdownEnhancer = require('../../client/app/markdown/enhancer');
 const streaming = require('../../client/app/markdown/browser-streaming-renderer');
 
 async function withDom(run) {
@@ -123,4 +124,36 @@ async function testHeaderExpansionActionNeverOverlapsCopyAction() {
   });
 }
 
-module.exports = [testLongCodeStartsCollapsedAndCopiesFullSource, testShortCodeDoesNotGetExpansionControl, testOpenStreamingCodeCollapsesAndFollowsLatestOutput, testCompletedStreamingCodeIsCollapsedBeforeItsFinalMount, testHeaderExpansionActionNeverOverlapsCopyAction];
+// A long artifact restored from history (page refresh, session switch) must not
+// look like it lost its beginning: the collapsed code block has to start at the
+// head of the content instead of the live-stream tail window.
+async function testRestoredLongCodeBlockShowsItsHeadNotItsTail() {
+  await withDom(async container => {
+    container.className = 'markdown-body';
+    const source = Array.from({ length: COLLAPSIBLE_CODE_MIN_LINES + 20 }, (_, index) => 'line ' + (index + 1)).join('\n');
+    container.innerHTML = '<div class="code-block"><pre><code class="language-html"></code></pre></div>';
+    const pre = container.querySelector('pre');
+    pre.querySelector('code').textContent = source;
+    Object.defineProperty(pre, 'scrollHeight', { configurable: true, get: () => 1000 });
+    const block = container.querySelector('.code-block');
+
+    // A live stream keeps the newest line visible.
+    markdownEnhancer.enhanceCodeExpansion(block, pre.querySelector('code'), { reason: 'streaming' });
+    assert.ok(block.classList.contains('code-block-collapsed'), 'a long live block starts collapsed');
+    assert.strictEqual(pre.scrollTop, 1000, 'a live stream follows the newest line');
+
+    // The refreshed / restored render path (streaming: false) must show the head.
+    await markdownEnhancer.enhanceRenderedMarkdown(container, { allowResourceLoad: false, streaming: false });
+    assert.ok(block.classList.contains('code-block-collapsed'), 'a restored block stays collapsed');
+    assert.strictEqual(pre.scrollTop, 0, 'a restored block must show the head of the content');
+  });
+}
+
+module.exports = [
+  testLongCodeStartsCollapsedAndCopiesFullSource,
+  testShortCodeDoesNotGetExpansionControl,
+  testOpenStreamingCodeCollapsesAndFollowsLatestOutput,
+  testCompletedStreamingCodeIsCollapsedBeforeItsFinalMount,
+  testHeaderExpansionActionNeverOverlapsCopyAction,
+  testRestoredLongCodeBlockShowsItsHeadNotItsTail,
+];

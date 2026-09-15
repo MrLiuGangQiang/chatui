@@ -12,8 +12,12 @@ function testBackgroundSessionsResumeAndShowBusyStateAfterRestore() {
   assert.ok(app.includes('function resumeBackgroundSessionJobs()'), 'app should coordinate resume work for non-active sessions after a restore');
   assert.ok(app.includes('function clearChatJob(e=state.activeSessionId){const stored=loadChatJob(e,{skipCleanup:!0}),display=loadDisplayChatJob(e),refs=[stored,display]'),
     'missing-job cleanup must remove both localStorage and display-only fallback pointers so refresh cannot repeat a 404');
-  assert.ok(app.includes('a=getSubmitWorkflow().loadPendingSubmit?.(e.id),i=loadImageBatch(e.id);if(!s?.id&&!n?.id&&!a&&!i)return;setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id),e.id===t&&resumeSessionJobs(e.id)'),
+  assert.ok(app.includes('a=getSubmitWorkflow().loadPendingSubmit?.(e.id),i=loadImageBatch(e.id);if(!s?.id&&!n?.id&&!a&&!i&&!hasRecoverablePendingChat(e.id))return;setSessionBusy(e.id,!0),e.id!==t&&resumeSessionJobs(e.id),e.id===t&&resumeSessionJobs(e.id)'),
     'startup recovery must treat a durable multi-image batch as first-class work and resume the active session too');
+  assert.ok(app.includes('function hasRecoverablePendingChat(e){const t=state.sessions.find(s=>s.id===e);return !!getJobWorkflow().hasRecoverablePendingChatJob?.(t?.display||[],{isImagePendingDisplayItem})}'),
+    'a display-only chatjob projection must trigger recovery even without a localStorage job pointer');
+  assert.ok(app.includes('const t=!!(loadImageJob(e)?.id||loadLatestChatJob(e)?.id)||hasRecoverablePendingChat(e);'),
+    'returning to the foreground must also retry display-only chat recovery');
   assert.ok(app.includes('resumeBackgroundSessionJobs();if(!e)return;'), 'returning to the page should also retry background-session recovery');
   assert.ok(app.includes('resumeBackgroundSessionJobs:resumeBackgroundSessionJobs'), 'bootstrap must receive the background-session recovery dependency');
   assert.ok(bootstrap.includes('await loadSessions(),await reconcileRuntimeUpgrade?.(),resumeBackgroundSessionJobs(),loadReasoningPreference()'), 'startup should reconcile the runtime before restoring background jobs');

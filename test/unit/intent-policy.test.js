@@ -82,7 +82,7 @@ function testExplicitWebSearchDirectiveTightensTheOperationSchema() {
 
 function testRoutePromptDocumentsWebSearchAndEditVsReferenceBoundary() {
   const simplePrompt = routeService.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE;
-  assert.match(simplePrompt, /web_search 判定/);
+  assert.match(simplePrompt, /web_search=明确联网/);
   assert.match(simplePrompt, /沿用参考图生新版本/);
   assert.match(simplePrompt, /image_reference_gen用reference/);
 }

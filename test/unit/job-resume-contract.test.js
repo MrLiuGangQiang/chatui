@@ -871,6 +871,166 @@ async function testImageResumeRejectsMissingExecutionContractBeforeNetwork() {
   assert.strictEqual(state.resumingJobs.size, 0);
 }
 
+async function testTailOnlyCheckpointWithoutStoredPointerFollowsServerJobByCheckpointId() {
+  const sessionId = 'resume-chat-checkpoint-fallback';
+  const state = makeState(sessionId);
+  const events = [];
+  const liveUpdates = [];
+  const polls = [];
+  const item = {
+    id: 'display-checkpoint-fallback',
+    role: 'assistant',
+    rawText: 'tail-fragment',
+    reasoningText: '',
+    streamCheckpointRecovered: true,
+    streamCheckpointTailOnly: true,
+    outputStarted: true,
+    pending: '1',
+    jobId: 'chatjob-checkpoint-fallback',
+    responseIndex: '1',
+    updatedAt: Date.now(),
+  };
+  state.sessions[0].display = [item];
+  const deps = {
+    ...commonResumeDeps(state, events),
+    loadLatestChatJob: () => null,
+    clearChatJob: () => events.push('clear-chat'),
+    sessionHasCompletedAssistantForResponse: () => false,
+    takeChatJobLiveItem: () => item,
+    updateLiveDisplay: (_sessionId, liveItem, _role, content, options = {}) => {
+      liveUpdates.push({ ...options, content: String(content || '') });
+      // The bounded tail stays the cursor projection; a resumed durable job
+      // replaces it once the server replay lands.
+      if (!liveItem.streamCheckpointTailOnly) liveItem.rawText = String(options.rawText || '');
+      liveItem.reasoningText = String(options.reasoning || '');
+    },
+    armStreamingOutputFocus() {},
+    updateResumeStreamButton() {},
+    isChatStatusText: () => false,
+    getConfig: () => ({ baseUrl: 'https://example.invalid/v1' }),
+    getChatJob: async (jobId, options) => {
+      polls.push({ jobId, offsets: options.resumeOffsets });
+      return { status: 'running', data: { choices: [{ message: { content: 'full-page-source' } }] } };
+    },
+    waitChatJob: async (_jobId, onEvent) => {
+      const done = { status: 'done', data: { choices: [{ message: { content: 'full-page-source' } }] } };
+      onEvent(done);
+      return done.data;
+    },
+    extractChatJobText: value => ({
+      content: String(value?.choices?.[0]?.message?.content || ''),
+      reasoning: '',
+      firstTokenMs: null,
+      durationMs: null,
+    }),
+    updateSessionDisplayItem: () => {},
+    replaceAssistantMessageAt: () => true,
+    saveSessionMessages: async () => {},
+    compactAdjacentDuplicateMessages: messages => messages,
+    cloneMessageList: messages => messages,
+    playDoneSound: () => {},
+    firstTokenTimeText: () => '',
+    addMessage: () => {},
+  };
+
+  await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeChatJob(sessionId);
+
+  assert.strictEqual(polls.length, 1, 'the checkpoint job identity must be used when the pointer is missing');
+  assert.strictEqual(polls[0].jobId, item.jobId);
+  assert.deepStrictEqual(polls[0].offsets, {
+    baseContent: '',
+    baseReasoning: '',
+    contentLength: 0,
+    reasoningLength: 0,
+  }, 'a tail-only checkpoint must replay the durable job from offset zero');
+  assert.strictEqual(events.includes('register'), false, 'the recovered display item must not create a second job');
+  assert.strictEqual(liveUpdates[0]?.content, '正在恢复完整内容…', 'the provisional tail must not be rendered as a long artifact');
+  assert.strictEqual(liveUpdates[0]?.html, true, 'the recovery placeholder must render as status html, not raw content');
+  assert.notStrictEqual(item.rawText, '正在恢复完整内容…', 'the bounded tail must stay the resumable cursor projection');
+  assert.strictEqual(item.rawText, 'full-page-source');
+  assert.strictEqual(item.streamCheckpointRecovered, undefined);
+  assert.strictEqual(item.streamCheckpointTailOnly, undefined);
+  assert.strictEqual(liveUpdates.at(-1)?.rawText, 'full-page-source');
+}
+
+async function testMissingDurableJobTurnsCheckpointTailIntoInterruptedError() {
+  const sessionId = 'resume-chat-checkpoint-missing';
+  const state = makeState(sessionId);
+  const events = [];
+  const errors = [];
+  const cleanupCalls = [];
+  const item = {
+    id: 'display-checkpoint-missing',
+    role: 'assistant',
+    rawText: 'div class="input-wrapper">',
+    reasoningText: '',
+    streamCheckpointRecovered: true,
+    streamCheckpointTailOnly: true,
+    outputStarted: true,
+    pending: '1',
+    jobId: 'chatjob-checkpoint-missing',
+    responseIndex: '1',
+  };
+  state.sessions[0].display = [item];
+  const deps = {
+    ...commonResumeDeps(state, events),
+    loadLatestChatJob: () => null,
+    clearChatJob: () => events.push('clear-chat'),
+    sessionHasCompletedAssistantForResponse: () => false,
+    takeChatJobLiveItem: () => item,
+    updateLiveDisplay: () => {},
+    armStreamingOutputFocus() {},
+    updateResumeStreamButton() {},
+    isChatStatusText: () => false,
+    getConfig: () => ({ baseUrl: 'https://example.invalid/v1' }),
+    getChatJob: async () => {
+      const error = new Error('任务不存在或服务已重启');
+      error.status = 404;
+      throw error;
+    },
+    registerChatStreamJob: async () => events.push('register'),
+    waitChatJob: async () => { throw new Error('missing jobs must not enter the live waiter'); },
+    cleanupStalePendingDisplay: (_sessionId, pattern, message) => {
+      cleanupCalls.push([pattern, message]);
+      return null;
+    },
+    // Mirrors the production showRunError contract for this path: the exact
+    // ghost projection is converted into a terminal error item.
+    showRunError: (_sessionId, error, target) => {
+      errors.push([_sessionId, error, target]);
+      if (!target) return;
+      target.role = 'error';
+      target.rawText = error.message;
+      target.pending = '';
+      target.jobId = '';
+    },
+    removeDisplayItemNode: () => events.push('remove-node'),
+    updateSessionDisplayItem: () => {},
+    replaceAssistantMessageAt: () => true,
+    saveSessionMessages: async () => {},
+    compactAdjacentDuplicateMessages: messages => messages,
+    cloneMessageList: messages => messages,
+    firstTokenTimeText: () => '',
+    addMessage: () => {},
+    isMissingJobError: error => /任务不存在/.test(String(error?.message || error)),
+  };
+
+  await jobResumeWorkflow.createJobResumeWorkflow(deps).resumeChatJob(sessionId);
+
+  assert.strictEqual(errors.length, 1, 'a missing durable job must surface an interrupted state');
+  assert.strictEqual(errors[0][2], item, 'the ghost projection must be converted in place, not left as a fake answer');
+  assert.strictEqual(events.includes('register'), false);
+  assert.strictEqual(cleanupCalls.length, 1, 'the stale status placeholder must still be swept once');
+  assert.strictEqual(events.includes('wait'), false, 'a missing job must never enter the live waiter');
+  assert.notStrictEqual(item.rawText, 'div class="input-wrapper">', 'the bounded tail must not survive as an answer');
+  assert.strictEqual(item.pending, '', 'the pending projection must be cleared so the next refresh has no ghost job');
+  assert.strictEqual(item.jobId, '', 'the ghost job id must be detached from the display item');
+  assert.ok(
+    /\u4efb\u52a1\u4e0d\u5b58\u5728/.test(item.rawText) || item.role === 'error',
+    'the item must end in the interrupted error state',
+  );
+}
+
 module.exports = [
   testChatResumeFollowsAnExistingRunningJobWithoutReRegistering,
   testChatResumeRejectsMissingExecutionContractBeforeNetwork,
@@ -884,5 +1044,7 @@ module.exports = [
   testLiveChatResumeHonorsOutputStartedWithoutBufferedText,
   testChatRefreshContinuesReasoningBeyondCompactFrameBoundary,
   testTerminalReasoningResumeFrameIsRenderedWithChatStreamIdentity,
+  testTailOnlyCheckpointWithoutStoredPointerFollowsServerJobByCheckpointId,
+  testMissingDurableJobTurnsCheckpointTailIntoInterruptedError,
   testImageResumeRejectsMissingExecutionContractBeforeNetwork,
 ];

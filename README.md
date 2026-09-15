@@ -573,6 +573,7 @@ Thinking mode is limited to OpenAI GPT-5 models. When enabled, requests only use
 在自动模式下，输入明确生图需求会自动走生图流程。
 
 也可手动切换到生图模式。
+固定模式只筛选“本轮能否按该模式执行”，不会决定请求类型；网页/代码等文本请求不会被自动改判成生图，不匹配时会提示切换模式。
 
 示例：
 

@@ -276,6 +276,34 @@ function testResumeCompletionKeepsExistingDomNode() {
   assert.ok(appSource.includes('restorePendingDisplayItems(e,compactDisplayItems([...e?.display||[]])'), 'a real tail repair must restore pending task projections in the same render transaction');
 }
 
+// A refresh can lose the localStorage job pointer (quota failure, runtime
+// upgrade, or a pointer that was never written). The pending display projection
+// still carries the client chat job id, and that identity alone must be enough
+// to keep following the server-owned job instead of silently keeping a
+// truncated local cursor.
+function testDisplayOnlyChatJobIdentityTriggersRecoveryWithoutStoredPointer() {
+  assert.strictEqual(
+    jobWorkflow.hasRecoverablePendingChatJob([{ id: 'display-1', pending: '1', jobId: 'chatjob-live' }]),
+    true,
+    'a pending display-only chatjob identity must request recovery',
+  );
+  assert.strictEqual(
+    jobWorkflow.hasRecoverablePendingChatJob([{ id: 'display-1', pending: '1', jobId: 'imgjob-live' }], { isImagePendingDisplayItem: () => true }),
+    false,
+    'image pending projections must keep using the image recovery path',
+  );
+  assert.strictEqual(
+    jobWorkflow.hasRecoverablePendingChatJob([{ id: 'display-1', jobId: 'chatjob-live', pending: '' }]),
+    false,
+    'a completed projection must not re-open recovery',
+  );
+  assert.strictEqual(
+    jobWorkflow.hasRecoverablePendingChatJob([{ id: 'display-1', pending: '1', rawText: '正在恢复聊天任务…' }]),
+    false,
+    'status-only placeholders without a job identity cannot be followed',
+  );
+}
+
 module.exports = [
   testDurableChatJobWinsOverLaggingDisplayJobId,
   testUnrelatedDisplayFallbackCannotDiscardDurableChatPayload,
@@ -286,4 +314,5 @@ module.exports = [
   testPendingOwnerProjectsImmediateStatusBeforeFirstResponse,
   testCachedPendingProjectionReconcilesInPlace,
   testResumeCompletionKeepsExistingDomNode,
+  testDisplayOnlyChatJobIdentityTriggersRecoveryWithoutStoredPointer,
 ];

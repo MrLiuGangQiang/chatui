@@ -187,6 +187,20 @@
       || sameResponseIndex(stored.responseIndex, display.responseIndex);
   }
 
+  // A pending chat projection that still carries a client chat job id is
+  // explicit recovery evidence: it must be followed even when the localStorage
+  // job pointer is gone (quota failure, runtime upgrade, or a pointer that was
+  // never written). Without this the session silently keeps a truncated local
+  // cursor and never asks the server for the durable answer.
+  function hasRecoverablePendingChatJob(display = [], { isImagePendingDisplayItem = () => false } = {}) {
+    return (Array.isArray(display) ? display : []).some(item => (
+      !!item &&
+      !!item.pending &&
+      /^chatjob-/.test(String(item.jobId || '')) &&
+      !isImagePendingDisplayItem(item)
+    ));
+  }
+
   function loadLatestChatJob(sessionId, deps = {}) {
     const stored = loadJob(sessionId, deps, 'chat');
     const display = loadDisplayChatJob(sessionId, deps);
@@ -365,7 +379,7 @@
     });
   }
 
-  const api = Object.freeze({ PENDING_SUBMIT_VERSION, readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, pendingSubmitKey, makeSubmissionId, pendingSubmitDisplayId, normalizePendingSubmit, pendingSubmitHasRecoverableInput, findPendingSubmissionMessage, isPendingSubmissionCommitted, loadPendingSubmit, savePendingSubmit, mergePendingSubmit, clearPendingSubmit, isRecoverableJobSnapshot, findPendingSubmitHandoffJob, shouldPreservePendingSubmitOnError, makeTerminalJobError, waitJobEvent });
+  const api = Object.freeze({ PENDING_SUBMIT_VERSION, readJsonStorage, saveJob, loadJob, clearJob, loadDisplayChatJob, loadLatestChatJob, hasRecoverablePendingChatJob, pendingSubmitKey, makeSubmissionId, pendingSubmitDisplayId, normalizePendingSubmit, pendingSubmitHasRecoverableInput, findPendingSubmissionMessage, isPendingSubmissionCommitted, loadPendingSubmit, savePendingSubmit, mergePendingSubmit, clearPendingSubmit, isRecoverableJobSnapshot, findPendingSubmitHandoffJob, shouldPreservePendingSubmitOnError, makeTerminalJobError, waitJobEvent });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppJobWorkflow = api;
   if (root?.window) root.window.ChatUIAppJobWorkflow = api;

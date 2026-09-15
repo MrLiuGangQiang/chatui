@@ -141,9 +141,49 @@ function testMetadataFailureRetriesAfterFallbackRecovery() {
   assert.strictEqual(result.fallbackRetained, true);
 }
 
+
+async function testNewerBoundedFallbackNeverShrinksDurableFullMessage() {
+  const localStorage = createStorage({ maxValueLength: 200000 });
+  const sessionId = 'session-fallback-newer';
+  const full = '<!DOCTYPE html><html><body>HEAD_MARKER' + 'A'.repeat(10000) + '</body></html>';
+  const durable = {
+    id: sessionId,
+    snapshotVersion: 2,
+    updatedAt: 100,
+    messages: [{ role: 'assistant', content: full, rawText: full, responseIndex: '1' }],
+    pendingDisplay: [],
+    lastGeneratedImage: null,
+  };
+  const recovery = recoveryApi.createSessionSnapshotRecovery({
+    localStorageRef: localStorage,
+    sessionStoreApi: { buildSessionSnapshot: snapshot => ({ ...snapshot }) },
+    snapshotCommitWaitMs: 0,
+    setTimeoutRef: globalThis.setTimeout,
+    clearTimeoutRef: globalThis.clearTimeout,
+    logger: { warn() {} },
+    snapshotStore: {
+      async getSnapshot() { return { ...durable }; },
+      async putSnapshot() {},
+      async deleteSnapshot() {},
+    },
+  });
+  // The fallback is newer but is only a bounded tail of the same message.
+  assert.strictEqual(recovery.writeSnapshotFallback({
+    ...durable,
+    updatedAt: 200,
+    messages: [{ role: 'assistant', content: full, rawText: full, responseIndex: '1' }],
+  }, 0), true);
+  const restored = await recovery.readLatestSnapshot(sessionId);
+  assert.strictEqual(restored.messages.length, 1);
+  assert.strictEqual(restored.messages[0].content, full,
+    'the full durable message must win over a newer bounded fallback tail');
+  assert.ok(restored.messages[0].content.startsWith('<!DOCTYPE html>'));
+}
+
 module.exports = [
   testSessionFallbackNeverSerializesTheWholeConversation,
   testSingleDocumentSizedMessageIsTruncatedInTheFallback,
   testQuotaPurgesLegacyFullHistoryFallbackRecords,
   testMetadataFailureRetriesAfterFallbackRecovery,
+  testNewerBoundedFallbackNeverShrinksDurableFullMessage,
 ];

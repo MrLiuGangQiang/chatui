@@ -45,7 +45,7 @@ function testUnderstandNodeOwnsItsProtocolAndSplitsIndependentImageActions() {
     'the understand node must not carry route decision-order instructions');
   assert.doesNotMatch(UNDERSTAND_PROMPT, /goal_mode/,
     'the understand node must not write route goal-mode decisions');
-  assert.ok(UNDERSTAND_PROMPT.length <= 2800, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
+  assert.ok(UNDERSTAND_PROMPT.length <= 2900, `understand prompt must stay bounded, got ${UNDERSTAND_PROMPT.length}`);
 }
 
 function testRouteNodeOwnsItsProtocolAndKeepsRelationRulesGrouped() {
@@ -61,7 +61,7 @@ function testRouteNodeOwnsItsProtocolAndKeepsRelationRulesGrouped() {
   // The full fallback prompt carries a consolidated positive/negative
   // example block (relation/goal_mode/resource disambiguation) in addition
   // to the single JSON output example, so it may reach 6400 characters.
-  assert.ok(ROUTE_NODE_PROMPT.length <= 7400, `route node prompt must stay bounded, got ${ROUTE_NODE_PROMPT.length}`);
+  assert.ok(ROUTE_NODE_PROMPT.length <= 7600, `route node prompt must stay bounded, got ${ROUTE_NODE_PROMPT.length}`);
 }
 
 function testRuntimePayloadsUseNodePromptsInsteadOfTheLegacyMonolith() {
@@ -257,7 +257,7 @@ function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
   // every reachable decision rule; size can only be reduced by removing rules
   // the deterministic complexity gate proves unreachable.
   const simple = prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE;
-  assert.ok(simple.length <= 4400, 'simple route prompt may not grow unbounded, got ' + simple.length);
+  assert.ok(simple.length <= 4500, 'simple route prompt may not grow unbounded, got ' + simple.length);
   assert.match(simple, /把生成当成编辑/);
   assert.match(simple, /消息（mN）只能绑 context/);
   assert.match(simple, /file_qa[\s\S]*f=attachment/);
@@ -273,8 +273,10 @@ function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
     'negated resource policies must not rewrite operation/goal_mode');
   assert.match(simple, /拒绝使用历史资源只影响resource_refs/,
     'refusing historical resources must not silently change goal_mode');
-  assert.match(simple, /auto_mode=false\/current_mode=image/,
-    'manual image mode must keep the merge-vs-edit boundary');
+  assert.match(simple, /operation只按本轮交付物决定/,
+    'operation must be determined by the deliverable');
+  assert.match(simple, /auto_mode\/current_mode只筛选可执行operation，不参与分类/,
+    'manual mode filtering must not decide operation');
 }function testRouteRelationOrderReferencesTheNumberedRulesExplicitly() {
   const prompt = ROUTE_NODE_PROMPT;
   assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系[^\n]*必须按下方关系规则1→4顺序判断/);
@@ -444,7 +446,7 @@ function testRouteNodePromptsKeepTheComplexPathCompleteWithTheFullRuleSet() {
   // reduced variant, justified by its deterministic complexity gate.
   assert.strictEqual(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT, prompts.ROUTE_NODE_SYSTEM_PROMPT,
     'the understand -> route path must carry the complete rule set (COMPACT == FULL)');
-  assert.ok(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT.length <= 7400,
+  assert.ok(prompts.ROUTE_NODE_SYSTEM_PROMPT_COMPACT.length <= 7600,
     'the complete complex-path prompt must stay bounded');
 }
 

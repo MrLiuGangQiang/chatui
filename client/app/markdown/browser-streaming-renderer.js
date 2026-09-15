@@ -308,6 +308,9 @@
       root?.querySelectorAll?.('pre').forEach(pre => {
         try {
           const wrap = pre.closest?.('.code-block');
+          // Still inside the live render session, so a collapsed block keeps its
+          // newest line visible. A later canonical re-render (refresh, session
+          // switch) goes through the static enhancer path and shows the head.
           enhanceCodeExpansion(wrap, pre.querySelector('code') || pre);
         } catch {}
       });
@@ -319,6 +322,10 @@
     const enhanceCodeExpansion = (wrap, code) => {
       try {
         global.ChatUIMarkdownEnhancer?.enhanceCodeExpansion?.(wrap, code, {
+          // This pass runs inside a live render session: a collapsed block keeps
+          // its newest line visible until the message is re-rendered from
+          // canonical history, which starts at the head of the block.
+          reason: 'streaming',
           onLayoutChange: change => notifyLayoutChange(change),
         });
       } catch {}

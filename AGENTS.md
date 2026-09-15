@@ -58,7 +58,7 @@ Allowed: server and browser layers may depend on `shared/`; high-level orchestra
 
 - `npm ci` - install locked dependencies (Node >= 20.19.0; `.nvmrc` and Docker use 22).
 - `npm start` - run locally on port 8765. Do not change the port.
-- `npm run check` - full gate: project checks, architecture checks, syntax checks, and all tests. Run after every change.
+- `npm run check` - full gate orchestrated by `scripts/check-all.js` in one process: project checks, architecture checks, syntax checks (in-process parse, failures re-confirmed by `node --check`), and all tests (the runner auto-shards suites across parallel shard processes; `--serial` or `--jobs=1` forces single-process). Run the full gate only when committing code or preparing a release - never after every edit. During iteration use focused `npm test -- <fragment>` only; small style or copy changes need no gate run at all.
 - `npm test -- <path-or-fragment>` - focused tests, e.g. `npm test -- server-hardening`.
 - `node test/run-tests.js <file>` - invoke the custom runner directly. Never run a suite file directly as test evidence.
 - `npm run eval:intent` - run the intent-routing evaluation.
@@ -131,5 +131,5 @@ For a hotfix that only repairs packaging or deployment, still follow the complet
 - Keep browser, server, and shared-code boundaries described in `docs/architecture.md`.
 - Preserve root static-entry assets unless the static server, Docker image, tests, and documentation are updated together.
 - Add new tests to `test/unit/` or `test/smoke/` only; the removed `test/legacy/` directory must stay removed.
-- Keep package scripts, CI, Docker validation, and documentation aligned. Run `npm run check` after changes.
+- Keep package scripts, CI, Docker validation, and documentation aligned. Run `npm run check` before committing or releasing, not after every edit.
 - Do not commit generated reports, logs, local editor state, or secrets.

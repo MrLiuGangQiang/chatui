@@ -14,6 +14,7 @@ const REQUIRED_SCRIPTS = [
   'check:project',
   'check:architecture',
   'check:syntax',
+  'check:all',
   'check',
   'test',
   'eval:intent',

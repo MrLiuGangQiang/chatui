@@ -62,7 +62,7 @@ npm test
 
 统计/反馈访问校验使用 TTL+LRU 有界缓存和 in-flight Promise 合并；统计刷新限流桶有全局上限、过期 sweep 和最旧桶淘汰。默认参数可通过 `USAGE_ACCESS_*`、`MAX_USAGE_REFRESH_BUCKETS`、`USAGE_REFRESH_SWEEP_INTERVAL_MS` 调整。
 
-runner 会按 `unit/`、`smoke/` 递归发现 `*.test.js`（已移除的 `legacy/` 不再参与发现），在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
+runner 会按 `unit/`、`smoke/` 递归发现 `*.test.js`（已移除的 `legacy/` 不再参与发现）；全量运行时 runner 会把 suite 自动分配到多个 shard 进程并行执行（默认自适应 CPU 核数、上限 6 个 shard），shard 内部仍在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
 
 ### 2.1 聚焦到一个测试文件
 
@@ -104,6 +104,15 @@ npm test -- --timeout=20000 unit/server-hardening.test.js
 
 也可以设置 `CHATUI_TEST_TIMEOUT_MS`。默认每项测试超时为 10 秒。
 
+控制并行 shard：
+
+```bash
+npm test -- --jobs=4   # 用 4 个 shard 进程并行
+npm test -- --serial   # 退回单进程串行
+```
+
+也可以设置 `CHATUI_TEST_JOBS`。未指定时，匹配文件少于 8 个保持单进程串行，全集自动分片。日常开发只跑受影响的最小聚焦测试；`npm run check` 全量门禁只在提交代码和发版前执行一次。
+
 ## 3. 测试分层
 
 - `test/unit/`：纯函数、模块、契约、状态机、错误分支和可注入依赖测试；
@@ -136,7 +145,7 @@ npm test -- job-ownership job-routes server-hardening
 
 ## 4. 同进程测试的清理要求
 
-runner 不为每项测试创建独立进程。它会在每项测试开始前记录真实 `globalThis` 自有属性的描述符，并在测试结束后（包括失败路径）自动删除新增的直接属性、恢复被替换的直接属性；新增且不可配置的全局属性会让清理失败，防止污染被静默接受。
+runner 不为每项测试创建独立进程（全量运行的 shard 进程在分片内同样顺序复用多项测试）。它会在每项测试开始前记录真实 `globalThis` 自有属性的描述符，并在测试结束后（包括失败路径）自动删除新增的直接属性、恢复被替换的直接属性；新增且不可配置的全局属性会让清理失败，防止污染被静默接受。
 
 该保护不会递归清理对象内部状态，也不负责外部资源。测试套件仍须使用 `try/finally`，至少处理适用的项目：
 
@@ -160,22 +169,23 @@ runner 不为每项测试创建独立进程。它会在每项测试开始前记�
 npm run check
 ```
 
-当前按以下顺序执行：
+`npm run check` 由 `scripts/check-all.js` 在单个 Node 进程内按以下顺序编排执行（避免 Windows 下每步都经过一次 npm 启动开销）；各步骤仍可继续用 `npm run check:project`、`npm run check:architecture`、`npm run check:syntax` 单独运行：
 
-1. `npm run check:project`
+1. 项目检查（`check-project.js`）
    - 校验 package 基本信息和 `private: true`；
    - 校验 `version.json` 格式，并确认 `package.json`、`package-lock.json` 镜像字段与它一致；
    - 校验要求的 package scripts；
    - 校验根静态文件存在，并检查静态服务与 Docker 镜像的打包约束。
-2. `npm run check:architecture`
+2. 架构检查（`check-architecture.js`）
    - 限制根 `app.js` 大小；
    - 禁止超过 baseline 的 legacy `with (...)`；
    - 限制浏览器 `ChatUI*` 全局 namespace 增长。
-3. `npm run check:syntax`
-   - 对根 `app.js`、`server.js` 及 `client/`、`server/`、`shared/`、`scripts/`、`test/` 下的 JavaScript 执行 `node --check`；
+3. 语法检查（`check-syntax.js`）
+   - 对根 `app.js`、`server.js` 及 `client/`、`server/`、`shared/`、`scripts/`、`test/` 下的 JavaScript 做进程内全量语法解析；
+   - 任何解析失败必须以 `node --check` 复核后才判定为错误（`node --check` 是唯一裁决口径，兼容顶层 `return` 与 ESM 重试语义）；
    - 排除 node_modules、vendor、coverage、dist、temp 和测试报告等目录。
-4. `npm test`
-   - 运行 runner 选择到的全部 legacy、unit 和 smoke suite。
+4. `node test/run-tests.js`（全部测试）
+   - 运行 runner 选择到的全部 unit 和 smoke suite，suite 自动分片到多个 shard 进程并行执行；流式专项 suite 属于全集，`npm run test:streaming` 保留为独立聚焦入口。
 
 当前 `npm run check` **不包含**：
 

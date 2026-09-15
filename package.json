@@ -7,7 +7,8 @@
   "scripts": {
     "check:project": "node scripts/check-project.js",
     "check:syntax": "node scripts/check-syntax.js",
-    "check": "npm run check:project && npm run check:architecture && npm run check:syntax && npm test && npm run test:streaming",
+    "check": "node scripts/check-all.js",
+    "check:all": "node scripts/check-all.js",
     "test": "node test/run-tests.js",
     "eval:intent": "node scripts/evaluate-intent-routing.js",
     "start": "node server.js",

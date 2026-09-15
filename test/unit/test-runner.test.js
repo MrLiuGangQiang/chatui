@@ -4,14 +4,19 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const {
+  AUTO_PARALLEL_MIN_FILES,
   DEFAULT_TIMEOUT_MS,
+  MAX_AUTO_JOBS,
   TEST_DIRECTORIES,
   declaredTestNames,
   discoverTestFiles,
   parseCliArgs,
+  resolveJobCount,
   restoreGlobalState,
   runTests,
+  shardFiles,
   snapshotGlobalState,
   validateUniqueTestNames,
   validateDeclaredTestExports,
@@ -52,11 +57,70 @@ function testRunnerParsesTimeoutAndRejectsUnknownOptions() {
     list: true,
     help: false,
     timeoutMs: DEFAULT_TIMEOUT_MS,
+    jobs: null,
+    shardSummary: false,
   });
   assert.strictEqual(parseCliArgs(['--timeout=250'], {}).timeoutMs, 250);
   assert.strictEqual(parseCliArgs([], { CHATUI_TEST_TIMEOUT_MS: '900' }).timeoutMs, 900);
+  assert.strictEqual(parseCliArgs(['--jobs=4'], {}).jobs, 4);
+  assert.strictEqual(parseCliArgs([], { CHATUI_TEST_JOBS: '3' }).jobs, 3);
+  assert.strictEqual(parseCliArgs(['--serial'], {}).jobs, 1);
+  assert.strictEqual(parseCliArgs(['--shard-summary'], {}).shardSummary, true);
   assert.throws(() => parseCliArgs(['--timeout=0'], {}), /Invalid test timeout/);
+  assert.throws(() => parseCliArgs(['--jobs=0'], {}), /Invalid shard count/);
   assert.throws(() => parseCliArgs(['--unknown'], {}), /Unknown test option/);
+}
+
+function testRunnerKeepsSmallRunsSerialAndCapsFullGateParallelism() {
+  assert.strictEqual(resolveJobCount({ jobs: null }, AUTO_PARALLEL_MIN_FILES - 1), 1);
+  assert.strictEqual(resolveJobCount({ jobs: null }, 200) <= MAX_AUTO_JOBS, true);
+  assert.strictEqual(resolveJobCount({ jobs: null }, 200) >= 1, true);
+  assert.strictEqual(resolveJobCount({ jobs: 4 }, 10), 4);
+  assert.strictEqual(resolveJobCount({ jobs: 400 }, 12), 12, 'shards never exceed the file count');
+}
+
+function testRunnerShardsCoverEveryFileAndSpreadTheHeaviestFirst() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-runner-shards-'));
+  try {
+    const files = [];
+    for (const [name, size] of [['a.test.js', 1000], ['b.test.js', 400], ['c.test.js', 300], ['d.test.js', 200], ['e.test.js', 100]]) {
+      const filePath = path.join(root, 'unit', name);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, '// ' + '.'.repeat(size) + '\n');
+      files.push(filePath);
+    }
+    const shards = shardFiles(files, 2);
+    assert.strictEqual(shards.length, 2);
+    const flat = shards.flat().map(f => path.basename(f)).sort();
+    assert.deepStrictEqual(flat, ['a.test.js', 'b.test.js', 'c.test.js', 'd.test.js', 'e.test.js']);
+    assert.strictEqual(path.basename(shards[0][0]), 'a.test.js', 'the heaviest file opens the first shard');
+    assert.ok(!shards[0].includes(files[1]), 'the second-heaviest file goes to another shard');
+    assert.strictEqual(shardFiles(files, 99).length, files.length, 'empty shards are never spawned');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testRunnerParallelShardsReportOneAggregateSummary() {
+  const runner = path.join(__dirname, '..', 'run-tests.js');
+  const result = spawnSync(process.execPath, [
+    runner, '--jobs=2', 'unit/version-source.test.js', 'unit/encoding-integrity.test.js',
+  ], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[shard-\d+\] SUITE unit\/version-source\.test\.js/);
+  assert.match(result.stdout, /\[shard-\d+\] SUITE unit\/encoding-integrity\.test\.js/);
+  assert.match(result.stdout, /^All \d+ tests across 2 files passed in \d+ ms \(2 parallel shards\)\.$/m);
+  assert.ok(!/^All \d+ tests across 1 files passed/m.test(result.stdout),
+    'shard children must not emit their own final summary lines');
+}
+
+function testRunnerSerialModeKeepsLegacyOutputUnchanged() {
+  const runner = path.join(__dirname, '..', 'run-tests.js');
+  const result = spawnSync(process.execPath, [runner, '--serial', 'unit/version-source.test.js'],
+    { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /^SUITE unit\/version-source\.test\.js/m);
+  assert.match(result.stdout, /^All \d+ tests across 1 files passed in \d+ ms\.$/m);
 }
 
 function testRunnerRejectsDuplicateNames() {
@@ -186,6 +250,10 @@ module.exports = [
   testRunnerDiscoversAndFiltersFocusedSuites,
   testRunnerDiscoveryExcludesRemovedLegacyDirectory,
   testRunnerParsesTimeoutAndRejectsUnknownOptions,
+  testRunnerKeepsSmallRunsSerialAndCapsFullGateParallelism,
+  testRunnerShardsCoverEveryFileAndSpreadTheHeaviestFirst,
+  testRunnerParallelShardsReportOneAggregateSummary,
+  testRunnerSerialModeKeepsLegacyOutputUnchanged,
   testRunnerRejectsDuplicateNames,
   testRunnerRejectsDeclaredTestsMissingFromExports,
   testRunnerReportsTimeoutWithSuiteAndTestName,

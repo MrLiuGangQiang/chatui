@@ -249,6 +249,28 @@ function testSyntaxCheckFailsClosedWhenControlledPathsAreMissingOrWrongType() {
   }
 }
 
+function testSyntaxCheckFastPathStaysEquivalentToNodeCheckOracle() {
+  // Regression: the in-process vm fast path must never reject a file that
+  // `node --check` accepts (top-level return, ESM-await retry), and must still
+  // report real syntax errors through the authoritative oracle diagnostic.
+  const root = createSyntaxFixture();
+  try {
+    fs.writeFileSync(path.join(root, 'client', 'top-return.js'), 'return undefined;\n', 'utf8');
+    fs.writeFileSync(path.join(root, 'server', 'esm-await.js'), 'const value = await fetch;\nexport {};\n', 'utf8');
+    const accepted = checkSyntax({ root });
+    assert.ok(accepted.files.includes('client/top-return.js'));
+    assert.ok(accepted.files.includes('server/esm-await.js'));
+
+    fs.writeFileSync(path.join(root, 'shared', 'broken.js'), 'const = ;\n', 'utf8');
+    assert.throws(
+      () => checkSyntax({ root }),
+      /JavaScript syntax check failed for 1 file\(s\):[\s\S]*shared\/broken\.js/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 module.exports = [
   testProjectToolingChecksStaticAndPackageContracts,
   testProjectCheckRejectsInvalidPrivateAndScriptContracts,
@@ -259,4 +281,5 @@ module.exports = [
   testSyntaxCheckRecursivelyIncludesControlledSourcesAndExcludesGeneratedDirectories,
   testSyntaxCheckRejectsInvalidNestedControlledJavaScript,
   testSyntaxCheckFailsClosedWhenControlledPathsAreMissingOrWrongType,
+  testSyntaxCheckFastPathStaysEquivalentToNodeCheckOracle,
 ];

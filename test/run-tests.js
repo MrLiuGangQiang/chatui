@@ -1,10 +1,18 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const readline = require('readline');
+const { spawn } = require('child_process');
 
 const TEST_DIRECTORIES = Object.freeze(['unit', 'smoke']);
 const DEFAULT_TIMEOUT_MS = 10_000;
+// Internal protocol between the parallel parent and its serial child shards.
+const SHARD_SUMMARY_PREFIX = '__CHATUI_TEST_SUMMARY__';
+const FINAL_SUMMARY_LINE = /^All \d+ tests across \d+ files passed in \d+ ms\.$/;
+const AUTO_PARALLEL_MIN_FILES = 8;
+const MAX_AUTO_JOBS = 6;
 const RUNNER_GLOBAL = globalThis;
 const RunnerMap = Map;
 const RunnerSet = Set;
@@ -191,9 +199,19 @@ function parseCliArgs(argv = process.argv.slice(2), env = process.env) {
     list: false,
     help: false,
     timeoutMs: positiveInteger(env.CHATUI_TEST_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
+    jobs: positiveInteger(env.CHATUI_TEST_JOBS, 0) || null,
+    shardSummary: false,
   };
   for (const argument of argv) {
     if (argument === '--list') options.list = true;
+    else if (argument === '--serial') options.jobs = 1;
+    else if (argument === '--shard-summary') options.shardSummary = true;
+    else if (argument.startsWith('--jobs=')) {
+      const raw = argument.slice('--jobs='.length);
+      const jobs = positiveInteger(raw, 0);
+      if (!jobs) throw new Error(`Invalid shard count: ${raw}. Expected a positive integer.`);
+      options.jobs = jobs;
+    }
     else if (argument === '--help' || argument === '-h') options.help = true;
     else if (argument.startsWith('--timeout=')) {
       const raw = argument.slice('--timeout='.length);
@@ -301,6 +319,72 @@ async function runTests(records, { timeoutMs = DEFAULT_TIMEOUT_MS, log = console
   return { tests: records.length, files: fileCount, durationMs };
 }
 
+function resolveJobCount(options, fileCount) {
+  if (options.jobs != null) return Math.max(1, Math.min(options.jobs, fileCount));
+  if (fileCount < AUTO_PARALLEL_MIN_FILES) return 1;
+  const cores = os.availableParallelism ? os.availableParallelism() : os.cpus().length;
+  return Math.max(1, Math.min(cores, MAX_AUTO_JOBS, fileCount));
+}
+
+// Focused runs stay serial (process startup dominates); the full gate spreads
+// suites over shard processes, heaviest files first so jsdom suites separate.
+function shardFiles(files, shardCount) {
+  const count = Math.max(1, Math.min(shardCount, files.length));
+  const shards = Array.from({ length: count }, () => []);
+  files
+    .map(file => ({ file, size: fs.statSync(file).size }))
+    .sort((left, right) => right.size - left.size || normalizePath(left.file).localeCompare(normalizePath(right.file)))
+    .forEach((entry, index) => shards[index % count].push(entry.file));
+  return shards;
+}
+
+function spawnShard(shard, index, options, log) {
+  const tag = `shard-${index + 1}`;
+  const args = [__filename, '--serial', '--shard-summary'];
+  if (options.timeoutMs) args.push(`--timeout=${options.timeoutMs}`);
+  // Discovery only returns files under this directory, so filters stay repo-relative.
+  const child = spawn(process.execPath, args.concat(shard.map(f => normalizePath(path.relative(__dirname, f)))), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let summary = null;
+  readline.createInterface({ input: child.stdout }).on('line', line => {
+    if (!line) return;
+    if (line.startsWith(SHARD_SUMMARY_PREFIX)) {
+      summary = JSON.parse(line.slice(SHARD_SUMMARY_PREFIX.length));
+      return;
+    }
+    log(`[${tag}] ${line}`);
+  });
+  readline.createInterface({ input: child.stderr }).on('line', line => {
+    if (line) console.error(`[${tag}] ${line}`);
+  });
+  return new Promise((resolveShard, rejectShard) => {
+    child.on('error', rejectShard);
+    child.on('close', code => resolveShard({ tag, code, summary }));
+  });
+}
+
+async function runSharded(files, options, { log = console.log } = {}) {
+  const startedAt = Date.now();
+  const shards = shardFiles(files, resolveJobCount(options, files.length));
+  const results = await Promise.all(shards.map((shard, index) => spawnShard(shard, index, options, log)));
+  const failed = results.filter(result => result.code !== 0 || !result.summary);
+  if (failed.length) {
+    throw new Error(`Test ${failed.map(f => `${f.tag} (exit ${f.code})`).join(', ')} failed; see the tagged [shard-*] output above.`);
+  }
+  // Cross-shard name uniqueness can only be checked once every shard reported.
+  const owners = new Map();
+  for (const result of results) {
+    for (const [name, file] of result.summary.names) {
+      const previous = owners.get(name);
+      if (previous && previous !== file) throw new Error(`Duplicate test name ${name}: ${previous} and ${file}.`);
+      owners.set(name, file);
+    }
+  }
+  const totalTests = results.reduce((sum, result) => sum + result.summary.tests, 0);
+  const durationMs = Date.now() - startedAt;
+  log(`All ${totalTests} tests across ${files.length} files passed in ${durationMs} ms (${shards.length} parallel shards).`);
+  return { tests: totalTests, files: files.length, durationMs };
+}
+
 function usage() {
   return [
     'Usage: node test/run-tests.js [test-file-or-name ...] [options]',
@@ -308,6 +392,8 @@ function usage() {
     'Options:',
     '  --list              List selected test files without running them',
     '  --timeout=<ms>      Per-test timeout (default: 10000)',
+    '  --jobs=<n>          Run suites across n parallel shard processes',
+    '  --serial            Force single-process serial execution',
     '  -h, --help          Show this help',
   ].join('\n');
 }
@@ -324,14 +410,37 @@ async function main(argv = process.argv.slice(2)) {
     files.forEach(file => console.log(normalizePath(path.relative(__dirname, file))));
     return;
   }
+  const jobs = options.shardSummary ? 1 : resolveJobCount(options, files.length);
+  if (jobs > 1) {
+    await runSharded(files, { ...options, jobs });
+    return;
+  }
   const records = loadTestFiles(files);
+  if (options.shardSummary) {
+    const stats = await runTests(records, {
+      timeoutMs: options.timeoutMs,
+      log: line => { if (!FINAL_SUMMARY_LINE.test(line)) console.log(line); },
+    });
+    console.log(SHARD_SUMMARY_PREFIX + JSON.stringify({
+      ...stats,
+      names: records.map(record => [record.test.name, record.relativeFile]),
+    }));
+    return;
+  }
   await runTests(records, options);
 }
 
 module.exports = {
   TEST_DIRECTORIES,
   DEFAULT_TIMEOUT_MS,
+  SHARD_SUMMARY_PREFIX,
+  FINAL_SUMMARY_LINE,
+  AUTO_PARALLEL_MIN_FILES,
+  MAX_AUTO_JOBS,
   normalizePath,
+  resolveJobCount,
+  shardFiles,
+  runSharded,
   discoverTestFiles,
   declaredTestNames,
   validateDeclaredTestExports,

@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -73,14 +74,31 @@ function listJavaScriptFiles(root = ROOT) {
   return files.sort((left, right) => relativePath(absoluteRoot, left).localeCompare(relativePath(absoluteRoot, right)));
 }
 
+// In-process parse (fast path) mirrors `node --check` CJS semantics for valid files.
+// `node --check` additionally retries ESM, so a vm.Script SyntaxError alone is not a
+// verdict: every parse failure is confirmed by the authoritative spawnSync oracle.
+function parseFileSyntaxInProcess(source, filePath) {
+  void new vm.Script(source, { filename: filePath });
+}
+
 function checkFileSyntax(filePath) {
-  const result = spawnSync(process.execPath, ['--check', filePath], {
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  if (result.error) return result.error.message;
-  if (result.status === 0) return '';
-  return String(result.stderr || result.stdout || `Node exited with status ${result.status}.`).trim();
+  let source;
+  try {
+    source = fs.readFileSync(filePath, 'utf8');
+    parseFileSyntaxInProcess(source, filePath);
+    return '';
+  } catch (inProcessError) {
+    const result = spawnSync(process.execPath, ['--check', filePath], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    if (result.error) return result.error.message;
+    if (result.status === 0) return '';
+    if (String(result.stderr || result.stdout || '').trim()) {
+      return String(result.stderr || result.stdout || '').trim();
+    }
+    return `Node exited with status ${result.status}.`;
+  }
 }
 
 function checkSyntax({ root = ROOT } = {}) {
@@ -125,6 +143,7 @@ module.exports = {
   isExcludedDirectory,
   requireControlledPath,
   listJavaScriptFiles,
+  parseFileSyntaxInProcess,
   checkFileSyntax,
   checkSyntax,
 };

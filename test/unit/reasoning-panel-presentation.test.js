@@ -9,24 +9,34 @@ const staticBundle = require('../../server/services/static-bundle.service');
 
 const ROOT = path.join(__dirname, '../..');
 
-function buildCssBundle() {
-  const entries = staticBundle.parseAssetManifest(ROOT, ROOT + path.sep, 'css');
-  return staticBundle.buildBundleBody(entries, 'css').toString('utf8');
+// jsdom re-parses the whole inline stylesheet on every construction (~1.7 s per
+// JSDOM over the full bundle). The checked-in bundle is immutable inside one test
+// process, so the suite shares one window and each test gets its own mounted
+// .message container, removed again via dispose().
+let sharedDom = null;
+
+function getSharedDom() {
+  if (!sharedDom) {
+    const entries = staticBundle.parseAssetManifest(ROOT, ROOT + path.sep, 'css');
+    const css = staticBundle.buildBundleBody(entries, 'css').toString('utf8');
+    sharedDom = new JSDOM('<style>' + css + '</style><body></body>', { virtualConsole: new VirtualConsole() });
+  }
+  return sharedDom;
 }
 
 function createReasoningFixture(markup = '<div class="content"></div>') {
-  const dom = new JSDOM(
-    '<style>' + buildCssBundle() + '</style><div class="message assistant"><div class="bubble">' + markup + '</div></div>',
-    { virtualConsole: new VirtualConsole() },
-  );
-  const message = dom.window.document.querySelector('.message');
+  const dom = getSharedDom();
+  const mount = dom.window.document.createElement('div');
+  mount.innerHTML = '<div class="message assistant"><div class="bubble">' + markup + '</div></div>';
+  dom.window.document.body.appendChild(mount);
+  const message = mount.querySelector('.message');
   const workflow = reasoning.createReasoningWorkflow({
     state: { reasoningMode: true, reasoningType: 'high', activeSessionId: 'session-1' },
     document: dom.window.document,
     renderMarkdown: value => '<p>' + String(value || '') + '</p>',
     scrollToActiveOutput: () => {},
   });
-  return { dom, message, workflow };
+  return { dom, message, workflow, dispose: () => mount.remove() };
 }
 
 function testLiveReasoningPanelUsesADistinctTintedSurface() {
@@ -47,7 +57,7 @@ function testLiveReasoningPanelUsesADistinctTintedSurface() {
     'the thought header must remain visually quiet');
   assert.strictEqual(fixture.dom.window.getComputedStyle(panel.querySelector('.reasoning-content')).color, 'rgb(85, 91, 100)',
     'thought text must remain distinguishable from the final-answer text color');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testCompletedReasoningCollapsesAndCanBeReopened() {
@@ -67,7 +77,7 @@ function testCompletedReasoningCollapsesAndCanBeReopened() {
   panel.querySelector('.reasoning-toggle').click();
   assert.strictEqual(panel.dataset.collapsed, '0', 'the user must be able to reopen completed reasoning');
   assert.strictEqual(panel.querySelector('.reasoning-toggle').getAttribute('aria-expanded'), 'true');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testDismissingIntentTraceRemovesTheWaitingSurfaceState() {
@@ -79,7 +89,7 @@ function testDismissingIntentTraceRemovesTheWaitingSurfaceState() {
   assert.strictEqual(formatting.dismissIntentReasoningTrace(fixture.message), true);
   assert.strictEqual(fixture.message.querySelector('.intent-reasoning-trace'), null,
     'the waiting surface must disappear when upstream output starts');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testStreamingReasoningKeepsFullTextOffDomAttributesUntilDone() {
@@ -95,7 +105,7 @@ function testStreamingReasoningKeepsFullTextOffDomAttributesUntilDone() {
   fixture.workflow.updateReasoning(fixture.message, partial, { done: true });
   assert.strictEqual(fixture.message.dataset.reasoningText, partial,
     'completed reasoning must publish the final text for durability consumers');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testUnchangedStreamingReasoningDoesNotRerender() {
@@ -113,7 +123,7 @@ function testUnchangedStreamingReasoningDoesNotRerender() {
     "unchanged reasoning must not rerender on every unrelated content token");
   fixture.workflow.updateReasoning(fixture.message, 'thinking more', { done: false });
   assert.strictEqual(renders, 1, "changed reasoning must still render");
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testEmptyReasoningUpdateRemovesAnExistingPanel() {
@@ -130,7 +140,7 @@ function testEmptyReasoningUpdateRemovesAnExistingPanel() {
     'an empty reasoning update must remove an already rendered thinking panel');
   assert.strictEqual(fixture.message.dataset.reasoningText, undefined,
     'empty reasoning must clear the stale reasoning text marker');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testEmptyReasoningUpdateDoesNotCreateAPanel() {
@@ -141,7 +151,7 @@ function testEmptyReasoningUpdateDoesNotCreateAPanel() {
   });
   assert.strictEqual(fixture.message.querySelector('.reasoning-panel'), null,
     'an empty reasoning update must not synthesize a thinking panel');
-  fixture.dom.window.close();
+  fixture.dispose();
 }
 
 function testPendingHydratedReasoningKeepsStreamingAfterInitialText() {
@@ -200,7 +210,7 @@ function testPendingHydratedReasoningKeepsStreamingAfterInitialText() {
       'pending hydration must not publish a completed reasoning attribute');
   } finally {
     global.ChatUIApp = previousChatUIApp;
-    fixture.dom.window.close();
+    fixture.dispose();
   }
 }
 module.exports = [

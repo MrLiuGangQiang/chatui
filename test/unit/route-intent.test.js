@@ -107,6 +107,19 @@ function testCandidateSpecificRouteSchemaNeverEmitsUserGoalAsALiteral() {
   assert.strictEqual(goalSchema.type, 'string');
 }
 
+function testCandidateSpecificRouteSchemaExposesEveryAdmittedResourceCandidate() {
+  const responseFormat = routeIntent.routeIntentResponseFormatForCandidates([
+    { candidate_key: 'i1', type: 'image', availability: 'available' },
+    { candidate_key: 'm1', type: 'message', availability: 'available' },
+    { candidate_key: 'f1', type: 'file', availability: 'available' },
+  ]);
+  assert.deepStrictEqual(
+    responseFormat.json_schema.schema.properties.resource_refs.items.properties.candidate_key.enum,
+    ['i1', 'm1', 'f1'],
+    'the candidate directory is the only resource admission boundary',
+  );
+}
+
 function testRouteIntentResponseSchemaRequiresEveryDeclaredProperty() {
   const schema = routeIntent.ROUTE_INTENT_RESPONSE_FORMAT.json_schema.schema;
   assert.deepStrictEqual(schema.required, ['operation', 'relation', 'goal', 'goal_mode', 'resource_refs', 'task_shape']);
@@ -232,6 +245,7 @@ module.exports = [
   testRouteIntentUsesOnlyCandidateKeysAndCanonicalRoles,
   testRouteIntentRequiresANonEmptyBoundedGoal,
   testCandidateSpecificRouteSchemaNeverEmitsUserGoalAsALiteral,
+  testCandidateSpecificRouteSchemaExposesEveryAdmittedResourceCandidate,
   testRouteIntentResponseSchemaRequiresEveryDeclaredProperty,
   testEmptyCurrentAttachmentSetCompilesWithoutAProviderRouteDecision,
   testRoutePromptDefinesRelationAsContextDependency,

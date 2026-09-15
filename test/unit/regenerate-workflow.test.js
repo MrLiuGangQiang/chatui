@@ -8,6 +8,7 @@ require('../../client/features/clarification/presentation');
 const regenerateWorkflow = require('../../client/app/regenerate-workflow');
 const routeService = require('../../client/services/route-service');
 const sessionPersistence = require('../../client/app/session-persistence');
+const messagePrimitives = require('../../client/core/message-primitives');
 const { makeExecutionFixture } = require('../helpers/dispatch-contract-fixture');
 
 function makeMessageNode() {
@@ -200,7 +201,7 @@ function testRegenerateDelegatesToUnifiedSubmitPipeline() {
     "regeneration must submit through the unified submit pipeline with the original text");
   assert.ok(source.includes("state.editingIndex=n"), "regeneration must prepare the edit message index");
   assert.ok(source.includes("state.editingNode=t"), "regeneration must prepare the edit message node");
-  assert.ok(source.includes("state.editingQuoteContext=String("), "regeneration must prepare the edit quote context");
+  assert.ok(source.includes("state.editingQuoteContext=submitHelpers.quoteContextJson("), "regeneration must prepare the canonical edit quote context");
   assert.ok(source.includes("clarificationApi.matchesPendingClarificationMessage"),
     "a regenerated clarification must remain a persisted pending state");
   assert.ok(!source.includes("getEffectiveRouteWithSlowNotice(replayPrompt,h,{},null"),
@@ -323,6 +324,106 @@ async function testRegeneratingClarificationReplaysCanonicalPendingStateWithoutR
   assert.strictEqual(state.sessions[0].pendingClarification.id, state.messages[1].clarificationId);
 }
 
+
+async function testRegeneratingMissingResourceClarificationRetriesThroughUnifiedSubmit() {
+  const pending = clarification.createPendingClarification({
+    messages: [{ role: 'user', content: 'draw a fox' }],
+    clarificationText: '没有找到可用图片，请重新上传或选择一张图片。',
+    routeInfo: {
+      mode: 'chat',
+      api: 'clarify',
+      needClarification: true,
+      clarificationQuestion: '没有找到可用图片，请重新上传或选择一张图片。',
+      clarificationSlots: [{
+        key: 'r1', type: 'image', role: 'target', reason: 'missing', choices: [],
+      }],
+    },
+  });
+  const messages = [
+    { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0' },
+    {
+      role: 'assistant', content: pending.clarificationText, rawText: pending.clarificationText,
+      responseIndex: '1', clarificationId: pending.id,
+    },
+  ];
+  const fixture = createUnifiedRegenerateFixture({ messages });
+  fixture.state.messages = messages;
+  fixture.session.messages = messages;
+  fixture.session.pendingClarification = pending;
+
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+
+  assert.strictEqual(fixture.onSubmitCalls.length, 1,
+    'a missing-resource clarification must retry through unified submit instead of replaying the same question');
+  assert.strictEqual(fixture.onSubmitCalls[0].options.promptOverride, 'draw a fox');
+  assert.strictEqual(fixture.state.editingIndex, 0,
+    'the retry must replace the clarification through the canonical edit/resend slot');
+}
+
+async function testRegeneratePreservesObjectQuoteContextForImageAnalysis() {
+  const quote = {
+    role: 'assistant',
+    content: '[图片消息]',
+    imageContext: {
+      target: 'previous',
+      attachments: [{ imageId: 'quoted-image', src: 'indexeddb://quoted-image' }],
+    },
+  };
+  const fixture = createUnifiedRegenerateFixture({
+    messages: [
+      { role: 'user', content: 'draw a fox', rawText: 'draw a fox', messageIndex: '0', quoteContext: quote },
+      { role: 'assistant', content: 'old answer', rawText: 'old answer', responseIndex: '1' },
+    ],
+  });
+
+  await fixture.workflow.regenerateAssistantMessage(fixture.assistantNode);
+
+  assert.ok(fixture.onSubmitCalls.length === 1, 'regeneration must delegate to the unified submit workflow');
+  assert.deepStrictEqual(JSON.parse(fixture.state.editingQuoteContext), {
+    role: 'assistant',
+    content: '[图片消息]',
+    imageContext: JSON.stringify(quote.imageContext),
+  }, 'an object-shaped quote must be stored through the canonical JSON normalizer');
+}
+
+function testQuoteContextNormalizerAcceptsObjectAndCanonicalStringEqually() {
+  const quote = {
+    role: 'assistant',
+    content: '[图片消息]',
+    imageContext: {
+      target: 'previous',
+      attachments: [{ imageId: 'quoted-image', src: 'indexeddb://quoted-image' }],
+    },
+  };
+  const canonical = messagePrimitives.quoteContextJson(quote);
+  assert.strictEqual(messagePrimitives.quoteContextJson(canonical), canonical,
+    'the canonical quote serializer must be idempotent for its own output');
+  assert.deepStrictEqual(JSON.parse(canonical), {
+    role: 'assistant',
+    content: '[图片消息]',
+    imageContext: JSON.stringify(quote.imageContext),
+  });
+}
+
+function testStoredMessageAndDisplayItemCanonicalizeQuoteContext() {
+  const quote = {
+    role: 'assistant',
+    content: '[图片消息]',
+    imageContext: {
+      target: 'previous',
+      attachments: [{ imageId: 'quoted-image', src: 'indexeddb://quoted-image' }],
+    },
+  };
+  const expected = messagePrimitives.quoteContextJson(quote);
+  const storedMessage = sessionPersistence.sanitizeStoredMessage({
+    role: 'user', content: '分析这张图片', rawText: '分析这张图片', quoteContext: quote,
+  });
+  const storedDisplayItem = sessionPersistence.sanitizeStoredDisplayItem({
+    role: 'user', content: '分析这张图片', rawText: '分析这张图片', quoteContext: quote,
+  });
+  assert.strictEqual(storedMessage.quoteContext, expected);
+  assert.strictEqual(storedDisplayItem.quoteContext, expected);
+}
 
 function createUnifiedRegenerateFixture({ messages = null, attachmentContext = "", restoredAttachments = [], onSubmitImpl = null, isSessionBusy = () => false, taskStates = new Map(), toasts = [] } = {}) {
   const onSubmitCalls = [];
@@ -456,4 +557,8 @@ module.exports = [
   testRegenerateExplainsWhenAnotherTaskStillOwnsTheSession,
   testRegenerateRestoresOriginalAttachmentsForUnifiedEditSubmit,
   testRegeneratingClarificationReplaysCanonicalPendingStateWithoutRerouting,
+  testRegeneratingMissingResourceClarificationRetriesThroughUnifiedSubmit,
+  testRegeneratePreservesObjectQuoteContextForImageAnalysis,
+  testQuoteContextNormalizerAcceptsObjectAndCanonicalStringEqually,
+  testStoredMessageAndDisplayItemCanonicalizeQuoteContext,
 ];

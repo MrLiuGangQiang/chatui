@@ -5,8 +5,10 @@
     try { return typeof require === 'function' ? require('../../app/app-context') : null; } catch { return null; }
   })();
 
-  const { stripReasoningQuoteText } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+  const messagePrimitives = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
     || (() => { try { return typeof require === 'function' ? require('../../core/message-primitives') : {}; } catch { return {}; } })();
+  const normalizeQuoteContextCore = messagePrimitives.normalizeQuoteContext;
+  const quoteContextJsonCore = messagePrimitives.quoteContextJson;
 
   function normalizeRole(role = '', fallback = 'user') {
     return role === 'assistant' ? 'assistant' : role === 'user' ? 'user' : fallback;
@@ -25,29 +27,16 @@
     return !!(context && !Array.isArray(context) && Array.isArray(context.attachments) && context.attachments.length);
   }
 
-  function defaultNormalizeQuoteText(text = '', limit = 1200) {
-    return stripReasoningQuoteText(text).replace(/\s+/g, ' ').trim().slice(0, limit);
-  }
-
   function normalizeQuoteContext(value, options = {}) {
-    const context = parseMaybeJsonContext(value);
-    if (!context || Array.isArray(context)) return null;
-    const normalizeQuoteText = options.normalizeQuoteText || defaultNormalizeQuoteText;
-    const hasImageContext = !!(context.imageContext || context.image_context);
-    const content = normalizeQuoteText(context.content ?? context.rawText ?? (hasImageContext ? '[图片消息]' : ''), 1200);
-    if (!content && !hasImageContext) return null;
-    const quote = { role: normalizeRole(context.role, 'user'), content: content || '[图片消息]' };
-    ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex', 'imageContext', 'attachmentContext'].forEach(key => {
-      const altKey = key === 'imageContext' ? 'image_context' : key === 'attachmentContext' ? 'attachment_context' : key;
-      const raw = context[key] ?? context[altKey];
-      if (raw !== undefined && raw !== null && raw !== '') quote[key] = typeof raw === 'string' ? raw : JSON.stringify(raw);
-    });
-    return quote;
+    return typeof normalizeQuoteContextCore === 'function'
+      ? normalizeQuoteContextCore(value, options)
+      : null;
   }
 
   function quoteContextJson(value, options = {}) {
-    const quote = normalizeQuoteContext(value, options);
-    return quote ? JSON.stringify(quote) : '';
+    return typeof quoteContextJsonCore === 'function'
+      ? quoteContextJsonCore(value, options)
+      : '';
   }
 
   function resolveDisplayItemKey(source = {}) {

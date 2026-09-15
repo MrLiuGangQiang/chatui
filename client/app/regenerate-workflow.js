@@ -43,6 +43,20 @@
       return !isSessionBusy(sessionId);
     }
 
+    // A choice-less image/file slot is a missing-resource dead end, not an
+    // ambiguous user choice. Replaying it only redraws the same question;
+    // retry through submit so the current candidate catalog can resolve it.
+    function pendingClarificationNeedsResourceRetry(pending = null) {
+      const slots = Array.isArray(pending?.routeInfo?.clarificationSlots)
+        ? pending.routeInfo.clarificationSlots
+        : [];
+      return slots.some(slot => {
+        const type = String(slot?.type || '').trim();
+        const choices = Array.isArray(slot?.choices) ? slot.choices : [];
+        return (type === 'image' || type === 'file') && choices.length === 0;
+      });
+    }
+
     function createRegenerateTask({ sessionId, run, readPending }) {
       const submissionId = jobLifecycle.makeSubmissionId?.()
         || `submit-${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`;
@@ -247,8 +261,10 @@
       if(!s)return void toast("找不到上一条提示词，无法重新生成");
       let turn=replacementApi.resolveUserMessageTurn?.(state.messages,t?.dataset?.messageIndex,{rawText:s})||null,n=turn?.userIndex;if(!Number.isInteger(n)||n<0)return void toast("找不到这条消息上下文，无法重新生成");
       const a=turn.assistantIndex,l=state.activeSessionId,session=state.sessions?.find(item=>item?.id===l),clarificationApi=root?.ChatUIServices?.clarification||root?.ChatUIClarificationService||{};
-      const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null,{message:state.messages?.[a],userText:s});
-      if(replayPending){
+      const pendingClarification=clarificationApi.normalizePendingClarification?.(session?.pendingClarification)||null;
+      const replayPending=!!clarificationApi.matchesPendingClarificationMessage?.(pendingClarification,{message:state.messages?.[a],userText:s});
+      const retryMissingResource=replayPending&&pendingClarificationNeedsResourceRetry(pendingClarification);
+      if(replayPending&&!retryMissingResource){
         const replayStatus=executionStatus.routeStageText?.("reading_context")||"正在读取当前对话上下文",replayHtml=typeof deps.pendingFeedbackHtml==="function"?deps.pendingFeedbackHtml(replayStatus):replayStatus;
         resetMessageActionStates(e);
         if(e?.dataset){delete e.dataset.imageContext;delete e.dataset.attachmentContext;delete e.dataset.jobId}
@@ -267,7 +283,7 @@
       state.editingNode?.classList.remove("editing");
       state.editingIndex=n;
       state.editingNode=t;
-      state.editingQuoteContext=String(t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||state.messages[n]?.quoteContext||"");
+      state.editingQuoteContext=submitHelpers.quoteContextJson(t?.dataset?.quoteContext||t?.__displayItem?.quoteContext||state.messages[n]?.quoteContext);
       t.classList.add("editing");
       try{
         const originalAttachmentContext=getUserAttachmentContextFromNode(t);

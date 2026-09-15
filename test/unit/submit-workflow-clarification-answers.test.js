@@ -65,7 +65,7 @@ function makeTextPending() {
   });
 }
 
-function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, routeImpl = null, quotedMessage = null, routeContext = {} } = {}) {
+function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, routeImpl = null, quotedMessage = null, routeContext = {}, finalRouteOverride = null, restoredImageAttachments = [] } = {}) {
   const effectivePending = pending || makePending();
   const session = { id: 'session-answer', messages: [], display: [], pendingClarification: effectivePending };
   const state = {
@@ -83,7 +83,7 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, r
     relation: 'followup',
     prompt: BASE_TASK_TEXT,
   });
-  const finalRoute = {
+  const finalRoute = finalRouteOverride || {
     mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
     operationType: 'plain_chat', operationApi: 'chat', operationMode: 'chat', relation: 'followup',
     resources: [], imageRefs: [], fileRefs: [], messageRefs: [],
@@ -126,7 +126,7 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, r
     updateMessage: () => {}, showRunError: (_sessionId, error) => { throw error; }, updateSessionDisplayItem: () => {},
     sendChat: async (chatPrompt, files, _node, options) => { sent.push({ chatPrompt, files }); return sendChatImpl ? sendChatImpl(options) : options.onDurableHandoff(); },
     sendImage: async () => {}, getLatestUploadedImageContext: () => null, getUploadedImageContext: () => null,
-    restoreImageAttachmentsFromContext: async () => [], restoreUserAttachmentsFromContext: async () => [],
+    restoreImageAttachmentsFromContext: async () => restoredImageAttachments, restoreUserAttachmentsFromContext: async () => [],
     getConfig: () => ({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', routeModel: 'route-model' }),
     getSessionRouteModel: () => 'route-model', quotedAttachmentTextFromContext: () => '', quotedFileCandidatesFromContext: () => [],
     clearActiveRun: () => {}, finishSessionTask: () => {}, dispatchTaskEvent: (_sessionId, event) => events.push(event), resumeSessionJobs: () => {},
@@ -136,6 +136,76 @@ function makeFixture({ promptValue = '2', sendChatImpl = null, pending = null, r
     requestJson: async () => { throw new Error('a text clarification answer must never invoke an independent classifier'); },
   });
   return { workflow, state, session, routed, sent, events, pending: effectivePending, prompt, finalRoute };
+}
+
+
+async function testQuotedImageIsRetainedWhenAClarificationContinuationAuthorizesIt() {
+  const restore = [
+    replaceGlobal('window', global),
+    replaceGlobal('localStorage', memoryStorage()),
+    replaceGlobal('ChatUIAppJobWorkflow', jobWorkflow),
+    replaceGlobal('ChatUIClarificationService', clarification),
+    replaceGlobal('ChatUIRouteService', { cleanQuotedContent: value => String(value || ''), buildQuotedRouteContent: ({ text }) => text, isRouteDispatchable: () => true }),
+  ];
+  try {
+    const quotedMessage = {
+      id: 'quoted-image-analysis',
+      role: 'assistant',
+      content: '[图片消息]',
+      imageContext: JSON.stringify({
+        target: 'uploaded',
+        attachments: [{
+          id: 'quoted-image', image_id: 'quoted-image', reference_id: 'quoted-ref',
+          name: 'quoted.png', type: 'image/png',
+        }],
+      }),
+    };
+    const quotedAttachment = {
+      id: 'quoted-image', imageId: 'quoted-image', referenceId: 'quoted-ref',
+      name: 'quoted.png', type: 'image/png', dataUrl: 'data:image/png;base64,QUJDRA==',
+    };
+    const execution = makeExecutionFixture({
+      operation: 'image_qa',
+      relation: 'followup',
+      prompt: '分析引用图片',
+      resources: [{
+        key: 'r1', type: 'image', source: 'quoted', role: 'source', index: 1,
+        id: 'quoted-image', resource_id: 'res:image:quoted-image', reference_id: 'quoted-ref',
+      }],
+    });
+    const finalRoute = {
+      mode: 'chat', api: 'chat', needClarification: false, dispatchAuthorized: true, readiness: 'ready',
+      operationType: 'image_qa', operationApi: 'chat', operationMode: 'chat', relation: 'followup',
+      resources: execution.resources, imageRefs: execution.resources, fileRefs: [], messageRefs: [],
+      selectedIndexes: [1], selectedImageIndexes: [1], selectedFileIndexes: [],
+      selectedImageIds: ['quoted-image'], selectedReferenceId: 'quoted-ref', usePreviousImage: false,
+      contextualImagePrompt: '分析引用图片', editInstruction: '', evidence: 'dispatch_contract.v1',
+      localClarification: false, executionResources: execution.executionResources,
+      dispatchContract: execution.dispatchContract,
+    };
+    let sentOptions = null;
+    const fixture = makeFixture({
+      promptValue: '分析这张图片',
+      pending: makePending(),
+      quotedMessage,
+      finalRouteOverride: finalRoute,
+      restoredImageAttachments: [quotedAttachment],
+      sendChatImpl: options => {
+        sentOptions = options;
+        options.onDurableHandoff();
+      },
+    });
+
+    await fixture.workflow.onSubmit({ preventDefault() {}, submitter: { id: 'sendBtn' } });
+
+    assert.ok(sentOptions, 'the quoted-image clarification continuation must reach chat dispatch');
+    assert.strictEqual(sentOptions.dispatchContract.context_policy.quoted, true);
+    assert.ok(sentOptions.quotedMessage,
+      'a dispatch contract that authorizes quoted context must pass the quote to chat assembly');
+    assert.strictEqual(sentOptions.quotedMessage.id, quotedMessage.id);
+  } finally {
+    restore.forEach(fn => fn());
+  }
 }
 
 async function testTextAnswerAppliesPendingAndReroutesTheBaseTask() {
@@ -479,6 +549,7 @@ async function testQuotedTextAnswerReroutesWithQuoteAndRetainedHistory() {
   }
 }
 module.exports = [
+  testQuotedImageIsRetainedWhenAClarificationContinuationAuthorizesIt,
   testTextAnswerAppliesPendingAndReroutesTheBaseTask,
   testChoiceAnswerMarkerConsumesPendingAndReroutes,
   testSubmitCompletionCallbacksPublishOneHandoffAndOneCompletion,

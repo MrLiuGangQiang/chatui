@@ -55,7 +55,8 @@ function testRouteServiceBuildsReasoningAndCriticPayloadsSafely() {
     context: { image_candidates: [{ source: 'history', index: 1 }] },
   });
   const textUserPayload = JSON.parse(textPayload.input.find(item => item.role === 'user').content);
-  assert.deepStrictEqual(textUserPayload.resource_policy.allowed_candidate_keys, []);
+  assert.strictEqual(textUserPayload.resource_policy, undefined,
+    'the route payload must not publish a local media-binding prohibition');
 
   const criticPayload = routeService.buildIntentCriticPayload({
     model: "route",

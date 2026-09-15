@@ -220,13 +220,18 @@ function testSubmitWorkflowKeepsFullHistoryWhenRouteHintsMessagesWithoutQuote() 
   const source = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
   assert.match(
     source,
-    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*routeMessageProjection\?\.usesExplicitQuote/,
-    'submit workflow must use message projection only for an explicit quote'
+    /const quoteProjectionAuthorized=quoteAuthorized&&routeMessageProjection\?\.usesExplicitQuote===true;/,
+    'submit workflow must require both contract authorization and an explicit quote projection'
+  );
+  assert.match(
+    source,
+    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*quoteProjectionAuthorized\?routeMessageProjection\.messages/,
+    'submit workflow must use message projection only for an authorized explicit quote'
   );
   assert.doesNotMatch(
     source,
-    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*routeMessageProjection\?\.messages/,
-    'route-selected messages must not narrow ordinary chat history'
+    /requestBaseMessages=Array\.isArray\(resumePendingSubmit\?\.requestBaseMessages\)\?[^;]*routeMessageProjection\?\.usesExplicitQuote\?routeMessageProjection\.messages/,
+    'route-selected messages must not narrow ordinary chat history without contract authorization'
   );
 }
 

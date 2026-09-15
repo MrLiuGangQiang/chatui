@@ -69,12 +69,15 @@ function testRouteRepairRejectsAnUndeclaredResourceDrop() {
 function testHistoricalTextBindingDoesNotRequireAKeywordCue() {
   const input = "在介绍 MySQL、PostgreSQL 和 MongoDB 的 Markdown 表格中增加一列“厂商信息”";
   const raw = JSON.stringify(baseIntent({ goal: input, resource_refs: [{ candidate_key: "m1", role: "context" }] }));
-  const context = { conversation_focus: { kind: "text" } };
+  const context = messageContext();
   assert.deepStrictEqual(routeService.routeIntentSemanticIssuesForIntent(raw, { input, context }), []);
-  assert.deepStrictEqual(
-    routeService.deterministicResourceKeysForInput(input, context, [{ candidate_key: "m1", type: "message", availability: "available" }]),
-    ["m1"],
-  );
+
+  const payload = routeService.buildRoutePayload({ model: "route", input, context });
+  const publicInput = JSON.parse(payload.input.find(item => item.role === "user").content);
+  assert.strictEqual(publicInput.resource_policy, undefined,
+    "the route payload must not hide message candidates behind a local policy");
+  const allowedKeys = payload.text.format.schema.properties.resource_refs.items.properties.candidate_key.enum;
+  assert.ok(allowedKeys.includes("m1"), `the message candidate must remain addressable: ${JSON.stringify(allowedKeys)}`);
 }
 
 function messageContext() {

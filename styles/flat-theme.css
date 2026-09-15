@@ -1392,8 +1392,6 @@ body {
   overscroll-behavior: contain;
 }
 @media (max-width: 640px) {
-  #routeDiagramFab,
-  #supportedFilesFab { display: none !important; }
   .config-dialog .custom-select-menu {
     max-height: min(42vh, 240px);
     overflow-y: auto;
@@ -5334,34 +5332,6 @@ body{
 }
 
 
-/* Persistent intent-routing flow entry: anchored to the lower-right edge. */
-.route-diagram-fab{
-  position:fixed!important;
-  right:26px!important;
-  bottom:24px!important;
-  z-index:70!important;
-  display:inline-flex!important;
-  align-items:center!important;
-  justify-content:center!important;
-  width:38px!important;
-  height:38px!important;
-  padding:0!important;
-  border:1px solid #dbe3ee!important;
-  border-radius:8px!important;
-  background:#fff!important;
-  color:#475569!important;
-  box-shadow:0 2px 8px rgba(15,23,42,.1)!important;
-  transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease,color .16s ease,background .16s ease!important;
-}
-.route-diagram-fab svg{width:22px!important;height:22px!important;overflow:visible!important;fill:none!important;stroke:currentColor!important;stroke-width:1.65!important;stroke-linecap:round!important;stroke-linejoin:round!important;filter:drop-shadow(0 0 0 rgba(59,130,246,0))!important;transition:filter .2s ease!important}
-.route-diagram-fab:hover .fab-icon{filter:drop-shadow(0 0 5px rgba(59,130,246,.5))!important}
-.fab-files-back,.fab-files-main,.fab-files-spark,.fab-route-orbit,.fab-route-comet{transform-box:fill-box!important;transform-origin:center!important;transition:transform .28s ease,opacity .28s ease!important}
-.supported-files-fab:hover .fab-files-back{transform:translate(-1px,1px)!important;opacity:.68!important}
-.supported-files-fab:hover .fab-files-main{transform:translate(1px,-1px)!important}
-.supported-files-fab:hover .fab-files-spark{transform:rotate(24deg) scale(1.16)!important}
-.route-map-fab:hover .fab-route-orbit{transform:rotate(12deg)!important;opacity:.8!important}
-.route-map-fab:hover .fab-route-comet{animation:route-fab-comet .85s ease-in-out infinite alternate!important}
-@keyframes route-fab-comet{to{transform:translate(3px,4px) scale(1.2)}}
 .usage-stats-button,.announcement-toolbar-button{border-color:#bfdbfe!important;background:#eff6ff!important;color:#1d4ed8!important;box-shadow:0 1px 3px rgba(0,0,0,.08)!important}
 .usage-stats-button:hover,.announcement-toolbar-button:hover{background:#dbeafe!important;box-shadow:0 4px 12px rgba(37,99,235,.18)!important}
 .usage-stats-button .neon-entry-icon,.usage-feedback-open .neon-entry-icon,.announcement-toolbar-button .neon-entry-icon{width:22px!important;height:22px!important;overflow:visible!important;fill:none!important;stroke:currentColor!important;stroke-width:1.55!important;stroke-linecap:round!important;stroke-linejoin:round!important;filter:drop-shadow(0 0 0 rgba(34,211,238,0))!important;transition:filter .2s ease!important}
@@ -5374,31 +5344,8 @@ body{
 .usage-feedback-open:hover .usage-feedback-wave{transform:scaleX(1.07)!important}
 .usage-feedback-open:hover .usage-feedback-spark{transform:rotate(24deg) scale(1.16)!important}
 @keyframes usage-entry-pulse{to{transform:scale(1.45);opacity:.68}}
-.supported-files-fab{right:74px!important}
-.route-diagram-fab:hover{border-color:#93c5fd!important;background:#eff6ff!important;color:#2563eb!important;transform:translateY(-1px)!important;box-shadow:0 5px 14px rgba(37,99,235,.16)!important}
-.route-diagram-fab:focus-visible{outline:3px solid rgba(56,189,248,.62)!important;outline-offset:3px!important}
-.route-diagram-modal{position:fixed!important;inset:0!important;z-index:300!important;display:none!important;place-items:center!important;padding:clamp(8px,1vw,16px)!important}
-.route-diagram-modal.show{display:grid!important}
-.route-diagram-mask{position:absolute!important;inset:0!important;background:rgba(1,5,16,.74)!important;backdrop-filter:blur(10px) saturate(1.15)!important}
-.route-diagram-dialog{position:relative!important;z-index:1!important;display:flex!important;flex-direction:column!important;width:min(var(--page-viewer-max-width,1536px),100%)!important;max-height:100%!important;overflow:hidden!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
-.route-diagram-head{position:absolute!important;top:10px!important;right:10px!important;z-index:3!important;padding:0!important;border:0!important;background:none!important}
-.route-diagram-close{display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 auto!important;width:36px!important;height:36px!important;padding:0!important;border:1px solid rgba(101,166,255,.35)!important;border-radius:10px!important;background:rgba(6,13,33,.82)!important;color:#c5dcff!important;box-shadow:0 4px 18px rgba(0,0,0,.35)!important;backdrop-filter:blur(8px)!important}
-.route-diagram-close:hover{background:#152c52!important;color:#fff!important}
-.route-diagram-close:focus-visible{outline:3px solid rgba(56,189,248,.62)!important;outline-offset:2px!important}
-.route-diagram-close svg{width:20px!important;height:20px!important;fill:none!important;stroke:currentColor!important;stroke-width:2!important;stroke-linecap:round!important}
-.route-diagram-frame-wrap{min-height:0!important;flex:1 1 auto!important;background:#020611!important}
-.route-diagram-frame-wrap iframe{display:block!important;width:100%!important;height:auto!important;max-height:calc(100vh - 32px)!important;aspect-ratio:var(--page-viewer-aspect,1536 / 1024)!important;border:0!important;background:#020611!important}
-@media (max-width:840px){
-  .route-diagram-fab{right:72px!important;bottom:18px!important}
-  .supported-files-fab{right:120px!important}
-}
-@media (max-width:640px){
-  .route-diagram-fab{right:66px!important;bottom:max(14px,env(safe-area-inset-bottom))!important;width:36px!important;height:36px!important;border-radius:8px!important}
-  .route-diagram-modal{padding:8px!important}
-  .route-diagram-frame-wrap iframe{max-height:calc(100vh - 16px)!important}
-}
 @media (prefers-reduced-motion:reduce){
-  .route-diagram-fab .fab-icon *,.neon-entry-icon *{transition:none!important;animation:none!important}
+  .neon-entry-icon *{transition:none!important;animation:none!important}
 }
 
 /* Fixed overlays are centered within the chat content region, not the full viewport. */
@@ -5434,10 +5381,6 @@ body.session-sidebar-collapsed{
   }
   .image-preview img{
     max-width:calc(100vw - var(--dialog-content-start) - 56px)!important;
-  }
-  .route-diagram-modal{
-    padding-left:calc(var(--dialog-content-start) + clamp(16px,3vw,40px))!important;
-    padding-right:clamp(16px,3vw,40px)!important;
   }
 }
 @media (max-width:840px){

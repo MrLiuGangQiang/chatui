@@ -12,7 +12,7 @@
 
 - `version.json` is the only version source. `package.json` and `package-lock.json` are npm mirrors; run `npm run release:prepare`, never hand-edit versions.
 - There is no build step. `server/http/static.js` composes `/assets/chatui.bundle.js|css` at request time from the `chatuiAssetManifest` in `index.html`.
-- Root static entries are protected: `index.html`, `pages/route.html`, `pages/files.html`, `app.js`, `styles.css`, `favicon.svg`, `server.js`. Change them only together with the static server, Docker image, tests, and documentation.
+- Root static entries are protected: `index.html`, `app.js`, `styles.css`, `favicon.svg`, `server.js`. Change them only together with the static server, Docker image, tests, and documentation.
 - Intent routing fails closed. When the intent model output is invalid, never fall back to local keyword routing; classify `transient_error`, `configuration_error`, `invalid_model_output`, and `cancelled` honestly, and never present a configuration/network error as a clarification.
 - User-facing error copy must be plain and actionable. Internal diagnostics and codes belong in logs, not in the message bubble. Example: `AI 没理解这条请求，请重试；如果还无法理解，请切换更强模型。` - never `意图模型返回了无效的任务结构`.
 - Bundle cache policy: only requests whose `?v=` equals the current content fingerprint may receive `public, max-age=31536000, immutable`; bare URLs and mismatched revisions keep `no-store`. The entry HTML always stays `no-store`.
@@ -35,7 +35,7 @@ server/proxy/ security/ usage/ db/ validators/ logging/ config/
 shared/           code safe for both browser and server only
 vendor/           checked-in third-party browser assets
 test/unit/ test/smoke/ test/fixtures/ test/run-tests.js
-docs/ pages/ config/public.json
+docs/ config/public.json
 ```
 
 ## Dependency direction rules

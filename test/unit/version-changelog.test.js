@@ -114,16 +114,12 @@ function testVersionChangelogHasDedicatedResponsiveReadingStyles() {
   assert.ok(css.includes('.changelog-more'));
   assert.ok(css.includes('@media (max-width: 640px)'));
   const changelogLayer = Number(css.match(/\.changelog-modal\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
-  const routeButtonLayer = Number(css.match(/\.route-diagram-fab\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
-  const routeModalLayer = Number(css.match(/\.route-diagram-modal\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
-  assert.ok(changelogLayer > routeButtonLayer, 'the changelog must cover persistent floating controls');
-  assert.ok(changelogLayer < routeModalLayer, 'the route diagram remains the top-level modal');
+  assert.ok(changelogLayer > 0, 'the changelog must declare a positive modal layer');
 }
 
-function testMobileRouteMapAndModelSelectScrolling() {
+function testMobileModelSelectScrolling() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles.css'), 'utf8');
   const customSelect = fs.readFileSync(path.join(__dirname, '../../client/app/custom-select-workflow.js'), 'utf8');
-  assert.ok(css.includes('@media (max-width:640px){#routeDiagramFab,#supportedFilesFab{display:none!important}'));
   assert.ok(css.includes('touch-action:pan-y'), 'model menus must preserve vertical touch scrolling');
   assert.ok(customSelect.includes("item.addEventListener('pointerdown', event => event.stopPropagation())"));
   assert.ok(!customSelect.includes("item.addEventListener('pointerdown', event => { event.preventDefault()"), 'option pointerdown must not cancel mobile scrolling');
@@ -136,5 +132,5 @@ module.exports = [
   testVersionChangelogMarksAllReleasesRead,
   testVersionChangelogLazilyRendersCollapsedReleaseCards,
   testVersionChangelogHasDedicatedResponsiveReadingStyles,
-  testMobileRouteMapAndModelSelectScrolling,
+  testMobileModelSelectScrolling,
 ];

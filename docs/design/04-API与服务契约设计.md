@@ -88,11 +88,19 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 - 该归一化只发生在 `shared/image-instruction.js` 的传输解析边界；缺失语义必需字段、错误版本、未知/额外字段、两个字段同时有值或同时为空仍返回 `image_instruction_invalid`，不得授权执行。
 - `dispatch_contract.v1` 仍是唯一执行授权；只有归一化后的 `image_instruction.v1` 才能进入 `applyMaterializedImageInstruction`。
 
+### 7.2 引用图片的聊天执行上下文一致性（2026-09-15）
+
+- 引用图片分析或引用图片触发的澄清续接，若最终 `dispatch_contract.v1.context_policy.quoted=true`，提交工作流必须把同一条引用消息交给聊天 payload 组装；不得因为该轮属于 pending/clarification continuation 而按普通续接路径丢弃引用。
+- 聊天 payload 中的 `<quoted_message>`、引用图片和执行合同必须保持同一事实边界：合同授权引用则保留引用，合同未授权引用则继续由共享校验以 `EXECUTION_CONTEXT_QUOTE_MISMATCH` 拒绝，禁止在执行边界静默放宽。
+- `quoteContext` 跨消息、display item 与 DOM 的传输统一使用 `messagePrimitives.quoteContextJson` 生成 canonical JSON；提交工作流不得用 `String(object)` 或本地 serializer 形成第二套表示。
+- 回归门禁覆盖“澄清续接 + 引用图片 + `image_qa`”路径，验证合同授权的引用消息进入最终聊天组装。
+
 ## 8. 缓存与安全头
 
 - 入口 HTML、可执行模块与 `/api/announcements`：`no-store`，确保运行期公告文件更新后不会被共享缓存钉死。
 - 内容匹配的 bundle：`public, max-age=31536000, immutable`。
 - 字体/图片/SVG 等静态资源：短缓存。
+- `/pages/` 独立说明页前缀已退役，静态服务不再公开该前缀；访问已删除路径返回 404。
 - 所有响应注入 `X-Content-Type-Options`、`Referrer-Policy`、CSP 与 `nosniff`。
 
 ## 9. SSE 事件契约

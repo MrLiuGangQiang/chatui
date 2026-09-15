@@ -1005,26 +1005,6 @@
     return null;
   }
 
-  function deterministicResourceKeysForInput(input = '', context = {}, resourceCatalog = []) {
-    const text = stringValue(input);
-    const quoted = hasQuotedEvidence(context);
-    const focusText = stringValue(context?.conversation_focus?.kind) === 'text';
-    const explicitMediaOrHistory = /(?:第\s*[一二两三四五六七八九十\d]+\s*(?:张|幅|个|份)?|图片|图像|照片|图|文件|附件|文档|上一张|这张|那张|上一条|这条|那条|引用|quoted|history|previous|image|photo|picture|file|document)/i.test(text);
-    const historicalTextOnly = typeof intentClaimsModule.isHistoricalTextQuestion === 'function'
-      && intentClaimsModule.isHistoricalTextQuestion(text);
-    if (quoted || (!historicalTextOnly && !(focusText && !explicitMediaOrHistory))) return null;
-
-    // A text-focused turn may still need the body of a previous message even
-    // when the user refers to it by subject (for example, "the database table")
-    // rather than by a literal "previous message" cue. Narrow only the media
-    // side of the catalog here; message context remains a model-owned semantic
-    // choice and must not be disabled by keyword absence.
-    return (Array.isArray(resourceCatalog) ? resourceCatalog : [])
-      .filter(candidate => candidate?.type === 'message' && candidate?.availability !== 'unavailable')
-      .map(candidate => stringValue(candidate.candidate_key))
-      .filter(Boolean);
-  }
-
   // ── Payload builder ──────────────────────────────────────────────
   const UNDERSTAND_SYSTEM_PROMPT = Array.isArray(UNDERSTAND_SYSTEM_PROMPT_LINES)
     ? UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n')
@@ -1099,21 +1079,11 @@
         reason: '当前输入的明确历史依赖或纠正语义已确定 relation；不得选择其它 relation。',
       };
     }
-    const allowedResourceKeys = deterministicResourceKeysForInput(input, priorContext, resourceCatalog);
-    if (Array.isArray(allowedResourceKeys)) {
-      userPayload.resource_policy = {
-        allowed_candidate_keys: allowedResourceKeys,
-        reason: allowedResourceKeys.length
-          ? '当前是文字语义问题；禁止绑定图片/文件，但允许模型在确有历史正文依赖时选择 message=context。'
-          : '当前输入没有可用的历史消息正文候选，因此不得绑定 resource_candidates。',
-      };
-    }
     const requestResponseFormat = typeof routeIntentResponseFormatForCandidates === 'function'
       ? routeIntentResponseFormatForCandidates(resourceCatalog, {
         allowedRelations,
         allowedGoals,
         allowedGoalModes,
-        ...(Array.isArray(allowedResourceKeys) ? { allowedResourceKeys } : {}),
       })
       : ROUTE_INTENT_RESPONSE_FORMAT;
     if (typeof buildResponsesPayload !== 'function') throw new Error('Responses payload service is unavailable');
@@ -2445,7 +2415,7 @@
       if ((field.endsWith('relation') || field === 'relation')
           && allowedRelations.length === 1 && relation === allowedRelations[0]) return false;
       if ((field.includes('resource') || code === 'route_resource_mismatch')
-          && deterministicResourceKeysForInput(input, context, catalog)?.length === 0
+          && (!Array.isArray(catalog) || catalog.length === 0)
           && (!Array.isArray(route.resources) || route.resources.length === 0)) return false;
       if (code === 'route_dependency_lost'
           && currentInputContainsConcreteRequirements(input)
@@ -5234,7 +5204,6 @@
     exactHistoricalFollowupRelationConstraint,
     deterministicOperationKeysForInput,
     missingTextSourceForInput,
-    deterministicResourceKeysForInput,
     undeliveredGenerationEvidence,
     shouldRunUnderstanding,
     buildUnderstandingPayload,

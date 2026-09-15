@@ -1,7 +1,7 @@
 (function initChatUIAppSessionPersistence(root) {
   'use strict';
 
-  const { messageIdentity, isDurableImageCompletionMessage } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+  const { messageIdentity, isDurableImageCompletionMessage, quoteContextJson } = root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
     || (typeof require === 'function' ? require('../core/message-primitives') : {});
 
   function parseMessageOrderIndex(value) {
@@ -465,6 +465,9 @@
     if (clean.rawText !== rawText && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
     clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext, stripLargeDataUrlsFromText);
     clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext, stripLargeDataUrlsFromText);
+    if (Object.prototype.hasOwnProperty.call(clean, 'quoteContext') && typeof quoteContextJson === 'function') {
+      clean.quoteContext = quoteContextJson(clean.quoteContext);
+    }
     if (clean.presentation && typeof clean.presentation === 'object' && !Array.isArray(clean.presentation)) {
       clean.presentation = sanitizeStorageValue(clean.presentation, stripLargeDataUrlsFromText);
       clean.presentation.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.presentation.html || ''), deps.document);
@@ -482,6 +485,9 @@
     if ((clean.rawText !== rawText || (typeof message.content === 'string' && clean.content !== message.content)) && clean.html && !displayHtmlHasRichMedia(clean.html)) clean.html = '';
     clean.imageContext = sanitizeAttachmentContextForStorage(clean.imageContext, stripLargeDataUrlsFromText);
     clean.attachmentContext = sanitizeAttachmentContextForStorage(clean.attachmentContext, stripLargeDataUrlsFromText);
+    if (Object.prototype.hasOwnProperty.call(clean, 'quoteContext') && typeof quoteContextJson === 'function') {
+      clean.quoteContext = quoteContextJson(clean.quoteContext);
+    }
     if (clean.presentation && typeof clean.presentation === 'object' && !Array.isArray(clean.presentation)) {
       clean.presentation = sanitizeStorageValue(clean.presentation, stripLargeDataUrlsFromText);
       clean.presentation.html = stripTransientBlobUrlsFromHtml(stripLargeDataUrlsFromText(clean.presentation.html || ''), deps.document);

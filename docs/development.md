@@ -166,7 +166,7 @@ npm run check
    - 校验 package 基本信息和 `private: true`；
    - 校验 `version.json` 格式，并确认 `package.json`、`package-lock.json` 镜像字段与它一致；
    - 校验要求的 package scripts；
-   - 校验根静态文件与 `pages/` 独立页面存在，并检查该目录的 Docker/静态服务约束。
+   - 校验根静态文件存在，并检查静态服务与 Docker 镜像的打包约束。
 2. `npm run check:architecture`
    - 限制根 `app.js` 大小；
    - 禁止超过 baseline 的 legacy `with (...)`；

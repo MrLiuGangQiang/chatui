@@ -87,6 +87,14 @@
       mergeSnapshotFallback,
       readLatestSnapshot,
     } = snapshotRecovery;
+    const messagePrimitives = deps.messagePrimitives
+      || root?.[Symbol.for('chatui.module-registry.v1')]?.get('messagePrimitives')
+      || (typeof require === 'function' ? require('../core/message-primitives') : {});
+    const quoteContextJson = deps.quoteContextJson || messagePrimitives.quoteContextJson;
+
+    function canonicalQuoteContext(value = '') {
+      return typeof quoteContextJson === 'function' ? quoteContextJson(value) : '';
+    }
 
     function makeDisplayItem(role, content, { html = false, rawText = content, messageIndex = null, pending = false, responseIndex = null, messageId = '', turnId = '', replyToMessageId = '', jobId = '', id = '', imageContext = '', attachmentContext = '', quoteContext = '', metaText = '' } = {}) {
       return {
@@ -104,7 +112,7 @@
         jobId: jobId || '',
         imageContext: imageContext || '',
         attachmentContext: attachmentContext || '',
-        quoteContext: quoteContext || '',
+        quoteContext: canonicalQuoteContext(quoteContext),
         metaText: metaText || '',
         pending: pending ? '1' : '',
       };
@@ -417,7 +425,7 @@
       if (options.jobId !== undefined) item.jobId = options.jobId || '';
       if (options.imageContext !== undefined) item.imageContext = options.imageContext || '';
       if (options.attachmentContext !== undefined) item.attachmentContext = options.attachmentContext || '';
-      if (options.quoteContext !== undefined) item.quoteContext = options.quoteContext || '';
+      if (options.quoteContext !== undefined) item.quoteContext = canonicalQuoteContext(options.quoteContext);
       if (options.metaText !== undefined) item.metaText = options.metaText || '';
       if (options.reasoning !== undefined) { item.reasoningText = options.reasoning || ''; item.keepReasoning = !!options.keepReasoning && !!item.reasoningText; }
       if (options.pending === false) { clearPendingDisplayCheckpoint(sessionId); item.jobId = ''; item.pending = ''; if (!options.keepReasoning) { delete item.reasoningText; item.keepReasoning = false; } }

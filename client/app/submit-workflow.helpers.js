@@ -23,7 +23,8 @@
       ? require("../core/storage")
       : {});
   const parseContextValue = messagePrimitives.parseContext;
-  if (typeof parseContextValue !== "function") {
+  const quoteContextJson = messagePrimitives.quoteContextJson;
+  if (typeof parseContextValue !== "function" || typeof quoteContextJson !== "function") {
     throw new Error("ChatUI message primitives are not loaded");
   }
 
@@ -1052,6 +1053,7 @@
 
   const api = Object.freeze({
     parseContextValue,
+    quoteContextJson,
     escapeHtml,
     previewQuoteText,
     withPendingQuotePreview,

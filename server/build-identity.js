@@ -17,7 +17,6 @@ const RUNTIME_ROOT_FILES = Object.freeze([
 ]);
 const RUNTIME_ROOT_DIRECTORIES = Object.freeze([
   'config',
-  'pages',
   'styles',
   'client',
   'server',

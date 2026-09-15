@@ -36,7 +36,7 @@ const BUNDLE_IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const bundleCache = new Map();
 const encodedBodyCache = new Map();
 const PUBLIC_ROOT_FILES = new Set(['/index.html', '/favicon.svg', '/styles.css', '/app.js']);
-const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/', '/pages/'];
+const PUBLIC_PREFIXES = ['/client/', '/shared/', '/styles/', '/vendor/', '/assets/'];
 
 function announcementImagePath(urlPath, announcementsDir) {
   let pathname;

@@ -138,14 +138,13 @@
       .filter(goalMode => ROUTE_INTENT_GOAL_MODES.has(goalMode)))];
     if (allowedGoalModes.length) schema.properties.goal_mode.enum = allowedGoalModes;
     const resourceRefs = schema.properties.resource_refs;
-    const requestedResourceKeys = Array.isArray(options.allowedResourceKeys)
-      ? [...new Set(options.allowedResourceKeys.map(stringValue).filter(key => candidateKeys.includes(key)))]
-      : null;
-    const effectiveResourceKeys = requestedResourceKeys || candidateKeys;
-    if (!effectiveResourceKeys.length) {
+    // The candidate directory is the only admission boundary. Once a resource
+    // key is present there, the route model must be able to bind it; a local
+    // allow-list would silently remove valid targets such as a generated image.
+    if (!candidateKeys.length) {
       resourceRefs.maxItems = 0;
     } else {
-      resourceRefs.items.properties.candidate_key.enum = effectiveResourceKeys;
+      resourceRefs.items.properties.candidate_key.enum = candidateKeys;
     }
     return Object.freeze(responseFormat);
   }

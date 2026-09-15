@@ -15,19 +15,17 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 
 根目录 `version.json` 是唯一版本事实来源；服务端通过 `server/version-source.js` 读取它。`package.json` 与 `package-lock.json` 只保留 npm 安装所需的同步镜像，发布脚本会自动维护这些镜像。
 
-## 2. 根静态入口与独立页面
+## 2. 根静态入口
 
-以下文件是受保护的运行入口与独立页面：
+以下文件是受保护的运行入口：
 
 - `index.html`：主页面、模板和静态资源装载清单；
-- `pages/route.html`：意图识别流程图页面；
-- `pages/files.html`：支持的文件格式与上传约束说明页面；
 - `app.js`：现有浏览器兼容启动与编排入口；
 - `styles.css`：根样式入口；
 - `favicon.svg`：站点图标；
 - `server.js`：Node.js 进程入口。
 
-这些文件由项目检查、静态服务器、Dockerfile、runtime identity 和测试共同依赖。修改、移动或删除任一根静态入口或独立页面时，必须一起检查：
+这些文件由项目检查、静态服务器、Dockerfile、runtime identity 和测试共同依赖。修改、移动或删除任一根静态入口时，必须一起检查：
 
 - `server/http/static.js` 的公开路径和缓存策略；
 - `server/services/static-bundle.service.js` 与 `index.html` 的清单顺序；
@@ -66,7 +64,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - `shared/dispatch-contract.js`：作为 `dispatch_contract.v1` 的最终执行计划、绑定字段、上下文策略、稳定幂等键和 payload 一致性校验事实来源；只有 `operation=web_search` 可以授权精确的 `tools: [{ "type": "web_search" }]`，缺失、增加或向普通聊天注入工具都必须失败关闭；
 - `shared/capability-registry.js`：作为操作、API、参数类型、参数冲突、资源类型/角色/数量约束，以及“当前轮明确请求”的非执行性路由指令（操作、关系、资源作用域）的能力注册表；`web_search` 指令覆盖明确联网检索与“查查/查一下/看看/了解 + 最新/最近/当下… + 信息类名词”（“查查最新信息”“最近有什么新闻”）等显式在线查找表述，并排除指向本地文件/图片的同类句式（“查一下最新的文档”“看看最新生成的图”）。`route-service.js` 在编译模型路由时对该指令做确定性调和：指令声明的 `web_search` 不会被弱模型降级为 `plain_chat`，其余 goal/relation/资源语义仍归模型所有；`shared/intent-claims.js` 发布 `web_search_request` 确定性声明作为模型证据，但判定唯一来自本模块的 `isExplicitWebLookup`，任何消费方都不得复制句式清单。确定性图片参数解析只使用与原文等长的 analysis view 做全半角语法归一化，provider prompt 保留原文。图片尺寸是面向用户的生成设置（默认 `auto`）：设置页选择的尺寸会在执行时作为 `size` 参数发送，未选择时请求体不含 `size`，由 provider 自动决定；原文中的分辨率、横竖构图等文字描述仍仅保留在创作提示词中，绝不形成尺寸候选、冲突或澄清。其余参数候选必须保留 span、原文 evidence 与否定极性，同一参数的重叠命中按最长 span 优先；常见中英文否定后只有一个合法补集时才可确定性选择，否则进入澄清，不能回落到可能违背否定的 `auto`，澄清选项也不得重新提供已排除值；
 - `client/core/resource-identity.js`：作为图片、文件和消息的稳定资源身份事实来源；
-- `client/core/message-primitives.js`：统一上下文解析、消息稳定身份、reasoning 引用文本清理，以及“图片结果已可刷新恢复”的唯一判定；只有带 `image_result` 输出身份且引用 `indexeddb://` 媒体（或等价 canonical presentation/HTML 描述）的 assistant 记录才是 durable image completion，纯 `[图片生成完成]` 文本和输入图片上下文都不能触发任务清理或覆盖完整结果；
+- `client/core/message-primitives.js`：统一上下文解析、引用上下文 canonical JSON 规范化（`quoteContextJson`）、消息稳定身份、reasoning 引用文本清理，以及“图片结果已可刷新恢复”的唯一判定；只有带 `image_result` 输出身份且引用 `indexeddb://` 媒体（或等价 canonical presentation/HTML 描述）的 assistant 记录才是 durable image completion，纯 `[图片生成完成]` 文本和输入图片上下文都不能触发任务清理或覆盖完整结果；
 - `client/core/image-route-context.js`：作为 `route_context_policy.v1` 的唯一事实源；历史消息摘录保留最近 6 条更完整（800 字）、更早压缩为 240 字，让意图模型看清最近话题又不撑爆预算，统一正常会话和 route-context override 的字符/Token 预算、完整旧轮次淘汰、图片/文件候选裁剪与受保护内容识别；路由上下文策略不生成历史摘要，不截断显式引用内容，受保护内容无法容纳时抛出 `ROUTE_CONTEXT_REQUIRED_CONTENT_TOO_LARGE`，workflow 不得复制第二套阈值或压缩算法；聊天执行超窗时默认按完整旧轮次淘汰，`CHATUI_CONTEXT_SUMMARIZE_OMITTED=1` 可选地把被淘汰的最早历史折叠成有界的 `[自动上下文摘要]` 系统提示（`shared/config/context-budget.js` 提供），当前消息、引用与受保护内容仍保底；
 - `client/core/image-execution.js`：校验图片生成/编辑的角色映射、执行资源和 multipart 位置，确保 `target`、`reference`、`style_reference` 与 `mask` 不在工作流之间漂移；
 - `client/core/text-hash.js`：统一渲染缓存、性能统计和使用量视图的文本哈希实现，调用方只能通过公开格式使用哈希，不能再复制 FNV-1a 变体。
@@ -96,7 +94,7 @@ Docker 镜像直接复制运行所需的根文件和目录，不会从 `dist/` �
 - `route-memory-retrieval.js`：负责中文/数字 ordinal 解析、生成轮次/倒序/早期历史定位、语义候选预算、clarification 保护卡片和 `resource_catalog.v1` 检索 metadata；token 匹配函数通过工厂注入；
 - `route-resource-binding.js`：负责 binding role canonicalization、candidate choice、clarification slot key/choice 分配、plan binding 到 canonical resource 投影，以及 missing/ambiguous/unavailable 基础问题；
 - `route-image-plan-compiler.js`：负责 `image_plan.v1` 子任务到单图 route 的第二阶段编译，包括 generate/edit operation 映射、`iN`/`fN` typed ordinal 绑定恢复、结构化图片参数覆盖、单任务折叠、批量结果组装、产品任务上限与未解析子提示词 fail-closed；最终 dispatch 编译器通过工厂注入，本模块不拥有候选目录、会话状态或 provider 调用；
-- `route-service.js`：组合 candidate/retrieval/normalizer/resource-binding/image-plan-compiler 模块，从当前附件和有界上下文构造路由请求，解析模型返回的 `route_intent.v3`，并把模型选择的短候选键映射回规范资源；路由、理解、规划和审查请求统一发布 `route_evidence_priority.v1`，固定当前输入（含当前附件）> `quoted` > `understanding/context`；当前轮存在附件且输入未明确回指历史时，首轮候选目录只发布 current 资源，历史资源仅留在受限上下文中；明确历史指代或当前缺少所需资源类型时才恢复对应历史候选；历史图片通过 `route-memory-retrieval.js` 按生成轮次、倒序轮次、全局图片序号、最早切片或语义匹配选择，再由主服务编入 canonical catalog；截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，无前序任务状态时可固定 `goal_mode=replace`，当前输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、goal mode、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性、任务状态与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、goal mode、resource refs 或 task shape，也不得根据会话焦点、最近图片或 legacy invariant 增加资源；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细；
+- `route-service.js`：组合 candidate/retrieval/normalizer/resource-binding/image-plan-compiler 模块，从当前附件和有界上下文构造路由请求，解析模型返回的 `route_intent.v3`，并把模型选择的短候选键映射回规范资源；路由、理解、规划和审查请求统一发布 `route_evidence_priority.v1`，固定当前输入（含当前附件）> `quoted` > `understanding/context`；当前轮存在附件且输入未明确回指历史时，首轮候选目录只发布 current 资源，历史资源仅留在受限上下文中；明确历史指代或当前缺少所需资源类型时才恢复对应历史候选；历史图片通过 `route-memory-retrieval.js` 按生成轮次、倒序轮次、全局图片序号、最早切片或语义匹配选择，再由主服务编入 canonical catalog；截断目录通过 `resource_catalog.v1` 报告总量、发布量与策略。请求级 schema 只允许使用可审计的确定性事实收窄字段域：精确的只读执行锚点加省略式序号可固定 `continuation`，无前序任务状态时可固定 `goal_mode=replace`，当前输入和带精确结果锚点的新编辑指令可成为唯一 goal；其余 operation、relation、goal、goal mode、resource refs 与 task shape 仍由模型裁决。本地只做 schema、候选存在性、角色、数量、可用性、任务状态与执行契约校验，再生成最终、不可变的 `dispatch_contract.v1`。模型路径不得在返回后改写 operation、relation、goal、goal mode、resource refs 或 task shape，也不得根据会话焦点、最近图片或 legacy invariant 增加资源；仅本地非模型编译路径允许按集中策略改变 operation/relation，并必须在 route 上记录 `normalizedFrom`、`normalizationReason` 和变化明细； 引用图片进入澄清续接时，提交工作流仍须依据最终 `context_policy.quoted` 将同一引用消息保留到聊天 payload；不能因续接分支而丢弃已授权的 `<quoted_message>`，否则由共享执行校验拒绝。
 - `request-compatibility.js`：仅在上游明确不支持 Structured Output 时按 `json_schema` → `json_object` → 移除结构化格式字段的顺序做协议能力降级；Responses 请求操作 `text.format`，保留的历史 Chat Completions 兼容请求操作 `response_format`。普通网络错误不得触发重复请求，原始 payload 不得被修改；
 - `server/validators/dispatch-contract.validator.js`：在服务端最终执行边界再次校验计划、资源证据、参数和上下文策略。
 
@@ -171,7 +169,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 5. `submit-workflow-policy.js`、`session-snapshot-recovery.js` 等 app policy，再加载对应 workflow；
 6. 兼容启动和根 `app.js`。
 
-变更加载顺序时必须同时运行静态 bundle 顺序测试，并确认根页面、`pages/route.html` 和 `pages/files.html` 的独立资源没有被误纳入或删除。
+变更加载顺序时必须同时运行静态 bundle 顺序测试，并确认入口页面资源没有被误纳入或删除。
 
 ## 4. 服务端代码
 

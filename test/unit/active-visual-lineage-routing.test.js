@@ -201,9 +201,62 @@ function testLaterOrdinaryTextResponseDoesNotHideBoundedVisualEvidence() {
   assert.strictEqual(publicInput.context.conversation_focus.kind, 'text');
 }
 
+function testTextDescriptionAfterImageKeepsEditTargetAddressable() {
+  const messages = [
+    { id: 'visual-lineage-session:user:0', role: 'user', content: '画一只猫', rawText: '画一只猫', messageIndex: '0' },
+    completedImageMessage(),
+    { id: 'visual-lineage-session:user:2', role: 'user', content: '这是什么', rawText: '这是什么', messageIndex: '2' },
+    { id: 'visual-lineage-session:assistant:3', role: 'assistant', content: '这是猫的插画。', rawText: '这是猫的插画。', responseIndex: '3' },
+  ];
+  const context = buildContext(messages);
+  assert.strictEqual(context.conversation_focus.kind, 'text');
+  assert.strictEqual(context.previous_execution, null);
+
+  const payload = routeService.buildRoutePayload({
+    model: 'route-model',
+    input: '换成真实风格',
+    attachments: [],
+    context,
+    currentTurn: { messageIndex: 5 },
+  });
+  const publicInput = JSON.parse(payload.input[1].content);
+  assert.ok(publicInput.resource_candidates.some(candidate => (
+    candidate.candidate_key === 'i1'
+    && candidate.type === 'image'
+    && candidate.availability === 'available'
+  )), 'the bounded generated image must remain in the model catalog');
+  const allowedKeys = payload.text.format.schema.properties.resource_refs.items.properties.candidate_key.enum;
+  assert.ok(allowedKeys.includes('i1'),
+    `the admitted image target must remain addressable: ${JSON.stringify(allowedKeys)}`);
+  assert.strictEqual(publicInput.resource_policy, undefined,
+    'the route payload must not publish a local resource prohibition');
+
+  const inspected = routeService.inspectModelRouteResult(JSON.stringify({
+    operation: 'edit_image',
+    relation: 'followup',
+    goal: '把已生成的猫咪插画换成真实风格',
+    goal_mode: 'amend',
+    resource_refs: [{ candidate_key: 'i1', role: 'target' }],
+    task_shape: 'single',
+  }), {
+    input: '换成真实风格',
+    attachments: [],
+    context,
+    currentTurn: { messageIndex: 5 },
+  });
+  assert.ok(inspected.route, `${inspected.reason}: ${inspected.error || ''}`);
+  assert.strictEqual(inspected.route.operationType, 'edit_image');
+  assert.strictEqual(inspected.route.readiness, 'ready');
+  assert.strictEqual(inspected.route.dispatchAuthorized, true);
+  assert.deepStrictEqual(inspected.route.resources.map(resource => [resource.type, resource.role, resource.id]), [
+    ['image', 'target', 'img_imgref_cat-result_1'],
+  ]);
+}
+
 module.exports = [
   testSubjectlessImageEditKeepsLatestVisualLineageAddressable,
   testCompactedGeneratedImageCandidatesRemainAvailableAfterRefresh,
   testLaterOrdinaryTextResponseDoesNotHideBoundedVisualEvidence,
+  testTextDescriptionAfterImageKeepsEditTargetAddressable,
 ];
 

@@ -6,7 +6,7 @@ const path = require('path');
 const { readVersion } = require('./version-source');
 
 const ROOT = path.resolve(__dirname, '..');
-const REQUIRED_STATIC_FILES = ['index.html', 'pages/route.html', 'pages/files.html', 'app.js', 'styles.css', 'favicon.svg'];
+const REQUIRED_STATIC_FILES = ['index.html', 'app.js', 'styles.css', 'favicon.svg'];
 const REQUIRED_RUNTIME_FILES = ['server.js'];
 const REQUIRED_DOCUMENTATION_FILES = ['docs/architecture.md', 'docs/development.md'];
 const REQUIRED_PROJECT_FILES = ['version.json', 'package.json', 'package-lock.json', 'Dockerfile', 'server/http/static.js'];
@@ -56,8 +56,6 @@ function checkProject({ root = ROOT } = {}) {
   const packageJson = readJson('package.json', root);
   const packageLock = readJson('package-lock.json', root);
   const version = readVersion({ root });
-  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
-  const staticServer = fs.readFileSync(path.join(root, 'server/http/static.js'), 'utf8');
 
   if (typeof packageJson.name !== 'string' || !packageJson.name.trim()) fail('package.json must define a non-empty package name.');
   if (packageJson.private !== true) fail('package.json must declare private: true to prevent accidental npm publishing.');
@@ -72,8 +70,6 @@ function checkProject({ root = ROOT } = {}) {
       fail(`package.json must define a non-empty ${script} script.`);
     }
   }
-  if (!dockerfile.includes('COPY pages ./pages')) fail('Dockerfile must package the standalone pages directory.');
-  if (!staticServer.includes("'/pages/'")) fail('server/http/static.js must expose the standalone pages directory.');
 
   return {
     version,

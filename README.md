@@ -1045,9 +1045,6 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 .
 ├── app.js                         # 浏览器端主业务编排入口
 ├── index.html                     # 页面结构、模板、配置弹窗、消息模板
-├── pages/                         # 弹窗按需加载的独立说明页面
-│   ├── route.html                 # 智能任务路由流程图
-│   └── files.html                 # 支持的文件格式与上传约束
 ├── styles.css                     # 全局样式、响应式布局、消息/图片/配置面板样式
 ├── styles/                        # 按功能拆分的补充样式
 ├── server.js                      # Node HTTP 启动入口

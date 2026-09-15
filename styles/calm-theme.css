@@ -328,7 +328,6 @@ body,
 .config-dialog,
 .confirm-dialog-card,
 .web-preview-dialog,
-.route-diagram-dialog,
 .changelog-dialog {
   border-color: var(--chatui-border-strong) !important;
   background: var(--chatui-surface) !important;

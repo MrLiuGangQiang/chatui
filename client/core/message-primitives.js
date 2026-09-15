@@ -12,6 +12,40 @@
     return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   }
 
+  function normalizeQuoteRole(role = '', fallback = 'user') {
+    return role === 'assistant' ? 'assistant' : role === 'user' ? 'user' : fallback;
+  }
+
+  function defaultNormalizeQuoteText(text = '', limit = 1200) {
+    return stripReasoningQuoteText(text).replace(/\s+/g, ' ').trim().slice(0, limit);
+  }
+
+  function normalizeQuoteContext(value, options = {}) {
+    const context = parseContext(value);
+    if (!context || Array.isArray(context)) return null;
+    const normalizeQuoteText = typeof options.normalizeQuoteText === 'function'
+      ? options.normalizeQuoteText
+      : defaultNormalizeQuoteText;
+    const hasImageContext = !!(context.imageContext || context.image_context);
+    const content = normalizeQuoteText(
+      context.content ?? context.rawText ?? (hasImageContext ? '[图片消息]' : ''),
+      1200,
+    );
+    if (!content && !hasImageContext) return null;
+    const quote = { role: normalizeQuoteRole(context.role, 'user'), content: content || '[图片消息]' };
+    ['sessionId', 'displayItemId', 'messageIndex', 'responseIndex', 'imageContext', 'attachmentContext'].forEach(key => {
+      const altKey = key === 'imageContext' ? 'image_context' : key === 'attachmentContext' ? 'attachment_context' : key;
+      const raw = context[key] ?? context[altKey];
+      if (raw !== undefined && raw !== null && raw !== '') quote[key] = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    });
+    return quote;
+  }
+
+  function quoteContextJson(value, options = {}) {
+    const quote = normalizeQuoteContext(value, options);
+    return quote ? JSON.stringify(quote) : '';
+  }
+
   function imageCompletionMarker(record = {}) {
     return [record.content, record.rawText, record.presentation?.displayText]
       .some(value => IMAGE_COMPLETION_RE.test(String(value || '')));
@@ -159,7 +193,7 @@
       .replace(/当前模型或接口没有返回可展示的思考内容[^\n。]*[。]?/g, '');
   }
 
-  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, hasCompletedAssistantOutput, hasCompletedAssistantForResponse, countCompletedAssistantMessages, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText, isBlankReplacementMessage });
+  const api = Object.freeze({ IMAGE_COMPLETION_RE, parseContext, normalizeQuoteContext, quoteContextJson, imageCompletionMarker, isPersistedImageRef, descriptorHasPersistedImage, contextHasPersistedImageResult, htmlHasPersistedImageResult, hasPersistedImageResult, isDurableImageCompletionMessage, hasCompletedAssistantOutput, hasCompletedAssistantForResponse, countCompletedAssistantMessages, stableMessageId, stableTurnId, messageIdentity, stripReasoningQuoteText, isBlankReplacementMessage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root?.[Symbol.for('chatui.module-registry.v1')]?.get('moduleRegistry')?.register('messagePrimitives', api);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

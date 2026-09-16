@@ -45,6 +45,38 @@
   --sidebar-blur: 12px;
   --sidebar-saturate: 1.04;
 
+  /* Skin control points for the announcement domain
+     (consumer: styles/surfaces/announcement.css) */
+  --ann-accent: #4f46e5;
+  --ann-accent-soft: #6366f1;
+  --ann-accent-strong: #4338ca;
+  --ann-card-veil: rgba(255,255,255,.92);
+  --ann-danger: #ef4444;
+  --ann-danger-ring: rgba(239,68,68,.12);
+  --ann-focus-line: rgba(99,102,241,.4);
+  --ann-frame-line: rgba(15,23,42,.12);
+  --ann-line: #e2e8f0;
+  --ann-line-accent: #e0e7ff;
+  --ann-line-accent-strong: #c7d2fe;
+  --ann-line-divider: #eef2f7;
+  --ann-page-veil: rgba(247,249,252,.9);
+  --ann-shadow-accent: rgba(79,70,229,.18);
+  --ann-shadow-accent-hover: rgba(79,70,229,.22);
+  --ann-shadow-hover: rgba(31,41,55,.14);
+  --ann-shadow-rest: rgba(31,41,55,.1);
+  --ann-sheen: rgba(255,255,255,.9);
+  --ann-surface: #fff;
+  --ann-surface-accent: #eef2ff;
+  --ann-surface-hover: #f1f5f9;
+  --ann-surface-subtle: #f8fafc;
+  --ann-text: #0f172a;
+  --ann-text-body: #334155;
+  --ann-text-faint: #94a3b8;
+  --ann-text-field: #1e293b;
+  --ann-text-heading: #475569;
+  --ann-text-muted: #64748b;
+  --ann-violet-surface: #f5f3ff;
+  --ann-violet-text: #5b21b6;
   /* Skin control points for the usage-stats domain
      (consumer: styles/surfaces/usage-stats.css) */
   --usage-accent: #2563eb;

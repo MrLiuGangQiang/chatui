@@ -15,7 +15,7 @@ function cssRule(css, selector) {
 }
 
 function testAnnouncementLayoutPreservesTheOriginalTwoColumnContent() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/announcement.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/surfaces/announcement.css'), 'utf8');
   const dialog = cssRule(css, '.announcement-dialog');
   const hero = cssRule(css, '.announcement-hero');
   const surface = cssRule(css, '.announcement-surface');
@@ -37,7 +37,7 @@ function testAnnouncementLayoutPreservesTheOriginalTwoColumnContent() {
 }
 
 function testAnnouncementLayoutKeepsReadableFullScreenSpacing() {
-  const css = fs.readFileSync(path.join(__dirname, '../../styles/announcement.css'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../../styles/surfaces/announcement.css'), 'utf8');
   assert.match(cssRule(css, '.announcement-hero h2'), /font-size:\s*clamp\(28px, 2.8vw, 40px\)/);
   assert.match(cssRule(css, '.announcement-title'), /font-size:\s*clamp\(28px, 2.6vw, 40px\)/);
   assert.match(cssRule(css, '.announcement-body'), /font-size:\s*15.5px/);

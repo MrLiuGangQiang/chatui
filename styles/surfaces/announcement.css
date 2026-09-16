@@ -1,4 +1,28 @@
-/* Announcement center: formal, simple, compact information layout. */
+/* ============================================================
+   域：公告中心（announcement）
+   ------------------------------------------------------------
+   公告入口按钮、公告中心弹窗、目录列表与阅读页中一切可被皮肤感知的
+   视觉决策。尺寸、栅格、断点、层级、显隐与焦点顺序仍归基座与布局层，
+   皮肤不得改动。
+
+   控制点契约：令牌只承载"颜色/材质"，边框宽度、投影偏移、圆角等几何
+   留在规则里。权威默认值定义在 styles/skins/default/skin.css；
+   皮肤只覆盖自己关心的子集，需要更细时可直接在自己的 skin.css 写本域选择器。
+
+     主色  --ann-accent / -accent-strong / -accent-soft
+     表面  --ann-surface / -surface-subtle / -surface-hover /
+           -surface-accent / -violet-surface / -page-veil / -card-veil / -sheen
+     文字  --ann-text / -text-field / -text-body / -text-heading /
+           -text-muted / -text-faint / -violet-text
+     线条  --ann-line / -line-divider / -line-accent / -line-accent-strong /
+           -frame-line / -focus-line
+     语义  --ann-danger / -danger-ring
+     投影  --ann-shadow-rest / -shadow-hover / -shadow-accent /
+           -shadow-accent-hover
+
+   本域仅保留 9 处 !important，全部是行为性的（overflow 锁定、inert、
+   display 隐藏、字体与动效关闭），不涉及颜色权重对抗。
+   ============================================================ */
 
 body.announcement-pending,
 body.announcement-locked {
@@ -37,7 +61,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(247,249,252,.9);
+  background: var(--ann-page-veil);
   backdrop-filter: blur(18px) saturate(1.04);
   -webkit-backdrop-filter: blur(18px) saturate(1.04);
 }
@@ -55,7 +79,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #fff;
+  background: var(--ann-surface);
   box-shadow: none;
   outline: none;
   font-family: "Inter", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif !important;
@@ -71,9 +95,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   min-height: 0;
   overflow: auto;
   padding: clamp(26px, 3vw, 40px) clamp(24px, 2.6vw, 44px) 28px;
-  color: #1e293b;
+  color: var(--ann-text-field);
   border-right: 1px solid rgba(15,23,42,.06);
-  background: #f8fafc;
+  background: var(--ann-surface-subtle);
 }
 
 .announcement-brand,
@@ -88,7 +112,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   align-items: center;
   gap: 11px;
   width: max-content;
-  color: #4338ca;
+  color: var(--ann-accent-strong);
   font-size: 12px;
   font-weight: 760;
   letter-spacing: .1em;
@@ -99,9 +123,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   place-items: center;
   width: 38px;
   height: 38px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid var(--ann-line-accent);
   border-radius: 11px;
-  background: #eef2ff;
+  background: var(--ann-surface-accent);
   box-shadow: none;
 }
 
@@ -126,10 +150,10 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   gap: 7px;
   margin-bottom: 12px;
   padding: 6px 10px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid var(--ann-line-accent);
   border-radius: 8px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--ann-surface-accent);
+  color: var(--ann-accent-strong);
   font-size: 10.5px;
   font-weight: 750;
   letter-spacing: .14em;
@@ -140,14 +164,14 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #4f46e5;
+  background: var(--ann-accent);
   box-shadow: none;
 }
 
 .announcement-hero h2 {
   max-width: 300px;
   margin: 0;
-  color: #0f172a;
+  color: var(--ann-text);
   font-size: clamp(28px, 2.8vw, 40px);
   line-height: 1.14;
   letter-spacing: -.03em;
@@ -156,7 +180,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-hero-copy p {
   max-width: 310px;
   margin: 18px 0 0;
-  color: #64748b;
+  color: var(--ann-text-muted);
   font-size: 14px;
   line-height: 1.75;
 }
@@ -165,9 +189,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   max-width: 310px;
   margin-top: 20px;
   padding: 14px 15px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--ann-surface);
   box-shadow: none;
 }
 
@@ -176,7 +200,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   align-items: center;
   gap: 7px;
   margin: 0 0 10px;
-  color: #1e293b;
+  color: var(--ann-text-field);
   font-size: 12.5px;
   font-weight: 760;
   letter-spacing: .04em;
@@ -188,7 +212,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   width: 14px;
   height: 14px;
   fill: none;
-  stroke: #6366f1;
+  stroke: var(--ann-accent-soft);
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -213,7 +237,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 
 .announcement-tip-role {
   flex: 0 0 7.1em;
-  color: #94a3b8;
+  color: var(--ann-text-faint);
   font-size: 11px;
   letter-spacing: .02em;
   text-align: right;
@@ -231,14 +255,14 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   font-family: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 12.5px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--ann-text);
 }
 
 .announcement-tip-note {
   margin: 10px 0 0;
   padding-top: 8px;
-  border-top: 1px solid #eef2f7;
-  color: #94a3b8;
+  border-top: 1px solid var(--ann-line-divider);
+  color: var(--ann-text-faint);
   font-size: 11px;
   line-height: 1.55;
 }
@@ -249,18 +273,18 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-tip-note strong {
-  color: #4f46e5;
+  color: var(--ann-accent);
   font-weight: 700;
 }
-.announcement-tip-note .announcement-highlight { color:#ef4444; font-weight:700; }
+.announcement-tip-note .announcement-highlight { color:var(--ann-danger); font-weight:700; }
 .announcement-hero-explain {
   margin: 14px 0 0;
   padding: 13px 15px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--ann-surface-subtle);
   box-shadow: none;
-  color: #475569;
+  color: var(--ann-text-heading);
   font-size: 11.5px;
   line-height: 1.65;
 }
@@ -270,7 +294,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  color: #4338ca;
+  color: var(--ann-accent-strong);
   font-size: 11px;
   font-weight: 760;
   letter-spacing: .04em;
@@ -292,7 +316,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-hero-explain strong {
-  color: #4338ca;
+  color: var(--ann-accent-strong);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -300,7 +324,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #64748b;
+  color: var(--ann-text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -310,7 +334,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   width: 18px;
   height: 18px;
   fill: none;
-  stroke: #6366f1;
+  stroke: var(--ann-accent-soft);
   stroke-width: 1.8;
 }
 
@@ -319,7 +343,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: #fff;
+  background: var(--ann-surface);
 }
 
 .announcement-head {
@@ -354,19 +378,19 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-badge {
-  color: #4338ca;
-  background: #eef2ff;
+  color: var(--ann-accent-strong);
+  background: var(--ann-surface-accent);
 }
 
 .announcement-version,
 .announcement-published-at {
-  color: #64748b;
-  background: #f1f5f9;
+  color: var(--ann-text-muted);
+  background: var(--ann-surface-hover);
 }
 
 .announcement-title {
   margin: 0;
-  color: #0f172a;
+  color: var(--ann-text);
   font-size: clamp(28px, 2.6vw, 40px);
   line-height: 1.2;
   letter-spacing: -.025em;
@@ -375,7 +399,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-summary {
   max-width: 700px;
   margin: 8px 0 0;
-  color: #64748b;
+  color: var(--ann-text-muted);
   font-size: 14.5px;
   line-height: 1.7;
 }
@@ -391,11 +415,11 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   gap: 7px;
   min-height: 40px;
   padding: 0 14px;
-  border: 1px solid rgba(15,23,42,.12);
+  border: 1px solid var(--ann-frame-line);
   border-radius: 12px;
-  background: rgba(255,255,255,.92);
-  color: #475569;
-  box-shadow: 0 10px 26px rgba(31,41,55,.1), inset 0 1px 0 rgba(255,255,255,.9);
+  background: var(--ann-card-veil);
+  color: var(--ann-text-heading);
+  box-shadow: 0 10px 26px var(--ann-shadow-rest), inset 0 1px 0 var(--ann-sheen);
   font-size: 12px;
   font-weight: 720;
   letter-spacing: .01em;
@@ -407,10 +431,10 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-overlay-close:hover,
 .announcement-overlay-close:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(99,102,241,.4);
-  background: #fff;
-  color: #4338ca;
-  box-shadow: 0 14px 32px rgba(31,41,55,.14);
+  border-color: var(--ann-focus-line);
+  background: var(--ann-surface);
+  color: var(--ann-accent-strong);
+  box-shadow: 0 14px 32px var(--ann-shadow-hover);
   outline: none;
 }
 
@@ -438,14 +462,14 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-latest {
   min-width: 0;
   padding: 24px 28px 28px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 16px;
-  background: #fff;
+  background: var(--ann-surface);
   box-shadow: none;
 }
 
 .announcement-body {
-  color: #475569;
+  color: var(--ann-text-heading);
   font-size: 15.5px;
   line-height: 1.85;
 }
@@ -458,7 +482,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-body h2,
 .announcement-history-body h2 {
   margin: 24px 0 10px;
-  color: #0f172a;
+  color: var(--ann-text);
   font-size: 18px;
   line-height: 1.4;
 }
@@ -466,7 +490,7 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-body h3,
 .announcement-history-body h3 {
   margin: 18px 0 8px;
-  color: #1e293b;
+  color: var(--ann-text-field);
   font-size: 15.5px;
 }
 
@@ -485,24 +509,24 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 
 .announcement-body li::marker,
 .announcement-history-body li::marker {
-  color: #6366f1;
+  color: var(--ann-accent-soft);
 }
 
 .announcement-body blockquote,
 .announcement-history-body blockquote {
   margin: 18px 0;
   padding: 13px 16px;
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid var(--ann-accent-soft);
   border-radius: 0 12px 12px 0;
-  background: #f5f3ff;
-  color: #5b21b6;
+  background: var(--ann-violet-surface);
+  color: var(--ann-violet-text);
 }
 
 .announcement-table-wrap {
   max-width: 100%;
   overflow-x: auto;
   margin: 18px 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 14px;
 }
 
@@ -517,12 +541,12 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-table-wrap td {
   padding: 10px 12px;
   border: 0;
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid var(--ann-line);
+  border-bottom: 1px solid var(--ann-line);
   text-align: left;
 }
 
-.announcement-table-wrap th { background: #f8fafc; color: #0f172a; }
+.announcement-table-wrap th { background: var(--ann-surface-subtle); color: var(--ann-text); }
 .announcement-table-wrap tr:last-child td { border-bottom: 0; }
 .announcement-table-wrap th:last-child,
 .announcement-table-wrap td:last-child { border-right: 0; }
@@ -530,9 +554,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 .announcement-history-panel {
   margin-top: 16px;
   padding: 18px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 16px;
-  background: #f8fafc;
+  background: var(--ann-surface-subtle);
 }
 
 .announcement-history-panel[hidden] { display: none; }
@@ -547,12 +571,12 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 
 .announcement-history-heading h4 {
   margin: 0;
-  color: #0f172a;
+  color: var(--ann-text);
   font-size: 16px;
 }
 
 .announcement-history-heading span {
-  color: #94a3b8;
+  color: var(--ann-text-faint);
   font-size: 12px;
 }
 
@@ -563,9 +587,9 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 
 .announcement-history-entry {
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--ann-line);
   border-radius: 14px;
-  background: #fff;
+  background: var(--ann-surface);
 }
 
 .announcement-history-summary {
@@ -588,24 +612,24 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   gap: 3px;
 }
 
-.announcement-history-copy strong { color: #4338ca; font-size: 12px; }
+.announcement-history-copy strong { color: var(--ann-accent-strong); font-size: 12px; }
 .announcement-history-copy span {
   overflow: hidden;
-  color: #334155;
+  color: var(--ann-text-body);
   font-size: 14px;
   font-weight: 670;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.announcement-history-summary time { color: #94a3b8; font-size: 12px; }
-.announcement-history-chevron { color: #64748b; transition: transform .18s ease; }
+.announcement-history-summary time { color: var(--ann-text-faint); font-size: 12px; }
+.announcement-history-chevron { color: var(--ann-text-muted); transition: transform .18s ease; }
 .announcement-history-entry[open] .announcement-history-chevron { transform: rotate(180deg); }
 
 .announcement-history-body {
   padding: 16px;
-  border-top: 1px solid #e2e8f0;
-  color: #475569;
+  border-top: 1px solid var(--ann-line);
+  color: var(--ann-text-heading);
   font-size: 14px;
   line-height: 1.75;
 }
@@ -620,18 +644,18 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   flex-direction: column;
   gap: 12px;
   padding: 32px;
-  color: #64748b;
+  color: var(--ann-text-muted);
   text-align: center;
 }
 
-.announcement-status strong { color: #0f172a; font-size: 20px; }
+.announcement-status strong { color: var(--ann-text); font-size: 20px; }
 .announcement-status > span:not(.announcement-loading-mark) { max-width: 440px; line-height: 1.7; }
 
 .announcement-loading-mark {
   width: 46px;
   height: 46px;
-  border: 3px solid #e0e7ff;
-  border-top-color: #6366f1;
+  border: 3px solid var(--ann-line-accent);
+  border-top-color: var(--ann-accent-soft);
   border-radius: 50%;
   animation: announcement-spin .8s linear infinite;
 }
@@ -640,10 +664,10 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   min-height: 42px;
   margin-top: 6px;
   padding: 0 20px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--ann-line-accent-strong);
   border-radius: 12px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--ann-surface-accent);
+  color: var(--ann-accent-strong);
   font-weight: 720;
 }
 
@@ -656,8 +680,8 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   width: min(100%, 1440px);
   margin: 0 auto;
   padding: 15px clamp(24px, 2.5vw, 40px) 20px;
-  border-top: 1px solid #eef2f7;
-  background: #fff;
+  border-top: 1px solid var(--ann-line-divider);
+  background: var(--ann-surface);
 }
 
 .announcement-history-btn,
@@ -670,16 +694,16 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
 }
 
 .announcement-history-btn {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
+  border: 1px solid var(--ann-line);
+  background: var(--ann-surface);
+  color: var(--ann-text-heading);
 }
 
 .announcement-history-btn:hover,
 .announcement-history-btn:focus-visible {
-  border-color: #c7d2fe;
-  background: #f8fafc;
-  color: #4338ca;
+  border-color: var(--ann-line-accent-strong);
+  background: var(--ann-surface-subtle);
+  color: var(--ann-accent-strong);
   outline: none;
 }
 
@@ -687,15 +711,15 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   min-width: 220px;
   margin-left: auto;
   border: 0;
-  background: #4f46e5;
-  color: #fff;
-  box-shadow: 0 8px 18px rgba(79,70,229,.18);
+  background: var(--ann-accent);
+  color: var(--ann-surface);
+  box-shadow: 0 8px 18px var(--ann-shadow-accent);
 }
 
 .announcement-acknowledge-btn:hover:not(:disabled),
 .announcement-acknowledge-btn:focus-visible {
-  background: #4338ca;
-  box-shadow: 0 10px 22px rgba(79,70,229,.22);
+  background: var(--ann-accent-strong);
+  box-shadow: 0 10px 22px var(--ann-shadow-accent-hover);
   outline: none;
 }
 
@@ -717,8 +741,8 @@ html.announcement-acknowledged-boot .announcement-modal.is-loading {
   height: 8px;
   border: 2px solid var(--surface, #fff);
   border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 4px rgba(239,68,68,.12);
+  background: var(--ann-danger);
+  box-shadow: 0 0 0 4px var(--ann-danger-ring);
 }
 
 .announcement-toolbar-button .announcement-entry-body,

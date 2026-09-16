@@ -179,7 +179,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 - bundle 只装配共享层与默认皮肤：`styles/skins/default/skin.css` 抽取 `--skin-*` 设计令牌、把 `--bg/--ds-*/--chatui-*` 别名回令牌，并作为全部 surfaces 控制点的权威默认层；自带 `styles/skins/default/scenery.jpg` 画布。
 - 非默认皮肤不登记 manifest，由 `index.html` head 内联脚本按 `client/core/skin.js` 的 `skinStylesheetHref()` 注入唯一一条 `<link data-chatui-skin>`；未知或损坏的存储值失败关闭到 default 且不发请求。皮肤直链走 `/styles/` 前缀放行与 `no-store`，其 `url()` 相对路径由浏览器按皮肤目录解析，不经 bundle 重写。
 - `client/features/skin-system/skin-switcher.js` 的 `syncSkinStylesheet()` 维护这条链接（改皮肤=改 href，回 default=移除），使 `data-skin` 属性、localStorage 与在场样式表三者始终一致；文档中任一时刻至多存在一条皮肤样式表链接，因此皮肤之间不可能互相影响。
-- `styles/surfaces/<domain>.css` 是皮肤可见视觉决策的归属层（阶段 1 已建立 `session-sidebar` 示范域：`--sidebar-fill/--sidebar-veil/--sidebar-border/--sidebar-blur/--sidebar-saturate`）。域文件头部注释声明控制点与「皮肤禁改」项；过渡期域规则仍限定 `html[data-skin="default"]`，待各皮肤改用控制点后摘除（29 §4、阶段 3）。
+- `styles/surfaces/<domain>.css` 是皮肤可见视觉决策的归属层，每个域一个文件，头部注释声明控制点与「皮肤禁改」项。控制点只承载颜色/材质，边框宽度、投影偏移、圆角等几何留在规则里；权威默认值集中在 `styles/skins/default/skin.css`。已抽取：`session-sidebar`（5 个控制点，过渡期仍限定 `data-skin="default"`）、`usage-stats`（70）、`announcement`（30），后两者 0 裸色值、0 颜色 `!important`。阶段 2 门禁 `test/unit/skin-surfaces-contract.test.js` 要求：域消费的每个控制点必须有默认值、不得出现裸颜色字面量、颜色 `!important` 计数按文件登记基线且只降不升（新域必须从 0 开始）。
 - `styles/skin-system.css` 提供右下角切换器共享外壳；`styles/skins/ink/skin.css`、`styles/skins/snow/skin.css` 通过 `html[data-skin="<id>"]` 作用域承载各自配色、材质与画布（ink 生成式重映射快照与逐皮肤 swatch 色板将在阶段 3 退役/令牌化）。皮肤只改视觉，不改布局、交互、任务或数据契约。
 - `client/core/skin.js` 是皮肤目录、校验与皮肤样式表 URL 的唯一事实源；`bootstrap-workflow.js` 在启动时初始化切换器；storage key 见 `client/config/storage-keys.js`。
 - 门禁：`test/unit/skin-loading.test.js` 冻结「bundle 只含默认皮肤、注入锚点顺序、单条皮肤链接、域控制点有默认值、域规则不泄漏到其他皮肤」；`test/unit/skin-system-integrity.test.js` 保留逐皮肤视觉契约与目录隔离。

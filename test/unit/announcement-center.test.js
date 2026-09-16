@@ -388,7 +388,7 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   const serviceSource = fs.readFileSync(path.join(root, 'server/services/announcements.service.js'), 'utf8');
   const eventServiceSource = fs.readFileSync(path.join(root, 'server/services/announcement-events.service.js'), 'utf8');
   const coreRouteSource = fs.readFileSync(path.join(root, 'server/api/routes/core.js'), 'utf8');
-  const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles/surfaces/announcement.css'), 'utf8');
   assert.match(index, /id="announcementModal"[^>]*class="announcement-modal is-loading"[^>]*aria-hidden="true"/);
   assert.ok(index.includes('id="acknowledgeAnnouncementBtn"'));
   assert.ok(index.includes('id="topbarUtilityActions"'));
@@ -400,7 +400,7 @@ function testAnnouncementIsWiredIntoStaticEntryAndDockerRuntime() {
   assert.ok(!index.includes('id="railAnnouncementBtn"'));
   assert.ok(!index.includes('id="sidebarAnnouncementBtn"'));
   assert.ok(index.includes('./client/ui/announcement-center.js'));
-  assert.ok(index.includes('./styles/announcement.css'));
+  assert.ok(index.includes('./styles/surfaces/announcement.css'));
   assert.ok(!dockerfile.includes('COPY docs/announcements ./docs/announcements'));
   assert.ok(dockerfile.includes('COPY data ./data'));
   assert.ok(dockerignore.includes('data/announcements/*'));
@@ -512,7 +512,7 @@ async function testAnnouncementHeaderFallsBackToAnnouncementVersionWithoutRuntim
 
 function testAnnouncementMobileLayoutUsesFullWidthSingleScrollSurface() {
   const root = path.join(__dirname, '../..');
-  const css = fs.readFileSync(path.join(root, 'styles/announcement.css'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles/surfaces/announcement.css'), 'utf8');
   const narrowTablet = extractCssMedia(css, '@media (max-width: 860px)');
   const phone = extractCssMedia(css, '@media (max-width: 600px)');
   assert.ok(narrowTablet, 'announcement CSS must keep a narrow-tablet breakpoint');

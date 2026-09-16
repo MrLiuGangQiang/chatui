@@ -792,7 +792,10 @@
         if (copyText) await copyText(text);
         showCopySuccess?.(node.querySelector('.copy-btn'));
       });
-      const download = bind('.download-answer-btn', () => downloadAnswerFile?.(node, download), role === 'assistant' || role === 'error');
+      // Generated-image messages own their download through the image action clone
+      // (data-download-all-images); the text-answer download would be a duplicate.
+      const hasGeneratedImages = role === 'assistant' && !!node.querySelector?.('img.generated-thumb');
+      const download = bind('.download-answer-btn', () => downloadAnswerFile?.(node, download), (role === 'assistant' || role === 'error') && !hasGeneratedImages);
       return node;
     }
 

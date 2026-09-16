@@ -8,6 +8,12 @@
       return fileNames?.timestampExistingFilename ? fileNames.timestampExistingFilename(filename, { fallbackStem, fallbackExt }) : (filename || `${fallbackStem}.${fallbackExt}`);
     }
 
+    // Batch downloads share one timestamp and get a -N suffix so several images
+    // from the same message never collide (or land in random order) on disk.
+    function numberedDownloadFilename(index, total, fallbackExt = 'png') {
+      const prefix = fileNames?.timestampPrefix ? fileNames.timestampPrefix() : String(Date.now());
+      return total > 1 ? `${prefix}-${index}.${fallbackExt}` : `${prefix}.${fallbackExt}`;
+    }
     function removeGeneratedImageInlineActions(e){e?.querySelectorAll?.(".content img.generated-thumb").forEach(e=>{let t=e.nextElementSibling;for(;t&&(t.matches?.(".image-icon-btn,[data-download-image],[data-copy-image],[data-share-image],.generated-image-actions")||!String(t.textContent||"").trim()&&0===t.children.length);){const e=t.nextElementSibling;t.remove(),t=e}}),e?.querySelectorAll?.(".content .generated-image-actions").forEach(e=>e.remove())}
 
     // A single render callback is not enough: messages can appear through
@@ -56,8 +62,8 @@
       n.type = "button";
       n.dataset.downloadAllImages = "1";
       n.dataset.imageActionClone = "1";
-      n.title = "下载全部图片";
-      n.setAttribute("aria-label", "下载全部图片");
+      n.title = "下载";
+      n.setAttribute("aria-label", "下载");
       n.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>';
       n.addEventListener("click", () => downloadAllImagesFromMessage(e, n));
       s ? t.insertBefore(n, s) : t.appendChild(n);
@@ -168,7 +174,7 @@
 
     function imageActionButtonsHtml(e,t){return window.ChatUI.imageActions.imageActionButtonsHtml(e,t,escapeAttr)}
 
-    function ensureImageDownloadRow(e){const t=[...e.querySelectorAll("img.generated-thumb[data-persisted-src]")].filter(e=>e.dataset.persistedSrc);if(!t.length)return;let s=e.querySelector(".image-download-row");s||(s=document.createElement("div"),s.className="image-download-row",t[t.length-1].insertAdjacentElement("afterend",s));s.querySelector("[data-download-all-images]")||(s.innerHTML=downloadImageButtonHtml("","generated-images.zip").replace('data-download-image="1"','data-download-all-images="1"').replace("下载图片","下载全部图片"));s.querySelector("[data-download-all-images]")?.addEventListener("click",t=>downloadAllImagesFromMessage(e,t.currentTarget)),s.querySelectorAll("[data-download-image]").forEach(bindImageDownload),s.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),s.querySelectorAll("[data-share-image]").forEach(bindImageShare)}
+    function ensureImageDownloadRow(e){const t=[...e.querySelectorAll("img.generated-thumb[data-persisted-src]")].filter(e=>e.dataset.persistedSrc);if(!t.length)return;let s=e.querySelector(".image-download-row");s||(s=document.createElement("div"),s.className="image-download-row",t[t.length-1].insertAdjacentElement("afterend",s));s.querySelector("[data-download-all-images]")||(s.innerHTML=downloadImageButtonHtml("","generated-images.zip").replace('data-download-image="1"','data-download-all-images="1"').replace("下载图片","下载"));s.querySelector("[data-download-all-images]")?.addEventListener("click",t=>downloadAllImagesFromMessage(e,t.currentTarget)),s.querySelectorAll("[data-download-image]").forEach(bindImageDownload),s.querySelectorAll("[data-copy-image]").forEach(bindImageCopy),s.querySelectorAll("[data-share-image]").forEach(bindImageShare)}
 
     async function getImageActionBlob(e){const t=e.dataset.persistedHref||e.getAttribute?.("href")||"";if(t.startsWith("indexeddb://")){const e=await getImageBlob(t.replace("indexeddb://",""));if(!e)throw new Error("图片缓存不存在，请重新生成");return e}if(/^https?:|^data:|^blob:/i.test(t)){const e=await fetch(t);if(e.ok)return e.blob()}throw new Error("图片缓存不存在，请重新生成")}
 
@@ -213,7 +219,7 @@
       const message = e?.closest?.('.message');
       const isGenerated = e?.dataset?.generatedImage === '1'
         || (!!message?.classList?.contains?.('assistant') && !!message.querySelector?.('img.generated-thumb'));
-      let filename = downloadFilename(e.dataset.filename, 'generated-image', 'png');
+      let filename = e.dataset.resolvedFilename || downloadFilename(e.dataset.filename, 'generated-image', 'png');
       try {
         let blob = await getImageActionBlob(e);
         if (isGenerated) {
@@ -251,7 +257,7 @@
 
     async function copyImageActionElement(e){try{if(!canWriteImageClipboard())throw new Error(imageClipboardUnsupportedMessage());const t=getImageActionBlob(e).then(imageBlobToClipboardPng),s=new ClipboardItem({[IMAGE_CLIPBOARD_TYPE]:t});await navigator.clipboard.write([s]),toast("图片已复制")}catch(e){toast(e.message||String(e))}}
 
-    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");for(const e of t){const t=document.createElement("button");t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=downloadFilename(e.dataset.filename,"generated-image","png"),t.dataset.generatedImage="1",await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
+    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");const n=t.length;let a=0;for(const e of t){a+=1;const t=document.createElement("button");const o=numberedDownloadFilename(a,n);t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=o,t.dataset.resolvedFilename=o,t.dataset.generatedImage="1",await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
 
     function bindImageDownload(e){e.dataset.downloadBound||(e.dataset.downloadBound="1",e.addEventListener("click",()=>downloadImageActionElement(e)))}
 

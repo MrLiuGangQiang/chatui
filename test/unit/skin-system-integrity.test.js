@@ -86,15 +86,28 @@ function testSkinBootScriptAppliesOnlyKnownSkinBeforeBody() {
   assert.ok(index.includes("skinIds.includes(storedSkin) ? storedSkin : 'default'"), 'boot script must fail closed to the default skin');
 }
 
+// CSS layer order: themes -> skin system -> skins (ink last among skins) -> an
+// explicit, reviewed post-skin functional override layer. The override layer is
+// whitelisted so a new unreviewed stylesheet can never silently outrank skins.
+const POST_SKIN_CSS_ALLOWLIST = ['styles/message-actions-text.css'];
+
 function testSkinCssLoadsAfterDefaultThemeInStableOrder() {
   const entries = cssEntries();
   const calm = orderOf(entries, 'calm-theme.css');
   const defaults = orderOf(entries, 'skins/default/skin.css');
   const switcher = orderOf(entries, 'skin-system.css');
+  const snow = orderOf(entries, 'skins/snow/skin.css');
   const ink = orderOf(entries, 'skins/ink/skin.css');
-  assert.ok(calm >= 0 && defaults >= 0 && switcher >= 0 && ink >= 0, 'skin CSS entries must be in the manifest');
-  assert.ok(calm < defaults && defaults < switcher && switcher < ink, 'skin layers must override the default theme and ink must load last');
-  assert.strictEqual(ink, entries.length - 1, 'ink skin must be the final CSS override');
+  assert.ok(calm >= 0 && defaults >= 0 && switcher >= 0 && snow >= 0 && ink >= 0, 'skin CSS entries must be in the manifest');
+  assert.ok(calm < defaults && defaults < switcher && switcher < snow && snow < ink, 'skin layers must override the default theme and ink must load last among skins');
+  const afterInk = entries.slice(ink + 1).map(entry => entry.urlPath.replace(/^[/]+/, ''));
+  for (const pathName of afterInk) {
+    assert.ok(POST_SKIN_CSS_ALLOWLIST.includes(pathName), `only reviewed functional overrides may load after the ink skin: ${pathName}`);
+  }
+  for (const pathName of POST_SKIN_CSS_ALLOWLIST) {
+    const at = orderOf(entries, pathName);
+    assert.ok(at > ink, `allowlisted override ${pathName} must load after every skin`);
+  }
 }
 
 function testDefaultSkinExtractsTokensAndAliasesCurrentPalette() {

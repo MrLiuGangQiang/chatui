@@ -1,0 +1,197 @@
+/* ============================================================
+   Text-style message actions (preview): icon + label buttons
+   on a borderless row, replacing the 28px glassy icon squares.
+   Labels come from each button's existing title attribute, so
+   no JS or template change is required. Desktop only; mobile
+   keeps the compact "more" disclosure.
+   ============================================================ */
+@media (min-width:841px){
+  .message .msg-actions,
+  html[data-skin] .msg-actions{
+    gap:4px!important;
+    align-items:center!important;
+  }
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn),
+  .message .msg-actions .image-icon-btn,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn),
+  html[data-skin] .msg-actions .image-icon-btn{
+    display:inline-flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    gap:5px!important;
+    width:auto!important;
+    height:28px!important;
+    min-width:0!important;
+    min-height:28px!important;
+    max-width:none!important;
+    max-height:28px!important;
+    flex:0 0 auto!important;
+    aspect-ratio:auto!important;
+    padding:0 10px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:8px!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    color:#6b7280!important;
+    font-size:13px!important;
+    line-height:1!important;
+    text-decoration:none!important;
+    transform:none!important;
+    transition:color .12s ease,background-color .12s ease!important;
+    overflow:visible!important;
+  }
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn)::after,
+  .message .msg-actions .image-icon-btn::after,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn)::after,
+  html[data-skin] .msg-actions .image-icon-btn::after{
+    content:attr(title);
+    font-size:13px;
+    line-height:1;
+    white-space:nowrap;
+    color:inherit;
+  }
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn) svg,
+  .message .msg-actions .image-icon-btn svg,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn) svg,
+  html[data-skin] .msg-actions .image-icon-btn svg{
+    width:15px!important;
+    height:15px!important;
+    min-width:15px!important;
+    min-height:15px!important;
+    max-width:15px!important;
+    max-height:15px!important;
+    flex:0 0 15px!important;
+  }
+  /* The neutral text color wins over the per-action icon tints for the whole control. */
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn) svg,
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn) svg *,
+  .message .msg-actions .image-icon-btn svg *,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn) svg,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn) svg *,
+  html[data-skin] .msg-actions .image-icon-btn svg *{
+    color:currentColor!important;
+    stroke:currentColor!important;
+  }
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn):hover,
+  .message .msg-actions .image-icon-btn:hover,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn):hover,
+  html[data-skin] .msg-actions .image-icon-btn:hover{
+    color:#374151!important;
+    background:rgba(148,163,184,.16)!important;
+    border:0!important;
+    box-shadow:none!important;
+    transform:none!important;
+  }
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn).copied,
+  .message .msg-actions .icon-action-btn:not(.mobile-more-btn).copied:hover,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn).copied,
+  html[data-skin] .msg-actions .icon-action-btn:not(.mobile-more-btn).copied:hover{
+    color:#059669!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transform:none!important;
+  }
+}
+
+/* Keep the action row pinned: the legacy theme nudges the whole row by
+   translateY(-1px) until the message is hovered, which reads as the buttons
+   jumping when the pointer arrives. Freeze the row transform in every state. */
+.message .msg-actions,
+.message:hover .msg-actions,
+.message:focus-within .msg-actions,
+.message .msg-actions:hover,
+.message.user .msg-actions,
+.message.user:hover .msg-actions,
+.message.assistant .msg-actions,
+.message.assistant:hover .msg-actions,
+.message.error .msg-actions,
+.message.error:hover .msg-actions,
+.message.assistant.has-meta .msg-actions,
+.message.error.has-meta .msg-actions,
+.message.user.has-meta .msg-actions,
+.message.has-meta:hover .msg-actions,
+.message.has-meta .msg-actions:hover,
+.message:hover .msg-actions .icon-action-btn,
+.message:hover .msg-actions .image-icon-btn{
+  transform:none!important;
+}
+
+/* Same freeze for the per-button legacy lift (-1px) and press (scale .96):
+   the text-style row must not move in any interaction state. */
+.msg-actions .icon-action-btn:not(.mobile-more-btn):hover,
+.msg-actions .icon-action-btn:not(.mobile-more-btn):focus-visible,
+.msg-actions .icon-action-btn:not(.mobile-more-btn):active,
+.msg-actions .image-icon-btn:hover,
+.msg-actions .image-icon-btn:active{
+  transform:none!important;
+}
+/* Thin-line icon family one consistent hairline weight for every message
+   action. Specificity must exceed the root styles.css rules
+   (.msg-actions>button.icon-action-btn svg path{stroke-width:2} and the
+   .copy-btn.icon-action-btn.copied svg path{stroke-width:2.25} family). */
+.msg-actions button.icon-action-btn svg path,
+.msg-actions button.icon-action-btn svg rect,
+.msg-actions button.icon-action-btn svg circle,
+.msg-actions a.icon-action-btn svg path,
+.msg-actions a.icon-action-btn svg rect,
+.msg-actions a.icon-action-btn svg circle,
+.msg-actions button.image-icon-btn svg path,
+.msg-actions button.image-icon-btn svg rect,
+.msg-actions button.image-icon-btn svg circle,
+.msg-actions .copy-btn.icon-action-btn svg path,
+.msg-actions .copy-btn.icon-action-btn.copied svg path,
+.msg-actions .copy-btn.icon-action-btn.copied .copy-success-icon path,
+.msg-actions .icon-action-btn.copied svg path{
+  stroke-width:1.5!important;
+}
+
+/* Action labels are quiet text: never inherit any button bolding. */
+.message .msg-actions .icon-action-btn,
+.message .msg-actions .image-icon-btn,
+.message .msg-actions .icon-action-btn::after,
+.message .msg-actions .image-icon-btn::after{
+  font-weight:400;
+}
+/* Copied feedback must stay in the text-button flow: legacy rules switch the
+   button to inline-grid and absolutely center the checkmark over the whole
+   button box, which collides with the ::after label. Keep it inline-flex and
+   return the success icon to normal flex flow next to the text. */
+.msg-actions .copy-btn.icon-action-btn.copied,
+.msg-actions .copy-btn.icon-action-btn.copied:hover,
+.msg-actions .icon-action-btn.copied,
+.msg-actions .icon-action-btn.copied:hover{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  place-items:center!important;
+  width:auto!important;
+  max-width:none!important;
+  padding:0 10px!important;
+}
+.msg-actions .copy-btn.icon-action-btn.copied .copy-success-icon,
+.msg-actions .copy-btn.icon-action-btn.copied:hover .copy-success-icon,
+.msg-actions .icon-action-btn.copied .copy-success-icon,
+.msg-actions .icon-action-btn.copied svg{
+  position:static!important;
+  left:auto!important;
+  top:auto!important;
+  transform:none!important;
+  width:15px!important;
+  height:15px!important;
+  min-width:15px!important;
+  min-height:15px!important;
+  max-width:15px!important;
+  max-height:15px!important;
+  flex:0 0 15px!important;
+  margin:0!important;
+}
+@media (min-width:841px){
+  /* The copied state reads as a confirmation label, like the reference design. */
+  .msg-actions .copy-btn.icon-action-btn.copied::after,
+  .msg-actions .icon-action-btn.copied::after{
+    content:"已复制";
+  }
+}

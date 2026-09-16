@@ -221,11 +221,12 @@ function testEnsureMessageActionsRestoresDroppedImageMessageActions() {
     assert.strictEqual(fixture.workflow.ensureMessageActions(node), true);
     assert.ok(actions.querySelector('.quote-btn'), 'quote action must be restored from the shared template');
     assert.ok(actions.querySelector('.copy-btn'), 'copy action must be restored through the shared binding');
-    assert.ok(actions.querySelector('.download-answer-btn'), 'download action must be restored');
+    assert.strictEqual(actions.querySelector('.download-answer-btn'), null,
+      'a generated-image message must not restore the text-answer download action');
     assert.ok(actions.querySelector('.refresh-btn'), 'refresh action must stay');
     assert.deepStrictEqual(
-      [...actions.querySelectorAll('.quote-btn,.copy-btn,.download-answer-btn,.refresh-btn')].map(button => button.dataset.messageActionBound),
-      ['1', '1', '1', '1'],
+      [...actions.querySelectorAll('.quote-btn,.copy-btn,.refresh-btn')].map(button => button.dataset.messageActionBound),
+      ['1', '1', '1'],
       'restored buttons must be bound through the shared message-action path',
     );
     fixture.workflow.ensureMessageActions(node);

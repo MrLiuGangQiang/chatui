@@ -22,6 +22,14 @@
     return Object.freeze({ ...source, id: normalized });
   }
 
+  // Each skin owns styles/skins/<id>/skin.css. The default skin is bundled into
+  // the page stylesheet; every other skin is injected on demand, so an inactive
+  // skin never reaches the document. Unknown ids resolve to default and load nothing.
+  function skinStylesheetHref(id = '', skins = SKINS) {
+    const normalized = normalizeSkinId(id, skins);
+    return normalized === 'default' ? '' : `/styles/skins/${normalized}/skin.css`;
+  }
+
   function readSkinId(storage, key = SKIN_STORAGE_KEY, skins = SKINS) {
     try {
       return normalizeSkinId(storage?.getItem?.(key), skins);
@@ -48,6 +56,7 @@
     SKIN_STORAGE_KEY,
     SKINS,
     normalizeSkinId,
+    skinStylesheetHref,
     resolveSkin,
     readSkinId,
     writeSkinId,

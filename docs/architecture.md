@@ -173,11 +173,16 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 3.7 皮肤系统与视觉层
 
-- 每套皮肤使用独立目录 `styles/skins/<id>/skin.css`，皮肤自有资源与 CSS 同目录存放；`styles/skins/default/skin.css` 抽取默认皮肤的有效 `--skin-*` 设计令牌，把既有 `--bg/--ds-*/--chatui-*` 变量别名回令牌，并以自带 `styles/skins/default/scenery.jpg`（丝绢波浪照片）+ 浅白罩纱作为默认画布，聊天主区透明；既有 stylesheet 继续拥有结构与组件规则。
-- `styles/skin-system.css` 提供右下角切换按钮的共享外壳；`styles/skins/ink/skin.css` 全部通过 `html[data-skin="ink"]` 作用域覆盖，并含默认皮肤硬编码颜色声明的生成式重映射快照、`styles/skins/ink/scenery.jpg` 已确认山水背景与青黛墨绿调色层、统一纸绢材质，不污染默认皮肤。
-- `styles/skins/snow/skin.css` 是雪山皮肤：自带 `styles/skins/snow/scenery.jpg` 雪峰湖泊照片作为画布，叠加霜雾罩层；霜白玻璃导航/卡片与冰川蓝 `#2f7fc4` 主色贴合背景，同样只改视觉。
-- `client/core/skin.js` 是皮肤目录与纯校验逻辑，`client/features/skin-system/skin-switcher.js` 负责 DOM、切换与持久化；`bootstrap-workflow.js` 在启动时初始化切换器。
-- `index.html` head 内联脚本按白名单先行设置 `data-skin` 防闪烁；storage key 见 `client/config/storage-keys.js`。皮肤只改视觉，不改变布局、交互、任务或数据契约。
+皮肤按设计 27 定义目录、注册表与切换契约，按设计 29 决定样式分层与加载机制（机制要点如下，细节以 29 为准）。
+
+- 样式分层与优先序（高到低）：评审后功能覆盖（post-skin 静态 head 链接）> 激活皮肤（boot 注入链接）> `skins/default`（bundle 内）> `styles/surfaces/` 视觉域 > 主题与基座。层叠关系由「装配位置」保证，不依赖 `!important` 权重对抗；本仓库历史样式表含约 9400 个 `!important`，因此否决了 CSS `@layer` 方案（`@layer` 对 important 反向排序会翻转基础层与皮肤层胜负，见 29 §3、§9）。
+- bundle 只装配共享层与默认皮肤：`styles/skins/default/skin.css` 抽取 `--skin-*` 设计令牌、把 `--bg/--ds-*/--chatui-*` 别名回令牌，并作为全部 surfaces 控制点的权威默认层；自带 `styles/skins/default/scenery.jpg` 画布。
+- 非默认皮肤不登记 manifest，由 `index.html` head 内联脚本按 `client/core/skin.js` 的 `skinStylesheetHref()` 注入唯一一条 `<link data-chatui-skin>`；未知或损坏的存储值失败关闭到 default 且不发请求。皮肤直链走 `/styles/` 前缀放行与 `no-store`，其 `url()` 相对路径由浏览器按皮肤目录解析，不经 bundle 重写。
+- `client/features/skin-system/skin-switcher.js` 的 `syncSkinStylesheet()` 维护这条链接（改皮肤=改 href，回 default=移除），使 `data-skin` 属性、localStorage 与在场样式表三者始终一致；文档中任一时刻至多存在一条皮肤样式表链接，因此皮肤之间不可能互相影响。
+- `styles/surfaces/<domain>.css` 是皮肤可见视觉决策的归属层（阶段 1 已建立 `session-sidebar` 示范域：`--sidebar-fill/--sidebar-veil/--sidebar-border/--sidebar-blur/--sidebar-saturate`）。域文件头部注释声明控制点与「皮肤禁改」项；过渡期域规则仍限定 `html[data-skin="default"]`，待各皮肤改用控制点后摘除（29 §4、阶段 3）。
+- `styles/skin-system.css` 提供右下角切换器共享外壳；`styles/skins/ink/skin.css`、`styles/skins/snow/skin.css` 通过 `html[data-skin="<id>"]` 作用域承载各自配色、材质与画布（ink 生成式重映射快照与逐皮肤 swatch 色板将在阶段 3 退役/令牌化）。皮肤只改视觉，不改布局、交互、任务或数据契约。
+- `client/core/skin.js` 是皮肤目录、校验与皮肤样式表 URL 的唯一事实源；`bootstrap-workflow.js` 在启动时初始化切换器；storage key 见 `client/config/storage-keys.js`。
+- 门禁：`test/unit/skin-loading.test.js` 冻结「bundle 只含默认皮肤、注入锚点顺序、单条皮肤链接、域控制点有默认值、域规则不泄漏到其他皮肤」；`test/unit/skin-system-integrity.test.js` 保留逐皮肤视觉契约与目录隔离。
 
 ## 4. 服务端代码
 

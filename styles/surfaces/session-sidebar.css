@@ -1,0 +1,32 @@
+/* ============================================================
+   域：会话侧栏（session-sidebar）
+   ------------------------------------------------------------
+   这里放"皮肤能看见"的侧栏表面材质。宽度、折叠断点、滚动行为
+   与焦点顺序仍归基础布局层，皮肤不得改动。
+
+   皮肤控制点（默认值权威定义在 styles/skins/default/skin.css，
+   任何皮肤在自己的 :root[data-skin="<id>"] 里覆盖即可整体调节）：
+     --sidebar-fill       侧栏底色，含透明度（例 rgba(255,255,255,.20)）
+     --sidebar-veil       侧栏渐变罩纱，叠加在底色之上
+     --sidebar-border     侧栏分隔描边
+     --sidebar-blur       毛玻璃模糊半径
+     --sidebar-saturate   毛玻璃饱和度
+   皮肤也可以跳过控制点，直接在自己的 skin.css 里写本域选择器做更细的定制。
+
+   过渡期说明：选择器暂时限定 data-skin="default"，因为 ink/snow 仍在用
+   直接规则表达本域，去掉前缀会让它们的 border-color / background 简写
+   被默认值意外命中。全部皮肤改为用控制点表达本域后（设计 29 阶段 3），
+   这一前缀必须整块摘除，由门禁 testTransitionalDefaultScopeInsideSurfacesShrinksOnly 阻止新增。
+   ============================================================ */
+
+html[data-skin="default"] .session-sidebar,
+html[data-skin="default"] .session-rail {
+  /* important 是历史存量：基础层（styles.css / flat-theme.css）大量使用
+     !important，本域在阶段 2 清理基础层之前必须保持同等权重，否则默认外观漂移。 */
+  background: transparent !important;
+  background-color: var(--sidebar-fill) !important;
+  background-image: var(--sidebar-veil) !important;
+  border-color: var(--sidebar-border) !important;
+  backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate)) !important;
+  -webkit-backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate)) !important;
+}

@@ -36,6 +36,14 @@
   --skin-shadow: 0 8px 24px rgba(31, 35, 41, .06);
   --skin-shadow-lg: 0 18px 50px rgba(31, 35, 41, .12);
   --skin-radius: 18px;
+
+  /* Skin control points for the session sidebar domain
+     (consumer: styles/surfaces/session-sidebar.css) */
+  --sidebar-fill: rgba(255, 255, 255, .20);
+  --sidebar-veil: linear-gradient(180deg, rgba(240, 244, 248, .30), rgba(228, 235, 242, .24));
+  --sidebar-border: rgba(214, 224, 235, .55);
+  --sidebar-blur: 12px;
+  --sidebar-saturate: 1.04;
 }
 
 :root {
@@ -149,19 +157,4 @@ html[data-skin="default"] .session-tab.active small {
 html[data-skin="default"] .session-tab.active .session-delete-btn,
 html[data-skin="default"] .session-tab.active .session-rename-btn {
   color: #5a75f3 !important;
-}
-
-/* Translucent default sidebar.
- * The side rails clear their opaque canvas so the silk waves read
- * through a light white veil with a soft glass blur. The selected
- * session keeps its emphasised accent selection; no left colour bar. */
-
-html[data-skin="default"] .session-sidebar,
-html[data-skin="default"] .session-rail {
-  background: transparent !important;
-  background-color: rgba(255, 255, 255, .20) !important;
-  background-image: linear-gradient(180deg, rgba(240, 244, 248, .30), rgba(228, 235, 242, .24)) !important;
-  border-color: rgba(214, 224, 235, .55) !important;
-  backdrop-filter: blur(12px) saturate(1.04) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(1.04) !important;
 }

@@ -24,21 +24,35 @@ function orderOf(entries, pathSuffix) {
 }
 
 function testDefaultSidebarStaysTranslucent() {
+  // Design 29 stage 1 moved the sidebar material into the surfaces domain and
+  // its values into skin control points. The visual contract stays identical:
+  // strongly translucent glass, no left colour bar.
+  const surfaces = read('styles/surfaces/session-sidebar.css');
   const defaults = read('styles/skins/default/skin.css');
-  const at = defaults.indexOf('Default scenic canvas');
-  assert.ok(at >= 0, 'default skin must own the scenic canvas pass');
-  const tail = defaults.slice(at);
-  const pairRe = /html\[data-skin="default"\] \.session-sidebar,\s*html\[data-skin="default"\] \.session-rail\s*\{([^}]*)\}/;
-  const match = tail.match(pairRe);
-  assert.ok(match, 'default skin must style .session-sidebar/.session-rail together in the scenic pass');
-  const body = match[1];
-  assert.ok(/background:\s*transparent/.test(body), 'sidebar must clear the opaque canvas');
-  const alpha = body.match(/background-color:\s*rgba\([^)]*?,\s*(0?\.\d+)\)/);
-  assert.ok(alpha && Number(alpha[1]) <= 0.25, 'default sidebar veil must stay strongly translucent (about 80% transparent)');
-  assert.ok(/backdrop-filter:\s*blur\(/.test(body), 'sidebar must keep a glass blur');
-  assert.ok(!/inset\s+\d+px\s+0\s+0/.test(body), 'sidebar must not gain a left colour bar');
-}
+  const rule = surfaces.match(/\.session-sidebar,[^}]*\{([^}]*)\}/);
+  assert.ok(rule, 'the sidebar domain must style the sidebar surface');
+  const declarations = rule[1];
+  assert.ok(/background:\s*transparent/.test(declarations), 'the domain must clear the opaque canvas');
+  assert.ok(/background-color:\s*var\(--sidebar-fill\)/.test(declarations), 'the sidebar fill must come from a skin control point');
+  assert.ok(/backdrop-filter:\s*blur\(var\(--sidebar-blur\)\)/.test(declarations), 'the glass blur must come from a skin control point');
 
+  const tokens = defaults
+    .split('\n')
+    .filter(line => line.trim().startsWith('--sidebar-'))
+    .join('\n');
+  assert.ok(tokens.includes('--sidebar-fill'), 'the default skin must own the authoritative sidebar fill');
+  const alpha = tokens.match(/--sidebar-fill:\s*rgba\([^)]*?,\s*(0?\.\d+)\)/);
+  assert.ok(alpha && Number(alpha[1]) <= 0.25, 'the default sidebar veil must stay strongly translucent (about 80% transparent)');
+  const blur = tokens.match(/--sidebar-blur:\s*(\d+)px/);
+  assert.ok(blur && Number(blur[1]) >= 8, 'the default sidebar must keep a glass blur');
+  assert.ok(!/inset\s+\d+px\s+0\s+0/.test(declarations + tokens), 'the sidebar must not gain a left colour bar');
+
+  // Recurrence gate: the material must not be re-inlined into one skin file.
+  assert.ok(
+    !/\.session-sidebar[^{]*\{/.test(defaults.slice(defaults.indexOf('Current session emphasis'))),
+    'the default skin must not re-inline the sidebar material now owned by the surfaces domain'
+  );
+}
 
 function testDefaultActiveSessionUsesProminentAccentSelection() {
   const defaults = read('styles/skins/default/skin.css');
@@ -86,30 +100,25 @@ function testSkinBootScriptAppliesOnlyKnownSkinBeforeBody() {
   assert.ok(index.includes("skinIds.includes(storedSkin) ? storedSkin : 'default'"), 'boot script must fail closed to the default skin');
 }
 
-// CSS layer order: themes -> skin system -> skins (ink last among skins) -> an
-// explicit, reviewed post-skin functional override layer. The override layer is
-// whitelisted so a new unreviewed stylesheet can never silently outrank skins.
-const POST_SKIN_CSS_ALLOWLIST = ['styles/message-actions-text.css'];
 
+// Loading order for the pieces that stay inside the bundle. Non-default skins
+// are injected on demand and the reviewed post-skin functional override is a
+// static head link, so neither is a manifest entry any more (design 29).
 function testSkinCssLoadsAfterDefaultThemeInStableOrder() {
   const entries = cssEntries();
   const calm = orderOf(entries, 'calm-theme.css');
+  const surfaces = orderOf(entries, 'surfaces/session-sidebar.css');
   const defaults = orderOf(entries, 'skins/default/skin.css');
   const switcher = orderOf(entries, 'skin-system.css');
-  const snow = orderOf(entries, 'skins/snow/skin.css');
-  const ink = orderOf(entries, 'skins/ink/skin.css');
-  assert.ok(calm >= 0 && defaults >= 0 && switcher >= 0 && snow >= 0 && ink >= 0, 'skin CSS entries must be in the manifest');
-  assert.ok(calm < defaults && defaults < switcher && switcher < snow && snow < ink, 'skin layers must override the default theme and ink must load last among skins');
-  const afterInk = entries.slice(ink + 1).map(entry => entry.urlPath.replace(/^[/]+/, ''));
-  for (const pathName of afterInk) {
-    assert.ok(POST_SKIN_CSS_ALLOWLIST.includes(pathName), `only reviewed functional overrides may load after the ink skin: ${pathName}`);
-  }
-  for (const pathName of POST_SKIN_CSS_ALLOWLIST) {
-    const at = orderOf(entries, pathName);
-    assert.ok(at > ink, `allowlisted override ${pathName} must load after every skin`);
+  assert.ok(calm >= 0 && surfaces >= 0 && defaults >= 0 && switcher >= 0, 'shared CSS entries must stay in the manifest');
+  assert.ok(
+    calm < surfaces && surfaces < defaults && defaults < switcher,
+    'the surfaces domain must load immediately before the default skin that owns its control points'
+  );
+  for (const id of skinCore.SKINS.map(skin => String(skin.id)).filter(skinId => skinId !== 'default')) {
+    assert.strictEqual(orderOf(entries, `skins/${id}/skin.css`), -1, `${id} skin must load on demand, not from the manifest`);
   }
 }
-
 function testDefaultSkinExtractsTokensAndAliasesCurrentPalette() {
   const defaults = read('styles/skins/default/skin.css');
   for (const fragment of ['--skin-canvas: #f7f8fb', '--skin-accent: #4d6bfe', '--chatui-canvas: var(--skin-canvas)', '--bg: var(--skin-canvas)', '--ds-page: var(--skin-canvas)']) {
@@ -117,7 +126,7 @@ function testDefaultSkinExtractsTokensAndAliasesCurrentPalette() {
   }
 }
 
-function testInkSkinIsFullyScopedAndSurvivesBundleAssembly() {
+function testInkSkinStaysScopedToItsOwnAttribute() {
   const ink = read('styles/skins/ink/skin.css');
   assert.ok(ink.includes(':root[data-skin="ink"]'), 'ink tokens must be scoped to the ink attribute');
   assert.ok(ink.includes('Generated color remap snapshot'), 'ink skin must include the generated hardcoded-color remap');
@@ -133,10 +142,11 @@ function testInkSkinIsFullyScopedAndSurvivesBundleAssembly() {
   ]) {
     assert.ok(ink.includes(fragment), `ink skin must cover ${fragment}`);
   }
-  const body = staticBundle.buildBundleBody(cssEntries(), 'css').toString('utf8');
-  for (const fragment of [':root[data-skin="ink"]', '--skin-canvas: #f4efe3', 'html[data-skin="ink"] .input-stack']) {
-    assert.ok(body.includes(fragment), `CSS bundle must preserve ${fragment}`);
-  }
+  // The sheet is served standalone (design 29), so it must not lean on bundle
+  // concatenation: no @import, no asset escapes, no styling of other skins.
+  assert.ok(!/@import\b/.test(ink), 'the on-demand ink sheet must not @import other stylesheets');
+  assert.ok(!ink.includes('url("../'), 'ink assets must stay inside the skin folder for standalone loading');
+  assert.ok(!ink.includes('data-skin="snow"'), 'the ink sheet must never style the snow skin');
 }
 
 function testInkSkinUsesApprovedSceneryAndAlignedPalette() {
@@ -213,9 +223,10 @@ function testInkSkinUsesApprovedSceneryAndAlignedPalette() {
     assert.ok(ink.includes(fragment), `aligned ink skin must keep conversation detail rule: ${fragment}`);
   }
 
-  const bundle = staticBundle.buildBundleBody(cssEntries(), 'css').toString('utf8');
-  assert.ok(!bundle.includes('ink-literati'), 'ink background must not reference superseded artwork');
-  assert.ok(bundle.includes('url("/styles/skins/ink/scenery.jpg?v=1")'), 'CSS bundle must rewrite the approved scenery asset to its public path');
+  // Skins load on demand (design 29): the sheet is served directly, so its
+  // relative url() resolves against the skin folder instead of being rewritten.
+  assert.ok(!ink.includes('ink-literati'), 'ink background must not reference superseded artwork');
+  assert.ok(ink.includes('url("./scenery.jpg?v=1")'), 'the approved ink scenery must stay a relative reference inside the skin folder');
 }
 
 function testEveryRegisteredSkinOwnsAnIsolatedFolder() {
@@ -234,7 +245,11 @@ function testEveryRegisteredSkinOwnsAnIsolatedFolder() {
     assert.ok(fs.existsSync(path.join(ROOT, relativeCss)), `${id} skin must own ${relativeCss}`);
     assert.ok(!fs.existsSync(path.join(ROOT, `styles/skins/${id}.css`)), `${id} skin must not keep a flat stylesheet outside its folder`);
     const manifestEntries = entries.filter(entry => entry.urlPath === `/styles/skins/${id}/skin.css`);
-    assert.strictEqual(manifestEntries.length, 1, `manifest must load ${relativeCss} exactly once`);
+    assert.strictEqual(
+      manifestEntries.length,
+      id === 'default' ? 1 : 0,
+      `${relativeCss} must ${id === 'default' ? 'ship inside the bundle' : 'load on demand instead of shipping in the bundle'}`
+    );
     assert.ok(isPublicStaticPath(`/${relativeCss}`), `${relativeCss} must remain publicly servable`);
 
     const css = read(relativeCss);
@@ -372,9 +387,8 @@ function testSnowSkinShipsItsAlpineBackground() {
   assert.ok(snow.includes(':root[data-skin="snow"]'), 'snow skin must define scoped tokens');
   assert.ok(snow.includes('url("./scenery.jpg?v=1")'), 'snow skin must reference its own alpine background');
   assert.ok(fs.existsSync(path.join(ROOT, 'styles/skins/snow/scenery.jpg')), 'snow background asset must ship inside the skin folder');
-  assert.ok(read('styles/skin-system.css').includes('.skin-swatch-snow'), 'snow skin must have a switcher swatch');
-  const bundle = staticBundle.buildBundleBody(cssEntries(), 'css').toString('utf8');
-  assert.ok(bundle.includes('url("/styles/skins/snow/scenery.jpg?v=1")'), 'bundle must rewrite the snow background to its public path');
+  assert.ok(read('styles/skin-system.css').includes('.skin-swatch {'), 'the switcher must keep the shared swatch shell');
+  assert.ok(snow.includes('url("./scenery.jpg?v=1")'), 'the snow canvas must resolve relatively so the on-demand sheet finds its own folder');
 }
 
 function testSnowSkinKeepsAnnouncementFeedbackAndStatsOnTheGlacierPalette() {
@@ -479,7 +493,7 @@ module.exports = [
   testSkinBootScriptAppliesOnlyKnownSkinBeforeBody,
   testSkinCssLoadsAfterDefaultThemeInStableOrder,
   testDefaultSkinExtractsTokensAndAliasesCurrentPalette,
-  testInkSkinIsFullyScopedAndSurvivesBundleAssembly,
+  testInkSkinStaysScopedToItsOwnAttribute,
   testInkSkinUsesApprovedSceneryAndAlignedPalette,
   testEveryRegisteredSkinOwnsAnIsolatedFolder,
   testInkSkinKeepsMessagesTransparentAndSidebarTranslucent,

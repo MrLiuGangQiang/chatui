@@ -56,6 +56,37 @@
       ? skinCore.normalizeSkinId(id, skins)
       : (skins.some(skin => String(skin?.id) === String(id || '').trim()) ? String(id).trim() : 'default'));
 
+    // The active skin sheet is loaded on demand: the boot script injects it on
+    // first paint, and selecting a skin here must keep that single link in sync.
+    // It is always inserted before the reviewed post-skin override link so the
+    // override layer keeps the final cascade word, exactly like the old bundle
+    // manifest order did.
+    function syncSkinStylesheet(skinId) {
+      const head = doc.head;
+      if (!head?.querySelector) return;
+      const href = typeof skinCore?.skinStylesheetHref === 'function'
+        ? skinCore.skinStylesheetHref(skinId, skins)
+        : (skinId === 'default' ? '' : `/styles/skins/${skinId}/skin.css`);
+      const existing = head.querySelector('link[data-chatui-skin]');
+      if (!href) {
+        existing?.remove?.();
+        return;
+      }
+      if (existing) {
+        if (existing.getAttribute('data-chatui-skin') === skinId && existing.getAttribute('href') === href) return;
+        existing.setAttribute('data-chatui-skin', skinId);
+        existing.setAttribute('href', href);
+        return;
+      }
+      const link = doc.createElement('link');
+      link.rel = 'stylesheet';
+      link.setAttribute('data-chatui-skin', skinId);
+      link.setAttribute('href', href);
+      const overrideAnchor = head.querySelector('link[data-chatui-post-skin]');
+      if (overrideAnchor?.parentNode === head) head.insertBefore(link, overrideAnchor);
+      else head.appendChild(link);
+    }
+
     function applySkinAttribute(skinId) {
       const rootNode = doc.documentElement;
       if (!rootNode) return;
@@ -98,6 +129,7 @@
     function selectSkin(skinId) {
       const normalized = normalize(skinId);
       applySkinAttribute(normalized);
+      syncSkinStylesheet(normalized);
       if (typeof skinCore?.writeSkinId === 'function') {
         skinCore.writeSkinId(storage, normalized, { key: storageKey, skins, onError: options.onPersistError });
       } else if (storage?.setItem) {
@@ -198,6 +230,7 @@
       renderOptions();
       const current = readCurrentSkin();
       applySkinAttribute(current);
+      syncSkinStylesheet(current);
       syncActive(current);
       bind();
     }

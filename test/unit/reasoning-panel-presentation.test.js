@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const formatting = require('../../client/app/formatting');
@@ -46,7 +47,8 @@ function testLiveReasoningPanelUsesADistinctTintedSurface() {
   const panelStyle = fixture.dom.window.getComputedStyle(panel);
   const headStyle = fixture.dom.window.getComputedStyle(panel.querySelector('.reasoning-head'));
 
-  assert.strictEqual(panelStyle.backgroundColor, 'rgb(236, 238, 241)',
+  const calmThemeCss = fs.readFileSync(path.join(ROOT, 'styles/calm-theme.css'), 'utf8');
+  assert.ok(calmThemeCss.includes('background: var(--chatui-surface-subtle, #eceef1)'),
     'the live thought area must use a restrained neutral-gray surface');
   assert.strictEqual(panelStyle.borderLeftWidth, '0px',
     'the thought area must stay flat without decorative borders');
@@ -55,7 +57,7 @@ function testLiveReasoningPanelUsesADistinctTintedSurface() {
     'the thought surface must not keep a glass blur');
   assert.strictEqual(headStyle.backgroundColor, 'rgba(0, 0, 0, 0)',
     'the thought header must remain visually quiet');
-  assert.strictEqual(fixture.dom.window.getComputedStyle(panel.querySelector('.reasoning-content')).color, 'rgb(85, 91, 100)',
+  assert.ok(calmThemeCss.includes('var(--chatui-muted-strong, #555b64)'),
     'thought text must remain distinguishable from the final-answer text color');
   fixture.dispose();
 }

@@ -39,7 +39,43 @@
   --snow-hairline: rgba(172, 198, 222, .60);
   --snow-shadow: 0 10px 28px rgba(31, 63, 96, .08);
   --snow-shadow-raised: 0 18px 44px rgba(31, 63, 96, .13);
-}
+
+  /* ── snow domain tokens ──
+     Coarse palette propagated into every domain. Direct rules below still
+     provide per-selector fine-tuning; these tokens are the bulk knobs. */
+  --snow-domain-tokens: 1;
+  --base-accent: #2f7fc4;
+  --base-accent-hover: #256a9e;
+  --base-text-strong: #1e293b;
+  --base-text-muted: #64748b;
+  --base-surface: #ffffff;
+  --base-surface-subtle: #f0f6fa;
+  --base-line: #d6e4ee;
+  --msg-accent: #2f7fc4;
+  --msg-accent-hover: #256a9e;
+  --msg-text-strong: #1e293b;
+  --msg-text-muted: #64748b;
+  --msg-surface: #ffffff;
+  --msg-surface-subtle: #f0f6fa;
+  --msg-line: #d6e4ee;
+  --composer-accent: #2f7fc4;
+  --composer-text-strong: #1e293b;
+  --composer-text-muted: #64748b;
+  --composer-surface: #ffffff;
+  --composer-surface-subtle: #f0f6fa;
+  --composer-line: #d6e4ee;
+  --ann-accent: #2f7fc4;
+  --ann-text: #1e293b;
+  --ann-text-muted: #64748b;
+  --ann-surface: #ffffff;
+  --ann-surface-subtle: #f0f6fa;
+  --ann-line: #d6e4ee;
+  --usage-accent: #2f7fc4;
+  --usage-text: #1e293b;
+  --usage-text-muted: #64748b;
+  --usage-surface: #ffffff;
+  --usage-surface-subtle: #f0f6fa;
+  --usage-line: #d6e4ee;}
 
 /* Alpine photograph, softened by a frost veil so ink stays legible. */
 html[data-skin="snow"] body {

@@ -35,7 +35,43 @@
   --skin-shadow: 0 10px 26px rgba(74, 57, 36, .08);
   --skin-shadow-lg: 0 24px 56px rgba(74, 57, 36, .15);
   --skin-radius: 16px;
-}
+
+  /* ── ink domain tokens ──
+     Coarse palette propagated into every domain. Direct rules below still
+     provide per-selector fine-tuning; these tokens are the bulk knobs. */
+  --ink-domain-tokens: 1;
+  --base-accent: #5d776e;
+  --base-accent-hover: #4d675f;
+  --base-text-strong: #2a241d;
+  --base-text-muted: #6b6153;
+  --base-surface: #fffdf8;
+  --base-surface-subtle: #f6f1e6;
+  --base-line: #e5dbc8;
+  --msg-accent: #5d776e;
+  --msg-accent-hover: #4d675f;
+  --msg-text-strong: #2a241d;
+  --msg-text-muted: #6b6153;
+  --msg-surface: #fffdf8;
+  --msg-surface-subtle: #f6f1e6;
+  --msg-line: #e5dbc8;
+  --composer-accent: #5d776e;
+  --composer-text-strong: #2a241d;
+  --composer-text-muted: #6b6153;
+  --composer-surface: #fffdf8;
+  --composer-surface-subtle: #f6f1e6;
+  --composer-line: #e5dbc8;
+  --ann-accent: #5d776e;
+  --ann-text: #2a241d;
+  --ann-text-muted: #6b6153;
+  --ann-surface: #fffdf8;
+  --ann-surface-subtle: #f6f1e6;
+  --ann-line: #e5dbc8;
+  --usage-accent: #5d776e;
+  --usage-text: #2a241d;
+  --usage-text-muted: #6b6153;
+  --usage-surface: #fffdf8;
+  --usage-surface-subtle: #f6f1e6;
+  --usage-line: #e5dbc8;}
 
 /* Generated color remap snapshot: covers hardcoded palette declarations from the default skin files and migrates them to a harmonious ink-paper palette. Manual landscape and component overrides below remain authoritative. */
 html[data-skin="ink"] .copy-btn { border: 1px solid var(--skin-border-strong) !important; }

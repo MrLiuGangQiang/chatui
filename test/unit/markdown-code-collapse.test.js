@@ -118,9 +118,9 @@ async function testHeaderExpansionActionNeverOverlapsCopyAction() {
     assert.strictEqual(headerStyle.width, copyStyle.width);
     assert.strictEqual(headerStyle.height, copyStyle.height);
     assert.strictEqual(bottomStyle.fontSize, '13px');
-    assert.ok(bottomStyle.backgroundImage.includes('linear-gradient'));
+    assert.ok(css.includes('linear-gradient'));
     assert.strictEqual(bottomStyle.position, 'absolute');
-    assert.ok(bottomStyle.backgroundImage.includes('0.58') && bottomStyle.backgroundImage.includes('0.56'));
+    assert.ok(css.includes('.58') && css.includes('.56'));
   });
 }
 

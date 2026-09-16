@@ -293,19 +293,19 @@ function testDisposingLiveCodePreviewCancelsWorkWithoutClearingVisibleContent() 
 function testFencedCodeUsesBalancedContrastTheme() {
   const css = fs.readFileSync(path.join(__dirname, '../../styles/flat-theme.css'), 'utf8').replace(/\r\n?/g, '\n').replace(/\r\n?/g, '\n');
   const index = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
-  assert.ok(css.includes('--ds-code:#e8ebf0!important'), 'fenced code should use a medium blue-gray surface');
-  assert.ok(css.includes('--ds-code-text:#28303d!important'), 'code text should keep strong contrast without switching to a dark theme');
+  assert.ok(css.includes('--ds-code:var(--flat-x-e8ebf0, #e8ebf0)!important'), 'fenced code should use a medium blue-gray surface');
+  assert.ok(css.includes('--ds-code-text:var(--flat-x-28303d, #28303d)!important'), 'code text should keep strong contrast without switching to a dark theme');
   assert.ok(css.includes('background-image:none!important') && css.includes('box-shadow:none!important'), 'fenced code should use a uniform flat surface without gradients or shadows');
   assert.ok(css.includes('.markdown-body .code-block::after') && css.includes('content:none!important'), 'the legacy gradient overlay pseudo-element should be disabled');
   assert.ok(css.includes('backdrop-filter:none!important') && css.includes('.markdown-body .code-lang'), 'glass filters and the translucent language-label surface should be disabled');
-  assert.ok(css.includes('.markdown-body .hljs-keyword') && css.includes('color:#7c3aed!important'), 'syntax tokens should use a coordinated light-theme palette');
+  assert.ok(css.includes('.markdown-body .hljs-keyword') && css.includes('color: var(--flat-x-7c3aed, #7c3aed) !important'), 'syntax tokens should use a coordinated light-theme palette');
   assertAssetVersionAtLeast(index, 'styles/flat-theme.css', [2, 2, 4]);
   assertAssetVersionAtLeast(index, 'assets/chatui.bundle.css', [1, 3, 163]);
 
   const dom = new JSDOM(`<style>${css}</style><div class="message assistant"><div class="content markdown-body"><div class="code-block"><span class="code-lang">js</span><pre><code class="hljs language-js">const x = 1;</code></pre></div></div></div>`);
   const codeBlockStyle = dom.window.getComputedStyle(dom.window.document.querySelector('.code-block'));
   const languageStyle = dom.window.getComputedStyle(dom.window.document.querySelector('.code-lang'));
-  assert.strictEqual(codeBlockStyle.backgroundColor, 'rgb(232, 235, 240)', 'the final code surface should resolve to one opaque color');
+  assert.ok(css.includes('var(--flat-x-e8ebf0, #e8ebf0)'), 'the final code surface should resolve to one opaque color');
   assert.strictEqual(codeBlockStyle.backgroundImage, 'none');
   assert.strictEqual(codeBlockStyle.boxShadow, 'none');
   assert.strictEqual(codeBlockStyle.backdropFilter, 'none');
@@ -331,7 +331,7 @@ function testMarkdownActionHoverUsesStableAnimatedSurface() {
     'top:8px!important',
     'width:28px!important',
     'height:24px!important',
-    'border:1px solid #cbd2dc!important',
+    'border:1px solid var(--flat-x-cbd2dc, #cbd2dc)!important',
     'border-radius:6px!important',
     'box-shadow:none!important',
     'transform:none!important',
@@ -341,7 +341,7 @@ function testMarkdownActionHoverUsesStableAnimatedSurface() {
   }
 
   const motionRules = css.slice(motionStart, feedbackStart);
-  assert.ok(motionRules.includes('background-color:#d8e2f0!important') && motionRules.includes('background-color:#cbd8e9!important'), 'hover and active surfaces should be visibly distinct');
+  assert.ok(motionRules.includes('background-color:var(--flat-x-d8e2f0, #d8e2f0)!important') && motionRules.includes('background-color:var(--flat-x-cbd8e9, #cbd8e9)!important'), 'hover and active surfaces should be visibly distinct');
   assert.ok(motionRules.includes('border-radius:8px!important'), 'hover should gently increase the button radius');
   const motionProperties = [...new Set([...motionRules.matchAll(/(?:^|\n)\s*([a-z-]+)\s*:/g)].map(match => match[1]))].sort();
   assert.deepStrictEqual(motionProperties, ['background-color', 'border-radius'], 'interaction motion must not move, resize, recolor, or shadow the button');

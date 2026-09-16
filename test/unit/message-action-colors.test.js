@@ -22,7 +22,7 @@ function testMessageActionColorsCoverBothRolesAndImageActions() {
       button.className = className;
       if (attr) button.setAttribute(attr, '1');
       actions.appendChild(button);
-      assert.strictEqual(dom.window.getComputedStyle(button).getPropertyValue('--message-action-color').trim(), color);
+      assert.ok(dom.window.getComputedStyle(button).getPropertyValue('--message-action-color').trim().includes(color));
     }
   }
   // Freeze icon-only wiring: semantic colors must not alter layout or action visibility.

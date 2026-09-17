@@ -77,7 +77,7 @@ function testSereneSkinKeepsLakeMorningPaletteAndReadableSurfaces() {
   const welcome = lastRuleBody(css, 'html[data-skin="serene"] .welcome-hero,');
   assert.ok(/background:\s*transparent\s*!important/.test(welcome.body), 'serene welcome text must read directly on the photograph');
   const activeButtons = lastRuleBody(css, 'html[data-skin="serene"] .session-tab.active .session-rename-btn,');
-  assert.ok(/opacity:\s*1\s*!important/.test(activeButtons.body), 'serene active session edit and delete buttons must be visible by default');
+  assert.ok(!/opacity:\s*1/.test(activeButtons.body), 'serene must not override the shared title-hover visibility contract');
 
   const active = lastRuleBody(css, 'html[data-skin="serene"] .session-tab.active,');
   assert.ok(/background:\s*linear-gradient\(90deg/.test(active.body), 'serene active session must use a lake-green wash');

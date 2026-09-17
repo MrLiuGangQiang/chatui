@@ -651,10 +651,22 @@ body {
   opacity: 0 !important;
   transition: opacity .12s, background .12s, color .12s !important;
 }
-.session-tab:hover .session-delete-btn,
-.session-tab:hover .session-rename-btn {
+.session-tab .session-title:hover ~ .session-rename-btn,
+.session-tab .session-title:hover ~ .session-delete-btn,
+.session-tab:focus-within .session-rename-btn,
+.session-tab:focus-within .session-delete-btn,
+.session-tab.renaming .session-rename-btn,
+.session-tab.renaming .session-delete-btn {
   opacity: 1 !important;
   color: var(--base-text-faint, #94a3b8) !important;
+}
+
+/* Coarse pointers have no reliable hover: keep the actions reachable. */
+@media (hover: none), (pointer: coarse) {
+  .session-tab .session-delete-btn,
+  .session-tab .session-rename-btn {
+    opacity: 1 !important;
+  }
 }
 .session-tab .session-delete-btn:hover {
   color: var(--danger) !important;

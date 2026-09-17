@@ -295,7 +295,6 @@ html[data-skin="serene"] .session-tab.active .session-title {
 
 html[data-skin="serene"] .session-tab.active .session-rename-btn,
 html[data-skin="serene"] .session-tab.active .session-delete-btn {
-  opacity: 1 !important;
   color: var(--skin-muted-strong) !important;
   background: rgba(255, 253, 248, .52) !important;
   border: 1px solid rgba(184, 208, 201, .40) !important;

@@ -404,9 +404,11 @@ function testTerminalManagedJobErrorsReleaseRecoveryOwners() {
   const image = fs.readFileSync(path.join(__dirname, '../../client/app/image-workflow.js'), 'utf8');
   const resume = fs.readFileSync(path.join(__dirname, '../../client/app/job-resume-workflow.js'), 'utf8');
   assert.ok(chat.includes('if(e?.terminalJob){f&&clearChatJob(i);throw e}'), 'terminal chat failures must not leave an auto-resuming failed job');
-  assert.match(image, /const rejectedBeforeJob\s*=\s*!p\s*&&\s*statusCode\s*>=\s*400\s*&&\s*statusCode\s*<\s*500/,
+assert.match(image, /const rejectedBeforeJob\s*=\s*!p\s*&&\s*statusCode\s*>=\s*400\s*&&\s*statusCode\s*<\s*500/,
     'pre-job 4xx responses must be distinguishable from ambiguous transport failures');
-  assert.match(image, /catch\s*\(e\)\s*\{[\s\S]{0,1200}?e\?\.terminalJob\s*\|\|\s*rejectedBeforeJob[\s\S]{0,1200}?clearDurableImageJob\(\)[\s\S]{0,1200}?throw e;?\s*\}/,
+  assert.match(image, /const terminalJobFailure\s*=\s*e\?\.terminalJob\s*===?\s*true/,
+    'terminal job errors must be classified before rendering');
+  assert.match(image, /const renderFailure\s*=\s*rejectedBeforeJob\s*\|\|\s*terminalJobFailure[\s\S]{0,1600}?clearDurableImageJob\(\)[\s\S]{0,1600}?throw e;?\s*\}/,
     'terminal and rejected image failures must not leave an auto-resuming failed job');
   assert.match(resume, /terminal\s*&&\s*\(\s*clearImageJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);
   assert.match(resume, /terminal\s*&&\s*\(\s*clearChatJob\(e\),\s*\(taskOutcome\s*=\s*"failed"\),\s*\(taskError\s*=\s*t\)\s*\)/);

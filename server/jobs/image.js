@@ -148,6 +148,68 @@ function normalizeResponsesImageResult(data = {}) {
   };
 }
 
+function embeddedImageUpstreamError(data = {}) {
+  const error = data?.error;
+  if (typeof error === 'string' && error.trim()) {
+    return { message: error.trim(), code: String(data?.code || '').trim() };
+  }
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const message = String(error.message || error.code || '').trim();
+    if (message) return { message, code: String(error.code || data?.code || '').trim() };
+  }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const code = String(data.code || '').trim();
+    const message = String(data.message || '').trim();
+    if (code && message) return { message, code };
+  }
+  return null;
+}
+
+function imagePayloadHasResult(data = {}) {
+  const items = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.images)
+        ? data.images
+        : Array.isArray(data?.output)
+          ? data.output
+          : null;
+  if (!items?.length) return false;
+  const nestedString = (value, fields) => {
+    if (typeof value === 'string') return value.trim() !== '';
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return fields.some(field => nestedString(value[field], fields));
+  };
+  const urlFields = ['url', 'src', 'image_url', 'image', 'href'];
+  const base64Fields = ['b64_json', 'image_base64', 'base64', 'data'];
+  return items.some(item => {
+    if (typeof item === 'string') return item.trim() !== '';
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    return nestedString(item, urlFields) || nestedString(item, base64Fields);
+  });
+}
+
+// A 2xx response can still be an upstream failure (some gateways wrap errors in
+// JSON) or contain no image payload at all. Treat both as terminal job errors so
+// the client shows the actionable message instead of "没有返回图片数据".
+function normalizeImageApiResult(data = {}) {
+  const embedded = embeddedImageUpstreamError(data);
+  if (embedded) {
+    const error = new Error(embedded.message);
+    error.code = embedded.code || 'IMAGE_UPSTREAM_ERROR';
+    error.upstreamStatus = 200;
+    throw error;
+  }
+  if (!imagePayloadHasResult(data)) {
+    const error = new Error('上游未返回图片结果，请重试');
+    error.code = 'IMAGE_RESULT_MISSING';
+    error.userMessage = '上游未返回图片结果，请重试';
+    throw error;
+  }
+  return data;
+}
+
 function prepareImageJobRequest(body = {}) {
   let payload = body.payload || {};
   const files = extractImageEditFiles(body);
@@ -245,7 +307,7 @@ function parseImageUpstreamResponse(upstream = {}, text = '') {
 }
 
 function formatImageJobError(err) {
-  return normalizeUpstreamErrorMessage(err);
+  return String(err?.userMessage || '').trim() || normalizeUpstreamErrorMessage(err);
 }
 
 function markImageJobDone(job = {}, data, now = Date.now()) {
@@ -303,7 +365,10 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
     const text = await readUpstreamText(upstream, upstreamRequest.touch);
     if (!jobCanRun(job)) return job;
     const data = parseImageUpstreamResponse(upstream, text);
-    markImageJobDone(job, job.transport === 'responses' ? normalizeResponsesImageResult(data) : data);
+    markImageJobDone(
+      job,
+      job.transport === 'responses' ? normalizeResponsesImageResult(data) : normalizeImageApiResult(data),
+    );
   } catch (err) {
     failure = err;
     if (!preserveJobCancellation(job)) {
@@ -313,6 +378,7 @@ async function runImageJob(job, { notifyJob, upstreamTimeoutMs, requestTrace, er
   } finally {
     cleanup?.();
     delete job.controller;
+    if (job.status === 'running') markImageJobFailed(job, failure || new Error('图片任务异常结束，请重试'));
     job.updatedAt = Date.now();
     if (job.status === 'done') {
       requestTrace?.complete?.(traceSpan, { status: upstreamStatus, response: job.data, durationMs: job.durationMs });
@@ -454,6 +520,7 @@ module.exports = {
   buildImageUpstreamRequest,
   buildResponsesImageEditRequest,
   normalizeResponsesImageResult,
+  normalizeImageApiResult,
   resolveImageJobTransport,
   createImageJobHandlers,
   createImageJobFromRequestBody,

@@ -78,7 +78,7 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 | `invalid_model_output` | 协议无效或语义矛盾 | 失败，文案用平实语言引导重试/换模型 |
 | `cancelled` | 用户停止 | 立即结束，不误报超时 |
 
-托管 Job 的 HTTP 拒绝错误同时保留 `statusCode` / `status` / `code` / `retryable` 机器字段；`408`、`425`、`429` 和 `5xx` 可重试，其余 `4xx` 不可重试。原始诊断只用于日志，用户气泡必须使用平实、可操作的归一化文案。
+托管 Job 的 HTTP 拒绝错误同时保留 `statusCode` / `status` / `code` / `retryable` 机器字段；`408`、`425`、`429` 和 `5xx` 可重试，其余 `4xx` 不可重试。原始诊断只用于日志，用户气泡必须使用平实、可操作的归一化文案。图片上游即使返回 2xx，只要响应体包含 `error` 或没有任何可用图片结果，也必须按失败终态处理，不得伪装成完成。
 
 意图控制请求可以使用 `intent_understanding`、`intent_recognition`、`intent_critic`、`route_repair`、`route_fallback`、`multi_task_planning` 和 `image_planning` 等独立 `requestPurpose`；它们均禁止携带执行合同，且最终执行仍必须通过 `dispatch_contract.v1`。
 

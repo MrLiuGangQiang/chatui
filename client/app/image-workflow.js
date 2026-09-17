@@ -748,27 +748,36 @@
         } catch (e) {
           const statusCode = Number(e?.statusCode || e?.status || 0);
           const rejectedBeforeJob = !p && statusCode >= 400 && statusCode < 500;
-          if ((e?.terminalJob || rejectedBeforeJob) && !t.skipDurableSnapshot) clearDurableImageJob();
-          if (rejectedBeforeJob) {
-            const message = userFacingImageDispatchError(e);
+          const terminalJobFailure = e?.terminalJob === true;
+          const renderFailure = rejectedBeforeJob || terminalJobFailure;
+          if (renderFailure && !t.skipDurableSnapshot) clearDurableImageJob();
+          if (renderFailure) {
+            const message = terminalJobFailure
+              ? String(e?.message || '图片生成失败，请重试')
+              : userFacingImageDispatchError(e);
             if (e && typeof e === 'object') {
               e.rawMessage = String(e.message || '');
               e.userMessage = message;
               e.message = message;
             }
             if (!c) throw e;
-            updateSessionDisplayItem(n, c, 'error', message, {
-              rawText: message,
-              pending: false,
-              ...(Number.isFinite(t.replaceAssistantIndex) ? { responseIndex: t.replaceAssistantIndex } : {}),
-            });
-            if (n === state.activeSessionId) {
-              updateLiveDisplay(n, c, 'error', message, {
+            try {
+              updateSessionDisplayItem(n, c, 'error', message, {
                 rawText: message,
                 pending: false,
                 ...(Number.isFinite(t.replaceAssistantIndex) ? { responseIndex: t.replaceAssistantIndex } : {}),
-                noScroll: !shouldFollowScroll(),
               });
+              if (n === state.activeSessionId) {
+                updateLiveDisplay(n, c, 'error', message, {
+                  rawText: message,
+                  pending: false,
+                  ...(Number.isFinite(t.replaceAssistantIndex) ? { responseIndex: t.replaceAssistantIndex } : {}),
+                  noScroll: !shouldFollowScroll(),
+                });
+              }
+            } catch (projectionError) {
+              // The terminal state must still reach the caller and release busy state.
+              root?.console?.warn?.('[image-workflow] failure projection failed', projectionError);
             }
           }
           throw e;

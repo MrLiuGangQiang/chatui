@@ -237,7 +237,11 @@
         } catch (error) {
           eventError = error;
         }
-        await drainUpdates();
+        try {
+          await drainUpdates();
+        } catch (error) {
+          if (!eventError) eventError = error;
+        }
         if (eventError) throw eventError;
         if (lastJob) return { ...lastJob, data };
         const job = await pollJob();

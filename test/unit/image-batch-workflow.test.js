@@ -323,6 +323,58 @@ async function testRunImageBatchDoesNotPersistUnchangedRunningState() {
 }
 
 
+async function testTerminalBatchErrorWinsOverQueuedProjectionFailure() {
+  const previousLocalStorage = globalThis.localStorage;
+  const previousDocument = globalThis.document;
+  const previousEventSource = globalThis.EventSource;
+  globalThis.localStorage = memoryStorage();
+  globalThis.document = {};
+  class TerminalEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = new Map();
+      queueMicrotask(() => {
+        const snapshot = this.snapshot;
+        for (const handler of this.listeners.get('update') || []) handler({ data: JSON.stringify(snapshot) });
+      });
+    }
+    addEventListener(type, handler) {
+      if (!this.listeners.has(type)) this.listeners.set(type, []);
+      this.listeners.get(type).push(handler);
+    }
+    close() {}
+  }
+  try {
+    const fixture = makeDeps({ parentStatus: 'error' });
+    const snapshot = await fixture.deps.getImageBatchJob();
+    TerminalEventSource.prototype.snapshot = snapshot;
+    globalThis.EventSource = TerminalEventSource;
+    fixture.deps.getImageBatchJob = async () => snapshot;
+    fixture.deps.imageResultToHtml = async () => { throw new Error('queued projection failed'); };
+    const workflow = imageBatchWorkflow.createImageBatchWorkflow(fixture.deps);
+    await assert.rejects(
+      workflow.runImageBatch(fixture.session.id, {
+        items: [fixtureItem('a cat'), fixtureItem('a dog')],
+        batchJobId: 'imgbatch-test12345',
+        submissionId: 'submit-batch',
+        batchParent: fixture.parent,
+        responseIndex: '1',
+        pollIntervalMs: 0,
+      }),
+      error => error?.terminalJob === true && error.message === 'one failed',
+    );
+    assert.deepStrictEqual(fixture.disposed, ['imgbatch-test12345'],
+      'terminal batch cleanup must run even when a queued projection update fails');
+  } finally {
+    if (previousLocalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocalStorage;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousEventSource === undefined) delete globalThis.EventSource;
+    else globalThis.EventSource = previousEventSource;
+  }
+}
+
 function testBatchWorkflowProvidesPersistenceFallbackToTaskPreparation() {
   const source = require('fs').readFileSync(require('path').join(__dirname, '../../client/app/image-batch-workflow.js'), 'utf8');
   assert.match(source, /persistImageAttachmentRefsDep/);
@@ -341,5 +393,6 @@ module.exports = [
   testRunImageBatchRendersEachCompletedChildBeforeBatchTerminal,
   testRunImageBatchSerializesTerminalSnapshotProcessing,
   testRunImageBatchDoesNotPersistUnchangedRunningState,
+  testTerminalBatchErrorWinsOverQueuedProjectionFailure,
   testBatchWorkflowProvidesPersistenceFallbackToTaskPreparation,
 ];

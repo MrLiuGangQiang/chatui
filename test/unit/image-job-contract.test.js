@@ -214,6 +214,49 @@ async function testImageJobAsyncErrorContract() {
   });
 }
 
+async function testImageApiHttp200ErrorPayloadBecomesJobError() {
+  const result = await invokeStart(finalImageRequest({
+    baseUrl: 'https://api.example.com/v1',
+    jobId: 'imgjob-http200-error1',
+    payload: { model: 'gpt-image-1', prompt: '画一只猫' },
+  }, generationPlan('画一只猫')), {
+    waitForJob: true,
+    fetch: () => Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('{"error":{"message":"quota exceeded"}}'),
+    }),
+  });
+
+  const job = result.imageJobs.get('imgjob-http200-error1');
+  assert.strictEqual(job.status, 'error');
+  assert.strictEqual(job.error, '上游请求过于频繁或额度已用尽（HTTP 429），请稍后重试或检查账户额度');
+  assert.strictEqual(result.notifications[0]?.status, 'error');
+}
+
+async function testImageApiHttp200MissingImagePayloadBecomesJobError() {
+  for (const body of ['{}', '{"data":[]}']) {
+    const jobId = body === '{}' ? 'imgjob-http200-empty1' : 'imgjob-http200-empty2';
+    const result = await invokeStart(finalImageRequest({
+      baseUrl: 'https://api.example.com/v1',
+      jobId,
+      payload: { model: 'gpt-image-1', prompt: '画一只猫' },
+    }, generationPlan('画一只猫')), {
+      waitForJob: true,
+      fetch: () => Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(body),
+      }),
+    });
+
+    const job = result.imageJobs.get(jobId);
+    assert.strictEqual(job.status, 'error', body + ' must not be reported as a completed image');
+    assert.strictEqual(job.error, '上游未返回图片结果，请重试');
+    assert.strictEqual(result.notifications[0]?.status, 'error');
+  }
+}
+
 async function testRunImageJobAbortContract() {
   const previousFetch = global.fetch;
   const previousAllowPrivate = process.env.CHATUI_ALLOW_PRIVATE_UPSTREAM;
@@ -709,6 +752,8 @@ module.exports = [
   testImageJobExecutionBoundaryEmitsAcceptedAndRejectedContractEvidence,
   testImageJobAsyncCompletionContract,
   testImageJobAsyncErrorContract,
+  testImageApiHttp200ErrorPayloadBecomesJobError,
+  testImageApiHttp200MissingImagePayloadBecomesJobError,
   testRunImageJobAbortContract,
   testRunImageJobAllowsMissingNotifyContract,
   testImageJobStartEditAutoModeContract,

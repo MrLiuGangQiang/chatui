@@ -177,6 +177,8 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
     let reader = null;
     let reconnectTimer = null;
     let reconnects = 0;
+    let opened = false;
+    let streaming = false;
     const finish = (fn, value) => {
       if (finished) return;
       finished = true;
@@ -198,9 +200,21 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
       if (result?.valid) aggregateEvent = result.aggregate;
       return aggregateEvent;
     };
+    let updateErrorLogged = false;
+    const notifyUpdate = job => {
+      try {
+        onUpdate(job);
+      } catch (error) {
+        // A UI callback failure must never swallow the canonical terminal state.
+        if (!updateErrorLogged) {
+          updateErrorLogged = true;
+          root?.console?.warn?.('[job-waiter] update callback failed', error);
+        }
+      }
+    };
     const handleJob = rawEvent => {
       const job = normalizeCompactUpdate(rawEvent);
-      onUpdate(job);
+      notifyUpdate(job);
       if (job.status === 'done') {
         const data = job.data && typeof job.data === 'object' ? { ...job.data, metrics: job.metrics || job.data.metrics || {} } : job.data;
         finish(resolve, data);
@@ -208,8 +222,10 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
     };
     const processLine = (line, buffer) => {
       if (line.startsWith('event: ')) buffer.event = line.slice(7).trim();
-      else if (line.startsWith('data: ')) buffer.data = (buffer.data || '') + line.slice(6);
-      else if (line === '' && buffer.data) {
+      else if (line.startsWith('data: ')) {
+        streaming = true;
+        buffer.data = (buffer.data || '') + line.slice(6);
+      } else if (line === '' && buffer.data) {
         try { handleJob(JSON.parse(buffer.data)); } catch {}
         buffer.event = ''; buffer.data = '';
       }
@@ -219,6 +235,7 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
         if (!pollJob) finish(reject, new Error('任务不存在或服务已重启，请重新发送'));
         return;
       }
+      opened = true;
       const buf = { event: '', data: '' };
       const decoder = new TextDecoder();
       reader = response.body.getReader();
@@ -242,10 +259,26 @@ function waitJobEvent({ url, onUpdate = () => {}, signal, pageUnloading = () => 
         reconnectTimer = setTimeout(connect, Math.min(1000 + 250 * reconnects, 5000));
       }
     };
+    let pollFailures = 0;
     const poll = async () => {
       if (finished || !pollJob || pageUnloading()) return;
-      try { handleJob(await pollJob()); } catch {}
-      if (!finished) pollTimer = setTimeout(poll, pollIntervalMs);
+      let keepPolling = true;
+      try {
+        const job = await pollJob();
+        pollFailures = 0;
+        handleJob(job);
+      } catch (error) {
+        pollFailures += 1;
+        const statusCode = Number(error?.statusCode || error?.status || 0);
+        if (statusCode === 404) {
+          keepPolling = false;
+          finish(reject, makeTerminalJobError('任务不存在或服务已重启，请重新发送'));
+        } else if (pollFailures >= 5 && !streaming) {
+          keepPolling = false;
+          finish(reject, new Error('任务状态获取失败，请检查网络后重试'));
+        }
+      }
+      if (!finished && keepPolling) pollTimer = setTimeout(poll, pollIntervalMs);
     };
     abort = () => {
       if (finished) return;

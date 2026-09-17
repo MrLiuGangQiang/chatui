@@ -308,22 +308,49 @@
         try { source?.close(); } catch {}
         handler(value);
       };
-    const handleUpdate = rawEvent => {
+      let updateErrorLogged = false;
+      const notifyUpdate = event => {
+        try {
+          onUpdate(event);
+        } catch (error) {
+          // A UI callback failure must never swallow the canonical terminal state.
+          if (!updateErrorLogged) {
+            updateErrorLogged = true;
+            root?.console?.warn?.('[job-waiter] update callback failed', error);
+          }
+        }
+      };
+      const handleUpdate = rawEvent => {
         const event = normalizeCompactUpdate(rawEvent);
-        onUpdate(event);
+        notifyUpdate(event);
         if (event.status === 'done') {
           const data = event.data && typeof event.data === 'object' ? { ...event.data, metrics: event.metrics || event.data.metrics || {} } : event.data;
           finish(resolve, data);
         } else if (event.status === 'error') finish(reject, makeTerminalJobError(event.error?.message));
       };
+      let pollFailures = 0;
+      let streaming = false;
       const poll = async () => {
         if (done || !pollJob || pollInFlight) return;
         pollInFlight = true;
-        try { handleUpdate(await pollJob()); }
-        catch {}
-        finally {
+        let keepPolling = true;
+        try {
+          const job = await pollJob();
+          pollFailures = 0;
+          handleUpdate(job);
+        } catch (error) {
+          pollFailures += 1;
+          const statusCode = Number(error?.statusCode || error?.status || 0);
+          if (statusCode === 404) {
+            keepPolling = false;
+            finish(reject, makeTerminalJobError('任务不存在或服务已重启，请重新发送'));
+          } else if (pollFailures >= 5 && !streaming) {
+            keepPolling = false;
+            finish(reject, new Error('任务状态获取失败，请检查网络后重试'));
+          }
+        } finally {
           pollInFlight = false;
-          if (!done) retryTimer = setTimeoutRef(poll, 2500);
+          if (!done && keepPolling) retryTimer = setTimeoutRef(poll, 2500);
         }
       };
       abortListener = () => { if (!done) finish(reject, new DOMException('已停止', 'AbortError')); };
@@ -355,6 +382,7 @@
         source.onopen = () => { opened = true; retries = 0; };
         const handleSourceEvent = event => {
           opened = true;
+          streaming = true;
           try { handleUpdate(JSON.parse(event.data || '{}')); } catch {}
         };
         source.onmessage = handleSourceEvent;

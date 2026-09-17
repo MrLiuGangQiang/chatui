@@ -628,6 +628,16 @@ body {
 }
 .session-tab .session-title {
   color: inherit !important;
+  display: block !important;
+  /* The actions appear only for a title hover, so the title hit box must
+     cover the full row height instead of just the 16px text line. */
+  align-self: stretch !important;
+  box-sizing: content-box !important;
+  margin-top: -9px !important;
+  margin-bottom: -9px !important;
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+  line-height: 24px !important;
 }
 .session-tab small {
   color: var(--base-text-faint, #94a3b8) !important;

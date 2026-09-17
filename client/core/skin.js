@@ -9,6 +9,7 @@
     Object.freeze({ id: 'default', label: '默认', description: 'ChatUI 原始浅色皮肤' }),
     Object.freeze({ id: 'ink', label: '古韵', description: '暖宣纸、墨色文字与朱砂点缀' }),
     Object.freeze({ id: 'snow', label: '雪山', description: '雪线蓝天与冰川湖光的清冽配色' }),
+    Object.freeze({ id: 'serene', label: '宁静', description: '晨雾湖泊、青山绿叶与暖金日光的安静配色' }),
   ]);
 
   function normalizeSkinId(value = '', skins = SKINS) {

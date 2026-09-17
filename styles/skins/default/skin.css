@@ -39,8 +39,8 @@
 
   /* Skin control points for the session sidebar domain
      (consumer: styles/surfaces/session-sidebar.css) */
-  --sidebar-fill: rgba(255, 255, 255, .20);
-  --sidebar-veil: linear-gradient(180deg, rgba(240, 244, 248, .30), rgba(228, 235, 242, .24));
+  --sidebar-fill: rgba(255, 255, 255, .12);
+  --sidebar-veil: linear-gradient(180deg, rgba(240, 244, 248, .20), rgba(228, 235, 242, .16));
   --sidebar-border: rgba(214, 224, 235, .55);
   --sidebar-blur: 12px;
   --sidebar-saturate: 1.04;
@@ -210,16 +210,16 @@
   --chatui-shadow-lg: var(--skin-shadow-lg) !important;
 }
 /* Default scenic canvas.
- * The user-approved silk wave photograph is the default skin background.
+ * The user-approved pale blue-violet wave artwork is the default skin background.
  * A near-opaque white veil keeps the original light look and text
- * contrast; the waves stay visible as a soft grey undercurrent. */
+ * contrast; the artwork stays visible behind the interface. */
 
 html[data-skin="default"] body,
 body {
   background-color: var(--skin-canvas) !important;
   background-image:
     linear-gradient(180deg, rgba(247, 248, 251, .70) 0%, rgba(247, 248, 251, .58) 50%, rgba(243, 245, 249, .74) 100%),
-    url("./scenery.jpg?v=1") !important;
+    url("./scenery.jpg?v=3") !important;
   background-position: center, center 58% !important;
   background-size: cover, cover !important;
   background-repeat: no-repeat, no-repeat !important;

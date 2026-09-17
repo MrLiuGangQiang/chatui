@@ -19,6 +19,7 @@ const SKIN_STYLESHEETS = [
   'styles/surfaces/session-sidebar.css',
   'styles/skins/ink/skin.css',
   'styles/skins/snow/skin.css',
+  'styles/skins/serene/skin.css',
 ];
 
 const SIDEBAR_CONTROL_POINTS = [
@@ -29,13 +30,12 @@ const SIDEBAR_CONTROL_POINTS = [
   '--sidebar-saturate',
 ];
 
-// Stage 1 is a pure relocation: the sidebar material moved out of the default
-// skin file into the surfaces domain and became control points. These are the
-// exact values the browser resolved before the move, so any drift here is a
-// visible change to the default skin (a loose bound would let .20 become .90).
-const PRE_MIGRATION_SIDEBAR_VALUES = {
-  '--sidebar-fill': 'rgba(255, 255, 255, .20)',
-  '--sidebar-veil': 'linear-gradient(180deg, rgba(240, 244, 248, .30), rgba(228, 235, 242, .24))',
+// The sidebar material lives in the surfaces domain and receives its approved
+// default values from the skin. Pin these exact values so accidental drift
+// cannot make the default glass opaque or remove its material.
+const DEFAULT_SIDEBAR_MATERIAL_VALUES = {
+  '--sidebar-fill': 'rgba(255, 255, 255, .12)',
+  '--sidebar-veil': 'linear-gradient(180deg, rgba(240, 244, 248, .20), rgba(228, 235, 242, .16))',
   '--sidebar-border': 'rgba(214, 224, 235, .55)',
   '--sidebar-blur': '12px',
   '--sidebar-saturate': '1.04',
@@ -87,15 +87,15 @@ function testSidebarDomainRuleIsLiveCss() {
   }
 }
 
-function testSidebarControlPointsPinThePreMigrationValues() {
+function testSidebarControlPointsPinTheApprovedDefaultValues() {
   const live = liveCssText(readBuffer('styles/skins/default/skin.css').toString('utf8'));
-  for (const [token, value] of Object.entries(PRE_MIGRATION_SIDEBAR_VALUES)) {
+  for (const [token, value] of Object.entries(DEFAULT_SIDEBAR_MATERIAL_VALUES)) {
     const declared = live.match(new RegExp(token + '\\s*:\\s*([^;]+);'));
     assert.ok(declared, `${token} must be declared`);
     assert.strictEqual(
       squeeze(declared[1]),
       squeeze(value),
-      `${token} must keep the value the default skin resolved before the surfaces split`
+      `$\{token} must keep the approved default skin value`
     );
   }
 }
@@ -112,6 +112,6 @@ module.exports = [
   testSkinStylesheetsAreByteExactUtf8,
   testSidebarControlPointsAreLiveCss,
   testSidebarDomainRuleIsLiveCss,
-  testSidebarControlPointsPinThePreMigrationValues,
+  testSidebarControlPointsPinTheApprovedDefaultValues,
   testDefaultSkinUsesEverySidebarControlPointOnce,
 ];

@@ -39,6 +39,7 @@ function testSkinStylesheetHrefIsBundledOrOnDemand() {
   assert.strictEqual(skinCore.skinStylesheetHref('default'), '', 'the default skin ships inside the bundle');
   assert.strictEqual(skinCore.skinStylesheetHref('ink'), '/styles/skins/ink/skin.css', 'ink must resolve to its own folder');
   assert.strictEqual(skinCore.skinStylesheetHref('snow'), '/styles/skins/snow/skin.css', 'snow must resolve to its own folder');
+  assert.strictEqual(skinCore.skinStylesheetHref('serene'), '/styles/skins/serene/skin.css', 'serene must resolve to its own folder');
   assert.strictEqual(skinCore.skinStylesheetHref('<script>'), '', 'unknown ids fail closed and must never build a request');
   assert.strictEqual(skinCore.skinStylesheetHref('../../server.js'), '', 'path traversal in stored ids must resolve to nothing');
 }
@@ -73,7 +74,7 @@ function testInactiveSkinsNeverReachTheDocumentStyles() {
     assert.ok(!bundle.includes(`data-skin="${id}"`), `the bundle must not carry ${id} rules while ${id} is inactive`);
     assert.ok(!bundle.includes(`/styles/skins/${id}/`), `the bundle must not reference ${id} assets while ${id} is inactive`);
   }
-  assert.ok(bundle.includes('url("/styles/skins/default/scenery.jpg?v=1")'), 'the bundled default canvas must keep its rewritten public url');
+  assert.ok(bundle.includes('url("/styles/skins/default/scenery.jpg?v=3")'), 'the bundled default canvas must keep its rewritten public url');
 }
 
 function testPostSkinOverrideLoadsAfterEverySkin() {

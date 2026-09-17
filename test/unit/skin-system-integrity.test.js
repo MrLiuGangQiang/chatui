@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
@@ -42,7 +43,7 @@ function testDefaultSidebarStaysTranslucent() {
     .join('\n');
   assert.ok(tokens.includes('--sidebar-fill'), 'the default skin must own the authoritative sidebar fill');
   const alpha = tokens.match(/--sidebar-fill:\s*rgba\([^)]*?,\s*(0?\.\d+)\)/);
-  assert.ok(alpha && Number(alpha[1]) <= 0.25, 'the default sidebar veil must stay strongly translucent (about 80% transparent)');
+  assert.ok(alpha && Number(alpha[1]) <= 0.25, 'the default sidebar veil must stay strongly translucent (about 88% transparent)');
   const blur = tokens.match(/--sidebar-blur:\s*(\d+)px/);
   assert.ok(blur && Number(blur[1]) >= 8, 'the default sidebar must keep a glass blur');
   assert.ok(!/inset\s+\d+px\s+0\s+0/.test(declarations + tokens), 'the sidebar must not gain a left colour bar');
@@ -81,13 +82,18 @@ function testDefaultActiveSessionUsesProminentAccentSelection() {
   assert.ok(/font-weight:\s*650/.test(metaBody), 'active session metadata must be emphasised');
 }
 
-function testDefaultSkinShipsTheSilkWaveCanvas() {
+function testDefaultSkinShipsTheApprovedCanvas() {
+  // Freeze the user-selected 2026-09-17 canvas so it cannot be silently replaced.
+  const approvedCanvasSha256 = 'a1c74f070fb41a45b6ad8fb42ce7407d428f90d875a795693cae35c59d98ca34';
   const defaults = read('styles/skins/default/skin.css');
   assert.ok(defaults.includes('Default scenic canvas'), 'default skin must own the approved scenic canvas pass');
-  assert.ok(defaults.includes('url("./scenery.jpg?v=1")'), 'default skin must reference its silk wave background');
-  assert.ok(fs.existsSync(path.join(ROOT, 'styles/skins/default/scenery.jpg')), 'default background asset must ship inside the skin folder');
+  assert.ok(defaults.includes('url("./scenery.jpg?v=3")'), 'default skin must reference the approved pale blue-violet wave background');
+  const canvas = fs.readFileSync(path.join(ROOT, 'styles/skins/default/scenery.jpg'));
+  const magic = canvas.subarray(0, 8).toString('hex');
+  assert.ok(magic.startsWith('ffd8ff') || magic.startsWith('89504e470d0a1a0a'), 'default background asset must be a JPEG or PNG raster');
+  assert.strictEqual(crypto.createHash('sha256').update(canvas).digest('hex'), approvedCanvasSha256, 'default background must be the approved user-selected artwork');
   const bundle = staticBundle.buildBundleBody(cssEntries(), 'css').toString('utf8');
-  assert.ok(bundle.includes('url("/styles/skins/default/scenery.jpg?v=1")'), 'bundle must rewrite the default background to its public path');
+  assert.ok(bundle.includes('url("/styles/skins/default/scenery.jpg?v=3")'), 'bundle must rewrite the default background to its public path');
 }
 
 function testSkinBootScriptAppliesOnlyKnownSkinBeforeBody() {
@@ -501,7 +507,7 @@ module.exports = [
   testEverySkinKeepsTheActiveSessionDistinct,
   testSnowSkinKeepsMessagesTransparentAndSidebarTranslucent,
   testSkinsNeverRevealTheLegacyInlineImageDownloadRow,
-  testDefaultSkinShipsTheSilkWaveCanvas,
+  testDefaultSkinShipsTheApprovedCanvas,
   testDefaultSidebarStaysTranslucent,
   testDefaultActiveSessionUsesProminentAccentSelection,
   testSnowSkinShipsItsAlpineBackground,

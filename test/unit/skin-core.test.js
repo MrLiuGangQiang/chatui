@@ -15,7 +15,7 @@ function makeStorage(initial = {}) {
 
 function testSkinCatalogIsBoundedAndStable() {
   assert.ok(Array.isArray(skinCore.SKINS));
-  assert.deepStrictEqual(skinCore.SKINS.map(skin => skin.id), ['default', 'ink', 'snow']);
+  assert.deepStrictEqual(skinCore.SKINS.map(skin => skin.id), ['default', 'ink', 'snow', 'serene']);
   for (const skin of skinCore.SKINS) {
     assert.strictEqual(typeof skin.id, 'string');
     assert.strictEqual(typeof skin.label, 'string');
@@ -23,6 +23,7 @@ function testSkinCatalogIsBoundedAndStable() {
   }
   assert.strictEqual(skinCore.SKINS.find(skin => skin.id === 'ink')?.label, '古韵', 'the ink skin must keep its renamed label');
   assert.strictEqual(skinCore.SKINS.find(skin => skin.id === 'snow')?.label, '雪山', 'the snow skin must keep its label');
+  assert.strictEqual(skinCore.SKINS.find(skin => skin.id === 'serene')?.label, '宁静', 'the serene skin must keep its label');
 }
 
 function testUnknownSkinIdFallsBackToDefault() {

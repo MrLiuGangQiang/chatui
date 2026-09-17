@@ -20,7 +20,7 @@
       }
     } catch {}
     try {
-      const skinIds = ['default', 'ink', 'snow'];
+      const skinIds = ['default', 'ink', 'snow', 'serene'];
       const storedSkin = localStorage.getItem('openapi-chat-image-skin-v1');
       const activeSkin = skinIds.includes(storedSkin) ? storedSkin : 'default';
       document.documentElement.setAttribute('data-skin', activeSkin);

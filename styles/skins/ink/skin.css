@@ -36,6 +36,13 @@
   --skin-shadow-lg: 0 24px 56px rgba(74, 57, 36, .15);
   --skin-radius: 16px;
 
+  /* Ink typography: Kai headings over a clear Noto Serif body. Noto Serif SC
+     is a modern Song-style serif that stays legible at chat sizes; Songti and
+     SimSun remain classical fallbacks for systems without it. */
+  --ink-font-body: Georgia, "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", "Microsoft YaHei UI", "Microsoft YaHei", serif;
+  --ink-font-display: Georgia, "STKaiti", "KaiTi", "Kaiti SC", "STSong", "Songti SC", "Noto Serif SC", "SimSun", serif;
+  --ink-font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
   /* ── ink domain tokens ──
      Coarse palette propagated into every domain. Direct rules below still
      provide per-selector fine-tuning; these tokens are the bulk knobs. */
@@ -3179,4 +3186,127 @@ html[data-skin="ink"] .session-tab.active small {
 html[data-skin="ink"] .session-tab:hover:not(.active) {
   background: rgba(233, 240, 235, .40) !important;
   border-color: rgba(172, 194, 182, .42) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Ink typography and contrast.
+   Classical Kai headings over a clear Noto Serif body. The body
+   uses Noto Serif SC at a medium weight so the Song-style serif reads
+   clearly at chat sizes; KaiTi keeps the classical voice in headings.
+   Muted ink tones are deepened for small-screen clarity, and no remote
+   font is requested.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-skin="ink"] {
+  --skin-text: #171b1a;
+  --skin-muted: #4f5a54;
+  --skin-muted-strong: #39423d;
+  --skin-faint: #6e7972;
+  --base-text-strong: #171b1a;
+  --base-text-muted: #4f5a54;
+  --msg-text-strong: #171b1a;
+  --msg-text-muted: #4f5a54;
+  --composer-text-strong: #171b1a;
+  --composer-text-muted: #4f5a54;
+  --ann-text: #171b1a;
+  --ann-text-muted: #4f5a54;
+  --usage-text: #171b1a;
+  --usage-text-muted: #4f5a54;
+}
+
+html[data-skin="ink"] body,
+html[data-skin="ink"] button,
+html[data-skin="ink"] input,
+html[data-skin="ink"] textarea,
+html[data-skin="ink"] select {
+  font-family: var(--ink-font-body) !important;
+  font-weight: 450 !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+}
+
+html[data-skin="ink"] h1,
+html[data-skin="ink"] h2,
+html[data-skin="ink"] h3,
+html[data-skin="ink"] .welcome-title,
+html[data-skin="ink"] .welcome-hero-copy h1,
+html[data-skin="ink"] .welcome-hero-copy h2,
+html[data-skin="ink"] .welcome-section-head h2,
+html[data-skin="ink"] .welcome-guidelines-head h2,
+html[data-skin="ink"] .welcome-feature-card h3,
+html[data-skin="ink"] .welcome-guideline strong,
+html[data-skin="ink"] .markdown-body h1,
+html[data-skin="ink"] .markdown-body h2,
+html[data-skin="ink"] .markdown-body h3,
+html[data-skin="ink"] .markdown-body h4,
+html[data-skin="ink"] .markdown-body h5,
+html[data-skin="ink"] .markdown-body h6,
+html[data-skin="ink"] .session-brand strong,
+html[data-skin="ink"] .session-title,
+html[data-skin="ink"] .welcome-kicker,
+html[data-skin="ink"] .dialog-head h2,
+html[data-skin="ink"] .announcement-title,
+html[data-skin="ink"] .usage-stats-head strong,
+html[data-skin="ink"] #sendBtn {
+  font-family: var(--ink-font-display) !important;
+  letter-spacing: .025em !important;
+  font-optical-sizing: auto;
+}
+
+html[data-skin="ink"] .announcement-dialog,
+html[data-skin="ink"] .usage-stats-card,
+html[data-skin="ink"] .usage-feedback-card,
+html[data-skin="ink"] .config-dialog,
+html[data-skin="ink"] .changelog-dialog,
+html[data-skin="ink"] .web-preview-dialog {
+  font-family: var(--ink-font-body) !important;
+}
+
+html[data-skin="ink"] .message.user .plain-text,
+html[data-skin="ink"] .message.user .content,
+html[data-skin="ink"] .message .content,
+html[data-skin="ink"] .message .plain-text,
+html[data-skin="ink"] .message .content p,
+html[data-skin="ink"] .message .content li {
+  font-family: var(--ink-font-body) !important;
+  font-weight: 500 !important;
+  line-height: 1.62 !important;
+  letter-spacing: .012em !important;
+}
+
+html[data-skin="ink"] .message.assistant .markdown-body,
+html[data-skin="ink"] .message.error .markdown-body {
+  line-height: 1.7 !important;
+}
+
+html[data-skin="ink"] .message .content h1,
+html[data-skin="ink"] .message .content h2,
+html[data-skin="ink"] .message .content h3,
+html[data-skin="ink"] .message .content h4 {
+  font-family: var(--ink-font-display) !important;
+  line-height: 1.3 !important;
+  letter-spacing: .02em !important;
+}
+
+html[data-skin="ink"] code,
+html[data-skin="ink"] pre,
+html[data-skin="ink"] kbd,
+html[data-skin="ink"] samp,
+html[data-skin="ink"] .usage-feedback-model-values code {
+  font-family: var(--ink-font-mono) !important;
+}
+
+html[data-skin="ink"] .message-meta,
+html[data-skin="ink"] .session-tab small,
+html[data-skin="ink"] .intent-reasoning-title,
+html[data-skin="ink"] .image-result-head,
+html[data-skin="ink"] .image-time,
+html[data-skin="ink"] .code-lang,
+html[data-skin="ink"] .announcement-published-at,
+html[data-skin="ink"] .announcement-version {
+  font-family: var(--ink-font-body) !important;
+  font-weight: 600 !important;
+  letter-spacing: .03em !important;
 }

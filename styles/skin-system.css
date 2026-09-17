@@ -128,6 +128,12 @@
     linear-gradient(135deg, #eaf2f9 52%, #2f7fc4 52%);
 }
 
+.skin-swatch-serene {
+  background:
+    radial-gradient(circle at 72% 26%, rgba(240, 194, 122, .96), transparent 40%),
+    linear-gradient(135deg, #eaf2ef 52%, #3f827b 52%);
+}
+
 .skin-option-copy {
   min-width: 0;
   display: flex;

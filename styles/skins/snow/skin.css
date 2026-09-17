@@ -11,10 +11,10 @@
   --skin-surface-soft: #f6fafd;
   --skin-surface-subtle: #e8f0f8;
   --skin-surface-hover: #dfeaf4;
-  --skin-text: #1e2a36;
-  --skin-muted: #66788b;
-  --skin-muted-strong: #506275;
-  --skin-faint: #93a5b6;
+  --skin-text: #172433;
+  --skin-muted: #52677b;
+  --skin-muted-strong: #43576a;
+  --skin-faint: #74899d;
   --skin-border: #d8e4ef;
   --skin-border-strong: #bed2e3;
   --skin-accent: #2f7fc4;
@@ -34,6 +34,13 @@
   --skin-shadow-lg: 0 18px 46px rgba(31, 63, 96, .14);
   --skin-radius: 16px;
 
+  /* Snow typography: rounded display faces for short labels, calm UI faces
+     for long-form copy, and a tight halo that keeps ink crisp on the photo. */
+  --snow-font-body: "Segoe UI Variable Text", "Nunito", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+  --snow-font-display: "Trebuchet MS", "Nunito", "Varela Round", "Quicksand", "Segoe UI Variable Display", "YouYuan", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --snow-font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --snow-text-halo: 0 1px 2px rgba(255, 255, 255, .98), 0 2px 8px rgba(255, 255, 255, .88), 0 0 18px rgba(255, 255, 255, .62);
+
   --snow-frost: linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(243, 249, 253, .90));
   --snow-chrome: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(238, 246, 252, .74));
   --snow-hairline: rgba(172, 198, 222, .60);
@@ -46,33 +53,33 @@
   --snow-domain-tokens: 1;
   --base-accent: #2f7fc4;
   --base-accent-hover: #256a9e;
-  --base-text-strong: #1e293b;
-  --base-text-muted: #64748b;
+  --base-text-strong: #172433;
+  --base-text-muted: #52677b;
   --base-surface: #ffffff;
   --base-surface-subtle: #f0f6fa;
   --base-line: #d6e4ee;
   --msg-accent: #2f7fc4;
   --msg-accent-hover: #256a9e;
-  --msg-text-strong: #1e293b;
-  --msg-text-muted: #64748b;
+  --msg-text-strong: #172433;
+  --msg-text-muted: #52677b;
   --msg-surface: #ffffff;
   --msg-surface-subtle: #f0f6fa;
   --msg-line: #d6e4ee;
   --composer-accent: #2f7fc4;
-  --composer-text-strong: #1e293b;
-  --composer-text-muted: #64748b;
+  --composer-text-strong: #172433;
+  --composer-text-muted: #52677b;
   --composer-surface: #ffffff;
   --composer-surface-subtle: #f0f6fa;
   --composer-line: #d6e4ee;
   --ann-accent: #2f7fc4;
-  --ann-text: #1e293b;
-  --ann-text-muted: #64748b;
+  --ann-text: #172433;
+  --ann-text-muted: #52677b;
   --ann-surface: #ffffff;
   --ann-surface-subtle: #f0f6fa;
   --ann-line: #d6e4ee;
   --usage-accent: #2f7fc4;
-  --usage-text: #1e293b;
-  --usage-text-muted: #64748b;
+  --usage-text: #172433;
+  --usage-text-muted: #52677b;
   --usage-surface: #ffffff;
   --usage-surface-subtle: #f0f6fa;
   --usage-line: #d6e4ee;}
@@ -837,4 +844,76 @@ html[data-skin="snow"] .usage-stats-button:hover,
 html[data-skin="snow"] .announcement-toolbar-button:hover {
   border-color: var(--skin-accent-border) !important;
   color: var(--skin-accent-hover) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Snow typography.
+   Rounded display faces for short labels, calm platform faces for
+   long-form copy, and a tight white halo that keeps dark ink crisp
+   over the photograph instead of smearing it into the snow.
+   ═══════════════════════════════════════════════════════════════ */
+
+html[data-skin="snow"] body {
+  font-family: var(--snow-font-body) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-skin="snow"] button,
+html[data-skin="snow"] input,
+html[data-skin="snow"] textarea,
+html[data-skin="snow"] select {
+  font-family: var(--snow-font-body) !important;
+}
+
+html[data-skin="snow"] h1,
+html[data-skin="snow"] h2,
+html[data-skin="snow"] h3,
+html[data-skin="snow"] .welcome-kicker,
+html[data-skin="snow"] .session-title,
+html[data-skin="snow"] #sendBtn,
+html[data-skin="snow"] .announcement-title,
+html[data-skin="snow"] .usage-stats-head strong {
+  font-family: var(--snow-font-display) !important;
+  letter-spacing: .01em !important;
+}
+
+html[data-skin="snow"] .message .content,
+html[data-skin="snow"] .message .plain-text,
+html[data-skin="snow"] .message .content p,
+html[data-skin="snow"] .message .content li {
+  font-family: var(--snow-font-body) !important;
+  line-height: 1.62 !important;
+  letter-spacing: .012em !important;
+  text-shadow: var(--snow-text-halo) !important;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-skin="snow"] .message.assistant .markdown-body,
+html[data-skin="snow"] .message.error .markdown-body {
+  line-height: 1.7 !important;
+}
+
+html[data-skin="snow"] .message .content h1,
+html[data-skin="snow"] .message .content h2,
+html[data-skin="snow"] .message .content h3,
+html[data-skin="snow"] .message .content h4 {
+  font-family: var(--snow-font-display) !important;
+  line-height: 1.28 !important;
+  letter-spacing: .01em !important;
+}
+
+html[data-skin="snow"] .message .content strong,
+html[data-skin="snow"] .message .content a {
+  text-shadow: var(--snow-text-halo) !important;
+}
+
+html[data-skin="snow"] code,
+html[data-skin="snow"] pre,
+html[data-skin="snow"] kbd,
+html[data-skin="snow"] samp,
+html[data-skin="snow"] .usage-feedback-model-values code {
+  font-family: var(--snow-font-mono) !important;
+  text-shadow: none !important;
 }

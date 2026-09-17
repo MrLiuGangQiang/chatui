@@ -1,0 +1,543 @@
+﻿/* 宁静 skin — scoped entirely under html[data-skin="serene"].
+ *
+ * ① 令牌段：覆盖 --skin-*、域控制点、--serene-* 材质与字体令牌。
+ * ② 直接规则段：湖泊晨光材质、消息纸面、选中会话与功能表面细调。
+ * ③ 资产：同目录 scenery.jpg，只以 url("./scenery.jpg?v=1") 相对引用。
+ *
+ * 不改布局、交互、任务或数据契约。 */
+
+:root[data-skin="serene"] {
+  color-scheme: light;
+
+  --skin-canvas: #eaf2ef;
+  --skin-surface: #fffdf8;
+  --skin-surface-soft: #f4f8f5;
+  --skin-surface-subtle: #e7f0ec;
+  --skin-surface-hover: #ddeae5;
+  --skin-text: #102220;
+  --skin-muted: #344b47;
+  --skin-muted-strong: #263b37;
+  --skin-faint: #4f6560;
+  --skin-border: #d4e3de;
+  --skin-border-strong: #b8d0c9;
+  --skin-accent: #3f827b;
+  --skin-accent-hover: #326b65;
+  --skin-accent-soft: #e1f0ec;
+  --skin-accent-border: #bcd8d2;
+  --skin-accent-contrast: #ffffff;
+  --skin-danger: #b9564e;
+  --skin-success: #4c8465;
+  --skin-warning: #b8843f;
+  --skin-danger-soft: #f7e7e3;
+  --skin-user-bubble: #f7eee0;
+  --skin-user-bubble-border: #e8d6b9;
+  --skin-thought: #edf4f0;
+  --skin-code: #eef4f1;
+  --skin-shadow: 0 10px 28px rgba(37, 59, 55, .09);
+  --skin-shadow-lg: 0 20px 50px rgba(37, 59, 55, .14);
+  --skin-radius: 18px;
+
+  --serene-frost: linear-gradient(180deg, rgba(255, 253, 248, .96), rgba(243, 248, 245, .90));
+  --serene-chrome: linear-gradient(180deg, rgba(255, 253, 248, .86), rgba(238, 246, 242, .74));
+  --serene-hairline: rgba(158, 190, 182, .60);
+  --serene-shadow: 0 10px 28px rgba(37, 59, 55, .09);
+  --serene-shadow-raised: 0 18px 44px rgba(37, 59, 55, .14);
+  --serene-text-halo: 0 1px 2px rgba(255, 253, 248, .98), 0 2px 8px rgba(255, 253, 248, .88), 0 0 18px rgba(255, 253, 248, .62);
+  --serene-font-body: "Segoe UI Variable Text", "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+  --serene-font-display: "Noto Serif SC", "Songti SC", "STSong", "Source Han Serif SC", Georgia, "Microsoft YaHei UI", serif;
+  --serene-font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Sidebar control points are consumed by styles/surfaces/session-sidebar.css. */
+  --sidebar-fill: rgba(255, 253, 248, .20);
+  --sidebar-veil: linear-gradient(180deg, rgba(255, 255, 255, .24), rgba(238, 246, 242, .14));
+  --sidebar-border: rgba(184, 208, 201, .44);
+  --sidebar-blur: 14px;
+  --sidebar-saturate: 1.05;
+
+  /* Coarse domain palette propagated into shared surfaces. */
+  --base-accent: #3f827b;
+  --base-accent-hover: #326b65;
+  --base-text-strong: #102220;
+  --base-text-muted: #344b47;
+  --base-surface: #fffdf8;
+  --base-surface-subtle: #f4f8f5;
+  --base-line: #d4e3de;
+  --msg-accent: #3f827b;
+  --msg-accent-hover: #326b65;
+  --msg-text-strong: #102220;
+  --msg-text-muted: #344b47;
+  --msg-surface: #fffdf8;
+  --msg-surface-subtle: #f4f8f5;
+  --msg-line: #d4e3de;
+  --composer-accent: #3f827b;
+  --composer-text-strong: #102220;
+  --composer-text-muted: #344b47;
+  --composer-surface: #fffdf8;
+  --composer-surface-subtle: #f4f8f5;
+  --composer-line: #d4e3de;
+  --ann-accent: #3f827b;
+  --ann-text: #102220;
+  --ann-text-muted: #344b47;
+  --ann-surface: #fffdf8;
+  --ann-surface-subtle: #f4f8f5;
+  --ann-line: #d4e3de;
+  --usage-accent: #3f827b;
+  --usage-text: #102220;
+  --usage-text-muted: #344b47;
+  --usage-surface: #fffdf8;
+  --usage-surface-subtle: #f4f8f5;
+  --usage-line: #d4e3de;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ② 直接规则段
+   ═══════════════════════════════════════════════════════════════ */
+
+html[data-skin="serene"] body {
+  background-color: var(--skin-canvas) !important;
+  background-image:
+    linear-gradient(180deg,
+      rgba(255, 253, 248, .58) 0%,
+      rgba(244, 248, 245, .46) 48%,
+      rgba(231, 240, 236, .58) 100%),
+    url("./scenery.jpg?v=1") !important;
+  background-position: center, center 52% !important;
+  background-size: cover, cover !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-attachment: scroll, scroll !important;
+  font-family: var(--serene-font-body) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-skin="serene"] body::before,
+html[data-skin="serene"] body::after {
+  content: none !important;
+  display: none !important;
+  background-image: none !important;
+}
+
+html[data-skin="serene"] .shell-app.app,
+html[data-skin="serene"] .main,
+html[data-skin="serene"] .messages {
+  background: transparent !important;
+}
+
+html[data-skin="serene"] .messages {
+  background-image:
+    radial-gradient(64rem 44rem at 50% 42%,
+      rgba(255, 253, 248, .78) 0%,
+      rgba(255, 253, 248, .54) 58%,
+      rgba(255, 253, 248, .18) 100%) !important;
+}
+
+html[data-skin="serene"] .session-sidebar,
+html[data-skin="serene"] .session-rail {
+  background-color: rgba(255, 253, 248, .20) !important;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(238, 246, 242, .14)) !important;
+  border-color: rgba(184, 208, 201, .44) !important;
+  box-shadow: 0 10px 28px rgba(37, 59, 55, .06), inset 0 1px 0 rgba(255, 255, 255, .72) !important;
+  backdrop-filter: blur(14px) saturate(1.05) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.05) !important;
+}
+
+html[data-skin="serene"] .topbar-utility-button,
+html[data-skin="serene"] .usage-stats-button,
+html[data-skin="serene"] .announcement-toolbar-button,
+html[data-skin="serene"] .topbar-presence-indicator,
+html[data-skin="serene"] .mobile-session-float,
+html[data-skin="serene"] .skin-switcher-trigger {
+  background-color: rgba(255, 253, 248, .76) !important;
+  background-image: var(--serene-chrome) !important;
+  border-color: var(--serene-hairline) !important;
+  box-shadow: var(--serene-shadow), inset 0 1px 0 rgba(255, 255, 255, .92) !important;
+  backdrop-filter: blur(14px) saturate(1.05) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.05) !important;
+}
+
+html[data-skin="serene"] .input-stack,
+html[data-skin="serene"] .input-stack:focus,
+html[data-skin="serene"] .input-stack:focus-within,
+html[data-skin="serene"] .config-dialog,
+html[data-skin="serene"] .confirm-dialog-card,
+html[data-skin="serene"] .web-preview-dialog,
+html[data-skin="serene"] .changelog-dialog,
+html[data-skin="serene"] .usage-stats-card,
+html[data-skin="serene"] .usage-feedback-card,
+html[data-skin="serene"] .config-card,
+html[data-skin="serene"] .changelog-entry,
+html[data-skin="serene"] .session-prompt-panel {
+  background-color: rgba(255, 253, 248, .94) !important;
+  background-image: var(--serene-frost) !important;
+  border-color: var(--serene-hairline) !important;
+  box-shadow: var(--serene-shadow-raised), inset 0 1px 0 rgba(255, 255, 255, .95) !important;
+}
+
+html[data-skin="serene"] .reasoning-panel,
+html[data-skin="serene"] .intent-reasoning-trace,
+html[data-skin="serene"] .intent-waiting-surface,
+html[data-skin="serene"] .attachment-chip,
+html[data-skin="serene"] .quote-preview,
+html[data-skin="serene"] .usage-feedback-field,
+html[data-skin="serene"] .usage-feedback-models,
+html[data-skin="serene"] .usage-feedback-notice {
+  background-color: rgba(244, 248, 245, .92) !important;
+  background-image: none !important;
+  border-color: var(--serene-hairline) !important;
+  box-shadow: var(--serene-shadow) !important;
+}
+
+html[data-skin="serene"] .copy-btn,
+html[data-skin="serene"] .download-btn,
+html[data-skin="serene"] .edit-btn,
+html[data-skin="serene"] .refresh-btn,
+html[data-skin="serene"] .icon-action-btn,
+html[data-skin="serene"] .reasoning-copy-btn,
+html[data-skin="serene"] .image-icon-btn,
+html[data-skin="serene"] .composer-actions .attach-btn,
+html[data-skin="serene"] .composer-actions .session-prompt-btn,
+html[data-skin="serene"] .composer-actions .session-model-btn,
+html[data-skin="serene"] .composer-actions .reasoning-toggle,
+html[data-skin="serene"] .composer-actions .reasoning-menu-btn {
+  background-color: rgba(255, 253, 248, .90) !important;
+  background-image: none !important;
+  border-color: var(--serene-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+  box-shadow: 0 3px 10px rgba(37, 59, 55, .06) !important;
+}
+
+html[data-skin="serene"] .composer-actions .reasoning-menu,
+html[data-skin="serene"] .skin-switcher-menu,
+html[data-skin="serene"] .custom-select-menu {
+  background-color: rgba(255, 253, 248, .97) !important;
+  background-image: none !important;
+  border-color: var(--skin-border-strong) !important;
+  box-shadow: var(--serene-shadow-raised) !important;
+}
+
+html[data-skin="serene"] .markdown-body .code-block,
+html[data-skin="serene"] .markdown-body pre,
+html[data-skin="serene"] .markdown-body th,
+html[data-skin="serene"] .announcement-table-wrap th {
+  background-color: rgba(238, 244, 241, .95) !important;
+  background-image: none !important;
+  border-color: var(--serene-hairline) !important;
+}
+
+html[data-skin="serene"] .message .bubble,
+html[data-skin="serene"] .message.user .bubble,
+html[data-skin="serene"] .message.assistant .bubble,
+html[data-skin="serene"] .message.error .bubble {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="serene"] .welcome-hero,
+html[data-skin="serene"] .welcome-feature-card,
+html[data-skin="serene"] .welcome-guidelines {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border-color: rgba(255, 253, 248, .42) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  text-shadow: var(--serene-text-halo) !important;
+}
+
+html[data-skin="serene"] .welcome-hero::before,
+html[data-skin="serene"] .welcome-hero::after {
+  content: none !important;
+  background-image: none !important;
+}
+
+html[data-skin="serene"] .welcome-feature-icon,
+html[data-skin="serene"] .welcome-section-head,
+html[data-skin="serene"] .welcome-guidelines-head,
+html[data-skin="serene"] .welcome-guideline,
+html[data-skin="serene"] .welcome-guideline.is-critical,
+html[data-skin="serene"] .welcome-guideline > span {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="serene"] .welcome-feature-icon,
+html[data-skin="serene"] .welcome-guideline > span {
+  border-color: rgba(255, 253, 248, .42) !important;
+}
+
+
+html[data-skin="serene"] .input-stack:focus-within {
+  border-color: var(--skin-accent-border) !important;
+  box-shadow: var(--serene-shadow-raised), 0 0 0 3px rgba(63, 130, 123, .14) !important;
+}
+
+html[data-skin="serene"] .session-tab.active,
+html[data-skin="serene"] .session-tab.active:hover {
+  background: linear-gradient(90deg, rgba(63, 130, 123, .24), rgba(63, 130, 123, .10)) !important;
+  border-color: rgba(63, 130, 123, .56) !important;
+  box-shadow: 0 3px 12px rgba(37, 59, 55, .10) !important;
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="serene"] .session-tab.active .session-title {
+  font-weight: 700 !important;
+}
+
+html[data-skin="serene"] .session-tab.active .session-rename-btn,
+html[data-skin="serene"] .session-tab.active .session-delete-btn {
+  opacity: 1 !important;
+  color: var(--skin-muted-strong) !important;
+  background: rgba(255, 253, 248, .52) !important;
+  border: 1px solid rgba(184, 208, 201, .40) !important;
+}
+
+html[data-skin="serene"] .session-tab.active .session-rename-btn:hover {
+  color: var(--skin-accent-hover) !important;
+  background: var(--skin-accent-soft) !important;
+}
+
+html[data-skin="serene"] .session-tab.active .session-delete-btn:hover {
+  color: var(--skin-danger) !important;
+  background: var(--skin-danger-soft) !important;
+}
+
+html[data-skin="serene"] .session-tab.active small {
+  color: var(--skin-accent) !important;
+  font-weight: 600 !important;
+}
+
+html[data-skin="serene"] .session-tab:hover:not(.active) {
+  background: rgba(225, 240, 236, .52) !important;
+  border-color: rgba(188, 216, 210, .52) !important;
+}
+
+/* Feature surfaces: keep the announcement centre, feedback dialog and usage
+   stats on the same lake-morning paper family as the main workspace. */
+html[data-skin="serene"] .announcement-backdrop {
+  background-color: rgba(240, 247, 244, .82) !important;
+}
+
+html[data-skin="serene"] .announcement-surface {
+  background-color: rgba(255, 253, 248, .94) !important;
+  background-image: var(--serene-frost) !important;
+}
+
+html[data-skin="serene"] .announcement-hero {
+  background-color: rgba(255, 253, 248, .58) !important;
+  background-image: var(--serene-chrome) !important;
+  border-right-color: var(--serene-hairline) !important;
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="serene"] .announcement-hero h2,
+html[data-skin="serene"] .announcement-title,
+html[data-skin="serene"] .announcement-status strong,
+html[data-skin="serene"] .announcement-history-heading h4,
+html[data-skin="serene"] .announcement-body h2,
+html[data-skin="serene"] .announcement-history-body h2,
+html[data-skin="serene"] .announcement-hero-tips h3 {
+  color: var(--skin-text) !important;
+}
+
+html[data-skin="serene"] .announcement-hero-copy p,
+html[data-skin="serene"] .announcement-hero-note,
+html[data-skin="serene"] .announcement-summary,
+html[data-skin="serene"] .announcement-history-body h3,
+html[data-skin="serene"] .announcement-body h3,
+html[data-skin="serene"] .announcement-status,
+html[data-skin="serene"] .announcement-history-chevron {
+  color: var(--skin-muted) !important;
+}
+
+html[data-skin="serene"] .announcement-brand,
+html[data-skin="serene"] .announcement-hero-kicker,
+html[data-skin="serene"] .announcement-hero-explain-label,
+html[data-skin="serene"] .announcement-hero-explain strong,
+html[data-skin="serene"] .announcement-history-copy strong,
+html[data-skin="serene"] .announcement-tip-note strong,
+html[data-skin="serene"] .announcement-retry-btn {
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="serene"] .announcement-brand-mark,
+html[data-skin="serene"] .announcement-hero-kicker,
+html[data-skin="serene"] .announcement-badge,
+html[data-skin="serene"] .announcement-retry-btn {
+  background-color: rgba(255, 253, 248, .84) !important;
+  border-color: var(--serene-hairline) !important;
+}
+
+html[data-skin="serene"] .announcement-acknowledge-btn {
+  background-color: var(--skin-accent) !important;
+  border-color: var(--skin-accent) !important;
+  color: var(--skin-accent-contrast) !important;
+}
+
+html[data-skin="serene"] .usage-stats-panel,
+html[data-skin="serene"] .usage-feedback-panel {
+  background-color: rgba(255, 253, 248, .94) !important;
+  background-image: var(--serene-frost) !important;
+  border-color: var(--serene-hairline) !important;
+}
+
+html[data-skin="serene"] .usage-stats-head,
+html[data-skin="serene"] .usage-feedback-head,
+html[data-skin="serene"] .usage-feedback-foot {
+  border-color: var(--serene-hairline) !important;
+}
+
+html[data-skin="serene"] .usage-tabs button.active {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="serene"] .usage-token-badge {
+  background-color: rgba(244, 248, 245, .92) !important;
+  border-color: var(--serene-hairline) !important;
+  color: var(--skin-muted-strong) !important;
+}
+
+/* One calm lake-morning tint ramp replaces the default saturated tiles. */
+html[data-skin="serene"] .usage-personal-metric-0,
+html[data-skin="serene"] .usage-token-badge-1 {
+  background-color: var(--skin-accent-soft) !important;
+  border-color: var(--skin-accent-border) !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-0 span,
+html[data-skin="serene"] .usage-personal-metric-0 strong,
+html[data-skin="serene"] .usage-token-badge-1 em,
+html[data-skin="serene"] .usage-token-badge-1 strong {
+  color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-1,
+html[data-skin="serene"] .usage-token-badge-2 {
+  background-color: #e8f0f4 !important;
+  border-color: #cbdde4 !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-1 span,
+html[data-skin="serene"] .usage-personal-metric-1 strong,
+html[data-skin="serene"] .usage-token-badge-2 em,
+html[data-skin="serene"] .usage-token-badge-2 strong {
+  color: #3f6a78 !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-2,
+html[data-skin="serene"] .usage-token-badge-3 {
+  background-color: #eef2e6 !important;
+  border-color: #d5dfc4 !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-2 span,
+html[data-skin="serene"] .usage-personal-metric-2 strong,
+html[data-skin="serene"] .usage-token-badge-3 em,
+html[data-skin="serene"] .usage-token-badge-3 strong {
+  color: #5d744b !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-3,
+html[data-skin="serene"] .usage-token-badge-4 {
+  background-color: #f8efe0 !important;
+  border-color: #e8d6b4 !important;
+}
+
+html[data-skin="serene"] .usage-personal-metric-3 span,
+html[data-skin="serene"] .usage-personal-metric-3 strong,
+html[data-skin="serene"] .usage-token-badge-4 em,
+html[data-skin="serene"] .usage-token-badge-4 strong {
+  color: #8a6128 !important;
+}
+
+html[data-skin="serene"] .usage-token-badge-0 {
+  background-color: #e1f0ec !important;
+  border-color: #bcd8d2 !important;
+}
+
+html[data-skin="serene"] .usage-token-badge-0 em,
+html[data-skin="serene"] .usage-token-badge-0 strong {
+  color: #326b65 !important;
+}
+
+html[data-skin="serene"] .usage-feedback-foot #usageFeedbackSubmit {
+  background-color: var(--skin-accent) !important;
+  border-color: var(--skin-accent) !important;
+  color: var(--skin-accent-contrast) !important;
+}
+
+html[data-skin="serene"] .usage-feedback-foot #usageFeedbackSubmit:hover {
+  background-color: var(--skin-accent-hover) !important;
+  border-color: var(--skin-accent-hover) !important;
+}
+
+html[data-skin="serene"] .usage-stats-button:hover,
+html[data-skin="serene"] .announcement-toolbar-button:hover {
+  border-color: var(--skin-accent-border) !important;
+  color: var(--skin-accent-hover) !important;
+}
+
+/* Typography: calm sans body, soft serif display headings, mono code. */
+html[data-skin="serene"] h1,
+html[data-skin="serene"] h2,
+html[data-skin="serene"] h3,
+html[data-skin="serene"] .welcome-kicker,
+html[data-skin="serene"] .session-title,
+html[data-skin="serene"] #sendBtn,
+html[data-skin="serene"] .announcement-title,
+html[data-skin="serene"] .usage-stats-head strong {
+  font-family: var(--serene-font-display) !important;
+  letter-spacing: .01em !important;
+}
+
+html[data-skin="serene"] button,
+html[data-skin="serene"] input,
+html[data-skin="serene"] textarea,
+html[data-skin="serene"] select {
+  font-family: var(--serene-font-body) !important;
+}
+
+html[data-skin="serene"] .message .content,
+html[data-skin="serene"] .message .plain-text,
+html[data-skin="serene"] .message .content p,
+html[data-skin="serene"] .message .content li {
+  font-family: var(--serene-font-body) !important;
+  color: var(--skin-text) !important;
+  line-height: 1.62 !important;
+  letter-spacing: .01em !important;
+  text-shadow: var(--serene-text-halo) !important;
+  text-rendering: optimizeLegibility;
+}
+
+html[data-skin="serene"] .message.assistant .markdown-body,
+html[data-skin="serene"] .message.error .markdown-body {
+  line-height: 1.7 !important;
+}
+
+html[data-skin="serene"] .message .content h1,
+html[data-skin="serene"] .message .content h2,
+html[data-skin="serene"] .message .content h3,
+html[data-skin="serene"] .message .content h4 {
+  font-family: var(--serene-font-display) !important;
+  line-height: 1.3 !important;
+  letter-spacing: .01em !important;
+}
+
+html[data-skin="serene"] code,
+html[data-skin="serene"] pre,
+html[data-skin="serene"] kbd,
+html[data-skin="serene"] samp,
+html[data-skin="serene"] .usage-feedback-model-values code {
+  font-family: var(--serene-font-mono) !important;
+}

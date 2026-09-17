@@ -10,9 +10,9 @@
 
     // Batch downloads share one timestamp and get a -N suffix so several images
     // from the same message never collide (or land in random order) on disk.
-    function numberedDownloadFilename(index, total, fallbackExt = 'png') {
-      const prefix = fileNames?.timestampPrefix ? fileNames.timestampPrefix() : String(Date.now());
-      return total > 1 ? `${prefix}-${index}.${fallbackExt}` : `${prefix}.${fallbackExt}`;
+    function numberedDownloadFilename(index, total, fallbackExt = 'png', prefix = null) {
+      const resolvedPrefix = prefix || (fileNames?.timestampPrefix ? fileNames.timestampPrefix() : String(Date.now()));
+      return total > 1 ? `${resolvedPrefix}-${index}.${fallbackExt}` : `${resolvedPrefix}.${fallbackExt}`;
     }
     function removeGeneratedImageInlineActions(e){e?.querySelectorAll?.(".content img.generated-thumb").forEach(e=>{let t=e.nextElementSibling;for(;t&&(t.matches?.(".image-icon-btn,[data-download-image],[data-copy-image],[data-share-image],.generated-image-actions")||!String(t.textContent||"").trim()&&0===t.children.length);){const e=t.nextElementSibling;t.remove(),t=e}}),e?.querySelectorAll?.(".content .generated-image-actions").forEach(e=>e.remove())}
 
@@ -257,7 +257,7 @@
 
     async function copyImageActionElement(e){try{if(!canWriteImageClipboard())throw new Error(imageClipboardUnsupportedMessage());const t=getImageActionBlob(e).then(imageBlobToClipboardPng),s=new ClipboardItem({[IMAGE_CLIPBOARD_TYPE]:t});await navigator.clipboard.write([s]),toast("图片已复制")}catch(e){toast(e.message||String(e))}}
 
-    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");const n=t.length;let a=0;for(const e of t){a+=1;const t=document.createElement("button");const o=numberedDownloadFilename(a,n);t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=o,t.dataset.resolvedFilename=o,t.dataset.generatedImage="1",await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
+    async function downloadAllImagesFromMessage(e,t=null){const s=t||e?.querySelector?.("[data-download-all-images],.download-answer-btn");markActionButtonBusy(s);try{const t=[...e?.querySelectorAll?.("img.generated-thumb[data-persisted-src]")||[]].filter(e=>e.dataset.persistedSrc);if(!t.length)return resetActionButtonState(s),void toast("暂无可下载的图片");const n=t.length;const p=fileNames?.timestampPrefix?fileNames.timestampPrefix():String(Date.now());let a=0;for(const e of t){a+=1;const t=document.createElement("button");const o=numberedDownloadFilename(a,n,"png",p);t.dataset.persistedHref=e.dataset.persistedSrc,t.dataset.filename=o,t.dataset.resolvedFilename=o,t.dataset.generatedImage="1",await downloadImageActionElement(t)}restoreActionButtonSoon(s)}catch(e){resetActionButtonState(s),toast(e.message||String(e))}}
 
     function bindImageDownload(e){e.dataset.downloadBound||(e.dataset.downloadBound="1",e.addEventListener("click",()=>downloadImageActionElement(e)))}
 

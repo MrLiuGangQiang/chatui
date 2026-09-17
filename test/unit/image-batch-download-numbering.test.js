@@ -5,11 +5,11 @@ const { JSDOM } = require('jsdom');
 const fileNames = require('../../shared/file-names');
 const imageActionsWorkflow = require('../../client/app/image-actions-workflow');
 
-function createFixture(imageCount) {
+function createFixture(imageCount, fileNamesApi = fileNames) {
   const dom = new JSDOM('<main id="messages"></main>');
   const { window } = dom;
   const document = window.document;
-  window.ChatUIFileNames = fileNames;
+  window.ChatUIFileNames = fileNamesApi;
   const thumbs = Array.from({ length: imageCount }, (_, i) =>
     `<img class="generated-thumb" data-persisted-src="indexeddb://image-${i + 1}" data-filename="pic.png" src="blob:live" />`).join('');
   const node = document.createElement('article');
@@ -63,6 +63,30 @@ async function testMultiImageBatchDownloadNumbersEveryFile() {
   }
 }
 
+async function testMultiImageBatchDownloadPinsOneTimestampForTheWholeBatch() {
+  let timestampCalls = 0;
+  const driftingFileNames = {
+    ...fileNames,
+    timestampPrefix: () => {
+      timestampCalls += 1;
+      return timestampCalls === 1 ? '20260917080000' : '20260917080001';
+    },
+  };
+  const fixture = createFixture(3, driftingFileNames);
+  try {
+    await fixture.workflow.downloadAllImagesFromMessage(fixture.node);
+    assert.deepStrictEqual(fixture.downloads, [
+      '20260917080000-1.png',
+      '20260917080000-2.png',
+      '20260917080000-3.png',
+    ], 'the batch must pin the timestamp before any asynchronous download starts');
+    assert.strictEqual(timestampCalls, 1, 'one batch download must read the clock exactly once');
+  } finally {
+    fixture.restore();
+    fixture.dom.window.close();
+  }
+}
+
 async function testSingleImageBatchDownloadKeepsUnnumberedFilename() {
   const fixture = createFixture(1);
   try {
@@ -77,5 +101,6 @@ async function testSingleImageBatchDownloadKeepsUnnumberedFilename() {
 
 module.exports = [
   testMultiImageBatchDownloadNumbersEveryFile,
+  testMultiImageBatchDownloadPinsOneTimestampForTheWholeBatch,
   testSingleImageBatchDownloadKeepsUnnumberedFilename,
 ];

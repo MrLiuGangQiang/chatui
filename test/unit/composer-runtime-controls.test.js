@@ -31,6 +31,28 @@ function testComposerShowsRuntimeSwitcherBesideSendButton() {
   assert.ok(composerCss.includes('.composer-runtime-switch'), 'the model and reasoning segments must render as one visual switch');
 }
 
+function testRuntimeControlValueDoesNotClipDescenders() {
+  const composerCss = fs.readFileSync(path.join(root, 'styles', 'composer.css'), 'utf8');
+  const dom = new JSDOM(`<!doctype html><style>${composerCss}</style>
+    <div class="composer-actions">
+      <div class="composer-runtime-switch">
+        <button class="session-model-btn has-session-model" type="button">
+          <span class="runtime-control-kind">Model</span>
+          <span id="runtimeValue" class="runtime-control-value session-model-label">qlm-flash</span>
+        </button>
+      </div>
+    </div>`);
+  const style = dom.window.getComputedStyle(dom.window.document.getElementById('runtimeValue'));
+  const fontSize = Number.parseFloat(style.fontSize);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const lineHeightPx = style.lineHeight.endsWith('px') ? lineHeight : lineHeight * fontSize;
+
+  assert.ok(
+    lineHeightPx >= fontSize * 1.2,
+    `runtime values must keep enough line-height for descenders; got ${style.lineHeight} at ${style.fontSize}`,
+  );
+}
+
 function testSessionModelLabelShowsEffectiveModelForCurrentSession() {
   const dom = new JSDOM(`
     <button id="sessionModelBtn"><span id="sessionModelLabel"></span></button>
@@ -147,6 +169,7 @@ function testSavingGlobalModelRefreshesVisibleSessionModel() {
 
 module.exports = [
   testComposerShowsRuntimeSwitcherBesideSendButton,
+  testRuntimeControlValueDoesNotClipDescenders,
   testSessionModelLabelShowsEffectiveModelForCurrentSession,
   testReasoningLabelShowsCurrentEffortAndSupportsOff,
   testSavingGlobalModelRefreshesVisibleSessionModel,

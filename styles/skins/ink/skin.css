@@ -1071,7 +1071,7 @@ html[data-skin="ink"] .welcome-guideline strong { color: var(--skin-muted-strong
 html[data-skin="ink"] .welcome-guideline p { color: var(--skin-muted) !important; }
 html[data-skin="ink"] .welcome-guideline.is-critical>span { color: #9c703c !important; }
 html[data-skin="ink"] .welcome-guideline.is-critical p { color: var(--skin-muted) !important; }
-html[data-skin="ink"] .input-stack:focus-within { border-color: var(--skin-border-strong) !important; }
+html[data-skin="ink"] .input-stack:focus-within { border-color: var(--skin-accent) !important; }
 html[data-skin="ink"] .markdown-body a { border-bottom: 1px solid var(--skin-border-strong) !important; }
 html[data-skin="ink"] .markdown-body a:hover { border-bottom-color: var(--skin-border-strong) !important; }
 html[data-skin="ink"] .markdown-body blockquote { border-left: 3px solid var(--skin-border-strong) !important; }
@@ -1128,7 +1128,6 @@ html[data-skin="ink"] .sent-quote-preview { border-left: 3px solid var(--skin-bo
 html[data-skin="ink"] .quote-preview { border-left: 3px solid var(--skin-border) !important; }
 html[data-skin="ink"] .input-stack { background: var(--skin-surface) !important; }
 html[data-skin="ink"] .input-stack:focus { background: var(--skin-surface) !important; }
-html[data-skin="ink"] .input-stack:focus-within { background: var(--skin-surface) !important; }
 html[data-skin="ink"] .markdown-body th { border-bottom: 1px solid var(--skin-border) !important; }
 html[data-skin="ink"] .markdown-body td { border-bottom: 1px solid var(--skin-border) !important; }
 html[data-skin="ink"] .msg-actions button.refreshing { border-color: var(--skin-border-strong) !important; }
@@ -1612,8 +1611,7 @@ html[data-skin="ink"] .input-stack:focus-within {
   -webkit-backdrop-filter: blur(18px) saturate(1.2) !important;
 }
 html[data-skin="ink"] .input-stack:focus-within {
-  border-color: rgba(166, 63, 42, .5) !important;
-  box-shadow: 0 18px 44px rgba(74, 57, 36, .13), 0 0 0 4px rgba(166, 63, 42, .11) !important;
+  border-color: var(--skin-accent) !important;
 }
 html[data-skin="ink"] .composer textarea::placeholder,
 html[data-skin="ink"] .input-stack textarea::placeholder {
@@ -2055,11 +2053,6 @@ html[data-skin="ink"] .welcome-feature-card::after {
 
 html[data-skin="ink"] .input-stack,
 html[data-skin="ink"] .input-stack:focus,
-html[data-skin="ink"] .input-stack:focus-within {
-  background:
-    radial-gradient(circle at 88% 0%, rgba(104, 125, 139, .035), transparent 34%),
-    linear-gradient(180deg, rgba(253, 250, 243, .97) 0%, rgba(249, 244, 233, .93) 64%, rgba(245, 239, 226, .9) 100%) !important;
-}
 
 html[data-skin="ink"] .reasoning-panel,
 html[data-skin="ink"] .intent-reasoning-trace,
@@ -2210,8 +2203,7 @@ html[data-skin="ink"] .input-stack:focus-within {
   border-radius: 16px !important;
 }
 html[data-skin="ink"] .input-stack:focus-within {
-  border-color: rgba(164, 69, 47, .46) !important;
-  box-shadow: var(--ink-card-shadow-raised), 0 0 0 3px rgba(164, 69, 47, .08), inset 0 1px 0 rgba(255, 255, 255, .68) !important;
+  border-color: var(--skin-accent) !important;
 }
 
 /* Secondary cards use the same paper family, only slightly quieter. */

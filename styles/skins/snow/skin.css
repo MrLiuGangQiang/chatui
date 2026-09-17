@@ -244,8 +244,7 @@ html[data-skin="snow"] .session-tab.active small {
 }
 
 html[data-skin="snow"] .input-stack:focus-within {
-  border-color: var(--skin-accent-border) !important;
-  box-shadow: var(--snow-shadow-raised), 0 0 0 3px rgba(47, 127, 196, .13) !important;
+  border-color: var(--skin-accent) !important;
 }
 
 html[data-skin="snow"] .messages,

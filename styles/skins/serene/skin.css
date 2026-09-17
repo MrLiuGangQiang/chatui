@@ -277,8 +277,7 @@ html[data-skin="serene"] .welcome-guideline > span {
 
 
 html[data-skin="serene"] .input-stack:focus-within {
-  border-color: var(--skin-accent-border) !important;
-  box-shadow: var(--serene-shadow-raised), 0 0 0 3px rgba(63, 130, 123, .14) !important;
+  border-color: var(--skin-accent) !important;
 }
 
 html[data-skin="serene"] .session-tab.active,

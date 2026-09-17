@@ -26,8 +26,7 @@ body.session-sidebar-collapsed .composer.compact-composer{
   box-shadow:0 22px 64px var(--composer-shadow-3, rgba(15,23,42,.14)),inset 0 1px 0 var(--composer-inset-glow, rgba(255,255,255,.88))!important;
 }
 .input-stack:focus-within{
-  border-color:var(--composer-accent-teal, rgba(20,184,166,.56))!important;
-  box-shadow:0 24px 68px var(--composer-shadow-3, rgba(15,23,42,.16)),inset 0 1px 0 var(--composer-surface-glass, rgba(255,255,255,.92))!important;
+  border-color:var(--accent)!important;
 }
 .input-stack{
   margin:0 auto!important;
@@ -421,6 +420,7 @@ body.app-booting .composer.compact-composer *{
   color:var(--composer-text-faint, #94a3b8)!important;
   font-size:11px!important;
   font-weight:700!important;
+  line-height:1.4!important;
 }
 .composer-actions .runtime-control-value{
   min-width:0!important;
@@ -430,6 +430,7 @@ body.app-booting .composer.compact-composer *{
   color:var(--composer-text-body, #334155)!important;
   font-size:12px!important;
   font-weight:800!important;
+  line-height:1.4!important;
 }
 .composer-actions .session-model-label{
   flex:1 1 auto!important;

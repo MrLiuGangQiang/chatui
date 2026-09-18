@@ -202,7 +202,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
   assert.ok(index.includes('client/services/usage-stats.js?v=1.2.79-feedback-reason'), 'feedback rejection reasons should ship with a fresh service cache version');
-  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.3-utility-actions'), 'feedback form should ship with a fresh UI cache version');
+  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.4-non-modal-panels'), 'feedback form should ship with a fresh UI cache version');
   assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
   assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
   assert.ok(ui.includes('id="usageStatsIconGradient"') && ui.includes('class="usage-stats-pulse"'), 'the usage launcher must use the neon dashboard icon');
@@ -212,6 +212,43 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   assert.ok(index.includes('id="topbarUtilityActions"') && ui.includes("$('topbarUtilityActions')") && ui.includes('utilityActions.append(feedbackButton, button)'), 'announcement, feedback, and usage launchers should share one top-right utility group');
   assert.ok(usageCss.includes('.topbar-utility-button') && usageCss.includes('.topbar-utility-actions'), 'top-right utility launchers should share one size, spacing, and interaction style');
   assert.ok(css.includes('@keyframes usage-entry-pulse') && css.includes('.usage-feedback-open:hover .usage-feedback-spark'), 'usage entry icons must retain their shared motion treatment');
+}
+
+function testUsageAndFeedbackPanelsLeaveThePageVisibleAcrossSkins() {
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '../..');
+  const usageCss = fs.readFileSync(path.join(root, 'styles/surfaces/usage-stats.css'), 'utf8');
+
+  function ruleBody(source, selector) {
+    const start = source.indexOf(`${selector} {`);
+    assert.ok(start >= 0, `missing CSS rule ${selector}`);
+    const open = source.indexOf('{', start);
+    const close = source.indexOf('}', open);
+    assert.ok(open >= 0 && close > open, `malformed CSS rule ${selector}`);
+    return source.slice(open + 1, close);
+  }
+
+  for (const selector of ['.usage-stats-panel', '.usage-feedback-panel']) {
+    const body = ruleBody(usageCss, selector);
+    assert.ok(/background\s*:\s*transparent\s*;/.test(body), `${selector} must not draw a page scrim`);
+    assert.ok(/pointer-events\s*:\s*none\s*;/.test(body), `${selector} must leave uncovered page areas interactive`);
+    assert.ok(!/backdrop-filter\s*:/.test(body), `${selector} must not blur or cover the page`);
+  }
+
+  for (const selector of ['.usage-stats-card', '.usage-feedback-card']) {
+    const body = ruleBody(usageCss, selector);
+    assert.ok(/pointer-events\s*:\s*auto\s*;/.test(body), `${selector} must remain interactive inside the transparent wrapper`);
+  }
+
+  for (const skin of ['default', 'ink', 'snow', 'serene']) {
+    const css = fs.readFileSync(path.join(root, `styles/skins/${skin}/skin.css`), 'utf8');
+    assert.ok(!/--usage-scrim/.test(css), `${skin} must not define a usage-panel scrim token`);
+    assert.ok(
+      !/\.usage-(?:stats|feedback)-panel\s*\{[^}]*background(?:-color)?\s*:/s.test(css),
+      `${skin} must not restore a full-page usage or feedback scrim`,
+    );
+  }
 }
 
 function testUsageValidatorNormalizesInputs() {
@@ -352,6 +389,7 @@ module.exports = [
   testDingTalkFeedbackSenderContracts,
   testFeedbackSubmissionPreservesReviewRejectionReason,
   testUsageStatsScriptsLoadInExpectedOrder,
+  testUsageAndFeedbackPanelsLeaveThePageVisibleAcrossSkins,
   testUsageValidatorNormalizesInputs,
   testUsageValidatorRateLimitPreservesContract,
   testUsageServiceBuildsDepartmentExportWorkbookFromRepository,

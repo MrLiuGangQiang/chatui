@@ -501,13 +501,7 @@ html[data-skin="snow"] .announcement-loading-mark {
   border-top-color: var(--skin-accent) !important;
 }
 
-html[data-skin="snow"] .usage-stats-panel {
-  background-color: rgba(31, 63, 96, .28) !important;
-}
-
-html[data-skin="snow"] .usage-feedback-panel {
-  background-color: rgba(31, 63, 96, .34) !important;
-}
+/* Usage panels are non-modal in every skin; their shared wrapper stays transparent. */
 
 html[data-skin="snow"] .usage-stats-head,
 html[data-skin="snow"] .usage-feedback-head,

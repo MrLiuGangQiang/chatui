@@ -127,7 +127,7 @@ function testUsageDomainHeaderDocumentsItsControlPoints() {
   const header = source.slice(0, source.indexOf('*/'));
   assert.ok(/域：/.test(header), 'the domain file must open with its domain name');
   assert.ok(/控制点契约/.test(header), 'the header must state the colour-only token contract');
-  for (const family of ['--usage-surface', '--usage-text', '--usage-line', '--usage-accent', '--usage-metric-', '--usage-badge-', '--usage-medal-', '--usage-scrim', '--usage-shadow-']) {
+  for (const family of ['--usage-surface', '--usage-text', '--usage-line', '--usage-accent', '--usage-metric-', '--usage-badge-', '--usage-medal-', '--usage-head-veil', '--usage-shadow-']) {
     assert.ok(header.includes(family), `the header must document the ${family} family`);
   }
 }

@@ -411,8 +411,6 @@ function testSnowSkinKeepsAnnouncementFeedbackAndStatsOnTheGlacierPalette() {
     'html[data-skin="snow"] .announcement-body blockquote,',
     'html[data-skin="snow"] .announcement-acknowledge-btn {',
     'html[data-skin="snow"] .announcement-history-panel {',
-    'html[data-skin="snow"] .usage-stats-panel {',
-    'html[data-skin="snow"] .usage-feedback-panel {',
     'html[data-skin="snow"] .usage-feedback-head {',
     'html[data-skin="snow"] .usage-feedback-foot #usageFeedbackSubmit {',
     'html[data-skin="snow"] .usage-tabs button.active::before {',

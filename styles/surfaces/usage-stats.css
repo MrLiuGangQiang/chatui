@@ -22,7 +22,7 @@
            --usage-badge-{0-4}-{line,surface,text}
            指标档与令牌档在皮肤里配色不同，故分成两族，不共用令牌。
      奖牌  --usage-medal-{1,2,3}
-     遮罩  --usage-scrim / -scrim-strong / -head-veil（整条渐变是一个材质）
+     标题  --usage-head-veil（整条渐变是一个材质；弹层外壳不使用遮罩）
      投影  --usage-shadow-{launcher,panel,dialog,submit,tab-active,accent-hover}
 
    本域不使用 !important：用量面板历史上自成一套配色，不与基础层争权重。
@@ -83,14 +83,25 @@
   justify-content: flex-end;
   align-items: flex-start;
   padding: 36px 18px 10px;
-  background: var(--usage-scrim);
+  background: transparent;
+  pointer-events: none;
 }
 
 .usage-stats-panel.show { display: flex; }
 
-.usage-feedback-panel { position: fixed; inset: 0; z-index: 74; display: none; align-items: center; justify-content: center; padding: 20px; background: var(--usage-scrim-strong); backdrop-filter: blur(3px); }
+.usage-feedback-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 74;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: transparent;
+  pointer-events: none;
+}
 .usage-feedback-panel.show { display: flex; }
-.usage-feedback-card { width: min(580px, 100%); max-height: min(760px, calc(100vh - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--usage-line-dialog); border-radius: 18px; background: var(--usage-surface); color: var(--usage-text); box-shadow: 0 24px 70px var(--usage-shadow-dialog); }
+.usage-feedback-card { pointer-events: auto; width: min(580px, 100%); max-height: min(760px, calc(100vh - 32px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--usage-line-dialog); border-radius: 18px; background: var(--usage-surface); color: var(--usage-text); box-shadow: 0 24px 70px var(--usage-shadow-dialog); }
 .usage-feedback-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px 15px; border-bottom: 1px solid var(--usage-line-divider); background: var(--usage-head-veil); }
 .usage-feedback-heading { min-width: 0; }
 .usage-feedback-foot #usageFeedbackSubmit svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -152,6 +163,7 @@
   background: var(--usage-surface);
   box-shadow: 0 4px 24px var(--usage-shadow-panel);
   color: var(--usage-text);
+  pointer-events: auto;
 }
 
 .usage-stats-head {

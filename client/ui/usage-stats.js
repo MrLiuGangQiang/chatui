@@ -133,7 +133,7 @@
     feedbackPanel.className = 'usage-feedback-panel';
     feedbackPanel.setAttribute('aria-hidden', 'true');
     feedbackPanel.innerHTML = `
-      <div class="usage-feedback-card" role="dialog" aria-modal="true" aria-labelledby="usageFeedbackTitle">
+      <div class="usage-feedback-card" role="dialog" aria-modal="false" aria-labelledby="usageFeedbackTitle">
         <div class="usage-feedback-head">
           <div class="usage-feedback-heading"><span>帮助我们持续改进</span><strong id="usageFeedbackTitle">提交问题反馈</strong></div>
           <button id="usageFeedbackClose" type="button" aria-label="关闭反馈">×</button>
@@ -763,7 +763,6 @@ ${incoming}`
 
   function handleDelegatedPanelClick(event) {
     const target = event.target;
-    if (target?.id === 'usageStatsPanel') return closePanel();
     const backButton = target?.closest?.('#usageBackDepartments');
     if (backButton) {
       activeDepartmentDetail = null;
@@ -839,7 +838,6 @@ ${incoming}`
       saveFeedbackFormDraft();
       updateFeedbackCount();
     }));
-    $('usageFeedbackPanel')?.addEventListener('click', event => { if (event.target?.id === 'usageFeedbackPanel') closeFeedbackPanel(); });
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
     feedbackUiReady = true;

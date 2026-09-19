@@ -230,6 +230,31 @@ function testModelCanSelectPriorImageWhenCurrentUploadExists() {
   );
 }
 
+function testImageCompareRejectsAnExtraIncompatibleImageBinding() {
+  const result = routeService.inspectModelRouteResult(
+    JSON.stringify(routeIntent('image_compare', 'new', [
+      { candidate_key: 'i1', role: 'compare_a' },
+      { candidate_key: 'i2', role: 'compare_b' },
+      { candidate_key: 'i3', role: 'source' },
+    ], '比较这三张产品图。')),
+    {
+      input: '比较这三张产品图。',
+      attachments: currentImages(3),
+      context: {},
+    },
+  );
+
+  assert.ok(result.route, result.error || result.reason);
+  assert.strictEqual(result.route.operationType, 'image_compare');
+  assert.strictEqual(result.route.needClarification, true,
+    'an extra incompatible image must fail closed instead of being silently dropped');
+  assert.strictEqual(result.route.dispatchAuthorized, false);
+  assert.strictEqual(result.route.dispatchContract, null);
+  const choices = (result.route.clarificationSlots || []).flatMap(slot => slot.choices || []);
+  assert.ok(choices.some(choice => choice.id === 'upload-3'),
+    'the rejected third image must remain visible as a clarification choice instead of disappearing');
+}
+
 module.exports = [
   testModelSelectedCurrentImagesAreAuthoritativeForComparison,
   testLocalOrdinalParsingCannotRewriteModelSelections,
@@ -239,4 +264,5 @@ module.exports = [
   testVariadicModelSelectionsSurviveProjection,
   testUnknownModelCandidateFailsClosed,
   testModelCanSelectPriorImageWhenCurrentUploadExists,
+  testImageCompareRejectsAnExtraIncompatibleImageBinding,
 ];

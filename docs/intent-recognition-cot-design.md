@@ -256,8 +256,8 @@ goal 是资源消解/历史依赖/图片任务的下游执行指令：只消解�
 
 | 现有段落 | 去向 |
 | --- | --- |
-| 证据优先 / 【优先级】 / 【可信输入】 / 【引用与附件】 / 【历史建议边界】 | 节点1 理解 |
-| 【判断顺序】 / 【operation】 / 【task_shape】 / 【resource_refs】 / 【goal】 / 【goal_mode】 / relation 1-4 / 【图片交付事实】 | 节点2 路由（relation 用聚焦子提示） |
+| 证据优先 / 【可信输入】 / 【引用与附件】 / 【历史建议边界】 | 节点1 理解 |
+| 【判断顺序】 / 【relation】1-4 / 【operation】 / 【task_shape】 / 【resource_refs】 / 【goal】 / 【goal_mode】 / 【图片交付事实】 | 节点2 路由（relation 规则独立成组） |
 | 【任务选择优先】 / 【歧义与空输入】 | 节点0 确定性规则 + 节点2 兜底（去掉“选第一个”） |
 | `MULTI_TASK_PLAN_SYSTEM_PROMPT` | 节点4 规划 |
 

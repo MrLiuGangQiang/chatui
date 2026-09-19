@@ -249,12 +249,13 @@ function testRoutePromptDeclaresModelPoweredTaskSelection() {
   const routePrompts = require('../../client/services/route-prompts');
   const prompt = routePrompts.createRoutePromptSet().ROUTE_SYSTEM_PROMPT;
   assert.match(prompt, /【任务选择优先】/);
-  assert.match(prompt, /只输出multi_task_plan中对应编号任务的operation\/goal\/resource_refs/);
+  assert.match(prompt, /完整输出六字段/);
+  assert.match(prompt, /operation\/goal\/resource_refs取对应任务/);
   assert.match(prompt, /task_shape=single/);
 }
 
 function testIsTaskSelectionInputRecognizesSelectors() {
-  for (const selector of ['3', '做任务1', '任务2', '第2个任务', '选2号', '执行第1项', '2号', '任务二', '二', '第3个任务', '选二号']) {
+  for (const selector of ['3', '做任务1', '任务2', '第2个任务', '选2号', '执行第1项', '2号', '任务二', '二', '第3个任务', '选二号', '第二个吧', '就第二个', '请选择第二个']) {
     assert.strictEqual(routeService.isTaskSelectionInput(selector), true, `${selector} must be a task selector`);
   }
   for (const ordinary of ['做任务1后画一只狗', '请帮我写一份周报', '总结一下', '']) {
@@ -601,6 +602,13 @@ async function testWorkflowInvalidSelectorClarifiesWithoutModelCall() {
     assert.strictEqual(calls.length, 3, 'an out-of-range selector must not call the intent model');
     assert.strictEqual(selectorRoute.needClarification, true);
     assert.match(selectorRoute.clarificationQuestion, /1 到 2/);
+
+    const wordSelectorRoute = await workflow.getEffectiveRoute('选后面那个', [], 'session-1', null, {
+      recent_messages: [], image_candidates: [], file_candidates: [],
+    });
+    assert.strictEqual(calls.length, 3, 'an unnumbered selector must not call the intent model');
+    assert.strictEqual(wordSelectorRoute.needClarification, true);
+    assert.match(wordSelectorRoute.clarificationQuestion, /1 到 2/);
   } finally {
     if (previousRouteService === undefined) delete globalThis.ChatUIRouteService;
     else globalThis.ChatUIRouteService = previousRouteService;
@@ -702,7 +710,7 @@ async function testWorkflowInjectsUnderstandingAndUsesSlimRoutePrompt() {
 
     const understandingSystem = understandingCall.payload.input.find(item => item.role === 'system').content;
     const routeSystem = routeCall.payload.input.find(item => item.role === 'system').content;
-    assert.match(understandingSystem, /【优先级】/, 'the understand prompt owns the priority/anaphora rules');
+    assert.match(understandingSystem, /【证据优先】/, 'the understand prompt owns the priority/anaphora rules');
     assert.doesNotMatch(routeSystem, /【优先级】/, 'the slim route prompt must not repeat the understand rules');
     assert.match(routeSystem, /【已解析证据】/, 'the slim route prompt must explain the injected understanding evidence');
 

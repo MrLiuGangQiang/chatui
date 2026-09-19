@@ -59,7 +59,8 @@ function testIntentRecognitionRetainsQualityCriticalRoutingGuidance() {
   assert.match(prompt, /task_shape描述本轮需要几次独立执行，而不是资源数量/);
   assert.match(prompt, /task_shape：multi=多个独立执行/);
   assert.match(prompt, /图片生成\/编辑任务：multi=多个独立图片结果/);
-  assert.match(prompt, /多图看\/比\/OCR\/汇总→single/);
+  assert.match(prompt, /多图看\/OCR\/汇总→single/);
+  assert.match(prompt, /image_compare恰好两张→single/);
   assert.match(prompt, /quoted正文作事实也followup[\s\S]*压过“继续”语义/,
     'quoted facts must remain followups even when the input also says continue/retry');
   assert.match(prompt, /需非current资源但歧义\/缺失未绑/,

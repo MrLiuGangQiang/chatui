@@ -643,7 +643,10 @@
         // resolvable to the concrete task goal. The plan is delivered through
         // clarification_context so it survives wire compaction and stays the
         // primary evidence while the selector dominates the turn.
-        if (typeof routeSvc.isTaskSelectionInput === 'function' && routeSvc.isTaskSelectionInput(input)) {
+        const taskSelectionAttempt = typeof routeSvc.isTaskSelectionAttempt === 'function'
+          ? routeSvc.isTaskSelectionAttempt(input)
+          : typeof routeSvc.isTaskSelectionInput === 'function' && routeSvc.isTaskSelectionInput(input);
+        if (taskSelectionAttempt) {
           const session = deps.state?.sessions?.find(item => item.id === sessionId);
           if (session?.multiTaskPlan && Array.isArray(session.multiTaskPlan.tasks) && session.multiTaskPlan.tasks.length) {
             context = {
@@ -1086,7 +1089,7 @@
         // unreliable at mapping a number to its task (it can answer task 1 for
         // "2"), so resolve the selected task locally and skip the model call.
         const selectorSession = deps.state?.sessions?.find(item => item.id === sessionId);
-        const selectorPlan = (typeof routeSvc.isTaskSelectionInput === 'function' && routeSvc.isTaskSelectionInput(input))
+        const selectorPlan = taskSelectionAttempt
           ? (selectorSession?.multiTaskPlan
               || context?.multi_task_plan
               || context?.clarification_context?.multi_task_plan)

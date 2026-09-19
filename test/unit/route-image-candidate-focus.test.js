@@ -122,7 +122,7 @@ function testRoutePromptDeclaresTextFocusTopicPriority() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
   assert.ok(source.includes('conversation_focus=text且无图片词汇'),
     'the router prompt must state that a text-focused ambiguous anaphora stays on the text topic');
-  assert.ok(source.includes('不因历史图片候选存在就判成图片任务'),
+  assert.ok(source.includes('不因历史图片候选或排序词判成图片任务'),
     'the prompt must forbid judging an image task merely because historical image candidates exist');
 }
 
@@ -135,13 +135,13 @@ function testRoutePromptStaysWithinBoundedLength() {
 
 function testRoutePromptDeclaresPriorityAnchorsAndInteractionModes() {
   const source = fs.readFileSync(path.join(__dirname, '../../client/services/route-prompts.js'), 'utf8');
-  assert.ok(source.includes('【优先级】严格按current_input与当前附件>current_input明确引用的quoted'),
+  assert.ok(source.includes('【证据优先】current_input（含当前附件）>current_input明确引用的quoted'),
     'the router prompt must not let historical understanding override the current request');
-  assert.ok(source.includes('无图片词汇的模糊续问默认跟随最近文字话题'),
+  assert.ok(source.includes('无图片词汇的模糊续问跟随最近文字话题'),
     'ambiguous text-only follow-ups must resolve to the recent text topic');
   assert.ok(source.includes('【引用与附件】'),
     'the router prompt must distinguish quoted context from current attachments');
-  assert.ok(source.includes('quoted只有在current_input明确指向时才补充') && source.includes('当前附件是本轮最高优先级资源'),
+  assert.ok(source.includes('quoted只有在current_input明确指向时才补充') && source.includes('当前附件是本轮回答依据'),
     'quoted context must be conditional while current attachments remain highest priority');
   assert.ok(source.includes('带附件的组合请求') && source.includes('不得丢动作'),
     'combination requests must preserve every requested action in goal');

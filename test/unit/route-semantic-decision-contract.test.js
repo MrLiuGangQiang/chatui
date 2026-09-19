@@ -57,8 +57,10 @@ function testContinuationRequiresSameTaskAndExplicitlyAllowsAThemeReset() {
 
 function testHistoricalDependencyRemainsFollowupWhenBindingIsAmbiguous() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系[^。\n]*非请求新旧[^。\n]*不由goal_mode或resource_refs推导/,
+  assert.match(prompt, /relation描述本轮主要言语行为与前序执行的关系[^。\n]*不由goal_mode推导/,
     'relation must classify the current speech act independently from task-state evolution');
+  assert.match(prompt, /resource_refs只作为规则3的历史依赖证据/,
+    'resource refs must remain evidence for rule 3 rather than a standalone relation classifier');
   assert.match(prompt, /任一ref的source≠current[^。\n]*绝不new/,
     'relation must dereference each selected candidate key back to its published source');
   assert.match(prompt, /明确依赖quoted\/history\/previous_\*execution/,
@@ -83,8 +85,10 @@ function testComposableSameApiRequirementsRemainOneTaskShape() {
     'only image generation and editing may turn multi into a directly executable image batch');
   assert.match(prompt, /非图片或跨operation的多个必做步骤.*需要拆分.*不会进入图片规划或授权图片批次/,
     'non-image or cross-operation multi requests must be marked for splitting, not image planning');
-  assert.match(prompt, /多图看\/比\/OCR\/汇总→single/,
+  assert.match(prompt, /多图看\/OCR\/汇总→single/,
     'read-only multi-image aggregation must remain one dispatch');
+  assert.match(prompt, /image_compare恰好两张→single/,
+    'image_compare must remain a single dispatch for exactly two images');
   assert.doesNotMatch(prompt, /同轮多步骤即multi/,
     'the old blanket rule incorrectly split one composable request into multiple tasks');
 }

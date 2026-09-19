@@ -141,7 +141,7 @@ function testCompactPromptCarriesTheCoTMappingContract() {
     'route-service must re-export the compact prompt without divergence');
   assert.ok(COMPACT_PROMPT.length <= 7600, `complex-path route prompt must stay bounded, got ${COMPACT_PROMPT.length}`);
   assert.match(COMPACT_PROMPT, /route_intent\.v3/);
-  assert.match(COMPACT_PROMPT, /context\.understanding/);
+  assert.match(COMPACT_PROMPT, /understanding是顶层低优先级候选/);
   assert.match(COMPACT_PROMPT, /image_generate→text_to_image/,
     'the CoT prompt must map understanding action kinds onto operations');
   assert.match(COMPACT_PROMPT, /understanding\.dependency[^。；]*(候选|证据)/,

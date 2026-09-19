@@ -374,7 +374,7 @@ chat Job 实时恢复按会话隔离：每个会话对其当前 Job 使用一条
 意图识别已按“理解 → 路由 → 校验/修复”节点流水线运行，以 `docs/intent-recognition-cot-design.md` 为唯一参考设计。节点级提示词已拆分：
 
 - `UNDERSTAND_SYSTEM_PROMPT` 输出 `intent_understanding.v1`（`schema_version`/`dependency`/`actions` 单一契约，含完整示例，≤2900 字符）；提示词只把理解结果作为低优先级证据，不授予 operation、relation 或资源的最终裁决权；
-- `ROUTE_NODE_SYSTEM_PROMPT` 输出 `route_intent.v3`（含完整示例与 relation/goal_mode/资源角色正反示例，≤7600 字符）；operation 按本轮交付物定义，模式、历史任务和连接词只提供约束/证据，不能替代交付物分类；
+- `ROUTE_NODE_SYSTEM_PROMPT` 输出 `route_intent.v3`（含完整示例与 relation/goal_mode/资源角色正反示例，≤7600 字符）；operation 按本轮动作、交付物和必需证据共同决定，模式、历史、连接词和泛化动词都不能单独决定 operation；提示词只引用实际 payload 路径（顶层 `understanding`、`context.delivery_evidence`、`clarification_context.*`），`image_compare` 只接受恰好两张图片；
 - 复杂路径（理解证据存在）与完整版共享同一份完整规则集：`ROUTE_NODE_SYSTEM_PROMPT_COMPACT` 与 `ROUTE_NODE_SYSTEM_PROMPT` 相同（≤7600 字符，含 operation 边界、资源角色、relation 1-4、交付事实与正反示例；理解节点只补充动作/指代/依赖证据，不裁决 operation 边界、资源角色、relation 语义、goal_mode 与澄清策略，实测精简版会丢失这些规则并导致误路由）；简单路径使用独立精简版 `ROUTE_NODE_SYSTEM_PROMPT_SIMPLE`（≤4500 字符，质量优先，只移除复杂度门证明不可达的 quoted/指代/多资源段落）；理解节点失败或输出空动作时同样回退完整规则集；
 - 简单路径与复杂路径都不再向模型发送旧单次巨无霸提示词；
 - 理解节点结构化输出 schema 与提示词同源：不使用 OpenAI 不支持的数值边界关键字，声明且必填的字段与提示词一致（无消费者的 `ordering`/`verb` 已从契约移除）；

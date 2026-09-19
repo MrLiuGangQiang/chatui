@@ -273,9 +273,9 @@ function testSimpleRoutePromptKeepsQualityRulesBeforeSizeOptimization() {
     'negated resource policies must not rewrite operation/goal_mode');
   assert.match(simple, /拒绝使用历史资源只影响resource_refs/,
     'refusing historical resources must not silently change goal_mode');
-  assert.match(simple, /operation只按本轮交付物决定/,
-    'operation must be determined by the deliverable');
-  assert.match(simple, /auto_mode\/current_mode只筛选可执行operation，不参与分类/,
+  assert.match(simple, /operation由本轮动作、交付物和证据共同决定/,
+    'operation must be determined by the requested action, deliverable, and evidence');
+  assert.match(simple, /模式只筛选可执行operation/,
     'manual mode filtering must not decide operation');
 }function testRouteRelationOrderReferencesTheNumberedRulesExplicitly() {
   const prompt = ROUTE_NODE_PROMPT;
@@ -467,7 +467,7 @@ function testRouteNodePromptsKeepCorrectionAndContinuationBoundariesExplicit() {
     'goal must keep only the executable instruction, not the correction preamble');
   assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /multi时goal必须保留全部独立结果的数量与彼此差异/,
     'multi-image goals must state the independent result count explicitly');
-  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE, /对“刚才那个文件\/这个文档”等历史指代[^。]*必须是 file_qa/,
+  assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE, /历史文件指代总结\/分析\/读取[^。]*必须是file_qa/,
     'historical file references must stay file_qa even when the file is missing');
   assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE, /无动词的短名词短语约束[^。]*继承前序主体\/任务类型/,
     'verb-less short constraints must inherit the prior subject and task type');
@@ -475,6 +475,48 @@ function testRouteNodePromptsKeepCorrectionAndContinuationBoundariesExplicit() {
     'ambiguous resources may only drop the target binding, never the explicitly stated subject');
   assert.match(prompts.ROUTE_NODE_SYSTEM_PROMPT, /不得用“三处要求\/上述约束”等概括回指代替具体约束/,
     'goal must enumerate concrete constraints instead of summary references');
+}
+
+function testRoutePromptsUseActualPayloadPathsAndExactImageCompareCardinality() {
+  const full = prompts.ROUTE_NODE_SYSTEM_PROMPT;
+  const simple = prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE;
+  const understand = prompts.UNDERSTAND_SYSTEM_PROMPT_LINES.join('\n');
+
+  assert.match(full, /understanding是顶层低优先级候选/);
+  assert.doesNotMatch(full, /context\.understanding/);
+  assert.match(full, /clarification_context\.multi_task_plan/);
+  assert.doesNotMatch(full, /(?<!clarification_)context\.multi_task_plan/);
+  assert.match(full, /clarification_context\.established_resources或selected_resources/);
+  assert.match(full, /context\.delivery_evidence\.actual_image_result/);
+
+  for (const [name, prompt] of [['full', full], ['simple', simple], ['understand', understand]]) {
+    assert.match(prompt, /image_compare[^。\n]*并排比较恰好两张图片/,
+      name + ' prompt must describe image_compare as exactly two images');
+    assert.doesNotMatch(prompt, /image_compare=比较两张以上图片/,
+      name + ' prompt must not advertise variadic image_compare');
+  }
+}
+
+function testRoutePromptsSeparateRelationIndependenceFromResourceEvidence() {
+  for (const [name, prompt] of [
+    ['full', prompts.ROUTE_NODE_SYSTEM_PROMPT],
+    ['simple', prompts.ROUTE_NODE_SYSTEM_PROMPT_SIMPLE],
+  ]) {
+    assert.match(prompt, /不由goal_mode推导/, name + ' relation must not depend on goal_mode');
+    assert.match(prompt, /resource_refs只作为规则3的历史依赖证据/,
+      name + ' resource refs must remain evidence for rule 3, not a standalone relation classifier');
+    assert.doesNotMatch(prompt, /不由goal_mode或resource_refs推导/,
+      name + ' prompt must not contradict its own resource-dependency rule');
+  }
+}
+
+function testTaskSelectionPromptUsesTheStrictSixFieldContract() {
+  const prompt = prompts.ROUTE_NODE_SYSTEM_PROMPT;
+  assert.match(prompt, /clarification_context\.multi_task_plan/);
+  assert.match(prompt, /完整输出六字段/);
+  assert.match(prompt, /operation\/goal\/resource_refs取对应任务/);
+  assert.doesNotMatch(prompt, /只输出multi_task_plan中对应编号任务的operation\/goal\/resource_refs/);
+  assert.doesNotMatch(prompt, /保持可澄清结构/);
 }
 
 module.exports = [
@@ -504,4 +546,7 @@ module.exports = [
   testRouteNodePromptsCarryRelationAndGoalModeFewShotExamples,
   testCriticRepairAndPlanPromptsCarryWorkedExamples,
   testRouteNodePromptsTeachDecisionOrderAndSplitOperation,
+  testRoutePromptsUseActualPayloadPathsAndExactImageCompareCardinality,
+  testRoutePromptsSeparateRelationIndependenceFromResourceEvidence,
+  testTaskSelectionPromptUsesTheStrictSixFieldContract,
 ];

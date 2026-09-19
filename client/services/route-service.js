@@ -1729,12 +1729,26 @@
     return tens * 10 + ones;
   }
 
+  function normalizedTaskSelectionText(input = "") {
+    return stringValue(input).replace(/[。！？!?，,、；;\s]+$/g, "");
+  }
+
   function isTaskSelectionInput(input = "") {
-    const text = stringValue(input);
+    const text = normalizedTaskSelectionText(input);
     if (!text) return false;
     if (/^[1-9]\d*$/.test(text)) return true;
-    return /^(?:(?:做|执行|选择|处理)(?:\s*任务)?\s*|任务\s*|选\s*)?(?:\s*第)?[1-9]\d*(?:\s*(?:个|项|号)\s*(?:任务)?)?$/.test(text)
-      || /^(?:(?:做|执行|选择|处理)(?:\s*任务)?\s*|任务\s*|选\s*)?(?:\s*第)?[一二三四五六七八九十]+(?:\s*(?:个|项|号)\s*(?:任务)?)?$/.test(text);
+    const prefix = "^(?:(?:那|那么|我|就|请)\\s*)*(?:(?:要|选|选择|做|执行|处理)(?:\\s*任务)?\\s*|任务\\s*)?";
+    const suffix = "(?:\\s*(?:吧|呢|啊|了))?$";
+    return new RegExp(prefix + "(?:\\s*第)?[1-9]\\d*(?:\\s*(?:个|项|号)\\s*(?:任务)?)?" + suffix).test(text)
+      || new RegExp(prefix + "(?:\\s*第)?[一二三四五六七八九十]+(?:\\s*(?:个|项|号)\\s*(?:任务)?)?" + suffix).test(text);
+  }
+
+  function isTaskSelectionAttempt(input = "") {
+    const text = normalizedTaskSelectionText(input);
+    if (!text) return false;
+    if (isTaskSelectionInput(text)) return true;
+    if (text.length > 32) return false;
+    return /^(?:(?:那|那么|我|就|请)\s*)*(?:(?:要|选|选择|做|执行|处理)(?:\s*任务)?\s*|任务\s*)?(?:第\s*(?:[一二三四五六七八九十]+|\d+)(?:\s*(?:个|项|号))?|最后(?:一)?(?:个|项)|前面(?:那个|一个)|后面(?:那个|一个)|这个|那个|哪(?:个|一项))(?:(?:\s*(?:任务|选项))?(?:\s*(?:吧|呢|啊|了))?)$/.test(text);
   }
   // A task-selection turn ("1", "任务2", "做任务1") chooses one
   // task the multi-task planner already compiled. That plan task is the authority
@@ -2164,6 +2178,7 @@
           relation: stringValue(intent.relation),
         }),
       ],
+      invalidModelRefs: invalidRefs,
     };
   }
 
@@ -2237,6 +2252,7 @@
         imageTaskState: taskState,
         semanticAuthority: ROUTE_INTENT_VERSION,
         forcedClarificationIssues: draft.forcedClarificationIssues,
+        invalidModelRefs: draft.invalidModelRefs || [],
         userGoal: goal,
         resolvedImageGoal,
         executionInput: executionPromptForIntent(effectiveIntent, options, taskState),
@@ -4781,11 +4797,35 @@
     }).filter(issue => !forcedRequirementKeys.has(`${issue.type}|${issue.role}`));
     const missingSourceText = op === 'plain_chat'
       && missingTextSourceForInput(input, options.context || {}, resolved.catalog);
+    // A model-authored binding outside the operation contract is never
+    // silently discardable. It creates a blocking resource issue even when the
+    // operation's required roles are already satisfied (for example a third
+    // image attached to image_compare).
+    const invalidModelRefIssues = (Array.isArray(options.invalidModelRefs) ? options.invalidModelRefs : [])
+      .filter(ref => {
+        const requirement = operationRequirements.find(item => (
+          item.type === ref.type || item.roles.includes(ref.role)
+        ));
+        return !requirement || !forcedIssues.some(issue => issue.type === requirement.type);
+      })
+      .map(ref => {
+        const candidates = resolved.catalog.filter(candidate => (
+          candidate.type === ref.type && candidate.availability !== 'unavailable'
+        ));
+        const requirement = operationRequirements.find(item => item.type === ref.type);
+        return unresolvedResourceIssue({
+          type: ref.type,
+          role: requirement?.roles?.[0] || ref.role || 'source',
+          reason: candidates.length ? 'ambiguous' : 'missing',
+          candidates,
+        });
+      });
     const issues = [
       ...selectorResult.issues,
       ...resolved.issues,
       ...forcedIssues,
       ...requirementIssues,
+      ...invalidModelRefIssues,
     ];
     if (missingSourceText) {
       issues.push(unresolvedResourceIssue({ type: 'text', role: 'source', reason: 'missing_source_text' }));
@@ -5242,6 +5282,7 @@
     isRouteDispatchable,
     createExplicitTextToImageRoute,
     isTaskSelectionInput,
+    isTaskSelectionAttempt,
     selectedMultiTaskIndex,
     compileSelectedPlanTask,
     cleanQuotedContent,

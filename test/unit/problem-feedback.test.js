@@ -268,7 +268,7 @@ function testProblemFeedbackRuntimeHooksAndAppIntegrationArePresent() {
 
   assert.ok(index.includes('client/core/problem-feedback.js?v=1.1.1-expected-result-manual'));
   assert.ok(index.includes('problem-feedback-workflow.js?v=1.2.1-clean-format'));
-  assert.ok(index.includes('usage-stats.js?v=1.3.4-non-modal-panels'));
+  assert.ok(index.includes('usage-stats.js?v=1.3.5-outside-dismiss'));
   assert.ok(coreIndex > -1 && workflowIndex > coreIndex && workflowIndex < serviceIndex, 'fetch monitoring must install before application services issue requests');
   assert.ok(uiIndex > workflowIndex && appIndex > uiIndex, 'feedback UI and session provider must load after the incident workflow');
   assert.ok(app.includes('reportProblem(t,{source:"run",sessionId:e})'), 'final run errors must reach the incident reporter');

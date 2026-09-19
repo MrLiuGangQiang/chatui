@@ -806,6 +806,7 @@ ${incoming}`
   }
 
   function openPanel() {
+    closeFeedbackPanel();
     $('usageStatsPanel')?.classList.add('show');
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'false');
     updateModeUi();
@@ -817,17 +818,38 @@ ${incoming}`
     $('usageStatsPanel')?.setAttribute('aria-hidden', 'true');
   }
 
+  function outsideUsageCard(event, panelId, cardSelector) {
+    const panel = $(panelId);
+    if (!panel?.classList.contains('show')) return false;
+    const card = panel.querySelector(cardSelector);
+    const target = event?.target;
+    return !!card && !!target && !card.contains(target);
+  }
+
+  function handleDocumentPointerDown(event) {
+    const target = event?.target;
+    if (target?.closest?.('#usageStatsButton') || target?.closest?.('#usageFeedbackOpen')) return;
+    if (outsideUsageCard(event, 'usageStatsPanel', '.usage-stats-card')) closePanel();
+    if (outsideUsageCard(event, 'usageFeedbackPanel', '.usage-feedback-card')) closeFeedbackPanel();
+  }
+
   let feedbackUiReady = false;
 
   function bind() {
     ensureDom();
     updateModeUi();
-    $('usageStatsButton')?.addEventListener('click', openPanel);
+    $('usageStatsButton')?.addEventListener('click', () => {
+      if ($('usageStatsPanel')?.classList.contains('show')) closePanel();
+      else openPanel();
+    });
     $('usageStatsClose')?.addEventListener('click', closePanel);
     $('usageStatsRefresh')?.addEventListener('click', refreshUsageStats);
     $('usageStatsModeToggle')?.addEventListener('click', switchMode);
     $('usageStatsExport')?.addEventListener('click', exportDepartmentUsage);
-    $('usageFeedbackOpen')?.addEventListener('click', () => openFeedbackPanel({ incident: problemFeedback?.consumeLatestIncident?.() || null }));
+    $('usageFeedbackOpen')?.addEventListener('click', () => {
+      if ($('usageFeedbackPanel')?.classList.contains('show')) closeFeedbackPanel();
+      else openFeedbackPanel({ incident: problemFeedback?.consumeLatestIncident?.() || null });
+    });
     $('usageFeedbackClose')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackCancel')?.addEventListener('click', closeFeedbackPanel);
     $('usageFeedbackSubmit')?.addEventListener('click', submitFeedback);
@@ -838,6 +860,7 @@ ${incoming}`
       saveFeedbackFormDraft();
       updateFeedbackCount();
     }));
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
     $('usageStatsPanel')?.addEventListener('click', handleDelegatedPanelClick);
     $('usageStatsPanel')?.addEventListener('keydown', handleDelegatedPanelKeydown);
     feedbackUiReady = true;

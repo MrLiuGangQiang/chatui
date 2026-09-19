@@ -202,7 +202,7 @@ function testUsageStatsScriptsLoadInExpectedOrder() {
   const uiIndex = index.indexOf('client/ui/usage-stats.js');
   assert.ok(serviceIndex > -1 && rangesIndex > -1 && rangesIndex < viewIndex && formatIndex > serviceIndex && authIndex > formatIndex && viewIndex > authIndex && uiIndex > viewIndex, 'usage stats scripts should load shared ranges before view helpers, then UI');
   assert.ok(index.includes('client/services/usage-stats.js?v=1.2.79-feedback-reason'), 'feedback rejection reasons should ship with a fresh service cache version');
-  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.4-non-modal-panels'), 'feedback form should ship with a fresh UI cache version');
+  assert.ok(index.includes('client/ui/usage-stats.js?v=1.3.5-outside-dismiss'), 'feedback form should ship with a fresh UI cache version');
   assert.ok(ui.includes('问题描述') && ui.includes('复现描述') && ui.includes('期望结果') && ui.includes('正在调用模型审核反馈内容'), 'feedback UI should present the three required sections and the model-review stage');
   assert.ok(ui.includes('【模型信息（自动填写）】') && ui.includes('意图模型：') && ui.includes('聊天模型：'), 'feedback UI should include the automatic model context');
   assert.ok(ui.includes('id="usageStatsIconGradient"') && ui.includes('class="usage-stats-pulse"'), 'the usage launcher must use the neon dashboard icon');
@@ -379,6 +379,69 @@ function testConfigPublicConfigReaderExposesConfiguredIntentDeadline() {
   assert.strictEqual(readPublicConfig().context.intentPipelineDeadlineMs, 180000);
 }
 
+async function testUsagePanelsDismissOnOutsidePointerDown() {
+  const fs = require('fs');
+  const path = require('path');
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(`<!doctype html><html><body>
+    <div id="topbarUtilityActions"></div>
+    <button id="outsideTarget" type="button">outside</button>
+    <input id="apiKey" />
+    <input id="chatModel" />
+    <input id="routeModel" />
+  </body></html>`, { url: 'https://chatui.test' });
+  const previousWindow = global.window;
+  const previousDocument = global.document;
+  const modulePath = require.resolve('../../client/ui/usage-stats');
+  delete require.cache[modulePath];
+  try {
+    global.window = dom.window;
+    global.document = dom.window.document;
+    dom.window.ChatUIUsageStatsFormat = require('../../client/ui/usage-stats-format');
+    dom.window.ChatUIUsageStatsAuth = require('../../client/ui/usage-stats-auth');
+    dom.window.ChatUIUsageStatsViewHelpers = require('../../client/features/usage-stats/view-helpers');
+    require(modulePath);
+    if (!document.getElementById('usageStatsButton')) {
+      document.dispatchEvent(new dom.window.Event('DOMContentLoaded', { bubbles: true }));
+    }
+
+    const statsButton = document.getElementById('usageStatsButton');
+    const statsPanel = document.getElementById('usageStatsPanel');
+    const feedbackButton = document.getElementById('usageFeedbackOpen');
+    const feedbackPanel = document.getElementById('usageFeedbackPanel');
+    const outside = document.getElementById('outsideTarget');
+    const click = node => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    const pointerDown = node => node.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+
+    click(statsButton);
+    assert.strictEqual(statsPanel.classList.contains('show'), true, 'usage launcher must open the panel');
+    pointerDown(outside);
+    assert.strictEqual(statsPanel.classList.contains('show'), false, 'pointerdown outside the stats card must dismiss it');
+
+    click(statsButton);
+    pointerDown(statsPanel.querySelector('.usage-stats-card'));
+    assert.strictEqual(statsPanel.classList.contains('show'), true, 'pointerdown inside the stats card must not dismiss it');
+
+    click(statsButton);
+    assert.strictEqual(statsPanel.classList.contains('show'), false, 'the same launcher must toggle the stats panel closed');
+
+    click(feedbackButton);
+    assert.strictEqual(feedbackPanel.classList.contains('show'), true, 'feedback launcher must open the panel');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    pointerDown(feedbackPanel.querySelector('.usage-feedback-card'));
+    assert.strictEqual(feedbackPanel.classList.contains('show'), true, 'pointerdown inside the feedback card must not dismiss it');
+    pointerDown(outside);
+    assert.strictEqual(feedbackPanel.classList.contains('show'), false, 'pointerdown outside the feedback card must dismiss it');
+  } finally {
+    dom.window.close();
+    delete require.cache[modulePath];
+    if (previousWindow === undefined) delete global.window;
+    else global.window = previousWindow;
+    if (previousDocument === undefined) delete global.document;
+    else global.document = previousDocument;
+  }
+}
+
 module.exports = [
   testDepartmentExportWorkbookShape,
   testUsageRangesAreCentralized,
@@ -386,6 +449,7 @@ module.exports = [
   testFeedbackContentKeepsAuthoritativeModelsWithinLengthLimit,
   testUsageStatsViewHelpersPreserveMarkupAndLabels,
   testUsageStatsModuleLoadsWithCommonJsFacade,
+  testUsagePanelsDismissOnOutsidePointerDown,
   testDingTalkFeedbackSenderContracts,
   testFeedbackSubmissionPreservesReviewRejectionReason,
   testUsageStatsScriptsLoadInExpectedOrder,

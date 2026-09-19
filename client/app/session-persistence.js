@@ -190,36 +190,83 @@
 
   function ensureAssistantReplacementSlot(messages = [], turn = null, placeholder = {}) {
     if (!Array.isArray(messages) || !turn || !Number.isInteger(turn.userIndex) || turn.userIndex < 0) return null;
-    const user = messages[turn.userIndex];
+    const userIndex = turn.userIndex;
+    if (userIndex >= messages.length) return null;
+    const user = messages[userIndex];
     const replyIdentity = {
       ...(user?.turnId ? { turnId: user.turnId } : {}),
       ...(user?.id ? { replyToMessageId: user.id } : {}),
     };
-    if (turn.hasAssistant && messages[turn.assistantIndex]?.role === 'assistant') {
-      if (placeholder?.replacing) {
-        const existing = messages[turn.assistantIndex];
-        messages[turn.assistantIndex] = {
-          role: 'assistant',
-          content: '',
-          rawText: '',
-          html: '',
-          responseIndex: String(turn.assistantIndex),
-          replacing: true,
-          ...(existing?.id ? { id: existing.id } : {}),
-          ...(existing?.turnId ? { turnId: existing.turnId } : replyIdentity),
-          ...(existing?.replyToMessageId ? { replyToMessageId: existing.replyToMessageId } : replyIdentity),
-          ...(existing?.displayItemId ? { displayItemId: existing.displayItemId } : {}),
-          ...placeholder,
-        };
-      }
-      reindexCanonicalMessagePositions(messages);
-      return { ...turn, assistantIndex: turn.assistantIndex, hasAssistant: true };
+    const nextUserIndex = messages.findIndex((message, index) => index > userIndex && message?.role === 'user');
+    const turnEnd = nextUserIndex >= 0 ? nextUserIndex : messages.length;
+    const inTurn = (message, index) => index > userIndex && index < turnEnd;
+    const existingIndex = messages.findIndex((message, index) => (
+      inTurn(message, index) && message?.role === 'assistant'
+    ));
+    const fallbackIndex = existingIndex >= 0
+      ? existingIndex
+      : messages.findIndex((message, index) => inTurn(message, index) && message?.role === 'error');
+    const existing = fallbackIndex >= 0 ? messages[fallbackIndex] : null;
+    let reply = existing;
+    if (!existing || placeholder?.replacing) {
+      reply = {
+        role: 'assistant',
+        content: '',
+        rawText: '',
+        html: '',
+        responseIndex: String(userIndex + 1),
+        ...(existing?.id ? { id: existing.id } : {}),
+        ...(existing?.turnId ? { turnId: existing.turnId } : replyIdentity),
+        ...(existing?.replyToMessageId ? { replyToMessageId: existing.replyToMessageId } : replyIdentity),
+        ...(existing?.displayItemId ? { displayItemId: existing.displayItemId } : {}),
+        ...(!existing ? replyIdentity : {}),
+        ...(placeholder || {}),
+        replacing: true,
+      };
     }
-    const assistantIndex = Math.min(messages.length, Math.max(turn.userIndex + 1, Number(turn.assistantIndex) || 0));
-    messages.splice(assistantIndex, 0, { role: 'assistant', content: '', rawText: '', replacing: true, ...replyIdentity, ...placeholder });
+    const retainedInsideTurn = messages
+      .slice(userIndex + 1, turnEnd)
+      .filter(message => message !== existing && message?.role !== 'assistant' && message?.role !== 'error');
+    const next = [
+      ...messages.slice(0, userIndex + 1),
+      reply,
+      ...retainedInsideTurn,
+      ...messages.slice(turnEnd),
+    ];
+    messages.splice(0, messages.length, ...next);
     reindexCanonicalMessagePositions(messages);
-    return { ...turn, assistantIndex, hasAssistant: true, inserted: true };
+    return {
+      ...turn,
+      assistantIndex: userIndex + 1,
+      hasAssistant: true,
+      inserted: !existing,
+      removedReplies: Math.max(0, turnEnd - userIndex - 1 - retainedInsideTurn.length),
+    };
   }
+
+  function removeAssistantDisplayItemsForTurn(display = [], options = {}) {
+    const list = Array.isArray(display) ? display : [];
+    const userIndex = Number(options.userIndex);
+    if (!Number.isInteger(userIndex) || userIndex < 0) return list.slice();
+    const nextUserIndex = Number(options.nextUserIndex);
+    const turnEnd = Number.isInteger(nextUserIndex) && nextUserIndex > userIndex ? nextUserIndex : Infinity;
+    const userMessageId = stableIdentityValue(options.userMessageId);
+    const userTurnId = stableIdentityValue(options.userTurnId);
+    const keepItemId = String(options.keepItemId || '');
+    return list.filter(item => {
+      if (!item || (item.role !== 'assistant' && item.role !== 'error')) return true;
+      if (keepItemId && String(item.id || '') === keepItemId) return true;
+      const replyToMessageId = stableIdentityValue(item.replyToMessageId || item.reply_to_message_id);
+      const turnId = stableIdentityValue(item.turnId || item.turn_id);
+      if (userMessageId && replyToMessageId) return replyToMessageId !== userMessageId;
+      if (userTurnId && turnId) return turnId !== userTurnId;
+      const responseIndex = parseMessageOrderIndex(item.responseIndex);
+      return !Number.isFinite(responseIndex)
+        || responseIndex <= userIndex
+        || responseIndex >= turnEnd;
+    });
+  }
+
   function sortCanonicalMessages(messages = []) {
     return normalizeMessageOrderFields(messages).map((msg, fallback) => ({ msg, fallback })).sort((a, b) => {
       const byIndex = messageSortIndex(a.msg, a.fallback) - messageSortIndex(b.msg, b.fallback);
@@ -546,7 +593,7 @@
     return null;
   }
 
-  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, stableIdentityValue, createMessageTurnIdentity, ensureCanonicalMessageIdentity, resolveUserMessageTurn, reindexCanonicalMessagePositions, hasCanonicalMessagePositions, repairCanonicalMessageSequence, truncateConversationForRegeneration, ensureAssistantReplacementSlot, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
+  const api = Object.freeze({ parseMessageOrderIndex, normalizeMessageOrderFields, messageSortIndex, roleSortWeight, stableIdentityValue, createMessageTurnIdentity, ensureCanonicalMessageIdentity, resolveUserMessageTurn, reindexCanonicalMessagePositions, hasCanonicalMessagePositions, repairCanonicalMessageSequence, truncateConversationForRegeneration, ensureAssistantReplacementSlot, removeAssistantDisplayItemsForTurn, sortCanonicalMessages, cloneMessageList, mergeMessageMeta, compactAdjacentDuplicateMessages, compactDisplayItems, stripGeneratedImageActionMarkup, stripTransientBlobUrlsFromHtml, sanitizeAttachmentContextForStorage, sanitizeStoredDisplayItem, sanitizeStoredMessage, safeSetJsonStorage, stripLargePayloadData, compactJobForStorage, safeSetJobStorage });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSessionPersistence = api;
   if (root?.window) root.window.ChatUIAppSessionPersistence = api;

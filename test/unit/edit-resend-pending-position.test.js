@@ -6,6 +6,7 @@ const path = require('path');
 const vm = require('vm');
 const { JSDOM } = require('jsdom');
 const submitWorkflowPolicy = require('../../client/app/submit-workflow-policy');
+const submitWorkflow = require('../../client/app/submit-workflow');
 
 function extractFunction(source, name) {
   let start = source.indexOf('function ' + name);
@@ -233,6 +234,35 @@ function testEditResendPendingNodeStaysAtReplacementPosition() {
   dom.window.close();
 }
 
+function testEditResendRemovesEveryTurnResponseNodeBeforeReplacing() {
+  const dom = new JSDOM(`<!doctype html><div id="messages">
+    <article class="message user" data-message-index="0">原始问题</article>
+    <article class="message error" data-response-index="1">本次未执行：模型结构无效</article>
+    <article class="message assistant" data-response-index="2">旧的五张图片结果</article>
+    <article class="message user" data-message-index="3">后续问题</article>
+    <article class="message assistant" data-response-index="4">后续回答</article>
+  </div>`);
+  const { document } = dom.window;
+  const messages = document.getElementById('messages');
+  const user = messages.querySelector('.message.user[data-message-index="0"]');
+  const removed = submitWorkflow.removeEditableTurnResponseNodes(user);
+
+  assert.strictEqual(removed, 2, 'both the error and the old image result must be removed');
+  assert.deepStrictEqual([...messages.querySelectorAll('.message')].map(node => node.className), [
+    'message user', 'message user', 'message assistant',
+  ]);
+  assert.strictEqual(messages.querySelector('.message.user[data-message-index="3"]').textContent, '后续问题');
+  assert.strictEqual(messages.querySelector('.message.assistant[data-response-index="4"]').textContent, '后续回答');
+  dom.window.close();
+}
+
+function testEditResendBranchWiresTurnScopedCleanup() {
+  const source = fs.readFileSync(path.join(__dirname, '../../client/app/submit-workflow.js'), 'utf8');
+  assert.ok(source.includes('removeAssistantDisplayItemsForTurn(sessionRecord.display||[]'), 'display cleanup must be wired into edit/resend');
+  assert.ok(source.includes('removeEditableTurnResponseNodes(replacement.node)'), 'DOM cleanup must be wired into edit/resend');
+  assert.ok(source.includes('replacement.responseNode=null'), 'the stale response node must not be reused after cleanup');
+}
+
 module.exports = [
   testEditResendKeepsPendingResponseIndexFromReplacement,
   testRoutePreparationKeepsEditedResponseAtItsCanonicalSlot,
@@ -240,5 +270,7 @@ module.exports = [
   testPreparingReplacementClearsPreviousTransientAssistantState,
   testEditedMessageDoesNotReuseDistantStaleAssistantNode,
   testEditResendPendingNodeStaysAtReplacementPosition,
+  testEditResendRemovesEveryTurnResponseNodeBeforeReplacing,
+  testEditResendBranchWiresTurnScopedCleanup,
 ];
 

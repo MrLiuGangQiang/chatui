@@ -182,10 +182,51 @@ async function testSessionWritesKeepWorkingStateIsolatedFromCanonicalSessionArra
   assert.notStrictEqual(state.messages, sessionB.messages);
 }
 
+function testReplacementCollapsesEveryTurnResponseAndKeepsLaterTurns() {
+  const messages = [
+    { role: 'user', content: '原始问题', rawText: '原始问题', messageIndex: '0', id: 'user-1', turnId: 'turn-1' },
+    { role: 'error', content: '本次未执行：多图任务规划模型返回了无效结构，请重试。', responseIndex: '1' },
+    { role: 'assistant', content: '旧的 5 张图片结果', responseIndex: '2', id: 'assistant-1', replyToMessageId: 'user-1', turnId: 'turn-1' },
+    { role: 'user', content: '后续问题', rawText: '后续问题', messageIndex: '3', id: 'user-2', turnId: 'turn-2' },
+    { role: 'assistant', content: '后续回答', responseIndex: '4', id: 'assistant-2', replyToMessageId: 'user-2', turnId: 'turn-2' },
+  ];
+  const turn = sessionPersistence.resolveUserMessageTurn(messages, '0', { rawText: '原始问题' });
+  const replacement = sessionPersistence.ensureAssistantReplacementSlot(messages, turn, { replacing: true, responseIndex: '1' });
+
+  assert.deepStrictEqual(messages.map(message => message.role), ['user', 'assistant', 'user', 'assistant']);
+  assert.strictEqual(messages[1].content, '');
+  assert.strictEqual(messages[1].id, 'assistant-1', 'the durable reply identity must survive cleanup');
+  assert.strictEqual(messages[2].content, '后续问题');
+  assert.strictEqual(messages[3].content, '后续回答');
+  assert.strictEqual(replacement.removedReplies, 2, 'the old error and old image result must both be removed');
+}
+
+function testDisplayCleanupRemovesEveryResponseArtifactForTheEditedTurn() {
+  const display = [
+    { id: 'display-user-1', role: 'user', messageIndex: '0', messageId: 'user-1', turnId: 'turn-1' },
+    { id: 'display-error', role: 'error', responseIndex: '1', replyToMessageId: 'user-1', turnId: 'turn-1' },
+    { id: 'display-old-images', role: 'assistant', responseIndex: '2', replyToMessageId: 'user-1', turnId: 'turn-1' },
+    { id: 'display-user-2', role: 'user', messageIndex: '2', messageId: 'user-2', turnId: 'turn-2' },
+    { id: 'display-later-answer', role: 'assistant', responseIndex: '3', replyToMessageId: 'user-2', turnId: 'turn-2' },
+  ];
+  const cleaned = sessionPersistence.removeAssistantDisplayItemsForTurn(display, {
+    userIndex: 0,
+    nextUserIndex: 2,
+    userMessageId: 'user-1',
+    userTurnId: 'turn-1',
+  });
+
+  assert.deepStrictEqual(cleaned.map(item => item.id), [
+    'display-user-1', 'display-user-2', 'display-later-answer',
+  ], 'only the edited turn response artifacts may be removed');
+}
+
 module.exports = [
   testSessionWritesKeepWorkingStateIsolatedFromCanonicalSessionArrays,
   testLateMessageWriterCannotEraseAnEarlierCompletedAnswer,
   testSameTurnCompletionStillSupersedesItsEarlierPlaceholder,
   testStaleReplyIndexesRepairThreeTurnsBeforeTheNextEdit,
   testNewTurnIdentityIsStableAndUsesOnlySafeParts,
+  testReplacementCollapsesEveryTurnResponseAndKeepsLaterTurns,
+  testDisplayCleanupRemovesEveryResponseArtifactForTheEditedTurn,
 ];

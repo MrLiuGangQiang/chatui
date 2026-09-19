@@ -8,6 +8,8 @@
   }
 
 
+  const sessionPersistence = root?.ChatUIAppSessionPersistence
+    || (typeof require === 'function' ? require('./session-persistence') : {});
   const submitWorkflowPolicy = root?.[Symbol.for('chatui.module-registry.v1')]?.get('submitWorkflowPolicy')
     || (typeof require === 'function' ? require('./submit-workflow-policy') : {});
   const {
@@ -31,6 +33,22 @@
     return !!pending?.routeInfo?.multiTaskPlan
       && typeof routeService?.isTaskSelectionInput === 'function'
       && routeService.isTaskSelectionInput(String(input || '').trim());
+  }
+
+  function removeEditableTurnResponseNodes(userNode = null) {
+    const parent = userNode?.parentNode;
+    if (!parent) return 0;
+    let removed = 0;
+    let node = userNode.nextElementSibling;
+    while (node && !node.classList?.contains('user')) {
+      const next = node.nextElementSibling;
+      if (node.classList?.contains('assistant') || node.classList?.contains('error')) {
+        node.remove?.();
+        removed += 1;
+      }
+      node = next;
+    }
+    return removed;
   }
 
   function createSubmitWorkflow(deps = {}) {
@@ -296,7 +314,7 @@
               }
               assistantNode&&(assistantNode.__displayItem=liveItem,liveItem?.id&&(assistantNode.dataset.displayItemId=liveItem.id),assistantNode.dataset.responseIndex=String(responseIndex),updateMessage(assistantNode,pendingFeedbackHtml(routingStatus),{html:!0,rawText:routingStatus,responseIndex,skipSave:!0,noScroll:!0}));
             }
-            else if(replacement){const prepared=prepareReplacementResponse(replacement,sessionId,routingStatus);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem();if(typeof replaceSessionMessages==="function")await replaceSessionMessages(sessionId,state.messages,{lastGeneratedImage:null});else await persistTargetMessages()}
+            else if(replacement){const sessionRecord=isTargetActive()?getActiveSession():targetSession,replacementUser=(isTargetActive()?state.messages:sessionRecord?.messages||[])[replacement.index]||null,nextUserIndex=(isTargetActive()?state.messages:sessionRecord?.messages||[]).findIndex((message,index)=>index>replacement.index&&message?.role==="user");if(sessionRecord&&typeof sessionPersistence.removeAssistantDisplayItemsForTurn==="function"){sessionRecord.display=sessionPersistence.removeAssistantDisplayItemsForTurn(sessionRecord.display||[],{userIndex:replacement.index,nextUserIndex,userMessageId:replacementUser?.id||"",userTurnId:replacementUser?.turnId||""});persistSessionDisplay(sessionId)}removeEditableTurnResponseNodes(replacement.node);replacement.responseNode=null;const prepared=prepareReplacementResponse(replacement,sessionId,routingStatus);assistantNode=prepared.node;liveItem=prepared.liveItem;prepareManagedChatJobForLiveItem();if(typeof replaceSessionMessages==="function")await replaceSessionMessages(sessionId,state.messages,{lastGeneratedImage:null});else await persistTargetMessages()}
             else {
               const displayItems=sessionForReply?.display||[],pendingDisplayId=jobLifecycle.pendingSubmitDisplayId?.({submissionId})||"";
               liveItem=(pendingDisplayId&&displayItems.find(item=>item.id===pendingDisplayId&&item.pending))||null;
@@ -627,6 +645,7 @@
       buildPendingAssistancePresentation,
       INTENT_PIPELINE_DEADLINE_MS,
       isPendingTaskSelectorInput,
+      removeEditableTurnResponseNodes,
     });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.ChatUIAppSubmitWorkflow = api;

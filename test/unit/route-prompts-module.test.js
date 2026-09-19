@@ -158,7 +158,7 @@ function testPromptsTeachVerbClassesInsteadOfEnumeratingWordLists() {
   for (const [name, prompt] of [['simple', simple], ['full', full], ['understand', understand]]) {
     assert.ok(!prompt.includes('没看到图片/结果在哪里'),
       name + ' prompt must not enumerate delivery-question word lists');
-    assert.match(prompt, /对上一张图交付状态的追问/,
+    assert.match(prompt, /对上一张图的交付追问/,
       name + ' prompt must describe the delivery-followup question semantically');
   }
 }

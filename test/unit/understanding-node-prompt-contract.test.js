@@ -34,7 +34,7 @@ function testUnderstandingPromptDropsUnconsumedFieldsAndOwnsDeliveryRecovery() {
   assert.match(UNDERSTAND_PROMPT, /dependency：本轮与前序执行的关系/);
   assert.match(UNDERSTAND_PROMPT, /delivery_evidence/,
     'the understand node must see delivery facts for missing-image recovery');
-  assert.match(UNDERSTAND_PROMPT, /对上一张图交付状态的追问/);
+  assert.match(UNDERSTAND_PROMPT, /对上一张图的交付追问/);
   assert.match(UNDERSTAND_PROMPT, /dependency=followup/);
 }
 

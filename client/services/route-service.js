@@ -2825,6 +2825,19 @@
         && !refs.some(ref => resourceTypeForCandidateKey?.(stringValue(ref.candidate_key)) === 'file')) {
       issues.push({ code: 'route_operation_requires_file', field: 'operation', message: `${operation} 必须绑定 f=attachment 文件；当前 resource_refs 没有文件。若本轮只引用消息/历史文字，请改用 plain_chat 并绑定 mN=context。` });
     }
+    if (['image_qa', 'file_qa'].includes(operation)) {
+      const catalog = modelRouteCandidateCatalog(options);
+      const allowedOperations = deterministicOperationKeysForInput(input, options.context || {}, catalog);
+      if (Array.isArray(allowedOperations)
+          && allowedOperations.length === 1
+          && allowedOperations[0] === 'multimodal_qa') {
+        issues.push({
+          code: 'route_operation_mismatch',
+          field: 'operation',
+          message: 'current_input 明确同时依赖当前图片和当前文件回答同一问题，operation 必须为 multimodal_qa，并同时绑定 source 与 attachment；不得只选择 image_qa/file_qa 而忽略另一类必需证据。',
+        });
+      }
+    }
     return issues;
   }
 

@@ -34,7 +34,7 @@ function testRoutePromptSeparatesHistoricalFollowupFromContinuationAmendment() {
 
 function testRoutePromptPreservesVisualTaskContextAfterUndeliveredDesign() {
   const prompt = routeService.ROUTE_SYSTEM_PROMPT;
-  assert.ok(prompt.includes('没有交付时'));
+  assert.ok(prompt.includes('未交付时'));
   assert.ok(prompt.includes('保留前序主体/任务类型'));
   assert.ok(prompt.includes('保留前序主体/任务类型和本轮约束'));
 }

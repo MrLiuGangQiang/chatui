@@ -17,12 +17,16 @@
   }
 
   function createPresenceController(options = {}) {
-    const documentRef = options.document || root?.document;
-    const service = options.service || resolvePresenceService(options.root || root);
-    const storage = options.storage !== undefined ? options.storage : root?.sessionStorage;
+    const rootRef = options.root || root;
+    const documentRef = options.document || rootRef?.document;
+    const service = options.service || resolvePresenceService(rootRef);
+    const storage = options.storage !== undefined ? options.storage : rootRef?.sessionStorage;
     const clientId = options.clientId || (typeof service?.loadClientId === 'function' ? service.loadClientId(storage) : '');
     let active = false;
-    let stop = null;
+    let session = 0;
+    let stopStream = null;
+    let abortController = null;
+    let detachPagehide = null;
 
     function indicators() {
       return documentRef?.querySelectorAll?.('[data-presence-indicator]') || [];
@@ -40,33 +44,92 @@
       }
     }
 
-    function start() {
-      if (active) return stop;
-      if (!service || indicators().length === 0) return null;
-      active = true;
-      if (typeof service.fetchSnapshot === 'function') {
-        service.fetchSnapshot().then(count => {
-          if (Number.isFinite(count)) renderCount(count);
-        }).catch(() => {});
-      }
-      if (typeof service.connectPresence === 'function') {
-        const controller = new AbortController();
-        if (typeof root?.addEventListener === 'function') {
-          root.addEventListener('pagehide', () => controller.abort(), { once: true });
-        }
-        stop = service.connectPresence({ clientId, onCount: renderCount, signal: controller.signal });
-      }
-      return stop;
+    // Releases the current session: the pending pagehide hook, the stream and
+    // its abort signal. Safe to call when no session is open.
+    function releaseSession() {
+      detachPagehide?.();
+      detachPagehide = null;
+      const controller = abortController;
+      const stream = stopStream;
+      abortController = null;
+      stopStream = null;
+      try { controller?.abort(); } catch {}
+      try { stream?.(); } catch {}
     }
 
-    return { start, stop: () => { if (stop) stop(); active = false; } };
+    // Each start() opens a new session owning one snapshot request and one SSE
+    // stream. Stopping bumps the session id, so a late response from a
+    // replaced session can never repaint the badge.
+    function start() {
+      if (active) return stopStream;
+      if (!service || indicators().length === 0) return null;
+      active = true;
+      session += 1;
+      const currentSession = session;
+      const isCurrentSession = () => active && currentSession === session;
+      // The live stream is authoritative: the snapshot is requested before the
+      // stream connects, so a snapshot that resolves after an SSE count must
+      // not overwrite the newer number and freeze the badge on a stale value.
+      let liveCountApplied = false;
+
+      if (typeof service.fetchSnapshot === 'function') {
+        try {
+          Promise.resolve(service.fetchSnapshot()).then(count => {
+            if (!isCurrentSession() || liveCountApplied) return;
+            if (Number.isFinite(count)) renderCount(count);
+          }).catch(() => {});
+        } catch {}
+      }
+
+      if (typeof service.connectPresence === 'function') {
+        abortController = new AbortController();
+        const controller = abortController;
+        const abortOnPagehide = () => controller.abort();
+        if (typeof rootRef?.addEventListener === 'function') {
+          rootRef.addEventListener('pagehide', abortOnPagehide, { once: true });
+          detachPagehide = () => rootRef.removeEventListener?.('pagehide', abortOnPagehide);
+        }
+        stopStream = service.connectPresence({
+          clientId,
+          onCount: count => {
+            if (!isCurrentSession()) return;
+            liveCountApplied = true;
+            renderCount(count);
+          },
+          signal: controller.signal,
+        });
+      }
+      return stopStream;
+    }
+
+    function stop() {
+      active = false;
+      session += 1;
+      releaseSession();
+    }
+
+    return { start, stop };
+  }
+
+  // A bfcache restore fires pageshow without re-running the page scripts, so a
+  // stream torn down by pagehide must be re-established: otherwise the
+  // restored tab silently drops out of the online count and keeps showing the
+  // number it saw before it left. online covers the same restart once the
+  // browser regains connectivity.
+  function bindPresenceLifecycle(controller, options = {}) {
+    const rootRef = options.root || root;
+    controller.start();
+    rootRef?.addEventListener?.('pagehide', () => controller.stop());
+    rootRef?.addEventListener?.('pageshow', () => controller.start());
+    rootRef?.addEventListener?.('online', () => controller.start());
+    return controller;
   }
 
   function bind() {
-    createPresenceController().start();
+    bindPresenceLifecycle(createPresenceController());
   }
 
-  const api = Object.freeze({ resolvePresenceService, createPresenceController, bind });
+  const api = Object.freeze({ resolvePresenceService, createPresenceController, bindPresenceLifecycle, bind });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof document !== 'undefined') {

@@ -238,6 +238,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 - 在线定义：count = 去重后的在线浏览器/设备数。每个标签页持有独立 `clientId`（sessionStorage，每标签页一份：刷新复用、新标签页另开槽位），仅用于 SSE 连接生命周期与重连去重；服务端以 `request-principal` 签发的 principal cookie 派生 owner key，同一浏览器（同一 principal）打开多个标签页只计 1。未携带 principal 的连接回退按 clientId 计数。
 - `server/services/presence.service.js` 是单实例唯一事实源：内存 `Map<clientId, {res, lastSeen, principalKey}>` 会话表，提供 join/leave/touch/sweep/closeAll，`count()` 按 principalKey 去重。配置 `REDIS_URL` 后 `server/services/presence.redis.js` 以 Redis 有序集合（member=principalKey）作为跨实例在线表，本进程仍只保存本机 SSE `res` 与 principalKey，leave 在本机已无该 principal 连接时 `ZREM`，全局计数与跨实例广播经 Redis pub/sub 达成；多实例须共享 `CHATUI_PRINCIPAL_SECRET`。
 - 心跳与清理：浏览器每 30s POST `/api/presence/heartbeat` 刷新 lastSeen（Redis 模式按 principalKey 刷新共享 score）；定时 sweeper（默认 30s 间隔、120s TTL）清理假死连接，防止在线人数只涨不跌。服务关闭时 `presence.closeAll()` 先于 Node close 结束本机 SSE 连接，并移除本机连接的 principal 槽位。
+- 浏览器会话与计数优先级（`client/ui/presence.js`）：每次 `start()` 开启一个会话，持有一次 `fetchSnapshot()` 与一条 SSE；会话内 SSE 是唯一实时权威，快照只在本次会话尚未收到 SSE 计数时兜底渲染，晚到的快照与已结束会话的回调都不得回写徽标。`pagehide` 结束会话（断流并解除监听），`pageshow`/`online` 重建会话（重新取快照 + 重新开流），保证 bfcache 恢复的标签页重新计入在线数并恢复徽标更新。
 - 路由（`server/api/routes/presence.js`）：`GET /api/presence` 返回 `{count, timestamp}` 快照；`GET /api/presence/stream?clientId=...` 为 SSE presence 事件流（连接即在线，从 `req.authPrincipal` 派生 principalKey 计入）；`POST /api/presence/heartbeat` 返回 `{ok:true}`（同样按请求 principal 刷新）。
 - 浏览器侧只通过 module-registry 注册（`presenceService`），不新增 `window.ChatUI*` 全局导出；UI 徽标位于右上角快捷按钮组（始终可见），首次收到人数前保持隐藏。
 ## 5. `shared/` 边界

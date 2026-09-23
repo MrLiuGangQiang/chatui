@@ -387,3 +387,8 @@ chat Job 实时恢复按会话隔离：每个会话对其当前 Job 使用一条
 剩余工作：goal 自洽、遗漏动作等更高层语义修复；简单路径精简版与复杂路径完整规则集均已上线（COMPACT=FULL），开放进一步收敛复杂路径提示词长度的取舍评估（需真实模型 eval 证明语义无损）。
 
 本文不再重复该设计；任何相关改造必须先对照该文档，并同步 `manual-acceptance-test.md` 与本节的完成状态。
+
+
+## HTTP/MCP 插件边界
+
+`shared/plugin-contract.js` 是 `chatui_plugins.v1`、受限 JSON Schema 校验和 function tool 投影的唯一事实来源；无效配置整体失败为空列表，禁止部分加载。`server/services/plugin.service.js` 独占 HTTP 与 Streamable HTTP MCP 出站请求，负责公网 URL/重定向校验、Bearer 环境变量、工具发现、参数校验、超时和 512 KiB 结果上限；`server/api/routes/plugins.js` 只有只读公共视图，不提供直接调用端点。非流式 `/api/chat-jobs` 可携带 `pluginToolIds`，服务端编译白名单 tools 并在 `server/jobs/chat.js` 执行最多 6 轮 `assistant tool_calls → role=tool → final response`；Responses 流式 Job 拒绝插件传输。浏览器侧选择保存在 `chatui.plugins.selected-tools.v1`，`client/app/chat-workflow.js` 只有该列表非空时才离开既有流式路径。需审批工具在面板禁用且服务端拒绝自动调用；插件参数、结果、URL 和凭据不得进入 Job 公开视图或日志。

@@ -1,5 +1,5 @@
 const http = require('http');
-const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, ANNOUNCEMENTS_DIR, MODEL_RECOMMENDATION_FILE, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, REDIS_URL, readPublicConfig } = require('./config');
+const { APP_VERSION, BUILD_IDENTITY, ROOT, ROOT_WITH_SEP, ANNOUNCEMENTS_DIR, MODEL_RECOMMENDATION_FILE, PLUGINS_FILE, PLUGIN_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS, CONTEXT_WINDOW_TOKENS, PROVIDER_CAPABILITIES, ALLOWED_PROXY_METHODS, ALLOWED_PROXY_PATHS, REDIS_URL, readPublicConfig } = require('./config');
 const { createJobStores, startJobSweeper } = require('./jobs/store');
 const { createIdempotencyTable } = require('./validators/idempotency.validator');
 const { serveStatic } = require('./http/static');
@@ -20,6 +20,7 @@ const { readReleaseNotes } = require('./services/release-notes.service');
 const { readAnnouncements } = require('./services/announcements.service');
 const { createAnnouncementEvents } = require('./services/announcement-events.service');
 const { readModelRecommendation } = require('./services/model-recommendation.service');
+const { createPluginService } = require('./services/plugin.service');
 const { createLoggers } = require('./logging');
 const { createRequestPrincipalService } = require('./security/request-principal');
 
@@ -28,6 +29,7 @@ function createApp() {
   const { accessLog, errorLog, serverLog, requestTrace, newTrace } = loggers;
   const requestPrincipal = createRequestPrincipalService();
   const announcementEvents = createAnnouncementEvents({ runtimeDir: ANNOUNCEMENTS_DIR });
+  const pluginService = createPluginService({ configPath: PLUGINS_FILE, timeoutMs: PLUGIN_TIMEOUT_MS });
   const readRuntimePublicConfig = () => ({ ...readPublicConfig(), modelRecommendation: readModelRecommendation({ filePath: MODEL_RECOMMENDATION_FILE }) });
   const postgresConfig = createPostgresConfig();
   const postgresPool = createPostgresPool(postgresConfig);
@@ -69,7 +71,7 @@ function createApp() {
   const { imageJobs, chatJobs, imageBatchJobs } = createJobStores({ onEvict: handleJobEvicted });
   const sweeper = startJobSweeper([imageJobs, chatJobs, imageBatchJobs]);
   const idempotencyTable = createIdempotencyTable();
-  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable, providerCapabilities: PROVIDER_CAPABILITIES });
+  const jobHandlers = createJobHandlers({ imageJobs, chatJobs, jobSubscribers, upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS, contextWindowTokens: CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable, providerCapabilities: PROVIDER_CAPABILITIES, pluginService });
   const {
     makeChatJob,
     abortJob,
@@ -162,6 +164,7 @@ function createApp() {
     feedbackReviewer,
     feedbackSender,
     presence,
+    pluginService,
   });
   const server = http.createServer(route);
 

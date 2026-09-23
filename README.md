@@ -972,6 +972,8 @@ GET, POST
 | `CHATUI_CONTEXT_WINDOW_TOKENS` | `262144` | 聊天请求上下文窗口预算，约 256k estimated tokens；超出时优先裁剪最早历史且不自动插入摘要，只影响发给模型的 payload，不删除本地会话记录；当前消息和精确绑定消息若仍超限则拒绝发送 |
 | `CHATUI_CONTEXT_SUMMARIZE_OMITTED` | `0` | 设为 `1` 时，超出上下文预算的最早历史会折叠成有界的 `[自动上下文摘要]` 系统提示（而不是直接丢弃），仅影响发给模型的 payload，不修改本地会话记录 |
 | `CHATUI_ALLOW_PRIVATE_UPSTREAM` | 未设置 | 默认禁止代理访问私有/内网地址；仅在明确需要访问受信任内网模型网关时设为 `1`，兼容别名为 `ALLOW_PRIVATE_UPSTREAM` |
+| `CHATUI_PLUGINS_FILE` | `data/plugins.json` | HTTP/MCP 插件配置文件；该文件是部署数据，不提交、不打进镜像。生产可用只读挂载或 secret 路径覆盖 |
+| `CHATUI_PLUGIN_TIMEOUT_MS` | `30000` | 单次 HTTP/MCP 插件工具调用超时，允许 1–120 秒 |
 | `CHATUI_PRINCIPAL_SECRET` | 每个服务进程随机生成 | 匿名 principal Cookie 的 HMAC 密钥；显式配置时至少 32 bytes。不要提交、记录或暴露该值。当前 JobStore 为进程内存，单实例无需持久化；多实例只有在共享同一密钥并配合粘性会话/一致 Job 存储时才有意义。 |
 | `CHATUI_TENANT_ID` | `default` | 部署级 tenant 边界，会参与 Cookie 签名和 Job owner 派生；不是客户端可声明的用户/租户字段。不同安全域应使用不同值。 |
 | `CHATUI_PRINCIPAL_COOKIE_SECURE` | `auto` | `1` 始终添加 `Secure`，`0` 始终不添加，`auto` 仅在 Node 直连 TLS（或受信任代理报告 HTTPS）时添加。生产 HTTPS 反向代理部署建议显式设为 `1`。 |
@@ -1324,6 +1326,15 @@ PDF 由上游 Responses API 处理。扫描件、图片型 PDF 需要模型支�
 - 浏览器本地 Job 记录被清理。
 
 ChatUI 会显示“任务不存在或服务已重启”等错误，并清理过期 pending 状态。
+
+---
+
+## HTTP / MCP 插件
+
+ChatUI 支持服务端受控的 HTTP 接口插件和远程 MCP 插件，默认关闭。配置示例见 `data/plugins.README.md`；真实配置放在 `data/plugins.json`（已忽略，不进入 Docker 镜像），Bearer 凭据只从环境变量读取。输入区“插件”按钮可查看并勾选允许自动调用的只读工具；需逐次确认的写操作会显示为禁用，不能被模型自动调用。
+
+已选择工具时，聊天会使用支持 function calling 的 Chat Completions 兼容模型执行“模型工具调用 → 服务端插件请求 → 工具结果回传 → 最终回答”的循环。未选择工具时仍使用原有 Responses 流式链路。远程 MCP 插件通过 Streamable HTTP JSON-RPC 连接，且只暴露配置中显式列出的工具。
+
 
 ---
 

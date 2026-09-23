@@ -122,9 +122,114 @@ function executionContractFromValidation(validation) {
   };
 }
 
-function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null }) {
+function pluginUnavailableError() {
+  const error = new Error('插件功能未配置，请先在服务端启用插件');
+  error.code = 'PLUGINS_UNAVAILABLE';
+  error.statusCode = 503;
+  return error;
+}
+
+function pluginUnsupportedTransportError() {
+  const error = new Error('当前模型接口不支持插件调用，请使用 Chat Completions 兼容模型');
+  error.code = 'PLUGIN_TRANSPORT_UNSUPPORTED';
+  error.statusCode = 400;
+  return error;
+}
+
+function createChatJobHandlers({ chatJobs, notifyJob, upstreamTimeoutMs, contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS, requestTrace, errorLog, idempotencyTable = null, providerCapabilities = null, pluginService = null }) {
+function chatToolCalls(data = {}) {
+  const message = data?.choices?.[0]?.message || {};
+  const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  return calls
+    .filter(call => call && typeof call === 'object' && String(call.type || 'function') === 'function')
+    .map(call => ({
+      id: String(call.id || ''),
+      type: 'function',
+      function: {
+        name: String(call.function?.name || ''),
+        arguments: String(call.function?.arguments || '{}'),
+      },
+    }));
+}
+
+async function requestChatCompletionOnce(job, payload) {
+  const upstreamRequest = createUpstreamFetch(job.targetUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(job.extraHeaders || {}),
+      ...(job.apiKey ? { Authorization: `Bearer ${job.apiKey}` } : {}),
+    },
+    body: JSON.stringify({ ...payload, stream: false }),
+    job,
+    upstreamTimeoutMs,
+    signal: jobCancellationSignal(job),
+  });
+  const cleanup = upstreamRequest.cleanup;
+  try {
+    const upstream = await upstreamRequest.response;
+    const text = await readUpstreamText(upstream, upstreamRequest.touch);
+    const data = safeParseJson(text);
+    if (!upstream.ok) throw new Error(data?.error?.message || data?.message || data?.raw || text || `上游返回 ${upstream.status}`);
+    return data;
+  } finally {
+    cleanup?.();
+  }
+}
+
+async function runPluginChatJob(job) {
+  const selectedTools = Array.isArray(job.pluginTools) ? job.pluginTools : [];
+  const trace = [];
+  let messages = Array.isArray(job.payload.messages) ? job.payload.messages.map(item => ({ ...item })) : [];
+  for (let round = 0; round < 6; round += 1) {
+    const data = await requestChatCompletionOnce(job, { ...job.payload, messages, stream: false });
+    const calls = chatToolCalls(data);
+    if (!calls.length) {
+      job.data = data;
+      return job;
+    }
+    const assistant = data?.choices?.[0]?.message || {};
+    messages.push({
+      role: 'assistant',
+      content: typeof assistant.content === 'string' ? assistant.content : '',
+      tool_calls: calls,
+    });
+    for (const call of calls) {
+      const selected = selectedTools.find(item => item.toolName === call.function.name);
+      if (!selected) {
+        const error = new Error(`模型请求了未授权的插件工具：${call.function.name}`);
+        error.code = 'PLUGIN_TOOL_NOT_AUTHORIZED';
+        error.statusCode = 400;
+        throw error;
+      }
+      let args = {};
+      try { args = JSON.parse(call.function.arguments || '{}'); }
+      catch {
+        const error = new Error(`插件 ${selected.pluginId} 的参数不是有效 JSON`);
+        error.code = 'PLUGIN_ARGUMENT_INVALID';
+        error.statusCode = 400;
+        throw error;
+      }
+      const result = await pluginService.callTool(`${selected.pluginId}:${selected.toolName}`, args, {
+        signal: jobCancellationSignal(job),
+      });
+      trace.push({ pluginId: result.pluginId, toolName: result.toolName, status: 'done' });
+      job.pluginTrace = trace.slice(-16);
+      job.updatedAt = Date.now();
+      notifyJob(job);
+      messages.push({ role: 'tool', tool_call_id: call.id, content: result.content });
+    }
+  }
+  const error = new Error('插件调用轮数过多，请缩小问题范围后重试');
+  error.code = 'PLUGIN_ROUNDS_EXCEEDED';
+  error.statusCode = 502;
+  throw error;
+}
+
 async function runChatJob(job) {
 if (!jobCanRun(job)) return job;
+if (Array.isArray(job.pluginTools) && job.pluginTools.length > 0) return runPluginChatJob(job);
 job.serverStartAtMs = performance.now();
 const traceSpan = requestTrace?.begin?.({
   parentTraceId: job.parentTraceId || '',
@@ -350,6 +455,7 @@ try {
   validationStage = 'execution_protocol';
   const validation = validateManagedChatExecution(body, payload, api);
   const executionContract = executionContractFromValidation(validation);
+  if (body.pluginToolIds !== undefined) throw pluginUnsupportedTransportError();
   safeLog('[chat-stream-job] upstream payload', { ...summarizeChatPayload(payload), api });
   if (job) {
     validationStage = 'job_contract';
@@ -415,6 +521,22 @@ try {
   validationStage = 'execution_protocol';
   const validation = validateManagedChatExecution(body, payload, api);
   const executionContract = executionContractFromValidation(validation);
+  validationStage = 'plugin_tools';
+  let pluginTools = [];
+  if (body.pluginToolIds !== undefined) {
+    if (!pluginService) throw pluginUnavailableError();
+    if (api !== 'chat') throw pluginUnsupportedTransportError();
+    const tools = pluginService.chatTools(body.pluginToolIds);
+    const selected = pluginService.resolveSelectedTools(body.pluginToolIds);
+    if (!tools.length || tools.length !== selected.length) {
+      const error = new Error('没有可用的插件工具，请重新选择后重试');
+      error.code = 'PLUGIN_TOOL_NOT_FOUND';
+      error.statusCode = 400;
+      throw error;
+    }
+    payload = { ...payload, tools, stream: false };
+    pluginTools = selected.map(({ plugin, tool }) => ({ pluginId: plugin.id, toolName: tool.name }));
+  }
   safeLog('[chat-job] upstream payload', { ...summarizeChatPayload(payload), api });
   if (existingJob) {
     validationStage = 'job_contract';
@@ -465,6 +587,7 @@ try {
     dispatchContract: executionContract.dispatchContract,
     bindingEvidence: executionContract.bindingEvidence,
     payload: { ...payload, stream: false },
+    ...(pluginTools.length ? { pluginTools } : {}),
     data: null,
     error: '',
     ...(idempotencyEntry ? {

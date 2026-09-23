@@ -83,6 +83,7 @@ function publicJob(job, options = {}) {
     updatedAt: job.updatedAt,
     data: job.data || null,
     metrics,
+    ...(Array.isArray(job.pluginTrace) ? { pluginTrace: job.pluginTrace } : {}),
     error: job.error ? { message: job.error } : null,
   };
 }

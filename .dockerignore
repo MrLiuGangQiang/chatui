@@ -32,3 +32,5 @@ data/announcements/*
 !data/announcements/README.md
 !data/announcements/_template.md
 !data/announcements/model-recommendation.json
+!data/plugins.README.md
+data/plugins.json

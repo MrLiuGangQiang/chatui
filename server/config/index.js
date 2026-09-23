@@ -12,6 +12,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const ROOT_WITH_SEP = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
 const ANNOUNCEMENTS_DIR = path.resolve(ROOT, String(process.env.CHATUI_ANNOUNCEMENTS_DIR || '').trim() || 'data/announcements');
 const MODEL_RECOMMENDATION_FILE = path.join(ANNOUNCEMENTS_DIR, 'model-recommendation.json');
+const PLUGINS_FILE = path.resolve(ROOT, String(process.env.CHATUI_PLUGINS_FILE || '').trim() || 'data/plugins.json');
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || DEFAULT_UPSTREAM_TIMEOUT_MS);
 const ALLOWED_PROXY_METHODS = new Set(['GET', 'POST']);
@@ -23,6 +24,9 @@ const { readVersion } = require('../version-source');
 const APP_VERSION = readVersion({ root: ROOT });
 const { createBuildIdentity } = require('../build-identity');
 const BUILD_IDENTITY = createBuildIdentity({ root: ROOT, version: APP_VERSION });
+
+const DEFAULT_PLUGIN_TIMEOUT_MS = 30 * 1000;
+const PLUGIN_TIMEOUT_MS = Math.max(1000, Math.min(Number(process.env.CHATUI_PLUGIN_TIMEOUT_MS || DEFAULT_PLUGIN_TIMEOUT_MS), 120000));
 
 const DEFAULT_INTENT_PIPELINE_DEADLINE_MS = 300000;
 function normalizeIntentDeadline(value, fallback) {
@@ -64,6 +68,8 @@ module.exports = {
   ROOT_WITH_SEP,
   ANNOUNCEMENTS_DIR,
   MODEL_RECOMMENDATION_FILE,
+  PLUGINS_FILE,
+  PLUGIN_TIMEOUT_MS,
   UPSTREAM_TIMEOUT_MS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   CONTEXT_WINDOW_TOKENS,

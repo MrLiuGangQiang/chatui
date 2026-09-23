@@ -125,3 +125,12 @@ POST 代理方法仅 `GET/POST`，路径白名单固定：
 - 显式配置的全局或会话 System Prompt（包括显式清空的会话覆盖）保持优先，不被默认策略静默覆盖。
 
 该策略只约束聊天模型的自然语言输出，不改变路由、执行合同、资源绑定或服务端授权；对应行为由 test/unit/chat-output-policy.test.js 和聊天场景实测验证。
+
+
+## 8. 插件端点与聊天工具循环
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/plugins` | 返回启用插件的公共视图（id/type/label/工具说明、风险、审批策略、输入 Schema）；`no-store`，不返回 URL 或凭据 |
+
+不提供浏览器直接调用插件端点。已选择自动工具的聊天必须 `POST /api/chat-jobs`，携带 `api=chat`、`stream=false` payload 与 `pluginToolIds`；服务端对照注册表注入 tools，执行最多 6 轮工具调用并返回最终 Chat Completion 结果。`/api/chat-stream-jobs` 携带 `pluginToolIds` 时返回 400 `PLUGIN_TRANSPORT_UNSUPPORTED`。

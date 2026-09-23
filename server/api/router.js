@@ -4,6 +4,7 @@ const { createCoreRoutes } = require('./routes/core');
 const { createJobRoutes } = require('./routes/jobs');
 const { createUsageRoutes } = require('./routes/usage');
 const { createPresenceRoutes } = require('./routes/presence');
+const { createPluginRoutes } = require('./routes/plugins');
 const { performance } = require('perf_hooks');
 const { traceId } = require('../logging/logger');
 
@@ -47,6 +48,7 @@ function createRouter(deps) {
     feedbackReviewer,
     feedbackSender,
     presence,
+    pluginService,
     // Logging
     accessLog,
     errorLog,
@@ -106,6 +108,8 @@ function createRouter(deps) {
     feedbackSender,
   });
 
+  const { routePlugins } = createPluginRoutes({ pluginService, requestTrace });
+
   const { routePresence } = createPresenceRoutes({
     presence,
     sendJson,
@@ -135,6 +139,7 @@ function createRouter(deps) {
     if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) return 'image-batch';
     if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) return 'usage';
     if (pathname === '/api/presence' || pathname.startsWith('/api/presence/')) return 'presence';
+    if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) return 'plugin';
     if (pathname.startsWith('/api/')) return 'proxy';
     if (pathname.startsWith('/_core/') || pathname === '/api/core') return 'core';
     return 'static';
@@ -189,6 +194,9 @@ function createRouter(deps) {
       }
       if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) {
         return await routeImageBatches(req, res);
+      }
+      if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) {
+        return await routePlugins(req, res);
       }
       if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
         return await routeUsage(req, res);

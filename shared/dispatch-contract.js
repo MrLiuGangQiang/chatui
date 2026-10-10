@@ -155,7 +155,7 @@
     });
   }
 
-  function contextPolicyFor(relation = 'new', bindings = []) {
+  function contextPolicyFor(operation = '', relation = 'new', bindings = []) {
     const sources = new Set(bindings.map(binding => binding.source));
     const messageResourceIds = bindings
       .filter(binding => binding.type === 'message' && binding.resource_id)
@@ -163,9 +163,12 @@
     let history = 'none';
     // Conversation history is a deterministic execution policy, not a routing
     // decision: only an explicit user quote selects a narrow context, a new
-    // task drops history, and every other follow-up keeps the full window.
+    // evidence task drops history, and every other follow-up keeps the full
+    // window. Plain chat is the conversational surface itself, so even a
+    // router-labeled new text turn keeps the bounded session window; one
+    // misread relation must not wipe the user's conversation.
     if (sources.has('quoted')) history = 'bound_only';
-    else if (relation !== 'new') history = 'conversation';
+    else if (relation !== 'new' || stringValue(operation) === 'plain_chat') history = 'conversation';
     return {
       history,
       quoted: sources.has('quoted'),
@@ -254,7 +257,7 @@
       arguments: { ...argumentResult.arguments },
       bindings: normalizedBindings,
       constraints: normalizedConstraints,
-      context_policy: contextPolicyFor(normalizedRelation, normalizedBindings),
+      context_policy: contextPolicyFor(normalizedOperation, normalizedRelation, normalizedBindings),
       idempotency_key: '',
     };
     plan.idempotency_key = idempotencyKeyFor(plan);

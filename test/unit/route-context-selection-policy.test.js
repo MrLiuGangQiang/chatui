@@ -139,15 +139,15 @@ function testRouteProjectionStillRejectsAnAbsentBoundMessage() {
   assert.strictEqual(projection, null, 'an actually absent bound message must remain fail-closed');
 }
 
-function testExplicitNewTaskDropsConversationHistory() {
+function testPlainChatNewTaskKeepsSessionHistory() {
   const route = compileIntent({ relation: 'new', refs: [], goal: '解释量子纠缠', input: '解释量子纠缠' });
-  assert.strictEqual(route.dispatchContract.context_policy.history, 'none');
+  assert.strictEqual(route.dispatchContract.context_policy.history, 'conversation');
 
   const workflow = chatWorkflow.createChatWorkflow({ state: {} });
   const projected = workflow.applyExecutionContextPolicy(sessionMessages, {
     dispatchContract: route.dispatchContract,
   });
-  assert.deepStrictEqual(projected, []);
+  assert.deepStrictEqual(projected, sessionMessages);
 }
 
 function testUncertainFollowupKeepsConversationHistory() {
@@ -240,7 +240,7 @@ module.exports = [
   testPlainChatMultipleMessageHintsKeepConversationHistory,
   testRouteProjectionAcceptsDurableMessageIdWhenDisplayIdDiffers,
   testRouteProjectionStillRejectsAnAbsentBoundMessage,
-  testExplicitNewTaskDropsConversationHistory,
+  testPlainChatNewTaskKeepsSessionHistory,
   testUncertainFollowupKeepsConversationHistory,
   testOutboundBudgetDropsOldestTurnsWithoutSyntheticSummary,
   testOutboundBudgetSummarizesOmittedHistoryWhenEnabled,

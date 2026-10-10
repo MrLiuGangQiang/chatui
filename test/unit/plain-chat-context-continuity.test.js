@@ -72,8 +72,8 @@ function testModelNewRelationIsNotCanonicalizedLocally() {
   assert.strictEqual(result.route.dispatchContract.relation, 'new');
   assert.strictEqual(
     result.route.dispatchContract.context_policy.history,
-    'none',
-    'relation is an intent-model decision and must not be rewritten from local wording rules',
+    'conversation',
+    'relation stays model-owned, but plain chat keeps the session window so a misread new cannot drop context',
   );
 }
 
@@ -132,7 +132,7 @@ function testStandaloneGreetingCanRemainNew() {
 
   assert.ok(result.route, result.error || result.reason);
   assert.strictEqual(result.route.relation, 'new');
-  assert.strictEqual(result.route.dispatchContract.context_policy.history, 'none');
+  assert.strictEqual(result.route.dispatchContract.context_policy.history, 'conversation');
 }
 
 module.exports = [

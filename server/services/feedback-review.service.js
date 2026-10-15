@@ -1,6 +1,7 @@
 'use strict';
 
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
+const { withChatuiUserAgent } = require('../proxy/headers');
 const { feedbackUserContent } = require('./feedback-content.service');
 const { responseOutputText } = require('../../shared/responses-output');
 
@@ -165,7 +166,7 @@ function createFeedbackReviewer({
     try {
       response = await fetchImpl(endpoint, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        headers: withChatuiUserAgent({ Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(timeoutMs),
       });

@@ -206,7 +206,7 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 `server/proxy/` 负责允许路径内的 OpenAI 兼容转发、Header 处理、SSE、图片代理和上游错误规范化；`responses-stream.js` 是直接 Responses 流的 compact delta、reasoning 与搜索来源归一化边界。意图识别始终是显式禁用工具、保留正常模型 reasoning 的一次性非流式 JSON Responses 分类请求；其浏览器响应只保留 `output_text`，不得透传上游 ID、usage、工具元数据或 encrypted reasoning。图片任务规划同样始终先使用一次性非流式 JSON Responses 请求：proxy 不得把这类请求升级为 SSE、缓存 SSE 能力，或在上游错误后以 SSE 重试；若上游错误地返回 event stream，proxy 必须返回明确的非流式协议错误。客户端仅可在上游精确返回 HTTP 500 `empty stream chunks` 时发起第二个、仍为 `stream: false` 的 `/chat/completions` 请求；这不是 SSE 重试，其余错误仍按普通错误处理并选择模型 fallback。`server/security/` 负责 URL/网络访问策略，以及服务端签发的请求 principal 和 Job ownership。`request-principal.js` 是匿名 principal Cookie 的签发、HMAC 校验、tenant 绑定与响应缓存隔离的唯一事实源；`job-ownership.js` 使用不可枚举 owner key 绑定 Job，并提供统一的 owner 比较，业务路由不得自行复制 Cookie 解析或 owner 映射。
 
-只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
+只有该边界可以根据经过校验的 Base URL、API Key 和自定义 Header 发起上游请求。该边界同时是所有上游 `User-Agent` 的唯一注入点：`server/proxy/headers.js` 统一追加 `chatui/<version>`（版本读 `version.json`），已由调用方显式指定的 `User-Agent` 保持原值；Job、插件、用量校验与反馈服务不得各自拼装请求头。日志必须经过脱敏，不能记录凭据、文件 Base64 或图片 Base64。
 本地持久请求追踪由 `server/logging/request-trace.js` 统一负责，并从 `server/app.js` 注入 proxy 与 Job 边界。客户端 pre-dispatch 校验失败只能通过受限的 `/api/client-execution-trace` 诊断端点提交结构化身份摘要，再由同一追踪器脱敏落盘；客户端不得直接记录原始 payload。追踪默认关闭；启用后以有界轮转 NDJSON 记录相关请求和结果，系统提示词与 reasoning 正文不落盘，签名 URL 查询参数和自定义 Header 值也不得记录。access/error/server/request-trace 共用 `server/logging/logger.js` 的有界异步 writer 原语，但每类日志拥有独立队列；目录创建、文件 stat、轮转和 append 在单 writer 内串行，批量写入保持事件顺序，队列满时显式 drop 而非阻塞请求或无限占用内存。业务模块不得自行绕过该追踪器写入原始上游 payload。
 
 ### 4.6 `server/usage/`、`server/db/` 与相关层

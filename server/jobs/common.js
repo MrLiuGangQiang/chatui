@@ -1,6 +1,6 @@
 const { sendJson } = require('../http/response');
 const { readBody, parseJson, payloadTooLargeError } = require('../http/body');
-const { normalizeExtraHeaders } = require('../proxy/headers');
+const { normalizeExtraHeaders, withChatuiUserAgent } = require('../proxy/headers');
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
 const { Agent, ProxyAgent } = require('undici');
 const { safeLog, redactUrl } = require('../logging/safe-log');
@@ -372,7 +372,8 @@ function createUpstreamFetch(url, { method, headers, body, job, upstreamTimeoutM
   };
   idleTimeout.touch();
   const request = summarizeUpstreamRequest(url, { method, body, job });
-  const response = fetchWithValidatedRedirects(url, { method, headers, body, signal: controller.signal })
+  const upstreamHeaders = withChatuiUserAgent(headers);
+  const response = fetchWithValidatedRedirects(url, { method, headers: upstreamHeaders, body, signal: controller.signal })
     .catch(err => {
       safeLog('[upstream-request] failed', { ...request, ...readUpstreamErrorDetails(err) }, { always: true });
       throw err;

@@ -4,6 +4,7 @@ const fs = require('fs');
 const { Agent } = require('undici');
 const { createPublicLookup, assertResolvedUpstreamUrl, privateUpstreamAllowed } = require('../security/url-policy');
 const pluginContract = require('../../shared/plugin-contract');
+const { withChatuiUserAgent } = require('../proxy/headers');
 
 const DEFAULT_TIMEOUT_MS = 30 * 1000;
 const MAX_RESULT_BYTES = 512 * 1024;
@@ -42,6 +43,7 @@ async function safeFetch(url, options = {}, fetchImpl = fetch, assertUrlImpl = a
     }
     const response = await fetchImpl(current, {
       ...options,
+      headers: withChatuiUserAgent(options.headers),
       redirect: 'manual',
       dispatcher,
       signal: options.signal,

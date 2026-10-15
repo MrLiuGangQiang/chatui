@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { DEFAULT_UPSTREAM_BASE_URL } = require('../config');
+const { withChatuiUserAgent } = require('../proxy/headers');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 512;
@@ -81,7 +82,7 @@ function createUsageAccessValidator({
     const timer = setTimeout(() => controller.abort(), boundedTimeoutMs);
     try {
       const response = await fetchImpl(`${resolvedBaseUrl}/models`, {
-        headers: { Authorization: `Bearer ${normalizedKey}` },
+        headers: withChatuiUserAgent({ Authorization: `Bearer ${normalizedKey}` }),
         signal: controller.signal,
       });
       if (!response.ok) return { ok: false, statusCode: 403, code: 'INVALID_API_KEY', message: 'API Key 无效，统计和反馈暂不可用' };

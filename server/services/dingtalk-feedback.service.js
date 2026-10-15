@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { normalizeFeedback, feedbackUserContent, feedbackWithModelContext } = require('./feedback-content.service');
+const { withChatuiUserAgent } = require('../proxy/headers');
 
 const DINGTALK_WEBHOOK_HOSTS = new Set(['oapi.dingtalk.com', 'api.dingtalk.com']);
 const FEEDBACK_SECTION_LABELS = Object.freeze(['问题描述', '复现描述', '期望结果']);
@@ -100,7 +101,7 @@ function createDingTalkFeedbackSender({ accessToken = process.env.DINGTALK_FEEDB
       try {
         response = await fetchImpl(signedWebhookUrl(normalizedWebhook, secret, now()), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: withChatuiUserAgent({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(feedbackMessage(text, username, new Date(now()))),
           signal: AbortSignal.timeout(10_000),
         });

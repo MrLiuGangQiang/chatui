@@ -60,7 +60,7 @@ function createAccessLogger({
         trace_id: String(tId || traceId()),
         method: String(req.method || 'GET').toUpperCase(),
         path: String(req.pathname || req.url || '').split('?')[0],
-        query: redactString(String(req.url || '').includes('?') ? String(req.url || '').split('?')[1] || '' : ''),
+        query: route === 'mcp' ? '[redacted]' : redactString(String(req.url || '').includes('?') ? String(req.url || '').split('?')[1] || '' : ''),
         status: Number(statusCode) || 0,
         duration_ms: Math.round(Math.max(0, Number(durationMs) || 0)),
         client_ip: getClientIp(req),

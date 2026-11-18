@@ -98,6 +98,35 @@ async function testUsageAccessValidatorMapsUpstreamDenialModelMismatchAndOutage(
   });
 }
 
+async function testUsageAccessValidatorValidatesBearerWithoutModelAndCachesModels() {
+  let calls = 0;
+  const validator = createUsageAccessValidator({
+    fetchImpl: async (url, init) => {
+      calls += 1;
+      assert.ok(String(url).endsWith('/models'));
+      assert.strictEqual(init.headers.Authorization, 'Bearer sk-test');
+      return { ok: true, json: async () => ({ data: [{ id: 'gpt-5' }, { id: 'flux-1' }, { id: 'gpt-5' }] }) };
+    },
+  });
+  assert.strictEqual((await validator.validateKey('')).code, 'INVALID_API_KEY');
+  assert.deepStrictEqual(await validator.validateKey('sk-test'), { ok: true, models: ['gpt-5', 'flux-1'] });
+  assert.deepStrictEqual(await validator.validateKey(' sk-test '), { ok: true, models: ['gpt-5', 'flux-1'] });
+  assert.strictEqual(calls, 1, 'key-only MCP authentication must be cached without requiring a model');
+
+  const denied = createUsageAccessValidator({ fetchImpl: async () => ({ ok: false }) });
+  assert.deepStrictEqual(await denied.validateKey('sk-denied'), {
+    ok: false, statusCode: 403, code: 'INVALID_API_KEY', message: 'API Key 无效，统计和反馈暂不可用',
+  });
+  const outage = createUsageAccessValidator({ fetchImpl: async () => { throw new Error('offline'); } });
+  assert.deepStrictEqual(await outage.validateKey('sk-outage'), {
+    ok: false, statusCode: 503, code: 'MODEL_VALIDATION_UNAVAILABLE', message: '无法验证 API Key 和模型配置，统计和反馈暂不可用',
+  });
+  const transient = createUsageAccessValidator({ fetchImpl: async () => ({ ok: false, status: 503 }) });
+  assert.deepStrictEqual(await transient.validateKey('sk-transient'), {
+    ok: false, statusCode: 503, code: 'MODEL_VALIDATION_UNAVAILABLE', message: '无法验证 API Key 和模型配置，统计和反馈暂不可用',
+  });
+}
+
 async function testUsageRepositoryUsesBoundParametersAndNormalizesTokenRows() {
   const calls = [];
   const pool = {
@@ -149,6 +178,7 @@ module.exports = [
   testUsageAccessPayloadParsingSupportsCompatibleModelShapes,
   testUsageAccessValidatorRejectsInvalidInputsAndCachesValidatedPairs,
   testUsageAccessValidatorMapsUpstreamDenialModelMismatchAndOutage,
+  testUsageAccessValidatorValidatesBearerWithoutModelAndCachesModels,
   testUsageRepositoryUsesBoundParametersAndNormalizesTokenRows,
   testUsageRepositoryCoversPersonalDepartmentAndRangeQueries,
 ];

@@ -1,4 +1,5 @@
 const { readBody, parseJson } = require('../../http/body');
+const feedbackService = require('../../services/feedback.service');
 const usageService = require('../../services/usage.service');
 const usageValidator = require('../../validators/usage.validator');
 
@@ -89,34 +90,25 @@ function createUsageController({ sendJson, sendMethodNotAllowed, usageStats, usa
     try {
       const access = await validateUsageAccess(body, res);
       if (!access) return;
-      if (typeof feedbackReviewer?.review !== 'function') {
-        return sendJson(res, 503, { error: { message: '反馈内容审核服务暂时不可用，请稍后重试', code: 'FEEDBACK_REVIEW_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      }
-      const chatModel = access.model;
-      const review = await feedbackReviewer.review(body.content, { apiKey: access.apiKey, model: chatModel });
-      if (!review?.accepted) {
-        const reason = String(review?.message || '反馈内容不够完整，请补充问题描述、复现描述和期望结果').trim();
+      const routeModel = String(body?.route_model || body?.routeModel || '').trim();
+      const result = await feedbackService.submitFeedback({
+        content: body.content,
+        apiKey: access.apiKey,
+        model: access.model,
+        routeModel,
+        usageStats,
+        feedbackReviewer,
+        feedbackSender,
+      });
+      return sendJson(res, 200, result, { 'Access-Control-Allow-Origin': '*' });
+    } catch (err) {
+      if (err?.code === 'INVALID_FEEDBACK' && err?.review) {
         return sendJson(res, 422, {
           ok: false,
-          review: {
-            accepted: false,
-            missing_sections: Array.isArray(review?.missingSections) ? review.missingSections : [],
-            reason,
-          },
-          error: {
-            message: `审核未通过：${reason}`,
-            code: 'INVALID_FEEDBACK',
-          },
+          review: err.review,
+          error: { message: err.message, code: err.code },
         }, { 'Access-Control-Allow-Origin': '*' });
       }
-      if (!usageStats) return sendJson(res, 503, { error: { message: '统计数据源未配置，无法识别反馈用户名', code: 'USAGE_UNAVAILABLE' } }, { 'Access-Control-Allow-Origin': '*' });
-      const personal = await usageService.getPersonalRange(usageStats, access.apiKey, 'total');
-      const username = String(personal?.username || '').trim();
-      if (!username) return sendJson(res, 403, { error: { message: '未找到该 API Key 对应的统计用户名，无法提交反馈', code: 'INVALID_API_KEY' } }, { 'Access-Control-Allow-Origin': '*' });
-      const routeModel = String(body?.route_model || body?.routeModel || '').trim();
-      await feedbackSender?.send(body.content, { username, routeModel, chatModel });
-      return sendJson(res, 200, { ok: true, message: '反馈已发送' }, { 'Access-Control-Allow-Origin': '*' });
-    } catch (err) {
       if (err?.code !== 'FEEDBACK_NOT_CONFIGURED' && err?.code !== 'INVALID_FEEDBACK') console.error('[feedback] submission failed:', err?.cause?.message || err?.message || err);
       return sendJson(res, err?.statusCode || 500, { error: { message: err?.message || '反馈发送失败，请稍后重试', code: err?.code || 'FEEDBACK_DELIVERY_FAILED' } }, { 'Access-Control-Allow-Origin': '*' });
     }

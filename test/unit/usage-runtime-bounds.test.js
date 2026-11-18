@@ -147,10 +147,30 @@ function testUsageRateLimitMapEvictsOldestBucketsAtTheHardBound() {
   ]);
 }
 
+async function testUsageAccessKeyOnlyCacheCannotPoisonModelValidation() {
+  let calls = 0;
+  const validator = createUsageAccessValidator({
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({ data: [{ id: 'gpt-5' }] }) };
+    },
+  });
+  await validator.validateKey('sk-secret');
+  const result = await validator.validate('sk-secret', '__api_key_validation__');
+  assert.deepStrictEqual(result, {
+    ok: false,
+    statusCode: 400,
+    code: 'MODEL_NOT_CONFIGURED',
+    message: '当前聊天模型未正确配置，统计和反馈暂不可用',
+  });
+  assert.strictEqual(calls, 2);
+}
+
 module.exports = [
   testUsageAccessConcurrentValidationSharesOneUpstreamRequest,
   testUsageAccessCacheIsBoundedLruAndIncludesBaseUrl,
   testUsageAccessInFlightMapIsBoundedAndFailuresAreReleased,
   testUsageRateLimitSweepsExpiredBucketsAcrossOtherClients,
   testUsageRateLimitMapEvictsOldestBucketsAtTheHardBound,
+  testUsageAccessKeyOnlyCacheCannotPoisonModelValidation,
 ];

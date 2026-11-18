@@ -8,6 +8,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 512;
 const MAX_IN_FLIGHT = 64;
 const REQUEST_TIMEOUT_MS = 10 * 1000;
+const MAX_MODELS = 256;
 
 function positiveInteger(value, fallback, minimum = 1, maximum = Number.MAX_SAFE_INTEGER) {
   const parsed = Number(value);
@@ -20,12 +21,27 @@ function normalizeBaseUrl(value = DEFAULT_UPSTREAM_BASE_URL) {
 }
 
 function cacheKey(baseUrl, apiKey, model) {
-  return crypto.createHash('sha256').update(`${normalizeBaseUrl(baseUrl)}\n${apiKey}\n${model}`).digest('hex');
+  return crypto.createHash('sha256').update(`model\n${normalizeBaseUrl(baseUrl)}\n${apiKey}\n${model}`).digest('hex');
+}
+
+function keyValidationCacheKey(baseUrl, apiKey) {
+  return crypto.createHash('sha256').update(`key\n${normalizeBaseUrl(baseUrl)}\n${apiKey}`).digest('hex');
 }
 
 function modelsFromPayload(payload) {
   const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
   return new Set(list.map(item => String(typeof item === 'string' ? item : item?.id || item?.name || '').trim()).filter(Boolean));
+}
+
+function upstreamValidationFailure(response) {
+  const status = Number(response?.status);
+  // Only an authentication rejection proves that the key is invalid. A
+  // reverse proxy, rate limit, or upstream outage must remain retryable and
+  // must not be presented to MCP clients as a bad user key.
+  if (!Number.isFinite(status) || status === 400 || status === 401 || status === 403) {
+    return { ok: false, statusCode: 403, code: 'INVALID_API_KEY', message: 'API Key 无效，统计和反馈暂不可用' };
+  }
+  return { ok: false, statusCode: 503, code: 'MODEL_VALIDATION_UNAVAILABLE', message: '无法验证 API Key 和模型配置，统计和反馈暂不可用' };
 }
 
 function createUsageAccessValidator({
@@ -85,11 +101,37 @@ function createUsageAccessValidator({
         headers: withChatuiUserAgent({ Authorization: `Bearer ${normalizedKey}` }),
         signal: controller.signal,
       });
-      if (!response.ok) return { ok: false, statusCode: 403, code: 'INVALID_API_KEY', message: 'API Key 无效，统计和反馈暂不可用' };
+      if (!response.ok) return upstreamValidationFailure(response);
       const models = modelsFromPayload(await response.json());
       const result = models.has(normalizedModel)
         ? { ok: true }
         : { ok: false, statusCode: 400, code: 'MODEL_NOT_CONFIGURED', message: '当前聊天模型未正确配置，统计和反馈暂不可用' };
+      writeCache(key, result, now());
+      return result;
+    } catch {
+      return { ok: false, statusCode: 503, code: 'MODEL_VALIDATION_UNAVAILABLE', message: '无法验证 API Key 和模型配置，统计和反馈暂不可用' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function validateKeyUpstream(normalizedKey, resolvedBaseUrl, key) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), boundedTimeoutMs);
+    try {
+      const response = await fetchImpl(`${resolvedBaseUrl}/models`, {
+        headers: withChatuiUserAgent({ Authorization: `Bearer ${normalizedKey}` }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const result = upstreamValidationFailure(response);
+        if (result.code === 'INVALID_API_KEY') writeCache(key, result, now());
+        return result;
+      }
+      const models = [...modelsFromPayload(await response.json())]
+        .slice(0, MAX_MODELS)
+        .map(model => model.slice(0, 160));
+      const result = { ok: true, models };
       writeCache(key, result, now());
       return result;
     } catch {
@@ -124,6 +166,29 @@ function createUsageAccessValidator({
     return tracked;
   }
 
+  async function validateKey(apiKey, options = {}) {
+    const normalizedKey = String(apiKey || '').trim();
+    if (!normalizedKey) return { ok: false, statusCode: 400, code: 'INVALID_API_KEY', message: '请先配置有效的 API Key' };
+    const resolvedBaseUrl = normalizeBaseUrl(options.baseUrl || defaultBaseUrl);
+    const key = keyValidationCacheKey(resolvedBaseUrl, normalizedKey);
+    const time = now();
+    const cached = readCache(key, time);
+    if (cached) return cached;
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+    if (inFlight.size >= boundedMaxInFlight) {
+      return { ok: false, statusCode: 503, code: 'MODEL_VALIDATION_BUSY', message: '验证请求过多，请稍后重试统计或反馈' };
+    }
+
+    let tracked;
+    tracked = validateKeyUpstream(normalizedKey, resolvedBaseUrl, key)
+      .finally(() => {
+        if (inFlight.get(key) === tracked) inFlight.delete(key);
+      });
+    inFlight.set(key, tracked);
+    return tracked;
+  }
+
   function stats() {
     sweepExpired(now());
     return Object.freeze({ cache_entries: cache.size, in_flight: inFlight.size });
@@ -133,7 +198,7 @@ function createUsageAccessValidator({
     cache.clear();
   }
 
-  return Object.freeze({ validate, stats, clear, sweep: sweepExpired });
+  return Object.freeze({ validate, validateKey, stats, clear, sweep: sweepExpired });
 }
 
 module.exports = {
@@ -142,6 +207,7 @@ module.exports = {
   MAX_IN_FLIGHT,
   REQUEST_TIMEOUT_MS,
   cacheKey,
+  keyValidationCacheKey,
   createUsageAccessValidator,
   modelsFromPayload,
 };

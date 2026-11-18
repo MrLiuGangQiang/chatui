@@ -5,6 +5,7 @@ const { createJobRoutes } = require('./routes/jobs');
 const { createUsageRoutes } = require('./routes/usage');
 const { createPresenceRoutes } = require('./routes/presence');
 const { createPluginRoutes } = require('./routes/plugins');
+const { createMcpRoutes } = require('./routes/mcp');
 const { performance } = require('perf_hooks');
 const { traceId } = require('../logging/logger');
 
@@ -110,6 +111,16 @@ function createRouter(deps) {
 
   const { routePlugins } = createPluginRoutes({ pluginService, requestTrace });
 
+  const { routeMcp } = createMcpRoutes({
+    appVersion,
+    usageStats,
+    usageAccessValidator,
+    feedbackReviewer,
+    feedbackSender,
+    readPublicConfig,
+    errorLog,
+  });
+
   const { routePresence } = createPresenceRoutes({
     presence,
     sendJson,
@@ -138,6 +149,7 @@ function createRouter(deps) {
     if (pathname === '/api/image-jobs' || pathname.startsWith('/api/image-jobs/')) return 'image-job';
     if (pathname === '/api/image-batches' || pathname.startsWith('/api/image-batches/')) return 'image-batch';
     if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) return 'usage';
+    if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) return 'mcp';
     if (pathname === '/api/presence' || pathname.startsWith('/api/presence/')) return 'presence';
     if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) return 'plugin';
     if (pathname.startsWith('/api/')) return 'proxy';
@@ -168,15 +180,17 @@ function createRouter(deps) {
       req.pathname = pathname;
       routeTag = classifyRoute(pathname);
 
-      if (req.method !== 'OPTIONS') requestPrincipal.attach(req, res);
+      if (req.method !== 'OPTIONS' && routeTag !== 'mcp') requestPrincipal.attach(req, res);
 
       if (req.method === 'OPTIONS') {
         routeTag = 'options';
-        return send(res, 204, '', {
+        const optionsHeaders = {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        });
+          'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-API-Key,Mcp-Protocol-Version,Mcp-Session-Id',
+        };
+        if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) optionsHeaders['Cache-Control'] = 'no-store';
+        return send(res, 204, '', optionsHeaders);
       }
 
       const coreResult = routeCoreApi(req, res);
@@ -197,6 +211,9 @@ function createRouter(deps) {
       }
       if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) {
         return await routePlugins(req, res);
+      }
+      if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) {
+        return await routeMcp(req, res);
       }
       if (pathname === '/api/usage' || pathname.startsWith('/api/usage/')) {
         return await routeUsage(req, res);

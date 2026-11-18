@@ -60,6 +60,28 @@ async function testAccessLogWritesTheSafeProxyAuditFields() {
   }
 }
 
+async function testAccessLogRedactsMcpQueryTokens() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chatui-access-mcp-'));
+  try {
+    const logger = createAccessLogger({ root, enabled: true, maxBytes: 1024 * 1024, rotations: 1 });
+    const written = logger.log({
+      method: 'POST',
+      url: '/api/mcp?token=plain-user-token',
+      pathname: '/api/mcp',
+      headers: {},
+    }, {}, { statusCode: 401, route: 'mcp' });
+    assert.strictEqual(written, true);
+    await logger.flush();
+
+    const [line] = fs.readFileSync(path.join(root, 'temp', 'logs', 'access.ndjson'), 'utf8')
+      .trim().split(/\r?\n/).map(entry => JSON.parse(entry));
+    assert.strictEqual(line.query, '[redacted]');
+    assert.doesNotMatch(JSON.stringify(line), /plain-user-token/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 function testProxyAccessAuditLogsRepairReasonCodes() {
   const audit = proxyAccessAudit({
     requestPurpose: 'route_repair',
@@ -103,6 +125,7 @@ async function testAccessLogWritesRepairReasonCodes() {
 module.exports = [
   testProxyAccessAuditCorrelatesStructuredStagesWithoutPromptOrCredentials,
   testAccessLogWritesTheSafeProxyAuditFields,
+  testAccessLogRedactsMcpQueryTokens,
   testProxyAccessAuditLogsRepairReasonCodes,
   testAccessLogWritesRepairReasonCodes,
 ];

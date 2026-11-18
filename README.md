@@ -21,6 +21,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - [Markdown、公式与图表](#markdown公式与图表)
 - [会话、本地存储与任务恢复](#会话本地存储与任务恢复)
 - [使用统计与排行榜](#使用统计与排行榜)
+- [MCP 用量统计与问题反馈](#mcp-用量统计与问题反馈)
 - [服务端 API 与代理](#服务端-api-与代理)
 - [环境变量](#环境变量)
 - [目录结构](#目录结构)
@@ -150,6 +151,7 @@ ChatUI 是一个轻量、可直接部署的 OpenAI 兼容 Web 工具。它以单
 - 前端采用懒加载：打开弹窗只查当前范围，切换到哪个范围才查询哪个范围，已查询数据会在前端缓存。
 - 后端使用独立 PostgreSQL 连接池，连接串、连接池大小、超时和 SSL 均通过环境变量配置。
 - 统计模块与聊天、图片、附件和 OpenAI 代理解耦，独立路由为 `/api/usage/*`。
+- 可通过无状态的 `/api/mcp` MCP 接口，用用户 API Key 从外部 MCP 客户端查询个人用量、排行榜、部门统计、导出 XLSX 并提交问题反馈。
 
 ### 公告中心
 
@@ -857,6 +859,52 @@ PGPASSWORD=password
 
 ---
 
+## MCP 用量统计与问题反馈
+
+ChatUI 在 `/api/mcp` 提供无状态 Streamable HTTP MCP JSON-RPC 2.0 服务，面向外部 MCP 客户端复用右上角“使用统计”和“问题反馈”的能力。MCP token 就是当前用户 API Key，不需要另外申请 MCP 专用凭据。
+
+### 客户端配置
+
+以下是通用 Streamable HTTP 配置示意；不同 MCP 客户端的字段名可能略有差异，请按客户端文档调整：
+
+```json
+{
+  "mcpServers": {
+    "chatui-usage": {
+      "type": "http",
+      "url": "https://chatui.example.com/api/mcp",
+      "headers": {
+        "Authorization": "Bearer <用户 API Key>"
+      }
+    }
+  }
+}
+```
+
+- 认证只接受 `Authorization: Bearer <用户 API Key>` 或 `X-API-Key: <用户 API Key>`；不要把 token 放进 query string、JSON-RPC body 或反馈正文。
+- 端点只接受 `POST`，不签发 MCP session，也不提供 GET SSE 或 DELETE；支持协议版本 `2025-06-18`、`2025-03-26`、`2024-11-05`。
+- 每个请求都会先按 API Key 查询 PostgreSQL 用户，再调用上游 `/models` 校验 Key；因此使用前需要配置 `POSTGRES_URL` 或等效数据库变量，并保证 Endpoint 和 Key 可用。
+- 所有响应均为 `no-store` 并允许无 Cookie 的跨域读取；业务失败使用 MCP `result.isError:true` 返回平实错误说明。
+
+### 工具
+
+| 工具 | 功能 |
+| --- | --- |
+| `usage_get_overview` | 同时获取当前用户个人用量和用户排行榜，可分别指定统计范围 |
+| `usage_get_personal` | 获取当前用户指定范围的完整 token 用量 |
+| `usage_get_rankings` | 获取指定范围的用户 token 用量排行榜 |
+| `usage_get_department_summary` | 获取部门统计概览与部门排行 |
+| `usage_get_department_ranking` | 获取部门排行 |
+| `usage_get_department_users` | 获取指定部门的用户用量明细，需提供 `department_id` |
+| `usage_export_department` | 导出部门及部门用户 XLSX，以 embedded resource/base64 返回，最大 8 MiB |
+| `usage_submit_feedback` | 提交包含问题描述、复现描述和期望结果的问题反馈，服务端先审核再投递 |
+
+统计范围支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`；MCP 部门工具直接使用当前用户 API Key，不要求部门密码。反馈默认使用当前 API Key 可用模型中的服务端推荐模型，可用 `CHATUI_MCP_FEEDBACK_MODEL` 指定首选值，也允许调用方通过 `chat_model` 显式选择；审核通过前不会解析反馈用户名或投递到 DingTalk。
+
+本接口是 ChatUI 对外提供的入站 MCP 服务，与下文“HTTP / MCP 插件”中由 ChatUI 主动出站调用的远程 MCP 插件是不同功能，不能混用配置或凭据。
+
+---
+
 ## 服务端 API 与代理
 
 ### 核心 API
@@ -877,8 +925,9 @@ PGPASSWORD=password
 | `/api/usage/department/users` | POST | 查询部门人员统计，body 另含 `department_id` |
 | `/api/usage/department/export` | POST | 导出部门统计标准 `.xlsx` |
 | `/api/usage/feedback` | POST | 审核并提交问题反馈，body 包含 `api_key`、`model`、可选 `route_model` 与 `content`；内容必须包含问题描述、复现描述和期望结果 |
+| `/api/mcp` | POST | 无状态入站 MCP JSON-RPC 2.0 端点；Bearer 或 `X-API-Key` 使用用户 API Key，提供完整统计、部门导出和问题反馈工具 |
 
-使用统计范围统一支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。统计与反馈入口会先通过当前 API Key 和聊天模型向上游执行访问校验；问题反馈还会由该聊天模型审核内容完整性（内容可以简短，只要问题描述、复现描述和期望结果三项都存在，且不是空泛、占位、广告或胡言乱语即可），只有审核通过才会发送；部门接口还需要部门密码。
+使用统计范围统一支持 `today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。统计与反馈入口会先通过当前 API Key 和聊天模型向上游执行访问校验；问题反馈还会由该聊天模型审核内容完整性（内容可以简短，只要问题描述、复现描述和期望结果三项都存在，且不是空泛、占位、广告或胡言乱语即可），只有审核通过才会发送；浏览器部门接口仍需要部门密码，MCP 部门工具不要求密码。
 
 浏览器检测到未捕获异常、未处理的 Promise 拒绝、API/功能请求网络失败或非 2xx 响应时，不会自动弹出窗口，而是把最近一次已脱敏的异常记录下来，等用户点击顶栏“问题反馈”时自动带入。普通图片、样式和可选依赖等资源加载失败不会被记录，也不会触发反馈。系统自动把已脱敏的异常信息以及当前会话最近 3 轮用户消息与助手答复填入“复现描述”；即使没有发生异常，主动点击问题反馈也会自动填入最近 3 轮会话上下文。提交前可自行检查、修改或删除。关闭反馈窗口后再次打开会恢复尚未提交的表单草稿；主动停止请求以及反馈接口自身失败不会递归触发问题反馈。
 
@@ -1002,8 +1051,9 @@ GET, POST
 | `USAGE_ACCESS_CACHE_TTL_MS` / `USAGE_ACCESS_CACHE_MAX_ENTRIES` | `300000` / `512` | 统计/反馈 API Key+模型访问校验的 TTL 与 LRU 上限；只缓存脱敏结果，不保存原始 Key。 |
 | `USAGE_ACCESS_MAX_IN_FLIGHT` / `USAGE_ACCESS_TIMEOUT_MS` | `64` / `10000` | 相同校验请求共享一个上游 `/models` 请求；全局并发上限和单次校验超时。 |
 | `MAX_USAGE_REFRESH_BUCKETS` / `USAGE_REFRESH_SWEEP_INTERVAL_MS` | `4096` / `60000` | 统计刷新 IP 限流桶的硬上限与过期 sweep 周期；超过上限淘汰最旧桶。 |
-| `USAGE_DEPARTMENT_PASSWORD` | `not set` | Password for department statistics; disabled when unset. |
-| `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | Compatible alias for the department statistics password. |
+| `USAGE_DEPARTMENT_PASSWORD` | `not set` | 浏览器部门统计的访问密码；未配置时浏览器部门统计关闭，MCP 部门工具不使用该密码。 |
+| `USAGE_STATS_DEPARTMENT_PASSWORD` | `not set` | 浏览器部门统计密码的兼容别名；MCP 部门工具不使用该密码。 |
+| `CHATUI_MCP_FEEDBACK_MODEL` | 未设置 | 入站 MCP 问题反馈可选的默认审核模型；只有该模型出现在用户 Key 的 `/models` 列表中时才采用，未命中时回退到运行时推荐模型或用户可用模型首项。 |
 
 Docker proxy example (the proxy URL must be reachable **from inside the container**):
 
@@ -1063,6 +1113,7 @@ CHATUI_ALLOW_PRIVATE_UPSTREAM=1 node server.js
 │   ├── api/                       # HTTP 路由分发
 │   ├── db/                        # 可选数据库连接池，例如 PostgreSQL
 │   ├── usage/                     # 使用统计查询仓库
+│   ├── mcp/                       # 入站 MCP 协议版本、工具 Schema 与结果契约
 │   ├── http/                      # 请求 body、响应、安全头、静态文件服务
 │   ├── proxy/                     # OpenAI 兼容代理、图片代理、Header 规范化
 │   ├── security/                  # 上游 URL 安全策略
@@ -1135,6 +1186,7 @@ node test/run-tests.js unit/server-hardening.test.js
 node test/run-tests.js smoke/server-smoke.test.js
 node test/run-tests.js --list
 node test/run-tests.js unit/usage --timeout=20000
+npm test -- mcp-usage usage-data-layer api-contract feedback-review
 ```
 
 测试文件导出测试函数数组，不能直接执行单个 `*.test.js` 文件；聚焦运行必须通过 `test/run-tests.js`，否则可能以退出码 0 结束但实际执行 0 项。
@@ -1349,6 +1401,7 @@ ChatUI 支持服务端受控的 HTTP 接口插件和远程 MCP 插件，默认�
 - 服务端代理只允许 `/models`、`/chat/completions`、`/responses`、`/images/generations`、`/images/edits` 和兼容别名 `/openai/image_edit`。
 - 浏览器尝试加载上游返回的公开图片 URL 时不会附带 API Key；需要鉴权的图片统一回退到 `/api/image`，由服务端校验图片 URL 与 Endpoint 同源后再请求。
 - Chat/Image Job 已绑定服务端签发、HMAC 校验、`HttpOnly`、`SameSite=Strict` 的匿名 principal Cookie；查询、SSE、中止、删除和 Job ID 复用均按 owner fail-closed，Job ID 本身不是授权凭据。
+- 入站 MCP 使用请求头中的用户 API Key 做 Bearer/X-API-Key 认证，不依赖 principal Cookie；不要把 Key 放进 URL、日志或 MCP 工具参数。
 - 匿名 principal 的安全边界是浏览器配置文件，不是企业用户账号。真正的用户/组织多租户部署仍需受信任 JWT/OIDC/SSO 身份源；不要用客户端 session ID、自报 tenant 或随机 Header 替代。
 - HTTPS 反向代理部署应设置 `CHATUI_PRINCIPAL_COOKIE_SECURE=1`；只有代理不可绕过时才设置 `CHATUI_TRUST_PROXY=1`。独立 API 客户端必须保存并回传 principal Cookie。
 - 后台任务默认使用内存存储；可通过 `JOB_TTL_MS` 和 `MAX_JOBS_PER_STORE` 控制完成任务保留时间和单类任务上限。

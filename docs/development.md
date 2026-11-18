@@ -62,6 +62,8 @@ npm test
 
 统计/反馈访问校验使用 TTL+LRU 有界缓存和 in-flight Promise 合并；统计刷新限流桶有全局上限、过期 sweep 和最旧桶淘汰。默认参数可通过 `USAGE_ACCESS_*`、`MAX_USAGE_REFRESH_BUCKETS`、`USAGE_REFRESH_SWEEP_INTERVAL_MS` 调整。
 
+入站 MCP 使用 `POST /api/mcp`，token 只从 `Authorization: Bearer <用户 API Key>` 或 `X-API-Key` 读取；可用工具覆盖右上角统计、部门统计和问题反馈。服务端默认反馈审核模型可通过 `CHATUI_MCP_FEEDBACK_MODEL` 指定，但只有该模型出现在用户 Key 的上游 `/models` 列表中时才会采用；没有模型列表时调用方必须显式传 `chat_model`。
+
 runner 会按 `unit/`、`smoke/` 递归发现 `*.test.js`（已移除的 `legacy/` 不再参与发现）；全量运行时 runner 会把 suite 自动分配到多个 shard 进程并行执行（默认自适应 CPU 核数、上限 6 个 shard），shard 内部仍在同一个 Node.js 进程中顺序执行。每个 suite 必须导出非空的命名测试函数数组。runner 会检查遗漏导出的 `test*` 函数声明或函数赋值、重复测试名、空 suite、非法导出和单项超时。
 
 ### 2.1 聚焦到一个测试文件
@@ -142,6 +144,28 @@ npm test -- job-ownership job-routes server-hardening
 这些测试分别冻结：共享绝对 deadline、adapter 忽略取消时的主动结算、deadline 后禁止继续 Structured Output 兼容请求、真实 provider-attempt 账本、primary/fallback 错误身份、`route_context_policy.v1` 单一裁剪策略与受保护内容超限、历史图片结构化序号检索、typed route outcome、图片澄清整卡选择/独立预览、停止后的单终态、handoff/completion 幂等、常见中英文否定/重叠/全角参数及排除选项、统一 120,000 字符上限、严格 UTF-8、每请求一条且分类正确的 access log 和协议错误消息质量。新增回归不能只断言一个用户样例；应同时包含正例、近邻反例、冲突或边界输入以及失败路径。
 
 聚焦测试通过不等于发布候选通过。最终工作树仍必须重新执行 `npm run check`；涉及真实模型语义时还必须运行第 6 节独立评测，涉及浏览器或容器行为时必须分别取得真实浏览器 E2E 与 exact Docker runtime 证据。
+
+### 3.2 入站 MCP 聚焦回归与本地调用
+
+修改 `/api/mcp`、用量统计、部门导出或共享反馈服务后，至少运行：
+
+```bash
+npm test -- mcp-usage usage-data-layer api-contract feedback-review
+```
+
+该集合覆盖 header-only token、`X-API-Key`、body/query token 拒绝、CORS/no-store、JSON-RPC 生命周期、8 个工具、无部门密码的部门统计、嵌入 XLSX、反馈审核顺序、日志脱敏和访问校验缓存。测试使用注入的统计/审核/投递依赖，不得访问真实上游、PostgreSQL 或 DingTalk。
+
+本地服务仍使用 `http://127.0.0.1:8765`。初始化请求示例（`MCP-Protocol-Version` 在后续请求中应继续携带协商结果）：
+
+```bash
+curl -sS http://127.0.0.1:8765/api/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <用户 API Key>' \
+  -H 'MCP-Protocol-Version: 2025-06-18' \
+  -d '{jsonrpc:2.0,id:1,method:initialize,params:{protocolVersion:2025-06-18,capabilities:{},clientInfo:{name:chatui-cli,version:1}}}'
+```
+
+不要用 `?token=`、JSON body 里的 `api_key` 或 URL 参数代替 header；MCP 部门工具不接受 `department_password`，浏览器部门接口的密码不会进入 MCP。
 
 ## 4. 同进程测试的清理要求
 

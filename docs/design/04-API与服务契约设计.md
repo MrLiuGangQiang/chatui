@@ -9,7 +9,7 @@
 | 基础路径 | `/api/*`，URL 中不引入版本号 |
 | 方法 | GET / POST / DELETE / OPTIONS |
 | 响应 | JSON；SSE 接口使用 `text/event-stream` |
-| CORS | `Access-Control-Allow-Origin: *`，允许 `Content-Type, Authorization` |
+| CORS | `Access-Control-Allow-Origin: *`，允许 `Content-Type, Authorization, X-API-Key, Mcp-Protocol-Version, Mcp-Session-Id` |
 | 身份 | principal cookie（无登录态）；任务按 principal 隔离，非本人返回 404 |
 | 缓存 | 敏感/执行接口一律 `no-store`；bundle 遵循 02 的指纹缓存规则 |
 
@@ -53,6 +53,24 @@
 ## 5. 使用统计与反馈端点
 
 `/api/usage/overview`、`/api/usage/rankings`、`/api/usage/personal`、`/api/usage/department/verify|summary|rankings|users|export`、`/api/usage/feedback`。未配置数据库时显式返回不可用状态。 `/api/usage/feedback` 提交前由当前聊天模型审核：内容可以简短，但问题描述、复现描述、期望结果三项均需存在，空泛、占位、广告或胡言乱语仍会被拒绝。
+
+### 5.1 入站 MCP 端点
+
+`POST /api/mcp` 是无状态 Streamable HTTP MCP JSON-RPC 2.0 入口，面向外部 MCP 客户端复用右上角用量统计与问题反馈能力。MCP token 就是用户 API Key，只接受 `Authorization: Bearer <API Key>` 或 `X-API-Key: <API Key>` 请求头；不得从 query string 或 JSON-RPC body 读取 token。
+
+| 项 | 约定 |
+| --- | --- |
+| 方法 | 仅 `POST`；无 MCP session，不提供 GET SSE 或 DELETE 会话清理 |
+| 协议版本 | 支持 `2025-06-18`、`2025-03-26`、`2024-11-05`；请求头版本不支持时返回 HTTP 400 |
+| JSON-RPC 方法 | `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call` |
+| 鉴权 | 每个请求都先查 PostgreSQL `api_keys`，再以该 Key 调用上游 `/models`；任一步失败均失败关闭 |
+| 工具 | 概览、个人用量、用户排行榜、部门统计概览、部门排行、部门用户、部门导出和问题反馈，共 8 个工具 |
+| 业务失败 | HTTP 200 JSON-RPC 成功 envelope 内的 `result.isError:true`；错误消息只给可行动说明 |
+| HTTP 限制 | 请求体上限 1 MiB；所有响应 `Cache-Control: no-store` 并允许跨域读取；部门导出上限 8 MiB |
+
+工具 Schema 由 `server/mcp/contract.js` 唯一提供。统计范围与浏览器一致：`today`、`yesterday`、`week`、`last_week`、`month`、`last_month`、`total`。MCP 部门工具只依赖 API Key，不接收 `department_password`；导出以 MCP embedded resource 的 base64 blob 返回。`usage_submit_feedback` 使用 `problem_description`、`reproduction_description`、`expected_result` 三个必填字段，审核通过后才解析用户名并投递。
+
+`/api/mcp` 必须由路由在通用 `/api/*` proxy 之前单独分派，access-log 分类为 `mcp`，不得落到 OpenAI 兼容代理。详细设计见 `docs/design/32-MCP用量统计与问题反馈设计.md`。
 
 ## 6. 代理契约（OpenAI 兼容）
 

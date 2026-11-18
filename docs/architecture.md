@@ -188,11 +188,11 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 
 ### 4.1 `server/api/`
 
-`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。路由器必须在一个统一的 `try/finally` access-log 边界中覆盖 core、OPTIONS、Job、proxy、static、400/405 与异常路径；每个请求恰好记录一次，并同时捕获显式 `writeHead` 与隐式 `res.statusCode`。具体 route 模块拥有其 canonical access-log 分类，router 不得把已匹配的 core endpoint 重新误标为通用 proxy。access log 的热路径只能执行脱敏、序列化和有界入队，不得直接调用同步文件系统；入队失败或后台写入失败必须转交 error log，不能改变原请求结果。
+`server/api/router.js` 负责匹配方法和路径，并把请求分派到 `routes/` 与 `controllers/`。API 层负责 HTTP 契约、参数进入点、状态码和响应形状，不应承载可复用的业务实现或直接拼接复杂 SQL。路由器必须在一个统一的 `try/finally` access-log 边界中覆盖 core、OPTIONS、Job、MCP、proxy、static、400/405 与异常路径；每个请求恰好记录一次，并同时捕获显式 `writeHead` 与隐式 `res.statusCode`。具体 route 模块拥有其 canonical access-log 分类，router 不得把已匹配的 core endpoint 重新误标为通用 proxy。access log 的热路径只能执行脱敏、序列化和有界入队，不得直接调用同步文件系统；入队失败或后台写入失败必须转交 error log，不能改变原请求结果。
 
 ### 4.2 `server/services/`
 
-服务端 use case 和外部集成层，例如 Release Notes、静态 bundle、图片编辑 payload、使用统计访问控制、问题反馈模型审核和钉钉投递。服务应以明确输入输出组合底层能力，避免依赖浏览器状态。反馈审核必须先于用户名查询和外部投递，模型拒绝或审核不可用时不得发送反馈。
+服务端 use case 和外部集成层，例如 Release Notes、静态 bundle、图片编辑 payload、使用统计访问控制、入站 MCP 工具映射、问题反馈模型审核和钉钉投递。服务应以明确输入输出组合底层能力，避免依赖浏览器状态。反馈审核必须先于反馈用户名解析和外部投递，模型拒绝或审核不可用时不得发送反馈。浏览器反馈 HTTP 与入站 MCP 共用 `server/services/feedback.service.js`，不得各自复制审核或投递逻辑。
 
 ### 4.3 `server/jobs/`
 
@@ -214,7 +214,9 @@ Markdown 增强运行时（KaTeX、highlight.js、Mermaid）仍由本地 vendor/
 - `server/db/`：PostgreSQL 配置和连接池；
 - `server/usage/`：使用统计 SQL、查询结果规范化和工作簿输出；
 - `server/api/controllers/usage.controller.js`：使用统计 HTTP 契约；
-- `server/services/usage*.js`：用例和访问控制；
+- `server/services/usage*.js`：用例和访问控制；`validateKey(apiKey)` 只校验用户 Key 并有界返回可用模型，供入站 MCP 认证使用；
+- `server/mcp/contract.js`：入站 MCP 协议版本、服务器指令、8 个工具 Schema 与结果投影的唯一事实源；
+- `server/services/mcp-usage.service.js`：把 MCP 工具参数映射到统计、部门导出和反馈用例；
 - `server/validators/`：输入校验。
 
 数据库未配置时，使用统计应显式返回不可用状态，不能影响聊天、图片和静态页面等核心功能。
@@ -337,6 +339,23 @@ chat Job 实时恢复按会话隔离：每个会话对其当前 Job 使用一条
   -> server presence routes（snapshot / stream / heartbeat；从 req.authPrincipal 派生 principalKey）
   -> server presence service（内存会话表按 principalKey 去重；配置 REDIS_URL 时 Redis 共享在线表 + pub/sub）
 ```
+
+### 7.6 入站 MCP 用量统计与反馈
+
+```text
+外部 MCP client
+  -> POST /api/mcp（无状态 Streamable HTTP JSON-RPC）
+  -> server/api/routes/mcp.js（仅 header token：Bearer / X-API-Key）
+  -> PostgreSQL api_keys 查询 + 上游 /models key-only 校验
+  -> tools/list / tools/call
+  -> server/services/mcp-usage.service.js
+     -> server/services/usage.service.js -> PostgreSQL
+     -> server/validators/usage.validator.js（范围校验与限流）
+     -> server/services/feedback.service.js -> reviewer -> DingTalk sender
+  -> MCP content / embedded resource；所有响应 no-store
+```
+
+该链路不签发 session，不提供 GET SSE 或 DELETE；`initialize`、`notifications/initialized`、`ping`、`tools/list` 和 `tools/call` 都经过同一 API Key 认证。部门工具直接使用该 API Key 查询，不要求部门密码；浏览器部门接口仍保留密码校验。导出资源最多 8 MiB。工具业务失败使用 JSON-RPC 成功 envelope 的 `result.isError:true`，不把内部异常、token 或 base64 写入用户可见文本或日志。
 ## 8. 禁止的依赖方向
 
 以下方向默认禁止；确需例外时必须在架构文档和测试中明确：
@@ -393,3 +412,7 @@ chat Job 实时恢复按会话隔离：每个会话对其当前 Job 使用一条
 ## HTTP/MCP 插件边界
 
 `shared/plugin-contract.js` 是 `chatui_plugins.v1`、受限 JSON Schema 校验和 function tool 投影的唯一事实来源；无效配置整体失败为空列表，禁止部分加载。`server/services/plugin.service.js` 独占 HTTP 与 Streamable HTTP MCP 出站请求，负责公网 URL/重定向校验、Bearer 环境变量、工具发现、参数校验、超时和 512 KiB 结果上限；`server/api/routes/plugins.js` 只有只读公共视图，不提供直接调用端点。非流式 `/api/chat-jobs` 可携带 `pluginToolIds`，服务端编译白名单 tools 并在 `server/jobs/chat.js` 执行最多 6 轮 `assistant tool_calls → role=tool → final response`；Responses 流式 Job 拒绝插件传输。浏览器侧选择保存在 `chatui.plugins.selected-tools.v1`，`client/app/chat-workflow.js` 只有该列表非空时才离开既有流式路径。需审批工具在面板禁用且服务端拒绝自动调用；插件参数、结果、URL 和凭据不得进入 Job 公开视图或日志。
+
+## 入站 MCP 边界
+
+入站 `/api/mcp` 不是插件出站链路：它使用用户 API Key 作为 MCP token，由 `server/api/routes/mcp.js` 独占 HTTP/JSON-RPC 生命周期，协议与工具由 `server/mcp/contract.js` 定义，业务只通过 `server/services/mcp-usage.service.js` 复用统计和反馈服务。外部客户端配置、插件配置和上游凭据属于不同安全域；不得让入站 MCP 读取 `data/plugins.json`，也不得把 MCP token 透传到浏览器、Job 公开视图、access log 或 request trace。
